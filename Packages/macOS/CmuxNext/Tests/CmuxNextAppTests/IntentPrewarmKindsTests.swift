@@ -32,7 +32,8 @@ import Testing
         let cover = try #require(Self.picture())
         kinds.target("a", size: CGSize(width: 640, height: 420))
         let ticket = kinds.beginDecode("a")
-        #expect(kinds.decoded("a", cover, ticket: ticket))
+        let kept1 = kinds.decoded("a", cover, ticket: ticket)
+        #expect(kept1)
         #expect(kinds.decodes.isEmpty)
         let taken = kinds.takeForRestore("a")
         #expect(taken.cover === cover)
@@ -48,11 +49,14 @@ import Testing
         let stale = kinds.beginDecode("a")
         kinds.cancel("a")
         #expect(kinds.decodes.isEmpty && kinds.covers.isEmpty && kinds.sizes.isEmpty)
-        #expect(!kinds.decoded("a", cover, ticket: stale), "a cancelled decode's reply was kept")
+        let kept2 = kinds.decoded("a", cover, ticket: stale)
+        #expect(!kept2, "a cancelled decode's reply was kept")
         #expect(kinds.covers.isEmpty)
         let current = kinds.beginDecode("a")
-        #expect(!kinds.decoded("a", cover, ticket: stale), "an older decode's reply was kept")
-        #expect(kinds.decoded("a", cover, ticket: current))
+        let kept3 = kinds.decoded("a", cover, ticket: stale)
+        #expect(!kept3, "an older decode's reply was kept")
+        let kept4 = kinds.decoded("a", cover, ticket: current)
+        #expect(kept4)
     }
 
     @Test func aSleepRecordsTheViewsSizeUntilTheRestoreOrTheClose() {

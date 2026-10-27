@@ -1,4 +1,7 @@
 internal import CmuxNextCompat
+internal import class CmuxSafeConcurrency.OnceContinuation
+internal import enum CmuxSafeConcurrency.OnceContinuationError
+internal import func CmuxSafeConcurrency.withOnceContinuation
 
 /// An item the frame reader routes to a stream: one frame's payload or a decoded event.
 public protocol StreamSinkItem: Sendable {
@@ -175,7 +178,7 @@ public final class StreamDemux<Item: StreamSinkItem>: Sendable {
 
         private enum Outcome: Sendable {
             case queued
-            case handed(CheckedContinuation<Item?, Never>)
+            case handed(OnceContinuation<Item?, OnceContinuationError>)
             case dropped
             case overflowed
         }
@@ -192,7 +195,7 @@ public final class StreamDemux<Item: StreamSinkItem>: Sendable {
             var outbox: [Item] = []
             var bytes = 0
             /// The parked consumer; set only while the queue is empty.
-            var waiter: CheckedContinuation<Item?, Never>?
+            var waiter: OnceContinuation<Item?, OnceContinuationError>?
             var overflows = 0
             var droppedItems = 0
 
@@ -221,7 +224,7 @@ public final class StreamDemux<Item: StreamSinkItem>: Sendable {
                 bytes = 0
             }
 
-            mutating func takeWaiter() -> CheckedContinuation<Item?, Never>? {
+            mutating func takeWaiter() -> OnceContinuation<Item?, OnceContinuationError>? {
                 defer { waiter = nil }
                 return waiter
             }
@@ -281,7 +284,7 @@ public final class StreamDemux<Item: StreamSinkItem>: Sendable {
         }
 
         func finish() {
-            let waiter = state.withLock { state -> CheckedContinuation<Item?, Never>? in
+            let waiter = state.withLock { state -> OnceContinuation<Item?, OnceContinuationError>? in
                 if state.phase != .cancelled { state.phase = .finished }
                 return state.takeWaiter()
             }
@@ -292,7 +295,8 @@ public final class StreamDemux<Item: StreamSinkItem>: Sendable {
         /// cancelled, or the waiting task was cancelled. One consumer at a time.
         public func next() async -> Item? {
             await withTaskCancellationHandler {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Item?, Never>) in
+                // A dropped waiter reads as the end of the stream (nil).
+                try? await withOnceContinuation { (continuation: OnceContinuation<Item?, OnceContinuationError>) in
                     let take = state.withLock { state -> Take in
                         if let item = state.pop() { return .now(item) }
                         if Task.isCancelled || state.phase == .finished || state.phase == .cancelled {
@@ -316,7 +320,7 @@ public final class StreamDemux<Item: StreamSinkItem>: Sendable {
         /// The consumer is gone (a view detached): drop what is queued and every later item. The id stays
         /// taken until the stream-end that the owner's cancel-stream produces.
         public func cancel() {
-            let waiter = state.withLock { state -> CheckedContinuation<Item?, Never>? in
+            let waiter = state.withLock { state -> OnceContinuation<Item?, OnceContinuationError>? in
                 state.dropQueued()
                 state.phase = .cancelled
                 return state.takeWaiter()

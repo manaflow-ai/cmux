@@ -167,7 +167,7 @@ NO_RECEIPT = ("no app reply carries the ActionEffect kind yet (driver_app.py); t
 SETUP_NO_RECEIPT = "a setup step: the case checks the action under test, not its setup"
 RESTORE_NO_RECEIPT = "a restore step: it puts back what the action under test changed"
 # case-v1 $defs/keystroke.
-KEYSTROKE = re.compile(r"^((cmd|ctrl|opt|alt|shift|fn)\+)*([a-z0-9]|[-=\[\];',./`\\]|plus|f[1-9]|f1[0-9]|return|escape|"
+KEYSTROKE = re.compile(r"^((cmd|ctrl|opt|alt|shift|fn)\+)*([a-z0-9]|[-=\[\];:',./`\\]|plus|f[1-9]|f1[0-9]|return|escape|"
                        r"tab|space|backspace|delete|left|right|up|down|home|end|pageup|pagedown)$")
 # The sweep's debug.key modifier names -> case-v1's.
 MODIFIER_OF = {"cmd": "cmd", "shift": "shift", "option": "opt", "control": "ctrl"}
@@ -860,8 +860,8 @@ class GenActionsSelfTest(unittest.TestCase):
         return self.files.get(f"{name}.json") or self.files[BLOCKED]["cases"][name]["case"]
 
     def test_the_export_catalog_writes_no_runnable_case(self) -> None:
-        """Task 071 at the checked-in catalog (no live action.list yet): of 984 actions (1,201 - 217 excluded), the 87
-        gaps and the 897 others are blocked, none runnable: action-surfaces.json has no contexts, arguments or flags,
+        """Task 071 at the checked-in catalog (no live action.list yet): of 984 actions (1,201 - 217 excluded), the 18
+        gaps and the 966 others are blocked, none runnable: action-surfaces.json has no contexts, arguments or flags,
         so a case made from it would run destructive and debug-only actions and context actions with no context.
         A catalog or gap-list change moves these numbers: update them with it."""
         coverage = self.export_files[COVERAGE]
@@ -870,7 +870,7 @@ class GenActionsSelfTest(unittest.TestCase):
         self.assertEqual(self.export_files[BLOCKED]["cases"], {})
         self.assertEqual((coverage["total"], coverage["covered"], len(coverage["excluded"])), (len(ids), 0, len(ids)))
         self.assertEqual((coverage["total"], coverage["not_in_suite"]), (984, 217))
-        self.assertEqual(coverage["blocked_by"], {"gap": 87, "no-live-catalog": 897, "flag": 0, "state": 0,
+        self.assertEqual(coverage["blocked_by"], {"gap": 18, "no-live-catalog": 966, "flag": 0, "state": 0,
                                                   "expected-refusal": 0, "live-value": 0, "tuning": 0})
         self.assertEqual(sorted(i for i, e in coverage["actions"].items() if e["blocked_by"] == "gap"),
                          sorted(set(ids) & set(self.gaps.gaps)))
@@ -897,7 +897,7 @@ class GenActionsSelfTest(unittest.TestCase):
         self.assertEqual(sorted(by["expected-refusal"]), ["palette.disableBrowser", "palette.enableBrowser"])
         self.assertEqual(sorted(by["gap"]), sorted(set(self.coverage["actions"]) & set(self.gaps.gaps)))
         self.assertEqual(len(self.cases()), self.coverage["covered"])
-        self.assertEqual(self.coverage["covered"], 984 - 87 - 17 - 2)
+        self.assertEqual(self.coverage["covered"], 984 - 18 - 17 - 2)
         self.assertEqual(self.files["close-tab.json"]["steps"][-1]["args"],
                          {"action": "closeTab", "params": {"confirm": True}})
 

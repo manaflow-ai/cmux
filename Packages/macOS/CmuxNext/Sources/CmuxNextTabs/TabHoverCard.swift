@@ -27,6 +27,8 @@ enum TabHoverCardContent: Equatable {
 @MainActor
 final class TabHoverCardController: HoverCardSource {
     weak var previewProvider: (any TabPreviewProvider)?
+    /// Says which hidden tabs use high energy and discards one (`TabHoverCard+Energy.swift`); nil asks nothing.
+    weak var energy: (any TabEnergySource)?
     /// The strip whose targets these are.
     weak var strip: TabStripView?
     /// Samples CPU and memory of the hovered tab while its card shows (first
@@ -141,6 +143,8 @@ final class TabHoverCardController: HoverCardSource {
         // Compact previews (Debug Settings `tabs.hoverPreviews`) show the facts without a thumbnail.
         let full = TabTunables.hoverPreviews.value == .full
         if case .tab = content {
+            // Before the sample: its render draws the energy row too.
+            body.setHighEnergy(usesHighEnergy(tab, card: id)) { [weak self] in self?.discard(tab) }
             body.setResources(resources.report ?? lastReport(for: tab))
             // On a retarget, a tab whose thumbnail is not known yet keeps what the card
             // shows (the last tab's picture, or no frame) until its own lands: never an
@@ -164,7 +168,9 @@ final class TabHoverCardController: HoverCardSource {
         // Once per card, not on every content refresh (resource samples).
         if newCard, full, case .tab = content { loadThumbnail(for: tab) }
         if newCard, case .tab = content { startSampling(tab, card: id) }
-        return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip) { [weak body] in body?.applyColors() }
+        // Discard is a button: only then does the card take clicks.
+        return HoverCardBody(view: body, placement: Self.placement(for: DesignSettings.shared.tabBarPosition), themeAnchor: strip,
+                             interactive: body.offersDiscard) { [weak body] in body?.applyColors() }
     }
 
     func hoverCardActivated(_ id: HoverTargetID) {

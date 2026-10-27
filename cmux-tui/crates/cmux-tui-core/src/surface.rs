@@ -22,6 +22,7 @@ mod host_launch;
 mod host_state;
 mod input;
 mod local_output;
+mod local_reader;
 mod metadata;
 mod mouse_input;
 mod options;
@@ -93,7 +94,9 @@ use spawn::{LocalLaunch, LocalSpawn};
 pub(crate) use stream_progress::{TerminalStreamProgress, TerminalStreamSubscription};
 pub use terminal_runtime::PtyTerminalRuntime;
 pub(crate) use terminal_runtime::{ColdFreeze, ScrollbackMemory, TerminalJournalGap, ThawWake};
-use terminal_runtime::{PtyChildStartupGuard, PtyRuntime, ReaderCompletion, ReaderCompletionGuard};
+use terminal_runtime::{
+    PtyChildStartupGuard, PtyRuntime, ReaderCompletion, ReaderCompletionGuard, TerminalReader,
+};
 #[cfg(test)]
 mod test_pty;
 #[cfg(test)]
@@ -126,6 +129,7 @@ use hosted_reader::HostedReader;
 mod host_kitty_limits;
 #[cfg(any(unix, windows))]
 mod journal_reconnect;
+mod kitty_pixels;
 #[cfg(any(unix, windows))]
 mod prelaunch;
 #[cfg(any(unix, windows))]
@@ -162,7 +166,7 @@ use crate::mux::ResourceWaitWake;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
 use crate::terminal_end::TerminalEnd;
-use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status_with_reap_result};
+use crate::terminal_host_protocol::TerminalExit;
 use crate::{Mux, MuxEvent, SurfaceId};
 
 pub use crate::browser::{
@@ -280,24 +284,29 @@ pub struct AttachStream {
     /// parser boundary; write this after it and after the colors, right
     /// before the live stream that completes it.
     pub pending_sequence: Arc<[u8]>,
+    /// Absolute PTY offset of the first byte `stream` delivers: the PTY
+    /// output published before the replay was taken.
+    #[cfg_attr(not(test), expect(dead_code, reason = "read by attach frames once bound"))]
+    pub(crate) offset: u64,
     pub stream: AttachFrameReceiver,
     pub(crate) lifecycle: AttachLifecycle,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttachFrame {
-    Output(Vec<u8>),
+    /// PTY output; all viewers of one read share its buffer (attach_tap.rs).
+    Output(bytes::Bytes),
     /// [`Self::Output`] of the PTY owner's first read after a `send` with
     /// key press `flow` (never 0) reached the PTY: its echo (p09-observability-018).
     FlowOutput {
-        output: Vec<u8>,
+        output: bytes::Bytes,
         flow: u64,
     },
     /// One parser transition: consumers must apply `output` and replace the
     /// complete color state before rendering or notifying observers.
     /// `flow` is the key press it echoes (0: none), as on [`Self::FlowOutput`].
     OutputWithColors {
-        output: Vec<u8>,
+        output: bytes::Bytes,
         colors: Box<TerminalColors>,
         flow: u64,
     },
@@ -339,12 +348,15 @@ const _: () = assert!(
 const _: () = assert!(VT_REPLAY_MAX_BYTES.div_ceil(3) * 4 < VT_REPLAY_ENCODED_TRANSPORT_MAX_BYTES);
 
 mod attach_tap;
-#[cfg(test)]
-use attach_tap::AttachFrameMerge;
 pub use attach_tap::AttachFrameReceiver;
 pub(crate) use attach_tap::AttachLifecycle;
-use attach_tap::AttachTap;
+pub(crate) use attach_tap::AttachResize;
 pub(crate) use attach_tap::ViewerEvent;
+#[cfg(test)]
+use attach_tap::{
+    AttachFrameMerge, OUTPUT_ARENA_BLOCK_BYTES, OUTPUT_ROPE_COPY_MAX_BYTES, OutputArena, OutputRope,
+};
+use attach_tap::{AttachTap, AttachTaps};
 pub(crate) mod snapshot_attach;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -842,7 +854,7 @@ impl Surface {
                 #[cfg(test)]
                 vt_replay_builds: AtomicUsize::new(0),
                 mux: mux.clone(),
-                taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", Vec::new()),
+                taps: RankedMutex::new(LockRank::AttachTaps, "pty.taps", AttachTaps::default()),
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
                 last_input_flow: Default::default(),
@@ -912,7 +924,7 @@ impl Surface {
             .expect("hosted PTY surface owns its reader")
             .reader_thread
             .lock()
-            .unwrap() = Some(reader_thread);
+            .unwrap() = Some(TerminalReader::Thread(reader_thread));
         let kitty_registration = kitty_reservation.map_or(Ok(()), |reservation| {
             reservation.commit(&surface, snapshot.kitty_state.limits)
         });
@@ -927,6 +939,7 @@ impl Surface {
             }
             return Err(error);
         }
+        let owner = surface.as_pty().and_then(|pty| pty.mux.upgrade());
         if terminate_on_error
             && let Some(pty) = surface.as_pty()
             && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().unwrap()
@@ -936,7 +949,7 @@ impl Surface {
                 host.disconnect();
                 return Err(error.into());
             }
-            host.commit_launched_host();
+            host.commit_launched_host(owner.as_deref().and_then(Mux::host_reaper));
         }
         #[cfg(debug_assertions)]
         if let Some(delay) = surface

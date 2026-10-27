@@ -37,9 +37,13 @@ final class AppControl {
     private let frames: FrameBatcher
     /// `debug.frames` and `debug.damage` share the app's one RenderStats (its hooks are process-wide;
     /// the probes' methods are in AppControl+DebugProbes.swift).
+    #if DEBUG || CMUX_BENCH_HOOKS
     let frameProbe: DebugFrameProbe
-    let damageWindow: RenderDamageWindow
     let mainCPUProbe = DebugMainCPUProbe()
+    #endif
+    let damageWindow: RenderDamageWindow
+    /// The app's one RenderStats; terminal renderers count their presented frames in it (AppDelegate).
+    let renderStats: RenderStats
     let terminalDisplayProbe: DebugTerminalDisplayProbe
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     let motionCommitProbe = MotionCommitProbe()
@@ -73,9 +77,12 @@ final class AppControl {
         (self.mainWork, self.input) = (mainWork, input)
         frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
         let renderStats = RenderStats(layoutGuard: .shared)
+        self.renderStats = renderStats
         let terminalDisplay = DebugTerminalDisplayProbe()
         terminalDisplayProbe = terminalDisplay
+        #if DEBUG || CMUX_BENCH_HOOKS
         frameProbe = DebugFrameProbe(render: RenderFrameLog(stats: renderStats))
+        #endif
         damageWindow = RenderDamageWindow(stats: renderStats, displayPasses: terminalDisplay,
                                           ghosttyOwners: [String(describing: TerminalSurfaceView.self), "IOSurfaceLayer"])
     }
@@ -83,8 +90,8 @@ final class AppControl {
     /// Starts stall and busy detection. Call first thing at launch.
     func startWatchdog() {
         watchdog.start()
-        // Hang-watch scopes are scanned on the watchdog's thread (overruns: debug.hangs thread_hangs, crash keys).
-        watchdog.attach(hangWatch: TraceRuntime.shared.hangWatch, crashKeys: crashKeys)
+        // Hang-watch scopes are scanned on the watchdog's thread (overruns: debug.hangs thread_hangs, crash keys, ring).
+        watchdog.attach(hangWatch: TraceRuntime.shared.hangWatch, crashKeys: crashKeys, trace: TraceRuntime.shared)
         // Stall records name the scheduled main-thread task they caught; a launch in the task
         // diagnostics mode also records tasks past their class budget, with a stack (debug.hangs
         // over_budget). It perturbs what it measures, so it is off unless asked for.
@@ -108,12 +115,13 @@ final class AppControl {
     /// (below), registered before the service serves (p08-startup-019).
     func start(registry: ActionRegistry, settings: SettingsController, launch: LaunchIdentity, services: AppServices) throws {
         let service = try ControlService.prepare(registry: registry, settings: settings, launch: launch,
-                                                 frameSource: frames, watchdog: watchdog, mainWork: mainWork)
+                                                 frameSource: frames, watchdog: watchdog, mainWork: mainWork,
+                                                 hangs: TraceRuntime.shared.hangWatch)
         self.service = service
         AppMemoryConsumers(services: services).registerControlCaches(service)
         actionBudget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                             overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
-                                            logsRuns: ControlService.isDebugBuild, work: services.work)
+                                            logsRuns: ControlService.isDebugBuild, work: services.work, mainWork: mainWork)
         services.restartControlListener = { [weak service] in try service?.restartListener() }
         // A busy renderer's record names the Chromium tabs it serves (p14-energy-124), from the snapshot
         // the cache publishes: the watchdog reads it off the main thread.
@@ -145,7 +153,8 @@ final class AppControl {
             // Ghostty config keys and keybind actions cmux does not apply (R92).
             GhosttyDiagnosticsControl().method,
             // Every feature's value and source (`cmux settings feature-flags`), read-only.
-            FeatureFlagsPage.report(services.features, tunables: TunableStore.shared).method,
+            FeatureFlagsPage.report(services.features, tunables: TunableStore.shared,
+                                    daemon: services.environment.daemonFeatureHello).method,
             // Energy Saver's policy and inputs (`cmux energy status`, MCP `energy_status`).
             EnergyReport.statusMethod(services: services),
             // The field histograms since launch (`cmux metrics`), read-only; `unavailable` until the metricsView feature is on.
@@ -169,7 +178,9 @@ final class AppControl {
         // The local daemon's wire traffic, decodes, output copies and connections by role.
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
         router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
+                                               DebugCEF.histogramSource(services.cache.chromium),
                                                IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
+                                               MainJobGateDebugSource { (NSApp as? CmuxApplication)?.jobGate?.gate },
                                                ScrollViewAuditSource { [mainWork = services.mainWork] in
                                                    // A job the scheduler dropped audits nothing.
                                                    (try? await withOnceContinuation { (continuation: OnceContinuation<DebugInputScrollViews, OnceContinuationError>) in
@@ -177,7 +188,11 @@ final class AppControl {
                                                            continuation.resume(returning: DebugInputScrollViews(auditing: NSApp.windows))
                                                        }
                                                    }) ?? DebugInputScrollViews(rows: [])
-                                               }], recorders: [hops.start(input: input)]).method])
+                                               }],
+                                     recorders: [hops.start(input: input),
+                                                 InputDirtyRecorder(tap: services.inputTap) { [mainWork = services.mainWork] copy in
+                                                     await mainWork.apply(.automation, owner: "debug.input.dirty") { copy() }
+                                                 }]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }
     #endif

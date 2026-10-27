@@ -77,9 +77,11 @@ public final class Events {
     public static final EventMetadata SCREEN_RENAMED = new EventMetadata("screen-renamed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata SCRIPT_LOG = new EventMetadata("script-log", 12, null, List.of("control"), true);
     public static final EventMetadata SCROLL_CHANGED = new EventMetadata("scroll-changed", 6, null, List.of("subscribe", "attach-byte", "attach-render", "attach-browser"), true);
+    public static final EventMetadata SERVER_DIAGNOSTIC_SITE = new EventMetadata("server-diagnostic-site", 12, "diagnostic-sites-v1", List.of("subscribe"), true);
     public static final EventMetadata SETTINGS_CHANGED = new EventMetadata("settings-changed", 12, "settings-v1", List.of("subscribe"), true);
     public static final EventMetadata SIZE_STATE = new EventMetadata("size-state", 12, "shared-sizing-v1", List.of("subscribe", "attach-byte", "attach-render"), true);
     public static final EventMetadata STATUS = new EventMetadata("status", 5, null, List.of("subscribe"), true);
+    public static final EventMetadata STREAM_END = new EventMetadata("stream-end", 12, "attach-streams-v1", List.of("attach-byte", "attach-render", "attach-browser"), true);
     public static final EventMetadata SURFACE_EXITED = new EventMetadata("surface-exited", 5, null, List.of("subscribe"), true);
     public static final EventMetadata SURFACE_OUTPUT = new EventMetadata("surface-output", 5, null, List.of("subscribe"), true);
     public static final EventMetadata SURFACE_RESIZE_FAILED = new EventMetadata("surface-resize-failed", 7, null, List.of("subscribe"), true);
@@ -173,9 +175,11 @@ public final class Events {
         values.put("screen-renamed", SCREEN_RENAMED);
         values.put("script-log", SCRIPT_LOG);
         values.put("scroll-changed", SCROLL_CHANGED);
+        values.put("server-diagnostic-site", SERVER_DIAGNOSTIC_SITE);
         values.put("settings-changed", SETTINGS_CHANGED);
         values.put("size-state", SIZE_STATE);
         values.put("status", STATUS);
+        values.put("stream-end", STREAM_END);
         values.put("surface-exited", SURFACE_EXITED);
         values.put("surface-output", SURFACE_OUTPUT);
         values.put("surface-resize-failed", SURFACE_RESIZE_FAILED);

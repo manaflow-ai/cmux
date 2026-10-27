@@ -128,7 +128,7 @@ public final class DiagnosticLog: Sendable {
                         anchorWallNanos: anchorWallNanos,
                         anchorMonotonicNanos: anchorMonotonicNanos
                     )
-                    acknowledgement.resume()
+                    acknowledgement.resume(returning: ())
                     for await sequenced in nextEvents {
                         if await store.append(sequenced.event) {
                             tap.deliver(sequenced)
@@ -348,7 +348,8 @@ public final class DiagnosticLog: Sendable {
         anchorWallNanos: UInt64 = (Date().timeIntervalSince1970 * 1_000_000_000).saturatedInteger(UInt64.self) ?? 0,
         anchorMonotonicNanos: UInt64 = DispatchTime.now().uptimeNanoseconds
     ) async {
-        await withCheckedContinuation { acknowledgement in
+        // An abandoned acknowledgement (the drain ended first) returns: there is nothing left to clear after.
+        _ = try? await withOnceContinuation { (acknowledgement: OnceContinuation<Void, OnceContinuationError>) in
             ingress.clear(
                 anchorWallNanos: anchorWallNanos,
                 anchorMonotonicNanos: anchorMonotonicNanos,
@@ -387,7 +388,7 @@ public final class DiagnosticLog: Sendable {
             anchorWallNanos: UInt64,
             anchorMonotonicNanos: UInt64,
             nextEvents: AsyncStream<SequencedEvent>,
-            acknowledgement: CheckedContinuation<Void, Never>
+            acknowledgement: OnceContinuation<Void, OnceContinuationError>
         )
     }
 
@@ -491,7 +492,7 @@ public final class DiagnosticLog: Sendable {
         func clear(
             anchorWallNanos: UInt64,
             anchorMonotonicNanos: UInt64,
-            acknowledgement: CheckedContinuation<Void, Never>
+            acknowledgement: OnceContinuation<Void, OnceContinuationError>
         ) {
             let result: ClearEnqueueResult = state.withLock { state in
                 guard !state.isFinished else {
@@ -527,7 +528,7 @@ public final class DiagnosticLog: Sendable {
             case let .terminated(previous, next):
                 previous?.finish()
                 next.finish()
-                acknowledgement.resume()
+                acknowledgement.resume(returning: ())
             }
         }
 
@@ -628,7 +629,7 @@ public final class DiagnosticLog: Sendable {
         }
 
         func clear(anchorWallNanos: UInt64, anchorMonotonicNanos: UInt64) {
-            slots = Array(repeating: nil, count: capacity)
+            slots = Array(repeating: nil, count: slots.count)
             head = 0
             filled = 0
             totalProcessed = 0

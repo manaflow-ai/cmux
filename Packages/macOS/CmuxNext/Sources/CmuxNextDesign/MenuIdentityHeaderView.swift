@@ -273,6 +273,7 @@ public final class MenuSwatchStrip: NSView {
 
     // input-coalesce: native (an NSMenu item view: AppKit's menu tracking loop delivers its moves, and
     // setHovered redraws only when the swatch under the pointer changes)
+    // local-monitor-allow: an NSMenu item view; the menu's tracking loop delivers its moves, where no window frame runs
     public override func mouseMoved(with event: NSEvent) { setHovered(swatch(at: event)) }
     public override func mouseEntered(with event: NSEvent) { setHovered(swatch(at: event)) }
     public override func mouseExited(with event: NSEvent) { setHovered(nil) }

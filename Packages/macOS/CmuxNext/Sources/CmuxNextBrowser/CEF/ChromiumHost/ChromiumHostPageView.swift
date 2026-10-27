@@ -48,6 +48,9 @@ public final class ChromiumHostPageView: NSView {
     let inputTarget: InputTarget
     /// Names this view on the Chromium Host wire for a parent NSView* argument (host mode); 0 in process.
     var wireToken: UInt64 = 0
+    /// The kind of page window in-process layer hosting shows here (`CEFLayerHosting.Widget.name`), for
+    /// `debug.cef` `tracker.hosted_pages_by_widget`; nil for host mode's views. Set before the view enters a window.
+    var hostedWidget: String?
     /// The view's size or screen place changed (only when the rect differs from the last one reported).
     var onGeometry: ((ChromiumHostGeometry) -> Void)? {
         didSet { observeWindow() }
@@ -87,7 +90,7 @@ public final class ChromiumHostPageView: NSView {
         get { surface.fill }
         set { surface.fill = newValue }
     }
-    /// The view over the page that fills it (the crash page, p01-process-082); nil shows the page.
+    /// A view over the page that fills it; nil shows the page (a pane's crash page is its chrome's sad tab).
     private(set) var crashOverlay: NSView?
     /// The page's last picture while no host shows it; only ``showStandIn(_:)``, ``coverWithSnapshot(_:)``
     /// (a hosted page past its hidden grace) and ``removeStandIn()`` set it.
@@ -116,8 +119,10 @@ public final class ChromiumHostPageView: NSView {
     private(set) var shownCursor: NSCursor?
     /// Where cmux's views lie over the page (its ``CEFHostView``'s occlusion rects): no page cursor there.
     var cursorHoles: [CGRect] = [] {
-        didSet { if cursorHoles != oldValue, shownCursor != nil { window?.invalidateCursorRects(for: self) } }
+        didSet { if cursorHoles != oldValue { placeCursorAreas() } }
     }
+    /// The page cursor's `.cursorUpdate` areas: the visible page less ``coveredRects`` (ChromiumHostPageView+Cursor.swift).
+    var cursorAreas: [NSTrackingArea] = []
     /// The shown page's accessibility (host mode; ChromiumHostPageView+Accessibility.swift).
     var remoteAccessibility = ChromiumHostRemoteAccessibility()
     /// Sends a page's accessibility request to the host and calls back with the page's token, nil
@@ -130,6 +135,8 @@ public final class ChromiumHostPageView: NSView {
     var accessibilityWindowClose: EventSubscription?
     /// Drags from outside into the page (ChromiumHostPageView+Drag.swift); none until ``takeDrags(through:)``.
     let dragDestination = ChromiumHostDragDestination()
+    /// The page's autofill, password and `<datalist>` suggestions, drawn by cmux (task 061).
+    lazy var suggestions = ChromiumHostSuggestionList(view: self)
     /// The window's part of the page's visibility (ChromiumHostPageView+Visibility.swift): hidden
     /// out of a window, in a minimized window or a hidden app; occluded in a covered window.
     let windowNode: VisibilityNode
@@ -163,6 +170,13 @@ public final class ChromiumHostPageView: NSView {
     /// Whether the page shown now is a cmux page (host mode's counterpart of ``CEFTab/pageThemeSurface``),
     /// asked of the page's owner (``CEFPaneHost/hostedPage()``): no macOS caret accessory over its fields.
     var showsCmuxPage: @MainActor () -> Bool = { false }
+    /// Each scroll goes here first (the pane's swipe navigation, `CEFSwipeNavigation.handleHosted`); true when it
+    /// took the scroll (a swipe tracks it), which then never reaches the page. Chrome's page view hands its
+    /// scrolls to its history swiper the same way (`-[RenderWidgetHostViewCocoa scrollWheel:]`).
+    var wheelGesture: ((NSEvent) -> Bool)?
+    /// The input seq of the last wheel frame this view sent, 0 before any: WHEEL_ACKs of a gesture's own
+    /// wheels carry later seqs (task p01-process-234).
+    private(set) var lastWheelSeq: UInt32 = 0
     private var tracking: NSTrackingArea?
     #endif
 
@@ -251,11 +265,12 @@ public final class ChromiumHostPageView: NSView {
         guard overlay == nil || inputTarget == .view else { return false }
         crashOverlay?.removeFromSuperview()
         crashOverlay = overlay
-        if shownCursor != nil { window?.invalidateCursorRects(for: self) }
-        guard let overlay else { return true }
-        overlay.frame = bounds
-        overlay.autoresizingMask = [.width, .height]
-        addSubview(overlay, positioned: .above, relativeTo: standIn ?? surface)
+        if let overlay {
+            overlay.frame = bounds
+            overlay.autoresizingMask = [.width, .height]
+            addSubview(overlay, positioned: .above, relativeTo: standIn ?? surface)
+        }
+        placeCursorAreas()
         return true
     }
 
@@ -286,9 +301,9 @@ public final class ChromiumHostPageView: NSView {
     public override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         if window == nil, newWindow != nil {
-            CEFHostView.trackerStats.hostedPages += 1
+            CEFHostView.trackerStats.countHostedPage(widget: hostedWidget, delta: 1)
         } else if window != nil, newWindow == nil {
-            CEFHostView.trackerStats.hostedPages -= 1
+            CEFHostView.trackerStats.countHostedPage(widget: hostedWidget, delta: -1)
         }
     }
 
@@ -369,8 +384,8 @@ public final class ChromiumHostPageView: NSView {
 extension ChromiumHostPageView {
     // MARK: Mouse
 
-    public override func updateTrackingAreas() {
-        super.updateTrackingAreas()
+    /// The page's pointer area (``updateTrackingAreas()``, ChromiumHostPageView+Cursor.swift).
+    func updatePointerArea() {
         if let tracking { removeTrackingArea(tracking) }
         tracking = nil
         guard inputTarget == .view else { return }
@@ -392,18 +407,23 @@ extension ChromiumHostPageView {
     public override func rightMouseUp(with event: NSEvent) { mouse(event, phase: 2, button: 2) }
     public override func otherMouseDown(with event: NSEvent) { otherMouse(event, phase: 1) }
     public override func otherMouseUp(with event: NSEvent) { otherMouse(event, phase: 2) }
-    public override func otherMouseDragged(with event: NSEvent) { otherMouse(event, phase: 0) }
-    public override func mouseMoved(with event: NSEvent) { mouse(event, phase: 0, button: 0) }
-    public override func mouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 0) }
-    public override func rightMouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 2) }
+    // Moves and drags go to the host at once, as a browser process forwards them: Chromium's renderer aligns
+    // them to its own frame (main_thread_event_queue.cc), and on back-pressure the wire keeps only the latest
+    // in its slot (ChromiumHostConnection).
+    public override func otherMouseDragged(with event: NSEvent) { otherMouse(event, phase: 0) } // input-coalesce: native (the renderer aligns it, p04-input-038)
+    public override func mouseMoved(with event: NSEvent) { mouse(event, phase: 0, button: 0) } // input-coalesce: native (the renderer aligns it, p04-input-038)
+    public override func mouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 0) } // input-coalesce: native (the renderer aligns it, p04-input-038)
+    public override func rightMouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 2) } // input-coalesce: native (the renderer aligns it, p04-input-038)
     public override func mouseExited(with event: NSEvent) { mouse(event, phase: 3, button: 0) }
 
     public override func scrollWheel(with event: NSEvent) {
+        if wheelGesture?(event) == true { return }
         let point = pagePoint(event)
-        _ = sink?(ChromiumHostFrame.wheel(.init(
+        let receipt = sink?(ChromiumHostFrame.wheel(.init(
             x: point.x, y: point.y, deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY),
             precise: event.hasPreciseScrollingDeltas, phase: event.phase.rawValue, momentumPhase: event.momentumPhase.rawValue,
             modifierFlags: UInt64(event.modifierFlags.rawValue), time: Self.nanoseconds(event.timestamp))))
+        if let receipt { lastWheelSeq = receipt.seq }
     }
 
     /// A down ends an open composition first, keeping its text (``textInputMouseDown()``).
@@ -419,19 +439,6 @@ extension ChromiumHostPageView {
     func pagePoint(_ event: NSEvent) -> (x: Int32, y: Int32) {
         let local = convert(event.locationInWindow, from: nil)
         return (Int32(local.x.rounded(.down)), Int32((bounds.height - local.y).rounded(.down)))
-    }
-
-    // MARK: Edit menu
-
-    @objc public func copy(_ sender: Any?) { edit(0) }
-    @objc public func cut(_ sender: Any?) { edit(1) }
-    @objc public func paste(_ sender: Any?) { edit(2) }
-    @objc public override func selectAll(_ sender: Any?) { edit(3) }
-    @objc public func undo(_ sender: Any?) { edit(4) }
-    @objc public func redo(_ sender: Any?) { edit(5) }
-
-    private func edit(_ command: Int32) {
-        _ = sink?(ChromiumHostFrame(.edit, v: [command]))
     }
 
     /// An event time (seconds since boot) as CLOCK_UPTIME_RAW nanoseconds, the host's clock too: the input latency

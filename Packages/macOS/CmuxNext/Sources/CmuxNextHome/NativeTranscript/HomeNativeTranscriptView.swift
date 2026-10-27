@@ -97,11 +97,9 @@ public final class HomeNativeTranscriptView: NSView {
     /// The bubbles' look: iMessage's (the default) or the theme's colours; follows
     /// `home.chiefBubbleStyle` (`DesignSettings.homeChiefBubblesThemed`, `followSettings(on:)`).
     public var bubbleStyle: HomePalette.BubbleStyle = .iMessage { didSet { if bubbleStyle != oldValue { applyTheme() } } }
-    /// The first-run panel's open-a-terminal or start-an-agent row was
-    /// picked (the host runs the matching registry action).
+    /// The first-run panel's open-a-terminal or start-an-agent row was picked (the host runs the matching registry action).
     public var onFirstRunAction: (HomeFirstRunAction) -> Void = { _ in }
-    /// An agent row of the first-run panel was picked: the host opens that
-    /// tab (its daemon tab id).
+    /// An agent row of the first-run panel was picked: the host opens that tab (its daemon tab id).
     public var onFirstRunAgent: (String) -> Void = { _ in }
     /// The Switching card's Hide: the host records it, then clears the card.
     public var onHideSwitchKeys: () -> Void = {}
@@ -121,8 +119,9 @@ public final class HomeNativeTranscriptView: NSView {
     public var onHeaderPanel: (String) -> Void = { _ in }
     /// The header's top-right panel toggles (HomeNativeTranscriptView+HeaderPanels.swift).
     let headerPanels = HomeHeaderPanelBar()
-    /// The window's key and occlusion observers; each token removes itself when released (on any thread).
+    /// The window's key and occlusion observers (each removes itself when released, on any thread), and its layout passes.
     private var observers: [MainActorObservation] = []
+    var layoutPassWatch: WindowLayoutPasses.Observation?
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
     /// Debug Settings > Home > Avatar and name over the chat, when this conversation opened (off: no header).
@@ -138,14 +137,18 @@ public final class HomeNativeTranscriptView: NSView {
     /// - Parameter diagrams: draws Mermaid fences as diagrams (the app's ``OndineMermaidRenderer``); nil keeps them as text.
     /// - Parameter openPanel: the app's made-ahead file picker (`AppServices.openPanel`) for the "+"; nil (tests) opens none.
     /// - Parameter mainWork: the app's main-thread scheduler; the live settings apply on its frames.
+    /// - Parameter deadlines: the app's deadline scheduler (`AppServices.mainDeadlines`), where the scroller's
+    ///   show, widen and hide go; nil (tests, the debug fixture) makes one on `mainWork`.
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil,
-                openPanel: MadeAheadOpenPanel? = nil, mainWork: MainWorkScheduler) {
+                openPanel: MadeAheadOpenPanel? = nil, mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler? = nil) {
         attachmentPanel = openPanel.map { HomeAttachmentPanel(openPanel: $0) }
         HomeReduceMotion.install()
         self.me = me
         // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
         MessagesLabHomeView.richTables = HomeTunables.richTables.value
-        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
+        let wake = HomeDemandWake(deadlines: deadlines ?? MainDeadlineScheduler(work: mainWork))
+        transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: wake,
+                                         frames: HomeFrameTicks(), diagrams: diagrams)
         // Reduce Motion changes still or restart the loops already running (the transcript observes nothing itself).
         HomeReduceMotion.follow(transcript)
         // The running indicator's look (Debug Settings > Home), read at each of its ticks.
@@ -434,6 +437,7 @@ public final class HomeNativeTranscriptView: NSView {
         super.viewDidMoveToWindow()
         updateVisibility()
         observers = []
+        followLayoutPasses()
         cursorHold = window.flatMap(HomeCursorRectHold.hold(for:))
         cursorHold?.add(self)
         if let linkPreviews {

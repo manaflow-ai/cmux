@@ -29,6 +29,26 @@ public final class HangReportCollector: Sendable {
     public typealias ResolveBlocking = @Sendable ([BlockingFrame]) -> [HangReportFrame]
     /// Reads the merged black box (``HangReportFieldSources/captureBlackBox()``).
     public typealias CaptureBlackBox = @Sendable () async -> [TraceBlackBoxUpload.Record]
+    /// Turns another process's frames (image name, UUID and offset, as its hang line names them) into report frames
+    /// through the classifier, as a MetricKit frame is: the image is not loaded here. Called off the main thread.
+    public typealias ResolveForeign = @Sendable ([ForeignFrame]) -> [HangReportFrame]
+
+    /// One frame of another process's stack, innermost first: what a Rust hang line (`hangs-<pid>.jsonl`) gives.
+    public struct ForeignFrame: Sendable, Equatable {
+        /// The image's file name; nil when the address is in no loaded image.
+        public var image: String?
+        /// The image's `LC_UUID`; nil with no image.
+        public var uuid: String?
+        /// The address minus the image's load address; nil with no image.
+        public var offset: UInt64?
+
+        /// Makes the value from its parts.
+        public init(image: String?, uuid: String?, offset: UInt64?) {
+            self.image = image
+            self.uuid = uuid
+            self.offset = offset
+        }
+    }
 
     /// A hang this long (ms) takes the black box.
     public static let blackBoxHangMs = 1_000
@@ -45,9 +65,9 @@ public final class HangReportCollector: Sendable {
     }
 
     private let enabled = Atomic<Bool>(false)
-    /// Whether ``setEnabled(_:)`` ran: until the setting is first read, blocking sites are kept (at most
-    /// ``StallAggregate/maxSamples``), so the sites the detector replays at launch are not lost; the
-    /// first `setEnabled(false)` drops them.
+    /// Whether ``setEnabled(_:)`` ran: until the setting is first read, blocking sites and other processes' hangs are
+    /// kept (at most ``StallAggregate/maxSamples``), so what the detector and the Rust diagnostics forwarder replay at
+    /// launch is not lost; the first `setEnabled(false)` drops them.
     private let decided = Atomic<Bool>(false)
     // Lock carve-out: a synchronous count from the main thread's run-loop observer at a stall's
     // end; an actor would add a Task and a hop per stall.
@@ -59,6 +79,10 @@ public final class HangReportCollector: Sendable {
     private let schedule: @Sendable (@escaping @Sendable () -> Void) -> Void
     /// Nil when the report's wire schema has no black box: then no trigger takes one.
     private let captureBlackBox: CaptureBlackBox?
+    /// False when the report's wire schema has no watched threads' hangs: then none is kept.
+    private let keepsThreadHangs: Bool
+    /// Nil: no other process's hang is kept.
+    private let resolveForeign: ResolveForeign?
     /// Runs a black-box capture; the default is a utility task. Tests keep the job and await it.
     private let scheduleCapture: @Sendable (@escaping @Sendable () async -> Void) -> Void
 
@@ -69,9 +93,15 @@ public final class HangReportCollector: Sendable {
     ///   ``HangReportBuilder/frames(blocking:)`` when its builder's schema carries them.
     /// - Parameter captureBlackBox: Nil (the default) takes no black box, for a report whose wire schema has
     ///   none (``HangReport/WireSchema/carriesFieldData``).
+    /// - Parameter keepsThreadHangs: False (the default) keeps no watched thread's hang, for a report whose wire
+    ///   schema has none (``HangReport/WireSchema/carriesThreadHangs``).
+    /// - Parameter resolveForeign: Nil (the default) keeps no other process's hang (``noteProcessHang(durationMs:frames:thread:)``);
+    ///   the app passes the builder's classifier over MetricKit-style frames.
     public init(resolve: @escaping Resolve,
                 resolveBlocking: ResolveBlocking? = nil,
                 captureBlackBox: CaptureBlackBox? = nil,
+                keepsThreadHangs: Bool = false,
+                resolveForeign: ResolveForeign? = nil,
                 schedule: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void = { job in
                     // task-owner: one short resolution per sampled stall; nothing to cancel.
                     Task.detached(priority: .utility) { job() }
@@ -83,6 +113,8 @@ public final class HangReportCollector: Sendable {
         self.resolve = resolve
         self.resolveBlocking = resolveBlocking
         self.captureBlackBox = captureBlackBox
+        self.keepsThreadHangs = keepsThreadHangs
+        self.resolveForeign = resolveForeign
         self.schedule = schedule
         self.scheduleCapture = scheduleCapture
     }
@@ -101,17 +133,30 @@ public final class HangReportCollector: Sendable {
     /// kept once as a ``HangSample/Kind/blocking`` sample with its kind, context and frames; a site
     /// already kept adds nothing, and nothing is kept when the wire schema has no blocking samples.
     public func noteBlocking(_ violation: BlockingViolation) {
-        guard let resolveBlocking, acceptsBlocking else { return }
+        guard let resolveBlocking, acceptsUndecided else { return }
         let sample = HangSample.blockingSite(HangSample.Blocking(violation), frames: resolveBlocking(violation.frames))
         // Checked again under the lock the drop of setEnabled(false) takes: a site resolved while
         // reports turned off is not kept after the drop.
         state.withLock { state in
-            guard acceptsBlocking else { return }
+            guard acceptsUndecided else { return }
             state.aggregate.keep(sample)
         }
     }
 
-    private var acceptsBlocking: Bool {
+    /// One daemon site (``DaemonDiagnosticSite``, from the app's `BlockingReportSink` on a background lane): kept
+    /// once as a ``HangSample/Source/daemon`` sample, under the blocking samples' rules (none when the wire
+    /// schema has no blocking samples, kept before the setting is read, a site already kept adds nothing).
+    public func noteDaemonSite(_ site: DaemonDiagnosticSite) {
+        guard resolveBlocking != nil, acceptsUndecided else { return }
+        let sample = HangSample.daemonSite(site)
+        state.withLock { state in
+            guard acceptsUndecided else { return }
+            state.aggregate.keep(sample)
+        }
+    }
+
+    /// On, or the setting not read yet: what launch replays (blocking sites, other processes' hang lines) is kept.
+    private var acceptsUndecided: Bool {
         isEnabled || !decided.load(ordering: .relaxed)
     }
 
@@ -142,6 +187,42 @@ public final class HangReportCollector: Sendable {
         if ms >= Self.blackBoxHangMs { startBlackBoxCapture() }
         guard !addresses.isEmpty, state.withLock({ $0.aggregate.wantsHangSample(durationMs: ms) }) else { return }
         keepLater(HangSample(source: .watchdog, kind: .hang, durationMs: ms, frames: [], mainTask: task), addresses: addresses)
+    }
+
+    /// One watched thread still in its hang-watch scope 2 s past its budget (watchdog thread, from the watchdog's
+    /// `onThreadHang`): kept in its own slots apart from the main thread's hangs (``StallAggregate/threadHangs``),
+    /// longest first, as a ``HangSample/Source/hangWatch`` sample that names `thread`; nothing when the wire schema
+    /// has none. `durationNanos` is how far past its budget the scope was when its stack was sampled. The scope has
+    /// run 2 s past its budget, a hang by any measure: it takes the black box as a main-thread hang does.
+    public func noteThreadHang(durationNanos: UInt64, addresses: [UInt], thread: HangSample.WatchedThread) {
+        guard isEnabled, keepsThreadHangs else { return }
+        startBlackBoxCapture()
+        let ms = Self.milliseconds(durationNanos)
+        guard !addresses.isEmpty, state.withLock({ $0.aggregate.wantsThreadHangSample(durationMs: ms) }) else { return }
+        keepLater(.threadHang(thread, durationMs: ms, frames: []), addresses: addresses)
+    }
+
+    /// One watched thread of another cmux process (a Rust process's `hangs-<pid>.jsonl` line, read by the app's
+    /// Rust diagnostics forwarder on its utility queue) whose scope ran `durationMs` past its deadline: kept with the
+    /// watched threads' hangs (``StallAggregate/threadHangs``) as a ``HangSample/Source/hangWatch`` sample that names
+    /// `thread`, its frames classified here. Nothing when the wire schema has no thread hangs, there is no foreign
+    /// resolver, or the line has no stack (Linux and Windows record none). On, it takes the black box as
+    /// ``noteThreadHang(durationNanos:addresses:thread:)`` does.
+    ///
+    /// Until the setting is first read (``setEnabled(_:)``) it is kept as a blocking site is: the forwarder reads the
+    /// lines other processes wrote while the app was not running at launch, before the setting loads, and the first
+    /// `setEnabled(false)` drops them.
+    public func noteProcessHang(durationMs: Int, frames: [ForeignFrame], thread: HangSample.WatchedThread) {
+        guard acceptsUndecided, keepsThreadHangs, let resolveForeign else { return }
+        if isEnabled { startBlackBoxCapture() }
+        let ms = min(max(durationMs, 0), HistogramBucket.maxMs)
+        guard !frames.isEmpty, state.withLock({ $0.aggregate.wantsThreadHangSample(durationMs: ms) }) else { return }
+        let sample = HangSample.threadHang(thread, durationMs: ms, frames: Array(resolveForeign(frames).prefix(HangSample.maxFrames)))
+        state.withLock { state in
+            // Reports turned off while the frames were classified: not kept after the drop.
+            guard acceptsUndecided else { return }
+            state.aggregate.keep(sample)
+        }
     }
 
     /// One launch at its `startup_complete` (main thread, once per launch). Off, it is one atomic
@@ -222,8 +303,9 @@ public final class HangReportCollector: Sendable {
     /// Adds a saved aggregate (the previous launch's) to what is recorded now.
     public func merge(_ saved: StallAggregate) {
         var saved = saved
-        // A build whose schema had blocking samples saved them; this one cannot send them.
+        // A build whose schema had blocking samples or thread hangs saved them; this one cannot send them.
         if resolveBlocking == nil { saved.dropBlocking() }
+        if !keepsThreadHangs { saved.dropThreadHangs() }
         guard isEnabled, !saved.isEmpty else { return }
         state.withLock { $0.aggregate.merge(saved) }
     }

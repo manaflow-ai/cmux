@@ -99,10 +99,12 @@ public final class CreationInputBuffer {
     /// (its reply arms the bound again: the coordinator calls this from `resolve`).
     public func expire(after limit: Duration, _ expired: @escaping @MainActor (CreationInputBuffer) -> Void) {
         // task-owner: one-shot bound on this hold; a hold that ended first makes it a no-op
+        // main-hop-allow: the person's held keys wait on this bound; each call (the hold's start, each reply) is a bound of its own, which one replacing MainDeadline would drop
         Task { @MainActor [weak self] in
             // wakeup-allow: deadline of a key hold; not a DemandTimer, since each call (the hold's start, each reply)
             // is a bound of its own that a replacing timer would drop. The person's keys wait on it: Chromium's flat
             // 8 ms kDefaultLeeway (base/task/task_features.h), as KeyRouter's New Tab bound (019a).
+            // timer-class-allow: the person's keys wait on it: flexible 8 ms leeway, never early, one bound per call
             try? await Task.sleep(for: limit, tolerance: WakeLeeway.defaultAlignment)
             guard let self, !hasPendingCreation else { return }
             expired(self)

@@ -24,7 +24,7 @@ import Testing
     @Test func aCardWindowReleasedOffTheMainThreadLeavesTheCount() async {
         let count = WindowCount()
         // The pool drains any reference AppKit autoreleased during init: the box holds the only one.
-        let box = autoreleasepool { PanelBox(countWindow: count.move) }
+        let box = autoreleasepool { PanelBox(HoverCardPanel(countWindow: count.move)) }
         #expect(count.current == 1)
         let release = await Task.detached(priority: .userInitiated) {
             let onMain = pthread_main_np() != 0
@@ -48,24 +48,24 @@ private nonisolated final class WindowCount: Sendable {
 
 /// Hands the one strong reference to a background task, which drops it there.
 private nonisolated final class PanelBox: Sendable {
-    private nonisolated struct Slot: Sendable {
-        var panel: HoverCardPanel?
-        weak var watched: HoverCardPanel?
-    }
+    private let lock = Mutex(())
+    // A main-actor init's panel stays in main's region, so a `sending` or Mutex hand-off is refused.
+    // crash-allow: test only; the box holds the only strong reference and reads or drops it under `lock` alone
+    private nonisolated(unsafe) var panel: HoverCardPanel?
+    // crash-allow: test only; read under `lock` alone, after the strong reference is dropped
+    private nonisolated(unsafe) weak var watched: HoverCardPanel?
 
-    private let slot: Mutex<Slot>
-
-    /// Makes the panel here, so it starts in a region of its own that the box can take.
-    @MainActor init(countWindow: @escaping @Sendable (Int) -> Void) {
-        let panel = HoverCardPanel(countWindow: countWindow)
-        slot = Mutex(Slot(panel: panel, watched: panel))
+    /// Takes the panel; the caller keeps no other reference to it.
+    @MainActor init(_ panel: HoverCardPanel) {
+        self.panel = panel
+        watched = panel
     }
 
     /// Drops the strong reference on the calling thread; true when that freed the window there.
     func release() -> Bool {
-        slot.withLock { slot in
-            slot.panel = nil
-            return slot.watched == nil
+        lock.withLock { _ in
+            unsafe panel = nil
+            return unsafe watched == nil
         }
     }
 }

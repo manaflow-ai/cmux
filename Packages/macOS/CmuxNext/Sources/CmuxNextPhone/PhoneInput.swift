@@ -8,6 +8,9 @@ public struct PhonePoint: Sendable, Hashable, Codable {
         self.x = x
         self.y = y
     }
+
+    /// Both coordinates are finite and within ``PhoneRecording/maxMagnitude``.
+    var isPlausible: Bool { PhoneRecording.isPlausible(x) && PhoneRecording.isPlausible(y) }
 }
 
 /// A hardware button. `back` and `appSwitch` exist on Android only.
@@ -38,6 +41,27 @@ public enum PhoneInput: Sendable, Hashable {
     case launch(String)
     /// Shows or hides the on-screen keyboard (iOS: the simulator's software keyboard toggle).
     case softwareKeyboard
+
+    /// The longest swipe cmux sends, in seconds: far past any real gesture, and short enough
+    /// that its 16 ms touch steps stay a short list.
+    public static let longestSwipe = 60.0
+
+    /// Throws when a point or a swipe time is one no screen or gesture has: a point that is not
+    /// finite or is past ``PhoneRecording/maxMagnitude`` (``PhoneError/outsideScreen``), or a swipe
+    /// time outside 0...``longestSwipe`` (``PhoneError/outOfRange(what:)``). Socket and CLI
+    /// arguments reach here, so the service and every backend check it before an input is
+    /// recorded or turned into whole pixels and milliseconds.
+    public func validate() throws {
+        switch self {
+        case .tap(let point):
+            guard point.isPlausible else { throw PhoneError.outsideScreen }
+        case .swipe(let from, let to, let seconds):
+            guard from.isPlausible, to.isPlausible else { throw PhoneError.outsideScreen }
+            guard (0...Self.longestSwipe).contains(seconds) else { throw PhoneError.outOfRange(what: "the swipe's seconds") }
+        case .text, .button, .openURL, .pasteboard, .appearance, .location, .locale, .install, .launch, .softwareKeyboard:
+            return
+        }
+    }
 
     /// The capability the backend needs for this input.
     public var requiredCapability: PhoneCapabilities {
