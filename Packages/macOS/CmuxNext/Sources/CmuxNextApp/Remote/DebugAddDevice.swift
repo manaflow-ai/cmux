@@ -1,5 +1,5 @@
 #if DEBUG
-import CmuxNextDaemon
+import CmuxNextSettings
 import CmuxNextServer
 
 /// `debug.add_device {computers?, network?, off?}` (captures): Add Device opens on a fixture listing
