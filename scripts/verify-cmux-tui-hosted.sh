@@ -246,10 +246,15 @@ exec 3<> "$watch_result_fifo"
 ) &
 watch_owner_pid=$!
 
+run_finished=false
 if IFS=$'\t' read -r -t "$timeout_seconds" run_status run_conclusion <&3; then
-  wait "$watch_owner_pid"
+  wait "$watch_owner_pid" || true
   watch_owner_pid=""
-else
+  [[ "$run_status" == "completed" ]] && run_finished=true
+fi
+# A deadline, or a waiter that ended (timeout, error) with the run still
+# active, cancels the hosted run so it does not keep the runners.
+if [[ "$run_finished" != true ]]; then
   stop_owned_process watch_owner_pid
 
   cancel_result_fifo="$temp_dir/run-cancel-result"
@@ -287,15 +292,11 @@ else
     fi
   fi
   exec 4>&-
-  echo "error: hosted verification did not complete within ${timeout_seconds}s: $run_url" >&2
+  echo "error: hosted verification did not complete (run ${run_status:-still running}) within the wait of ${timeout_seconds}s: $run_url" >&2
   exit 1
 fi
 exec 3>&-
 
-if [[ "$run_status" != "completed" ]]; then
-  echo "error: the wait for hosted verification ended with the run $run_status; it was not cancelled: $run_url" >&2
-  exit 1
-fi
 if [[ "$run_conclusion" != "success" ]]; then
   echo "Hosted verification failed: $run_url" >&2
   gh run view --repo "$REPO" "$run_id" --log-failed || true
