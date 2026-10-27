@@ -6,6 +6,7 @@
 use super::MessageWriter;
 use super::OPEN_DEVICE_KINDS_CAPABILITY;
 use super::SHARED_SIZING_CAPABILITY;
+use super::SizeStateReader;
 use super::connection_scheduler::REQUEST_THREAD_QOS;
 use super::machine_usage_json;
 use super::size_state_event_json;
@@ -291,7 +292,9 @@ pub(super) fn subscribe_command(
                     let open = event_mux
                         .control_clients
                         .supports_capability(client, OPEN_DEVICE_KINDS_CAPABILITY);
-                    size_state_event_json(*surface, *runtime, state, Some((client, open)))
+                    let reader =
+                        SizeStateReader { client, open, scheme: event_mux.participant_scheme() };
+                    size_state_event_json(*surface, *runtime, state, Some(reader))
                 }
                 _ => subscribed_event_json(&event),
             };

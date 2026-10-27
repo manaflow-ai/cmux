@@ -27,6 +27,30 @@ extension HomeProjection {
         }
     }
 
+    /// Mermaid fences map as text while the diagram engine is not loaded (HomeDiagramRowProvider.part);
+    /// once it loads, a window that shows one maps again, so they become diagrams. Running replies map
+    /// again with their next token.
+    func observeDiagrams() {
+        guard !stopped, let readiness = HomeDiagramRowProvider.installed?.readiness else { return }
+        withObservationTracking {
+            _ = readiness.loads
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, !self.stopped else { return }
+                if self.shown.contains(where: HomeProjection.mayHoldDiagram) { self.rebuild() }
+                self.observeDiagrams()
+            }
+        }
+    }
+
+    /// Whether `item` has a text that may hold a Mermaid fence (a cheap test before a rebuild).
+    static func mayHoldDiagram(_ item: TranscriptItem) -> Bool {
+        item.parts.contains { part in
+            if case .text(let text, _) = part { return text.range(of: "mermaid", options: .caseInsensitive) != nil }
+            return false
+        }
+    }
+
     /// The observed store changed: refresh when this conversation's inputs did, after a keystroke's frame.
     func observedPass() {
         guard !heldPass else { return } // the held pass reads the newest value
