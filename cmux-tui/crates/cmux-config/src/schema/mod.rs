@@ -223,6 +223,10 @@ fn rows_hash(rows: &[Value]) -> Result<String, String> {
 
 impl Schema {
     /// The schema compiled into this binary.
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: the schema is compiled in and the settings behavior tests parse it on every run"
+    )]
     pub fn embedded() -> &'static Schema {
         static SCHEMA: OnceLock<Schema> = OnceLock::new();
         // crash-allow: the schema is compiled in; the behavior tests parse it on every run.
@@ -252,12 +256,12 @@ impl Schema {
 
     /// The row with dotted key `key`.
     pub fn row(&self, key: &str) -> Option<&Row> {
-        self.by_key.get(key).map(|index| &self.rows[*index])
+        self.by_key.get(key).and_then(|index| self.rows.get(*index))
     }
 
     /// The row at key path `path`.
     pub fn row_at(&self, path: &[String]) -> Option<&Row> {
-        self.by_path.get(path).map(|index| &self.rows[*index])
+        self.by_path.get(path).and_then(|index| self.rows.get(*index))
     }
 
     /// Rows of one section, in schema order (every row for `None`).

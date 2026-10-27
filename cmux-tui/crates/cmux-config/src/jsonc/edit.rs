@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use super::JsoncError;
 use super::lex::{line_end_if_blank, line_indent, line_start_if_blank, same_line_trivia_end};
-use super::tree::{Node, ObjectNode, parse_root};
+use super::tree::{Member, Node, ObjectNode, parse_root};
 use crate::render::{pretty, quote};
 use crate::value::nest;
 
@@ -61,10 +61,12 @@ pub(super) fn remove(source: &str, path: &[String]) -> Result<String, JsoncError
         };
         object = child;
     }
-    let Some(index) = object.members.iter().rposition(|member| &member.key == last) else {
+    let found = object.members.iter().enumerate().rev().find(|(_, member)| &member.key == last);
+    let Some((index, member)) = found else {
         return Ok(source.to_string());
     };
-    Ok(apply(removal_edits(index, &object, bytes), bytes))
+    let previous = index.checked_sub(1).and_then(|previous| object.members.get(previous));
+    Ok(apply(removal_edits(member, previous, bytes), bytes))
 }
 
 fn set_in(
@@ -127,8 +129,8 @@ fn set_in(
     }
 }
 
-fn removal_edits(index: usize, object: &ObjectNode, bytes: &[u8]) -> Vec<Edit> {
-    let member = &object.members[index];
+/// The edits that remove `member`; `previous` is the member before it.
+fn removal_edits(member: &Member, previous: Option<&Member>, bytes: &[u8]) -> Vec<Edit> {
     let start = line_start_if_blank(bytes, member.key_start);
     if let Some(comma) = member.comma_after {
         let end = line_end_if_blank(bytes, comma + 1);
@@ -136,9 +138,7 @@ fn removal_edits(index: usize, object: &ObjectNode, bytes: &[u8]) -> Vec<Edit> {
     }
     let end = line_end_if_blank(bytes, member.value_end);
     let mut edits = vec![Edit { range: start..end, text: String::new() }];
-    if index > 0
-        && let Some(previous) = object.members[index - 1].comma_after
-    {
+    if let Some(previous) = previous.and_then(|previous| previous.comma_after) {
         edits.push(Edit { range: previous..previous + 1, text: String::new() });
     }
     edits
