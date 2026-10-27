@@ -293,11 +293,128 @@ fn check_trees(trees: &[(&Path, u64, bool)], mountinfo: &str) -> Result<BTreeSet
     Ok(reasons)
 }
 
+// Red-first seam; the implementation will use both resolver callbacks.
+#[cfg(test)]
+fn guarded_aliases_with(
+    trees: &[(&Path, u64, bool)],
+    mountinfo: &str,
+    _resolve: impl FnMut(&Path) -> Result<PathBuf, String>,
+    _reachable: impl FnMut(&Path) -> Result<bool, String>,
+) -> Vec<String> {
+    guarded_aliases(trees, mountinfo)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const ROOT: &str = "1 0 8:1 / / rw - ext4 root rw\n";
+
+    fn overlay_info(options: &str) -> String {
+        format!("{ROOT}2 1 0:42 / /mnt/leak rw - overlay overlay {options}\n")
+    }
+
+    #[test]
+    fn regression_sys_autofs_is_refused() {
+        let info = format!("{ROOT}2 1 0:42 / /sys/kernel/debug rw - autofs map rw\n");
+        let reasons = guarded_aliases(&[], &info);
+        assert!(reasons.iter().any(|r| r.contains("autofs")), "{reasons:?}");
+    }
+
+    #[test]
+    fn regression_overlay_plus_options_are_layers() {
+        for key in ["lowerdir+", "datadir+"] {
+            let info = overlay_info(&format!("{key}=/home/u/.ssh"));
+            let reasons = guarded_aliases_with(
+                &[(Path::new("/home/u/.ssh"), 1, false)],
+                &info,
+                |p| Ok(p.to_path_buf()),
+                |_| Ok(true),
+            );
+            assert!(reasons.iter().any(|r| r.contains("overlay layer")), "{key}: {reasons:?}");
+        }
+        assert_eq!(
+            overlay_layers("lowerdir+=/a:b,datadir+=/c:d").unwrap(),
+            [PathBuf::from("/a:b"), PathBuf::from("/c:d")]
+        );
+    }
+
+    #[test]
+    fn regression_unknown_overlay_layer_syntax_is_refused() {
+        for option in ["fooodir=/secret", "fooodir+=/secret"] {
+            let reasons = guarded_aliases_with(
+                &[],
+                &overlay_info(option),
+                |p| Ok(p.to_path_buf()),
+                |_| Ok(true),
+            );
+            assert!(reasons.iter().any(|r| r.contains("unknown overlay")), "{reasons:?}");
+        }
+    }
+
+    #[test]
+    fn regression_overlay_layer_symlink_is_resolved() {
+        let reasons = guarded_aliases_with(
+            &[(Path::new("/home/u/.ssh"), 1, false)],
+            &overlay_info("lowerdir=/srv/ssh-layer"),
+            |p| {
+                assert_eq!(p, Path::new("/srv/ssh-layer"));
+                Ok(PathBuf::from("/home/u/.ssh"))
+            },
+            |_| Ok(true),
+        );
+        assert!(reasons.iter().any(|r| r.contains("overlay layer /home/u/.ssh")), "{reasons:?}");
+    }
+
+    #[test]
+    fn regression_unreachable_overlay_is_skipped() {
+        let reasons = guarded_aliases_with(
+            &[(Path::new("/home/u/.ssh"), 1, false)],
+            &overlay_info("lowerdir=/home/u/.ssh"),
+            |_| panic!("unreachable overlay layers must not be resolved"),
+            |p| {
+                assert_eq!(p, Path::new("/mnt/leak"));
+                Ok(false)
+            },
+        );
+        assert!(reasons.is_empty(), "{reasons:?}");
+    }
+
+    #[test]
+    fn regression_tmpfs_does_not_overlap_unrelated_host_layer() {
+        let info =
+            format!("{}3 1 0:43 / /tmp rw - tmpfs tmpfs rw\n", overlay_info("lowerdir=/var/lib/x"));
+        let reasons = guarded_aliases_with(
+            &[(Path::new("/tmp"), 3, true)],
+            &info,
+            |p| Ok(p.to_path_buf()),
+            |_| Ok(true),
+        );
+        assert!(reasons.is_empty(), "{reasons:?}");
+    }
+
+    #[test]
+    fn real_overlay_layer_symlink_is_canonicalized() {
+        let root = std::env::temp_dir().join(format!("acpmux-layer-{}", uuid::Uuid::now_v7()));
+        fs::create_dir(&root).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let secret = root.join("secret");
+        fs::create_dir(&secret).unwrap();
+        let link = root.join("layer");
+        std::os::unix::fs::symlink(&secret, &link).unwrap();
+        let info = overlay_info(&format!("lowerdir={}", link.display()));
+        let reasons = guarded_aliases_with(
+            &[(&secret, 1, false)],
+            &info,
+            |p| fs::canonicalize(p).map_err(|e| e.to_string()),
+            |_| Ok(true),
+        );
+        fs::remove_dir_all(root).unwrap();
+        assert!(
+            reasons.iter().any(|r| r.contains(&format!("overlay layer {}", secret.display()))),
+            "{reasons:?}"
+        );
+    }
 
     #[test]
     fn regression_hidden_mount_cannot_disguise_containing_mount() {
