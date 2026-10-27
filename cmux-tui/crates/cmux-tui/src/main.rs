@@ -1786,11 +1786,11 @@ fn run_main() {
     // semantics.
     // The one process that holds every PTY of this install (cmux-holder,
     // terminal-host-model-DESIGN.md). Same rule as the host: before any
-    // daemon signal handler.
+    // daemon signal handler. Panics go to holder-panics.jsonl (serve_process).
     #[cfg(unix)]
     if raw_args.first().map(String::as_str) == Some("__holder") {
         set_default_task_role();
-        if let Err(error) = cmux_holder::serve(&raw_args[1..]) {
+        if let Err(error) = cmux_holder::serve_process(&raw_args[1..]) {
             crate::client_log::stderr_log!("startup", "cmux-tui holder: {error}");
             client_log::exit(1);
         }
@@ -2403,6 +2403,7 @@ fn run_server(
         surface_options.terminal_host_root = Some(
             cmux_tui_core::terminal_host_runtime::terminal_host_root(state_root, &args.session),
         );
+        surface_options.host_panic_log = owner_start::host_panic_log(args.headless, &args.session);
         // Set by the Cloud VM boot supervisor on a snapshot clone; see
         // SurfaceOptions::adopt_template_terminal.
         if let Some(template) = CLOUD_TEMPLATE_ENV.get() {
@@ -2488,6 +2489,7 @@ fn run_server(
     // interactive client attaches. Install the non-terminal sink as soon as
     // the owner mux exists, before serving or adopting clients.
     app::install_mux_diagnostic_logger(&mux);
+    drop(mux.start_metrics_file(state_root.as_deref()));
     // The features each app's client hello is reconciled with, before the
     // first client: this owner outlives the app that started it.
     cmux_tui_core::server::install_daemon_features(

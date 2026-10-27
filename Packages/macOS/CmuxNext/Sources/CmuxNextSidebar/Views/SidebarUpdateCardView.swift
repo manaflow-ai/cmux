@@ -80,10 +80,6 @@ final class SidebarUpdateCardView: NSView {
     /// Set by the hover owner (`PointerHover`, cx-3wu5).
     private(set) var isHovered = false
     private var pointerHover: PointerHover?
-    /// The card's own move tracking: every move over the card asks the hover owner again, so the
-    /// whole card opens the popup even when no enter reached it (a still pointer the card
-    /// appeared under, an enter that a child window covering the card at that moment took).
-    private var moveTracking: NSTrackingArea?
     /// The card's moves (feature `pointerFrameHover`, from its window's ``HoverFrameInputHosting``): a frame
     /// interval's first move asks the hover owner at once, the rest once at its frame, as Chromium
     /// delivers rAF-aligned moves (main_thread_event_queue.cc). Without frames, every move asks.
@@ -123,6 +119,10 @@ final class SidebarUpdateCardView: NSView {
         wantsLayer = true
         layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         addSubview(surface)
+        // The card's own move tracking: every move over the card asks the hover owner again, so the
+        // whole card opens the popup even when no enter reached it (a still pointer the card
+        // appeared under, an enter that a child window covering the card at that moment took).
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInActiveApp, .inVisibleRect], owner: self))
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
         detailLabel.lineBreakMode = .byTruncatingTail
@@ -288,14 +288,6 @@ final class SidebarUpdateCardView: NSView {
         guard !pointerIsOverNotes() else { return }
         // Not at once: the pointer may be on its way to the popup (``scheduleNotesClose()``).
         scheduleNotesClose()
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let moveTracking { removeTrackingArea(moveTracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseMoved, .activeInActiveApp, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        moveTracking = area
     }
 
     /// Not passed up the responder chain: the sidebar has nothing to do with it.

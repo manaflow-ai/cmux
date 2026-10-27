@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "e30a944ff9ea7994184756a4cbde0baeae39be803e420a9be38db065456dfc2b";
+pub const ir_sha256 = "2e19e93c210ccad074d2927c5cdbb72fb2ddba7b7266cdbfede44aa74f140e10";
 
 pub const AccessRequestKind = enum {
     file,
@@ -1956,6 +1956,7 @@ pub const IdentifyResult = struct {
     cli_path: wire.Field([]const u8) = .absent,
     crate_version: wire.Field([]const u8) = .absent,
     daemon_handoff: i64,
+    framed_methods: wire.Field([]const u16) = .absent,
     generation: []const u8,
     ghostty_commit: wire.Field([]const u8) = .absent,
     install: wire.Field([]const u8) = .absent,
@@ -1969,6 +1970,7 @@ pub const IdentifyResult = struct {
     pid: u32,
     protocol: u32,
     registry_id: []const u8,
+    sdk_schema_digest: wire.Field([]const u8) = .absent,
     session: []const u8,
     session_id: ?[]const u8 = null,
     terminal_revision: u64,
@@ -2791,6 +2793,17 @@ pub const ServerStatsConnections = struct {
     refused: u64,
 };
 
+pub const ServerStatsHangRecord = struct {
+    duration_ms: u64,
+    sequence: u64,
+    span: []const u8,
+};
+
+pub const ServerStatsHangs = struct {
+    over_250ms: u64,
+    records: []const ServerStatsHangRecord,
+};
+
 pub const ServerStatsHistogram = struct {
     count: u64,
     max: u64,
@@ -3001,6 +3014,7 @@ pub const ServerStatsResourceProjection = struct {
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
     dispatch_queue_us: ?ServerStatsHistogram = null,
+    hangs: ?ServerStatsHangs = null,
     ipc: ?ServerStatsIpc = null,
     ipc_methods: ?[]const ServerStatsMethodLatency = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
@@ -3016,6 +3030,7 @@ pub const ServerStatsResult = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "dispatch_queue_us",
+        "hangs",
         "ipc",
         "ipc_methods",
         "lock_classes",

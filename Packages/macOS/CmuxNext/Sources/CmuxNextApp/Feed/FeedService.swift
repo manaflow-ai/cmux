@@ -24,6 +24,9 @@ final class FeedService {
     private let source: CloudFeedSource
     private let localOwner: LocalFeedSourceAdapter
     private let github: GitHubFeedSource
+    /// Whether a feed surface shows: the nodes of every feed host made with it (page tabs, the panel,
+    /// sidebar sections). With `pausesHiddenPoll`, the GitHub poll runs only while one is visible.
+    let surfaces = ShownWindows()
     private let showcase: Bool
     private let auth: CloudAuth
     /// The app's deadline placer, for each request's wait (``waitClosed(_:until:)``).
@@ -62,10 +65,12 @@ final class FeedService {
         auth.configuration.ownerAPIBaseURL(environment: environment)
     }
 
-    /// `energy` stretches the GitHub poll under Energy Saver; with `shown`, it books nothing while no window shows.
+    /// `energy` stretches the GitHub poll under Energy Saver; with `pausesHiddenPoll`, it books nothing
+    /// while no feed surface shows (``surfaces``).
     /// `appEvents` and `workspaceEvents` are the app's one fan-out of the NSApp and NSWorkspace notices.
     init(auth: CloudAuth, deadlines: MainDeadlineScheduler, work: BackgroundWork, appEvents: AppEvents, workspaceEvents: AppEvents,
-         energy: EnergyPolicySource, shown: ShownWindows?, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil) {
+         energy: EnergyPolicySource, pausesHiddenPoll: Bool, bundleID: String?, showcase: Bool = false,
+         acpmuxEnvironment: AcpmuxEnvironment? = nil) {
         self.auth = auth
         self.deadlines = deadlines
         // Reports are mail agents send: each page lands as an automation task, behind the person's input.
@@ -75,12 +80,15 @@ final class FeedService {
         self.acpmuxEnvironment = acpmuxEnvironment
         apiBaseURL = Self.apiBaseURL(auth: auth)
         // The answer's device label is the owner's record (the install); this name is only the overlay's.
-        source = CloudFeedSource(apiBaseURL: apiBaseURL, device: "Mac", energy: energy) { [auth] in
+        source = CloudFeedSource(apiBaseURL: apiBaseURL, device: "Mac", energy: energy, mainWork: deadlines.work) { [auth] in
             try await auth.tokens().access
         }
         var observe: (@MainActor (FeedSourceEvent) -> Void)?
         localOwner = LocalFeedSourceAdapter(primary: showcase ? MockFeedSource() : source)
-        github = GitHubFeedSource(owner: localOwner, energy: energy, shown: shown)
+        github = GitHubFeedSource(owner: localOwner, energy: energy, surfaces: pausesHiddenPoll ? surfaces : nil,
+                                  activities: .system(work: deadlines.work),
+                                  activityIdentifier: GitHubFeedSource.refreshActivityIdentifier(bundleID: bundleID),
+                                  deadlines: deadlines)
         model = FeedModel(source: FeedTeeSource(localOwner) { observe?($0) })
         model.githubDetail = { [weak self] item in self?.githubDetail(for: item) }
         observe = { [weak self] in self?.observe($0) }

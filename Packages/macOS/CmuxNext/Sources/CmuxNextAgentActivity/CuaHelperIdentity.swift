@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextWakeups
 public import Foundation
 import Security
@@ -76,15 +77,12 @@ public nonisolated struct CuaHelperIdentity: Sendable {
     /// Whether the bundle at `url` is a helper with the Developer ID signature.
     /// Reads the bundle's signature on disk (no launch, no prompt): it must
     /// be valid, strict, for every architecture, and satisfy `requirement`.
-    /// An ad-hoc signature has no certificate, so it never passes.
+    /// An ad-hoc signature has no certificate, so it never passes. The answer
+    /// is kept per version of the bundle (``StaticCodeValidityCache``): every
+    /// setup read asks again. Blocks: call it on a lane.
     public static func satisfiesRequirement(_ url: URL) -> Bool {
-        var code: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return false }
-        var compiled: SecRequirement?
-        guard SecRequirementCreateWithString(requirement as CFString, [], &compiled) == errSecSuccess,
-              let compiled else { return false }
         let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
-        return SecStaticCodeCheckValidity(code, flags, compiled) == errSecSuccess
+        return StaticCodeValidityCache.process.isValid(url, flags: flags, requirement: requirement)
     }
 
     /// Where an installed release helper can be, most preferred first. A
