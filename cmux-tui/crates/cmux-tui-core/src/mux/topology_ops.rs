@@ -5,6 +5,7 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(crate) fn create_terminal_result_in_workspace_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -43,6 +44,7 @@ impl Mux {
         self.created_terminal_run_result(&terminal_id)
     }
 
+    #[track_caller]
     pub(super) fn create_terminal_surface_in_workspace(
         self: &Arc<Self>,
         actor: &Actor,
@@ -79,6 +81,7 @@ impl Mux {
         Ok((surface, placement))
     }
 
+    #[track_caller]
     pub(crate) fn new_browser_tab_with_fields_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -139,6 +142,7 @@ impl Mux {
 
     /// `new_pane_right` with a directory, extra environment, and an optional
     /// caller-chosen terminal id (`terminal-placement-env-v1`).
+    #[track_caller]
     pub fn new_pane_right_with_options_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -183,6 +187,7 @@ impl Mux {
 
     /// `new_pane` with a directory, extra environment, and an optional
     /// caller-chosen terminal id (`terminal-placement-env-v1`).
+    #[track_caller]
     pub fn new_pane_with_options_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -202,6 +207,7 @@ impl Mux {
 
     /// New screen with a name (set in the creating commit) and the spawn
     /// options (directory, env, terminal id, program) of its first terminal.
+    #[track_caller]
     pub(crate) fn new_screen_named_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -216,6 +222,7 @@ impl Mux {
     /// `new_screen_named_as` that also returns the new screen. Both ids are
     /// resolved under the creation handoff, which an exit-close also takes,
     /// so a terminal that exits at once cannot close the screen first.
+    #[track_caller]
     pub(crate) fn new_screen_created_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -269,6 +276,7 @@ impl Mux {
 
     /// `new_tab` with a directory, extra environment, and an optional
     /// caller-chosen terminal id (`terminal-placement-env-v1`).
+    #[track_caller]
     pub fn new_tab_with_options_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -320,6 +328,7 @@ impl Mux {
     /// Returns the tab's surface. `size` is the expected content size in
     /// cells, when the caller knows it (spawning at the final size avoids
     /// shell redraw artifacts).
+    #[track_caller]
     pub fn new_workspace_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -337,6 +346,7 @@ impl Mux {
     /// `new_workspace_as` whose first terminal starts with `spawn`
     /// (directory, environment, reserved terminal id; Reopen Closed of a
     /// workspace).
+    #[track_caller]
     pub(crate) fn new_workspace_with_spawn_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -360,6 +370,7 @@ impl Mux {
         self.ordinary_created_surface(&commit)
     }
 
+    #[track_caller]
     pub(crate) fn run_command_result_with_options_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -431,6 +442,7 @@ impl Mux {
 
     /// `split` with a directory, extra environment, and an optional
     /// caller-chosen terminal id (`terminal-placement-env-v1`).
+    #[track_caller]
     pub fn split_with_options_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -455,6 +467,7 @@ impl Mux {
 
     /// Runs a command and optionally creates its workspace with a caller-owned
     /// stable key. The key is only meaningful when `new_workspace` is true.
+    #[track_caller]
     pub(crate) fn run_command_surface_with_options_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -466,6 +479,7 @@ impl Mux {
             .context("command exited before its surface could be returned")
     }
 
+    #[track_caller]
     pub(crate) fn new_screen_with_cwd_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -483,6 +497,7 @@ impl Mux {
     }
 
     /// `new_tab` with extra environment for the new terminal's child only.
+    #[track_caller]
     pub fn new_tab_with_env_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -499,6 +514,7 @@ impl Mux {
     /// otherwise the new surface becomes a tab in that workspace's active
     /// pane. The target is re-resolved under the attach lock so concurrent
     /// first-terminal requests cannot accidentally create another workspace.
+    #[track_caller]
     pub fn create_terminal_in_workspace_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -515,6 +531,7 @@ impl Mux {
     /// Create a browser tab in a pane (default: the active pane). When
     /// the session has no workspaces yet, a workspace is created around
     /// the browser tab.
+    #[track_caller]
     pub fn new_browser_tab_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -527,6 +544,7 @@ impl Mux {
 
     /// `split` with an optional directory and extra environment for the new
     /// terminal's child only.
+    #[track_caller]
     pub fn split_with_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -545,6 +563,7 @@ impl Mux {
     /// Updated frontends render the new column at `width` times their own
     /// viewport width. The ordinary split ratio remains valid fallback data
     /// for older clients.
+    #[track_caller]
     pub fn new_pane_right_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -566,6 +585,7 @@ impl Mux {
     /// containing screen. The screen stores creation order independently of
     /// the mutable split tree, so swaps and directional splits cannot reorder
     /// terminals when automatic layout resumes.
+    #[track_caller]
     pub fn new_pane_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -577,6 +597,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn run_command_surface_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -596,6 +617,7 @@ impl Mux {
 
     /// Create a screen in a workspace (default: the active one) with one
     /// pane/tab, and make it active. Returns the tab's surface.
+    #[track_caller]
     pub fn new_screen_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -608,6 +630,7 @@ impl Mux {
     /// Create a tab in a pane (default: the active pane of the active
     /// screen). When the session has no workspaces yet (headless before
     /// any command), a workspace is created around the new tab.
+    #[track_caller]
     pub fn new_tab_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -621,6 +644,7 @@ impl Mux {
     /// Split the screen containing `target`, putting a new single-tab
     /// pane after it. Returns the new pane's surface. `size` is the
     /// expected content size of the new pane, when the caller knows it.
+    #[track_caller]
     pub fn split_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -637,6 +661,7 @@ impl Mux {
     /// retry of the same request return the first result, and the same key
     /// with another request `idempotency.conflict`. Unkeyed, it is an
     /// ordinary creation.
+    #[track_caller]
     fn commit_pane_creation_by(
         self: &Arc<Self>,
         actor: &Actor,
@@ -670,6 +695,7 @@ impl Mux {
     }
 
     /// A topology op of `actor` on the legacy and TUI paths (P8 landing 3a).
+    #[track_caller]
     pub(crate) fn commit_ordinary_topology_operation_by(
         self: &Arc<Self>,
         actor: &Actor,
@@ -688,6 +714,7 @@ impl Mux {
     /// the dock, in one `pane.split` commit, as wide as a link Home opens
     /// there. A background tab (`frontend-browser-activate-v1`) leaves the
     /// focus where it was.
+    #[track_caller]
     fn new_browser_column_beside_lone_dock(
         self: &Arc<Self>,
         actor: &Actor,

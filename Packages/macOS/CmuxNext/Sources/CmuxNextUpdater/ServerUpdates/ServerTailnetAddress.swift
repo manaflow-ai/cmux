@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// This Mac's Tailscale address as `cmux host status --json` reports it: the first entry of
@@ -9,7 +10,7 @@ public nonisolated struct ServerTailnetAddress: Sendable, Equatable {
     /// - Parameter hostStatus: The stdout of `cmux host status --json`.
     /// - Returns: nil when the JSON is malformed or lists no address (Tailscale off, host not enabled).
     public init?(hostStatus: Data) {
-        guard let root = try? JSONSerialization.jsonObject(with: hostStatus) as? [String: Any],
+        guard let root = try? JSONSerialization.blockingJSONObject(with: hostStatus) as? [String: Any],
               let addresses = root["addresses"] as? [Any],
               let first = addresses.compactMap({ $0 as? String }).first(where: { !$0.isEmpty }) else { return nil }
         value = first

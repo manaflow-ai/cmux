@@ -28,48 +28,126 @@ disconnected label rules (coordinator decision 1). --long-top runs a fresh
 `top` for SECONDS and reports every stall (daemon moved, mirror did not for
 6 s) with the view's attach phase, link and surface state.
 
-Launches the tagged app itself with the brief's no-activate environment and
-a scratch CMUX_NEXT_CONFIG_FILE; the tag's app must not be running. Quits
-the app it started at the end (the tag's daemon and its terminals stay; stop
-them as the brief's cleanup says). Exit 1 on any failed check.
+Every launch goes through bench_launch.BenchApp (the bench env with its
+no-activate switch, a scratch cmux.json, the window on the last screen, the
+GUI-session check); the tag's app must not be running. Each relaunch keeps
+the tag: the same BenchApp starts the app again on the tag's saved state, and
+the daemon the earlier launch left is adopted (launch_journey_report.relaunch).
+At the end BenchApp.stop quits the app and its tag teardown ends every
+launch's daemon and terminals. Exit 1 on any failed check.
+
+With --story (scripts/perf-lab/stories.d, engine none) a run that did every
+round is written into --out as cmux-perf-result/v1 (BenchApp.record):
+relaunch_e2e.<mode>.first_answer (ms from the relaunch's spawn to its first
+answered system.ping, per end mode) and relaunch_e2e.failed_checks (count).
+Failed checks still record; a run that stopped writes none and exits 1.
+
+--matrix runs the launch correctness matrix instead (p08-startup done check 13, launch_matrix.py): first launch,
+scale change, appearance flip, theme change, crash recovery, crash streak, incognito leftovers, 3 windows on 2
+displays, full-screen window, translucent window, a workspace closed through the daemon while the app is closed,
+daemon cold, daemon unavailable, no-window launch, launch by URL open, quit during launch, and with --f2 the
+Chromium Host killed during launch. Each case runs on a fresh state of the tag and prints PASS, FAIL or SKIP with
+its first frame's still; DIR/launch-matrix.json keeps every row. Exit 1 on any FAIL.
+
+  scripts/cmux-next/relaunch-e2e.py --tag <tag> --matrix [all|CASE,CASE] [--picture off] [--f2] --out DIR
 """
 import argparse, glob, json, os, random, re, signal, socket, subprocess, sys, tempfile, time
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--tag", required=True)
-parser.add_argument("--rounds", type=int, default=3)
-parser.add_argument("--modes", default="kill,quit,crash", help="comma list of kill (SIGKILL), quit (Quit action), crash (debug.crash.app)")
-parser.add_argument("--settle", type=float, default=2.0, help="seconds after a workspace switch before checking")
-parser.add_argument("--attach-deadline", type=float, default=20.0, help="seconds a view may take to reach live")
-parser.add_argument("--disconnect", action="store_true", help="also drop views with detach-client and check each re-attaches on a key press and on being shown")
-parser.add_argument("--long-top", type=float, default=0, metavar="SECONDS",
-                    help="instead of relaunch rounds: a fresh top in its own workspace, compared with the daemon every 2 s for SECONDS")
-parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
-opts = parser.parse_args()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # its siblings, also under `python3 -I`
+import launch_journey_report as journey  # noqa: E402
+from bench_launch import BenchApp, tag_of  # noqa: E402
+from bench_story import story_problem  # noqa: E402
+import launch_matrix  # noqa: E402
 
-APP = opts.app or next(iter(sorted(glob.glob(os.path.expanduser(
-    f"~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV {opts.tag}.app")))), None)
-if not APP:
-    sys.exit(f"no tagged app for {opts.tag}; pass --app")
-BINARY = os.path.join(APP, "Contents/MacOS/cmux DEV")
-CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
-SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--tag", required=True)
+    parser.add_argument("--rounds", type=int, default=3)
+    parser.add_argument("--modes", default="kill,quit,crash", help="comma list of kill (SIGKILL), quit (Quit action), crash (debug.crash.app)")
+    parser.add_argument("--settle", type=float, default=2.0, help="seconds after a workspace switch before checking")
+    parser.add_argument("--attach-deadline", type=float, default=20.0, help="seconds a view may take to reach live")
+    parser.add_argument("--disconnect", action="store_true", help="also drop views with detach-client and check each re-attaches on a key press and on being shown")
+    parser.add_argument("--long-top", type=float, default=0, metavar="SECONDS",
+                        help="instead of relaunch rounds: a fresh top in its own workspace, compared with the daemon every 2 s for SECONDS")
+    parser.add_argument("--app", help="tagged .app (default: found in DerivedData)")
+    parser.add_argument("--out", help="BenchApp's folder: the app log, evidence and result-v1 (default a scratch folder)")
+    parser.add_argument("--story", help="write a run that did every round as cmux-perf-result/v1 under this story")
+    parser.add_argument("--session", choices=["light"], default="light", help="result-v1 session (the story runner's)")
+    parser.add_argument("--launch-timeout", type=float, default=120.0, help="seconds a launch may take to show its window")
+    parser.add_argument("--matrix", metavar="CASES",
+                        help=f"the launch correctness matrix: `all` or a comma list of {', '.join(launch_matrix.CASE)}")
+    parser.add_argument("--picture", choices=["on", "off"], default="on",
+                        help=f"--matrix: the {launch_matrix.PICTURE_FEATURE} feature (on: the saved picture is the first frame)")
+    parser.add_argument("--f2", action="store_true", help="--matrix: run cef-host-kill with the Chromium Host app on")
+    args = parser.parse_args(argv)
+    if args.matrix:
+        if args.story or args.long_top:
+            parser.error("--matrix does not go with --story or --long-top")
+        try:
+            launch_matrix.select(args.matrix)
+        except ValueError as error:
+            parser.error(str(error))
+    if args.story:
+        if args.long_top:
+            parser.error("--story does not go with --long-top: it relaunches nothing")
+        problem = story_problem(args.story, "none")
+        if problem:
+            parser.error(problem)
+    return args
+
+
+opts = None
+APP = CLI = SCRATCH = None
+bench = None  # the BenchApp of every launch of the run
 TMP = os.environ.get("TMPDIR", "/tmp")
-SCRATCH = tempfile.mkdtemp(prefix=f"relaunch-e2e-{opts.tag}-")
-CONFIG = os.path.join(SCRATCH, "cmux.json")
-with open(CONFIG, "w") as f:
-    f.write("{}\n")
-BASE_ENV = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": TMP,
+BASE_ENV = {"HOME": os.environ.get("HOME", ""), "USER": os.environ.get("USER", ""), "TMPDIR": TMP,
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
-CLI_ENV = {**BASE_ENV, "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1"}
 TOKENS = random.SystemRandom()
 failures = []
 slow = []
-app = None
+relaunches = []  # (end mode, ms from the relaunch's spawn to its first answered system.ping)
+
+
+def configure(args, bench_app=BenchApp):
+    """Sets the run's globals from the parsed `args`: the app, its CLI, the scratch folder and the BenchApp."""
+    global opts, APP, CLI, SCRATCH, bench
+    opts = args
+    APP = tagged_app(opts)
+    CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
+    SCRATCH = opts.out or tempfile.mkdtemp(prefix=f"relaunch-e2e-{opts.tag}-")
+    os.makedirs(SCRATCH, exist_ok=True)
+    bench = bench_app(APP, out=SCRATCH, config={}, window=FRAMES[0], screen="last", log_name="app.log",
+                      perf_session=opts.session)
+    if bench.tag != opts.tag:
+        sys.exit(f"--tag {opts.tag} is not the tag of {APP} ({bench.tag})")
+    return bench
+
+
+def tagged_app(args):
+    """--app, else the tag's Debug build in DerivedData; exits when there is none."""
+    app = args.app or next(iter(sorted(glob.glob(os.path.expanduser(
+        f"~/Library/Developer/Xcode/DerivedData/*/Build/Products/Debug/cmux DEV {args.tag}.app")))), None)
+    if not app:
+        sys.exit(f"no tagged app for {args.tag}; pass --app")
+    return app
+
+
+def matrix(args, bench_app=BenchApp):
+    """--matrix: every selected case on its own fresh state of the tag; 1 on any FAIL."""
+    app = tagged_app(args)
+    if tag_of(app) != args.tag:
+        sys.exit(f"--tag {args.tag} is not the tag of {app} ({tag_of(app)})")
+    out = args.out or tempfile.mkdtemp(prefix=f"launch-matrix-{args.tag}-")
+    os.makedirs(out, exist_ok=True)
+    rows = launch_matrix.run_matrix(app, args.matrix, out, picture=args.picture == "on", f2=args.f2,
+                                    session=args.session, bench_app=bench_app)
+    return 1 if any(row["result"] == launch_matrix.FAIL for row in rows) else 0
 
 
 def cli(*args, timeout=30):
-    return subprocess.run([CLI, "--socket", SOCKET, *args], capture_output=True, text=True, timeout=timeout, env=CLI_ENV)
+    env = {**BASE_ENV, "CMUX_SOCKET_PATH": bench.socket, "CMUX_QUIET": "1"}
+    return subprocess.run([CLI, "--socket", bench.socket, *args], capture_output=True, text=True, timeout=timeout, env=env)
 
 
 def rpc(method, params=None):
@@ -93,23 +171,26 @@ def wait(predicate, seconds, step=0.25):
 # Window frames the launches alternate between (points from the top-left of
 # the screen's visible frame): a relaunch restores at another size, as after
 # a display or window change, so every restored PTY resizes on attach.
-FRAMES = ["40,40,1100,720", "40,40,980,640"]
+FRAMES = [(40, 40, 1100, 720), (40, 40, 980, 640)]
 launches = 0
 
 
-def launch():
-    global app, launches
-    if os.path.exists(SOCKET):
-        os.unlink(SOCKET)
-    env = {**BASE_ENV, "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-           "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
-           "CMUX_NEXT_TEST_WINDOW_FRAME": FRAMES[launches % len(FRAMES)]}
+def launch(mode=None):
+    """The first launch (`mode` None), or the relaunch after the app was ended by `mode` on the same tag: its
+    spawn-to-first-answer time is kept for result-v1. BenchApp raises LaunchError (a SystemExit) with the reason when
+    the app does not come up."""
+    global launches
+    bench.window = FRAMES[launches % len(FRAMES)]
     launches += 1
-    log = open(os.path.join(SCRATCH, "app.log"), "a")
-    app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-    ready = wait(lambda: os.path.exists(SOCKET) and rpc("debug.surfaces").get("windows"), 60, 0.5)
+    if mode is None:
+        bench.launch(timeout=opts.launch_timeout)
+        journey.remember(bench)
+    else:
+        journey.relaunch(bench, timeout=opts.launch_timeout, probe_first_answer=True)
+        relaunches.append((mode, bench.first_answer_ms))
+    ready = wait(lambda: rpc("debug.surfaces").get("windows"), 60, 0.5)
     if not ready:
-        sys.exit(f"tagged app did not come up (log {SCRATCH}/app.log)")
+        sys.exit(f"tagged app lists no window in debug.surfaces (log {bench.log_path})")
     focus = rpc("debug.focus")
     if focus.get("app_active") or focus.get("key_window"):
         # Evidence first: a user click shows as a system mouse event in the journal.
@@ -121,10 +202,12 @@ def launch():
         sys.exit("the no-activate app took the keyboard; stopped it (report this as a bug): "
                  f"app_active={focus.get('app_active')} key_window={focus.get('key_window')}")
     given = (focus.get("keyboard_given_back") or {}).get("count") or 0
-    print(f"launched pid {app.pid}" + (f" (no-activate guard gave the keyboard back {given}x)" if given else ""))
+    print(f"launched pid {bench.process.pid}" + (f" (no-activate guard gave the keyboard back {given}x)" if given else ""))
 
 
 def stop(sig):
+    """Signals the app process this run started (its own PID); the daemon keeps running."""
+    app = bench.process if bench else None
     if app and app.poll() is None:
         app.send_signal(sig)
         try:
@@ -136,6 +219,7 @@ def stop(sig):
 
 def end(mode):
     """End the app the way the mode says; the daemon keeps running."""
+    app = bench.process
     if mode == "kill":
         stop(signal.SIGKILL)
     elif mode == "crash":
@@ -178,11 +262,12 @@ READER = r"""stty -echo; while :; do printf '\033[1;3'; read x; printf 'm got-%s
 
 
 def setup():
-    """Two workspaces, six terminals, the first workspace on two screens,
-    unless a previous run left them."""
+    """Two workspaces, six terminals, the first workspace on two screens. The first launch starts from an empty
+    session (BenchApp refuses a tag whose daemon an earlier run left), so workspaces of an earlier run here are
+    another run's: refused, never measured."""
     if "relaunch-2" in cli("list-workspaces").stdout:
-        print("reusing the session a previous run built")
-        return
+        sys.exit("the first launch restored workspace relaunch-2 of an earlier run (BENCH_LAUNCH_KEEP_STATE?); "
+                 "run on an empty session or a fresh tag")
     first = workspaces()[0]
     top = wait(lambda: surfaces(first), 20)[0][0]
     vim_ref = cli("new-split", "right", "--workspace", first, "--surface", top, "--focus", "false").stdout.split()[1]
@@ -488,13 +573,22 @@ def long_top(seconds):
         failures.append(f"long top: {len(stalls)} stall samples, first {stalls[0]}")
 
 
-def main():
+def record(story, finished, log=print):
+    """A run that did every round, under `story`: {metric: path or `not recorded: why`}, or why none was written."""
+    if not finished:
+        return "none: the run stopped before its last round"
+    if any(ms is None for _, ms in relaunches):
+        return "none: a relaunch never answered system.ping"
+    series = journey.relaunch_e2e_series(relaunches, len(failures))
+    return journey.record_all(bench, story, "none", series, log=log)
+
+
+def run():
+    """The checks; returns whether every round ran."""
     launch()
     if opts.long_top:
         long_top(opts.long_top)
-        stop(signal.SIGTERM)
-        print(f"{len(failures)} failed checks; scratch {SCRATCH}")
-        sys.exit(1 if failures else 0)
+        return True
     setup()
     check_all("before")
     if opts.disconnect:
@@ -513,21 +607,37 @@ def main():
             step += 1
             time.sleep(opts.settle)
             end(mode)
-            launch()
+            launch(mode)
             check_all(f"round {round_index + 1} after {mode}")
             if opts.disconnect:
                 check_disconnect(f"round {round_index + 1} after {mode}")
-    stop(signal.SIGTERM)
+    return True
+
+
+def main(argv=None, bench_app=BenchApp):
+    args = parse_args(argv)
+    if args.matrix:
+        return matrix(args, bench_app)
+    configure(args, bench_app)
+    finished = False
+    try:
+        finished = run()
+    finally:
+        bench.stop()  # quits the app, then the tag teardown ends every launch's daemon and terminals
     for note in slow:
         print(f"  slow: {note}")
+    code = 1 if failures else 0
+    if opts.story:
+        results = record(opts.story, finished)
+        print(f"result-v1: {results}")
+        if not journey.any_written(results):
+            print(f"RESULT-V1 FAIL: no series was written ({results})")
+            code = 1
     print(f"{len(failures)} failed checks; scratch {SCRATCH}")
     for failure in failures:
         print(f"  {failure}")
-    sys.exit(1 if failures else 0)
+    return code
 
 
-try:
-    main()
-except BaseException:
-    stop(signal.SIGTERM)
-    raise
+if __name__ == "__main__":
+    sys.exit(main())

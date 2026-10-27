@@ -16,13 +16,18 @@ import os
 /// person's input go back. Leases arrive as frames; the app shows them.
 ///
 /// Everything runs on the main actor in frame order: a `lease` frame marks
-/// its tab agent-driven before the next frame is handled. Each frame is
-/// handled as soon as it is read: an agent's CDP and driver traffic is
-/// sequential request and reply, so waiting for a display frame would add up
-/// to a frame (or the frame scheduler's stall timeout while the display
-/// sleeps) to every command. The main actor only dispatches; frames that leave
-/// the app (CDP replies, results) are id-mapped and encoded on the link's
-/// write queue, off the main actor. When the link drops,
+/// its tab agent-driven before the next frame is handled. Each frame is one
+/// task of the automation class, posted as it is read
+/// (``MainWorkScheduler/post(_:owner:file:line:_:)``, owner `browser-host.<tag>`;
+/// p06-scheduler-036): an agent never competes with the person, so a frame
+/// read while a key is pending runs after that key. Tasks of one class run in
+/// post order. The post runs on the next main run loop turn, also while frames
+/// run, not on a display frame: an agent's CDP and driver traffic is
+/// sequential request and reply. Only pending input or the class's spent
+/// budget holds it for a frame. The main actor only
+/// dispatches; frames that leave the app (CDP replies, results) are id-mapped
+/// and encoded on the link's write queue, off the main actor. The tab list is
+/// read in automation-class tasks only. When the link drops,
 /// the provider reconnects when the credentials source reports new
 /// credentials, or after a `Backoff` delay on the injected clock. It never
 /// polls; with no credentials (before step c2) it stays idle.
@@ -61,7 +66,11 @@ public final class BrowserHostProvider {
     @ObservationIgnored weak var relay: (any ProviderDevToolsRelay)?
     @ObservationIgnored weak var marking: (any ProviderAgentMarking)?
     @ObservationIgnored weak var opener: (any ProviderTabOpening)?
+    /// The tab nodes an agent's capture votes on (``ProviderCaptureVoting``); nil takes no votes.
+    @ObservationIgnored weak var capture: (any ProviderCaptureVoting)?
     @ObservationIgnored let driver: (any DriverCallHandler)?
+    /// The app's main-thread scheduler: frame tasks and the tab observation run in its automation class.
+    @ObservationIgnored let mainWork: MainWorkScheduler
     @ObservationIgnored let clock: any Clock<Duration>
     @ObservationIgnored let dial: @Sendable (ProviderCredentials) async throws -> ProviderConnection
     /// How long `cdp.attach` may take to make a page ready (the host waits 10 s).
@@ -83,7 +92,12 @@ public final class BrowserHostProvider {
     @ObservationIgnored var latestAccess: [String: ProviderTabAccess] = [:]
     @ObservationIgnored var announced: [String: ProviderTab] = [:]
     @ObservationIgnored var accessSent: [String: AccessKey] = [:]
-    @ObservationIgnored var observation = 0
+    /// ``followTabs()`` ran (`+Tabs`).
+    @ObservationIgnored var followingTabs = false
+    /// The owner of the tab list's automation tasks, interned once.
+    @ObservationIgnored let tabsTaskOwner: MainTaskOwner
+    /// The owner of the automation tasks that end a screenshot's capture vote at its reply, interned once.
+    @ObservationIgnored let captureTaskOwner: MainTaskOwner
     @ObservationIgnored var calledTargets: Set<String> = []
     // CDP relays of the current connection (`+Relay`).
     @ObservationIgnored var relays: [String: RelaySession] = [:]
@@ -102,7 +116,9 @@ public final class BrowserHostProvider {
                 driver: (any DriverCallHandler)?,
                 relay: any ProviderDevToolsRelay,
                 marking: any ProviderAgentMarking,
+                mainWork: MainWorkScheduler,
                 opener: (any ProviderTabOpening)? = nil,
+                capture: (any ProviderCaptureVoting)? = nil,
                 clock: any Clock<Duration> = ContinuousClock(),
                 backoff: Backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30)),
                 prepareDeadline: Duration = .seconds(8),
@@ -115,6 +131,10 @@ public final class BrowserHostProvider {
         self.relay = relay
         self.marking = marking
         self.opener = opener
+        self.capture = capture
+        self.mainWork = mainWork
+        tabsTaskOwner = mainWork.board.owner("browser-host.tabs")
+        captureTaskOwner = mainWork.board.owner("browser-host.capture")
         self.clock = clock
         self.backoff = backoff
         retryTimer = DemandTimer(owner: "browser-host.provider-retry", clock: clock)
@@ -142,7 +162,7 @@ public final class BrowserHostProvider {
                 for await event in events { self?.send(.event(name: event.name, payload: event.payload)) }
             }
         }
-        observeTabs()
+        followTabs()
         connect()
     }
 
@@ -178,7 +198,7 @@ public final class BrowserHostProvider {
 
     /// Re-reads the tab list (for state that is not observable: visibility,
     /// a page created or released).
-    public func refreshTabs() { observeTabs() }
+    public func refreshTabs() { readTabsNow() }
 
     /// A person pressed a key or clicked in tab `targetID`: when the tab is
     /// leased, the host pauses the lease. Call only from the app's own event
@@ -249,7 +269,7 @@ public final class BrowserHostProvider {
         onAgentBundle?(bundle, sha)
         while let frame = await frames.next() {
             guard gen == generation else { return }
-            handle(frame)
+            post(frame, from: link)
         }
         guard gen == generation else { return }
         logger.notice("browser host provider: link closed (\(link.closeReason ?? "", privacy: .public))")
@@ -257,10 +277,21 @@ public final class BrowserHostProvider {
         scheduleRetry(gen)
     }
 
+    /// Queues `frame` as one automation-class task. A frame of a link that dropped or was replaced
+    /// before its task ran is not handled (its replies would have no link).
+    private func post(_ frame: ProviderFrame, from link: ProviderConnection) {
+        guard let task = Self.task(for: frame) else { return }
+        // node-free: an agent drives tabs nobody sees; its commands run while hidden.
+        mainWork.post(.automation, owner: task.owner) { [weak self] in
+            guard let self, self.connection === link else { return }
+            task.run(self)
+        }
+    }
+
     private func scheduleRetry(_ gen: Int) {
         status = .waitingToRetry
         let delay = backoff.next()
-        retryTimer.schedule(after: delay) { @MainActor [weak self] in
+        retryTimer.scheduleOnMain(after: delay) { [weak self] in
             guard let self, gen == self.generation else { return }
             self.connect()
         }

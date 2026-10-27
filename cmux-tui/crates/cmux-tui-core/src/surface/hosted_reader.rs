@@ -6,6 +6,7 @@ use super::*;
 use crate::terminal_host_runtime::HostStream as UnixStream;
 
 mod output;
+use output::HostedOutput;
 mod reconnect;
 mod resize;
 
@@ -20,6 +21,9 @@ pub(super) struct HostedReader {
     pub(super) sequence_boundary: u64,
     pub(super) protocol_version: u16,
     pub(super) smart_renderer: bool,
+    /// The host connection negotiated `FLAG_INPUT_FLOW`: its output
+    /// frames carry the key press they echo.
+    pub(super) input_flow: bool,
     pub(super) applied_color_overrides: TerminalColorOverrides,
     pub(super) applied_color_revision: u64,
     pub(super) applied_cursor_activity: Option<u64>,
@@ -89,11 +93,13 @@ impl HostedReader {
         // Declared first so it drops last: input waiting out a reconnect
         // (surface/input.rs) wakes after the completion below is recorded.
         let _wake_waiting_input = WakeInputOnReaderEnd(surface.clone());
-        let _reader_completion = ReaderCompletionGuard(
-            surface.as_pty().expect("host reader owns a PTY surface").reader_completion.clone(),
-        );
+        #[allow(
+            clippy::expect_used,
+            reason = "INVARIANT: only the hosted Surface::Pty constructor spawns this reader"
+        )]
+        let pty = surface.as_pty().expect("INVARIANT: host reader owns a PTY surface");
+        let _reader_completion = ReaderCompletionGuard(pty.reader_completion.clone());
         loop {
-            let pty = surface.as_pty().expect("host reader owns a PTY surface");
             rehost::request_custody(&surface);
             let Some(end) = self.stream(&surface, pty, reader) else { return };
             let Some(next) = self.after_stream(&surface, end.received_exit, end.resync_requested)
@@ -118,7 +124,8 @@ impl HostedReader {
             self.sequence_boundary,
             self.protocol_version,
             self.smart_renderer,
-        );
+        )
+        .with_input_flow(self.input_flow);
         let mut received_exit = None;
         let mut resync_requested = false;
         let mut journal_target = None;
@@ -161,7 +168,7 @@ impl HostedReader {
                     {
                         break;
                     }
-                    Some(&frame.payload[1..])
+                    frame.payload.get(1..)
                 } else {
                     None
                 };
@@ -181,11 +188,24 @@ impl HostedReader {
             };
             let Some(transition) = transition else { continue };
             let flow = match transition {
-                transition @ (HostedTransition::Output(_)
-                | HostedTransition::OutputWithColors { .. }) => self.apply_output(
+                HostedTransition::Output(output) => self.apply_output(
                     surface,
                     pty,
-                    transition,
+                    HostedOutput { output, colors: None, flow: 0 },
+                    &mut journal_target,
+                    &mut journal_update,
+                ),
+                HostedTransition::FlowOutput { output, flow } => self.apply_output(
+                    surface,
+                    pty,
+                    HostedOutput { output, colors: None, flow },
+                    &mut journal_target,
+                    &mut journal_update,
+                ),
+                HostedTransition::OutputWithColors { output, colors } => self.apply_output(
+                    surface,
+                    pty,
+                    HostedOutput { output, colors: Some(colors), flow: 0 },
                     &mut journal_target,
                     &mut journal_update,
                 ),
@@ -266,7 +286,7 @@ impl HostedReader {
         if let Some(exit) = received_exit {
             // The host's Exit frame is its report that the child
             // ended, even when an older host omits the status.
-            *pty.exit.lock().unwrap() = Some(TerminalEnd::from_host_exit(exit));
+            *pty.exit.lock().recover_poison() = Some(TerminalEnd::from_host_exit(exit));
             mark_hosted_runtime_exited(pty, &identity);
             pty.host_connection_state
                 .store(TerminalHostConnectionState::Exited as u8, Ordering::Release);
@@ -306,7 +326,7 @@ impl HostedReader {
             // A live host's resync never fails the terminal, but
             // back-to-back resyncs are spaced.
             let delay = self.resync_backoff.next_delay();
-            std::thread::sleep(delay.unwrap_or(TERMINAL_HOST_RECONNECT_MAX_DELAY));
+            crate::request_path::sleep(delay.unwrap_or(TERMINAL_HOST_RECONNECT_MAX_DELAY));
         } else if !self.flap_backoff.wait_or_fail(pty) {
             return None;
         }

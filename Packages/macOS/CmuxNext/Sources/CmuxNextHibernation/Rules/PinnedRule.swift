@@ -4,7 +4,7 @@ import CmuxNextSettings
 
 nonisolated extension DiscardRule {
     /// A pinned tab, unless `browser.hibernatePinnedTabs` lets pinned tabs go (Chrome's `kPinnedTab`).
-    package static let pinned = DiscardRule(.pinned, result: .protected, for: DiscardRule.pressure,
+    package static let pinned = DiscardRule(.pinned, result: .protected, for: DiscardRule.automatic,
                                             kinds: DiscardRule.browserPages) { candidate, context in
         candidate.isPinned && !context.browser.includesPinnedTabs
     }

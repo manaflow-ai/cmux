@@ -167,6 +167,7 @@ final class AppsProviderChannel {
             call.task.cancel()
             logger.info("apps-provider-result \(id, privacy: .public) apps.disabled (policy ended a running call)")
             // task-owner: one refusal answer for a call the policy ended
+            // main-hop-allow: the link is a main-actor value whose answer closure is not Sendable (it closes over the registered session); the answer itself goes to the session's actor
             Task { [link] in await link.answer(call.connection, id, ok, body) }
         }
     }
@@ -175,6 +176,7 @@ final class AppsProviderChannel {
         guard let capabilities, let epoch, registeredEpoch != epoch, registering == nil else { return }
         let all = capabilities.families.sorted()
         // task-owner: the connection's registration with its retries; a new epoch cancels it
+        // main-hop-allow: the link's register closure is main-actor state (it keeps the registered session and the inventory bridge), and the epoch check after each reply reads this channel
         registering = Task { [weak self, link, backoff, logger] in
             var backoff = backoff
             var families = all
@@ -212,10 +214,12 @@ final class AppsProviderChannel {
             let (ok, body) = RoutedAppCall.disabledAnswer(turnedOff)
             logger.info("apps-provider-result \(call.requestID, privacy: .public) \(call.op, privacy: .public) apps.disabled")
             // task-owner: one refusal answer while apps are turned off
+            // main-hop-allow: the link is a main-actor value whose answer closure is not Sendable (it closes over the registered session); the answer itself goes to the session's actor
             Task { [link] in await link.answer(connection, call.requestID, ok, body) }
             return
         }
         // task-owner: one routed app call; apps-provider-cancel, a new connection or the policy cancels it
+        // main-hop-allow: the call runs the owner handlers' main-actor async ops (AppHostCapabilities), then answers through the main-actor link
         let task = Task { [weak self, link] in
             let (ok, body) = await call.answer(with: capabilities)
             guard !Task.isCancelled else { return }

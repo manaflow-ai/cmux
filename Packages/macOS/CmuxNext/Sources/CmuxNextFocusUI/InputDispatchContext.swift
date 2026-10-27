@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextActions
 public import CmuxNextSignposts
 
 /// The input event being dispatched now: the one source the key router, the menu key gate, the action
@@ -19,11 +20,14 @@ public import CmuxNextSignposts
 /// always reports; a mouse-up reports only when its turn expects a frame (a button acts on release). It reports
 /// when its dispatch ends, or earlier, at the first wait of a run loop nested in it (a menu, a drag or a button's
 /// tracking loop draws its frames there). Key-ups, moves, drags, scrolls and modifier changes report nothing.
+/// Around the discrete dispatches it says when the first begins and the last ends (after its report), so the
+/// scheduler's input-response pass is on the run loop before any nested loop waits.
 ///
 /// The App's composition root makes one and passes it to the application object and the key router:
 ///
 /// ```swift
-/// let inputDispatch = InputDispatchContext(discreteInput: { mainWork.noteDiscreteInput(expectsFrame: $0) })
+/// let inputDispatch = InputDispatchContext(discreteInput: { mainWork.noteDiscreteInput(expectsFrame: $0) },
+///                                          discreteDispatch: { mainWork.noteDiscreteDispatch(began: $0) })
 /// registry.dispatchingInputEvent = { inputDispatch.event }
 /// registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
 /// ```
@@ -42,6 +46,8 @@ public final class InputDispatchContext {
     }
 
     private var stack: [Dispatch] = []
+    /// The inputs ``answering(input:_:)`` hands in, innermost last.
+    private var answered: [TimeInterval] = []
     /// Discrete dispatches on ``stack``: while there is one, ``nestedRunLoopObserver`` is on the main run loop.
     private var openDiscrete = 0
     /// Reports the open discrete inputs at the first wait of a run loop nested in their dispatch
@@ -51,6 +57,8 @@ public final class InputDispatchContext {
     private let scrollFrames: any ScrollFrameTiming
     /// Told about each discrete input whether its turn expects a frame (``report(_:)``).
     private let discreteInput: @MainActor (_ expectsFrame: Bool) -> Void
+    /// Told when the first discrete dispatch begins (true) and the last one ends (false).
+    private let discreteDispatch: @MainActor (_ began: Bool) -> Void
     /// Whether a window of `event` still has a display request pending when its dispatch ends.
     private let displayPending: @MainActor (NSEvent) -> Bool
 
@@ -62,13 +70,17 @@ public final class InputDispatchContext {
     ///   - discreteInput: Told about each discrete input, whether its turn expects a frame (the App passes its
     ///     main-thread scheduler's `noteDiscreteInput(expectsFrame:)`; the default ignores it). Once per input,
     ///     or twice when it reported early with no frame and its dispatch expected one later.
+    ///   - discreteDispatch: Told true before the first discrete dispatch runs and false after the last one
+    ///     reported (the App passes its scheduler's `noteDiscreteDispatch(began:)`; the default ignores it).
     ///   - displayPending: Whether a view asked for display during the dispatch (the default reads the event's
     ///     window and the key window, ``windowsNeedDisplay(for:)``; tests inject one).
     public init(scrollFrames: any ScrollFrameTiming = NoScrollFrameTiming(),
                 discreteInput: @escaping @MainActor (_ expectsFrame: Bool) -> Void = { _ in },
+                discreteDispatch: @escaping @MainActor (_ began: Bool) -> Void = { _ in },
                 displayPending: @escaping @MainActor (NSEvent) -> Bool = InputDispatchContext.windowsNeedDisplay(for:)) {
         self.scrollFrames = scrollFrames
         self.discreteInput = discreteInput
+        self.discreteDispatch = discreteDispatch
         self.displayPending = displayPending
     }
 
@@ -109,8 +121,41 @@ public final class InputDispatchContext {
         stack[stack.count - 1].layoutTook = true
     }
 
+    /// Whether the layout took the scroll event being dispatched (``noteLayoutTookScroll()``); false between dispatches.
+    public var layoutTookScroll: Bool { stack.last?.layoutTook ?? false }
+
     /// The innermost event being dispatched, nil between dispatches.
     public var event: NSEvent? { stack.last?.event }
+
+    /// The input a `switch.*` interval begun now answers (`switch.workspace`, `switch.tab`, `switch.pane_focus`), as an
+    /// `NSEvent.timestamp`, the same input an action run's `action.*` row reads:
+    /// - the key or click being dispatched (`ActionRegistry.inputTimestamp(of:)`);
+    /// - else an input another process took and handed here with its request (``answering(input:_:)``: a page's click
+    ///   or Return, which comes back a turn after its own dispatch);
+    /// - else the press of the person's action run in progress (`ActionRunScope.inputTimestamp`), so a run a gate let
+    ///   through, or a run's task after a daemon reply, switches with its press's age.
+    ///
+    /// Nil otherwise: a switch a socket, the CLI or a script starts has no input age however recent the last click was
+    /// (`NSApp.currentEvent` keeps that click). Chrome stamps an input's latency with the event's own time and carries
+    /// it with the work it causes across threads and processes (`EventMetrics`, cc/metrics/event_metrics.h).
+    public var inputTimestamp: TimeInterval? {
+        ActionRegistry.inputTimestamp(of: event) ?? answered.last ?? ActionRunScope.current?.inputTimestamp
+    }
+
+    /// Runs `body` as the answer to a person's input another process dispatched (a page's click or key, whose request
+    /// arrives here after that event's own dispatch ended): a switch `body` begins takes `input` as its input. Nil runs
+    /// `body` with no such input. Synchronous: a task `body` starts does not keep it.
+    ///
+    /// - Parameters:
+    ///   - input: The input's `NSEvent.timestamp` (seconds of system uptime), or nil.
+    ///   - body: The work that answers it.
+    /// - Returns: What `body` returns.
+    public func answering<T>(input: TimeInterval?, _ body: () throws -> T) rethrows -> T {
+        guard let input else { return try body() }
+        answered.append(input)
+        defer { _ = answered.popLast() }
+        return try body()
+    }
 
     /// Whether the innermost event being dispatched is a key-down.
     public var isKeyDown: Bool { stack.last?.event.type == .keyDown }
@@ -132,17 +177,21 @@ public final class InputDispatchContext {
         let isDiscrete = Self.isDiscreteInput(event.type) && stack.last?.event !== event
         stack.append(Dispatch(event: event, isScroll: isScroll, isDiscrete: isDiscrete))
         if isDiscrete { watchNestedRunLoops(opening: true) }
-        defer {
-            let dispatch = stack.removeLast()
-            if dispatch.isScroll { scrollFrames.end(target: dispatch.layoutTook ? .layout : .content) }
-            if dispatch.isDiscrete {
-                watchNestedRunLoops(opening: false)
-                _ = report(dispatch)
-            } else if let outer = stack.indices.last {
-                stack[outer].expectsFrame = stack[outer].expectsFrame || dispatch.expectsFrame
-            }
-        }
+        defer { endDispatch() }
         return try body()
+    }
+
+    /// Closes the innermost dispatch ``dispatching(_:_:)`` opened: its scroll frame, its report, or its frame
+    /// expectation handed to the outer one.
+    private func endDispatch() {
+        guard let dispatch = stack.popLast() else { return }
+        if dispatch.isScroll { scrollFrames.end(target: dispatch.layoutTook ? .layout : .content) }
+        if dispatch.isDiscrete {
+            _ = report(dispatch)
+            watchNestedRunLoops(opening: false)
+        } else if let outer = stack.indices.last {
+            stack[outer].expectsFrame = stack[outer].expectsFrame || dispatch.expectsFrame
+        }
     }
 
     /// A run loop nested in the open discrete inputs' dispatch is about to wait: its render pass draws what they
@@ -176,9 +225,11 @@ public final class InputDispatchContext {
             }
             CFRunLoopAddObserver(CFRunLoopGetMain(), observer, CFRunLoopMode.commonModes)
             nestedRunLoopObserver = observer
+            discreteDispatch(true)
         } else if !opening, openDiscrete == 0, let observer = nestedRunLoopObserver {
             CFRunLoopObserverInvalidate(observer)
             nestedRunLoopObserver = nil
+            discreteDispatch(false)
         }
     }
 }

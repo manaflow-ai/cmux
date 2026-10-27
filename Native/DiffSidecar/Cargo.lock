@@ -137,8 +137,25 @@ dependencies = [
 name = "cmux-git"
 version = "0.1.0"
 dependencies = [
+ "cmux-process",
+ "cmux-threads",
+ "libc",
+]
+
+[[package]]
+name = "cmux-process"
+version = "0.1.0"
+dependencies = [
+ "cmux-threads",
  "libc",
  "wait-timeout",
+]
+
+[[package]]
+name = "cmux-threads"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

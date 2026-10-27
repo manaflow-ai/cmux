@@ -3,15 +3,17 @@
 //! The daemon should be able to say where its time goes without an operator
 //! sampling it from outside. This module holds the counters that
 //! `server-stats` reports: log-linear latency histograms, registry lock
-//! contention with holder attribution, journal writer batch metrics, and
-//! connection admission. Recording is lock-free except for the holder table,
+//! contention with holder attribution, per-class lock wait and hold (lock
+//! admission), journal writer batch metrics, and connection admission. Recording is lock-free except for the holder table,
 //! which is held for nanoseconds, so the overhead stays far below the
 //! millisecond-scale critical sections it measures.
 
 use std::collections::HashMap;
 use std::panic::Location;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
+
+use cmux_trace::metrics::MetricsStore;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -22,6 +24,39 @@ mod resource_projection;
 pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
+mod ipc;
+pub(crate) use ipc::note_json_parse;
+pub use ipc::{
+    CountedWrite, IpcKindSnapshot, IpcParseSnapshot, IpcParsesSnapshot, IpcSnapshot, IpcStats,
+    IpcStreamsSnapshot, IpcTransport, IpcWritesSnapshot, JsonParseScope, OpenStream,
+    WRITE_STALL_THRESHOLD,
+};
+mod owner_panic_log;
+#[cfg(debug_assertions)]
+pub use owner_panic_log::spawn_owner_hang_test;
+pub use owner_panic_log::{owner_hang_log_path, owner_log_dir, owner_panic_log_path};
+mod diagnostic_sites;
+pub use diagnostic_sites::{DiagnosticSite, DiagnosticSites, MAX_DIAGNOSTIC_SITES};
+mod slow_requests;
+pub use cmux_tui_util::hang_watch::{HangRecord, HangsSnapshot};
+pub use slow_requests::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
+mod method_latency;
+pub use method_latency::{MethodLatencySnapshot, MethodLatencyStats, MethodName, MethodSample};
+mod requests;
+pub use requests::{REQUEST_CLASSES, RequestLatencySnapshot, RequestStats, RequestStatsSnapshot};
+mod daemon_locks;
+pub use daemon_locks::{
+    CallerLockSnapshot, DaemonLockTable, LOCK_OPS, LockCaller, LockCallerCell, LockCallerScope,
+    LockHistogramSnapshot, LockOp, LockOpScope, LockScope, LockScopeGuard, LockTableSnapshot,
+    OpLockSnapshot,
+};
+pub(crate) use daemon_locks::{LockSlot, lock_clock, timed_acquire};
+#[cfg(test)]
+pub(crate) use daemon_locks::{lock_clock_reads, on_contended_lock};
+#[cfg(test)]
+mod bucket_golden_tests;
+mod persist;
+pub use persist::{DAEMON_CATALOG, DaemonMetrics, daemon_header, metrics_dir};
 mod write_path;
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};
@@ -42,11 +77,17 @@ const TOP_SITES: usize = 8;
 /// Log-linear histogram over `u64` samples. Each power of two is split into
 /// four linear sub-buckets, so any percentile it reports is the upper bound
 /// of a bucket at most 25% above the true sample.
+///
+/// [`Self::persist_into`] moves its counts into a histogram of the process's
+/// metrics file (`persist.rs`): records then go there and snapshots read
+/// them back, so `server-stats` and a reader of the file see the same memory.
 pub struct LogLinearHistogram {
     buckets: Box<[AtomicU64]>,
     count: AtomicU64,
     sum: AtomicU64,
     max: AtomicU64,
+    /// Set once by [`Self::persist_into`]; one acquire load per record.
+    persisted: OnceLock<persist::PersistedSlot>,
 }
 
 impl Default for LogLinearHistogram {
@@ -62,10 +103,11 @@ impl LogLinearHistogram {
             count: AtomicU64::new(0),
             sum: AtomicU64::new(0),
             max: AtomicU64::new(0),
+            persisted: OnceLock::new(),
         }
     }
 
-    fn bucket_index(value: u64) -> usize {
+    pub(crate) fn bucket_index(value: u64) -> usize {
         if value < SUB_BUCKETS as u64 {
             return value as usize;
         }
@@ -75,7 +117,7 @@ impl LogLinearHistogram {
     }
 
     /// Largest value that lands in `index`.
-    fn bucket_upper_bound(index: usize) -> u64 {
+    pub(crate) fn bucket_upper_bound(index: usize) -> u64 {
         if index < SUB_BUCKETS {
             return index as u64;
         }
@@ -88,44 +130,135 @@ impl LogLinearHistogram {
     }
 
     pub fn record(&self, value: u64) {
+        self.max.fetch_max(value, Ordering::Relaxed);
+        if let Some(slot) = self.persisted.get() {
+            slot.record(value);
+            return;
+        }
         self.buckets[Self::bucket_index(value)].fetch_add(1, Ordering::Relaxed);
         self.count.fetch_add(1, Ordering::Relaxed);
         let _ = self.sum.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |sum| {
             Some(sum.saturating_add(value))
         });
-        self.max.fetch_max(value, Ordering::Relaxed);
+    }
+
+    /// Records into histogram `index` of `store` from now on and adds the
+    /// counts recorded so far into it (a record racing the move may be lost,
+    /// as in the Swift store's adoption). False when it was persisted already,
+    /// or `index` is not a log-linear histogram of `store`.
+    pub fn persist_into(&self, store: &Arc<MetricsStore>, index: usize) -> bool {
+        let Some(slot) = persist::PersistedSlot::new(store, index) else { return false };
+        if self.persisted.set(slot).is_err() {
+            return false;
+        }
+        if let Some(slot) = self.persisted.get() {
+            for (bucket, counter) in self.buckets.iter().enumerate() {
+                let samples = counter.swap(0, Ordering::Relaxed);
+                if samples != 0 {
+                    slot.add_heap_bucket(bucket, samples);
+                }
+            }
+            let sum = self.sum.swap(0, Ordering::Relaxed);
+            slot.add_heap_sum(sum);
+            self.count.store(0, Ordering::Relaxed);
+        }
+        true
     }
 
     pub fn record_duration(&self, duration: Duration) {
         self.record(u64::try_from(duration.as_micros()).unwrap_or(u64::MAX));
     }
 
+    /// The bucket counts, their sum and the samples' sum, read once: from the
+    /// metrics file once persisted.
+    fn counts(&self) -> Counts {
+        if let Some(slot) = self.persisted.get() {
+            return slot.counts(self.max.load(Ordering::Relaxed));
+        }
+        let buckets: Vec<u64> = self.buckets.iter().map(|b| b.load(Ordering::Relaxed)).collect();
+        let count = buckets.iter().sum();
+        Counts { buckets, count, sum: self.sum.load(Ordering::Relaxed), file_layout: None, max: 0 }
+    }
+
     pub fn snapshot(&self) -> HistogramSnapshot {
-        let counts: Vec<u64> = self.buckets.iter().map(|b| b.load(Ordering::Relaxed)).collect();
-        let count: u64 = counts.iter().sum();
-        let percentile = |fraction: f64| -> u64 {
-            if count == 0 {
-                return 0;
-            }
-            let rank = ((count as f64) * fraction).ceil().max(1.0) as u64;
-            let mut seen = 0;
-            for (index, bucket) in counts.iter().enumerate() {
-                seen += bucket;
-                if seen >= rank {
-                    return Self::bucket_upper_bound(index);
-                }
-            }
-            Self::bucket_upper_bound(BUCKETS - 1)
-        };
-        HistogramSnapshot {
-            count,
-            mean: self.sum.load(Ordering::Relaxed).checked_div(count).unwrap_or(0),
+        self.snapshot_with_p95().0
+    }
+
+    /// [`Self::snapshot`] and the p95 from the same bucket counts.
+    pub fn snapshot_with_p95(&self) -> (HistogramSnapshot, u64) {
+        let counts = self.counts();
+        let snapshot = HistogramSnapshot {
+            count: counts.count,
+            mean: counts.sum.checked_div(counts.count).unwrap_or(0),
             max: self.max.load(Ordering::Relaxed),
-            p50: percentile(0.50),
-            p90: percentile(0.90),
-            p99: percentile(0.99),
+            p50: counts.percentile(0.50),
+            p90: counts.percentile(0.90),
+            p99: counts.percentile(0.99),
+        };
+        (snapshot, counts.percentile(0.95))
+    }
+
+    /// p50, p95, p99 and max, the distribution every perf claim gives
+    /// (bucket upper bounds, as [`Self::snapshot`]).
+    pub fn percentiles(&self) -> PercentilesSnapshot {
+        let counts = self.counts();
+        PercentilesSnapshot {
+            count: counts.count,
+            p50: counts.percentile(0.50),
+            p95: counts.percentile(0.95),
+            p99: counts.percentile(0.99),
+            max: self.max.load(Ordering::Relaxed),
         }
     }
+}
+
+/// A histogram's buckets read at one moment.
+struct Counts {
+    buckets: Vec<u64>,
+    count: u64,
+    sum: u64,
+    /// The metrics file's layout of `buckets`; None for the heap's 256
+    /// log-linear buckets.
+    file_layout: Option<cmux_trace::metrics::Layout>,
+    /// The largest sample: the file's overflow bucket has no upper bound.
+    max: u64,
+}
+
+impl Counts {
+    /// The upper bound of the bucket that holds the sample of rank
+    /// `ceil(count * fraction)`; 0 for no samples.
+    fn percentile(&self, fraction: f64) -> u64 {
+        if self.count == 0 {
+            return 0;
+        }
+        let rank = ((self.count as f64) * fraction).ceil().max(1.0) as u64;
+        let mut seen = 0;
+        for (index, bucket) in self.buckets.iter().enumerate() {
+            seen += bucket;
+            if seen >= rank {
+                return self.upper_bound(index);
+            }
+        }
+        self.upper_bound(self.buckets.len().saturating_sub(1))
+    }
+
+    fn upper_bound(&self, index: usize) -> u64 {
+        match self.file_layout {
+            None => LogLinearHistogram::bucket_upper_bound(index),
+            Some(layout) => layout.bucket_upper_bound(index).unwrap_or(self.max),
+        }
+    }
+}
+
+/// A [`LogLinearHistogram`]'s p50, p95, p99 and max; percentiles are bucket
+/// upper bounds, so a reader on another clock agrees within one bucket.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct PercentilesSnapshot {
+    pub count: u64,
+    pub p50: u64,
+    pub p95: u64,
+    pub p99: u64,
+    pub max: u64,
 }
 
 /// Percentiles are bucket upper bounds; see [`LogLinearHistogram`]. Units are
@@ -192,8 +325,17 @@ impl LockStats {
         self.holder.lock().unwrap_or_else(|e| e.into_inner()).map(|holder| holder.site)
     }
 
-    pub fn acquired(&self, site: LockSite, waited: Duration, blocker: Option<LockSite>) {
+    /// `at` is when the lock was acquired (the caller's clock read, so this
+    /// reads none).
+    pub fn acquired(
+        &self,
+        site: LockSite,
+        waited: Duration,
+        blocker: Option<LockSite>,
+        at: Instant,
+    ) {
         self.wait.record_duration(waited);
+        cmux_threads::note_thread_lock_wait(waited);
         if waited >= Duration::from_micros(500) {
             crate::debug_spans::mark_with(|| {
                 format!("lock.wait {}:{} {}us", site.file(), site.line(), waited.as_micros()).into()
@@ -207,13 +349,13 @@ impl LockStats {
             *self.last_stall.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some(Stall { waiter: site, blocker, waited });
         }
-        *self.holder.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(Holder { site, since: Instant::now() });
+        *self.holder.lock().unwrap_or_else(|e| e.into_inner()) = Some(Holder { site, since: at });
     }
 
     /// Record a wait that ended without acquiring the mutex.
     pub fn wait_failed(&self, site: LockSite, waited: Duration, blocker: Option<LockSite>) {
         self.wait.record_duration(waited);
+        cmux_threads::note_thread_lock_wait(waited);
         if waited >= LOCK_CONTENDED_THRESHOLD {
             self.contended.fetch_add(1, Ordering::Relaxed);
         }
@@ -308,6 +450,103 @@ pub struct LockSiteSnapshot {
     pub acquisitions: u64,
     pub hold_total_us: u64,
     pub hold_max_us: u64,
+}
+
+/// Wait and hold of one class of callers on one lock.
+#[derive(Default)]
+struct LockClassHistograms {
+    wait: LogLinearHistogram,
+    hold: LogLinearHistogram,
+}
+
+impl LockClassHistograms {
+    fn snapshot(&self) -> LockClassSnapshot {
+        let (wait_us, wait_p95_us) = self.wait.snapshot_with_p95();
+        LockClassSnapshot { wait_us, wait_p95_us, hold_us: self.hold.snapshot() }
+    }
+}
+
+/// Per-class wait and hold of one lock that admits by class
+/// (`server::priority_gate`), plus how often automation yielded.
+#[derive(Default)]
+pub struct LockClassStats {
+    frontend: LockClassHistograms,
+    program: LockClassHistograms,
+    automation: LockClassHistograms,
+    automation_yields: AtomicU64,
+    automation_due_admissions: AtomicU64,
+}
+
+impl LockClassStats {
+    fn class(&self, cause: crate::event_cause::EventCause) -> &LockClassHistograms {
+        use crate::event_cause::EventCause;
+        match cause {
+            EventCause::Frontend => &self.frontend,
+            EventCause::Program => &self.program,
+            EventCause::Automation => &self.automation,
+        }
+    }
+
+    pub(crate) fn waited(&self, cause: crate::event_cause::EventCause, waited: Duration) {
+        self.class(cause).wait.record_duration(waited);
+    }
+
+    pub(crate) fn held(&self, cause: crate::event_cause::EventCause, held: Duration) {
+        self.class(cause).hold.record_duration(held);
+    }
+
+    /// An automation caller found a frontend caller waiting and yielded.
+    pub(crate) fn automation_yielded(&self) {
+        self.automation_yields.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// A yielding automation caller's admission came due while frontend
+    /// callers still waited.
+    pub(crate) fn automation_admitted_while_yielding(&self) {
+        self.automation_due_admissions.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn snapshot(&self) -> LockClassesSnapshot {
+        LockClassesSnapshot {
+            frontend: self.frontend.snapshot(),
+            program: self.program.snapshot(),
+            automation: self.automation.snapshot(),
+            automation_yields: self.automation_yields.load(Ordering::Relaxed),
+            automation_due_admissions: self.automation_due_admissions.load(Ordering::Relaxed),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct LockClassSnapshot {
+    pub wait_us: HistogramSnapshot,
+    /// The p95 of `wait_us`, a bucket upper bound like the others.
+    pub wait_p95_us: u64,
+    pub hold_us: HistogramSnapshot,
+}
+
+/// One lock's acquisitions by class: `frontend` (the verified app for the
+/// person), `program` (terminal output, hooks, the journal writer) and
+/// `automation` (agents, scripts, the CLI, pages).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct LockClassesSnapshot {
+    pub frontend: LockClassSnapshot,
+    pub program: LockClassSnapshot,
+    pub automation: LockClassSnapshot,
+    /// Automation acquisitions that found a frontend caller waiting and
+    /// yielded to it.
+    pub automation_yields: u64,
+    /// Yielding automation callers let through because their admission
+    /// came due (at least one every 4 ms) while frontends still waited.
+    pub automation_due_admissions: u64,
+}
+
+/// The `lock_classes` section of `server-stats`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct DaemonLockClassesSnapshot {
+    pub registry: LockClassesSnapshot,
+    pub registry_connection: LockClassesSnapshot,
+    pub state: LockClassesSnapshot,
 }
 
 const WRITER_IDLE: u8 = 0;
@@ -549,6 +788,38 @@ pub struct ServerStatsSnapshot {
     /// Present only when the request names `write_path` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub write_path: Option<WritePathSnapshot>,
+    /// Present only when the request names `request_path_io` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_path_io: Option<crate::request_path::RequestPathIoSnapshot>,
+    /// Present only when the request names `slow_requests` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slow_requests: Option<SlowRequestsSnapshot>,
+    /// Arrival to reply queued by request class; present only when the
+    /// request names `requests` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_latency_us: Option<RequestLatencySnapshot>,
+    /// Parse to handler start, every class (`daemon.dispatch.queue_us`);
+    /// present only when the request names `requests` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dispatch_queue_us: Option<HistogramSnapshot>,
+    /// Wait and hold by class on the registry, registry connection and
+    /// state locks; present only when the request names `lock_classes`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lock_classes: Option<DaemonLockClassesSnapshot>,
+    /// Streams, sequence depths, messages and bytes by kind, parses per
+    /// request, write syscalls and stalls and bad_message closes; present
+    /// only when the request names `ipc` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ipc: Option<IpcSnapshot>,
+    /// Request latency, handler time and lock wait by method; present only
+    /// when the request names `ipc_methods` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ipc_methods: Option<Vec<MethodLatencySnapshot>>,
+    /// Watched scopes of every kind (requests, journal commits, holder-link
+    /// frames, echo items) busy past 250 ms: the count since daemon start
+    /// and the newest records; present only when the request names `hangs`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hangs: Option<HangsSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

@@ -1,0 +1,20 @@
+{
+  "id": "new-browser-tab",
+  "tier": "T1",
+  "description": "New Chromium tab (cef-tab-bench.py): Cmd-Shift-L and openBrowser with a page, in a pane with and without a Chromium window, input to the frame that shows the tab, to its toolbar and page view, and to the page's first pixels, light session. The WebKit arm is new-browser-tab-webkit.",
+  "command": ["scripts/cmux-next/cef-tab-bench.py", "--sessions", "light",
+              "--cases", "cold_pane,warm_pane,second_pane,third_pane,url_warm,url_cold", "--rounds", "6"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "new_browser_tab\\.light\\.[a-z_]+\\.(visible|chrome|page|key_ms)", "unit": "ms", "better": "lower"},
+    {"name": "new_browser_tab\\.light\\.[a-z_]+\\.visible_frame", "unit": "count", "better": "lower"},
+    {"name": "new_browser_tab\\.light\\.[a-z_]+\\.[a-z_]+\\.missed_runs", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 150,
+  "needs": ["debug:debug.new_tab", "debug:debug.key", "debug:debug.surfaces"],
+  "owner": "PL-cef-tab",
+  "component": "Browser>NewTab"
+}

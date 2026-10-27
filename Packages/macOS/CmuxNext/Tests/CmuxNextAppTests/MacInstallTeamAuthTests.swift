@@ -1,5 +1,6 @@
 import CmuxInstallAuthCore
 import CmuxNextCloud
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -7,7 +8,7 @@ import Testing
     private let team = "team_" + String(repeating: "a", count: 20)
 
     private func make(_ owner: MacTeamAuthOwner, root: URL) -> MacInstallIdentity {
-        MacInstallIdentity(store: .files(directory: root), transport: owner, deviceName: "Test Mac", clientVersion: "2.4.0")
+        MacInstallIdentity(store: .files(directory: root, work: BackgroundWork(cpuWidth: 1, label: "test.install-signer")), transport: owner, deviceName: "Test Mac", clientVersion: "2.4.0")
     }
 
     @Test func teamTokensReuseTheActualMacSignerAndKeepThePersonalToken() async throws {

@@ -12,7 +12,7 @@
 mod entry;
 mod error;
 mod listing;
-mod ops;
+pub(crate) mod ops;
 mod resolve;
 pub mod stream;
 mod sweep;
@@ -58,8 +58,13 @@ pub fn advertised() -> Option<&'static str> {
 /// The `cmd` of `line` when it is one of [`FS_COMMANDS`], exactly.
 #[must_use]
 pub fn frame_command(line: &str) -> Option<&'static str> {
-    let value: serde_json::Value = serde_json::from_str(line).ok()?;
-    let object = value.as_object()?;
+    let value: serde_json::Value = crate::line_parses::parse(line).ok()?;
+    object_command(value.as_object()?)
+}
+
+/// [`frame_command`] of a frame already decoded to its object.
+#[must_use]
+pub fn object_command(object: &serde_json::Map<String, serde_json::Value>) -> Option<&'static str> {
     // A frame with `protocol` goes to the resource router, never to the
     // fs adapter: it is not an fs frame.
     if object.contains_key("protocol") {

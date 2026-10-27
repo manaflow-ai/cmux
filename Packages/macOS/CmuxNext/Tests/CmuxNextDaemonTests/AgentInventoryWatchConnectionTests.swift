@@ -7,7 +7,7 @@ import Testing
 struct AgentInventoryWatchConnectionTests {
     private struct CapturedWatchCalls: DaemonRequest {
         typealias Response = JSONValue
-        static let command = "test-watch-calls"
+        static let commandName: DaemonCommandName = "test-watch-calls"
     }
 
     @Test(arguments: [false, true])

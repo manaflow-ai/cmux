@@ -1,4 +1,5 @@
 public import CmuxHomeCore
+import CmuxNextCompat
 public import CmuxNextDaemon
 public import CmuxNextHome
 public import Foundation
@@ -18,7 +19,7 @@ public final class HomePinStore {
     }
 
     func pins(account: String) -> HomePins {
-        guard let data = defaults.data(forKey: Self.key(account)), let pins = try? JSONDecoder().decode(HomePins.self, from: data) else {
+        guard let data = defaults.data(forKey: Self.key(account)), let pins = try? JSONDecoder().blockingDecode(HomePins.self, from: data) else {
             return HomePins()
         }
         return pins
@@ -37,7 +38,7 @@ public final class HomePinStore {
     /// beside the pins until the proxy forwards it.
     func unreadMarks(account: String) -> Set<ConversationID> {
         guard let data = defaults.data(forKey: Self.marksKey(account)),
-              let marks = try? JSONDecoder().decode(Set<ConversationID>.self, from: data) else { return [] }
+              let marks = try? JSONDecoder().blockingDecode(Set<ConversationID>.self, from: data) else { return [] }
         return marks
     }
 

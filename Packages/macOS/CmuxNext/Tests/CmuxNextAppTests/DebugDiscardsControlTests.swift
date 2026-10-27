@@ -25,7 +25,7 @@ struct DebugDiscardsControlTests {
     @Test func releaseBuildsServeTheReportAndTheKindParameterFilters() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), lowPower: LowPowerMode(enabled: false))
+        let hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines)
         services.cache.hibernation = hibernation
         hibernation.noteDiscard(.hidden("tab-page", .browser))
         hibernation.noteDiscard(.hidden("tab-chat", .agentPage))

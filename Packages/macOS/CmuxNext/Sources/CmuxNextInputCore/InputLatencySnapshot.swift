@@ -3,16 +3,18 @@
 ///
 /// Fields: `bucket_edges_ms`, `slots_received`, `slots_without_frame_update` (non-key slots dropped
 /// as Chrome drops events with no `caused_frame_update`), `slots_dropped` (lost before the ledger:
-/// ring, table or hand-off), `rows` (per kind, target, entrypoint and presentation source: `count`,
+/// ring, table or hand-off), `rows` (per kind, target, entrypoint, presentation source and display: `count`,
 /// `total`, `stages`; the most frequent first) and `scroll_jank` (frame counts and Chrome's
 /// `Event.ScrollJank.*` histograms). Enum case names only: no user text.
 public struct InputLatencySnapshot: Sendable, Equatable, Codable {
-    /// One row: a kind, target, entrypoint and presentation source.
+    /// One row: a kind, target, entrypoint, presentation source and display.
     public struct Row: Sendable, Equatable, Codable {
         public var kind: String
         public var target: String
         public var entrypoint: String
         public var presentationSource: String
+        /// The display the row's inputs were presented on.
+        public var display: InputDisplayClass
         /// Slots counted.
         public var count: UInt64
         /// Oldest OS event to presented frame.
@@ -20,19 +22,21 @@ public struct InputLatencySnapshot: Sendable, Equatable, Codable {
         /// The stages some slot reached, in declaration order: the time since the stage before.
         public var stages: [Stage]
 
-        public init(kind: String, target: String, entrypoint: String, presentationSource: String, count: UInt64,
-                    total: InputLatencyHistogramSnapshot, stages: [Stage]) {
+        public init(kind: String, target: String, entrypoint: String, presentationSource: String,
+                    display: InputDisplayClass = .unknown, count: UInt64, total: InputLatencyHistogramSnapshot,
+                    stages: [Stage]) {
             self.kind = kind
             self.target = target
             self.entrypoint = entrypoint
             self.presentationSource = presentationSource
+            self.display = display
             self.count = count
             self.total = total
             self.stages = stages
         }
 
         private enum CodingKeys: String, CodingKey {
-            case kind, target, entrypoint, count, total, stages
+            case kind, target, entrypoint, display, count, total, stages
             case presentationSource = "presentation_source"
         }
     }

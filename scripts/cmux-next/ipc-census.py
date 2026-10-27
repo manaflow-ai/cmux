@@ -25,7 +25,9 @@ Refinements over the raw queries (each is stated on its queue):
       browser host, the control socket, Tasks) and LineTransport's own connect are allowlisted
       in ipc-targets.json with their reason, so the census still sees each one.
   Q8  thread name sites in cmux-tui/crates (tests dropped) whose spawned body does not begin with
-      `cmux_tui_platform::qos::set_current`, plus journal writers spawned by name. The body is the
+      `cmux_tui_platform::qos::set_current` (or `cmux_threads::set_current`, `thread_qos::set`, or
+      the `registry::register_current` of `cmux_threads::spawn`, which sets the declared QoS before
+      the closure runs), plus journal writers spawned by name. The body is the
       `.spawn(` of the name's own builder chain (or of the `let` that holds the builder). A
       `.name(var)` of a thread builder counts too: the variable resolves through its `let`, a
       `for` loop over literals, or the arguments callers pass for a parameter; a name the census
@@ -74,6 +76,9 @@ RUST_CRATES = "cmux-tui/crates/*.rs"
 SCHEMA = "cmux-tui/spec/sdk-schema.json"
 EVENT_DECODER = f"{APP}/CmuxNextDaemon/Events/DaemonEvent+Decoding.swift"
 SERVER = f"{CORE}/server.rs"
+# Families whose Command variants cmux-ipc build.rs generates (p05-ipc-026); Q15 counts only
+# the hand-written ones.
+SERVER_FAMILIES = "cmux-tui/crates/cmux-ipc/server-families.json"
 RESOURCE_WIRE_NAMES = f"{CORE}/resource/wire_name.rs"
 RUST_NOT_TESTS = (":!*tests*", ":!*_tests.rs")
 QUEUE_IDS = tuple(f"Q{n}" for n in range(1, 19))
@@ -892,7 +897,13 @@ class Census:
         r'|spawn_journal_writer\("'
     )
     Q8_PATHS = (RUST_CRATES, *RUST_NOT_TESTS)
-    Q8_QOS = re.compile(r"\s*(?:cmux_tui_platform::)?qos::set_current\b")
+    # The QoS call a thread body begins with: the spec's `qos::set_current`, cmux-threads'
+    # `set_current`, `thread_qos::set`, or the registration `cmux_threads::spawn` makes before it
+    # runs the closure (registry.rs `register_current` sets the declared QoS).
+    Q8_QOS = re.compile(
+        r"\s*(?:(?:cmux_tui_platform::)?qos::set_current|cmux_threads::set_current|(?:crate::)?thread_qos::set"
+        r"|registry::register_current)\b"
+    )
     Q8_LITERAL_SITE = re.compile(r"\.name\(\s*(?:format!\(\s*)?" + Q8_NAME + r"|spawn_journal_writer\(\s*" + Q8_NAME)
     Q8_VARIABLE = r"&?\s*([a-z_][a-z0-9_]*)\s*(?:\.\s*(?:into|to_string|to_owned|clone)\s*\(\s*\)\s*)?"
     Q8_VARIABLE_SITE = re.compile(r"\.name\(\s*" + Q8_VARIABLE + r"\)")
@@ -1120,7 +1131,7 @@ class Census:
             if self.result("Q9").count:
                 return ["ipc5_ops is empty, so Q18 keeps every sqlite site; list the IPC-5 ops (p05-ipc.md section 5)"]
             return []
-        variants = {wire for wire, _ in self.command_variants()}
+        variants = {wire for wire, _ in self.command_variants()} | self.generated_commands()
         resource = self.repo.text(RESOURCE_WIRE_NAMES)
         return [
             f"ipc5_ops {op}: not a daemon Command variant or a v2 operation of {RESOURCE_WIRE_NAMES}"
@@ -1249,6 +1260,17 @@ class Census:
                 continue
             k += 1
         return variants
+
+    def generated_commands(self) -> set[str]:
+        """Commands of the families SERVER_FAMILIES lists: served by generated variants."""
+        text = self.repo.text(SERVER_FAMILIES)
+        listed = set(json.loads(text).get("families") or []) if text else set()
+        ids = {family_id for family_id, name in self.families().items() if name in listed}
+        return {
+            wire
+            for wire, command in self.schema().get("commands", {}).items()
+            if isinstance(command.get("method_id"), int) and command["method_id"] >> 8 in ids
+        }
 
     def q15(self) -> Result:
         commands = self.schema().get("commands", {})

@@ -57,6 +57,7 @@ Related: `perf-lead.md` (the lab numbers these reports check in the field),
 | MetricKit `MXAnimationMetric` | scroll hitch ratio, hitch ratio (macOS 26) | none |
 | MetricKit `MXSignpostMetric` | duration histograms and hitch ratio of allowlisted Release intervals (below) | none: aggregated by the OS |
 | `MainThreadWatchdog` (in process) | each finished stall over 50 ms into a duration histogram; the stacks of the 8 longest stalls of 250 ms and more; each 2 s hang's stack | one lock and a few integer adds per finished stall, on the stall's own end; nothing while the app is idle |
+| `InputLatencyReporter` field report (in process, p04-input-010; schema 3) | input latency histograms per kind, target, entrypoint, presentation source and display (refresh rate, whether it varies); Chrome's scroll jank counts | while on, a second `InputLatencyLedger` folds the same closed-slot batches on the reporter's utility reader; nothing on the main thread, nothing while idle |
 
 `MXAppLaunchDiagnostic` is iOS only (`API_UNAVAILABLE(macos)` in the macOS 26 SDK): launch on
 the Mac is the launch metric histograms plus watchdog stalls during launch.
@@ -118,7 +119,7 @@ URLs, host names, tokens and environment text, and check that no planted string 
 encoded report, that third-party frames lose their name, UUID and offset, and that the scanner
 refuses a report that carries one.
 
-## 4. Wire format (schema 2)
+## 4. Wire format (schema 2; schema 3 adds blocking sites)
 
 `POST https://cmux.com/api/hang-reports`, `content-type: application/json`, body at most 64 KiB,
 user agent `cmux-hang-reports/1`. Answers: `204` stored (or a duplicate `reportId`), `400`
@@ -166,6 +167,116 @@ endpoint opens. The client also drops a queued body whose schema or app is not i
 `hardware.chip` is a closed set (`Apple M<n>[ Pro| Max| Ultra]`, `Intel`, `other`) and
 `hardware.memoryGB` one of the sizes in `HardwareClass.memorySizesGB`, on both sides.
 
+### Input latency (p04-input-010)
+
+Chrome reads input latency in the field as distributions, never as single events (the
+`EventLatency.*` and `Event.ScrollJank.*` UMA histograms; cc/metrics/event_metrics.h,
+cc/metrics/scroll_jank_dropped_frame_tracker.cc). A schema-3 report carries the same, from the
+`InputLatencyReporter` field ledger (p04-input-002), in three optional keys that are present
+together or all absent (absent: no input was counted since the last report, or the report is
+schema 2). They use the snake_case names of `debug.input` and the trace tools:
+
+```json
+{
+  "input_latency_bucket_edges_ms": [1, 2, 4, 6, 8.3, 10, 12, 16.7, 24, 33, 50, 100, 250],
+  "input_latency": [
+    {"kind": "keyPress", "target": "terminal", "entrypoint": "person",
+     "presentation_source": "estimatedVsync", "display": {"refresh_hz": 120, "vrr": true},
+     "count": 940, "buckets": [0, 3, 120, 400, 300, 80, 20, 10, 5, 1, 1, 0, 0, 0], "max_ms": 41.25}
+  ],
+  "scroll_jank": {"presented_frames": 640, "delayed_frames": 9, "skipped_frames": 12,
+                  "histograms": [{"name": "Event.ScrollJank.DelayedFramesPercentage.FixedWindow",
+                                  "samples": [{"value": 0, "count": 7}, {"value": 4, "count": 3}]}]}
+}
+```
+
+- `input_latency_bucket_edges_ms`: the upper edges of the buckets (`InputLatencyBuckets`), in
+  milliseconds; 8.3 and 16.7 are one frame at 120 and 60 Hz.
+- `input_latency[]`: at most 64 rows, the most frequent first. `kind` is an `InputEventKind`
+  case name (`keyPress`, `keyRelease`, `flags`, `mousePress`, `mouseRelease`, `pointerMove`,
+  `drag`, `scrollBegin`, `scrollFirstUpdate`, `scrollUpdate`, `scrollMomentum`, `scrollEnd`,
+  `magnify`), `target` an `InputTarget` (`terminal`, `textView`, `chromiumPage`, `webkitPage`,
+  `agentPane`, `layout`, `sidebar`, `palette`, `other`), `entrypoint` `person` or `automation`,
+  `presentation_source` an `InputPresentationSource` (`estimatedVsync`, `metalPresented`,
+  `hostFeedback`, `pageEstimated`). `display` is the display the row's inputs were presented on
+  (`InputDisplayClass`, from each batch): `refresh_hz` its highest refresh rate in whole hertz,
+  0 when unknown (above 1000 is sent as 0), and `vrr` true when the rate varies (ProMotion,
+  adaptive sync), where `estimatedVsync` times are less exact. Inputs on a 120 Hz ProMotion
+  panel and on a 60 Hz external display are different rows. `buckets` has one count per edge,
+  then one count over the last edge (14 entries); bucket `i` counts latencies in
+  (edge[i-1], edge[i]]. `count` is the sum of `buckets`: the inputs that reached a presented
+  frame (oldest OS event to presented frame). `max_ms` is the longest, two decimals, at most one
+  day. A row whose label is not one of these case names, or whose bucket count differs, is left
+  out.
+- `scroll_jank`: the person's scroll frames as Chrome counts them: `presented_frames`,
+  `delayed_frames` (janky: the gap to the previous presentation is over 1.5 vsyncs and the
+  input was there before it; at most `presented_frames`), `skipped_frames` (a scroll's first
+  frame, out of order or inconsistent times). `histograms[]` lists only emitted ones by Chrome's
+  name (`Event.ScrollJank.DelayedFramesPercentage.FixedWindow`, `.MissedVsyncsSum.FixedWindow`,
+  `.MissedVsyncsMax.FixedWindow` and the three `.PerScroll`), in that order, each value with how
+  often it was emitted; a percentage is at most 100, a missed vsync count at most 50 (Chrome's
+  `kVsyncCountsMax`).
+
+Nothing else: no event time, no key, no character, no coordinate, no window, no title. Every
+string is an enum case name or a Chrome histogram name. The leak scan skips the personal-term
+check only for a value that is exactly a member of its own field's closed set
+(`PrivacyLeakScanner.closedSetValues`); every other string, image names included, keeps the
+full term list, so a person named Mina still makes a `MinaTools.dylib` frame `other`.
+
+The field ledger is the reporter's own (`debug.input reset` never changes what a report says)
+and follows the report's on/off state: `HangReportService.setEnabled` calls
+`HangReportInputLatencySource.setRecording`, so off drops every count not yet sent and nothing
+recorded while reports were off or not allowed goes out later. A report takes counts as deltas,
+the way UMA uploads histogram deltas (base/metrics/histogram_snapshot_manager.cc): the rows,
+counters and emitted histograms move out, while the scroll in progress, its last presentation
+and the fixed window not yet full stay, so a scroll that spans two reports is measured as one
+(`InputLatencyLedger.takeCounts()`). Taken counts are held until the report is queued
+(`commit()`); a report dropped by the daily cap, an off switch, the size cap or the leak scan
+gives them to the next one. View Hang Report's preview reads `preview()`, which takes nothing,
+so the preview has the same keys as the next send. A report over the body cap drops input
+latency first (the least frequent rows, then the scroll jank histograms, then the whole block),
+so hangs keep the room they had before input latency existed.
+
+**Server first.** The route rejects unknown keys and other schema numbers. The input fields are
+schema 3 only (`HangReport.WireSchema.carriesInputLatency`): a schema-2 build neither records
+nor sends them. p09-observability-064 adds the schema-3 decoder, p04-input-103 adds these keys
+to it (closed literal sets, the same limits, a fixture byte-identical to the Swift golden), and
+p04-input-104 wires the reporter in behind the default-off feature `hangReportInputLatency` and
+063's server-version flag.
+
+**Schema 3 (blocking call sites, p02-threads-008).** Schema 3 also carries the blocking
+detector's call sites (`base::ScopedBlockingCall`'s copy, plans/cmux-next/threading-model.md).
+A site is one entry of `hangs`, before the timed ones (so the 64 KiB cut, which drops from the
+end, takes the shortest stall first), at most 8 per report:
+
+```json
+{"source": "detector", "kind": "blocking", "durationMs": 0,
+ "blocking": {"kind": "file-io", "context": "main"},
+ "frames": [{"image": "cmux NEXT Nightly", "uuid": "3F0C...", "offset": 768}, {"image": "other"}]}
+```
+
+`source` adds `detector` and `kind` adds `blocking`; `blocking` is present exactly when the source
+is `detector` and the kind `blocking`, and then `durationMs` is 0 (the detector reports the site,
+not its time). `blocking.kind` is a `BlockingKind` raw value (`file-io`, `socket-read`,
+`socket-write`, `sync-wait`, `ipc-reply`, `process-wait`, `process-spawn`, `lock-wait`,
+`system-call`, ...: the Swift enum is the list) and `blocking.context` a `BlockingContext` raw value
+(`main`, `pool`, `lane`, `dedicated`, `cpu-lane`), both closed sets with no other keys. The detector's frames
+are at most 8, image UUID + offset, classified as every other frame.
+
+Order of the change: the server accepts schema 2 and 3 first (`web/services/hangReports/wireSchema.ts`,
+its schema 3 fixture next to `hang-report-schema2.json`), is deployed, and only then does the client's
+`HangReport.WireSchema.deployed` move from `v2` to `v3`. Until then the client keeps no blocking site
+for hang reports (the collector drops them and the builder writes schema 2), because the deployed
+server refuses unknown keys and literals with a `400` and the client then drops the whole report.
+`HangReportServerRules` (CmuxNextHangReportsTests) is the client's copy of these key and literal
+sets; the goldens of both schemas pass it.
+
+Schema 3 also adds `counts.userBlockingWaitP99Ms` (p02-threads-123,
+`HangReport.WireSchema.carriesLaneWait`): the background lanes' user-blocking queue-wait p99 since
+launch, one of `0-1`, `1-2`, `2-4`, `4-8`, `8-16`, `16-32`, `32-64`, `64+` (milliseconds,
+`CoarseCounts.waitLabels`). The schema-3 decoder must list it as an optional closed literal set
+before a build sends schema 3; a schema-2 report never has it.
+
 ## 5. Server
 
 - `web/app/api/hang-reports/route.ts`: a thin Next route handler that runs one Effect program
@@ -197,7 +308,9 @@ few times a day. Idle: 0 extra wakeups, 0 extra CPU (measured in section 8).
 ## 7. Files
 
 App: `Packages/macOS/CmuxNext/Sources/CmuxNextHangReports/` (builder, redaction, scanner,
-collector, identity, store, uploader, MetricKit adapter), `CmuxNextApp/HangReports/` (wiring,
+collector, identity, store, uploader, MetricKit adapter; `HangReport+InputLatency.swift`,
+`HangReportBuilder+InputLatency.swift` and the `HangReportInputLatencySource` seam for the input
+fields), `CmuxNextApp/HangReports/` (wiring,
 ask card, action handler; `WatchdogReporting` now holds all of the watchdog's sinks),
 `CmuxNextSettings/HangReportsSetting.swift` and its schema row, the `diagnostics.viewHangReport`
 action (`HangReportsActionCatalog`). Strings: `CmuxNextSettings/Localizable.xcstrings`,

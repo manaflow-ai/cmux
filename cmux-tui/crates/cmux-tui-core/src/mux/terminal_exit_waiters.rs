@@ -38,7 +38,9 @@ impl TerminalExitDetachTracker {
             let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                 return false;
             };
-            let (next, timeout) = self.changed.wait_timeout(active, remaining).unwrap();
+            let (next, timeout) =
+                cmux_threads::checked::sync::wait_timeout(&self.changed, active, remaining)
+                    .unwrap();
             active = next;
             if timeout.timed_out() && active.contains(terminal_id) {
                 return false;

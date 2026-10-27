@@ -2,8 +2,11 @@
 //! accept loop and every client thread (cx-ko2e table B). The OS edges sit
 //! behind `sys` seams: the accept waker, the PTY drain waker stream, the
 //! adopted session id, and process-group signals (`GroupSignal`).
+//!
+//! The PTY, parser and client-input loops are hang-watched ([`HostLoop`]).
 
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::collections::HashMap;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -23,6 +26,8 @@ use super::codec::*;
 use super::host_state::*;
 use super::records::*;
 
+#[cfg(test)]
+mod hang_watch_tests;
 mod lifecycle;
 mod resize;
 
@@ -63,6 +68,10 @@ pub(crate) struct HostShared {
     /// without blocking the reader from enqueueing the completing bytes.
     pub(crate) parser_progress: (Mutex<u64>, Condvar),
     pub(crate) next_client: AtomicU64,
+    /// The flow of the newest key press an `Input` with `FLAG_INPUT_FLOW`
+    /// wrote (0: none since the last read took it): the reader's next PTY
+    /// read carries it, once (p09-observability-018).
+    pub(crate) last_input_flow: crate::input_flow::InputFlowSlot,
     pub(crate) dead: AtomicBool,
     pub(crate) launch_owner_claimed: AtomicBool,
     pub(crate) launch_owner_stream_ready: AtomicBool,
@@ -89,11 +98,107 @@ pub(crate) struct HostShared {
     pub(crate) session_cleanup: unix::session_cleanup::SessionCleanup,
     /// Session of an adopted, non-child process (`adopted_child.rs`).
     pub(crate) adopted_session: Option<sys::SessionId>,
+    /// Answers the daemon's `TraceControl` frames one at a time, in the
+    /// order they arrive (`host_trace.rs`).
+    pub(crate) trace_control: super::host_trace::HostTraceQueue,
     #[cfg(test)]
     pub(crate) fail_next_resize_publication: AtomicBool,
 }
 
+/// What one [`HostShared::write_input`] did with its payload: the `task.host_input_write` end's
+/// arg1 (its arg0 is the bytes that reached the PTY).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub(crate) enum InputWrite {
+    /// Written to the PTY whole.
+    Written = 0,
+    /// Interactive wheel or motion input the child's input queue had no room for: not written.
+    Dropped = 1,
+    /// The write failed.
+    Failed = 2,
+}
+
+/// The host's hang-watched loop threads (p09-observability section 3E). Each registers once with
+/// the process's hang watch ([`HostLoop::register`]) and runs every item, after its wait, in one
+/// scope ([`HostLoop::watch`]): Chrome's `WatchHangsInScope` covers a task, never the wait for
+/// the next one (base/threading/hang_watcher.h).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HostLoop {
+    /// `terminal-host-pty`: one PTY read and its publication to the clients and the parser.
+    Pty,
+    /// `terminal-host-parser`: one parser command.
+    Parser,
+    /// `terminal-host-client-input`: one client frame. A PTY write in it is the program's wait
+    /// ([`HostShared::pty_writer`]).
+    ClientInput,
+}
+
+impl HostLoop {
+    /// The thread's name, also its name in a hang record.
+    pub(crate) const fn thread_name(self) -> &'static str {
+        match self {
+            HostLoop::Pty => "terminal-host-pty",
+            HostLoop::Parser => "terminal-host-parser",
+            HostLoop::ClientInput => "terminal-host-client-input",
+        }
+    }
+
+    /// How long one item may run: 1 s for a parser command, 2 s for an item that writes (a
+    /// publication that waits for parser room, a PTY write), as the app's terminal lanes
+    /// (p09-observability task 069).
+    pub(crate) const fn deadline(self) -> Duration {
+        match self {
+            HostLoop::Parser => Duration::from_secs(1),
+            HostLoop::Pty | HostLoop::ClientInput => Duration::from_secs(2),
+        }
+    }
+
+    const fn kind(self) -> cmux_hang_watch::ThreadKind {
+        match self {
+            HostLoop::Parser => cmux_hang_watch::ThreadKind::Lane,
+            HostLoop::Pty | HostLoop::ClientInput => cmux_hang_watch::ThreadKind::Io,
+        }
+    }
+
+    /// Registers the calling thread as this loop; the slot is freed when the guard drops.
+    pub(crate) fn register(self) -> cmux_hang_watch::Guard<'static> {
+        cmux_hang_watch::register_thread(self.kind(), self.thread_name())
+    }
+
+    /// One item's scope on the loop's registration `guard`.
+    pub(crate) fn watch<'a>(
+        self,
+        guard: &cmux_hang_watch::Guard<'a>,
+    ) -> cmux_hang_watch::Scope<'a> {
+        guard.watch(self.deadline())
+    }
+}
+
+/// Starts the host process's hang watch, before its loops start: a hang appends a line to
+/// `hangs-<pid>.jsonl` in the host's trace folder, beside its discovery record at `record_path`.
+pub(crate) fn start_process_hang_watch(record_path: &Path) {
+    let dir = super::host_trace::host_trace_dir(record_path);
+    if let Err(error) = cmux_hang_watch::init(dir) {
+        eprintln!("terminal-host: the loops are not hang-watched: {error}");
+    }
+}
+
+impl InputWrite {
+    fn bytes_written(self, payload: &[u8]) -> usize {
+        if self == InputWrite::Written { payload.len() } else { 0 }
+    }
+}
+
 impl HostShared {
+    /// The PTY writer, for a write to the program's input. The write, and the wait for the lock
+    /// another thread's write holds, last until the program reads its input: the program's time,
+    /// not the host's. So it stops blaming the calling thread's hang-watch scope (Chrome's
+    /// `ScopedBlockingCall` `WILL_BLOCK`, base/threading/scoped_blocking_call.h).
+    pub(crate) fn pty_writer(&self) -> std::sync::MutexGuard<'_, Box<dyn Write + Send>> {
+        cmux_hang_watch::invalidate_active();
+        self.writer.lock().recover_poison()
+    }
+
     pub(crate) fn mark_launch_owner_stream_ready(&self) {
         let _gate = self.launch_owner_stream_gate.0.lock().recover_poison();
         if !self.launch_owner_stream_ready.swap(true, Ordering::AcqRel) {
@@ -197,7 +302,7 @@ impl HostShared {
             self.smart.mark_applied(source_cursor);
             return;
         }
-        if applied.recv().is_ok() {
+        if waits::recv(&applied).is_ok() {
             *self.default_colors.lock().recover_poison() = colors;
         } else {
             self.smart.mark_applied(source_cursor);
@@ -258,8 +363,7 @@ impl HostShared {
                         "terminal parser worker stopped"
                     )));
                 }
-                let result = applied
-                    .recv()
+                let result = waits::recv(&applied)
                     .map_err(|_| {
                         ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
                             "terminal parser worker stopped"
@@ -317,7 +421,7 @@ impl HostShared {
                     observed_progress = progress;
                 }
                 ParserClearHistoryResult::EncodedFallback(encoded) => {
-                    let mut writer = self.writer.lock().recover_poison();
+                    let mut writer = self.pty_writer();
                     let master = self.master.lock().recover_poison();
                     return write_clear_history_fallback(
                         master.as_ref(),
@@ -363,18 +467,48 @@ impl HostShared {
         );
     }
 
-    pub(crate) fn write_input(&self, payload: &[u8], request_id: u64, target: &HostTap) -> bool {
+    /// Write `payload` to the PTY; `flow` (0: none) is the key press it
+    /// carries, which the reader's next PTY read takes (`last_input_flow`)
+    /// when the bytes reached the PTY.
+    pub(crate) fn write_input(
+        &self,
+        payload: &[u8],
+        request_id: u64,
+        flow: u64,
+        target: &HostTap,
+    ) -> bool {
         // Marked before the writer lock, so the mark never runs under it.
-        cmux_flow_trace::hop_id("host.pty.write", 0, self.terminal_id.as_bytes());
+        cmux_flow_trace::hop_id("host.pty.write", flow, self.terminal_id.as_bytes());
         let delivered = {
-            let mut writer = self.writer.lock().recover_poison();
+            // Declared before the writer guard, so its end is written after the lock is released.
+            let mut write = cmux_trace::trace_scope!(
+                task,
+                "task.host_input_write",
+                cmux_trace::terminal_hash(self.terminal_id.as_bytes()),
+                payload.len()
+            );
+            let mut writer = self.pty_writer();
             // Receipted input certifies delivery, so none of it is dropped. The master is
             // held only to read the queue, never across a write that can block.
             let admitted = request_id != 0 || {
                 let master = self.master.lock().recover_poison();
                 crate::pty_input_room::admits(&**master, payload)
             };
-            !admitted || writer.write_all(payload).and_then(|()| writer.flush()).is_ok()
+            let outcome = if !admitted {
+                InputWrite::Dropped
+            } else {
+                // Armed before the write: the echo can be read before the write returns.
+                self.last_input_flow.arm(flow);
+                if writer.write_all(payload).and_then(|()| writer.flush()).is_ok() {
+                    InputWrite::Written
+                } else {
+                    // No echo comes: the next unrelated read must not take the flow.
+                    self.last_input_flow.withdraw(flow);
+                    InputWrite::Failed
+                }
+            };
+            write.set_end_args(outcome.bytes_written(payload), outcome as u8);
+            outcome != InputWrite::Failed
         };
         // Interactive input has always been best-effort. Only a nonzero
         // request id asks the authoritative host to certify delivery.

@@ -1,5 +1,10 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AVFoundation
+import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
+import CmuxNextWakeups
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -9,16 +14,19 @@ import UniformTypeIdentifiers
 /// spot: a photo, a two-second video and a one-page PDF. The fixture's
 /// `HomeStore` prepares and sends them through the mock owner.
 nonisolated enum HomeFixtureMedia {
-    /// A generated photo, a two-second video and a one-page PDF in a fresh temporary folder.
-    static func make() async throws -> [URL] {
+    /// A generated photo, a two-second video and a one-page PDF in a fresh temporary folder. The folder,
+    /// the photo and the PDF are written on `work`'s files lane; the video's writer runs on its own queue.
+    static func make(on work: BackgroundWork) async throws -> [URL] {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-home-fixture-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let photo = dir.appendingPathComponent("Harbor at dusk.png")
-        try writePNG(width: 1200, height: 900, to: photo, hue: 0.08)
         let video = dir.appendingPathComponent("Build replay.mp4")
-        try await writeVideo(to: video, width: 640, height: 360, frames: 60)
         let pdf = dir.appendingPathComponent("Quarterly review.pdf")
-        try writePDF(to: pdf)
+        try await work.run(.userVisible, mayBlock: .files) {
+            try FileManager.checked.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Self.writePNG(width: 1200, height: 900, to: photo, hue: 0.08)
+            try Self.writePDF(to: pdf)
+        }
+        try await writeVideo(to: video, width: 640, height: 360, frames: 60)
         return [photo, video, pdf]
     }
 
@@ -78,7 +86,7 @@ nonisolated final class VideoJob: @unchecked Sendable {
     private let adaptor: AVAssetWriterInputPixelBufferAdaptor
     private let width: Int, height: Int, frames: Int
     private var next = 0
-    private let queue = DispatchQueue(label: "cmux.home.fixture.video")
+    private let queue = DispatchQueue(label: "cmux.home.fixture.video", qos: .utility)
 
     init(writer: AVAssetWriter, input: AVAssetWriterInput, adaptor: AVAssetWriterInputPixelBufferAdaptor,
          width: Int, height: Int, frames: Int) {
@@ -91,7 +99,8 @@ nonisolated final class VideoJob: @unchecked Sendable {
     }
 
     func run() async {
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+        // A writer that dropped its callback ends the run as a finished one does.
+        _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in
             input.requestMediaDataWhenReady(on: queue) { [self] in
                 while input.isReadyForMoreMediaData, next < frames {
                     if let buffer = frame(next) {
@@ -102,7 +111,7 @@ nonisolated final class VideoJob: @unchecked Sendable {
                 guard next >= frames else { return }
                 next = .max
                 input.markAsFinished()
-                writer.finishWriting { done.resume() }
+                writer.finishWriting { done.resume(returning: ()) }
             }
         }
     }

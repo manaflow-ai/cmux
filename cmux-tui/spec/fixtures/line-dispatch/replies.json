@@ -1,0 +1,377 @@
+{
+  "recorded_on": "origin/perf/chrome-parity 7a59be1cabb1176fcfe19320ad4d3331bff4f532, before p05-ipc-062; the unknown-command variant lists re-recorded after p05-ipc-026, which appends the generated terminal-io variants to the Command enum and after p05-ipc-029, which appends the generated tabs variants after them (same names, new order)",
+  "cases": [
+    {
+      "line": "{\"id\":100,\"cmd\":\"ping\"}",
+      "replies": [
+        "{\"data\":{\"build_commit\":null,\"ghostty_commit\":null,\"ok\":true,\"protocol\":12,\"version\":\"1.0.0\"},\"id\":100,\"ok\":true}"
+      ]
+    },
+    {
+      "line": "{\"id\":101,\"cmd\":\"ping\",\"note\":\"\\\"loopback-open\\\" agent-inventory \\\"apps-x\\\" \\\"fs.read\"}",
+      "replies": [
+        "{\"data\":{\"build_commit\":null,\"ghostty_commit\":null,\"ok\":true,\"protocol\":12,\"version\":\"1.0.0\"},\"id\":101,\"ok\":true}"
+      ]
+    },
+    {
+      "line": "{\"id\":102,\"cmd\":\"\\u0070ing\"}",
+      "replies": [
+        "{\"data\":{\"build_commit\":null,\"ghostty_commit\":null,\"ok\":true,\"protocol\":12,\"version\":\"1.0.0\"},\"id\":102,\"ok\":true}"
+      ]
+    },
+    {
+      "line": "{\"id\":103,\"cmd\":\"no-such-command\"}",
+      "replies": [
+        "{\"error\":\"bad request: unknown variant `no-such-command`, expected one of `identify`, `browser-host-provider`, `subscribe-activity`, `chief-inspect`, `server-stats`, `debug-daemon-locks`, `trace-start`, `trace-stop`, `trace-status`, `set-terminal-command-history`, `list-terminal-commands`, `delete-terminal-commands`, `shutdown-daemon`, `ping`, `set-client-info`, `list-clients`, `machine-usage`, `machine-listening-tcp`, `register-browser-provider`, `get-browser-provider`, `unregister-browser-provider`, `list-terminals`, `set-client-sizing`, `pairing-response`, `detach-client`, `reattach-view`, `set-size-policy`, `set-size-counts`, `get-size-state`, `get-host-size-policy`, `set-host-size-policy`, `note-size-activity`, `reload-config`, `set-window-title`, `clear-window-title`, `list-workspaces`, `get-frontend-projection`, `put-frontend-projection`, `journal-frontend-event`, `export-layout`, `apply-layout`, `sidebar-plugin`, `run`, `ids`, `list-agents`, `report-agent`, `resolve-terminal`, `close-terminal`, `set-terminal-idle-policy`, `set-terminal-keep`, `terminal-resume-command`, `browser-frame-presented`, `browser-mouse`, `browser-mouse-guarded`, `browser-wheel`, `browser-wheel-guarded`, `browser-key`, `browser-key-press`, `browser-insert-text`, `browser-navigate`, `browser-back`, `browser-forward`, `browser-reload`, `browser-activate`, `new-workspace`, `create-workspace`, `create-terminal`, `new-screen`, `set-screen-metadata`, `set-screen-pinned`, `move-screen`, `create-screen-group`, `update-screen-group`, `add-screens-to-screen-group`, `remove-screens-from-screen-group`, `move-screen-group`, `ungroup-screen-group`, `close-screen-group`, `list-saved-screen-groups`, `save-screen-group`, `unsave-screen-group`, `delete-saved-screen-group`, `reopen-saved-screen-group`, `new-pane`, `new-pane-right`, `split`, `set-ratio`, `set-split-ratio`, `set-viewport-pane-width`, `set-column-dock`, `undo-layout`, `pane-neighbor`, `focus-direction`, `swap-pane`, `zoom-pane`, `process-info`, `terminal-ports`, `terminal-resources`, `move-terminal`, `list-tab-groups`, `create-tab-group`, `update-tab-group`, `add-tabs-to-tab-group`, `remove-tabs-from-tab-group`, `move-tab-group`, `move-tab-group-to-split`, `move-tab-group-to-column`, `move-tab-group-to-new-workspace`, `ungroup-tab-group`, `close-tab-group`, `list-saved-tab-groups`, `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `reopen-saved-tab-group`, `new-row`, `set-row-heights`, `move-column`, `move-workspace`, `set-workspace-metadata`, `list-personal`, `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, `delete-browser-profile`, `list-bookmarks`, `create-bookmark`, `update-bookmark`, `move-bookmark`, `delete-bookmark`, `import-bookmarks`, `feed-local-list`, `feed-local-read`, `feed-local-handoff-begin`, `feed-local-handoff-abort`, `feed-local-handoff-done`, `put-blob`, `get-blob`, `conversation-list`, `conversation-create`, `conversation-snapshot`, `conversation-history`, `conversation-thread`, `conversation-link-resolve`, `conversation-inbox-op`, `home-inbox`, `conversation-search`, `history-search`, `conversation-op`, `conversation-typing`, `conversation-draft`, `conversation-bind`, `conversation-agent-token`, `cloud-session-set`, `cloud-session-clear`, `cloud-session-status`, `cloud-host-replica-set`, `cloud-host-replica-clear`, `cloud-host-replica-status`, `page-credential`, `ws-listen`, `cloud-inbox-list`, `cloud-requests-list`, `cloud-selfhost-info`, `cloud-conversation-snapshot`, `cloud-conversation-history`, `cloud-conversation-thread`, `cloud-conversation-runs`, `cloud-conversation-run`, `cloud-participant-avatar-get`, `cloud-conversation-op`, `cloud-inbox-op`, `cloud-inbox-subscribe`, `cloud-inbox-unsubscribe`, `cloud-conversation-subscribe`, `cloud-conversation-unsubscribe`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-mux-subscribe`, `cloud-mux-unsubscribe`, `cloud-mux-ack`, `conversation-attachment-upload`, `conversation-attachment-read`, `conversation-attachment-link`, `cloud-attachment-upload`, `cloud-attachment-read`, `cloud-attachment-link`, `conversation-run-append`, `conversation-runs`, `conversation-run`, `conversation-live-publish`, `conversation-live`, `conversation-import`, `create-profile`, `update-profile`, `move-profile`, `delete-profile`, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `set-session-icon`, `import-session-organization`, `create-personal-group`, `update-personal-group`, `delete-personal-group`, `move-personal-group`, `set-personal-workspace`, `set-personal-terminal`, `list-workspace-groups`, `create-workspace-group`, `update-workspace-group`, `delete-workspace-group`, `move-workspace-group`, `move-workspace-to-group`, `set-default-colors`, `close-pane`, `close-screen`, `close-workspace`, `mark-workspaces-provider-managed`, `close-provider-managed-workspace`, `rename-pane`, `rename-screen`, `rename-workspace`, `rename-provider-managed-workspace`, `resize-surface`, `resize-attached-view`, `release-surface-size`, `release-attached-view-size`, `detach-attached-view`, `focus-pane`, `select-screen`, `select-workspace`, `report-focus`, `client-focus`, `terminal-events`, `send`, `read-screen`, `clear-history`, `read-scrollback`, `wait-for`, `send-key`, `copy`, `vt-state`, `scroll-surface`, `mint-terminal-renderer`, `get-cell-pixels`, `mint-terminal-renderer-by-terminal`, `set-cell-pixels`, `subscribe`, `attach-surface`, `paste-image`, `url-open`, `url-open-subscribe`, `url-open-claim`, `url-open-result`, `terminal-clipboard-subscribe`, `terminal-clipboard-reply`, `snapshot-request`, `terminal-history`, `terminal-read-range`, `create-surface-with-receipt`, `notify`, `new-tab`, `new-browser-tab`, `move-tab`, `close-surface`, `rename-surface`, `select-tab`, `move-tab-to-workspace`, `new-conversation-tab`, `bind-conversation-tab-session`, `new-frontend-browser-tab`, `update-frontend-browser-tab`, `restart-tab`, `park-tabs`, `set-frontend-browser-history`, `get-frontend-browser-history`, `close-tabs`, `ack-tab-notifications`, `list-notifications`, `set-tab-pinned`, `move-tab-to-split`, `move-tab-to-column`, `move-tab-to-new-workspace`, `new-remote-terminal-tab`, `update-remote-terminal-tab`, `remote-terminal-snapshot` at line 1 column 34\",\"id\":103,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":null,\"cmd\":\"no-such-command\"}",
+      "replies": [
+        "{\"error\":\"bad request: unknown variant `no-such-command`, expected one of `identify`, `browser-host-provider`, `subscribe-activity`, `chief-inspect`, `server-stats`, `debug-daemon-locks`, `trace-start`, `trace-stop`, `trace-status`, `set-terminal-command-history`, `list-terminal-commands`, `delete-terminal-commands`, `shutdown-daemon`, `ping`, `set-client-info`, `list-clients`, `machine-usage`, `machine-listening-tcp`, `register-browser-provider`, `get-browser-provider`, `unregister-browser-provider`, `list-terminals`, `set-client-sizing`, `pairing-response`, `detach-client`, `reattach-view`, `set-size-policy`, `set-size-counts`, `get-size-state`, `get-host-size-policy`, `set-host-size-policy`, `note-size-activity`, `reload-config`, `set-window-title`, `clear-window-title`, `list-workspaces`, `get-frontend-projection`, `put-frontend-projection`, `journal-frontend-event`, `export-layout`, `apply-layout`, `sidebar-plugin`, `run`, `ids`, `list-agents`, `report-agent`, `resolve-terminal`, `close-terminal`, `set-terminal-idle-policy`, `set-terminal-keep`, `terminal-resume-command`, `browser-frame-presented`, `browser-mouse`, `browser-mouse-guarded`, `browser-wheel`, `browser-wheel-guarded`, `browser-key`, `browser-key-press`, `browser-insert-text`, `browser-navigate`, `browser-back`, `browser-forward`, `browser-reload`, `browser-activate`, `new-workspace`, `create-workspace`, `create-terminal`, `new-screen`, `set-screen-metadata`, `set-screen-pinned`, `move-screen`, `create-screen-group`, `update-screen-group`, `add-screens-to-screen-group`, `remove-screens-from-screen-group`, `move-screen-group`, `ungroup-screen-group`, `close-screen-group`, `list-saved-screen-groups`, `save-screen-group`, `unsave-screen-group`, `delete-saved-screen-group`, `reopen-saved-screen-group`, `new-pane`, `new-pane-right`, `split`, `set-ratio`, `set-split-ratio`, `set-viewport-pane-width`, `set-column-dock`, `undo-layout`, `pane-neighbor`, `focus-direction`, `swap-pane`, `zoom-pane`, `process-info`, `terminal-ports`, `terminal-resources`, `move-terminal`, `list-tab-groups`, `create-tab-group`, `update-tab-group`, `add-tabs-to-tab-group`, `remove-tabs-from-tab-group`, `move-tab-group`, `move-tab-group-to-split`, `move-tab-group-to-column`, `move-tab-group-to-new-workspace`, `ungroup-tab-group`, `close-tab-group`, `list-saved-tab-groups`, `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `reopen-saved-tab-group`, `new-row`, `set-row-heights`, `move-column`, `move-workspace`, `set-workspace-metadata`, `list-personal`, `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, `delete-browser-profile`, `list-bookmarks`, `create-bookmark`, `update-bookmark`, `move-bookmark`, `delete-bookmark`, `import-bookmarks`, `feed-local-list`, `feed-local-read`, `feed-local-handoff-begin`, `feed-local-handoff-abort`, `feed-local-handoff-done`, `put-blob`, `get-blob`, `conversation-list`, `conversation-create`, `conversation-snapshot`, `conversation-history`, `conversation-thread`, `conversation-link-resolve`, `conversation-inbox-op`, `home-inbox`, `conversation-search`, `history-search`, `conversation-op`, `conversation-typing`, `conversation-draft`, `conversation-bind`, `conversation-agent-token`, `cloud-session-set`, `cloud-session-clear`, `cloud-session-status`, `cloud-host-replica-set`, `cloud-host-replica-clear`, `cloud-host-replica-status`, `page-credential`, `ws-listen`, `cloud-inbox-list`, `cloud-requests-list`, `cloud-selfhost-info`, `cloud-conversation-snapshot`, `cloud-conversation-history`, `cloud-conversation-thread`, `cloud-conversation-runs`, `cloud-conversation-run`, `cloud-participant-avatar-get`, `cloud-conversation-op`, `cloud-inbox-op`, `cloud-inbox-subscribe`, `cloud-inbox-unsubscribe`, `cloud-conversation-subscribe`, `cloud-conversation-unsubscribe`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-mux-subscribe`, `cloud-mux-unsubscribe`, `cloud-mux-ack`, `conversation-attachment-upload`, `conversation-attachment-read`, `conversation-attachment-link`, `cloud-attachment-upload`, `cloud-attachment-read`, `cloud-attachment-link`, `conversation-run-append`, `conversation-runs`, `conversation-run`, `conversation-live-publish`, `conversation-live`, `conversation-import`, `create-profile`, `update-profile`, `move-profile`, `delete-profile`, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `set-session-icon`, `import-session-organization`, `create-personal-group`, `update-personal-group`, `delete-personal-group`, `move-personal-group`, `set-personal-workspace`, `set-personal-terminal`, `list-workspace-groups`, `create-workspace-group`, `update-workspace-group`, `delete-workspace-group`, `move-workspace-group`, `move-workspace-to-group`, `set-default-colors`, `close-pane`, `close-screen`, `close-workspace`, `mark-workspaces-provider-managed`, `close-provider-managed-workspace`, `rename-pane`, `rename-screen`, `rename-workspace`, `rename-provider-managed-workspace`, `resize-surface`, `resize-attached-view`, `release-surface-size`, `release-attached-view-size`, `detach-attached-view`, `focus-pane`, `select-screen`, `select-workspace`, `report-focus`, `client-focus`, `terminal-events`, `send`, `read-screen`, `clear-history`, `read-scrollback`, `wait-for`, `send-key`, `copy`, `vt-state`, `scroll-surface`, `mint-terminal-renderer`, `get-cell-pixels`, `mint-terminal-renderer-by-terminal`, `set-cell-pixels`, `subscribe`, `attach-surface`, `paste-image`, `url-open`, `url-open-subscribe`, `url-open-claim`, `url-open-result`, `terminal-clipboard-subscribe`, `terminal-clipboard-reply`, `snapshot-request`, `terminal-history`, `terminal-read-range`, `create-surface-with-receipt`, `notify`, `new-tab`, `new-browser-tab`, `move-tab`, `close-surface`, `rename-surface`, `select-tab`, `move-tab-to-workspace`, `new-conversation-tab`, `bind-conversation-tab-session`, `new-frontend-browser-tab`, `update-frontend-browser-tab`, `restart-tab`, `park-tabs`, `set-frontend-browser-history`, `get-frontend-browser-history`, `close-tabs`, `ack-tab-notifications`, `list-notifications`, `set-tab-pinned`, `move-tab-to-split`, `move-tab-to-column`, `move-tab-to-new-workspace`, `new-remote-terminal-tab`, `update-remote-terminal-tab`, `remote-terminal-snapshot` at line 1 column 35\",\"id\":null,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"cmd\":\"no-such-command\"}",
+      "replies": [
+        "{\"error\":\"bad request: unknown variant `no-such-command`, expected one of `identify`, `browser-host-provider`, `subscribe-activity`, `chief-inspect`, `server-stats`, `debug-daemon-locks`, `trace-start`, `trace-stop`, `trace-status`, `set-terminal-command-history`, `list-terminal-commands`, `delete-terminal-commands`, `shutdown-daemon`, `ping`, `set-client-info`, `list-clients`, `machine-usage`, `machine-listening-tcp`, `register-browser-provider`, `get-browser-provider`, `unregister-browser-provider`, `list-terminals`, `set-client-sizing`, `pairing-response`, `detach-client`, `reattach-view`, `set-size-policy`, `set-size-counts`, `get-size-state`, `get-host-size-policy`, `set-host-size-policy`, `note-size-activity`, `reload-config`, `set-window-title`, `clear-window-title`, `list-workspaces`, `get-frontend-projection`, `put-frontend-projection`, `journal-frontend-event`, `export-layout`, `apply-layout`, `sidebar-plugin`, `run`, `ids`, `list-agents`, `report-agent`, `resolve-terminal`, `close-terminal`, `set-terminal-idle-policy`, `set-terminal-keep`, `terminal-resume-command`, `browser-frame-presented`, `browser-mouse`, `browser-mouse-guarded`, `browser-wheel`, `browser-wheel-guarded`, `browser-key`, `browser-key-press`, `browser-insert-text`, `browser-navigate`, `browser-back`, `browser-forward`, `browser-reload`, `browser-activate`, `new-workspace`, `create-workspace`, `create-terminal`, `new-screen`, `set-screen-metadata`, `set-screen-pinned`, `move-screen`, `create-screen-group`, `update-screen-group`, `add-screens-to-screen-group`, `remove-screens-from-screen-group`, `move-screen-group`, `ungroup-screen-group`, `close-screen-group`, `list-saved-screen-groups`, `save-screen-group`, `unsave-screen-group`, `delete-saved-screen-group`, `reopen-saved-screen-group`, `new-pane`, `new-pane-right`, `split`, `set-ratio`, `set-split-ratio`, `set-viewport-pane-width`, `set-column-dock`, `undo-layout`, `pane-neighbor`, `focus-direction`, `swap-pane`, `zoom-pane`, `process-info`, `terminal-ports`, `terminal-resources`, `move-terminal`, `list-tab-groups`, `create-tab-group`, `update-tab-group`, `add-tabs-to-tab-group`, `remove-tabs-from-tab-group`, `move-tab-group`, `move-tab-group-to-split`, `move-tab-group-to-column`, `move-tab-group-to-new-workspace`, `ungroup-tab-group`, `close-tab-group`, `list-saved-tab-groups`, `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `reopen-saved-tab-group`, `new-row`, `set-row-heights`, `move-column`, `move-workspace`, `set-workspace-metadata`, `list-personal`, `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, `delete-browser-profile`, `list-bookmarks`, `create-bookmark`, `update-bookmark`, `move-bookmark`, `delete-bookmark`, `import-bookmarks`, `feed-local-list`, `feed-local-read`, `feed-local-handoff-begin`, `feed-local-handoff-abort`, `feed-local-handoff-done`, `put-blob`, `get-blob`, `conversation-list`, `conversation-create`, `conversation-snapshot`, `conversation-history`, `conversation-thread`, `conversation-link-resolve`, `conversation-inbox-op`, `home-inbox`, `conversation-search`, `history-search`, `conversation-op`, `conversation-typing`, `conversation-draft`, `conversation-bind`, `conversation-agent-token`, `cloud-session-set`, `cloud-session-clear`, `cloud-session-status`, `cloud-host-replica-set`, `cloud-host-replica-clear`, `cloud-host-replica-status`, `page-credential`, `ws-listen`, `cloud-inbox-list`, `cloud-requests-list`, `cloud-selfhost-info`, `cloud-conversation-snapshot`, `cloud-conversation-history`, `cloud-conversation-thread`, `cloud-conversation-runs`, `cloud-conversation-run`, `cloud-participant-avatar-get`, `cloud-conversation-op`, `cloud-inbox-op`, `cloud-inbox-subscribe`, `cloud-inbox-unsubscribe`, `cloud-conversation-subscribe`, `cloud-conversation-unsubscribe`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-mux-subscribe`, `cloud-mux-unsubscribe`, `cloud-mux-ack`, `conversation-attachment-upload`, `conversation-attachment-read`, `conversation-attachment-link`, `cloud-attachment-upload`, `cloud-attachment-read`, `cloud-attachment-link`, `conversation-run-append`, `conversation-runs`, `conversation-run`, `conversation-live-publish`, `conversation-live`, `conversation-import`, `create-profile`, `update-profile`, `move-profile`, `delete-profile`, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `set-session-icon`, `import-session-organization`, `create-personal-group`, `update-personal-group`, `delete-personal-group`, `move-personal-group`, `set-personal-workspace`, `set-personal-terminal`, `list-workspace-groups`, `create-workspace-group`, `update-workspace-group`, `delete-workspace-group`, `move-workspace-group`, `move-workspace-to-group`, `set-default-colors`, `close-pane`, `close-screen`, `close-workspace`, `mark-workspaces-provider-managed`, `close-provider-managed-workspace`, `rename-pane`, `rename-screen`, `rename-workspace`, `rename-provider-managed-workspace`, `resize-surface`, `resize-attached-view`, `release-surface-size`, `release-attached-view-size`, `detach-attached-view`, `focus-pane`, `select-screen`, `select-workspace`, `report-focus`, `client-focus`, `terminal-events`, `send`, `read-screen`, `clear-history`, `read-scrollback`, `wait-for`, `send-key`, `copy`, `vt-state`, `scroll-surface`, `mint-terminal-renderer`, `get-cell-pixels`, `mint-terminal-renderer-by-terminal`, `set-cell-pixels`, `subscribe`, `attach-surface`, `paste-image`, `url-open`, `url-open-subscribe`, `url-open-claim`, `url-open-result`, `terminal-clipboard-subscribe`, `terminal-clipboard-reply`, `snapshot-request`, `terminal-history`, `terminal-read-range`, `create-surface-with-receipt`, `notify`, `new-tab`, `new-browser-tab`, `move-tab`, `close-surface`, `rename-surface`, `select-tab`, `move-tab-to-workspace`, `new-conversation-tab`, `bind-conversation-tab-session`, `new-frontend-browser-tab`, `update-frontend-browser-tab`, `restart-tab`, `park-tabs`, `set-frontend-browser-history`, `get-frontend-browser-history`, `close-tabs`, `ack-tab-notifications`, `list-notifications`, `set-tab-pinned`, `move-tab-to-split`, `move-tab-to-column`, `move-tab-to-new-workspace`, `new-remote-terminal-tab`, `update-remote-terminal-tab`, `remote-terminal-snapshot` at line 1 column 25\",\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":104}",
+      "replies": [
+        "{\"error\":\"bad request: missing field `cmd` at line 1 column 10\",\"id\":104,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "not json",
+      "replies": [
+        "{\"error\":\"bad request: expected ident at line 1 column 2\",\"ok\":false}"
+      ]
+    },
+    {
+      "line": "[1,2]",
+      "replies": [
+        "{\"error\":\"bad request: invalid type: sequence, expected struct Request at line 1 column 0\",\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":105,\"cmd\":\"no-such-command\",\"n\":1e400}",
+      "replies": [
+        "{\"error\":\"bad request: number out of range at line 1 column 43\",\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":106,\"cmd\":\"ping\",\"x\":\"\\ud800\"}",
+      "replies": [
+        "{\"error\":\"bad request: unexpected end of hex escape at line 1 column 35\",\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":107,\"cmd\":\"ping\"} trailing",
+      "replies": [
+        "{\"error\":\"bad request: trailing characters at line 1 column 25\",\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":108,\"cmd\":\"ping\",\"id\":109}",
+      "replies": [
+        "{\"error\":\"bad request: duplicate field `id` at line 1 column 27\",\"id\":109,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":1,\"cmd\":\"agent-inventory\",\"unknown_field\":1}",
+      "replies": [
+        "{\"error\":\"agent_inventory.bad_request\",\"error_code\":\"agent_inventory.bad_request\",\"id\":1,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":2,\"cmd\":\"agent-inventory-refresh\"}",
+      "replies": [
+        "{\"error\":\"agent_inventory.bad_request\",\"error_code\":\"agent_inventory.bad_request\",\"id\":2,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":3,\"cmd\":\"agent-inventory-watch\"}",
+      "replies": [
+        "{\"error\":\"agent_inventory.bad_request\",\"error_code\":\"agent_inventory.bad_request\",\"id\":3,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":4,\"cmd\":\"agent-inventory-watch\",\"expected_machine_id\":\"nope\",\"enabled\":true}",
+      "replies": [
+        "{\"error\":\"agent_inventory.bad_request\",\"error_code\":\"agent_inventory.bad_request\",\"id\":4,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":5,\"cmd\":\"loopback-status\"}",
+      "replies": [
+        "{\"error\":\"loopback forwarding needs a Unix client that declared loopback-forward-v1\",\"error_code\":\"loopback.not-enabled\",\"id\":5,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":6,\"cmd\":\"loopback-nope\"}",
+      "replies": [
+        "{\"error\":\"bad request: unknown variant `loopback-nope`, expected one of `identify`, `browser-host-provider`, `subscribe-activity`, `chief-inspect`, `server-stats`, `debug-daemon-locks`, `trace-start`, `trace-stop`, `trace-status`, `set-terminal-command-history`, `list-terminal-commands`, `delete-terminal-commands`, `shutdown-daemon`, `ping`, `set-client-info`, `list-clients`, `machine-usage`, `machine-listening-tcp`, `register-browser-provider`, `get-browser-provider`, `unregister-browser-provider`, `list-terminals`, `set-client-sizing`, `pairing-response`, `detach-client`, `reattach-view`, `set-size-policy`, `set-size-counts`, `get-size-state`, `get-host-size-policy`, `set-host-size-policy`, `note-size-activity`, `reload-config`, `set-window-title`, `clear-window-title`, `list-workspaces`, `get-frontend-projection`, `put-frontend-projection`, `journal-frontend-event`, `export-layout`, `apply-layout`, `sidebar-plugin`, `run`, `ids`, `list-agents`, `report-agent`, `resolve-terminal`, `close-terminal`, `set-terminal-idle-policy`, `set-terminal-keep`, `terminal-resume-command`, `browser-frame-presented`, `browser-mouse`, `browser-mouse-guarded`, `browser-wheel`, `browser-wheel-guarded`, `browser-key`, `browser-key-press`, `browser-insert-text`, `browser-navigate`, `browser-back`, `browser-forward`, `browser-reload`, `browser-activate`, `new-workspace`, `create-workspace`, `create-terminal`, `new-screen`, `set-screen-metadata`, `set-screen-pinned`, `move-screen`, `create-screen-group`, `update-screen-group`, `add-screens-to-screen-group`, `remove-screens-from-screen-group`, `move-screen-group`, `ungroup-screen-group`, `close-screen-group`, `list-saved-screen-groups`, `save-screen-group`, `unsave-screen-group`, `delete-saved-screen-group`, `reopen-saved-screen-group`, `new-pane`, `new-pane-right`, `split`, `set-ratio`, `set-split-ratio`, `set-viewport-pane-width`, `set-column-dock`, `undo-layout`, `pane-neighbor`, `focus-direction`, `swap-pane`, `zoom-pane`, `process-info`, `terminal-ports`, `terminal-resources`, `move-terminal`, `list-tab-groups`, `create-tab-group`, `update-tab-group`, `add-tabs-to-tab-group`, `remove-tabs-from-tab-group`, `move-tab-group`, `move-tab-group-to-split`, `move-tab-group-to-column`, `move-tab-group-to-new-workspace`, `ungroup-tab-group`, `close-tab-group`, `list-saved-tab-groups`, `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `reopen-saved-tab-group`, `new-row`, `set-row-heights`, `move-column`, `move-workspace`, `set-workspace-metadata`, `list-personal`, `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, `delete-browser-profile`, `list-bookmarks`, `create-bookmark`, `update-bookmark`, `move-bookmark`, `delete-bookmark`, `import-bookmarks`, `feed-local-list`, `feed-local-read`, `feed-local-handoff-begin`, `feed-local-handoff-abort`, `feed-local-handoff-done`, `put-blob`, `get-blob`, `conversation-list`, `conversation-create`, `conversation-snapshot`, `conversation-history`, `conversation-thread`, `conversation-link-resolve`, `conversation-inbox-op`, `home-inbox`, `conversation-search`, `history-search`, `conversation-op`, `conversation-typing`, `conversation-draft`, `conversation-bind`, `conversation-agent-token`, `cloud-session-set`, `cloud-session-clear`, `cloud-session-status`, `cloud-host-replica-set`, `cloud-host-replica-clear`, `cloud-host-replica-status`, `page-credential`, `ws-listen`, `cloud-inbox-list`, `cloud-requests-list`, `cloud-selfhost-info`, `cloud-conversation-snapshot`, `cloud-conversation-history`, `cloud-conversation-thread`, `cloud-conversation-runs`, `cloud-conversation-run`, `cloud-participant-avatar-get`, `cloud-conversation-op`, `cloud-inbox-op`, `cloud-inbox-subscribe`, `cloud-inbox-unsubscribe`, `cloud-conversation-subscribe`, `cloud-conversation-unsubscribe`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-mux-subscribe`, `cloud-mux-unsubscribe`, `cloud-mux-ack`, `conversation-attachment-upload`, `conversation-attachment-read`, `conversation-attachment-link`, `cloud-attachment-upload`, `cloud-attachment-read`, `cloud-attachment-link`, `conversation-run-append`, `conversation-runs`, `conversation-run`, `conversation-live-publish`, `conversation-live`, `conversation-import`, `create-profile`, `update-profile`, `move-profile`, `delete-profile`, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `set-session-icon`, `import-session-organization`, `create-personal-group`, `update-personal-group`, `delete-personal-group`, `move-personal-group`, `set-personal-workspace`, `set-personal-terminal`, `list-workspace-groups`, `create-workspace-group`, `update-workspace-group`, `delete-workspace-group`, `move-workspace-group`, `move-workspace-to-group`, `set-default-colors`, `close-pane`, `close-screen`, `close-workspace`, `mark-workspaces-provider-managed`, `close-provider-managed-workspace`, `rename-pane`, `rename-screen`, `rename-workspace`, `rename-provider-managed-workspace`, `resize-surface`, `resize-attached-view`, `release-surface-size`, `release-attached-view-size`, `detach-attached-view`, `focus-pane`, `select-screen`, `select-workspace`, `report-focus`, `client-focus`, `terminal-events`, `send`, `read-screen`, `clear-history`, `read-scrollback`, `wait-for`, `send-key`, `copy`, `vt-state`, `scroll-surface`, `mint-terminal-renderer`, `get-cell-pixels`, `mint-terminal-renderer-by-terminal`, `set-cell-pixels`, `subscribe`, `attach-surface`, `paste-image`, `url-open`, `url-open-subscribe`, `url-open-claim`, `url-open-result`, `terminal-clipboard-subscribe`, `terminal-clipboard-reply`, `snapshot-request`, `terminal-history`, `terminal-read-range`, `create-surface-with-receipt`, `notify`, `new-tab`, `new-browser-tab`, `move-tab`, `close-surface`, `rename-surface`, `select-tab`, `move-tab-to-workspace`, `new-conversation-tab`, `bind-conversation-tab-session`, `new-frontend-browser-tab`, `update-frontend-browser-tab`, `restart-tab`, `park-tabs`, `set-frontend-browser-history`, `get-frontend-browser-history`, `close-tabs`, `ack-tab-notifications`, `list-notifications`, `set-tab-pinned`, `move-tab-to-split`, `move-tab-to-column`, `move-tab-to-new-workspace`, `new-remote-terminal-tab`, `update-remote-terminal-tab`, `remote-terminal-snapshot` at line 1 column 30\",\"id\":6,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":7,\"cmd\":\"browser-runtime-status\"}",
+      "replies": [
+        "{\"error\":\"browser runtimes are not enabled on this connection\",\"error_code\":\"browser-runtime.not-enabled\",\"id\":7,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":8,\"cmd\":\"browser-runtime-nope\"}",
+      "replies": [
+        "{\"error\":\"bad request: unknown variant `browser-runtime-nope`, expected one of `identify`, `browser-host-provider`, `subscribe-activity`, `chief-inspect`, `server-stats`, `debug-daemon-locks`, `trace-start`, `trace-stop`, `trace-status`, `set-terminal-command-history`, `list-terminal-commands`, `delete-terminal-commands`, `shutdown-daemon`, `ping`, `set-client-info`, `list-clients`, `machine-usage`, `machine-listening-tcp`, `register-browser-provider`, `get-browser-provider`, `unregister-browser-provider`, `list-terminals`, `set-client-sizing`, `pairing-response`, `detach-client`, `reattach-view`, `set-size-policy`, `set-size-counts`, `get-size-state`, `get-host-size-policy`, `set-host-size-policy`, `note-size-activity`, `reload-config`, `set-window-title`, `clear-window-title`, `list-workspaces`, `get-frontend-projection`, `put-frontend-projection`, `journal-frontend-event`, `export-layout`, `apply-layout`, `sidebar-plugin`, `run`, `ids`, `list-agents`, `report-agent`, `resolve-terminal`, `close-terminal`, `set-terminal-idle-policy`, `set-terminal-keep`, `terminal-resume-command`, `browser-frame-presented`, `browser-mouse`, `browser-mouse-guarded`, `browser-wheel`, `browser-wheel-guarded`, `browser-key`, `browser-key-press`, `browser-insert-text`, `browser-navigate`, `browser-back`, `browser-forward`, `browser-reload`, `browser-activate`, `new-workspace`, `create-workspace`, `create-terminal`, `new-screen`, `set-screen-metadata`, `set-screen-pinned`, `move-screen`, `create-screen-group`, `update-screen-group`, `add-screens-to-screen-group`, `remove-screens-from-screen-group`, `move-screen-group`, `ungroup-screen-group`, `close-screen-group`, `list-saved-screen-groups`, `save-screen-group`, `unsave-screen-group`, `delete-saved-screen-group`, `reopen-saved-screen-group`, `new-pane`, `new-pane-right`, `split`, `set-ratio`, `set-split-ratio`, `set-viewport-pane-width`, `set-column-dock`, `undo-layout`, `pane-neighbor`, `focus-direction`, `swap-pane`, `zoom-pane`, `process-info`, `terminal-ports`, `terminal-resources`, `move-terminal`, `list-tab-groups`, `create-tab-group`, `update-tab-group`, `add-tabs-to-tab-group`, `remove-tabs-from-tab-group`, `move-tab-group`, `move-tab-group-to-split`, `move-tab-group-to-column`, `move-tab-group-to-new-workspace`, `ungroup-tab-group`, `close-tab-group`, `list-saved-tab-groups`, `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `reopen-saved-tab-group`, `new-row`, `set-row-heights`, `move-column`, `move-workspace`, `set-workspace-metadata`, `list-personal`, `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, `delete-browser-profile`, `list-bookmarks`, `create-bookmark`, `update-bookmark`, `move-bookmark`, `delete-bookmark`, `import-bookmarks`, `feed-local-list`, `feed-local-read`, `feed-local-handoff-begin`, `feed-local-handoff-abort`, `feed-local-handoff-done`, `put-blob`, `get-blob`, `conversation-list`, `conversation-create`, `conversation-snapshot`, `conversation-history`, `conversation-thread`, `conversation-link-resolve`, `conversation-inbox-op`, `home-inbox`, `conversation-search`, `history-search`, `conversation-op`, `conversation-typing`, `conversation-draft`, `conversation-bind`, `conversation-agent-token`, `cloud-session-set`, `cloud-session-clear`, `cloud-session-status`, `cloud-host-replica-set`, `cloud-host-replica-clear`, `cloud-host-replica-status`, `page-credential`, `ws-listen`, `cloud-inbox-list`, `cloud-requests-list`, `cloud-selfhost-info`, `cloud-conversation-snapshot`, `cloud-conversation-history`, `cloud-conversation-thread`, `cloud-conversation-runs`, `cloud-conversation-run`, `cloud-participant-avatar-get`, `cloud-conversation-op`, `cloud-inbox-op`, `cloud-inbox-subscribe`, `cloud-inbox-unsubscribe`, `cloud-conversation-subscribe`, `cloud-conversation-unsubscribe`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-mux-subscribe`, `cloud-mux-unsubscribe`, `cloud-mux-ack`, `conversation-attachment-upload`, `conversation-attachment-read`, `conversation-attachment-link`, `cloud-attachment-upload`, `cloud-attachment-read`, `cloud-attachment-link`, `conversation-run-append`, `conversation-runs`, `conversation-run`, `conversation-live-publish`, `conversation-live`, `conversation-import`, `create-profile`, `update-profile`, `move-profile`, `delete-profile`, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `set-session-icon`, `import-session-organization`, `create-personal-group`, `update-personal-group`, `delete-personal-group`, `move-personal-group`, `set-personal-workspace`, `set-personal-terminal`, `list-workspace-groups`, `create-workspace-group`, `update-workspace-group`, `delete-workspace-group`, `move-workspace-group`, `move-workspace-to-group`, `set-default-colors`, `close-pane`, `close-screen`, `close-workspace`, `mark-workspaces-provider-managed`, `close-provider-managed-workspace`, `rename-pane`, `rename-screen`, `rename-workspace`, `rename-provider-managed-workspace`, `resize-surface`, `resize-attached-view`, `release-surface-size`, `release-attached-view-size`, `detach-attached-view`, `focus-pane`, `select-screen`, `select-workspace`, `report-focus`, `client-focus`, `terminal-events`, `send`, `read-screen`, `clear-history`, `read-scrollback`, `wait-for`, `send-key`, `copy`, `vt-state`, `scroll-surface`, `mint-terminal-renderer`, `get-cell-pixels`, `mint-terminal-renderer-by-terminal`, `set-cell-pixels`, `subscribe`, `attach-surface`, `paste-image`, `url-open`, `url-open-subscribe`, `url-open-claim`, `url-open-result`, `terminal-clipboard-subscribe`, `terminal-clipboard-reply`, `snapshot-request`, `terminal-history`, `terminal-read-range`, `create-surface-with-receipt`, `notify`, `new-tab`, `new-browser-tab`, `move-tab`, `close-surface`, `rename-surface`, `select-tab`, `move-tab-to-workspace`, `new-conversation-tab`, `bind-conversation-tab-session`, `new-frontend-browser-tab`, `update-frontend-browser-tab`, `restart-tab`, `park-tabs`, `set-frontend-browser-history`, `get-frontend-browser-history`, `close-tabs`, `ack-tab-notifications`, `list-notifications`, `set-tab-pinned`, `move-tab-to-split`, `move-tab-to-column`, `move-tab-to-new-workspace`, `new-remote-terminal-tab`, `update-remote-terminal-tab`, `remote-terminal-snapshot` at line 1 column 37\",\"id\":8,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":9,\"cmd\":\"agent-session-observe\",\"bogus\":true}",
+      "replies": [
+        "{\"error\":\"bad request\",\"error_code\":\"agent_session.bad_request\",\"id\":9,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":10,\"cmd\":\"agent-session-attach\",\"bogus\":true}",
+      "replies": [
+        "{\"error\":\"bad request\",\"error_code\":\"agent_session.bad_request\",\"id\":10,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":11,\"cmd\":\"agent-session-nope\"}",
+      "replies": [
+        "{\"error\":\"bad request\",\"error_code\":\"agent_session.bad_request\",\"id\":11,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":12,\"cmd\":\"agent-session-start\"}",
+      "replies": [
+        "{\"error\":\"bad request\",\"error_code\":\"agent_session.bad_request\",\"id\":12,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":13,\"cmd\":\"agent-transfer-nope\"}",
+      "replies": [
+        "{\"error\":\"bad request\",\"error_code\":\"agent_transfer.bad_request\",\"id\":13,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":14,\"cmd\":\"agent-transfer-nope\",\"note\":\"\\\"access-request\\\" \\\"agent-update-plan\\\"\"}",
+      "replies": [
+        "{\"error\":\"bad request\",\"error_code\":\"agent_transfer.bad_request\",\"id\":14,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":15,\"cmd\":\"access-request\"}",
+      "replies": [
+        "{\"error\":\"access requests are served on a Cloud machine only\",\"error_code\":\"access_request.unavailable\",\"id\":15,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":16,\"cmd\":\"access-request-list\"}",
+      "replies": [
+        "{\"error\":\"access requests are served on a Cloud machine only\",\"error_code\":\"access_request.unavailable\",\"id\":16,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":17,\"cmd\":\"agent-update-plan\"}",
+      "replies": [
+        "{\"error\":\"this daemon has no acpmux\",\"error_code\":\"agent_update.unavailable\",\"id\":17,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":18,\"cmd\":\"agent-update-apply\"}",
+      "replies": [
+        "{\"error\":\"bad request\",\"error_code\":\"agent_update.bad_request\",\"id\":18,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":19,\"cmd\":\"agent-update-nope\"}",
+      "replies": [
+        "{\"error\":\"bad request: unknown variant `agent-update-nope`, expected one of `identify`, `browser-host-provider`, `subscribe-activity`, `chief-inspect`, `server-stats`, `debug-daemon-locks`, `trace-start`, `trace-stop`, `trace-status`, `set-terminal-command-history`, `list-terminal-commands`, `delete-terminal-commands`, `shutdown-daemon`, `ping`, `set-client-info`, `list-clients`, `machine-usage`, `machine-listening-tcp`, `register-browser-provider`, `get-browser-provider`, `unregister-browser-provider`, `list-terminals`, `set-client-sizing`, `pairing-response`, `detach-client`, `reattach-view`, `set-size-policy`, `set-size-counts`, `get-size-state`, `get-host-size-policy`, `set-host-size-policy`, `note-size-activity`, `reload-config`, `set-window-title`, `clear-window-title`, `list-workspaces`, `get-frontend-projection`, `put-frontend-projection`, `journal-frontend-event`, `export-layout`, `apply-layout`, `sidebar-plugin`, `run`, `ids`, `list-agents`, `report-agent`, `resolve-terminal`, `close-terminal`, `set-terminal-idle-policy`, `set-terminal-keep`, `terminal-resume-command`, `browser-frame-presented`, `browser-mouse`, `browser-mouse-guarded`, `browser-wheel`, `browser-wheel-guarded`, `browser-key`, `browser-key-press`, `browser-insert-text`, `browser-navigate`, `browser-back`, `browser-forward`, `browser-reload`, `browser-activate`, `new-workspace`, `create-workspace`, `create-terminal`, `new-screen`, `set-screen-metadata`, `set-screen-pinned`, `move-screen`, `create-screen-group`, `update-screen-group`, `add-screens-to-screen-group`, `remove-screens-from-screen-group`, `move-screen-group`, `ungroup-screen-group`, `close-screen-group`, `list-saved-screen-groups`, `save-screen-group`, `unsave-screen-group`, `delete-saved-screen-group`, `reopen-saved-screen-group`, `new-pane`, `new-pane-right`, `split`, `set-ratio`, `set-split-ratio`, `set-viewport-pane-width`, `set-column-dock`, `undo-layout`, `pane-neighbor`, `focus-direction`, `swap-pane`, `zoom-pane`, `process-info`, `terminal-ports`, `terminal-resources`, `move-terminal`, `list-tab-groups`, `create-tab-group`, `update-tab-group`, `add-tabs-to-tab-group`, `remove-tabs-from-tab-group`, `move-tab-group`, `move-tab-group-to-split`, `move-tab-group-to-column`, `move-tab-group-to-new-workspace`, `ungroup-tab-group`, `close-tab-group`, `list-saved-tab-groups`, `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `reopen-saved-tab-group`, `new-row`, `set-row-heights`, `move-column`, `move-workspace`, `set-workspace-metadata`, `list-personal`, `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, `delete-browser-profile`, `list-bookmarks`, `create-bookmark`, `update-bookmark`, `move-bookmark`, `delete-bookmark`, `import-bookmarks`, `feed-local-list`, `feed-local-read`, `feed-local-handoff-begin`, `feed-local-handoff-abort`, `feed-local-handoff-done`, `put-blob`, `get-blob`, `conversation-list`, `conversation-create`, `conversation-snapshot`, `conversation-history`, `conversation-thread`, `conversation-link-resolve`, `conversation-inbox-op`, `home-inbox`, `conversation-search`, `history-search`, `conversation-op`, `conversation-typing`, `conversation-draft`, `conversation-bind`, `conversation-agent-token`, `cloud-session-set`, `cloud-session-clear`, `cloud-session-status`, `cloud-host-replica-set`, `cloud-host-replica-clear`, `cloud-host-replica-status`, `page-credential`, `ws-listen`, `cloud-inbox-list`, `cloud-requests-list`, `cloud-selfhost-info`, `cloud-conversation-snapshot`, `cloud-conversation-history`, `cloud-conversation-thread`, `cloud-conversation-runs`, `cloud-conversation-run`, `cloud-participant-avatar-get`, `cloud-conversation-op`, `cloud-inbox-op`, `cloud-inbox-subscribe`, `cloud-inbox-unsubscribe`, `cloud-conversation-subscribe`, `cloud-conversation-unsubscribe`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-mux-subscribe`, `cloud-mux-unsubscribe`, `cloud-mux-ack`, `conversation-attachment-upload`, `conversation-attachment-read`, `conversation-attachment-link`, `cloud-attachment-upload`, `cloud-attachment-read`, `cloud-attachment-link`, `conversation-run-append`, `conversation-runs`, `conversation-run`, `conversation-live-publish`, `conversation-live`, `conversation-import`, `create-profile`, `update-profile`, `move-profile`, `delete-profile`, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `set-session-icon`, `import-session-organization`, `create-personal-group`, `update-personal-group`, `delete-personal-group`, `move-personal-group`, `set-personal-workspace`, `set-personal-terminal`, `list-workspace-groups`, `create-workspace-group`, `update-workspace-group`, `delete-workspace-group`, `move-workspace-group`, `move-workspace-to-group`, `set-default-colors`, `close-pane`, `close-screen`, `close-workspace`, `mark-workspaces-provider-managed`, `close-provider-managed-workspace`, `rename-pane`, `rename-screen`, `rename-workspace`, `rename-provider-managed-workspace`, `resize-surface`, `resize-attached-view`, `release-surface-size`, `release-attached-view-size`, `detach-attached-view`, `focus-pane`, `select-screen`, `select-workspace`, `report-focus`, `client-focus`, `terminal-events`, `send`, `read-screen`, `clear-history`, `read-scrollback`, `wait-for`, `send-key`, `copy`, `vt-state`, `scroll-surface`, `mint-terminal-renderer`, `get-cell-pixels`, `mint-terminal-renderer-by-terminal`, `set-cell-pixels`, `subscribe`, `attach-surface`, `paste-image`, `url-open`, `url-open-subscribe`, `url-open-claim`, `url-open-result`, `terminal-clipboard-subscribe`, `terminal-clipboard-reply`, `snapshot-request`, `terminal-history`, `terminal-read-range`, `create-surface-with-receipt`, `notify`, `new-tab`, `new-browser-tab`, `move-tab`, `close-surface`, `rename-surface`, `select-tab`, `move-tab-to-workspace`, `new-conversation-tab`, `bind-conversation-tab-session`, `new-frontend-browser-tab`, `update-frontend-browser-tab`, `restart-tab`, `park-tabs`, `set-frontend-browser-history`, `get-frontend-browser-history`, `close-tabs`, `ack-tab-notifications`, `list-notifications`, `set-tab-pinned`, `move-tab-to-split`, `move-tab-to-column`, `move-tab-to-new-workspace`, `new-remote-terminal-tab`, `update-remote-terminal-tab`, `remote-terminal-snapshot` at line 1 column 35\",\"id\":19,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":20,\"cmd\":\"agent-cli-update-job\"}",
+      "replies": [
+        "{\"error\":\"The owner could not start the update job\",\"error_code\":\"agent_cli_job.not_trusted\",\"id\":20,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":21,\"cmd\":\"agent-cli-update-job-resolve\"}",
+      "replies": [
+        "{\"error\":\"The owner could not start the update job\",\"error_code\":\"agent_cli_job.not_trusted\",\"id\":21,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":22,\"cmd\":\"agent-cli-intents-record\"}",
+      "replies": [
+        "{\"error\":\"The update intent ledger refused this request\",\"error_code\":\"agent_cli_intents.not_trusted\",\"id\":22,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":23,\"cmd\":\"agent-cli-intents-list\"}",
+      "replies": [
+        "{\"error\":\"The update intent ledger refused this request\",\"error_code\":\"agent_cli_intents.not_trusted\",\"id\":23,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":24,\"cmd\":\"agent-cli-intents-settle\"}",
+      "replies": [
+        "{\"error\":\"The update intent ledger refused this request\",\"error_code\":\"agent_cli_intents.not_trusted\",\"id\":24,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":25,\"cmd\":\"agent-cli-intents-attach\"}",
+      "replies": [
+        "{\"error\":\"The update intent ledger refused this request\",\"error_code\":\"agent_cli_intents.not_trusted\",\"id\":25,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":26,\"cmd\":\"agent-cli-intents-nope\"}",
+      "replies": [
+        "{\"error\":\"bad request: unknown variant `agent-cli-intents-nope`, expected one of `identify`, `browser-host-provider`, `subscribe-activity`, `chief-inspect`, `server-stats`, `debug-daemon-locks`, `trace-start`, `trace-stop`, `trace-status`, `set-terminal-command-history`, `list-terminal-commands`, `delete-terminal-commands`, `shutdown-daemon`, `ping`, `set-client-info`, `list-clients`, `machine-usage`, `machine-listening-tcp`, `register-browser-provider`, `get-browser-provider`, `unregister-browser-provider`, `list-terminals`, `set-client-sizing`, `pairing-response`, `detach-client`, `reattach-view`, `set-size-policy`, `set-size-counts`, `get-size-state`, `get-host-size-policy`, `set-host-size-policy`, `note-size-activity`, `reload-config`, `set-window-title`, `clear-window-title`, `list-workspaces`, `get-frontend-projection`, `put-frontend-projection`, `journal-frontend-event`, `export-layout`, `apply-layout`, `sidebar-plugin`, `run`, `ids`, `list-agents`, `report-agent`, `resolve-terminal`, `close-terminal`, `set-terminal-idle-policy`, `set-terminal-keep`, `terminal-resume-command`, `browser-frame-presented`, `browser-mouse`, `browser-mouse-guarded`, `browser-wheel`, `browser-wheel-guarded`, `browser-key`, `browser-key-press`, `browser-insert-text`, `browser-navigate`, `browser-back`, `browser-forward`, `browser-reload`, `browser-activate`, `new-workspace`, `create-workspace`, `create-terminal`, `new-screen`, `set-screen-metadata`, `set-screen-pinned`, `move-screen`, `create-screen-group`, `update-screen-group`, `add-screens-to-screen-group`, `remove-screens-from-screen-group`, `move-screen-group`, `ungroup-screen-group`, `close-screen-group`, `list-saved-screen-groups`, `save-screen-group`, `unsave-screen-group`, `delete-saved-screen-group`, `reopen-saved-screen-group`, `new-pane`, `new-pane-right`, `split`, `set-ratio`, `set-split-ratio`, `set-viewport-pane-width`, `set-column-dock`, `undo-layout`, `pane-neighbor`, `focus-direction`, `swap-pane`, `zoom-pane`, `process-info`, `terminal-ports`, `terminal-resources`, `move-terminal`, `list-tab-groups`, `create-tab-group`, `update-tab-group`, `add-tabs-to-tab-group`, `remove-tabs-from-tab-group`, `move-tab-group`, `move-tab-group-to-split`, `move-tab-group-to-column`, `move-tab-group-to-new-workspace`, `ungroup-tab-group`, `close-tab-group`, `list-saved-tab-groups`, `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `reopen-saved-tab-group`, `new-row`, `set-row-heights`, `move-column`, `move-workspace`, `set-workspace-metadata`, `list-personal`, `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, `delete-browser-profile`, `list-bookmarks`, `create-bookmark`, `update-bookmark`, `move-bookmark`, `delete-bookmark`, `import-bookmarks`, `feed-local-list`, `feed-local-read`, `feed-local-handoff-begin`, `feed-local-handoff-abort`, `feed-local-handoff-done`, `put-blob`, `get-blob`, `conversation-list`, `conversation-create`, `conversation-snapshot`, `conversation-history`, `conversation-thread`, `conversation-link-resolve`, `conversation-inbox-op`, `home-inbox`, `conversation-search`, `history-search`, `conversation-op`, `conversation-typing`, `conversation-draft`, `conversation-bind`, `conversation-agent-token`, `cloud-session-set`, `cloud-session-clear`, `cloud-session-status`, `cloud-host-replica-set`, `cloud-host-replica-clear`, `cloud-host-replica-status`, `page-credential`, `ws-listen`, `cloud-inbox-list`, `cloud-requests-list`, `cloud-selfhost-info`, `cloud-conversation-snapshot`, `cloud-conversation-history`, `cloud-conversation-thread`, `cloud-conversation-runs`, `cloud-conversation-run`, `cloud-participant-avatar-get`, `cloud-conversation-op`, `cloud-inbox-op`, `cloud-inbox-subscribe`, `cloud-inbox-unsubscribe`, `cloud-conversation-subscribe`, `cloud-conversation-unsubscribe`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-mux-subscribe`, `cloud-mux-unsubscribe`, `cloud-mux-ack`, `conversation-attachment-upload`, `conversation-attachment-read`, `conversation-attachment-link`, `cloud-attachment-upload`, `cloud-attachment-read`, `cloud-attachment-link`, `conversation-run-append`, `conversation-runs`, `conversation-run`, `conversation-live-publish`, `conversation-live`, `conversation-import`, `create-profile`, `update-profile`, `move-profile`, `delete-profile`, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `set-session-icon`, `import-session-organization`, `create-personal-group`, `update-personal-group`, `delete-personal-group`, `move-personal-group`, `set-personal-workspace`, `set-personal-terminal`, `list-workspace-groups`, `create-workspace-group`, `update-workspace-group`, `delete-workspace-group`, `move-workspace-group`, `move-workspace-to-group`, `set-default-colors`, `close-pane`, `close-screen`, `close-workspace`, `mark-workspaces-provider-managed`, `close-provider-managed-workspace`, `rename-pane`, `rename-screen`, `rename-workspace`, `rename-provider-managed-workspace`, `resize-surface`, `resize-attached-view`, `release-surface-size`, `release-attached-view-size`, `detach-attached-view`, `focus-pane`, `select-screen`, `select-workspace`, `report-focus`, `client-focus`, `terminal-events`, `send`, `read-screen`, `clear-history`, `read-scrollback`, `wait-for`, `send-key`, `copy`, `vt-state`, `scroll-surface`, `mint-terminal-renderer`, `get-cell-pixels`, `mint-terminal-renderer-by-terminal`, `set-cell-pixels`, `subscribe`, `attach-surface`, `paste-image`, `url-open`, `url-open-subscribe`, `url-open-claim`, `url-open-result`, `terminal-clipboard-subscribe`, `terminal-clipboard-reply`, `snapshot-request`, `terminal-history`, `terminal-read-range`, `create-surface-with-receipt`, `notify`, `new-tab`, `new-browser-tab`, `move-tab`, `close-surface`, `rename-surface`, `select-tab`, `move-tab-to-workspace`, `new-conversation-tab`, `bind-conversation-tab-session`, `new-frontend-browser-tab`, `update-frontend-browser-tab`, `restart-tab`, `park-tabs`, `set-frontend-browser-history`, `get-frontend-browser-history`, `close-tabs`, `ack-tab-notifications`, `list-notifications`, `set-tab-pinned`, `move-tab-to-split`, `move-tab-to-column`, `move-tab-to-new-workspace`, `new-remote-terminal-tab`, `update-remote-terminal-tab`, `remote-terminal-snapshot` at line 1 column 40\",\"id\":26,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":27,\"cmd\":\"machine-catalog-publish\"}",
+      "replies": [
+        "{\"error\":\"Machine catalog publication was refused\",\"error_code\":\"machine_catalog.not_trusted\",\"id\":27,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":28,\"cmd\":\"apps-nope\"}",
+      "replies": [
+        "{\"error\":\"unknown variant `apps-nope`, expected one of `apps-list`, `apps-set`, `apps-store`, `apps-mount`, `apps-unmount`, `apps-dispatch`, `apps-run`, `apps-terminal-links`, `apps-logs`, `apps-link-changed`, `apps-provider-register`, `apps-agent-inventory-changed`, `apps-provider-result`\",\"error_code\":\"bad-request\",\"id\":28,\"ok\":false,\"retryable\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":29,\"cmd\":\"apps-agent-inventory-changed\",\"extra\":1}",
+      "replies": [
+        "{\"error\":\"inventory invalidation accepts only demand_sequence\",\"error_code\":\"bad-request\",\"id\":29,\"ok\":false,\"retryable\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":30,\"cmd\":\"cancel-request\"}",
+      "replies": [
+        "{\"error\":\"missing field `target`\",\"error_code\":\"bad-request\",\"id\":30,\"ok\":false,\"retryable\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":31,\"cmd\":\"script-nope\"}",
+      "replies": [
+        "{\"error\":\"unknown variant `script-nope`, expected one of `script-run`, `script-repl-open`, `script-repl-eval`, `script-repl-close`\",\"error_code\":\"bad-request\",\"id\":31,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"cmd\":\"script-run\",\"code\":\"1\"}",
+      "replies": [
+        "{\"error\":\"script requests need an id\",\"error_code\":\"bad-request\",\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":32,\"cmd\":\"fs.stat\",\"path\":\"/\"}",
+      "replies": [
+        "{\"error\":\"file ops are served only on cmux Cloud hosts (fs-v1 is not served here)\",\"error_code\":\"fs.unavailable\",\"id\":32,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":33,\"cmd\":\"fs.read\",\"path\":\"/\"}",
+      "replies": [
+        "{\"error\":\"file ops are served only on cmux Cloud hosts (fs-v1 is not served here)\",\"error_code\":\"fs.unavailable\",\"id\":33,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":34,\"cmd\":\"fs.list\",\"path\":\"/\"}",
+      "replies": [
+        "{\"error\":\"file ops are served only on cmux Cloud hosts (fs-v1 is not served here)\",\"error_code\":\"fs.unavailable\",\"id\":34,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":35,\"cmd\":\"fs.nope\"}",
+      "replies": [
+        "{\"error\":\"bad request: unknown variant `fs.nope`, expected one of `identify`, `browser-host-provider`, `subscribe-activity`, `chief-inspect`, `server-stats`, `debug-daemon-locks`, `trace-start`, `trace-stop`, `trace-status`, `set-terminal-command-history`, `list-terminal-commands`, `delete-terminal-commands`, `shutdown-daemon`, `ping`, `set-client-info`, `list-clients`, `machine-usage`, `machine-listening-tcp`, `register-browser-provider`, `get-browser-provider`, `unregister-browser-provider`, `list-terminals`, `set-client-sizing`, `pairing-response`, `detach-client`, `reattach-view`, `set-size-policy`, `set-size-counts`, `get-size-state`, `get-host-size-policy`, `set-host-size-policy`, `note-size-activity`, `reload-config`, `set-window-title`, `clear-window-title`, `list-workspaces`, `get-frontend-projection`, `put-frontend-projection`, `journal-frontend-event`, `export-layout`, `apply-layout`, `sidebar-plugin`, `run`, `ids`, `list-agents`, `report-agent`, `resolve-terminal`, `close-terminal`, `set-terminal-idle-policy`, `set-terminal-keep`, `terminal-resume-command`, `browser-frame-presented`, `browser-mouse`, `browser-mouse-guarded`, `browser-wheel`, `browser-wheel-guarded`, `browser-key`, `browser-key-press`, `browser-insert-text`, `browser-navigate`, `browser-back`, `browser-forward`, `browser-reload`, `browser-activate`, `new-workspace`, `create-workspace`, `create-terminal`, `new-screen`, `set-screen-metadata`, `set-screen-pinned`, `move-screen`, `create-screen-group`, `update-screen-group`, `add-screens-to-screen-group`, `remove-screens-from-screen-group`, `move-screen-group`, `ungroup-screen-group`, `close-screen-group`, `list-saved-screen-groups`, `save-screen-group`, `unsave-screen-group`, `delete-saved-screen-group`, `reopen-saved-screen-group`, `new-pane`, `new-pane-right`, `split`, `set-ratio`, `set-split-ratio`, `set-viewport-pane-width`, `set-column-dock`, `undo-layout`, `pane-neighbor`, `focus-direction`, `swap-pane`, `zoom-pane`, `process-info`, `terminal-ports`, `terminal-resources`, `move-terminal`, `list-tab-groups`, `create-tab-group`, `update-tab-group`, `add-tabs-to-tab-group`, `remove-tabs-from-tab-group`, `move-tab-group`, `move-tab-group-to-split`, `move-tab-group-to-column`, `move-tab-group-to-new-workspace`, `ungroup-tab-group`, `close-tab-group`, `list-saved-tab-groups`, `save-tab-group`, `unsave-tab-group`, `delete-saved-tab-group`, `reopen-saved-tab-group`, `new-row`, `set-row-heights`, `move-column`, `move-workspace`, `set-workspace-metadata`, `list-personal`, `create-browser-profile`, `update-browser-profile`, `move-browser-profile`, `delete-browser-profile`, `list-bookmarks`, `create-bookmark`, `update-bookmark`, `move-bookmark`, `delete-bookmark`, `import-bookmarks`, `feed-local-list`, `feed-local-read`, `feed-local-handoff-begin`, `feed-local-handoff-abort`, `feed-local-handoff-done`, `put-blob`, `get-blob`, `conversation-list`, `conversation-create`, `conversation-snapshot`, `conversation-history`, `conversation-thread`, `conversation-link-resolve`, `conversation-inbox-op`, `home-inbox`, `conversation-search`, `history-search`, `conversation-op`, `conversation-typing`, `conversation-draft`, `conversation-bind`, `conversation-agent-token`, `cloud-session-set`, `cloud-session-clear`, `cloud-session-status`, `cloud-host-replica-set`, `cloud-host-replica-clear`, `cloud-host-replica-status`, `page-credential`, `ws-listen`, `cloud-inbox-list`, `cloud-requests-list`, `cloud-selfhost-info`, `cloud-conversation-snapshot`, `cloud-conversation-history`, `cloud-conversation-thread`, `cloud-conversation-runs`, `cloud-conversation-run`, `cloud-participant-avatar-get`, `cloud-conversation-op`, `cloud-inbox-op`, `cloud-inbox-subscribe`, `cloud-inbox-unsubscribe`, `cloud-conversation-subscribe`, `cloud-conversation-unsubscribe`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-mux-subscribe`, `cloud-mux-unsubscribe`, `cloud-mux-ack`, `conversation-attachment-upload`, `conversation-attachment-read`, `conversation-attachment-link`, `cloud-attachment-upload`, `cloud-attachment-read`, `cloud-attachment-link`, `conversation-run-append`, `conversation-runs`, `conversation-run`, `conversation-live-publish`, `conversation-live`, `conversation-import`, `create-profile`, `update-profile`, `move-profile`, `delete-profile`, `set-profile-follows`, `pin-workspace`, `unpin-workspace`, `put-session`, `forget-session`, `set-session-icon`, `import-session-organization`, `create-personal-group`, `update-personal-group`, `delete-personal-group`, `move-personal-group`, `set-personal-workspace`, `set-personal-terminal`, `list-workspace-groups`, `create-workspace-group`, `update-workspace-group`, `delete-workspace-group`, `move-workspace-group`, `move-workspace-to-group`, `set-default-colors`, `close-pane`, `close-screen`, `close-workspace`, `mark-workspaces-provider-managed`, `close-provider-managed-workspace`, `rename-pane`, `rename-screen`, `rename-workspace`, `rename-provider-managed-workspace`, `resize-surface`, `resize-attached-view`, `release-surface-size`, `release-attached-view-size`, `detach-attached-view`, `focus-pane`, `select-screen`, `select-workspace`, `report-focus`, `client-focus`, `terminal-events`, `send`, `read-screen`, `clear-history`, `read-scrollback`, `wait-for`, `send-key`, `copy`, `vt-state`, `scroll-surface`, `mint-terminal-renderer`, `get-cell-pixels`, `mint-terminal-renderer-by-terminal`, `set-cell-pixels`, `subscribe`, `attach-surface`, `paste-image`, `url-open`, `url-open-subscribe`, `url-open-claim`, `url-open-result`, `terminal-clipboard-subscribe`, `terminal-clipboard-reply`, `snapshot-request`, `terminal-history`, `terminal-read-range`, `create-surface-with-receipt`, `notify`, `new-tab`, `new-browser-tab`, `move-tab`, `close-surface`, `rename-surface`, `select-tab`, `move-tab-to-workspace`, `new-conversation-tab`, `bind-conversation-tab-session`, `new-frontend-browser-tab`, `update-frontend-browser-tab`, `restart-tab`, `park-tabs`, `set-frontend-browser-history`, `get-frontend-browser-history`, `close-tabs`, `ack-tab-notifications`, `list-notifications`, `set-tab-pinned`, `move-tab-to-split`, `move-tab-to-column`, `move-tab-to-new-workspace`, `new-remote-terminal-tab`, `update-remote-terminal-tab`, `remote-terminal-snapshot` at line 1 column 25\",\"id\":35,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":37,\"cmd\":\"fs.stat\",\"stream\":true}",
+      "replies": [
+        "{\"error\":\"file ops are served only on cmux Cloud hosts (fs-v1 is not served here)\",\"error_code\":\"fs.unavailable\",\"id\":37,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":38,\"cmd\":\"oracle-state\",\"x\":1}",
+      "replies": [
+        "{\"error\":\"bad request: oracle-state takes no field \\\"x\\\"\",\"id\":38,\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"id\":39,\"cmd\":\"fs.stat\",\"protocol\":7}",
+      "replies": [
+        "{\"error\":{\"code\":\"validation.invalid\",\"details\":{\"field\":\"id\",\"reason\":\"request id must be a string of 1 to 128 UTF-8 bytes\"},\"message\":\"request id must be a string of 1 to 128 UTF-8 bytes\",\"retryable\":false},\"id\":39,\"ok\":false,\"protocol\":\"cmux.protocol/2\",\"type\":\"response\"}"
+      ]
+    },
+    {
+      "line": "{\"protocol\":\"cmux.protocol/2\",\"type\":\"request\",\"id\":\"r-1\",\"operation\":\"session.ping\",\"params\":{\"machine\":\"m_nope\",\"session\":\"current\"}}",
+      "replies": [
+        "{\"error\":{\"code\":\"validation.invalid\",\"details\":{\"reason\":\"reserved or ambiguous names must use the name: prefix\"},\"message\":\"reserved or ambiguous names must use the name: prefix\",\"retryable\":false},\"id\":\"r-1\",\"ok\":false,\"protocol\":\"cmux.protocol/2\",\"type\":\"response\"}"
+      ]
+    },
+    {
+      "line": "{\"protocol\":\"cmux.protocol/2\",\"type\":\"request\",\"id\":\"r-2\",\"operation\":\"apps.catalog.list\",\"params\":{}}",
+      "replies": [
+        "{\"error\":{\"code\":\"operation.failed\",\"details\":{\"extra\":{\"code\":\"apps.unavailable\"},\"operation\":\"apps.catalog.list\",\"reason\":\"this daemon has no app host\"},\"message\":\"this daemon has no app host\",\"retryable\":false},\"id\":\"r-2\",\"ok\":false,\"protocol\":\"cmux.protocol/2\",\"type\":\"response\"}"
+      ]
+    },
+    {
+      "line": "{\"protocol\":\"cmux.protocol/2\",\"type\":\"request\",\"id\":\"r-3\",\"operation\":\"apps.catalog.list\",\"params\":{},\"extra\":1}",
+      "replies": [
+        "{\"error\":{\"code\":\"validation.invalid\",\"details\":{\"reason\":\"invalid request envelope\"},\"message\":\"invalid request envelope\",\"retryable\":false},\"id\":\"r-3\",\"ok\":false,\"protocol\":\"cmux.protocol/2\",\"type\":\"response\"}"
+      ]
+    },
+    {
+      "line": "{\"protocol\":\"cmux.protocol/2\",\"type\":\"request\",\"id\":\"r-4\",\"operation\":\"no.such.operation\",\"params\":{}}",
+      "replies": [
+        "{\"error\":{\"code\":\"validation.invalid\",\"details\":{\"reason\":\"invalid request envelope\"},\"message\":\"invalid request envelope\",\"retryable\":false},\"id\":\"r-4\",\"ok\":false,\"protocol\":\"cmux.protocol/2\",\"type\":\"response\"}"
+      ]
+    },
+    {
+      "line": "{\"protocol\":\"cmux.protocol/2\",\"type\":\"request\",\"id\":5,\"operation\":\"session.ping\",\"params\":{}}",
+      "replies": [
+        "{\"error\":{\"code\":\"validation.invalid\",\"details\":{\"field\":\"id\",\"reason\":\"request id must be a string of 1 to 128 UTF-8 bytes\"},\"message\":\"request id must be a string of 1 to 128 UTF-8 bytes\",\"retryable\":false},\"id\":5,\"ok\":false,\"protocol\":\"cmux.protocol/2\",\"type\":\"response\"}"
+      ]
+    },
+    {
+      "line": "{\"protocol\":\"cmux.protocol/2\",\"type\":\"request\",\"id\":\"r-6\"}",
+      "replies": [
+        "{\"error\":{\"code\":\"validation.invalid\",\"details\":{\"reason\":\"invalid request envelope\"},\"message\":\"invalid request envelope\",\"retryable\":false},\"id\":\"r-6\",\"ok\":false,\"protocol\":\"cmux.protocol/2\",\"type\":\"response\"}"
+      ]
+    },
+    {
+      "line": "{\"protocol\":null,\"id\":\"r-7\",\"operation\":\"session.ping\"}",
+      "replies": [
+        "{\"error\":{\"code\":\"validation.invalid\",\"details\":{\"reason\":\"invalid request envelope\"},\"message\":\"invalid request envelope\",\"retryable\":false},\"id\":\"r-7\",\"ok\":false,\"protocol\":\"cmux.protocol/2\",\"type\":\"response\"}"
+      ]
+    },
+    {
+      "line": "{\"protocol\":\"cmux.protocol/2\",\"type\":\"request\",\"id\":\"r-8\",\"operation\":{\"session.ping\":null},\"params\":{}}",
+      "replies": [
+        "{\"error\":{\"code\":\"validation.invalid\",\"details\":{\"field\":\"machine\",\"reason\":\"required selector is missing\"},\"message\":\"required selector is missing\",\"retryable\":false},\"id\":\"r-8\",\"ok\":false,\"protocol\":\"cmux.protocol/2\",\"type\":\"response\"}"
+      ]
+    },
+    {
+      "line": "{\"protocol\":\"cmux.protocol/2\",\"type\":\"request\",\"id\":\"r-9\",\"operation\":\"session.ping\",\"params\":{},\"n\":1e400}",
+      "replies": [
+        "{\"error\":\"bad request: number out of range at line 1 column 106\",\"ok\":false}"
+      ]
+    },
+    {
+      "line": "{\"protocol\":\"cmux.protocol/2\",\"cmd\":\"ping\",\"id\":110}",
+      "replies": [
+        "{\"error\":{\"code\":\"validation.invalid\",\"details\":{\"field\":\"id\",\"reason\":\"request id must be a string of 1 to 128 UTF-8 bytes\"},\"message\":\"request id must be a string of 1 to 128 UTF-8 bytes\",\"retryable\":false},\"id\":110,\"ok\":false,\"protocol\":\"cmux.protocol/2\",\"type\":\"response\"}"
+      ]
+    }
+  ]
+}

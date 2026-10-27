@@ -3,6 +3,11 @@ import Foundation
 
 /// The daemon's capabilities and its socket, for callers that open their own connection.
 extension DaemonService {
+    /// The current (or last) daemon's identity. The store owns it and
+    /// replaces it on every handshake, so capabilities follow a daemon that
+    /// restarted or was handed off to a newer build after the first connect.
+    public var identity: DaemonIdentity? { store.identity }
+
     public func supports(_ capability: String) -> Bool {
         store.supports(capability)
     }

@@ -553,7 +553,7 @@ mod tests {
         drop(writer);
         while spawned.child.try_wait().unwrap().is_none() {
             assert!(std::time::Instant::now() < deadline, "zsh did not exit");
-            std::thread::sleep(std::time::Duration::from_millis(20));
+            crate::request_path::sleep(std::time::Duration::from_millis(20));
         }
         drop(spawned);
 

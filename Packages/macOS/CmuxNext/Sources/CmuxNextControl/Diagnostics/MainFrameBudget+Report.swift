@@ -20,7 +20,7 @@ extension MainFrameBudget {
     public var reportParts: (fields: [String: JSONValue], turns: MainTurnMeter.Snapshot) {
         let stats = stats
         var classes: [String: JSONValue] = [:]
-        for (index, workClass) in MainWorkClass.budgeted.enumerated() {
+        for (index, workClass) in Stats.classes.enumerated() {
             classes[workClass.description] = [
                 "budget_ms": .number(Double(Self.nanos(budgets.budget(workClass) ?? .zero)) / 1_000_000),
                 "tasks": JSONValue((stats.tasks[checked: index] ?? 0)),
@@ -50,7 +50,7 @@ extension MainFrameBudget {
     private static func starvationReport(_ starvation: RenderStarvationGuard) -> JSONValue {
         let stats = starvation.stats
         var held: [String: JSONValue] = [:]
-        for (index, workClass) in MainWorkClass.budgeted.enumerated() {
+        for (index, workClass) in MainFrameBudget.Stats.classes.enumerated() {
             held[workClass.description] = JSONValue(stats.heldTasks[checked: index] ?? 0)
         }
         return ["holds_work": .bool(starvation.holdsWork), "events": JSONValue(stats.events),
@@ -95,4 +95,78 @@ nonisolated extension MainTurnMeter.Snapshot {
     }
 
     private static func ms(_ nanos: UInt64) -> JSONValue { .number(Double(nanos) / 1_000_000) }
+}
+
+extension MainTaskBoard {
+    /// The whole `debug.main_budget` reply: the budget's ``MainFrameBudget/report`` (its own fields
+    /// copied on the main actor, its turn fields folded here from ``MainFrameBudget/reportParts``),
+    /// plus `owners`, per owner and class the wait and run percentiles, node states and posting sites
+    /// of the finished tasks (``MainOwnerLedger``, highest run p99 first), and `owner_ledger`, how many
+    /// records it folded, dropped and has pending. The ledger and the turns are folded here, off the
+    /// main thread, so the main thread never takes the ledger's lock.
+    ///
+    /// - Parameters:
+    ///   - budget: The budget whose board this is.
+    ///   - idle: The scheduler's idle class, reported under `idle` (``IdleScheduler/report``); nil: no `idle` member.
+    ///   - reset: Clears the budget's counters, the idle class's and the ledger after reading them.
+    @concurrent
+    public func mainBudgetReport(_ budget: MainFrameBudget, idle: IdleScheduler? = nil, reset: Bool) async -> JSONValue {
+        let snapshot = ownerSnapshot()
+        if reset { ledger.reset() }
+        // main-hop-allow: the scheduler's own report; a post would queue the read behind the classes it reports on
+        let (parts, idleReport) = await MainActor.run {
+            let parts = budget.reportParts
+            let idleReport = idle?.report
+            if reset {
+                budget.resetStats()
+                idle?.resetStats()
+            }
+            return (parts, idleReport)
+        }
+        var fields = parts.fields.merging(parts.turns.reportFields) { current, _ in current }
+        if let idleReport { fields["idle"] = idleReport }
+        fields["owners"] = .array(snapshot.owners.map(\.report))
+        fields["owner_ledger"] = .object([
+            "recorded": .number(Double(snapshot.recorded)), "dropped": .number(Double(snapshot.dropped)), "pending": JSONValue(snapshot.pending),
+        ])
+        return .object(fields)
+    }
+}
+
+extension MainOwnerLedger.Owner {
+    /// One `owners` row: owner, class, tasks, wait and run percentiles in milliseconds, total run
+    /// time, tasks per node state and the top posting sites.
+    var report: JSONValue {
+        var nodes: [String: JSONValue] = [:]
+        for (state, count) in self.nodes { nodes[state.description] = JSONValue(count) }
+        let postedFrom: [JSONValue] = sites.map { site in ["location": .string(site.location), "tasks": JSONValue(site.tasks)] }
+        let row: [String: JSONValue] = [
+            "owner": .string(owner), "class": .string(workClass.description), "tasks": JSONValue(tasks), "wait": wait.report,
+            "run": run.report, "run_total_ms": .number(Double(runTotalNanos) / 1_000_000), "nodes": .object(nodes),
+            "posted_from": .array(postedFrom),
+        ]
+        return .object(row)
+    }
+}
+
+extension MainOwnerLedger.Distribution {
+    /// `{count, p50_ms, p95_ms, p99_ms, max_ms}`.
+    var report: JSONValue {
+        [
+            "count": JSONValue(count), "p50_ms": .number(Double(p50Nanos) / 1_000_000), "p95_ms": .number(Double(p95Nanos) / 1_000_000),
+            "p99_ms": .number(Double(p99Nanos) / 1_000_000), "max_ms": .number(Double(maxNanos) / 1_000_000),
+        ]
+    }
+}
+
+extension IdleScheduler {
+    /// The `idle` member of the `debug.main_budget` report: periods, tasks run, promoted and
+    /// dropped, periods ended by input or higher-class work, timer fires and tasks queued.
+    public var report: JSONValue {
+        let stats = stats
+        return ["long_periods": JSONValue(stats.longPeriods), "short_periods": JSONValue(stats.shortPeriods),
+                "tasks": JSONValue(stats.tasks), "promoted": JSONValue(stats.promoted), "dropped": JSONValue(stats.dropped),
+                "ended_by_input": JSONValue(stats.endedByInput), "ended_by_higher_work": JSONValue(stats.endedByHigherWork),
+                "timer_fires": JSONValue(stats.timerFires), "queued": JSONValue(count)]
+    }
 }

@@ -1,6 +1,6 @@
 /// Closed input latency slots handed over together: what one ``InputLatencyRing/takeBatch()``
-/// returned, the refresh interval to judge scroll frames against, and the producer's lost-slot
-/// counter when the batch was taken.
+/// returned, the refresh interval to judge scroll frames against, the display it was presented
+/// on, and the producer's lost-slot counter when the batch was taken.
 public struct InputLatencyBatch: Sendable, Equatable {
     /// The closed slots, oldest first.
     public var slots: [InputLatencySlot]
@@ -10,16 +10,20 @@ public struct InputLatencyBatch: Sendable, Equatable {
     /// `droppedCount`s added up. The ledger counts the growth since the last batch it folded, so
     /// a batch lost on the way loses no drop count: the next one carries it.
     public var droppedTotal: UInt64
+    /// The display the slots were presented on: their rows carry it as a label.
+    public var display: InputDisplayClass
 
-    public init(slots: [InputLatencySlot], vsyncNanos: UInt64, droppedTotal: UInt64 = 0) {
+    public init(slots: [InputLatencySlot], vsyncNanos: UInt64, droppedTotal: UInt64 = 0,
+                display: InputDisplayClass = .unknown) {
         self.slots = slots
         self.vsyncNanos = vsyncNanos
         self.droppedTotal = droppedTotal
+        self.display = display
     }
 }
 
 /// Folds closed input latency slots into histograms per kind x target x entrypoint x
-/// presentation source: the total latency (Chrome `EventLatency.<Type>.TotalLatency`) and, per
+/// presentation source x display: the total latency (Chrome `EventLatency.<Type>.TotalLatency`) and, per
 /// stage, the time since the stage the input reached just before it (Chrome's EventLatency stage
 /// breakdowns, cc/metrics/compositor_frame_reporter.cc). Scroll frames also go through Chrome's
 /// scroll jank formula (``ScrollJankTracker``).
@@ -30,7 +34,7 @@ public struct InputLatencyBatch: Sendable, Equatable {
 ///
 /// A value with no lock and no clock reads: its owner (`InputLatencyReporter` in
 /// CmuxNextControl) keeps it in an actor and folds batches off the main thread. Rows are bounded by
-/// the enums: at most 13 kinds x 9 targets x 2 entrypoints x 4 sources.
+/// the enums: at most 13 kinds x 9 targets x 2 entrypoints x 4 sources, per display.
 public struct InputLatencyLedger: Sendable, Equatable {
     /// One row's key.
     public struct Key: Sendable, Hashable {
@@ -38,13 +42,15 @@ public struct InputLatencyLedger: Sendable, Equatable {
         public var target: InputTarget
         public var entrypoint: InputEntrypoint
         public var presentationSource: InputPresentationSource
+        public var display: InputDisplayClass
 
         public init(kind: InputEventKind, target: InputTarget, entrypoint: InputEntrypoint,
-                    presentationSource: InputPresentationSource) {
+                    presentationSource: InputPresentationSource, display: InputDisplayClass = .unknown) {
             self.kind = kind
             self.target = target
             self.entrypoint = entrypoint
             self.presentationSource = presentationSource
+            self.display = display
         }
     }
 
@@ -62,6 +68,13 @@ public struct InputLatencyLedger: Sendable, Equatable {
         /// The histogram of `stage`'s deltas.
         public subscript(stage: InputStage) -> InputLatencyHistogram {
             stages[Int(stage.rawValue)]
+        }
+
+        /// Adds `other`'s counts.
+        mutating func add(_ other: Row) {
+            count &+= other.count
+            total.add(other.total)
+            for index in stages.indices { stages[index].add(other.stages[index]) }
         }
     }
 
@@ -104,6 +117,45 @@ public struct InputLatencyLedger: Sendable, Equatable {
 
     public init() {}
 
+    /// Starts every count over (`debug.input reset`). It keeps the producer's last drop total, so the
+    /// next batch adds only the slots lost after the reset.
+    public mutating func reset() {
+        let baseline = lastDroppedTotal
+        self = InputLatencyLedger()
+        lastDroppedTotal = baseline
+    }
+
+    /// Moves the counts out and returns them as a ledger of counts only: the rows, the slot counters
+    /// and the scroll jank counts and histograms start again at zero. What is in progress stays:
+    /// the scroll frame being gathered, the scroll in progress, the fixed window not yet full and
+    /// the producer's drop baseline, so the next frame of an ongoing scroll is judged against the
+    /// frame before the take. A report's delta, as UMA uploads histogram deltas while the
+    /// recorders keep their state (base/metrics/histogram_snapshot_manager.cc,
+    /// cc/metrics/scroll_jank_dropped_frame_tracker.cc).
+    public mutating func takeCounts() -> InputLatencyLedger {
+        var counts = InputLatencyLedger()
+        counts.rows = rows
+        counts.slotsReceived = slotsReceived
+        counts.slotsWithoutFrameUpdate = slotsWithoutFrameUpdate
+        counts.slotsDropped = slotsDropped
+        counts.scrollJank = scrollJank.takeCounts()
+        rows = [:]
+        slotsReceived = 0
+        slotsWithoutFrameUpdate = 0
+        slotsDropped = 0
+        return counts
+    }
+
+    /// Adds the counts of `other` (rows, slot counters, scroll jank counts and histograms); its
+    /// scroll in progress and drop baseline are not counts and are left out.
+    public mutating func add(_ other: InputLatencyLedger) {
+        for (key, row) in other.rows { rows[key, default: Row()].add(row) }
+        slotsReceived &+= other.slotsReceived
+        slotsWithoutFrameUpdate &+= other.slotsWithoutFrameUpdate
+        slotsDropped &+= other.slotsDropped
+        scrollJank.addCounts(other.scrollJank)
+    }
+
     /// Counts `count` slots lost before the ledger saw them.
     public mutating func noteDropped(_ count: UInt64) {
         slotsDropped &+= count
@@ -115,10 +167,10 @@ public struct InputLatencyLedger: Sendable, Equatable {
         let total = batch.droppedTotal
         noteDropped(total >= lastDroppedTotal ? total - lastDroppedTotal : total)
         lastDroppedTotal = total
-        for slot in batch.slots { fold(slot, vsyncNanos: batch.vsyncNanos) }
+        for slot in batch.slots { fold(slot, vsyncNanos: batch.vsyncNanos, display: batch.display) }
     }
 
-    private mutating func fold(_ slot: InputLatencySlot, vsyncNanos: UInt64) {
+    private mutating func fold(_ slot: InputLatencySlot, vsyncNanos: UInt64, display: InputDisplayClass) {
         slotsReceived &+= 1
         // Scroll begins seldom update a frame, so the scroll's life is read before the drop below;
         // only a slot that updated a frame adds a scroll frame.
@@ -127,7 +179,8 @@ public struct InputLatencyLedger: Sendable, Equatable {
             slotsWithoutFrameUpdate &+= 1
             return
         }
-        let key = Key(kind: slot.kind, target: slot.target, entrypoint: slot.entrypoint, presentationSource: slot.presentationSource)
+        let key = Key(kind: slot.kind, target: slot.target, entrypoint: slot.entrypoint, presentationSource: slot.presentationSource,
+                      display: display)
         Self.count(slot, in: &rows[key, default: Row()])
     }
 
@@ -202,7 +255,10 @@ public struct InputLatencyLedger: Sendable, Equatable {
     public var snapshot: InputLatencySnapshot {
         let sorted = rows.sorted { lhs, rhs in
             if lhs.value.count != rhs.value.count { return lhs.value.count > rhs.value.count }
-            return Self.order(lhs.key) < Self.order(rhs.key)
+            let lhsOrder = Self.order(lhs.key)
+            let rhsOrder = Self.order(rhs.key)
+            if lhsOrder != rhsOrder { return lhsOrder < rhsOrder }
+            return (lhs.key.display.refreshHz, lhs.key.display.vrr ? 1 : 0) < (rhs.key.display.refreshHz, rhs.key.display.vrr ? 1 : 0)
         }
         return InputLatencySnapshot(
             bucketEdgesMilliseconds: InputLatencyBuckets.edgesNanos.map { Double($0) / 1_000_000 },
@@ -215,6 +271,7 @@ public struct InputLatencyLedger: Sendable, Equatable {
                     target: String(describing: key.target),
                     entrypoint: String(describing: key.entrypoint),
                     presentationSource: String(describing: key.presentationSource),
+                    display: key.display,
                     count: row.count,
                     total: row.total.snapshot,
                     stages: Self.stagesInOrder.compactMap { stage -> InputLatencySnapshot.Stage? in

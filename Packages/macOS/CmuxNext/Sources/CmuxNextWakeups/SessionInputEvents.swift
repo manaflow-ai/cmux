@@ -22,6 +22,6 @@ public protocol SessionInputEvents: AnyObject {
     var pointerIsOverAppWindow: Bool { get }
     /// Starts reporting every input event AppKit dispatches in this app (keys, modifier changes,
     /// mouse buttons, pointer motion, scrolls): its timestamp (seconds since boot) and kind.
-    /// Returns false while it cannot yet (no `NSApp`): the caller asks again on its next check.
-    func observeDispatch(_ dispatched: @escaping @MainActor @Sendable (SessionInputPending.Dispatched) -> Void) -> Bool
+    /// ``SessionInputPending`` calls it once, from its init.
+    func observeDispatch(_ dispatched: @escaping @MainActor @Sendable (SessionInputPending.Dispatched) -> Void)
 }

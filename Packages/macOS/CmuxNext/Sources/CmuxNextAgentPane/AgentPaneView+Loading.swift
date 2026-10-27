@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextDesign
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import os
 
 private let loadingLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.webview")
@@ -30,8 +30,9 @@ public final class AgentPaneLoadingView: NSView {
     var paintCheckInterval: Duration = .seconds(4) {
         didSet { if onGiveUp != nil { schedulePaintCheck() } }
     }
-    private let markTimer = DemandTimer(owner: "agentPane.loadingMark")
-    private let paintTimer = DemandTimer(owner: "agentPane.paintCheck")
+    /// Both deadlines are `visible`: the mark and the paint check are what the person sees of a page that loads.
+    private let markTimer: MainDeadline
+    private let paintTimer: MainDeadline
     private var onGiveUp: (@MainActor () -> Void)?
     /// The last check saw the pane, still unpainted.
     private var seenUnpainted = false
@@ -46,8 +47,11 @@ public final class AgentPaneLoadingView: NSView {
     /// the only way a test on a headless host can tell them apart.
     private(set) var leftFading: Bool?
 
-    override init(frame: NSRect) {
-        super.init(frame: frame)
+    /// - Parameter deadlines: The app's one deadline placer (the pane model's), for the mark's delay and the paint checks.
+    init(deadlines: MainDeadlineScheduler) {
+        markTimer = MainDeadline(owner: "agentPane.loadingMark", workClass: .visible, scheduler: deadlines)
+        paintTimer = MainDeadline(owner: "agentPane.paintCheck", workClass: .visible, scheduler: deadlines)
+        super.init(frame: .zero)
         wantsLayer = true
         autoresizingMask = [.width, .height]
         indicator.configure(.busy(progress: nil))
@@ -78,7 +82,7 @@ public final class AgentPaneLoadingView: NSView {
     /// Shows the mark after ``markDelay``, unless the page paints first. Out of the view until then:
     /// the indicator sets its own `isHidden` from its config whenever it refreshes.
     func showMarkLater() {
-        markTimer.schedule(after: Self.markDelay) { @MainActor [weak self] in
+        markTimer.schedule(after: Self.markDelay) { [weak self] in
             guard let self else { return }
             addSubview(indicator)
         }
@@ -93,7 +97,7 @@ public final class AgentPaneLoadingView: NSView {
     }
 
     private func schedulePaintCheck() {
-        paintTimer.schedule(after: paintCheckInterval) { @MainActor [weak self] in self?.checkPaint() }
+        paintTimer.schedule(after: paintCheckInterval) { [weak self] in self?.checkPaint() }
     }
 
     private func checkPaint() {
@@ -112,8 +116,9 @@ public final class AgentPaneLoadingView: NSView {
     /// outside the window's content (a parked New Tab spare). Not the window's occlusion state:
     /// WebKit's own view of it is what holds the paint.
     private var paneIsSeen: Bool {
-        guard let pane = superview, let window, window.isVisible, let content = window.contentView,
-              !pane.isHiddenOrHasHiddenAncestor else { return false }
+        guard let pane = superview, let window, window.isVisible, let content = window.contentView else { return false }
+        // visibility-walk-allow: WebKit holds the paint by the view tree the page is in, so the check reads that same AppKit state; once per paint check (4 s) while unpainted
+        guard !pane.isHiddenOrHasHiddenAncestor else { return false }
         // Window coordinates: `visibleRect` does not clip to views that do not clip to bounds.
         return pane.convert(pane.bounds, to: nil).intersects(content.convert(content.bounds, to: nil))
     }
@@ -155,10 +160,6 @@ public final class AgentPaneLoadingView: NSView {
     private func left(_ page: NSView?) {
         page?.alphaValue = 1
         leaving = false
-        #if DEBUG || CMUX_BENCH_HOOKS
-        // Still in its pane: the pane's trace takes it.
-        ChatOpenTrace.shared.mark(.loadingLeft, view: self)
-        #endif
         removeFromSuperview()
         alphaValue = 1
         let waiters = revealWaiters
@@ -168,8 +169,8 @@ public final class AgentPaneLoadingView: NSView {
 }
 
 extension AgentPaneView {
-    /// The page's view: the shared page host's, or this pane's own web view.
-    var pageContent: NSView { page.map { $0 as NSView } ?? webView }
+    /// The page's view, the page host's.
+    var pageContent: NSView { page }
 
     /// Whether the pane draws its loading state until the page paints. A pane over its last
     /// page's image (a relaunch, `AgentPaneLaunchImages`) turns it off: that image is its first
@@ -188,6 +189,7 @@ extension AgentPaneView {
         themeLoadingState(themeTokens)
         loadingView.showMarkLater()
         model.whenPainted { [weak self] in self?.endLoadingState() }
+        model.chatOpen?.mark(.paneMade)
         #if DEBUG || CMUX_BENCH_HOOKS
         ChatOpenTrace.shared.bind(view: self, page: page, surface: { [weak self] in self?.traceSurface ?? .gone },
                                   engine: { [weak self] in self?.engineName ?? "gone" })
@@ -201,11 +203,11 @@ extension AgentPaneView {
 
     /// The page shows and the loading state goes (``AgentPaneLoadingView/leave(over:fades:)``).
     func endLoadingState() {
-        #if DEBUG || CMUX_BENCH_HOOKS
         // The handshake's painted answer ends the loading state in the same turn.
-        ChatOpenTrace.shared.mark(.panePainted, view: self)
-        ChatOpenTrace.shared.mark(.loadingLeave, view: self)
-        #endif
+        chatMark(.panePainted)
+        chatMark(.loadingLeave)
+        // The cover's fade, if any, ends after this turn: the pane marks the cover gone once it left.
+        if loadingView.superview != nil { loadingView.whenRevealed { [weak self] in self?.chatMark(.loadingLeft) } }
         loadingView.leave(over: pageContent,
                           fades: Self.pageFades(hasNewTab: model.newTab != nil, isVisible: alphaValue > 0,
                                                 fromKeptTail: model.paintedFromKeptTail))
@@ -223,6 +225,27 @@ extension AgentPaneView {
         !hasNewTab && isVisible && !fromKeptTail
     }
 
+    /// The agent chat open this pane shows, nil when none made it (``AgentPaneModel/chatOpen``).
+    public var chatOpen: ChatOpenStages? { model.chatOpen }
+
+    /// The agent chat open this pane shows (``AgentPaneModel/chatOpen``): its stages, and its page's from now on.
+    /// A pane that was made with no open (the prewarmed New Tab page) gets the open that adopts it: for that open,
+    /// this is when its pane was made.
+    public func join(_ chatOpen: ChatOpenStages) {
+        model.chatOpen = chatOpen
+        page.chatOpen = chatOpen
+        chatOpen.mark(.paneMade)
+    }
+
+    /// A stage of this pane's chat open, in every build (none without an open); DEBUG and bench builds also mark
+    /// the running `debug.chat_open_trace`.
+    func chatMark(_ stage: ChatOpenStage) {
+        model.chatOpen?.mark(stage)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        ChatOpenTrace.shared.mark(stage, view: self)
+        #endif
+    }
+
     func themeLoadingState(_ tokens: ThemeTokens) {
         guard loadingView.superview != nil else { return }
         loadingView.paint(AgentPaneTheme.underPageColor(tokens, surface: surfaceKind).nsColor)
@@ -234,6 +257,7 @@ extension AgentPaneView {
     /// What this pane shows now, for ``ChatOpenTrace``: a hold keeping the content it replaces, its
     /// loading cover, the launch image, or the page before or after its first contentful paint.
     var traceSurface: ChatOpenTrace.Surface {
+        // visibility-walk-allow: the trace reports what AppKit shows of the pane (a DEBUG and bench probe), its own view state
         guard window != nil, !isHiddenOrHasHiddenAncestor else { return .gone }
         if alphaValue == 0 { return .held }
         if loadingView.superview != nil {
@@ -242,7 +266,6 @@ extension AgentPaneView {
         }
         if pageContent.alphaValue == 0 { return .cover }
         // The page's own first frame (``PagePaintProbe``), the same signal in both engines.
-        guard page != nil else { return model.hasPainted ? .page : .pageEmpty }
         return ChatOpenTrace.shared.has(.pagePainted) ? .page : .pageEmpty
     }
 }

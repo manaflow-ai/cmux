@@ -16,6 +16,10 @@ public enum InputEventClass: UInt8, CaseIterable, Hashable, Sendable {
     case scroll
     /// A trackpad gesture: magnify, rotate, swipe, smart magnify, pressure.
     case gesture
+    /// The pointer crossed a tracking area's edge (`mouseEntered`, `mouseExited`): a window that does
+    /// not take mouse moves sends only these as the pointer moves over it. Not in ``InputEventClasses/all``
+    /// or ``InputEventClasses/pointer``: only an owner that names it hears it.
+    case tracking
 }
 
 /// A set of ``InputEventClass`` values: what one subscription receives.
@@ -34,9 +38,10 @@ public struct InputEventClasses: OptionSet, Hashable, Sendable {
     public static let drag = InputEventClasses(.drag)
     public static let scroll = InputEventClasses(.scroll)
     public static let gesture = InputEventClasses(.gesture)
+    public static let tracking = InputEventClasses(.tracking)
     /// Every pointer class: buttons, moves, drags and scrolls.
     public static let pointer: InputEventClasses = [.button, .pointerMove, .drag, .scroll]
-    /// Every class.
+    /// Every class of a person's input (not ``tracking``, which a move makes).
     public static let all: InputEventClasses = [.key, .flags, .button, .pointerMove, .drag, .scroll, .gesture]
 
     /// Whether the set holds `eventClass`.

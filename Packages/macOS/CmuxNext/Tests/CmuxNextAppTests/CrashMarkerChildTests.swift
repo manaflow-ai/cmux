@@ -1,5 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextBrowser
+import CmuxNextInput
+import CmuxNextWakeups
 import Darwin
 import Foundation
 import Testing
@@ -139,9 +141,16 @@ enum CrashChild {
     /// disk.
     @MainActor
     static func markRun(_ name: String) async -> AppRunMarker {
-        let marker = AppRunMarker(directory: directory(name, parent: getppid()))
+        let marker = await mark(directory(name, parent: getppid()))
         _ = await marker.flush()
         return marker
+    }
+
+    /// The app's launch in `directory`: the marker's launch read on a files lane, then the marker on the main thread.
+    @MainActor
+    static func mark(_ directory: URL) async -> AppRunMarker {
+        let read = AppRunMarker.startLaunchRead(directory: directory, in: BackgroundWork(label: "test.run-marker").sequence("test.run-marker"))
+        return AppRunMarker(launch: await read.finished())
     }
 
     /// Runaway recursion on the main thread, where the app installs its
@@ -174,7 +183,7 @@ enum CrashChild {
         let missing = FileManager.default.temporaryDirectory.appending(path: "cmux-no-cef-\(UUID().uuidString)")
         let engine = CEFEngine(layout: CEFRuntimeLayout(frameworksDirectory: missing, mainBundle: missing,
                                                         helperApp: missing.appending(path: "None Helper.app")),
-                               stores: .inMemory(), signInCallbacks: CEFSignInCallbacks())
+                               stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())
         AppRunMarker.keepSignalHandlers(marker, across: engine, reporter: nil)
         for signal in [SIGSEGV, SIGBUS, SIGILL, SIGABRT, SIGTRAP, SIGFPE, SIGSYS] { _ = Darwin.signal(signal, SIG_DFL) }
         await engine.warmStart(reason: "test")

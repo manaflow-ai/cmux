@@ -21,7 +21,7 @@ public struct SetTerminalCommandHistoryRequest: DaemonRequest {
         }
     }
 
-    public static let command = "set-terminal-command-history"
+    public static let commandName: DaemonCommandName = "set-terminal-command-history"
     public static let requiredCapability: String? = DaemonCapability.terminalCommandHistory.rawValue
     public var enabled: Bool
     public var retentionDays: Int?
@@ -29,6 +29,10 @@ public struct SetTerminalCommandHistoryRequest: DaemonRequest {
     public init(enabled: Bool, retentionDays: Int? = nil) {
         self.enabled = enabled
         self.retentionDays = retentionDays
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, retentionDays = "retention_days"
     }
 }
 

@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// An agent's Move to Cloud (cmuxterm-hq#1874 slice 5): the agent runs the move's own action
@@ -32,7 +33,7 @@ final class CloudMoveAsks {
     }
 
     private var asks: [String: Ask] = [:]
-    private var unfinishedOffer: Task<Void, Never>?
+    private var unfinishedOffer: Task<Void, any Error>?
     /// Tabs whose card is the launch offer of an unfinished move: their Dismiss is remembered.
     private var offered: Set<String> = []
     private var dismissedMemory: [String: String] = [:]
@@ -57,26 +58,43 @@ final class CloudMoveAsks {
             throw ActionFailure(message: CloudMoveAskStrings.onlyOwnChat)
         }
         guard !CloudMove.hiddenMenuItems(tab).contains(CloudMove.action) else { throw ActionFailure(message: CloudMoveStrings.alreadyRemote) }
-        let tabID = tab.id
-        let work: ActionWork = Task { @MainActor [weak self] in
-            let workspace = services.machines.local.store.workspace(containing: pane.handle)
-            let chat = try? await CloudMove(services: services).chatFolder(tab: tab, workspace: workspace, session: session, invocation: ActionInvocation())
-            guard let self else { return nil }
-            guard let folder = chat.flatMap(CloudMoveFolder.init(chat:)) else { return ActionWorkFailure(CloudMoveStrings.noFolder) }
-            guard !folder.isTooBroad else { return ActionWorkFailure(CloudMoveStrings.homeFolder) }
-            // An ask already open or moving stays as it is, shown again (its chat's page may be a new one).
-            if asks[tabID] != nil { return services.cloud.toolCards.reshow(tab: tabID) ? nil : ActionWorkFailure(CloudMoveAskStrings.noPage) }
-            asks[tabID] = Ask(folder: folder.root, always: false)
-            if alwaysFolders().contains(folder.root) {
-                asks[tabID]?.always = true
-                start(tabID, services: services)
-            } else if !show(tabID, .ask, CloudMoveAskStrings.ask(Self.name(folder.root)), [.move, .notNow, .always], services: services) {
-                asks[tabID] = nil
-                return ActionWorkFailure(CloudMoveAskStrings.noPage)
+        let tabID = tab.id, mainWork = services.mainWork
+        // R-hop: the chat's folder is awaited off main; the card (or an "Always" folder's move) is one automation
+        // task (an agent asked), in the run's action scopes.
+        let work: ActionWork = Task { @concurrent [weak self] in
+            let scopes = ActionScopes.current
+            let folder = await CloudMoveAsks.folder(of: tab, in: pane, session: session, services: services)
+            return await mainWork.apply(.automation, owner: "CloudMoveAsks.ask") { [weak self] in
+                scopes.applying { self?.asked(tabID, folder: folder, services: services) }
             }
-            return nil
         }
         services.registry.track(work)
+    }
+
+    /// The synced folder of chat `tab` (in `pane`, session `session`): its root and whether it is too broad to move.
+    private static func folder(of tab: TabModel, in pane: PaneModel, session: String,
+                               services: AppServices) async -> (root: String, tooBroad: Bool)? {
+        let workspace = services.machines.local.store.workspace(containing: pane.handle)
+        let chat = try? await CloudMove(services: services).chatFolder(tab: tab, workspace: workspace, session: session, invocation: ActionInvocation())
+        return chat.flatMap(CloudMoveFolder.init(chat:)).map { ($0.root, $0.isTooBroad) }
+    }
+
+    /// The agent's ask for chat tab `tabID` whose folder is `folder`: the card, or the move at once from an
+    /// "Always" folder.
+    private func asked(_ tabID: String, folder: (root: String, tooBroad: Bool)?, services: AppServices) -> ActionWorkFailure? {
+        guard let folder else { return ActionWorkFailure(CloudMoveStrings.noFolder) }
+        guard !folder.tooBroad else { return ActionWorkFailure(CloudMoveStrings.homeFolder) }
+        // An ask already open or moving stays as it is, shown again (its chat's page may be a new one).
+        if asks[tabID] != nil { return services.cloud.toolCards.reshow(tab: tabID) ? nil : ActionWorkFailure(CloudMoveAskStrings.noPage) }
+        asks[tabID] = Ask(folder: folder.root, always: false)
+        if alwaysFolders().contains(folder.root) {
+            asks[tabID]?.always = true
+            start(tabID, services: services)
+        } else if !show(tabID, .ask, CloudMoveAskStrings.ask(Self.name(folder.root)), [.move, .notNow, .always], services: services) {
+            asks[tabID] = nil
+            return ActionWorkFailure(CloudMoveAskStrings.noPage)
+        }
+        return nil
     }
 
     /// After a launch: each chat tab whose move a quit, an update relaunch or a stop left unfinished
@@ -85,23 +103,32 @@ final class CloudMoveAsks {
     /// finishes it on its pinned machine, or only opens the moved chat's tab there.
     func offerUnfinished(services: AppServices) {
         guard unfinishedOffer == nil else { return }
-        // task-owner: one wait for this Mac's tree at launch, then one pass over the retries
-        unfinishedOffer = Task { @MainActor [weak self, weak services] in
-            for await loaded in ObservationStream({ [weak services] in services?.daemon.store.isLoaded ?? true }) where loaded {
-                guard let self, let services else { return }
-                let retries = services.cloud.moveRetries
-                for tab in retries.tabs where asks[tab] == nil && services.locateTab(tab)?.0.agentSession != nil {
-                    guard let retry = retries[tab], dismissed()[tab] != Self.fingerprint(retry) else { continue }
-                    let text = switch retry {
-                    case .show: CloudMoveStrings.unfinishedShow
-                    case .move, .askFirst, .update: CloudMoveStrings.unfinishedMove
-                    }
-                    asks[tab] = Ask(folder: "", always: false)
-                    offered.insert(tab)
-                    show(tab, .failed, text, [.retry, .dismiss], services: services)
-                }
-                return
+        let store = services.daemon.store, mainWork = services.mainWork, limit = Self.treeLimit
+        // task-owner: one wait for this Mac's tree at launch, then one pass over the retries. R-wait: the store's
+        // keyed wait for its first snapshot, off main; the pass is one background task.
+        unfinishedOffer = services.work.task(.bestEffort) { [weak self, weak services] in
+            guard await store.waitLoaded(timeout: limit) else { return }
+            mainWork.postFromAnyThread(.background, owner: "CloudMoveAsks.unfinished") { [weak self, weak services] in
+                guard let services else { return }
+                self?.offerUnfinishedNow(services: services)
             }
+        }
+    }
+
+    /// How long the launch offer waits for this Mac's first tree; a store that has not loaded by then offers nothing.
+    private static let treeLimit: Duration = .seconds(600)
+
+    private func offerUnfinishedNow(services: AppServices) {
+        let retries = services.cloud.moveRetries
+        for tab in retries.tabs where asks[tab] == nil && services.machines.tabIndex.locate(tab)?.0.agentSession != nil {
+            guard let retry = retries[tab], dismissed()[tab] != Self.fingerprint(retry) else { continue }
+            let text = switch retry {
+            case .show: CloudMoveStrings.unfinishedShow
+            case .move, .askFirst, .update: CloudMoveStrings.unfinishedMove
+            }
+            asks[tab] = Ask(folder: "", always: false)
+            offered.insert(tab)
+            show(tab, .failed, text, [.retry, .dismiss], services: services)
         }
     }
 

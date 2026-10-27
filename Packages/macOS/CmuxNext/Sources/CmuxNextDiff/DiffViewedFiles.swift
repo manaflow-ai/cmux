@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextSettings
 public import Foundation
 
@@ -88,7 +89,7 @@ public final class DiffViewedFiles {
         guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= 16 * 1024 * 1024,
               // concurrency-allow: @concurrent, one capped read of a small local file
               let data = try? Data(contentsOf: url),
-              let scopes = try? JSONDecoder().decode([Scope].self, from: data) else { return [] }
+              let scopes = try? JSONDecoder().blockingDecode([Scope].self, from: data) else { return [] }
         return scopes.sorted { $0.changedAt > $1.changedAt }
     }
 

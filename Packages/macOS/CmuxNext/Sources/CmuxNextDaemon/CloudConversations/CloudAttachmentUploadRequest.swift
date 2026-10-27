@@ -7,7 +7,7 @@ import Foundation
 /// Use `CloudConversationClient.uploadAttachment`, which runs the whole upload.
 public struct CloudAttachmentUploadRequest: DaemonRequest, AttachmentUploadStep {
     public typealias Response = ConversationAttachmentUploadRequest.Response
-    public static let command = "cloud-attachment-upload"
+    public static let commandName: DaemonCommandName = "cloud-attachment-upload"
     public static let requiredCapability: String? = DaemonCapability.cloudAttachments.rawValue
     /// The step, encoded as is.
     public var step: ConversationAttachmentUploadRequest

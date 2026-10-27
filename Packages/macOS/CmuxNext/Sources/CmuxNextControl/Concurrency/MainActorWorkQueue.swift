@@ -1,6 +1,9 @@
 public import CmuxNextSettings
 import CmuxNextCompat
+public import CmuxNextTrace
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// The one path from the control socket to main-actor state
 /// (plans/cmux-next/architecture.md section 5a).
@@ -34,6 +37,9 @@ public import CmuxNextWakeups
 ///   queued fails with `timeout` and is dropped without running. Time the
 ///   main thread spends in Chromium's start does not count
 ///   (`MainThreadEngineStart`).
+/// - Traced: each request is a `control.request` async slice from its enqueue to its run's end or its failure
+///   (``ControlRequestTrace``), and a posted task: a `task.post` flow at its `file` and `line` and a `task.run`
+///   slice on the main thread (``TaskTrace``), while those categories record.
 public final class MainActorWorkQueue: Sendable {
     public struct Limits: Sendable {
         public var maxPending: Int
@@ -118,17 +124,21 @@ public final class MainActorWorkQueue: Sendable {
 
     public let limits: Limits
     private let frameSource: any ControlFrameSource
+    private let taskTrace: TaskTrace
     private let state = Mutex(State())
 
-    public init(limits: Limits = Limits(), frameSource: any ControlFrameSource = MainQueueFrameSource()) {
+    /// A queue; `trace` is the runtime its `control.request` and task records go to (default the process's).
+    public init(limits: Limits = Limits(), frameSource: any ControlFrameSource = MainQueueFrameSource(),
+                trace: TraceRuntime = .shared) {
         self.limits = limits
         self.frameSource = frameSource
+        taskTrace = TaskTrace(runtime: trace)
     }
 
     public var stats: Stats { state.withLock { $0.stats } }
 
     /// `method` interned on the app's board (nil without one): the router calls it once per method
-    /// when it registers the method, so a request reaches ``run(connection:method:owner:workClass:deadline:countingFrom:_:)``
+    /// when it registers the method, so a request reaches ``run(connection:method:owner:workClass:deadline:countingFrom:file:line:_:)``
     /// with its owner and takes neither the board's owners lock nor a string hash.
     public func owner(of method: String) -> MainTaskOwner? {
         frameSource.mainTaskBoard?.owner(method)
@@ -151,6 +161,10 @@ public final class MainActorWorkQueue: Sendable {
     /// Queues `work` for the main actor and returns its result. Throws
     /// `busy` at once when the queue is full, `timeout` when `deadline`
     /// passes before `work` starts, or whatever `work` throws.
+    ///
+    /// With the app's budget the request is a posted task: its enqueue time is read here, on the
+    /// calling thread, and `file` and `line` are its `posted_from`, so the board's ledger records
+    /// its wait (queue and run loop time) under its method.
     public func run<T: Sendable>(
         connection: ControlConnectionID = .inProcess,
         method: String,
@@ -158,9 +172,12 @@ public final class MainActorWorkQueue: Sendable {
         workClass: MainWorkClass = .automation,
         deadline: ContinuousClock.Instant,
         countingFrom mark: Duration? = nil,
+        file: StaticString = #fileID,
+        line: UInt = #line,
         _ work: @escaping @MainActor @Sendable () throws -> T
     ) async throws -> T {
         let now = ContinuousClock.now
+        let posted = frameSource.mainTaskClock.map { MainTaskPost(site: MainPostSite(file: file, line: line), enqueueNanos: $0()) }
         let timeout = ControlError.timeout(method, after: max(deadline - now, .zero))
         // Main-thread time in Chromium's start after `mark` does not count
         // (MainThreadEngineStart): an item queued behind CefInitialize runs when it ends.
@@ -169,30 +186,43 @@ public final class MainActorWorkQueue: Sendable {
         // Interned when the method was registered; otherwise here, off the main thread. Either way
         // the drain starts the task without a lock.
         let owner = owner ?? frameSource.mainTaskBoard?.owner(method)
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
+        let itemClass: MainWorkClass = workClass == .input ? .input : .automation
+        // The site is interned here; the post is written only when the queue accepts the item (`enqueue`).
+        let post = taskTrace.prepare(fileID: file, line: line, lane: .main)
+        return try await withOnceThrowingContinuation { (continuation: OnceContinuation<T, any Error>) in
+            let request = ControlRequestTrace.begin(on: taskTrace.runtime, owner: owner, workClass: itemClass)
             let item = MainActorWorkItem(
                 connection: connection,
                 method: method,
                 owner: owner,
-                workClass: workClass == .input ? .input : .automation,
+                workClass: itemClass,
                 deadline: deadline,
                 enqueuedAt: now,
-                body: {
-                    do {
-                        continuation.resume(returning: try work())
-                    } catch {
-                        continuation.resume(throwing: error)
+                posted: posted,
+                body: { ticket in
+                    defer { request?.end(.ran) }
+                    let resume = {
+                        do {
+                            continuation.resume(returning: try work())
+                        } catch {
+                            continuation.resume(throwing: error)
+                        }
                     }
+                    if let ticket { ticket.run(priority: TaskTrace.code(itemClass), resume) } else { resume() }
                 },
-                fail: { continuation.resume(throwing: $0) }
+                fail: { error in
+                    request?.end(ControlRequestTrace.Outcome(error))
+                    continuation.resume(throwing: error)
+                }
             )
-            if let rejection = enqueue(item) {
+            if let rejection = enqueue(item, post: post) {
                 item.expire(rejection)
                 return
             }
-            let task = Task { [weak self] in
-                // wakeup-allow: one-shot work-item deadline, cancelled when the item runs
-                do { try await engineStart.waitPast(deadline, countingFrom: mark) } catch { return }
+            let task = Task { @concurrent [weak self] in
+                // wakeup-allow: deadline of the work item (flexible, never early: WakeLeeway), cancelled when the item runs
+                let tolerance = WakeLeeway.window(delay: max(deadline - now, .zero)).tolerance
+                do { try await engineStart.waitPast(deadline, countingFrom: mark, tolerance: tolerance) } catch { return }
                 if item.expire(timeout) { self?.state.withLock { $0.stats.expired += 1 } }
             }
             item.attachTimer(task)
@@ -201,7 +231,10 @@ public final class MainActorWorkQueue: Sendable {
 
     // MARK: - Private
 
-    private func enqueue(_ item: MainActorWorkItem) -> ControlError? {
+    /// Queues `item`, or refuses it as `busy`. `post` is written only for an accepted item, before it is
+    /// visible to a drain, so each `task.post` has its `task.run` (Chrome's `TaskAnnotator::WillQueueTask` runs
+    /// for a task the queue took).
+    private func enqueue(_ item: MainActorWorkItem, post: TaskTrace.PendingPost) -> ControlError? {
         let board = item.workClass == .input ? frameSource.mainTaskBoard : nil
         let (rejection, drain) = state.withLock { state -> (ControlError?, Drain?) in
             let pending = state.stats.pending
@@ -214,6 +247,7 @@ public final class MainActorWorkQueue: Sendable {
                 state.stats.rejectedBusy += 1
                 return (.busy(pending: mine, limit: limits.maxPendingPerConnection), nil)
             }
+            item.notePosted(post.write())
             if mine == 0 { state.ready.append(item.connection) }
             state.queues[item.connection, default: ItemQueue()].items.append(item)
             state.stats.pending += 1
@@ -259,11 +293,23 @@ public final class MainActorWorkQueue: Sendable {
             guard let item = takeHead(urgent) else { continue }
             let ran: Bool
             if let budget, let owner = item.owner {
-                ran = budget.run(.input, owner: owner) { item.run() }
+                ran = Self.runAsTask(item, as: .input, owner: owner, on: budget)
             } else {
                 ran = item.run()
             }
             if ran { state.withLock { $0.stats.executed += 1 } }
+        }
+    }
+
+    /// Runs `item` as a task of `budget`, posted as the request was queued: the ledger records its
+    /// wait and run time, and leaves out a request that expired before it ran.
+    @MainActor
+    private static func runAsTask(_ item: MainActorWorkItem, as workClass: MainWorkClass, owner: MainTaskOwner,
+                                  on budget: MainFrameBudget) -> Bool {
+        budget.run(workClass, owner: owner, posted: item.posted) {
+            let ran = item.run()
+            if !ran { budget.noteRanNothing() }
+            return ran
         }
     }
 
@@ -377,7 +423,7 @@ public final class MainActorWorkQueue: Sendable {
             let didRun: Bool
             if let budget, let owner = item.owner {
                 // An injected key that waited behind its connection's requests runs as input.
-                didRun = budget.run(item.workClass, owner: owner) { item.run() }
+                didRun = Self.runAsTask(item, as: item.workClass, owner: owner, on: budget)
             } else {
                 didRun = item.run()
             }

@@ -17,23 +17,24 @@ import CmuxNextSettings
 ///   `level` is normal, warning or critical and holds for both, whatever the kernel reports, until
 ///   `none` clears it and hands both the kernel's level again. The reply keeps `pressure`
 ///   (hibernation's level) and adds the coordinator's `level` and the `override`. `debug.memory`'s
-///   pressure history records each override.
+///   pressure history and histograms record each override.
 @MainActor
 enum DebugHibernationControl {
     static func methods(_ services: AppServices) -> [ControlMethod] {
-        let memory = DebugMemoryControl(services: services)
+        let memory = DebugMemoryControl(services: services, budget: .forThisMac(gpuResidentAvailable: services.cache.gpuResidency != nil))
         let discards = ControlMethod.mainActor("debug.discards") { [weak services] call in
             .value((services?.cache.hibernation?.discards ?? ContentDiscardReport()).report(call.params, now: .now))
         }.servingRelease()
         #if DEBUG || CMUX_BENCH_HOOKS
-        return [memory.method, discards, pressureMethod(services, history: memory.history)]
+        return [memory.method, discards, pressureMethod(services, history: memory.history, histograms: memory.histograms)]
         #else
         return [memory.method, discards]
         #endif
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    private static func pressureMethod(_ services: AppServices, history: MemoryPressureHistory) -> ControlMethod {
+    private static func pressureMethod(_ services: AppServices, history: MemoryPressureHistory,
+                                       histograms: MemoryHistograms) -> ControlMethod {
         .mainActor("debug.hibernation.pressure") { [weak services] call in
             let raw = call.params["level"]?.stringValue
             let level = raw.flatMap(MemoryPressureLevel.init(rawValue:))
@@ -44,6 +45,7 @@ enum DebugHibernationControl {
             let coordinator = services.memoryCoordinator
             let reply = applyOverride(level, coordinator: coordinator, hibernation: services.cache.hibernation)
             history.overrideDidChange(coordinator.pressureOverride)
+            histograms.overrideDidChange(coordinator.pressureOverride)
             return .value(reply)
         }
     }

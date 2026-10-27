@@ -11,7 +11,7 @@ import Testing
 /// image, because the fallback drew only the layer tree on a backdrop.
 @MainActor
 struct DebugPaletteCaptureTests {
-    @Test func aPaletteTheWindowServerCannotImageStillCapturesItsContent() throws {
+    @Test func aPaletteTheWindowServerCannotImageStillCapturesItsContent() async throws {
         _ = NSApplication.shared
         let palette = PaletteController(registry: ActionRegistry.standard(), frecencyPersistence: nil)
         palette.show(.commands)
@@ -19,7 +19,7 @@ struct DebugPaletteCaptureTests {
         let panel = try #require(palette.visiblePanel)
         let path = (NSTemporaryDirectory() as NSString).appendingPathComponent("palette-capture-\(UUID().uuidString).png")
         defer { try? FileManager.default.removeItem(atPath: path) }
-        let result = DebugPaletteCapture.capture(panel, to: path, windowImage: { _ in nil })
+        let result = await DebugPaletteCapture.capture(panel, to: path, windowImage: { _ in nil })
         #expect(result.objectValue?["error"] == nil, "\(result)")
         let rep = try #require(NSBitmapImageRep(data: Data(contentsOf: URL(fileURLWithPath: path))))
         // A flat image has a color or two; the palette's field, rows and text have many.

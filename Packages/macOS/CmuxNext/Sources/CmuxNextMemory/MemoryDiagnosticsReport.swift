@@ -87,7 +87,8 @@ public nonisolated struct MemoryDiagnosticsReport: Sendable {
             pressureHistory: snapshot.history.changes.map {
                 HistoryRow(atMs: $0.atMilliseconds, level: $0.level, kernelLevel: $0.kernelLevel, override: Count($0.override),
                            source: $0.source)
-            }
+            },
+            histograms: snapshot.histograms
         )
     }
 
@@ -137,9 +138,10 @@ public nonisolated struct MemoryDiagnosticsReport: Sendable {
         let terminal: TerminalRow
         let spares: [SpareRow]
         let pressureHistory: [HistoryRow]
+        let histograms: MemoryHistograms.Snapshot
 
         enum CodingKeys: String, CodingKey {
-            case pressure, mode, budget, consumers, processes, tabs, workspaces, terminal, spares
+            case pressure, mode, budget, consumers, processes, tabs, workspaces, terminal, spares, histograms
             case pressureHistory = "pressure_history"
         }
     }

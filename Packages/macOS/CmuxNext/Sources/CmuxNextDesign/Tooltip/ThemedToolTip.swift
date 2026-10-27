@@ -14,6 +14,16 @@ extension NSView {
         set { TooltipTracker.setWhole(themedToolTip, shortcut: newValue, on: self) }
     }
 
+    /// The tooltip the content under the pointer asks for (a web page's `title=`), shown below the
+    /// pointer: Chrome's page view takes it as `SetTooltipText` and shows it with
+    /// `-setToolTipAtMousePoint:` (content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm).
+    /// It comes while the pointer is already over the view, where a new tracking area reports no
+    /// enter, so it enters at once, as Chrome's view sends AppKit's tooltip owner a fake enter. The
+    /// same text again changes nothing. Nil or empty: none.
+    public func setThemedToolTipAtPointer(_ text: String?) {
+        TooltipTracker.setAtPointer(text, on: self)
+    }
+
     /// Tooltips for parts of the view (AppKit's `addToolTip(_:owner:userData:)`), in its coordinates;
     /// replaces the previous ones. A region wins over the view's own tooltip.
     public func setThemedToolTipRegions(_ regions: [(rect: NSRect, text: String)]) {
@@ -32,6 +42,8 @@ final class TooltipTracker: NSResponder {
     let region: NSRect?
     private(set) var text: String?
     private(set) var shortcut: String?
+    /// It hangs below the pointer, not the view (``NSView/setThemedToolTipAtPointer(_:)``).
+    private(set) var atPointer = false
     private var area: NSTrackingArea?
 
     static func whole(of view: NSView) -> TooltipTracker? { trackers.object(forKey: view)?.whole }
@@ -53,6 +65,17 @@ final class TooltipTracker: NSResponder {
         view.setAccessibilityHelp(text)
         tracker.track(text != nil)
         TooltipPresenter.shared.changed(tracker)
+    }
+
+    /// ``NSView/setThemedToolTipAtPointer(_:)``: the view's tooltip, entered at once when the pointer
+    /// is over the view; `presenter` is the app's one but in tests.
+    static func setAtPointer(_ text: String?, on view: NSView, presenter: TooltipPresenter = .shared) {
+        let text = text?.isEmpty == false ? text : nil
+        guard text != whole(of: view)?.text else { return }
+        setWhole(text, shortcut: nil, on: view)
+        guard let tracker = whole(of: view) else { return }
+        tracker.atPointer = true
+        if text != nil, tracker.isUnderPointer { presenter.enter(tracker) }
     }
 
     static func setRegions(_ regions: [(rect: NSRect, text: String)], on view: NSView) {
@@ -100,6 +123,25 @@ final class TooltipTracker: NSResponder {
         let local = (region ?? view.bounds).intersection(view.visibleRect)
         guard !local.isEmpty else { return nil }
         return window.convertToScreen(view.convert(local, to: nil))
+    }
+
+    /// The pointer is over the visible view or region now.
+    var isUnderPointer: Bool {
+        guard let window = view?.window, let anchor = screenRect, let pointer = PointerHover.pointer(in: window) else { return false }
+        return anchor.contains(window.convertPoint(toScreen: pointer))
+    }
+
+    /// How far a tooltip at the pointer hangs below the pointer's hot spot: the arrow cursor's height
+    /// below it, so the tooltip clears the cursor as AppKit's does.
+    static let pointerDrop: CGFloat = 20
+
+    /// What the tooltip hangs below, in screen coordinates: the visible view or region, or for one at
+    /// the pointer a box from the pointer down by ``pointerDrop``; nil when the view is not shown.
+    var anchorScreenRect: NSRect? {
+        guard atPointer else { return screenRect }
+        guard let window = view?.window, screenRect != nil, let pointer = PointerHover.pointer(in: window) else { return nil }
+        let point = window.convertPoint(toScreen: pointer)
+        return NSRect(x: point.x, y: point.y - Self.pointerDrop, width: 1, height: Self.pointerDrop)
     }
 
     /// The view's own visible label already says the tooltip's text (a titled button, a label):

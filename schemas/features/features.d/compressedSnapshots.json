@@ -1,0 +1,15 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "compressedSnapshots",
+  "owner": "PL-memory",
+  "description": "Each hibernated browser page keeps its last frame as a JPEG in its own 64 MB store, so every hibernated tab wakes to its picture; off keeps decoded frames in the shared 32 MB preview cache, where only the last few fit.",
+  "defaults": { "dev": true, "nightly": true, "release": true },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["browser-hibernation", "memory-hidden"],
+  "sticky": false,
+  "runtimeMutable": false,
+  "replaces": ["hibernation.compressedSnapshots"]
+}
