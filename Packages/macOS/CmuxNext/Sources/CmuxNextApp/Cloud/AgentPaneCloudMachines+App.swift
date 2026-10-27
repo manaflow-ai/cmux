@@ -31,9 +31,12 @@ extension AgentPaneCloudMachines {
     }
 
     /// Runs `action` on machine `id` when it is one of the loaded list's and `allowed`; false otherwise.
+    /// `machines.cloud` is the list ``CloudService/refresh()`` reconciled for the account signed in
+    /// now (``CloudService/hasLoadedCurrentMachines``): the same rows `cloudMachine.list` answered.
     private static func perform(_ action: ActionID, on id: String, services: AppServices, allowed: (CloudMachineSession) -> Bool) -> Bool {
         guard services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines,
-              let session = services.machines.session(id), session.effectiveStatus != .destroyed, allowed(session) else { return false }
+              let session = services.machines.cloud.first(where: { $0.machineID == id }),
+              session.effectiveStatus != .destroyed, allowed(session) else { return false }
         return services.registry.perform(action, invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: id), origin: .user))
     }
 }
