@@ -12,6 +12,7 @@ import java.util.Objects;
 
 public final class ClientHelloResult implements WireValue {
     private final String connectionId;
+    private final Field<ClientHelloFeatureReport> features;
     private final Field<String> installId;
     private final Field<String> nonce;
     private final Field<String> page;
@@ -23,6 +24,7 @@ public final class ClientHelloResult implements WireValue {
     private ClientHelloResult(Builder builder) {
         if (!builder.connectionIdSet) throw new IllegalArgumentException("connection_id is required");
         this.connectionId = Wire.nonNull(builder.connectionId, "connection_id");
+        this.features = builder.features;
         this.installId = builder.installId;
         this.nonce = builder.nonce;
         this.page = builder.page;
@@ -36,6 +38,7 @@ public final class ClientHelloResult implements WireValue {
     public static Builder builder() { return new Builder(); }
 
     public String connectionId() { return connectionId; }
+    public Field<ClientHelloFeatureReport> features() { return features; }
     public Field<String> installId() { return installId; }
     public Field<String> nonce() { return nonce; }
     public Field<String> page() { return page; }
@@ -49,6 +52,10 @@ public final class ClientHelloResult implements WireValue {
         Builder builder = builder();
         Object rawConnectionId = Wire.required(object, "connection_id");
         builder.connectionId(Wire.string(rawConnectionId, "ClientHelloResult.connection_id"));
+        Object rawFeatures = Wire.optional(object, "features");
+        if (!Wire.isMissing(rawFeatures)) {
+            builder.features(ClientHelloFeatureReport.fromWire(rawFeatures));
+        }
         Object rawInstallId = Wire.optional(object, "install_id");
         if (!Wire.isMissing(rawInstallId)) {
             builder.installId(Wire.string(rawInstallId, "ClientHelloResult.install_id"));
@@ -82,6 +89,7 @@ public final class ClientHelloResult implements WireValue {
     public Map<String, Object> toWire() {
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         Wire.put(object, "connection_id", connectionId);
+        Wire.put(object, "features", features);
         Wire.put(object, "install_id", installId);
         Wire.put(object, "nonce", nonce);
         Wire.put(object, "page", page);
@@ -95,11 +103,11 @@ public final class ClientHelloResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ClientHelloResult that)) return false;
-        return Objects.equals(connectionId, that.connectionId) && Objects.equals(installId, that.installId) && Objects.equals(nonce, that.nonce) && Objects.equals(page, that.page) && Objects.equals(pageEvents, that.pageEvents) && Objects.equals(pageOperations, that.pageOperations) && Objects.equals(userOriginAllowed, that.userOriginAllowed) && Objects.equals(verified, that.verified);
+        return Objects.equals(connectionId, that.connectionId) && Objects.equals(features, that.features) && Objects.equals(installId, that.installId) && Objects.equals(nonce, that.nonce) && Objects.equals(page, that.page) && Objects.equals(pageEvents, that.pageEvents) && Objects.equals(pageOperations, that.pageOperations) && Objects.equals(userOriginAllowed, that.userOriginAllowed) && Objects.equals(verified, that.verified);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(connectionId, installId, nonce, page, pageEvents, pageOperations, userOriginAllowed, verified); }
+    public int hashCode() { return Objects.hash(connectionId, features, installId, nonce, page, pageEvents, pageOperations, userOriginAllowed, verified); }
 
     @Override
     public String toString() { return "ClientHelloResult" + toWire(); }
@@ -107,6 +115,7 @@ public final class ClientHelloResult implements WireValue {
     public static final class Builder {
         private String connectionId;
         private boolean connectionIdSet;
+        private Field<ClientHelloFeatureReport> features = Field.omitted();
         private Field<String> installId = Field.omitted();
         private Field<String> nonce = Field.omitted();
         private Field<String> page = Field.omitted();
@@ -119,6 +128,10 @@ public final class ClientHelloResult implements WireValue {
         public Builder connectionId(String value) {
             this.connectionId = value;
             this.connectionIdSet = true;
+            return this;
+        }
+        public Builder features(ClientHelloFeatureReport value) {
+            this.features = Field.of(value);
             return this;
         }
         public Builder installId(String value) {

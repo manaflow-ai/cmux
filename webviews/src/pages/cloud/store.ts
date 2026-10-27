@@ -4,6 +4,7 @@
 // projections"). Money, destructive and view-changing ops go to the host as native actions (ops.ts
 // NATIVE_ACTIONS). React reads it through `useSyncExternalStore`; tests drive it directly.
 import { isPageError, type PageClient } from "../shared/pageClient";
+import { restoredPageInputs } from "../shared/pageState";
 import { AccountReader } from "./account";
 import { DetailReader, type MachineDetail } from "./detail";
 import { FilesReader } from "./files";
@@ -112,6 +113,35 @@ export function parseView(hash: string): CloudView {
   return hash.replace(/^#\/?/, "").split("?", 1)[0] === "get" ? "get" : "machines";
 }
 
+/** The page name its saved state carries (pageState.ts). */
+export const CLOUD_PAGE = "cloud";
+
+/** The create sheet's typed fields, as a discard keeps them; a new sheet gets a new key. */
+export type CloudDraftInputs = Pick<CreateDraft, "name" | "memoryMb" | "from_snapshot" | "openWhenRunning">;
+
+/** What the Cloud page keeps across a discard: the open machine and an unsent create sheet. The view is the route's. */
+export interface CloudInputs {
+  selection?: string;
+  create?: CloudDraftInputs;
+}
+
+/** The valid fields of the inputs a discarded document saved; the rest keep their defaults. */
+export function restoredCloudInputs(state: unknown): CloudInputs {
+  if (!state || typeof state !== "object") return {};
+  const saved = state as { selection?: unknown; create?: unknown };
+  const inputs: CloudInputs = {};
+  if (typeof saved.selection === "string" && saved.selection) inputs.selection = saved.selection;
+  const draft = saved.create as Record<string, unknown> | null | undefined;
+  if (draft && typeof draft === "object" && typeof draft.name === "string") {
+    inputs.create = { name: draft.name };
+    if (typeof draft.memoryMb === "number" && Number.isFinite(draft.memoryMb)) inputs.create.memoryMb = draft.memoryMb;
+    if (typeof draft.from_snapshot === "string" && draft.from_snapshot)
+      inputs.create.from_snapshot = draft.from_snapshot;
+    if (draft.openWhenRunning === true) inputs.create.openWhenRunning = true;
+  }
+  return inputs;
+}
+
 export interface CloudStoreOptions {
   newKey?: () => string;
   layout?: MachineLayout;
@@ -137,11 +167,14 @@ export class CloudStore {
   readonly files: FilesReader;
   readonly transfers: TransferWatch;
   readonly account: AccountReader;
+  /** What a discarded document of this page had open; applied once the first machine list is in. */
+  private restored: CloudInputs;
 
   constructor(
     private readonly client: PageClient | null,
     private readonly options: CloudStoreOptions = {},
   ) {
+    this.restored = restoredCloudInputs(restoredPageInputs(client, CLOUD_PAGE));
     this.state = {
       connection: client ? "connecting" : "disconnected",
       loading: client !== null,
@@ -187,6 +220,17 @@ export class CloudStore {
   }
 
   getSnapshot = (): CloudState => this.state;
+
+  /** What the page keeps when it hides (pageState.ts `keep`); `restoredCloudInputs` reads it back. */
+  pageInputs(): CloudInputs {
+    const { selection, create } = this.state;
+    const inputs: CloudInputs = selection ? { selection } : {};
+    if (create && !create.submitting) {
+      const { name, memoryMb, from_snapshot, openWhenRunning } = create;
+      inputs.create = { name, memoryMb, from_snapshot, openWhenRunning };
+    }
+    return inputs;
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -557,6 +601,18 @@ export class CloudStore {
       return;
     }
     await this.account.load(session);
+    // After the plan: a restored create sheet keeps its size only when the plan allows it.
+    if (session === this.session) this.applyRestored();
+  }
+
+  /** Opens what a discarded document had open: its machine while the team still has it, its sheet. */
+  private applyRestored(): void {
+    const { selection, create } = this.restored;
+    this.restored = {};
+    if (selection && this.state.machines.some((machine) => machine.id === selection)) void this.select(selection);
+    if (!create) return;
+    this.openCreate(create.memoryMb, create.openWhenRunning === true);
+    this.updateDraft({ name: create.name, from_snapshot: create.from_snapshot });
   }
 
   private onEvent(event: MachineEvent): void {

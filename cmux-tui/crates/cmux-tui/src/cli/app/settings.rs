@@ -293,11 +293,21 @@ pub(super) fn human_rows(rows: &Value) -> Value {
 }
 
 /// What a person sees of each `features.list` feature: its name, `on` or
-/// `off`, and the input that decided it. JSON output keeps the app's report.
+/// `off`, and the input that decided it, plus `daemon` (`pending off`,
+/// `applied off`) where the local daemon runs with another value until it
+/// restarts. JSON output keeps the app's report.
 pub(super) fn feature_rows(report: &Value) -> Value {
     let row = |feature: &Value| {
-        let state = if feature["enabled"] == Value::Bool(true) { "on" } else { "off" };
-        json!({ "name": feature["name"], "state": state, "source": feature["source"] })
+        let on_off = |value: &Value| if *value == Value::Bool(true) { "on" } else { "off" };
+        let mut row = json!({
+            "name": feature["name"],
+            "state": on_off(&feature["enabled"]),
+            "source": feature["source"],
+        });
+        if let Some(daemon) = feature["daemon"].as_str() {
+            row["daemon"] = json!(format!("{daemon} {}", on_off(&feature["daemon_enabled"])));
+        }
+        row
     };
     let rows: Vec<Value> = report["features"]
         .as_array()
@@ -429,6 +439,8 @@ mod feature_flag_tests {
             "features": [
                 { "name": "perfThing", "enabled": true, "source": "remote", "kind": "perfPath" },
                 { "name": "killThing", "enabled": false, "source": "policy", "kind": "killSwitch" },
+                { "name": "terminalHolder", "enabled": false, "source": "env", "kind": "perfPath",
+                  "daemon": "pending", "daemon_enabled": true },
             ],
         });
         assert_eq!(
@@ -436,6 +448,7 @@ mod feature_flag_tests {
             json!([
                 { "name": "perfThing", "state": "on", "source": "remote" },
                 { "name": "killThing", "state": "off", "source": "policy" },
+                { "name": "terminalHolder", "state": "off", "source": "env", "daemon": "pending on" },
             ])
         );
         assert_eq!(feature_rows(&json!({})), json!([]));

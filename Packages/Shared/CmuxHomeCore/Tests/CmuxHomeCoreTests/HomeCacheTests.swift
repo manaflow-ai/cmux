@@ -94,6 +94,65 @@ import CmuxHomeCoreTestSupport
         #expect(try #require(cache.load()).drafts[Self.austin] == nil, "a sent or cleared draft leaves the cache")
     }
 
+    /// The Mac reads the cache on a launch lane and primes the store with that snapshot
+    /// (p08-startup-076): the store shows it, and its `start()` reads no file of its own. The disk
+    /// holds another draft than the snapshot, so a read in `start()` would show the disk's.
+    @Test func aStorePrimedWithASnapshotShowsItAndReadsNoCacheAtStart() async throws {
+        let cache = Self.cache()
+        let (rows, transcript) = await lastLaunch(cache)
+        var snapshot = try #require(cache.load())
+        snapshot.drafts[Self.austin] = "read on the launch lane"
+        var onDisk = snapshot
+        onDisk.drafts[Self.austin] = "still on disk"
+        try await cache.save(onDisk)
+        var offline = MockHomeSource.Options.immediate
+        offline.startsOnline = false
+        let store = HomeStore(source: MockHomeSource(options: offline), cache: cache, cacheWriteDelay: .zero)
+        store.primeFromCache(snapshot)
+        #expect(store.rows.map(\.title) == rows, "the Home list shows the snapshot before start")
+        store.start()
+        #expect(store.rows.map(\.title) == rows)
+        #expect(texts(store, Self.austin) == transcript)
+        #expect(store.draft(for: Self.austin) == "read on the launch lane", "start read the cache again")
+    }
+
+    /// An empty launch read (no cache yet) primes an empty store; `start()` does not read the file then either.
+    @Test func aStorePrimedWithNothingReadsNoCacheAtStart() async throws {
+        let cache = Self.cache()
+        _ = await lastLaunch(cache)
+        var offline = MockHomeSource.Options.immediate
+        offline.startsOnline = false
+        let store = HomeStore(source: MockHomeSource(options: offline), cache: cache, cacheWriteDelay: .zero)
+        store.primeFromCache(nil)
+        store.start()
+        #expect(store.rows.isEmpty, "start read the cache the launch read found empty")
+    }
+
+    /// A draft and a scroll anchor set while the Mac's launch read runs (p08-startup-076): the snapshot that lands
+    /// after keeps them, and the store wrote nothing before it, so the file never lost its conversations to a store
+    /// that had not shown them yet.
+    @Test func editsBeforeThePrimeAreKeptAndNothingIsWrittenBeforeIt() async throws {
+        let cache = Self.cache()
+        let (rows, _) = await lastLaunch(cache)
+        let snapshot = try #require(cache.load())
+        var offline = MockHomeSource.Options.immediate
+        offline.startsOnline = false
+        let store = HomeStore(source: MockHomeSource(options: offline), cache: cache, cacheWriteDelay: .zero, waitsForPrime: true)
+        let anchor = HomeScrollAnchor(message: MessageID("msg_3"), offset: 7)
+        store.setDraft("typed while the read ran", for: Self.austin)
+        store.setScrollAnchor(anchor, for: Self.austin)
+        await store.flushCache()
+        #expect(try #require(cache.load()) == snapshot, "a write before the prime replaced the cache")
+        store.primeFromCache(snapshot)
+        #expect(store.rows.map(\.title) == rows)
+        #expect(store.draft(for: Self.austin) == "typed while the read ran", "the snapshot's copy replaced the typed draft")
+        #expect(store.scrollAnchor(for: Self.austin) == anchor)
+        await store.flushCache()
+        let written = try #require(cache.load())
+        #expect(Set(written.conversations.map(\.id)) == Set(snapshot.conversations.map(\.id)), "the write after the prime lost the conversations")
+        #expect(written.drafts[Self.austin] == "typed while the read ran", "the draft typed before the prime was not written")
+    }
+
     /// The app's quit writes the batch at once: a draft typed in the last
     /// quarter second before Quit was lost (the batch waited 250 ms).
     @Test func aFlushWritesTheCoalescedBatchAtOnce() async throws {

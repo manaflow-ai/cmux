@@ -11,12 +11,12 @@ import Testing
 @Suite struct ChromiumHostExitPageStateTests {
     @Test(arguments: [SIGSEGV, SIGTRAP, SIGABRT, SIGBUS, SIGILL, SIGFPE, SIGSYS])
     func aFaultOrACheckIsACrash(signal: Int32) {
-        #expect(ChromiumHostExit(signal: signal, status: nil).pageExit == BrowserProcessExit(reason: .crashed, code: Int(signal), engine: .cef))
+        #expect(ChromiumHostExit(signal: signal, status: nil).pageExit == BrowserProcessExit(reason: .crashed, code: Int(signal), engine: .cef, process: .chromiumHost))
     }
 
     @Test(arguments: [SIGKILL, SIGINT, SIGTERM])
     func anOutsideEndIsAKill(signal: Int32) {
-        #expect(ChromiumHostExit(signal: signal, status: nil).pageExit == BrowserProcessExit(reason: .killed, code: Int(signal), engine: .cef))
+        #expect(ChromiumHostExit(signal: signal, status: nil).pageExit == BrowserProcessExit(reason: .killed, code: Int(signal), engine: .cef, process: .chromiumHost))
     }
 
     @Test func anotherSignalIsAbnormal() {

@@ -1,0 +1,17 @@
+{
+  "id": "swift-dialog-latency",
+  "tier": "builder",
+  "description": "CmuxDialogLatencyBench: time from showing a dialog to its layout for the native CmuxDialogCenter dialog and the same dialog as a web overlay, cold and warm.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-dialog-latency", "--filter", "CmuxDialogLatencyBench", "--env", "CMUX_DIALOG_BENCH=1"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.dialog_latency\\.(native|web_cold|web_warm)", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextDesignTests/CmuxDialogLatencyBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "Performance Lead",
+  "component": "Design>Dialog"
+}
