@@ -108,6 +108,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // Before any view reaches the window, so its views find this node under the app, not a root of their own.
         let node = services.appVisibility.windowNode(window, name: "window:\(state.id)")
         visibility = node
+        root.follow(on: node, work: services.mainWork) // its settings follow while this window shows
         let registry = services.registry
         root.toolbarBand.follow(on: node, work: services.mainWork, title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
                                 shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
