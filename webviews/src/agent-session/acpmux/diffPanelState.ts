@@ -55,8 +55,9 @@ export function legacyDiffFileFingerprint(file: TurnFile): string | undefined {
 }
 
 export function diffFileViewedState(entry: ViewedFileEntry | undefined, file: TurnFile): ViewedFileState {
+  if (entry === undefined) return "unviewed";
   const fingerprint = diffFileFingerprint(file);
-  if (entry?.fingerprint === fingerprint) return "viewed";
+  if (entry.fingerprint === fingerprint) return "viewed";
   return viewedFileState(entry, fingerprint, legacyDiffFileFingerprint(file));
 }
 

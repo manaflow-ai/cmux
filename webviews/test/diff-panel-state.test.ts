@@ -99,6 +99,21 @@ test("native binary without an identity never revives a persisted path mark", ()
   expect(diffFileViewedState(undefined, binary)).toBe("unviewed");
 });
 
+test("unmarked files never compute legacy hashes, including after a refresh", () => {
+  let legacyHashCalls = 0;
+  for (let refresh = 0; refresh < 3; refresh += 1) {
+    const unmarked = { ...file(), blobFingerprint: "blob:native" };
+    Object.defineProperty(unmarked, "edits", {
+      get: () => {
+        legacyHashCalls += 1;
+        return file().edits;
+      },
+    });
+    expect(diffFileViewedState(undefined, unmarked)).toBe("unviewed");
+    expect(legacyHashCalls).toBe(0);
+  }
+});
+
 test("legacy hunk identity is computed once and only after the primary identity misses", () => {
   let reads = 0;
   const cached = { ...file(), blobFingerprint: "blob:native" };
