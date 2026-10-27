@@ -58,7 +58,15 @@ async fn a_cleared_grants_live_agent_is_ended_not_adopted_and_its_chat_asks() {
     }
     assert_eq!(first["msg"]["hostEnded"], true, "{first}");
     assert!(gone_within(harness_pid, Duration::from_secs(10)), "the agent still runs");
-    let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    // Saved right after its record (test polling).
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let saved = loop {
+        let saved: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        if saved["policySource"] == "cleared" || Instant::now() >= deadline {
+            break saved;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    };
     assert_eq!(
         (&saved["permissionPolicy"], &saved["policySource"]),
         (&json!("ask"), &json!("cleared"))
