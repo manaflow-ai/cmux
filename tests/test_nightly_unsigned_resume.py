@@ -66,6 +66,18 @@ class ResumeTests(unittest.TestCase):
         self.assertEqual(receipt["build_sha"], self.sha)
         self.assertEqual(len(receipt["artifacts"]), 5)
 
+    def test_a_helper_the_resolver_reused_is_its_producer(self):
+        helper = next(a for a in self.artifacts if a["name"] == "cmux-nightly-ghostty-cli-helper")
+        helper["created_at"] = "2026-10-16T00:00:30Z"
+        with self.assertRaises(SystemExit):
+            self.receipt()
+        self.jobs.append({"name": resume.HELPER_RESOLVER, "run_attempt": 1, "conclusion": "success",
+                          "started_at": "2026-10-16T00:00:00Z", "completed_at": "2026-10-16T00:00:45Z"})
+        self.assertEqual(self.receipt()["artifacts"]["cmux-nightly-ghostty-cli-helper"], helper)
+        self.jobs[-1]["run_attempt"] = 2
+        with self.assertRaises(SystemExit):
+            self.receipt()
+
     def test_each_untrusted_or_incomplete_source_is_rejected(self):
         for field, value in (("event", "pull_request"), ("head_branch", "feature"), ("run_attempt", 2),
                              ("path", ".github/workflows/evil.yml"), ("status", "in_progress"),
