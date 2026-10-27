@@ -9,14 +9,15 @@
 #       after touching crates/cmux-tui/src/main.rs (task 201's incremental number). --mutant applies a seeded
 #       fault (tests/oracle/mutants/daemon/<name>.patch, p15-oracle-026) to the job worktree before cargo runs;
 #       the receipt's `mutant` names it, and mutant builds share one target dir per SHA, apart from the clean one.
-#   linux_run.sh run REF [--suite S] [--arm A] [--side L] [--profile P] [--features F] [--mutant PATCH] [--fresh] [-- ORACLE_RUN_ARGS...]
+#   linux_run.sh run REF [--suite S] [--arm A] [--side L] [--profile P] [--features F] [--mutant PATCH] [--receipt FILE] [--fresh] [-- ORACLE_RUN_ARGS...]
 #       Builds REF, then `oracle.py run --binary BIN --ref SHA` in the queue. The last stdout line is the
 #       run directory; the exit code is oracle.py's. --arm is NAME=old|new, launch-config or - (default).
-#       --side names one of two otherwise identical runs (a diff of one SHA against itself).
+#       --side names one of two otherwise identical runs (a diff of one SHA against itself). --receipt
+#       copies the build receipt (exact SHA, every gitlink) to FILE (`oracle.py diff --base --head`, task 112).
 #   linux_run.sh diff BASE HEAD [--suite S] [--profile P] [--features F] [--mutant PATCH] [--out DIR] [--fresh] [-- ORACLE_RUN_ARGS...]
 #       Both runs (builds and suites in parallel, joined with any identical request), then
-#       `oracle.py diff --base-run --head-run --out DIR` (default /tmp/oracle/runs/linux-<time>-<pid>,
-#       never in the checkout). DIR/linux-run.json (cmux-oracle-linux-run-v1) holds both build receipts
+#       `oracle.py diff --base-run --head-run --builds DIR/builds.json --out DIR` (default
+#       /tmp/oracle/runs/linux-<time>-<pid>, never in the checkout; comparison.json gets both builds). DIR/linux-run.json (cmux-oracle-linux-run-v1) holds both build receipts
 #       (exact SHAs, every gitlink), both run dirs and the comparison. Exit code is oracle.py diff's.
 #       --mutant builds the head side with the patch: `diff SHA SHA --mutant PATCH` is one mutant's catch check
 #       (exit 1, divergences, means the oracle caught it).
@@ -249,7 +250,7 @@ PY
 # Parses the options shared by run and diff into OPT_* globals; the rest after -- goes to oracle.py run.
 parse_run_options() {
   OPT_SUITE=all OPT_ARM=- OPT_SIDE="" OPT_PROFILE="$DEFAULT_PROFILE" OPT_FEATURES="$DEFAULT_FEATURES" OPT_OUT="" OPT_MUTANT=""
-  OPT_FRESH=() OPT_REFS=() OPT_PASS=()
+  OPT_RECEIPT="" OPT_FRESH=() OPT_REFS=() OPT_PASS=()
   while (($#)); do
     case "$1" in
       --suite) OPT_SUITE="${2:?--suite needs a value}"; shift 2 ;;
@@ -259,6 +260,7 @@ parse_run_options() {
       --features) OPT_FEATURES="${2?--features needs a value}"; shift 2 ;;
       --mutant) OPT_MUTANT="${2:?--mutant needs a patch}"; shift 2 ;;
       --out) OPT_OUT="${2:?--out needs a value}"; shift 2 ;;
+      --receipt) OPT_RECEIPT="${2:?--receipt needs a file}"; shift 2 ;;
       --fresh) OPT_FRESH=(--fresh); shift ;;
       --) shift; OPT_PASS=("$@"); break ;;
       -*) die "unknown option $1 (oracle.py run options go after --)" ;;
@@ -312,7 +314,7 @@ cmd_run() {
   parse_run_options "$@"
   ((${#OPT_REFS[@]} == 1)) || die "run needs one REF"
   [[ -z "$OPT_MUTANT" ]] || OPT_MUTANT="$(mutant_patch "$OPT_MUTANT")"
-  run_one "$(resolve_sha "${OPT_REFS[0]}")" "$OPT_SIDE" "" "$OPT_MUTANT"
+  run_one "$(resolve_sha "${OPT_REFS[0]}")" "$OPT_SIDE" "$OPT_RECEIPT" "$OPT_MUTANT"
 }
 
 job_run() {
@@ -343,6 +345,7 @@ cmd_diff() {
   parse_run_options "$@"
   ((${#OPT_REFS[@]} == 2)) || die "diff needs BASE and HEAD"
   [[ -z "$OPT_SIDE" ]] || die "diff: --side is for run (diff names its sides base and head)"
+  [[ -z "$OPT_RECEIPT" ]] || die "diff: --receipt is for run (diff writes build-base.json and build-head.json in --out)"
   local base head base_side="" head_side=""
   base="$(resolve_sha "${OPT_REFS[0]}")"
   head="$(resolve_sha "${OPT_REFS[1]}")"
@@ -358,7 +361,7 @@ cmd_diff() {
   case "$out/" in "$REPO"/*) die "--out $out: run output stays outside the checkout" ;; esac
   mkdir -p "$out"
   # Nothing from an earlier diff in the same --out may reach this one's receipt.
-  rm -f "$out/linux-run.json" "$out/comparison.json" "$out"/build-{base,head}.json
+  rm -f "$out/linux-run.json" "$out/comparison.json" "$out/builds.json" "$out"/build-{base,head}.json
 
   local t0 t1
   t0="$(now)"
@@ -374,8 +377,22 @@ cmd_diff() {
   head_dir="$(tail -n 1 "$DIFF_TMP/head" 2>/dev/null || true)"
   [[ -f "$base_dir/receipt.json" ]] || die "base run of $base failed"
   [[ -f "$head_dir/receipt.json" ]] || die "head run of $head failed"
+  # Each side's ref, exact SHA and gitlinks go into comparison.json through `oracle.py diff --builds`.
+  python3 -I - "$out" "${OPT_REFS[0]}" "${OPT_REFS[1]}" <<'PY'
+import json, os, sys
+out, base_ref, head_ref = sys.argv[1:]
+builds = {}
+for side, ref in (("base", base_ref), ("head", head_ref)):
+    path = os.path.join(out, f"build-{side}.json")
+    with open(path, encoding="utf-8") as handle:
+        builds[side] = {"ref": ref, **json.load(handle), "receipt": path}
+with open(os.path.join(out, "builds.json"), "w", encoding="utf-8") as handle:
+    json.dump(builds, handle, indent=2, sort_keys=True)
+    handle.write("\n")
+PY
   local status=0
-  nice -n 10 python3 -I "$HERE/oracle.py" diff --base-run "$base_dir" --head-run "$head_dir" --out "$out" || status=$?
+  nice -n 10 python3 -I "$HERE/oracle.py" diff --base-run "$base_dir" --head-run "$head_dir" \
+    --builds "$out/builds.json" --out "$out" || status=$?
   t1="$(now)"
   python3 -I - "$out" "${OPT_REFS[0]}" "${OPT_REFS[1]}" "$base_dir" "$head_dir" "$status" "$(elapsed_ms "$t0" "$t1")" <<'PY'
 import json, os, sys

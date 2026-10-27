@@ -31,7 +31,7 @@ sys.path.insert(0, str(HERE))
 import fleet  # noqa: E402
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
-OTHER_SHA = "89abcdef0123456789abcdef0123456789abcdef"
+SUBMODULES = ("ghostty", "ghostty-next")
 
 FAKE_CLIENT = r'''#!/usr/bin/env python3
 """A fake cmux-ci: run, wait, artifact. State in $FAKE_STATE; every call logged to $FAKE_STATE/calls.jsonl."""
@@ -68,7 +68,19 @@ if op == "run":
         worker = target
     print(f"cmux-ci: step {step_id} (exclusive, key {key})", file=sys.stderr, flush=True)
     step_args = [a[len("--arg="):] for a in args if a.startswith("--arg=")]
-    checkout = os.environ["FAKE_CHECKOUT"]
+    # Each step runs in its own clone at --ref (FAKE_CHECKOUT_REF: a worker that checked out another commit), as a
+    # worker runs it in its checkout; FAKE_STALE_SUBMODULE leaves that submodule at a commit of its own, as a reused
+    # checkout keeps an earlier step's submodule.
+    checkout = os.path.join(state, "wt-" + step_id)
+    git = ["git", "-c", "user.email=t@t", "-c", "user.name=t", "-c", "advice.detachedHead=false"]
+    subprocess.run(git + ["clone", "-q", "--shared", os.environ["FAKE_CHECKOUT"], checkout], check=True)
+    ref = os.environ.get("FAKE_CHECKOUT_REF") or opt("--ref")
+    subprocess.run(git + ["-C", checkout, "checkout", "-q", "--detach", ref], check=True)
+    stale = os.environ.get("FAKE_STALE_SUBMODULE")
+    if stale:
+        subprocess.run(git + ["-C", os.path.join(checkout, stale), "init", "-q"], check=True)
+        subprocess.run(git + ["-C", os.path.join(checkout, stale), "commit", "-q", "--allow-empty", "-m", "stale"],
+                       check=True)
     if os.environ.get("FAKE_WORKER_REFUSE"):
         code = 1
         print(f"ci-step refused: scripts/measure/oracle.sh at {opt('--ref')} (blob 0) is not the reviewed version "
@@ -128,9 +140,21 @@ def make_checkout(root: Path) -> Path:
             shutil.copytree(REPO / rel, checkout / rel)
     git = ["git", "-C", str(checkout), "-c", "user.email=t@t", "-c", "user.name=t"]
     subprocess.run(git[:3] + ["init", "-q"], check=True)
+    # The app's submodules, initialized here (oracle.sh builds against them) and committed as gitlinks.
+    for sub in SUBMODULES:
+        subprocess.run(["git", "init", "-q", str(checkout / sub)], check=True)
+        subprocess.run(["git", "-C", str(checkout / sub), *git[3:], "commit", "-q", "--allow-empty", "-m", sub],
+                       check=True)
+        subprocess.run(git + ["update-index", "--add", "--cacheinfo", f"160000,{head_of(checkout / sub)},{sub}"],
+                       check=True)
     subprocess.run(git + ["add", "-A"], check=True)
     subprocess.run(git + ["commit", "-q", "-m", "fixture"], check=True)
     return checkout
+
+
+def head_of(checkout: Path, rev: str = "HEAD") -> str:
+    return subprocess.run(["git", "-C", str(checkout), "rev-parse", rev], check=True, stdout=subprocess.PIPE,
+                          text=True).stdout.strip()
 
 
 class FleetHarness(unittest.TestCase):
@@ -144,13 +168,25 @@ class FleetHarness(unittest.TestCase):
         self.client.chmod(0o755)
         self.corpus = write_corpus(self.tmp / "corpus", 30)
         self.checkout = make_checkout(self.tmp)
+        self.gitlinks = {sub: head_of(self.checkout / sub) for sub in SUBMODULES}
+        # Two commits, as a base and a head: the head adds a file.
+        self.sha = head_of(self.checkout)
+        (self.checkout / "head.txt").write_text("head\n")
+        git = ["git", "-C", str(self.checkout), "-c", "user.email=t@t", "-c", "user.name=t"]
+        subprocess.run(git + ["add", "head.txt"], check=True)
+        subprocess.run(git + ["commit", "-q", "-m", "head"], check=True)
+        self.other_sha = head_of(self.checkout)
         self.env = {"FAKE_STATE": str(self.state), "FAKE_CHECKOUT": str(self.checkout)}
         self.saved = {k: os.environ.get(k) for k in ("FAKE_STATE", "FAKE_CHECKOUT", "FAKE_REFUSE", "FAKE_WAIT_TIMEOUTS",
                                                      "FAKE_CLIENT_GONE", "FAKE_IGNORE_TARGET", "FAKE_WORKER_REFUSE",
-                                                     "FAKE_WORKERS")}
+                                                     "FAKE_WORKERS", "FAKE_CHECKOUT_REF", "FAKE_STALE_SUBMODULE")}
         os.environ.update(self.env)
+        # fleet.py reads refs, mutants and gitlinks from its checkout: the fixture's here.
+        self.saved_repo = fleet.REPO
+        fleet.REPO = self.checkout
 
     def tearDown(self) -> None:
+        fleet.REPO = self.saved_repo
         for k, v in self.saved.items():
             if v is None:
                 os.environ.pop(k, None)
@@ -177,7 +213,7 @@ class FleetHarness(unittest.TestCase):
 class RunTests(FleetHarness):
     def test_six_shards_merge_into_one_receipt(self) -> None:
         out = self.tmp / "out"
-        code = self.fleet("run", "--ref", SHA, "--shards", "6", "--out", str(out), "--run-id", "t1")
+        code = self.fleet("run", "--ref", self.sha, "--shards", "6", "--out", str(out), "--run-id", "t1")
         self.assertEqual(code, fleet.EXIT_OK, self.output)
         runs = self.calls("run")
         self.assertEqual(len(runs), 6)
@@ -200,7 +236,7 @@ class RunTests(FleetHarness):
     def test_wait_timeouts_wait_again_and_never_resubmit(self) -> None:
         os.environ.update({"FAKE_CLIENT_GONE": "1", "FAKE_WAIT_TIMEOUTS": "2"})
         out = self.tmp / "out"
-        code = self.fleet("run", "--ref", SHA, "--shards", "3", "--out", str(out), "--run-id", "t2")
+        code = self.fleet("run", "--ref", self.sha, "--shards", "3", "--out", str(out), "--run-id", "t2")
         self.assertEqual(code, fleet.EXIT_OK, self.output)
         self.assertEqual(len(self.calls("run")), 3)
         self.assertEqual(len(self.calls("wait")), 9)
@@ -208,15 +244,15 @@ class RunTests(FleetHarness):
 
     def test_a_second_fleet_py_reattaches_to_the_same_steps(self) -> None:
         out = self.tmp / "out"
-        self.assertEqual(self.fleet("run", "--ref", SHA, "--shards", "2", "--out", str(out), "--run-id", "t3"), 0)
-        self.assertEqual(self.fleet("run", "--ref", SHA, "--shards", "2", "--out", str(out)), 0, self.output)
+        self.assertEqual(self.fleet("run", "--ref", self.sha, "--shards", "2", "--out", str(out), "--run-id", "t3"), 0)
+        self.assertEqual(self.fleet("run", "--ref", self.sha, "--shards", "2", "--out", str(out)), 0, self.output)
         self.assertEqual(len(self.calls("run")), 2)
         self.assertEqual(self.record(out)["runId"], "t3")
 
     def test_controller_refusal_is_incomplete_and_names_the_hq_ask(self) -> None:
         os.environ["FAKE_REFUSE"] = "1"
         out = self.tmp / "out"
-        code = self.fleet("run", "--ref", SHA, "--shards", "2", "--out", str(out), "--run-id", "t4")
+        code = self.fleet("run", "--ref", self.sha, "--shards", "2", "--out", str(out), "--run-id", "t4")
         self.assertEqual(code, fleet.EXIT_INCOMPLETE)
         shards = self.record(out)["sides"]["run"]["shards"]
         self.assertEqual({s["state"] for s in shards}, {"refused"})
@@ -226,7 +262,7 @@ class RunTests(FleetHarness):
     def test_worker_refusal_of_an_unreviewed_blob_is_reported(self) -> None:
         os.environ["FAKE_WORKER_REFUSE"] = "1"
         out = self.tmp / "out"
-        code = self.fleet("run", "--ref", SHA, "--shards", "1", "--out", str(out), "--run-id", "t5")
+        code = self.fleet("run", "--ref", self.sha, "--shards", "1", "--out", str(out), "--run-id", "t5")
         self.assertEqual(code, fleet.EXIT_INCOMPLETE)
         shard = self.record(out)["sides"]["run"]["shards"][0]
         self.assertEqual(shard["state"], "refused")
@@ -234,7 +270,7 @@ class RunTests(FleetHarness):
 
     def test_glob_filters_travel_hex_encoded(self) -> None:
         out = self.tmp / "out"
-        code = self.fleet("run", "--ref", SHA, "--shards", "2", "--out", str(out), "--run-id", "t6",
+        code = self.fleet("run", "--ref", self.sha, "--shards", "2", "--out", str(out), "--run-id", "t6",
                           "--filter", "alpha/*")
         self.assertEqual(code, fleet.EXIT_OK, self.output)
         args = self.calls("run")[0]["args"]
@@ -247,7 +283,7 @@ class RunTests(FleetHarness):
 class DiffTests(FleetHarness):
     def test_head_runs_on_the_base_steps_worker(self) -> None:
         out = self.tmp / "out"
-        code = self.fleet("diff", "--base", SHA, "--head", OTHER_SHA, "--shards", "3", "--out", str(out),
+        code = self.fleet("diff", "--base", self.sha, "--head", self.other_sha, "--shards", "3", "--out", str(out),
                           "--run-id", "d1")
         record = self.record(out)
         for base, head in zip(record["sides"]["base"]["shards"], record["sides"]["head"]["shards"]):
@@ -262,12 +298,67 @@ class DiffTests(FleetHarness):
     def test_a_cross_host_pair_is_refused(self) -> None:
         os.environ["FAKE_IGNORE_TARGET"] = "1"
         out = self.tmp / "out"
-        code = self.fleet("diff", "--base", SHA, "--head", OTHER_SHA, "--shards", "1", "--out", str(out),
+        code = self.fleet("diff", "--base", self.sha, "--head", self.other_sha, "--shards", "1", "--out", str(out),
                           "--run-id", "d2")
         self.assertEqual(code, fleet.EXIT_INCOMPLETE)
         head = self.record(out)["sides"]["head"]["shards"][0]
         self.assertIn("ignored --target-worker", head["error"])
         self.assertNotIn("comparison", self.record(out))
+
+    def test_the_receipts_name_exact_shas_and_gitlinks(self) -> None:
+        """Task 112: fleet.json, builds.json and comparison.json name each side's exact SHA and every gitlink."""
+        out = self.tmp / "out"
+        code = self.fleet("diff", "--base", self.sha, "--head", self.other_sha, "--shards", "2", "--out", str(out),
+                          "--run-id", "d3")
+        self.assertEqual(code, 3, self.output)  # dry runs: compared nothing, but every receipt is written
+        record = self.record(out)
+        builds = json.loads((out / "builds.json").read_text())
+        comparison = json.loads((out / "compare" / "comparison.json").read_text())
+        for label, sha in (("base", self.sha), ("head", self.other_sha)):
+            side = record["sides"][label]
+            self.assertEqual((side["sha"], side["ref"], side["gitlinks"], side["gitlinksFrom"]),
+                             (sha, sha, self.gitlinks, "tree"))
+            self.assertEqual((builds[label]["sha"], builds[label]["gitlinks"]), (sha, self.gitlinks))
+            self.assertEqual(comparison["builds"][label]["sha"], sha)
+            self.assertEqual(comparison["builds"][label]["gitlinks"], self.gitlinks)
+            for shard in side["shards"]:
+                self.assertEqual(shard["build"]["sha"], sha)
+                self.assertEqual(shard["build"]["gitlinks"], self.gitlinks)
+                # The step's clone has the gitlinks but no initialized submodule (a dry run builds nothing).
+                self.assertEqual(shard["build"]["submodules"], {sub: None for sub in SUBMODULES})
+        self.assertEqual(comparison["refused"], "a dry run has no results")
+
+    def test_head_defaults_to_this_checkouts_head(self) -> None:
+        out = self.tmp / "out"
+        self.assertEqual(self.fleet("diff", "--base", self.sha, "--out", str(out), "--run-id", "d4"), 3, self.output)
+        head = self.record(out)["sides"]["head"]
+        self.assertEqual((head["ref"], head["sha"]), ("HEAD", self.other_sha))
+        self.assertEqual(self.fleet("diff", "--head", self.sha, "--out", str(self.tmp / "o2")), fleet.EXIT_USAGE)
+        self.assertIn("--head needs --base", self.output)
+
+    def test_a_step_at_another_commit_is_a_wrong_build(self) -> None:
+        os.environ["FAKE_CHECKOUT_REF"] = self.sha
+        out = self.tmp / "out"
+        code = self.fleet("diff", "--base", self.sha, "--head", self.other_sha, "--out", str(out), "--run-id", "d5")
+        self.assertEqual(code, fleet.EXIT_INCOMPLETE, self.output)
+        record = self.record(out)
+        self.assertEqual(record["sides"]["base"]["shards"][0]["state"], "done")
+        head = record["sides"]["head"]["shards"][0]
+        self.assertEqual(head["state"], "wrong-build")
+        self.assertIn(f"built {self.sha}, not {self.other_sha}", head["error"])
+        self.assertNotIn("comparison", record)
+        self.assertFalse((out / "builds.json").exists())
+
+    def test_a_submodule_off_its_gitlink_is_a_wrong_build(self) -> None:
+        os.environ["FAKE_STALE_SUBMODULE"] = "ghostty-next"
+        out = self.tmp / "out"
+        code = self.fleet("diff", "--base", self.sha, "--head", self.other_sha, "--out", str(out), "--run-id", "d6")
+        self.assertEqual(code, fleet.EXIT_INCOMPLETE, self.output)
+        for side in self.record(out)["sides"].values():
+            shard = side["shards"][0]
+            self.assertEqual(shard["state"], "wrong-build")
+            self.assertIn(f"built ghostty-next at {shard['build']['submodules']['ghostty-next']}", shard["error"])
+            self.assertIn(f"gitlink is {self.gitlinks['ghostty-next']}", shard["error"])
 
 
 FIXTURE_SWIFT = "Packages/macOS/CmuxNext/Sources/Fixture/Index.swift"
@@ -293,14 +384,7 @@ class MutantFixture(FleetHarness):
         mutant.write_text("Mutant: app/fixture-off-by-one\nSuite: actions\nExercises: index\nFault: off by one.\n\n" + body)
         subprocess.run(git + ["add", "-A"], check=True)
         subprocess.run(git + ["commit", "-q", "-m", "mutant"], check=True)
-        self.sha = subprocess.run(git + ["rev-parse", "HEAD"], check=True, stdout=subprocess.PIPE,
-                                  text=True).stdout.strip()
-        self.saved_repo = fleet.REPO
-        fleet.REPO = self.checkout
-
-    def tearDown(self) -> None:
-        fleet.REPO = self.saved_repo
-        super().tearDown()
+        self.sha = head_of(self.checkout)
 
 
 class MutantTests(MutantFixture):
@@ -360,6 +444,7 @@ class MutantTests(MutantFixture):
 STUB_RELOAD = r'''#!/usr/bin/env bash
 set -eu
 grep -c "i + 1" "Packages/macOS/CmuxNext/Sources/Fixture/Index.swift" >"$STUB_LOG/reload-saw" || true
+git -C ghostty-next rev-parse HEAD >"$STUB_LOG/ghostty-next-head"
 case "$STUB_RELOAD" in
   ok | lock)
     [[ "$STUB_RELOAD" == ok ]] || : >.git/index.lock
@@ -386,9 +471,6 @@ class MutantBuildTests(MutantFixture):
         reload.write_text(STUB_RELOAD)
         reload.chmod(0o755)
         (self.checkout / "scripts" / "cmux-next" / "oracle" / "fleet.py").write_text(STUB_STEP)
-        for sub in ("ghostty", "ghostty-next"):
-            (self.checkout / sub).mkdir()
-            (self.checkout / sub / ".git").write_text("gitdir: elsewhere\n")
         (self.checkout / "GhosttyKit.xcframework").mkdir()
         (self.checkout / "GhosttyKit.xcframework" / "Info.plist").write_text("")
 
@@ -476,6 +558,21 @@ class MutantBuildTests(MutantFixture):
         self.assertIn(FIXTURE_SWIFT, result.stdout)
         self.assertFalse((self.stub_log / "reload-saw").exists(), "nothing was built")
         self.assertIn("i * 2", (self.checkout / FIXTURE_SWIFT).read_text(), "the edit is not discarded")
+
+    def test_a_submodule_an_earlier_step_left_is_moved_to_the_gitlink(self) -> None:
+        """The reused checkout's ghostty-next is at another commit (an earlier step's): the build gets the gitlink's."""
+        sub = self.checkout / "ghostty-next"
+        git = ["git", "-c", "user.email=t@t", "-c", "user.name=t", "-c", "protocol.file.allow=always"]
+        (self.checkout / ".gitmodules").write_text("".join(
+            f'[submodule "{name}"]\n\tpath = {name}\n\turl = {self.checkout / name}\n' for name in SUBMODULES))
+        subprocess.run(git + ["-C", str(self.checkout), "add", ".gitmodules"], check=True)
+        subprocess.run(git + ["-C", str(self.checkout), "commit", "-q", "-m", "gitmodules"], check=True)
+        subprocess.run(git + ["-C", str(sub), "commit", "-q", "--allow-empty", "-m", "an earlier step's commit"],
+                       check=True)
+        self.assertNotEqual(head_of(sub), self.gitlinks["ghostty-next"])
+        result = self.build("ok", mutant=False)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual((self.stub_log / "ghostty-next-head").read_text().strip(), self.gitlinks["ghostty-next"])
 
     def test_a_revert_that_fails_fails_the_step(self) -> None:
         result = self.build("lock")

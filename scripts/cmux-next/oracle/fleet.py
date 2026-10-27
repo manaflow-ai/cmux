@@ -7,7 +7,8 @@ through the controller with `cmux-ci`, and a client whose name says maclease is 
 
 Client side (the agent's host: the Linux VM or a laptop; nothing builds here):
     fleet.py run --ref SHA [--shards N] [selection]       N steps of scripts/measure/oracle.sh, one receipt
-    fleet.py diff --base A --head B [--shards N] [...]    both sides per shard, head on the base step's worker
+    fleet.py diff --base A [--head B] [--shards N] [...]  both sides per shard, head on the base step's worker
+                                                           (head defaults to HEAD; the default diff, task 112)
     fleet.py diff --switch NAME --ref SHA | --arm launch-config --ref SHA
                                                            `oracle.py diff --product app ...` hands its argv here
 Selection: --suite, --filter, --repeat, --retry-limit, --shuffle, --seed, --batch-limit, --config (bench, the
@@ -39,9 +40,15 @@ read after the merge; a step fails only when it has no receipt (the build, the l
 Outputs (outside the checkout, default /tmp/oracle/fleet/<run id>):
     shards/<side>/<i>/   step.log, step.json, job.json (the controller's job record), run/ (the shard's run dir)
     <side>/              the merged run dir (oracle.py merge_runs: no gap, no overlap, one config)
-    compare/             diff only: oracle.py diff --base-run ... --head-run ... (diff.py, divergence.json)
-    fleet.json           {"schema": "cmux-oracle-fleet-v1", "runId", "sides": {side: {"sha", "shards": [...],
-                          "merged", "ok", "workers"}}, "ok"}
+    compare/             diff only: oracle.py diff --base-run ... --head-run ... --builds builds.json (diff.py,
+                          divergence.json; comparison.json's "builds")
+    builds.json          diff only: {"base", "head"}: each side's label, ref, exact sha, gitlinks, config and steps
+    fleet.json           {"schema": "cmux-oracle-fleet-v1", "runId", "sides": {side: {"ref", "sha", "gitlinks",
+                          "gitlinksFrom", "shards": [...], "merged", "ok", "workers"}}, "ok"}
+Exact builds (task 112): each step records the commit it built, every gitlink of its tree and the commit each
+submodule had checked out for the build (fleet-step.json). A shard built at another SHA, or with a submodule off its
+gitlink (the worker's checkout is reused), is `wrong-build` and leaves its side incomplete. The side's gitlinks come
+from this checkout's tree when it has the commit, else from the steps.
 Exit codes: 0 every shard merged and the receipt is ok (diff: no unexplained divergence), 1 the merged receipt has
 unexpected results (diff: divergences), 2 bad arguments, 3 incomplete (a shard refused, failed or without a receipt;
 diff: refused by oracle.py), 4 diff.py internal error.
@@ -296,6 +303,8 @@ class Shard:
     error: Optional[str] = None
     run_dir: Optional[Path] = None
     waits: int = 0
+    # The step's fleet-step.json: what it built (sha, gitlinks, the submodule commits it compiled), on which host.
+    build: Optional[Dict[str, Any]] = None
 
     @property
     def artifact(self) -> str:
@@ -305,7 +314,8 @@ class Shard:
         return {"schema": STEP_SCHEMA, "side": self.side, "index": self.index, "total": self.total, "sha": self.sha,
                 "key": self.key, "args": self.args, "step_id": self.step_id, "state": self.state,
                 "exit": self.exit_code, "worker": self.worker, "target_worker": self.target_worker,
-                "error": self.error, "waits": self.waits, "run": str(self.run_dir) if self.run_dir else None}
+                "error": self.error, "waits": self.waits, "run": str(self.run_dir) if self.run_dir else None,
+                "build": self.build}
 
     def save(self) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -388,6 +398,10 @@ class Fleet:
         if code != 0 or not tarball.is_file():
             return None
         unpack(tarball, shard.dir / "unpacked")
+        try:
+            shard.build = json.loads((shard.dir / "unpacked" / "fleet-step.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            shard.build = None
         run = shard.dir / "unpacked" / "run"
         return run if (run / "receipt.json").is_file() else None
 
@@ -427,10 +441,30 @@ class Fleet:
                 else:
                     shard.state = "failed"
                     shard.error = f"step {shard.step_id} {shard.state} with no shard receipt in its artifact; see step.log"
+            else:
+                problem = build_problem(shard)
+                if problem:
+                    shard.state, shard.error, shard.run_dir = "wrong-build", problem, None
         else:
             shard.error = f"step {shard.step_id} {shard.state}: {job.get('error') or 'no reason given'}"
         shard.save()
         return shard
+
+
+def build_problem(shard: Shard) -> Optional[str]:
+    """Why the shard's app is not a build of its commit: another SHA checked out, or a submodule the build compiled
+    at another commit than the tree's gitlink (a reused checkout keeps the last step's submodules). A step of a
+    commit older than task 112 records no submodules; its gitlinks then come from this checkout's tree alone."""
+    step = shard.build
+    if step is None:
+        return f"step {shard.step_id} packed no fleet-step.json: what it built is unknown"
+    if step.get("sha") != shard.sha:
+        return f"step {shard.step_id} built {step.get('sha')}, not {shard.sha}"
+    links = step.get("gitlinks") or {}
+    for path, built in sorted((step.get("submodules") or {}).items()):
+        if built is not None and built != links.get(path):
+            return f"step {shard.step_id} built {path} at {built}; {shard.sha[:12]}'s gitlink is {links.get(path)}"
+    return None
 
 
 def unpack(tarball: Path, dest: Path) -> None:
@@ -466,10 +500,38 @@ class Side:
     label: str
     sha: str
     extra: Tuple[Tuple[str, str], ...] = ()
+    ref: Optional[str] = None
     shards: List[Shard] = field(default_factory=list)
     merged: Optional[Path] = None
     ok: Optional[bool] = None
     errors: List[str] = field(default_factory=list)
+    # Every gitlink of the commit's tree, and where it was read: "tree" (this checkout) or "step" (the steps'
+    # checkouts, when the commit is not here).
+    gitlinks: Optional[Dict[str, str]] = None
+    gitlinks_from: Optional[str] = None
+
+    def resolve_gitlinks(self) -> None:
+        """The side's gitlinks from this checkout's tree, else from the steps, which must agree with it."""
+        recorded = {json.dumps(s.build["gitlinks"], sort_keys=True) for s in self.shards
+                    if s.build and isinstance(s.build.get("gitlinks"), dict)}
+        local = oracle.tree_gitlinks(self.sha, REPO)
+        if local is not None:
+            self.gitlinks, self.gitlinks_from = local, "tree"
+            if recorded - {json.dumps(local, sort_keys=True)}:
+                self.errors.append(f"a step recorded other gitlinks for {self.sha} than its tree has here")
+        elif len(recorded) == 1:
+            self.gitlinks, self.gitlinks_from = json.loads(recorded.pop()), "step"
+        elif recorded:
+            self.errors.append(f"the steps of {self.sha} recorded different gitlinks")
+
+    def build_record(self, selection: Selection) -> Dict[str, Any]:
+        """The side's entry in builds.json (`oracle.py diff --builds`): exact SHA, gitlinks, config, hosts."""
+        return {"label": self.label, "ref": self.ref, "sha": self.sha, "gitlinks": self.gitlinks,
+                "gitlinksFrom": self.gitlinks_from, "config": selection.config, "args": dict(self.extra),
+                "steps": [{"shard": s.index, "step_id": s.step_id, "worker": s.worker,
+                           "host": (s.build or {}).get("host"), "submodules": (s.build or {}).get("submodules"),
+                           "source_diff_sha256": (s.build or {}).get("source_diff_sha256"),
+                           "build_seconds": (s.build or {}).get("build_seconds")} for s in self.shards]}
 
 
 def make_shards(side: Side, *, run_id: str, total: int, selection: Selection, out: Path) -> None:
@@ -505,7 +567,10 @@ def fleet_record(run_id: str, sides: Sequence[Side], *, comparison: Optional[Dic
                               "sides": {}}
     for side in sides:
         record["sides"][side.label] = {
+            "ref": side.ref,
             "sha": side.sha,
+            "gitlinks": side.gitlinks,
+            "gitlinksFrom": side.gitlinks_from,
             "args": dict(side.extra),
             "shards": [s.record() for s in side.shards],
             "merged": str(side.merged / "receipt.json") if side.merged else None,
@@ -566,11 +631,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     run_id = run_id_for(args, args.out)
     out = prepare_out(args, run_id)
     sha = resolve_sha(args.ref)
-    side = Side("run", sha, mutant_extra(args.mutant, sha))
+    side = Side("run", sha, mutant_extra(args.mutant, sha), ref=args.ref)
     make_shards(side, run_id=run_id, total=args.shards, selection=selection, out=out)
     write_fleet(out, fleet_record(run_id, [side]))
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.shards) as pool:
         list(pool.map(fleet.complete, side.shards))
+    side.resolve_gitlinks()
     merge_side(side, out)
     path = write_fleet(out, fleet_record(run_id, [side]))
     print_side(side)
@@ -582,12 +648,14 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 def diff_sides(args: argparse.Namespace) -> List[Side]:
     if args.base or args.head:
-        if not (args.base and args.head):
-            raise UsageError("--base and --head go together")
+        if not args.base:
+            raise UsageError("--head needs --base (the default diff is --base REF, head HEAD)")
         if args.switch or args.arm:
             raise UsageError("--base/--head, --switch and --arm launch-config are separate diffs")
-        head = resolve_sha(args.head)
-        return [Side("base", resolve_sha(args.base)), Side("head", head, mutant_extra(args.head_mutant, head))]
+        head_ref = args.head or "HEAD"
+        head = resolve_sha(head_ref)
+        return [Side("base", resolve_sha(args.base), ref=args.base),
+                Side("head", head, mutant_extra(args.head_mutant, head), ref=head_ref)]
     if args.head_mutant:
         raise UsageError("--head-mutant goes with --base/--head (`--base SHA --head SHA` is one mutant's catch check)")
     if not args.ref:
@@ -596,9 +664,10 @@ def diff_sides(args: argparse.Namespace) -> List[Side]:
     if args.switch:
         if args.arm:
             raise UsageError("--switch runs arm old against arm new; --arm is for launch-config")
-        return [Side(arm, sha, (("switch", args.switch), ("arm", arm))) for arm in oracle.ARMS]
+        return [Side(arm, sha, (("switch", args.switch), ("arm", arm)), ref=args.ref) for arm in oracle.ARMS]
     if args.arm == "launch-config":
-        return [Side("default", sha, (("arm", "default"),)), Side("launch-config", sha, (("arm", "launch-config"),))]
+        return [Side("default", sha, (("arm", "default"),), ref=args.ref),
+                Side("launch-config", sha, (("arm", "launch-config"),), ref=args.ref)]
     raise UsageError("diff needs --base/--head, --switch NAME or --arm launch-config")
 
 
@@ -635,13 +704,22 @@ def cmd_diff(args: argparse.Namespace) -> int:
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.shards) as pool:
         list(pool.map(lambda pair: complete_pair(fleet, *pair), zip(first.shards, second.shards)))
     for side in sides:
+        side.resolve_gitlinks()
+        if side.gitlinks is None and not side.errors:
+            side.errors.append(f"{side.sha} is not in this checkout and no step recorded its gitlinks "
+                               "(fetch the commit and run again: the same steps are reused)")
         merge_side(side, out)
         print_side(side)
-    if not all(side.merged for side in sides):
+    if not all(side.merged and not side.errors for side in sides):
         path = write_fleet(out, fleet_record(run_id, sides))
         print(f"fleet: incomplete, nothing compared: {path}")
         return EXIT_INCOMPLETE
-    argv = ["diff", "--product", "app", "--out", str(out / "compare")]
+    # The comparison's receipt names each side's exact SHA and gitlinks (task 112); oracle.py's --base-run side is
+    # the first side, whatever its label.
+    builds = out / "builds.json"
+    builds.write_text(json.dumps({"base": first.build_record(selection), "head": second.build_record(selection)},
+                                 indent=1, sort_keys=True) + "\n", encoding="utf-8")
+    argv = ["diff", "--product", "app", "--out", str(out / "compare"), "--builds", str(builds)]
     for side, flag in ((first, "--base-run"), (second, "--head-run")):
         for s in side.shards:
             argv += [flag, str(s.run_dir)]
@@ -670,6 +748,20 @@ def host_meta() -> Dict[str, str]:
     if sys.platform == "darwin":
         meta["macos"] = platform_mod.mac_ver()[0]
     return meta
+
+
+def built_submodules(gitlinks: Dict[str, str]) -> Dict[str, Optional[str]]:
+    """The commit each gitlink's submodule has checked out in the step's checkout (None: not initialized)."""
+    heads: Dict[str, Optional[str]] = {}
+    for path in sorted(gitlinks):
+        # An uninitialized submodule is an empty directory, where `git rev-parse` would answer for the superproject.
+        if not (REPO / path / ".git").exists():
+            heads[path] = None
+            continue
+        proc = subprocess.run(["git", "-C", str(REPO / path), "rev-parse", "HEAD"], check=False,
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        heads[path] = proc.stdout.strip() if proc.returncode == 0 else None
+    return heads
 
 
 def pack(work: Path, artifact: Path) -> None:
@@ -711,7 +803,9 @@ def cmd_step(args: argparse.Namespace, rest: List[str]) -> int:
         code = subprocess.run(argv, stdout=log, stderr=subprocess.STDOUT, check=False, cwd=str(REPO)).returncode
     seconds = round(time.monotonic() - started, 1)
     receipt = work / "run" / "receipt.json"
+    gitlinks = oracle.tree_gitlinks(args.ref, REPO)
     record = {"schema": STEP_SCHEMA, "sha": args.ref, "shard": [index, total], "tag": args.tag,
+              "gitlinks": gitlinks, "submodules": built_submodules(gitlinks) if gitlinks is not None else None,
               "config": args.config, "mutant": args.mutant, "source_diff_sha256": args.source_diff,
               "host": host_meta(), "oracle_exit": code,
               "oracle_seconds": seconds,

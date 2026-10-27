@@ -300,6 +300,33 @@ class RunTests(LinuxRunCase):
         self.assertIsNone(receipt["comparison"], "the stub writes no comparison; the old one must not show")
         self.assertEqual(receipt["oracleExit"], 0)
 
+    def test_diff_hands_both_builds_to_the_comparison(self) -> None:
+        """Task 112: oracle.py diff gets --builds with each side's ref, exact SHA and gitlinks."""
+        out = self.work / "cmp"
+        result = self.linux_run("diff", self.base_sha, "HEAD", "--suite", "iota", "--out", str(out))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"--builds {out / 'builds.json'}", result.stdout.strip().splitlines()[-1])
+        builds = json.loads((out / "builds.json").read_text())
+        ghostty = git("rev-parse", f"{self.base_sha}:ghostty-next", cwd=self.repo)
+        self.assertEqual((builds["base"]["ref"], builds["base"]["sha"]), (self.base_sha, self.base_sha))
+        self.assertEqual((builds["head"]["ref"], builds["head"]["sha"]), ("HEAD", self.head_sha))
+        for side in ("base", "head"):
+            self.assertEqual(builds[side]["gitlinks"], {"ghostty-next": ghostty})
+            self.assertEqual(builds[side]["schema"], "cmux-oracle-build-v1")
+
+    def test_run_copies_its_build_receipt(self) -> None:
+        receipt = self.work / "build.json"
+        result = self.linux_run("run", self.head_sha, "--suite", "kappa", "--receipt", str(receipt))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        build = json.loads(receipt.read_text())
+        self.assertEqual(build["sha"], self.head_sha)
+        self.assertEqual(build["gitlinks"], {"ghostty-next": git("rev-parse", f"{self.head_sha}:ghostty-next",
+                                                                 cwd=self.repo)})
+        refused = self.linux_run("diff", self.base_sha, self.head_sha, "--receipt", str(receipt),
+                                 "--out", str(self.work / "c"))
+        self.assertEqual(refused.returncode, 2)
+        self.assertIn("--receipt is for run", refused.stderr)
+
     def test_diff_output_stays_outside_the_checkout(self) -> None:
         result = self.linux_run("diff", self.base_sha, self.head_sha, "--out", str(self.repo / "cmp"))
         self.assertEqual(result.returncode, 2)
@@ -365,6 +392,88 @@ class MutantTests(LinuxRunCase):
         self.assertIsNone(receipt["base"]["build"]["mutant"])
         self.assertEqual(receipt["head"]["build"]["mutant"]["id"], "daemon/index-off-by-one")
         self.assertEqual(receipt["mutant"]["id"], "daemon/index-off-by-one")
+
+
+# linux_run.sh run, stubbed for `oracle.py diff --base --head` (task 112): writes the build receipt (STUB_BUILT_SHA and
+# STUB_GITLINKS stand in for a wrong build) and prints the run prepared for the SHA under STUB_RUNS.
+STUB_LINUX_RUN = r"""#!/usr/bin/env bash
+set -eu
+sha="$2" receipt=""
+while (($#)); do
+  case "$1" in --receipt) receipt="$2"; shift 2 ;; --) break ;; *) shift ;; esac
+done
+echo "$sha" >> "$ORACLE_TEST_LOG"
+printf '{"schema": "cmux-oracle-build-v1", "sha": "%s", "gitlinks": %s}\n' "${STUB_BUILT_SHA:-$sha}" "$STUB_GITLINKS" > "$receipt"
+echo "$STUB_RUNS/$sha"
+"""
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "the queued diff runs on the Linux VM")
+class OracleBaseHeadDiffTests(LinuxRunCase):
+    """`oracle.py diff --base A [--head B]` on the VM: both builds' exact SHAs and gitlinks reach comparison.json."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        import oracle_cli_test as cli  # the fake driver and corpus of oracle.py's own tests
+        self.stub = self.work / "linux_run.sh"
+        self.stub.write_text(STUB_LINUX_RUN)
+        cli.write_corpus(self.work / "corpus", suites=("alpha",), per_suite=4)
+        cases, _ = oracle.load_corpus(self.work / "corpus")
+        for sha in (self.base_sha, self.head_sha):
+            oracle.perform_run(cli.options(self.work, out=self.work / "runs" / sha, ref=sha, run_id=sha[:8]), cases,
+                               cli.FakeDriver().open_session, None, {})
+        self.ghostty = git("rev-parse", f"{self.base_sha}:ghostty-next", cwd=self.repo)
+        self.patches = [unittest.mock.patch.object(oracle, "REPO", self.repo),
+                        unittest.mock.patch.object(oracle, "LINUX_RUN", self.stub),
+                        unittest.mock.patch.dict(os.environ, {
+                            "RUNNERD_JOB": "", "ORACLE_TEST_LOG": str(self.log), "STUB_RUNS": str(self.work / "runs"),
+                            "STUB_GITLINKS": json.dumps({"ghostty-next": self.ghostty})})]
+        for patch in self.patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def diff(self, *argv: str):
+        out = self.work / "cmp"
+        with redirect_stderr(io.StringIO()) as err, unittest.mock.patch("sys.stdout", new_callable=io.StringIO):
+            code = oracle.main(["diff", *argv, "--out", str(out), "--expectations-root", str(self.work / "exp")])
+        self.err = err.getvalue()
+        path = out / "comparison.json"
+        return code, json.loads(path.read_text()) if path.is_file() else None
+
+    def test_comparison_names_both_shas_and_gitlinks(self) -> None:
+        code, comparison = self.diff("--base", self.base_sha, "--head", self.head_sha)
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(comparison["divergent"], [])
+        builds = comparison["builds"]
+        self.assertEqual((builds["base"]["sha"], builds["head"]["sha"]), (self.base_sha, self.head_sha))
+        for side in ("base", "head"):
+            self.assertEqual(builds[side]["gitlinks"], {"ghostty-next": self.ghostty})
+
+    def test_head_defaults_to_HEAD_and_tip_against_tip_runs_twice(self) -> None:
+        code, comparison = self.diff("--base", "HEAD")
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(comparison["compared"], 4)
+        self.assertEqual(comparison["builds"]["head"]["ref"], "HEAD")
+        self.assertEqual({comparison["builds"][s]["sha"] for s in ("base", "head")}, {self.head_sha})
+        self.assertEqual(self.log.read_text().split(), [self.head_sha, self.head_sha])
+
+    def test_a_build_of_another_commit_or_tree_is_refused(self) -> None:
+        for env, message in (({"STUB_BUILT_SHA": self.head_sha}, "build receipt is of"),
+                             ({"STUB_GITLINKS": json.dumps({"ghostty-next": "f" * 40})}, "recorded gitlinks")):
+            with self.subTest(env=env), unittest.mock.patch.dict(os.environ, env):
+                code, _ = self.diff("--base", self.base_sha, "--head", self.base_sha)
+                self.assertEqual(code, 2)
+                self.assertIn(message, self.err)
+
+    def test_a_run_of_another_sha_than_its_build_is_refused(self) -> None:
+        # The run of the base SHA, reported as a build of the head: the run receipt and the build record disagree.
+        builds = self.work / "builds.json"
+        builds.write_text(json.dumps({side: {"sha": self.head_sha, "gitlinks": {}} for side in ("base", "head")}))
+        code, comparison = self.diff("--base-run", str(self.work / "runs" / self.base_sha),
+                                     "--head-run", str(self.work / "runs" / self.head_sha), "--builds", str(builds))
+        self.assertEqual(code, oracle.EXIT_REFUSED, self.err)
+        self.assertIn("build-mismatch: the base run is of", comparison["refused"])
+        self.assertEqual(comparison["builds"]["base"]["sha"], self.head_sha)
 
 
 class QueuedDiffArgsTests(unittest.TestCase):

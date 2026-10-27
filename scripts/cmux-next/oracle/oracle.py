@@ -76,16 +76,22 @@ Run directory (`run --out DIR`; the format diff.py (014) reads, with the extra f
 run format baselines.py (016) reads (a `cases` list, the case name without its suite) and runs
 `baselines.py rebaseline` on it.
 
+`diff --base A [--head B]` is the default diff (spec 3F.1, task 112): head defaults to HEAD; both
+SHAs are built (daemon: linux_run.sh in the VM queue; app: fleet.py, bench config, both sides of a
+shard on one host) and comparison.json's "builds" holds each side's ref, exact SHA and every gitlink
+of its tree. A run whose receipt names another SHA than its build record is refused.
 `diff` exit codes: 0 no unexplained divergence, 1 divergences, 2 bad input, 3 refused (host
-mismatch, an incomplete or mismatched shard set, nothing compared), 4 diff.py internal error.
+mismatch, an incomplete or mismatched shard set, a run of another build, nothing compared),
+4 diff.py internal error.
 
 Sibling interfaces this file calls:
     diff.py A_DIR B_DIR --out divergence.json [--expected FILE] [--case GLOB]       (014)
     baselines.Store(root).read(suite, case, pdir, arm), platform_dir(platform, product),
         suite_class(suite), BaselineError; baselines.py rebaseline --run DIR         (016)
     expectations.Expectations.load_root(root), RunConfig, resolve, should_run, lint  (015)
-    linux_run.sh run SHA [--suite S] [--arm A] [--side L] [--fresh] [-- RUN_OPTIONS]
-        -> last stdout line is the run dir; every daemon run on the VM goes through it (007, 024)
+    linux_run.sh run SHA [--suite S] [--arm A] [--side L] [--receipt F] [--fresh] [-- RUN_OPTIONS]
+        -> last stdout line is the run dir, F the build receipt (sha, gitlinks); every daemon run
+        on the VM goes through it (007, 024)
     fleet.py diff ARGS: the app product's base/head and switch diffs                (050)
 """
 
@@ -121,6 +127,8 @@ SWITCH_REGISTRY = REPO / "plans" / "cmux-next" / "refactor-switches"
 CASE_SCHEMA = REPO / "schemas" / "oracle" / "case-v1.schema.json"
 RESOURCE_OPERATIONS = REPO / "cmux-tui" / "spec" / "resource-operations-v2.json"
 DEFAULT_OUT_BASE = Path("/tmp/oracle/runs")
+# The VM's build-and-run queue for the cmux-tui products (task 024).
+LINUX_RUN = HERE / "linux_run.sh"
 # Spec 3G: state roots are /tmp/o/<run6>/<case6> so a daemon socket path stays under sun_path.
 DEFAULT_STATE_BASE = Path("/tmp/o")
 
@@ -1329,6 +1337,61 @@ def comparability(a: RunView, b: RunView, *, partial: bool, order_parity: bool =
     return None
 
 
+SHA_TEXT = frozenset("0123456789abcdef")
+
+
+def is_full_sha(value: Any) -> bool:
+    return isinstance(value, str) and len(value) == 40 and set(value) <= SHA_TEXT
+
+
+def tree_gitlinks(ref: str, repo: Optional[Path] = None) -> Optional[Dict[str, str]]:
+    """Every gitlink (submodule path -> commit) in the tree of `ref`, or None when the commit is not in `repo`."""
+    proc = subprocess.run(["git", "-C", str(repo or REPO), "ls-tree", "-r", "-z", f"{ref}^{{commit}}"], check=False,
+                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    if proc.returncode != 0:
+        return None
+    links = {}
+    for entry in filter(None, proc.stdout.split("\0")):
+        meta, path = entry.split("\t", 1)
+        _mode, kind, sha = meta.split()
+        if kind == "commit":
+            links[path] = sha
+    return links
+
+
+def check_builds(builds: Mapping[str, Any], labels: Tuple[str, str]) -> None:
+    """A base/head diff's build records: each side's exact SHA and every gitlink of its tree (task 112)."""
+    if sorted(builds) != sorted(labels):
+        raise UsageError(f"build records name sides {sorted(builds)}, the diff compares {list(labels)}")
+    for label in labels:
+        build = builds[label]
+        if not isinstance(build, dict) or not is_full_sha(build.get("sha")):
+            raise UsageError(f"the {label} build record has no full commit SHA")
+        links = build.get("gitlinks")
+        if not isinstance(links, dict) or not all(isinstance(p, str) and is_full_sha(s) for p, s in links.items()):
+            raise UsageError(f"the {label} build record has no gitlinks map (submodule path -> commit)")
+
+
+def build_mismatch(builds: Mapping[str, Any], views: Tuple[RunView, RunView], labels: Tuple[str, str]) -> Optional[str]:
+    """Why the runs are not of the builds the records name: a run receipt's SHA is the one its binary was built at."""
+    for label, view in zip(labels, views):
+        ran = view.receipt.get("sha") or ""
+        if ran and ran != builds[label]["sha"]:
+            return f"build-mismatch: the {label} run is of {ran}, its build record of {builds[label]['sha']}"
+    return None
+
+
+def load_builds(path: Path, labels: Tuple[str, str]) -> Dict[str, Any]:
+    try:
+        builds = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise UsageError(f"--builds {path}: {error}") from None
+    if not isinstance(builds, dict):
+        raise UsageError(f"--builds {path}: a JSON object of side label -> build record")
+    check_builds(builds, labels)
+    return builds
+
+
 def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path]) -> Tuple[int, Dict[str, Any]]:
     script = require_sibling("diff", "p15-oracle-014")
     command = [sys.executable, "-I", str(Path(script.__file__)), str(a_dir), str(b_dir), "--out", str(out)]
@@ -1349,16 +1412,22 @@ def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path]) -
 def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path, labels: Tuple[str, str],
                   partial: bool, expected: Sequence[Path], rules: Sequence[Dict[str, str]],
                   not_comparable: Optional[Dict[str, str]] = None, refused: Optional[str] = None,
-                  as_json: bool = False, order_parity: bool = False) -> int:
+                  as_json: bool = False, order_parity: bool = False,
+                  builds: Optional[Mapping[str, Any]] = None) -> int:
     """Checks that the sides are comparable, then hands every comparison to diff.py.
 
     diff.py owns the host check, the first divergence per case and expected differences, so an
     all-match comparison from two hosts is refused like a divergent one. Flaky cases are
     reported as flaky by diff.py and never count as compared. With `order_parity`, a case that
-    leaked state on one side only is a divergence too: its leak depends on the order.
+    leaked state on one side only is a divergence too: its leak depends on the order. `builds`
+    (a base/head diff) names each side's exact SHA and gitlinks; it goes into comparison.json, and
+    a run of another SHA than its build record is refused.
     """
     target = out / "divergence.json"
     target.unlink(missing_ok=True)
+    if builds is not None:
+        check_builds(builds, labels)
+        refused = refused or build_mismatch(builds, (a, b), labels)
     refused = refused or comparability(a, b, partial=partial, order_parity=order_parity)
     document: Dict[str, Any] = {}
     code = None
@@ -1399,6 +1468,7 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         "order_parity": order_parity,
         "leaked_state": leaks,
         "leaks_differ": leaks_differ,
+        "builds": dict(builds) if builds is not None else None,
         "ok": refused is None and code == DIFF_OK and not leaks_differ,
     }
     write_json(out / "comparison.json", comparison)
@@ -1409,6 +1479,9 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
               f"explained {summary.get('explained', 0)}, divergent {len(divergent)}, "
               f"flaky (excluded) {summary.get('flaky', 0)}, skipped {summary.get('skipped', 0)}, "
               f"not comparable {len(comparison['not_comparable'])}")
+        for label in labels if builds is not None else ():
+            links = ", ".join(f"{path}@{sha[:12]}" for path, sha in sorted(builds[label]["gitlinks"].items()))
+            print(f"  {label}: {builds[label]['sha']} (gitlinks: {links or 'none'})")
         for item in document.get("divergences", [])[:20]:
             print(f"  divergent: {item['journey']} step={item['step']} checkpoint={item['checkpoint']} "
                   f"pointer={item['pointer']} a={json.dumps(item['a'], sort_keys=True)} b={json.dumps(item['b'], sort_keys=True)}")
@@ -1754,13 +1827,13 @@ class Side:
 def diff_sides(args: argparse.Namespace, registry: Dict[str, Dict[str, Any]]) -> Tuple[Tuple[Side, Side], List[Path]]:
     """The two sides to run and the expected-differences files that apply to them."""
     if args.base or args.head:
-        if not (args.base and args.head):
-            raise UsageError("--base and --head go together")
+        if not args.base:
+            raise UsageError("--head needs --base (the default diff is --base REF, head HEAD)")
         if args.product not in RUST_PRODUCTS:
             raise UsageError(f"--product {args.product}: base/head builds on the VM are the cmux-tui products {sorted(RUST_PRODUCTS)}")
         # On the VM, queued_diff builds the refs; elsewhere the caller brings the binaries.
         return (Side("base", None, None, {}, args.base, args.base_binary),
-                Side("head", None, None, {}, args.head, args.head_binary)), []
+                Side("head", None, None, {}, args.head or "HEAD", args.head_binary)), []
     if args.switch:
         sides = tuple(Side(arm, args.switch, arm, resolve_switches(registry, args.switch, arm), args.ref, args.binary) for arm in ARMS)
         return sides, switch_expected_files(registry, [args.switch])  # type: ignore[return-value]
@@ -1804,10 +1877,13 @@ def cmd_diff(args: argparse.Namespace) -> int:
         base, base_errors = merge_runs(args.base_run, require_complete=False)
         if base_errors or head_errors:
             raise UsageError("; ".join(base_errors + head_errors))
+        builds = load_builds(args.builds, ("base", "head")) if args.builds else None
         return compare_views(base, head, a_dir=write_merged(base, out / "a-merged"), b_dir=write_merged(head, out / "b-merged"),
                              out=out, labels=("base", "head"), partial=args.partial, expected=[],
                              rules=comparison_rules(head, args.expectations_root), as_json=args.json,
-                             order_parity=args.order_parity)
+                             order_parity=args.order_parity, builds=builds)
+    if args.builds:
+        raise UsageError("--builds names the builds of --base-run and --head-run")
     if args.product == "app":
         fleet = HERE / "fleet.py"
         if not fleet.is_file():
@@ -1904,22 +1980,26 @@ def queued_diff(args: argparse.Namespace, sides: Tuple[Side, Side], expected: Li
     same = shas[0] == shas[1] and side_arm(sides[0]) == side_arm(sides[1])
     suites = ",".join(parse_list(args.suite)) or "all"
     run_args = queued_run_args(args)
+    receipts = [out / f"build-{side.label}.json" for side in sides]
     procs = []
-    for side, sha in zip(sides, shas):
-        command = ["bash", str(HERE / "linux_run.sh"), "run", sha, "--suite", suites, "--arm", side_arm(side)]
+    for side, sha, receipt in zip(sides, shas, receipts):
+        receipt.unlink(missing_ok=True)
+        command = ["bash", str(LINUX_RUN), "run", sha, "--suite", suites, "--arm", side_arm(side),
+                   "--receipt", str(receipt)]
         command += ["--side", side.label] if same else []
         command += ["--fresh"] if args.fresh else []
         command += ["--", *run_args]
         command += ["--run-id", f"{args.run_id}-{side.label}"] if args.run_id else []
         procs.append(subprocess.Popen(command, stdout=subprocess.PIPE, text=True))
     finished = [(proc.communicate()[0], proc.returncode) for proc in procs]
-    views, dirs = [], []
-    for side, (stdout, code) in zip(sides, finished):
+    views, dirs, builds = [], [], {}
+    for side, sha, receipt, (stdout, code) in zip(sides, shas, receipts, finished):
         lines = [line.strip() for line in stdout.splitlines() if line.strip()]
         run_dir = Path(lines[-1]) if lines else None
         if run_dir is None or not (run_dir / "receipt.json").is_file():
             raise UsageError(f"the {side.label} run of {side.ref} wrote no receipt (linux_run.sh exit {code})")
-        print(f"{side.label}: {side.ref} run {run_dir} (oracle.py run exit {code})")
+        builds[side.label] = queued_build(side, sha, receipt)
+        print(f"{side.label}: {side.ref} = {sha} run {run_dir} (oracle.py run exit {code})")
         if read_receipt(run_dir)["arm_exercised"] is False:
             print(f"arm-not-exercised: {side.switch}={side.arm}")
             return EXIT_REFUSED
@@ -1930,7 +2010,23 @@ def queued_diff(args: argparse.Namespace, sides: Tuple[Side, Side], expected: Li
         dirs.append(run_dir)
     return compare_views(views[0], views[1], a_dir=dirs[0], b_dir=dirs[1], out=out,
                          labels=(sides[0].label, sides[1].label), partial=args.partial, expected=expected,
-                         rules=comparison_rules(views[1], args.expectations_root), as_json=args.json)
+                         rules=comparison_rules(views[1], args.expectations_root), as_json=args.json,
+                         builds=builds)
+
+
+def queued_build(side: Side, sha: str, receipt: Path) -> Dict[str, Any]:
+    """The side's build record from linux_run.sh's build receipt, checked against the commit it was asked for."""
+    try:
+        build = json.loads(receipt.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise UsageError(f"the {side.label} build of {sha} left no build receipt at {receipt}") from None
+    if build.get("sha") != sha:
+        raise UsageError(f"the {side.label} build receipt is of {build.get('sha')}, not of {sha}")
+    expected = tree_gitlinks(sha)
+    if expected is not None and build.get("gitlinks") != expected:
+        raise UsageError(f"the {side.label} build of {sha} recorded gitlinks {build.get('gitlinks')}, "
+                         f"its tree has {expected}")
+    return {"ref": side.ref, **build, "receipt": str(receipt)}
 
 
 def cmd_merge(args: argparse.Namespace) -> int:
@@ -2160,7 +2256,7 @@ def build_parser() -> argparse.ArgumentParser:
     diff = sub.add_parser("diff", help="run two sides and compare them through diff.py; flaky cases are left out")
     add_selection_args(diff)
     diff.add_argument("--base", help="base ref (on the Linux VM: built and run in the runnerd queue)")
-    diff.add_argument("--head", help="head ref")
+    diff.add_argument("--head", help="head ref (default HEAD when --base is given)")
     diff.add_argument("--base-binary", help="prebuilt base binary instead of building --base")
     diff.add_argument("--head-binary", help="prebuilt head binary instead of building --head")
     diff.add_argument("--switch", help="same build, arm old against arm new")
@@ -2168,7 +2264,10 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument("--ref", help="source ref recorded for --switch and --arm runs")
     diff.add_argument("--base-run", type=Path, action="append", help="existing run directory (repeat for shards)")
     diff.add_argument("--head-run", type=Path, action="append", help="existing run directory (repeat for shards)")
-    diff.add_argument("--baselines", action="store_true", help="compare --head-run golden cases with reviewed baselines")
+    diff.add_argument("--builds", type=Path,
+                      help="with --base-run/--head-run: JSON {\"base\": build, \"head\": build}, each with the exact "
+                           "\"sha\" and \"gitlinks\" of its build (linux_run.sh, fleet.py); copied into comparison.json")
+    diff.add_argument("--baselines",action="store_true", help="compare --head-run golden cases with reviewed baselines")
     diff.add_argument("--baselines-root", type=Path, default=DEFAULT_BASELINES_ROOT)
     diff.add_argument("--partial", action="store_true", help="compare a shard subset; the result says partial")
     diff.add_argument("--order-parity", action="store_true",
