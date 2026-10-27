@@ -10,6 +10,8 @@ import { gcpCredentialFromRequest, wipeProviderCredential } from "../services/vm
 import { releaseProviderCredential } from "../services/vms/workflows";
 
 const now = 1_735_689_600_000;
+/** A key file shape (with its newlines); the body is not a real key. */
+const TEST_PRIVATE_KEY = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ==\n-----END OPENSSH PRIVATE KEY-----\n";
 const labsOn = { CMUX_VM_GCP_LABS_ENABLED: "1", CMUX_VM_GCP_ENABLED: "1" };
 
 function credential(overrides: Partial<ProviderCredential> = {}): ProviderCredential {
@@ -99,11 +101,24 @@ describe("GCP Labs provider", () => {
     }), "freestyle")).toBeUndefined();
   });
 
+  test("an SSH private key header is a base64 key file; anything else refuses the credential", () => {
+    const parse = (key: string) => gcpCredentialFromRequest(new Request("https://cmux.test", {
+      headers: { "x-cmux-gcp-access-token": "local-token", "x-cmux-gcp-ssh-private-key": key },
+    }));
+    expect(parse(Buffer.from(TEST_PRIVATE_KEY).toString("base64"))?.sshPrivateKeyPem?.utf8()).toBe(TEST_PRIVATE_KEY);
+    expect(parse("-----BEGIN OPENSSH PRIVATE KEY----- b3Bl")).toBeUndefined();
+    expect(parse(Buffer.from("not a key").toString("base64"))).toBeUndefined();
+    // 32 KiB decoded is the limit; one byte more is refused.
+    const keyOfSize = (size: number) => Buffer.concat([Buffer.from(TEST_PRIVATE_KEY), Buffer.alloc(size - TEST_PRIVATE_KEY.length, 0x41)]).toString("base64");
+    expect(parse(keyOfSize(32_768))?.sshPrivateKeyPem?.byteLength).toBe(32_768);
+    expect(parse(keyOfSize(32_769))).toBeUndefined();
+  });
+
   test("a workflow holds the credential until it ends, then wipes it", async () => {
     const parse = () => gcpCredentialFromRequest(new Request("https://cmux.test", {
       headers: {
         "x-cmux-gcp-access-token": "local-token",
-        "x-cmux-gcp-ssh-private-key": "PRIVATE KEY",
+        "x-cmux-gcp-ssh-private-key": Buffer.from(TEST_PRIVATE_KEY).toString("base64"),
       },
     }));
     const live = parse();
@@ -113,6 +128,8 @@ describe("GCP Labs provider", () => {
     }).pipe(releaseProviderCredential(live));
     // Building the program wipes nothing; running it to the end does.
     expect(live?.accessToken.wiped).toBe(false);
+    // The header carries the key file in base64; the credential holds the file itself.
+    expect(live?.sshPrivateKeyPem?.utf8()).toBe(TEST_PRIVATE_KEY);
     expect(await Effect.runPromise(program)).toBe("local-token");
     expect(live?.accessToken.wiped).toBe(true);
     expect(live?.sshPrivateKeyPem?.wiped).toBe(true);
@@ -390,7 +407,7 @@ describe("GCP Labs provider", () => {
     const fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
       calls.push({ url: String(input), init: init ?? {} });
       if (calls.length === 1) return json({ name: "insert-op", status: "DONE" });
-      if (calls.length === 2) return json({
+      if (calls.length === 2 || calls.length === 3) return json({
         name: "cmux-abc",
         status: "RUNNING",
         networkInterfaces: [{ networkIP: "10.0.0.4", accessConfigs: [{ natIP: "203.0.113.4" }] }],
@@ -400,7 +417,7 @@ describe("GCP Labs provider", () => {
     const provider = new GcpProvider({ fetch, now: () => now, env: labsOn });
     const local = credential({
       sshPublicKey: "ssh-ed25519 AAAA test",
-      sshPrivateKeyPem: new SecretBytes(new TextEncoder().encode("PRIVATE KEY")),
+      sshPrivateKeyPem: new SecretBytes(new TextEncoder().encode(TEST_PRIVATE_KEY)),
     });
     const created = await provider.create({
       image: "projects/manaflow-437420/global/images/cmux-linux",
@@ -416,15 +433,30 @@ describe("GCP Labs provider", () => {
     expect(JSON.stringify(created)).not.toContain("gcp-test-token");
     expect(String(calls[0]?.init.headers)).not.toContain("gcp-test-token");
     expect(calls[0]?.init.headers).toMatchObject({ authorization: "Bearer gcp-test-token" });
-    const insert = JSON.parse(String(calls[0]?.init.body)) as { networkInterfaces: Record<string, unknown>[] };
-    expect(insert.networkInterfaces).toEqual([{ network: "projects/manaflow-437420/global/networks/cmux-vms" }]);
+    const createBody = JSON.parse(String(calls[0]?.init.body));
+    expect(createBody.networkInterfaces).toEqual([{
+      network: "projects/manaflow-437420/global/networks/cmux-vms",
+      subnetwork: "regions/us-west1/subnetworks/cmux-vms",
+    }]);
+    expect(createBody.tags.items).toContain("cmux-vm");
     expect(String(calls[0]?.init.body)).not.toContain("PRIVATE KEY");
+    expect(String(calls[0]?.init.body)).not.toContain("b3BlbnNzaC1rZXktdjE");
 
-    await expect(provider.openSSH(created.providerVmId, local)).rejects.toThrow(/private-network follow-up/);
+    const endpoint = await provider.openSSH(created.providerVmId, local);
+    expect(endpoint.host).toBe("gcp-iap");
+    expect(endpoint.proxy).toEqual({
+      kind: "gcp-iap",
+      project: "manaflow-437420",
+      zone: "us-west1-b",
+      instance: expect.stringContaining("gcp-lab-"),
+      port: 22,
+    });
+    expect(endpoint.credential).toEqual({ kind: "authorizedKey", privateKeyPem: TEST_PRIVATE_KEY });
     await provider.pause(created.providerVmId, local);
     await provider.destroy(created.providerVmId, local);
     expect(calls.map((call) => call.url)).toEqual([
       expect.stringContaining("/instances"),
+      expect.stringContaining("/instances/"),
       expect.stringContaining("/instances/"),
       expect.stringContaining("/instances/"),
       expect.stringContaining("/instances/"),
@@ -439,5 +471,99 @@ describe("GCP Labs provider", () => {
       providerCredential: credential({ expiresAtUnix: Math.floor(now / 1000) }),
     })).rejects.toThrow(/expired/);
     expect(requests).toBe(0);
+  });
+
+  test("provisions the private network idempotently: deny-all ingress, IAP-only SSH, NAT egress", async () => {
+    const calls: { method: string; path: string; body?: Record<string, unknown> }[] = [];
+    const selfLink = "https://www.googleapis.com/compute/v1/projects/user-project/global/networks/cmux-vms";
+    const state: Record<string, Record<string, unknown> | undefined> = {
+      // A concurrent request created the VPC between our read and our insert.
+      network: undefined,
+      // Drifted: someone disabled the deny rule.
+      "cmux-vms-deny-ingress": { network: selfLink, direction: "INGRESS", priority: 1000, targetTags: ["cmux-vm"], denied: [{ IPProtocol: "all" }], disabled: true },
+      // Drifted: someone lowered the NAT port allocation.
+      router: { network: selfLink, nats: [{ name: "cmux-vms", natIpAllocateOption: "AUTO_ONLY", sourceSubnetworkIpRangesToNat: "ALL_SUBNETWORKS_ALL_IP_RANGES", minPortsPerVm: 32 }] },
+    };
+    let regionalPolls = 0;
+    const provider = new GcpProvider({
+      fetch: async (input, init) => {
+        const method = String(init?.method ?? "GET");
+        const path = new URL(String(input)).pathname.replace(/^\/compute\/v1/, "");
+        const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined;
+        calls.push({ method, path, ...(body ? { body } : {}) });
+        const key = path.endsWith("/global/networks/cmux-vms") ? "network"
+          : path.endsWith("/subnetworks/cmux-vms") ? "subnet"
+          : path.endsWith("/routers/cmux-vms") ? "router"
+          : path.split("/firewalls/")[1];
+        // Reads come back normalized the way Compute Engine answers them.
+        if (method === "GET" && key) return state[key] ? json({ sourceRanges: ["0.0.0.0/0"], disabled: false, ...state[key] }) : json({}, 404);
+        if (method === "POST" && path.endsWith("/global/networks")) {
+          state.network = { selfLink, autoCreateSubnetworks: false };
+          return json({}, 409);
+        }
+        if (method === "POST" && path.endsWith("/subnetworks")) {
+          state.subnet = { ipCidrRange: String(body?.ipCidrRange), network: String(body?.network) };
+          return json({ name: "subnet-op", status: "RUNNING", region: "https://www.googleapis.com/compute/v1/projects/user-project/regions/europe-west4" });
+        }
+        if (path.endsWith("/regions/europe-west4/operations/subnet-op")) {
+          regionalPolls += 1;
+          return json({ name: "subnet-op", status: "DONE" });
+        }
+        if ((method === "POST" && path.endsWith("/global/firewalls")) || method === "PUT") {
+          state[String(body?.name)] = body;
+        }
+        if (method === "PATCH" && key === "router") state.router = body;
+        return json({ name: "op", status: "DONE" });
+      },
+      now: () => now,
+      sleep: async () => {},
+      env: labsOn,
+    });
+    await expect(provider.privateNetworking.ensureNetwork({ slug: "ignored" })).rejects.toThrow(/access token/);
+    expect(calls).toEqual([]);
+
+    const ensure = (providerRegion: string) => provider.privateNetworking.ensureNetwork({
+      slug: "ignored",
+      cidr: "10.250.16.0/20",
+      providerCredential: credential(),
+      providerProject: "user-project",
+      providerRegion,
+    });
+    await expect(ensure("mars-north1")).rejects.toThrow(/not available/);
+    expect(calls).toEqual([]);
+    const network = await ensure("europe-west4");
+    // Each region of the project-wide VPC has its own /20; the account range is not reused.
+    expect(network).toEqual({ id: selfLink, slug: "cmux-vms", cidr: "10.209.80.0/20", cidrV6: null });
+    // The subnet insert names its region in the path only, and its regional operation is followed.
+    const subnet = calls.find((call) => call.method === "POST" && call.path.endsWith("/regions/europe-west4/subnetworks"));
+    expect(subnet?.body).toEqual({ name: "cmux-vms", network: selfLink, ipCidrRange: "10.209.80.0/20" });
+    expect(regionalPolls).toBe(1);
+    // The disabled deny rule is replaced; the missing IAP rule is created.
+    expect(calls.filter((call) => call.method === "PUT").map((call) => call.body)).toEqual([
+      expect.objectContaining({ name: "cmux-vms-deny-ingress", denied: [{ IPProtocol: "all" }], sourceRanges: ["0.0.0.0/0"], disabled: false, targetTags: ["cmux-vm"] }),
+    ]);
+    expect(calls.filter((call) => call.method === "POST" && call.path.endsWith("/global/firewalls")).map((call) => call.body)).toEqual([
+      expect.objectContaining({ name: "cmux-vms-iap-ssh", allowed: [{ IPProtocol: "tcp", ports: ["22"] }], sourceRanges: ["35.235.240.0/20"], priority: 900 }),
+    ]);
+    // The drifted NAT is patched back to the full configuration.
+    expect(calls.filter((call) => call.path.includes("/routers") && call.method !== "GET").map((call) => [call.method, call.body?.nats])).toEqual([
+      ["PATCH", [{ name: "cmux-vms", natIpAllocateOption: "AUTO_ONLY", sourceSubnetworkIpRangesToNat: "ALL_SUBNETWORKS_ALL_IP_RANGES", minPortsPerVm: 64 }]],
+    ]);
+    // A second run converges without changes.
+    calls.length = 0;
+    await ensure("europe-west4");
+    expect(calls.every((call) => call.method === "GET")).toBe(true);
+
+    // A same-named subnet or router on another VPC cannot be repaired in place.
+    state.subnet = { ipCidrRange: "10.209.80.0/20", network: "https://www.googleapis.com/compute/v1/projects/user-project/global/networks/default" };
+    await expect(ensure("europe-west4")).rejects.toThrow(/subnetworks\/cmux-vms exists on another network/);
+    state.subnet = { ipCidrRange: "10.240.0.0/16", network: selfLink };
+    await expect(ensure("europe-west4")).rejects.toThrow(/has range 10.240.0.0\/16, not 10.209.80.0\/20/);
+    state.subnet = { ipCidrRange: "10.209.80.0/20", network: selfLink };
+    state.router = { network: "projects/user-project/global/networks/default", nats: [] };
+    await expect(ensure("europe-west4")).rejects.toThrow(/routers\/cmux-vms exists on another network/);
+    // An auto-mode VPC of that name would put subnets we do not own behind the NAT.
+    state.network = { selfLink, autoCreateSubnetworks: true };
+    await expect(ensure("europe-west4")).rejects.toThrow(/networks\/cmux-vms is not a custom-mode VPC/);
   });
 });

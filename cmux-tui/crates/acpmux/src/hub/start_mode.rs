@@ -207,6 +207,7 @@ fn start_level(
     managed: Option<&str>,
     configured: Option<&str>,
     pushed: Option<&str>,
+    allowed: bool,
 ) -> (DefaultMode, Source) {
     let (level, source) = if let Some(value) = managed {
         let level = DefaultMode::parse(value).unwrap_or_else(|| {
@@ -221,7 +222,7 @@ fn start_level(
         DefaultMode::resolve(configured, pushed)
     };
     // `sessions.allowFullAccess` off: no chat starts in a mode that skips every approval.
-    if level == DefaultMode::FullAccess && !full_access_allowed() {
+    if level == DefaultMode::FullAccess && !allowed {
         return (DefaultMode::Standard, source);
     }
     (level, source)
@@ -231,9 +232,10 @@ fn start_level(
 /// Sessions, "Allow Full-Access Modes").
 pub const ALLOW_FULL_ACCESS: &str = "sessions.allowFullAccess";
 
-/// Whether a mode that skips every approval may run now: yes unless the settings file turns
-/// `sessions.allowFullAccess` off. A settings file that cannot be read fails closed (no).
-pub fn full_access_allowed() -> bool {
+/// Whether the settings file lets a mode that skips every approval run: yes unless it turns
+/// `sessions.allowFullAccess` off. A settings file that cannot be read fails closed (no). The
+/// effective answer is `Hub::full_access_allowed` (`full_access_bound.rs`), which MDM can lower.
+pub(super) fn file_allows_full_access() -> bool {
     match crate::user_settings::read() {
         crate::user_settings::Settings::Missing => true,
         crate::user_settings::Settings::Unreadable(_) => false,
@@ -280,9 +282,9 @@ pub(crate) fn is_full_access(mode: &str) -> bool {
 }
 
 /// The mode a resumed chat runs in: its saved mode, or the harness default (`fallback`) when the
-/// saved one skips every approval and `sessions.allowFullAccess` is off.
-pub(crate) fn resumable_mode(saved: String, fallback: &str) -> String {
-    if is_full_access(&saved) && !full_access_allowed() { fallback.to_owned() } else { saved }
+/// saved one skips every approval and `sessions.allowFullAccess` is off (`allowed`).
+pub(crate) fn resumable_mode(saved: String, fallback: &str, allowed: bool) -> String {
+    if is_full_access(&saved) && !allowed { fallback.to_owned() } else { saved }
 }
 
 /// Whether a session request switches into a full-access mode: `session/set_mode` to one, or
@@ -517,7 +519,7 @@ impl Hub {
         offered: &[String],
     ) -> Option<String> {
         let family = crate::web_modes::family_of(meta);
-        let allowed = full_access_allowed();
+        let allowed = self.full_access_allowed();
         if crate::web_modes::family_of(theirs) == family
             && let Some(mode) = crate::web_modes::mode_of(theirs)
             && offered.contains(&mode)
@@ -582,10 +584,11 @@ impl Hub {
         &self,
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
+        off: &super::full_access_bound::OffLatch,
     ) -> Result<(), RpcError> {
         let meta = session.meta();
         let Some(current) = crate::web_modes::mode_of(&meta) else { return Ok(()) };
-        if !is_full_access(&current) || full_access_allowed() {
+        if !is_full_access(&current) || off.allows_full_access() {
             return Ok(());
         }
         let family = crate::web_modes::family_of(&meta);
@@ -617,24 +620,66 @@ impl Hub {
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         profile: &HarnessProfile,
+        off: &super::full_access_bound::OffLatch,
     ) -> Result<(), RpcError> {
+        let mut refused = None;
         if !profile_sets_mode(profile)
-            && let Err(e) = self.leave_full_access_if_off(session, child).await
+            && let Err(e) = self.leave_full_access_if_off(session, child, off).await
         {
-            if let Some(started) = session.child.lock().await.take() {
-                started.terminate(super::shutdown::SHUTDOWN_GRACE).await;
-            }
-            // A host that outlived the grace would be re-adopted, still in full access.
-            if Self::host_record_live(&session.id) {
-                self.end_unadopted_host(session).await;
-            }
-            self.set_status(session, SessionStatus::Idle);
-            self.append(session, "mux", "full_access_refused", json!({}));
+            refused = Some(e);
+        }
+        // MDM forces full access off (#23322): a start still in it by any form acpmux sees (a
+        // config option, a mode its harness reports without declaring modes) is refused too.
+        if refused.is_none() && self.managed_off_runs_full_access(off, session) {
+            refused = Some(full_access_off());
+        }
+        // Whether MDM's off stops it is the start's one read of the off (`off`), taken before the
+        // mode change above awaited: an unset that landed meanwhile does not make it the person's
+        // own off (review 2 of #26257).
+        if let Some(e) = refused {
+            self.stop_full_access_agent(session, off.off()).await;
             return Err(e);
         }
         // A narrower policy holds over a pinned mode too (`policy_mode.rs`).
         self.hold_policy_mode(session, child, profile_sets_mode(profile)).await;
         Ok(())
+    }
+
+    /// Stops `session`'s agent, which runs in a full access the setting does not allow; the chat
+    /// stays open and idle, and its next prompt starts an agent under the setting. `managed`: MDM's
+    /// off stops it (now, or one that held as the agent started).
+    pub(super) async fn stop_full_access_agent(&self, session: &Arc<Session>, managed: bool) {
+        // Taken first: the child slot's lock is not held while the agent ends. Under MDM's off it
+        // is retired under that lock, as MDM's end retires one (`end_managed_full_access`): a mode
+        // or option report it still has queued is not applied to the agent after it, and none it
+        // sent is counted. With MDM unset nothing changes.
+        let started = {
+            let mut slot = session.child.lock().await;
+            let started = slot.take();
+            if let Some(started) = started.as_ref().filter(|_| managed) {
+                session.floor.retired_through.fetch_max(started.generation, Ordering::SeqCst);
+            }
+            started
+        };
+        if managed && started.is_some() {
+            let _m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            session.floor.report_epoch.fetch_add(1, Ordering::SeqCst);
+            session.floor.unapplied_full_access.store(0, Ordering::SeqCst);
+        }
+        if let Some(started) = started {
+            // Bounded: a host whose link stopped reading never takes the terminate; it is then
+            // ended by its nonce below (review 31 of #23322).
+            let grace = super::shutdown::SHUTDOWN_GRACE;
+            if tokio::time::timeout(grace * 2, started.terminate(grace)).await.is_err() {
+                tracing::warn!(session = %session.id, "its full-access agent did not end in time; its host is ended");
+            }
+        }
+        // A host that outlived the grace would be re-adopted, still in full access.
+        if Self::host_record_live(&session.id) {
+            self.end_unadopted_host(session).await;
+        }
+        self.set_status(session, SessionStatus::Idle);
+        self.append(session, "mux", "full_access_refused", json!({}));
     }
 
     /// The level new chats start at now, and what chose it.
@@ -647,7 +692,12 @@ impl Hub {
                 cfg.default_permission_mode.clone(),
             )
         };
-        start_level(state.managed.as_deref(), configured.as_deref(), state.pushed.as_deref())
+        start_level(
+            state.managed.as_deref(),
+            configured.as_deref(),
+            state.pushed.as_deref(),
+            self.full_access_allowed(),
+        )
     }
 
     /// `_acpmux/start_mode`: the mode a plain new chat on `harness` (or the
@@ -657,7 +707,8 @@ impl Hub {
     /// `modeId` is null when acpmux would set no mode: the chat is not
     /// eligible, the level keeps the harness's own mode, or the harness's
     /// modes are not known yet (no chat of it in this daemon, and not
-    /// acpmux's own Claude backend).
+    /// acpmux's own Claude backend). `fullAccess: "managed"` while MDM or the team policy forces
+    /// `sessions.allowFullAccess` off.
     pub async fn start_mode_answer(
         &self,
         harness: Option<String>,
@@ -675,6 +726,14 @@ impl Hub {
         }
         // As session/new: harness discovery and launcher checks finish first.
         self.wait_startup().await;
+        // MDM or the team policy forces full access off: every answer says so, for the mode menu.
+        let managed_off = self.full_access_managed_off();
+        let mark = |mut answer: Value| {
+            if managed_off {
+                answer["fullAccess"] = json!("managed");
+            }
+            answer
+        };
         let (agent, profile, eligible, policy) = {
             let cfg = self.config.read().await;
             let r = self.resolve_new(&cfg, harness, &preset, None, remote, cwd.as_deref())?;
@@ -702,28 +761,28 @@ impl Hub {
         if let Some(policy) = policy {
             let mode = super::policy_mode::policy_mode(policy, &family, &ids);
             if mode.is_none() {
-                return Ok(none);
+                return Ok(mark(none));
             }
-            return Ok(json!({
+            return Ok(mark(json!({
                 "harness": agent,
                 "modeId": mode,
                 "name": name_of(&mode),
                 "level": DefaultMode::Ask.as_str(),
                 "source": "policy",
-            }));
+            })));
         }
         if !eligible {
-            return Ok(none);
+            return Ok(mark(none));
         }
         let (level, source) = self.start_level().await;
         let mode = mode_for(level, &family, &ids);
-        Ok(json!({
+        Ok(mark(json!({
             "harness": agent,
             "modeId": mode,
             "name": name_of(&mode),
             "level": level.as_str(),
             "source": source.as_str(),
-        }))
+        })))
     }
 
     /// The modes harness profile `agent` offers, as its newest chat in this

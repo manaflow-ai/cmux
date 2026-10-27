@@ -249,8 +249,12 @@ impl Hub {
         turn_id: &str,
         digest: &DigestTurn,
     ) -> Vec<Part> {
-        // A slash command (`/compact`) runs only as a turn's first words: it goes in alone.
-        if head.agent.is_none() || super::forum::slash_command(&head.blocks).is_some() {
+        // A slash command (`/compact`) runs only as a turn's first words: it goes in alone. So does
+        // a message with uploaded files: its turn reads and checks them (`prompt_uploads.rs`).
+        if head.agent.is_none()
+            || super::forum::slash_command(&head.blocks).is_some()
+            || crate::prompt_uploads::any(&head.blocks)
+        {
             return Vec::new();
         }
         let mut bytes = blocks_bytes(&head.blocks);
@@ -269,6 +273,7 @@ impl Hub {
                 }
                 let joins = q.run.agent.is_some()
                     && super::forum::slash_command(&q.run.blocks).is_none()
+                    && !crate::prompt_uploads::any(&q.run.blocks)
                     && !unclaimed.iter().any(|(id, _)| *id == q.prompt_id)
                     && !q.steer
                     && !q.sent_now
