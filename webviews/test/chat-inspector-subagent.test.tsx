@@ -103,7 +103,13 @@ function SubagentPane({
   subagent: SubagentScope;
   onOpenOutput: (path: string) => void;
 }) {
-  const inspector = useChatInspector({ snapshot, repository: "acme/atlas-web", subagent, onOpenOutput });
+  const inspector = useChatInspector({
+    snapshot,
+    repository: "acme/atlas-web",
+    subagent,
+    onOpenOutput,
+    onOpenSourceFile: onOpenOutput,
+  });
   return <>{inspector.panel}</>;
 }
 
@@ -134,7 +140,15 @@ test("the subagent's panel lists its worktree, its tokens and its own edits; the
     sessions: [],
     summary: CHAT,
   };
-  const scope: SubagentScope = { agent: sub, rows: treeRows, agents: [], parent: CHAT.sessionId };
+  const scope: SubagentScope = {
+    agent: sub,
+    rows: [
+      ...treeRows,
+      activity([tool("Read src/config.ts", "read", "completed", { locations: [{ path: "src/config.ts" }] })], 9),
+    ],
+    agents: [],
+    parent: CHAT.sessionId,
+  };
   await act(async () =>
     root!.render(<SubagentPane snapshot={snapshot} subagent={scope} onOpenOutput={(path) => opened.push(path)} />),
   );
@@ -147,6 +161,8 @@ test("the subagent's panel lists its worktree, its tokens and its own edits; the
   expect(text()).not.toContain("README.md");
   expect(text()).toContain("bun test --watch");
   expect(text()).not.toContain("github");
+  await act(async () => container.querySelector<HTMLButtonElement>('ul[data-section="sources"] button')!.click());
+  expect(opened).toEqual([`${TREE}/src/config.ts`]);
 
   await act(async () =>
     root!.render(

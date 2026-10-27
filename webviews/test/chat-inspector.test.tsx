@@ -36,7 +36,6 @@ import {
   resetInspectorState,
   setInspectorSection,
 } from "../src/agent-session/acpmux/inspector/inspectorState";
-import { SourcesSection } from "../src/agent-session/acpmux/inspector/SourcesSection";
 import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
 import {
   spawnedSessions,
@@ -199,38 +198,50 @@ const meta = (element: HTMLElement | null) =>
 const head = (element: HTMLElement) => element.querySelector<HTMLElement>("button.ui-disclosure-trigger")!;
 const click = (element: HTMLElement) => act(async () => element.click());
 
-test("Sources folds after five rows, expands, navigates, and is wired into ChatInspector", async () => {
+test("Inspector Sources navigate mixed targets and preserve expansion during streaming", async () => {
   const container = installDom(true);
-  const sources = Array.from({ length: 6 }, (_, index) => ({
-    url: `https://example.test/source-${index}`,
-    label: `Source ${index}`,
-    kind: "url" as const,
-  }));
-  const opened: string[] = [];
-  await act(async () => {
-    root = createRoot(container);
-    root.render(<SourcesSection sources={sources} onOpenBeside={(url) => opened.push(url)} />);
-  });
+  const sources = [
+    { label: "PR", kind: "pullRequest" as const, url: "https://github.com/acme/app/pull/1" },
+    { label: "Issue", kind: "issue" as const, url: "https://github.com/acme/app/issues/2" },
+    { label: "Docs", kind: "url" as const, url: "https://example.test/docs" },
+    { label: "src/app.ts", kind: "file" as const },
+    { label: "/shared/README.md", kind: "file" as const },
+    { label: "MCP read", kind: "mcp" as const },
+  ];
+  const urls: string[] = [];
+  const files: string[] = [];
+  const draw = async (rows: AcpmuxSnapshot["rows"] = []) =>
+    act(async () => {
+      root ??= createRoot(container);
+      root.render(
+        <ChatInspector
+          summary={{ sessionId: "chat", cwd: "/project" }}
+          rows={rows}
+          made={{ outputs: [], pullRequests: [], scheduled: [], sources }}
+          onOpenUrl={(url) => urls.push(url)}
+          onOpenSourceFile={(path) => files.push(path)}
+        />,
+      );
+    });
+  await draw();
   const list = () => container.querySelectorAll("[data-section=sources] li");
-  expect(list()).toHaveLength(5);
   const fold = () => container.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-sources-fold")!;
-  expect(fold().textContent).toContain("6");
+  expect(list()).toHaveLength(5);
+  for (const link of container.querySelectorAll<HTMLAnchorElement>("[data-section=sources] a")) await click(link);
+  for (const button of container.querySelectorAll<HTMLButtonElement>("ul[data-section=sources] button"))
+    await click(button);
+  expect(urls).toEqual(sources.slice(0, 3).map((source) => source.url!));
+  expect(files).toEqual(["/project/src/app.ts", "/shared/README.md"]);
   await click(fold());
   expect(list()).toHaveLength(6);
   expect(fold().textContent).toContain("Show fewer");
-  await click(container.querySelector<HTMLAnchorElement>('a[href="https://example.test/source-5"]')!);
-  expect(opened).toEqual(["https://example.test/source-5"]);
-
-  await act(async () => {
-    root!.render(
-      <ChatInspector
-        made={{ outputs: [], pullRequests: [], scheduled: [], sources }}
-        onOpenUrl={(url) => opened.push(url)}
-      />,
-    );
-  });
-  expect(section(container, "sources")).not.toBeNull();
-  expect(section(container, "sources")?.querySelectorAll("[data-section=sources] li")).toHaveLength(5);
+  for (let chunk = 1; chunk <= 3; chunk++) {
+    await draw([{ ...assistant("stream".repeat(chunk), 1), streaming: true }]);
+    expect(list()).toHaveLength(6);
+  }
+  await click(fold());
+  expect(list()).toHaveLength(5);
+  expect(fold().getAttribute("aria-expanded")).toBe("false");
 });
 
 test("the Inspector starts right under the header: no row for a machine and folder label", () => {
@@ -722,7 +733,7 @@ test("a folded Changes registers nothing with the host and asks it nothing", asy
   }
 });
 
-test("a folded Changes with only named pull requests the App has not confirmed keeps its header, so it can open", async () => {
+test("read-only references never leave an empty folded Changes header", async () => {
   const container = installDom(true);
   const calls: string[] = [];
   setChipHost(async (method) => {
@@ -734,16 +745,9 @@ test("a folded Changes with only named pull requests the App has not confirmed k
     // Named only in a reply: hidden until the App says they are pull requests.
     await render(container, chat([assistant("acme/billing#9 and acme/atlas-web#12 are the ones to watch.", 1)]));
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    const folded = section(container, "changes");
-    expect(folded).not.toBeNull();
-    // Not presented as confirmed pull requests: no rows and no count.
-    expect(folded!.querySelectorAll("li.acpmux-chat-inspector-pr")).toHaveLength(0);
-    expect(meta(folded!)).toBeUndefined();
+    expect(section(container, "changes")).toBeNull();
+    expect(section(container, "sources")).not.toBeNull();
     expect(calls).toEqual([]);
-    await act(async () => setInspectorSection("changes", true));
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
-    expect(calls.filter((method) => method === "link.inspect")).toHaveLength(1);
   } finally {
     setInspectorSection("changes", true);
     setChipHost(undefined);
