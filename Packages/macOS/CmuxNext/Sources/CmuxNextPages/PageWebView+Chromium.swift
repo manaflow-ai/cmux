@@ -36,7 +36,7 @@ extension PageWebView {
     }
 
     /// ``engineDecision(for:options:hosting:)`` with no side effect (it arms no web-override watch): for a
-    /// caller that only asks where a page would show (``PageHostPool/servesOpens(hosting:)``).
+    /// caller that only asks where a page would show.
     ///
     /// - Parameters:
     ///   - descriptor: The page.
