@@ -6,13 +6,19 @@
 # and the Cloud backend records the kind it assigned at create), so a failed
 # fetch never turns an owner VM `team`.
 #
-# Writes hold a lock ($kind_file.lock), which also holds a reset generation.
-# The boot's clone reset (CMUX_VM_KIND_RESET=team) bumps it, and a fetched
-# answer is written only when no reset happened since its fetch began, so a
-# sync already running when a clone resets cannot put back the old answer.
-# The lock covers only the write, never the fetch, so it is held briefly: a
-# reset waits for it however long it takes, and a sync that cannot take it
-# within 10 s writes nothing.
+# Writes hold a lock ($kind_file.lock), which also holds a reset generation
+# (1 to 9 digits). The boot's clone reset (CMUX_VM_KIND_RESET=team) moves it
+# to a new value, and a fetched answer is written only when the generation is
+# the one its fetch began with, so a sync already running when a clone resets
+# cannot put back the old answer. A generation that is not 1 to 9 digits is
+# corrupt: a sync writes nothing until a reset replaces it.
+#
+# The lock covers only the write, never the fetch, so it is held briefly.
+# Both a reset and a sync wait at most 10 s for it. A sync that cannot take it
+# writes nothing. A reset that cannot finish exits non-zero, and the boot then
+# runs CMUX_VM_KIND_RESET=team-unlocked, which writes `team` and a new
+# generation without the lock (each a rename), so a stuck holder never keeps a
+# clone on its source's record or holds up its boot.
 set -eu
 
 kind_file=${CMUX_VM_KIND_FILE:-/etc/cmux/vm-kind}
@@ -21,38 +27,63 @@ lock_file=$kind_file.lock
 kind_dir=${kind_file%/*}
 [ "$kind_dir" != "$kind_file" ] || kind_dir=.
 
-# Holds the lock on fd 9 until the script exits; flock's options are passed through.
+# Holds the lock on fd 9 for 10 s at most, until the script exits.
 lock() {
   mkdir -p "$kind_dir"
   exec 9>>"$lock_file"
-  flock "$@" 9
+  flock -w "${CMUX_VM_KIND_LOCK_WAIT:-10}" 9
 }
 
+# The generation without leading zeros (0 for none), or `corrupt`.
 generation() {
-  gen=$(head -c 32 "$lock_file" 2>/dev/null | tr -cd 0-9)
-  echo "${gen:-0}"
+  raw=$(head -c 64 "$lock_file" 2>/dev/null | tr -d '\n')
+  case "$raw" in
+    '') echo 0 ;;
+    *[!0-9]*) echo corrupt ;;
+    ??????????*) echo corrupt ;;
+    *) gen=${raw#"${raw%%[!0]*}"}; echo "${gen:-0}" ;;
+  esac
 }
 
-write_kind() {
-  kind=$1
+# A generation unlike the current one (both at most 9 digits).
+next_generation() {
+  current=$(generation)
+  case "$current" in
+    corrupt) next=$(($(date +%s) % 999999999 + 1)) ;;
+    *) next=$((current % 999999999 + 1)) ;;
+  esac
+  echo "$next"
+}
+
+# Replaces $1 with $2 (one line) by a rename, 0644.
+replace() {
   tmp=$(mktemp "$kind_dir/.vm-kind.XXXXXX")
   trap 'rm -f "$tmp"' EXIT HUP INT TERM
-  printf '%s\n' "$kind" >"$tmp"
+  printf '%s\n' "$2" >"$tmp"
   chmod 0644 "$tmp"
   if [ "$(id -u)" = 0 ]; then chown root:root "$tmp"; fi
-  mv -f "$tmp" "$kind_file"
+  mv -fT "$tmp" "$1"
   trap - EXIT HUP INT TERM
 }
 
 # The boot's snapshot-clone check asks for a reset: a clone may carry its
 # source's record, so it reads `team` until its own answer arrives.
-if [ "${CMUX_VM_KIND_RESET:-}" = team ]; then
-  lock
-  gen=$(($(generation) + 1))
-  printf '%s\n' "$gen" >"$lock_file"
-  write_kind team
-  exit 0
-fi
+case "${CMUX_VM_KIND_RESET:-}" in
+  team)
+    lock
+    # In place: the lock is on this file.
+    gen=$(next_generation)
+    printf '%s\n' "$gen" >"$lock_file"
+    replace "$kind_file" team
+    exit 0
+    ;;
+  team-unlocked)
+    mkdir -p "$kind_dir"
+    replace "$lock_file" "$(next_generation)"
+    replace "$kind_file" team
+    exit 0
+    ;;
+esac
 [ -f "$env_file" ] || exit 0
 # Root-owned image data. It carries only alias origins and public placeholders.
 . "$env_file"
@@ -64,8 +95,9 @@ if [ -f /usr/local/share/ca-certificates/freestyle-tls.crt ]; then
   set -- "$@" --cacert /usr/local/share/ca-certificates/freestyle-tls.crt
 fi
 started=$(generation)
+[ "$started" != corrupt ] || exit 0
 body=$(curl "$@" "${origin%/}/api/vm/reflection/kind" 2>/dev/null) || exit 0
 kind=$(printf '%s' "$body" | jq -er '.kind | select(. == "owner" or . == "team")' 2>/dev/null) || exit 0
-lock -w 10 || exit 0
+lock || exit 0
 [ "$(generation)" = "$started" ] || exit 0
-write_kind "$kind"
+replace "$kind_file" "$kind"
