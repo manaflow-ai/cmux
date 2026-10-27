@@ -51,6 +51,7 @@ import Testing
         let source = EmptyChiefSource()
         let id = ConversationID("conv_chief")
         let inbox = try await source.inbox()
+        let originalIDs = Set(try await source.base.snapshot(of: id, tail: 10).messages.map(\.id))
         let store = HomeStore(source: source)
         store.start()
         let view = HomeNativeTranscriptView(store: store, conversation: id, me: inbox.me.id)
@@ -76,7 +77,7 @@ import Testing
         let deadline = ContinuousClock.now + .seconds(5)
         var sent: [Message] = []
         repeat {
-            sent = try await source.base.snapshot(of: id, tail: 10).messages.filter { $0.author == inbox.me.id }
+            sent = try await source.base.snapshot(of: id, tail: 10).messages.filter { $0.author == inbox.me.id && !originalIDs.contains($0.id) }
             if !sent.isEmpty { break }
             await Task.yield()
         } while ContinuousClock.now < deadline
