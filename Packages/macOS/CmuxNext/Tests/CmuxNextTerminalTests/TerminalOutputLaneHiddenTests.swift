@@ -5,15 +5,34 @@ import Foundation
 import GhosttyNextKit
 import Testing
 
-/// A hidden surface's output lane (p05-ipc-142): its parses run at utility, so a hidden printer never
-/// competes with the shown terminal's echo, and shown again its parses run at the lane's own QoS. Order
-/// never changes: hidden and shown chunks parse in the order they were queued.
+/// A hidden surface's output lane (p05-ipc-142): with feature `terminalStreamPriority` on (`lowersHidden`) its
+/// parses run at utility, so a hidden printer never competes with the shown terminal's echo, and shown again
+/// they run at user-interactive. Order never changes: hidden and shown chunks parse in the order they were
+/// queued. With the feature off every parse runs at user-interactive, hidden or not.
 @Suite(.timeLimit(.minutes(1))) struct TerminalOutputLaneHiddenTests {
     static let surface = TerminalOutputLaneHangScopeTests.surface
 
+    @Test func withTheFeatureOffHiddenParsesKeepUserInteractive() async {
+        let parses = ParseLog()
+        let lane = TerminalOutputLane(surface: Self.surface, label: "test.terminal-hidden-off") { _, data in
+            parses.append(String(decoding: data, as: UTF8.self), qos: qos_class_self())
+        }
+        defer { lane.close() }
+        lane.setHidden(true)
+        lane.processOutput(Data("hidden".utf8))
+        await lane.drained()
+        lane.setHidden(false)
+        lane.processOutput(Data("shown".utf8))
+        await lane.drained()
+
+        #expect(parses.names == ["hidden", "shown"])
+        #expect(parses.qos(of: "hidden") == QOS_CLASS_USER_INTERACTIVE)
+        #expect(parses.qos(of: "shown") == QOS_CLASS_USER_INTERACTIVE)
+    }
+
     @Test func hiddenParsesRunAtUtilityAndKeepTheirOrder() async {
         let parses = ParseLog()
-        let lane = TerminalOutputLane(surface: Self.surface, label: "test.terminal-hidden") { _, data in
+        let lane = TerminalOutputLane(surface: Self.surface, label: "test.terminal-hidden", lowersHidden: true) { _, data in
             parses.append(String(decoding: data, as: UTF8.self), qos: qos_class_self())
         }
         defer { lane.close() }

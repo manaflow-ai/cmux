@@ -240,6 +240,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.focused()
     }
 
+    /// The view's stream takes the input lane from the view that had it, in the main thread's focus order
+    /// (each view drains its ordered input on a queue of its own, so their `focusGained` can run out of order).
+    @MainActor func streamFocusGained() {
+        driver.takeStreamFocus()
+    }
+
     /// Take over from the "Sized for" chip: always a new claim (see `TerminalAttachMachine`).
     func takeOverSize(setLatest: Bool) async {
         driver.takeOver(setLatest: setLatest)

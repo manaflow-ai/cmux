@@ -33,8 +33,12 @@ nonisolated final class TerminalOutputLane: Sendable {
     private let closing = Atomic<Bool>(false)
     /// The surface is hidden (a parked tab or workspace): its parses run at utility, as Chrome lowers a
     /// hidden renderer's priority (`RenderProcessHostImpl::UpdateProcessPriority`), so a hidden printer never
-    /// competes with the shown terminal's echo. Set by the view (``setHidden(_:)``).
+    /// competes with the shown terminal's echo. Set by the view (``setHidden(_:)``), only while
+    /// ``lowersHidden``.
     private let hidden = Atomic<Bool>(false)
+    /// Hidden work runs at utility (feature `terminalStreamPriority`); false keeps every block at the queue's
+    /// user-interactive QoS.
+    let lowersHidden: Bool
     /// The last READY restore succeeded. Written on `queue`; history after a
     /// failed READY is skipped until the next READY.
     private let readyRestored = Atomic<Bool>(false)
@@ -93,7 +97,7 @@ nonisolated final class TerminalOutputLane: Sendable {
 
     init(surface: ghostty_surface_t, label: String, highWater: Int = 2 << 20, echoStage: TerminalEchoStage? = nil,
          keyFlows: TypingLatencyProbe.SurfaceKey? = nil, probe: TypingLatencyProbe = .shared,
-         hangs: (any HangWatchScoping)? = nil,
+         hangs: (any HangWatchScoping)? = nil, lowersHidden: Bool = false,
          // SAFETY: the lane calls `parse`, `setGrid`, `restore` and `restoreLocal` only with its live
          // surface (their notes).
          parse: @escaping Parse = { unsafe TerminalOutputLane.processOutput($0, $1) },
@@ -117,9 +121,15 @@ nonisolated final class TerminalOutputLane: Sendable {
         self.keyFlows = keyFlows
         self.probe = probe
         hangWatched = hangs.map { HangWatchedLane("terminal.feed", deadline: Self.feedHangDeadline, on: $0) }
-        // A queue QoS would floor every block: each carries its own instead (`enqueue`).
-        // qos-allow: each block states its QoS: userInteractive while the surface shows (a frame waits), utility hidden
-        self.queue = DispatchQueue(label: label)
+        self.lowersHidden = lowersHidden
+        if lowersHidden {
+            // A queue QoS would floor every block: each carries its own instead (`enqueue`).
+            // qos-allow: each block states its QoS: userInteractive while the surface shows (a frame waits), utility hidden
+            self.queue = DispatchQueue(label: label)
+        } else {
+            // qos-allow: key echo path: a typed key's echo parses here and its frame waits for the parse
+            self.queue = DispatchQueue(label: label, qos: .userInteractive)
+        }
     }
 
     deinit {
@@ -182,17 +192,19 @@ nonisolated final class TerminalOutputLane: Sendable {
     /// Bytes queued but not parsed yet.
     var pendingBytes: Int { backlog.withLock { $0.bytes } }
 
-    /// The surface hid or shows again: work queued from now on runs at utility while it is hidden, at
-    /// user-interactive once it shows (``enqueue(_:)``). Work queued before keeps its QoS.
+    /// The surface hid or shows again: while ``lowersHidden``, work queued from now on runs at utility while
+    /// it is hidden, at user-interactive once it shows (``enqueue(_:)``). Work queued before keeps its QoS.
     func setHidden(_ isHidden: Bool) {
+        guard lowersHidden else { return }
         hidden.store(isHidden, ordering: .relaxed)
     }
 
-    /// Queues `work` on the lane at the surface's QoS: user-interactive while it shows, utility while it is
-    /// hidden (``setHidden(_:)``). The queue states no QoS of its own, so each block runs at the one it carries
-    /// (a queue's QoS is a floor no block goes under); a shown block queued behind a hidden one raises the
-    /// running block until it is reached, as the serial queue's FIFO makes it wait.
+    /// Queues `work` on the lane. While ``lowersHidden`` it runs at the surface's QoS: user-interactive while
+    /// it shows, utility while it is hidden (``setHidden(_:)``); that queue states no QoS of its own, so each
+    /// block runs at the one it carries (a queue's QoS is a floor no block goes under), and a shown block
+    /// queued behind a hidden one raises the running block until it is reached. Otherwise at the queue's QoS.
     private func enqueue(_ work: @escaping @Sendable () -> Void) {
+        guard lowersHidden else { return queue.async(execute: work) }
         let qos: DispatchQoS = hidden.load(ordering: .relaxed) ? .utility : .userInteractive
         queue.async(qos: qos, flags: .enforceQoS, execute: work)
     }

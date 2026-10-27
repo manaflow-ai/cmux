@@ -20,12 +20,14 @@ use std::ops::DerefMut;
 
 mod output_arena;
 mod output_rope;
+mod visibility;
 #[cfg(test)]
 pub(super) use output_arena::OUTPUT_ARENA_BLOCK_BYTES;
 pub(super) use output_arena::OutputArena;
 #[cfg(test)]
 pub(super) use output_rope::OUTPUT_ROPE_COPY_MAX_BYTES;
 pub(super) use output_rope::OutputRope;
+pub(crate) use visibility::TapVisibility;
 
 /// A PTY's attach viewers and the arena their output is cut from, both under
 /// the `pty.taps` lock the reader already holds to fan out.
@@ -501,15 +503,6 @@ impl AttachTapQueue {
         }
     }
 
-    /// A hidden viewer's output: dropped, and the viewer owes a READY when
-    /// it shows. Not a backlog resync.
-    fn mark_dirty(&mut self) {
-        self.frames.clear();
-        self.retained_bytes = 0;
-        self.needs_snapshot = true;
-        self.snapshot_deferred = false;
-    }
-
     /// Whether a resize now may reach this viewer as a local-history READY:
     /// it opted in and holds every frame since its last snapshot.
     fn takes_local_ready(&self) -> bool {
@@ -559,40 +552,6 @@ impl SnapshotRequestHandle {
     }
 }
 
-/// Hides a snapshot viewer (p05-ipc-142), as Chrome's `WasHidden()` stops a
-/// hidden widget's frames while its renderer keeps running
-/// (content/browser/renderer_host/render_widget_host_impl.cc): the terminal
-/// still parses every byte, the viewer queues none of it and is not woken,
-/// and it owes one READY when it shows if anything changed meanwhile. A
-/// viewer that changed nothing continues at its offset.
-#[derive(Clone)]
-pub(crate) struct TapVisibility {
-    state: Weak<AttachTapState>,
-}
-
-impl TapVisibility {
-    /// No-op for a replay viewer, which resyncs only by replay.
-    pub(crate) fn set_hidden(&self, hidden: bool) {
-        let Some(state) = self.state.upgrade() else { return };
-        let mut queue = state.queue.lock().recover_poison();
-        if !queue.snapshot_mode || state.hidden.load(Ordering::Acquire) == hidden {
-            return;
-        }
-        state.hidden.store(hidden, Ordering::Release);
-        if hidden {
-            if !queue.frames.is_empty() {
-                queue.mark_dirty();
-            }
-            return;
-        }
-        let pending = queue.needs_snapshot || !queue.frames.is_empty();
-        drop(queue);
-        if pending {
-            state.wake_one();
-        }
-    }
-}
-
 impl AttachFrameReceiver {
     /// Runs `hook` whenever this receiver has something to act on, for a
     /// viewer whose drain polls (`try_recv`, `try_viewer_event`) on a
@@ -623,12 +582,6 @@ impl AttachFrameReceiver {
 
     pub(crate) fn snapshot_request_handle(&self) -> SnapshotRequestHandle {
         SnapshotRequestHandle { state: Arc::downgrade(&self.state) }
-    }
-
-    /// Hides and shows this viewer from outside its drain
-    /// (`set-stream-priority`). Holds no strong reference to the queue.
-    pub(crate) fn visibility_handle(&self) -> TapVisibility {
-        TapVisibility { state: Arc::downgrade(&self.state) }
     }
 
     /// Next event of a snapshot viewer: a pending snapshot comes before any

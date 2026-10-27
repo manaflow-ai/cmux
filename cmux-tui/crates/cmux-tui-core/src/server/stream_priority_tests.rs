@@ -158,6 +158,39 @@ fn a_quiet_hidden_viewer_shows_with_no_ready_and_goes_on_at_its_offset() {
     mux.shutdown();
 }
 
+/// Red before the fix: a hidden view never polled its viewer queue, so its
+/// surface closing sent nothing until the stream showed again.
+#[test]
+fn a_hidden_viewer_whose_surface_closes_ends_detached() {
+    let mux = quiet_mux("stream-priority-hidden-close");
+    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let (writer, outbound, client) = connect(&mux);
+    attach_snapshot(&mux, client, &writer, &outbound, &surface, 5);
+    priority(&mux, client, &writer, 5, "hidden");
+    surface.inject_output_for_test(b"printed while hidden\r\n");
+    // The terminal ends: its attach taps go, as at its exit.
+    surface.end_attachments_for_test();
+    let deadline = Instant::now() + WAIT;
+    let mut events = Vec::new();
+    while let Some(item) = next_any(&outbound, deadline.saturating_duration_since(Instant::now())) {
+        if item["stream"] != 5 {
+            continue;
+        }
+        let event = item["event"].as_str().unwrap_or_default().to_string();
+        let end = event == "stream-end";
+        if end {
+            assert_eq!(item["reason"], "detached", "{item}");
+        }
+        events.push(event);
+        if end {
+            break;
+        }
+    }
+    assert_eq!(events, ["detached", "stream-end"]);
+    disconnect_client(&mux, client, false);
+    mux.shutdown();
+}
+
 #[test]
 fn a_focused_streams_queued_items_go_before_a_visible_ones() {
     let service = RenderService::new();

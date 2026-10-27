@@ -23,7 +23,7 @@ import Testing
         #expect(link.priorities.last == .hidden)
         driver.setVisible(true)
         #expect(link.priorities.last == .visible)
-        driver.focused()
+        driver.takeStreamFocus()
         #expect(link.priorities.last == .focused)
         // Hidden while focused: hidden wins, and showing it again makes it focused.
         driver.setVisible(false)
@@ -48,15 +48,63 @@ import Testing
         two.start()
         await Self.pump(first, on: one)
         await Self.pump(second, on: two)
-        one.focused()
+        one.takeStreamFocus()
         #expect(first.priorities.last == .focused)
-        two.focused()
+        two.takeStreamFocus()
         #expect(second.priorities.last == .focused)
         #expect(first.priorities.last == .visible)
         #expect(one.streamPriority == .visible)
         // Focusing the holder again sends nothing new.
-        two.focused()
+        two.takeStreamFocus()
         #expect(second.priorities == [.visible, .focused])
+    }
+
+    /// Red before the fix (focus taken on each view's own input queue, its flag set after the take): two views
+    /// taking focus at once could both end focused. Each round both take it from two threads; after it exactly
+    /// one view is focused, and it is the holder.
+    @Test func concurrentTakesLeaveExactlyTheHolderFocused() async {
+        let focus = TerminalStreamFocus()
+        let (first, second) = (RankLink(), RankLink())
+        let one = TerminalAttachDriver<RankLink>(initialSize: CellSize(cols: 80, rows: 24), opener: { _ in first },
+                                                 streamFocus: focus)
+        let two = TerminalAttachDriver<RankLink>(initialSize: CellSize(cols: 80, rows: 24), opener: { _ in second },
+                                                 streamFocus: focus)
+        defer {
+            one.close()
+            two.close()
+        }
+        one.start()
+        two.start()
+        await Self.pump(first, on: one)
+        await Self.pump(second, on: two)
+        for _ in 0..<500 {
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { one.takeStreamFocus() }
+                group.addTask { two.takeStreamFocus() }
+            }
+            let holder = focus.holderView
+            let (focusedOne, focusedTwo) = (one.streamPriority == .focused, two.streamPriority == .focused)
+            #expect(focusedOne != focusedTwo)
+            #expect(holder == (focusedOne ? ObjectIdentifier(one) : ObjectIdentifier(two)))
+            #expect(first.priorities.last == one.streamPriority)
+            #expect(second.priorities.last == two.streamPriority)
+            guard focusedOne != focusedTwo else { return }
+        }
+    }
+
+    /// Focus in a view's ordered input (geometry, reconnect) does not rank its stream: only the main thread's
+    /// take does (`DaemonTerminalIO.streamFocusGained`), so a late input drain never takes the lane back.
+    @Test func theOrderedFocusEventDoesNotTakeStreamFocus() async {
+        let focus = TerminalStreamFocus()
+        let link = RankLink()
+        let driver = TerminalAttachDriver<RankLink>(initialSize: CellSize(cols: 80, rows: 24), opener: { _ in link },
+                                                    streamFocus: focus)
+        defer { driver.close() }
+        driver.start()
+        await Self.pump(link, on: driver)
+        driver.focused()
+        #expect(focus.holderView == nil)
+        #expect(link.priorities == [.visible])
     }
 
     @Test func aHiddenViewOpensHiddenAndAReattachGetsTheCurrentPriority() async {
@@ -79,7 +127,7 @@ import Testing
         await Self.pump(first, on: driver)
         #expect(first.priorities == [.hidden])
         driver.setVisible(true)
-        driver.focused()
+        driver.takeStreamFocus()
         first.feed.yield(.closed(.overflow))
         guard let second = await links.next() else {
             Issue.record("no reattach")
@@ -96,7 +144,7 @@ import Testing
         driver.start()
         await Self.pump(link, on: driver)
         driver.setVisible(false)
-        driver.focused()
+        driver.takeStreamFocus()
         driver.setVisible(true)
         #expect(link.priorities.isEmpty)
     }

@@ -4,7 +4,8 @@ import CmuxNextCompat
 /// the last one that gained keyboard focus. Taking it demotes the view that held it, so at most one view's
 /// output competes with the person's keys, as Chrome gives input priority only to the focused widget
 /// (`RenderWidgetHostImpl::Focus`/`Blur`). Owned by the app's tab content cache and passed to each view's
-/// ``TerminalAttachDriver``.
+/// ``TerminalAttachDriver``, which takes it on the main thread as focus moves
+/// (``TerminalAttachDriver/takeStreamFocus()``), so takes apply in the person's order.
 public nonisolated final class TerminalStreamFocus: Sendable {
     private nonisolated struct Holder: Sendable {
         let view: ObjectIdentifier

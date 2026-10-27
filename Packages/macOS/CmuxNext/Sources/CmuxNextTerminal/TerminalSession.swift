@@ -133,6 +133,8 @@ public final class TerminalSession {
     private let pointerFrames: FrameInputCoalescers?
     /// Passed to each surface view this session makes: their GPU memory release while away.
     private let gpuResidency: (any TerminalGPUResidency)?
+    /// Passed to each surface view this session makes: a hidden view's output parses at utility.
+    private let lowersHiddenOutput: Bool
     private let input: TerminalInputSink
     /// The lane the IO's reader feeds live output to (``TerminalIO/setOutputLane(_:)``): the events loop
     /// names it, close names none.
@@ -177,13 +179,15 @@ public final class TerminalSession {
     ///     its `MainDeadline` placer (nil makes one): the find bar, scrollbar, TextBox and window watches apply only while it shows.
     ///   - gpuResidency: Lets the surfaces' GPU memory go while ``releasesGPUWhilePaused`` and paused;
     ///     nil keeps them resident (a GhosttyNextKit pin without the switch, or `terminalGPURelease` off).
+    ///   - lowersHiddenOutput: A hidden surface's output parses at utility (feature `terminalStreamPriority`);
+    ///     false, the default, parses every surface's at user-interactive.
     public init(io: any TerminalIO, ownsGeometry: Bool = true,
                 echoStages: TerminalEchoStages = GhosttyRuntime.shared.echoStages,
                 hangWatch: (any HangWatchScoping)? = nil,
                 secureInput: TerminalSecureInput = GhosttyRuntime.shared.secureInput,
                 modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
                 mainWork: MainWorkScheduler, node: VisibilityNode? = nil, deadlines: MainDeadlineScheduler? = nil,
-                gpuResidency: (any TerminalGPUResidency)? = nil) {
+                gpuResidency: (any TerminalGPUResidency)? = nil, lowersHiddenOutput: Bool = false) {
         self.io = io
         self.ownsGeometry = ownsGeometry
         self.echoStages = echoStages
@@ -192,6 +196,7 @@ public final class TerminalSession {
         self.modifiers = modifiers
         self.pointerFrames = pointerFrames
         self.gpuResidency = gpuResidency
+        self.lowersHiddenOutput = lowersHiddenOutput
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
         // One hop from the main thread to the IO's own queue (``TerminalInputLane``), no pool task.
@@ -210,7 +215,8 @@ public final class TerminalSession {
         view = TerminalHostView(mainWork: mainWork, node: node)
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, echoStages: echoStages, hangWatch: hangWatch,
                                           secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames,
-                                          mainWork: mainWork, node: node, gpuResidency: gpuResidency)
+                                          mainWork: mainWork, node: node, gpuResidency: gpuResidency,
+                                          lowersHiddenOutput: lowersHiddenOutput)
         surfaceView.bridgeObject.installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
@@ -405,7 +411,8 @@ public final class TerminalSession {
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, echoStages: echoStages, hangWatch: hangWatch,
                                         secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames,
-                                        mainWork: view.mainWork, node: view.node, gpuResidency: gpuResidency)
+                                        mainWork: view.mainWork, node: view.node, gpuResidency: gpuResidency,
+                                        lowersHiddenOutput: lowersHiddenOutput)
         swappedSurfaces += 1
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
@@ -454,6 +461,7 @@ public final class TerminalSession {
     // MARK: From the surface view
 
     func surfaceDidGainFocus() {
+        io.streamFocusGained()
         input.focusGained()
     }
 

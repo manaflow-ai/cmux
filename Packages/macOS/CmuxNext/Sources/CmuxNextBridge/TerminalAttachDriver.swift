@@ -66,9 +66,8 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         /// The view's output lane (``setOutputSink(_:)``), and the links being pumped, which carry it.
         var sink: TerminalEchoSink?
         var pumped: [Int: LinkRef] = [:]
-        /// The view holds keyboard focus (``focused()``, until another view takes ``streamFocus``).
-        var focused = false
-        /// The priority every pumped link has (``TerminalStreamPriority``), from `machine.visible` and `focused`.
+        /// The priority every pumped link has (``TerminalStreamPriority``), from `machine.visible` and whether
+        /// this view holds ``streamFocus``.
         var streamPriority: TerminalStreamPriority
         /// Links are ranked: the driver has a ``TerminalStreamFocus`` (feature `terminalStreamPriority`).
         let ranksStreams: Bool
@@ -167,12 +166,13 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         send(.visibility(visible))
         syncStreamPriority()
     }
-    /// The surface gained keyboard focus: its stream rides the input lane while it shows, until another view
-    /// of ``streamFocus`` gains focus.
-    public func focused() {
-        send(.focused)
-        streamFocus?.take(ObjectIdentifier(self)) { [weak self] in self?.lostStreamFocus() }
-        core.withLock { $0.focused = true }
+    /// The surface gained keyboard focus (geometry and reconnect, in the view's input order).
+    public func focused() { send(.focused) }
+    /// The surface gained keyboard focus, in the order focus moves between views (the main thread's): its
+    /// stream rides the input lane while it shows, until another view takes ``streamFocus``.
+    public func takeStreamFocus() {
+        guard let streamFocus else { return }
+        streamFocus.take(ObjectIdentifier(self)) { [weak self] in self?.syncStreamPriority() }
         syncStreamPriority()
     }
     /// Take over from the "Sized for" chip.
@@ -192,17 +192,16 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         core.withLock { $0.machine.liveLink }?.link.sendSnapshotRequest(reason: .gap)
     }
 
-    private func lostStreamFocus() {
-        core.withLock { $0.focused = false }
-        syncStreamPriority()
-    }
-
     /// Sends the priority the view's visibility and focus give to every pumped link, when it changed. Under the
-    /// reducer's lock, as ``setOutputSink(_:)``: a link opening meanwhile reads the new one.
+    /// reducer's lock, as ``setOutputSink(_:)``: a link opening meanwhile reads the new one. Focus is read from
+    /// ``streamFocus`` under that lock (the focus holder's lock nests inside and never calls out), so the last
+    /// sync of a view sends what the holder is then: a take syncs the view it demotes after the change, and
+    /// the view that took it after its take.
     private func syncStreamPriority() {
-        guard streamFocus != nil else { return }
+        guard let streamFocus else { return }
+        let me = ObjectIdentifier(self)
         core.withLock { core in
-            let priority = TerminalStreamPriority(visible: core.machine.visible, focused: core.focused)
+            let priority = TerminalStreamPriority(visible: core.machine.visible, focused: streamFocus.holderView == me)
             guard core.streamPriority != priority else { return }
             core.streamPriority = priority
             core.pumped.values.forEach { $0.link.sendStreamPriority(priority) }

@@ -352,9 +352,15 @@ impl ViewSource for SnapshotSource {
     /// for one chunk at a time.
     fn next(&mut self, out: &mut ViewOut, timer: &PumpTimer<'_>) -> Step {
         // Hidden (`set-stream-priority`): no output, chunk or digest until
-        // it shows; its viewer queue holds nothing meanwhile.
+        // it shows; its viewer queue holds nothing meanwhile. Its surface
+        // closing still ends it (`detached`, then `stream-end`): the tap's
+        // drop wakes every viewer, hidden or not.
         if out.stream.visibility.is_hidden() {
-            return Step::Empty;
+            if !self.worker.receiver.is_disconnected() {
+                return Step::Empty;
+            }
+            self.worker.handle(Polled::Disconnected);
+            return Step::End;
         }
         let polled = match self.worker.receiver.try_viewer_event() {
             Ok(event) => Polled::Event(event),

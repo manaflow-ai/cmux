@@ -75,9 +75,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         /// the participant (held: without it the view cannot tell whether it owns the grid).
         var sizeGeneration: UInt64?
         var heldSizeState: TerminalSizeState?
-        /// The client-minted stream this view rides (attach-streams-v1); nil on a connection of its own.
-        var stream: UInt16?
-        /// The view's last ``TerminalStreamPriority``; a stream adopted later gets it then.
+        /// The view's last ``TerminalStreamPriority`` (``setStreamPriority(_:)``).
         var streamPriority: TerminalStreamPriority?
     }
 
@@ -388,27 +386,17 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     /// Ranks this view's stream against the other views of its connection (`set-stream-priority`,
     /// p05-ipc-142): focused output rides the input lane, a hidden snapshot view gets no output until it shows.
-    /// Latest wins; the same priority again sends nothing. A view on a connection of its own has no stream
-    /// to rank (its connection is its own lane), so it only keeps the priority for a stream it adopts.
+    /// Latest wins; the same priority again, or any after ``detachNow()``, sends nothing. A view on a connection
+    /// of its own has no stream to rank (``stream`` is nil, p05-ipc-095): its connection is its own lane.
     public nonisolated func setStreamPriority(_ priority: TerminalStreamPriority) {
-        let stream = control.value.withLock { control -> UInt16? in
-            guard control.streamPriority != priority, !control.detached else { return nil }
-            control.streamPriority = priority
-            return control.stream
-        }
         guard let stream else { return }
-        fireAndForget(SetStreamPriorityRequest(stream: stream, priority: priority))
-    }
-
-    /// The view rides client-minted stream `id` (a stream attach, p05-ipc-095): a priority set before it
-    /// goes out now, after the attach that opened the stream.
-    nonisolated func adoptStream(_ id: UInt16) {
-        let priority = control.value.withLock { control -> TerminalStreamPriority? in
-            control.stream = id
-            return control.detached ? nil : control.streamPriority
+        let changed = control.value.withLock { control -> Bool in
+            guard control.streamPriority != priority, !control.detached else { return false }
+            control.streamPriority = priority
+            return true
         }
-        guard let priority else { return }
-        fireAndForget(SetStreamPriorityRequest(stream: id, priority: priority))
+        guard changed else { return }
+        fireAndForget(SetStreamPriorityRequest(stream: stream.id, priority: priority))
     }
 
     /// Idempotent: the first call detaches and closes the connection.
