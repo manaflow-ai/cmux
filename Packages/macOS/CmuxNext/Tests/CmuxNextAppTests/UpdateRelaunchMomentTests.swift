@@ -12,6 +12,11 @@ import Testing
         var now = UpdateRelaunchMoment()
     }
 
+    /// Lets the main-actor re-checks the posted notifications started run.
+    private func settle() async {
+        for _ in 0..<200 { await Task.yield() }
+    }
+
     @Test func eachInterruptionHoldsAndNothingElseDoes() {
         #expect(UpdateRelaunchMoment().interruption == nil)
         #expect(UpdateRelaunchMoment(modal: true).interruption != nil)
@@ -29,7 +34,7 @@ import Testing
         #expect(installs == 0) // the caller installs
     }
 
-    @Test func aSheetHoldsUntilItEnds() {
+    @Test func aSheetHoldsUntilItEnds() async {
         let center = NotificationCenter()
         let moment = Moment()
         moment.now.sheet = true
@@ -38,15 +43,18 @@ import Testing
         #expect(hold.hold { installs += 1 })
 
         center.post(name: NSApplication.didUpdateNotification, object: nil)
+        await settle()
         #expect(installs == 0)
 
         moment.now.sheet = false
         center.post(name: NSWindow.didEndSheetNotification, object: nil)
+        await settle()
         #expect(installs == 1)
         #expect(!hold.isHolding)
 
         // Its observers are gone: a later event installs nothing again.
         center.post(name: NSWindow.didEndSheetNotification, object: nil)
+        await settle()
         #expect(installs == 1)
     }
 
@@ -70,7 +78,7 @@ import Testing
         #expect(!hold.isHolding)
     }
 
-    @Test func aMenuOrModalHoldsThroughEventsAndCancelRunsNothing() {
+    @Test func aMenuOrModalHoldsThroughEventsAndCancelRunsNothing() async {
         let center = NotificationCenter()
         let moment = Moment()
         moment.now.tracking = true
@@ -81,15 +89,17 @@ import Testing
 
         moment.now.tracking = false
         center.post(name: NSMenu.didEndTrackingNotification, object: nil)
+        await settle()
         #expect(installs == 0) // the modal still holds
 
         hold.cancel()
         moment.now.modal = false
         center.post(name: NSApplication.didUpdateNotification, object: nil)
+        await settle()
         #expect(installs == 0)
     }
 
-    @Test func aNewerHoldReplacesTheOlder() {
+    @Test func aNewerHoldReplacesTheOlder() async {
         let center = NotificationCenter()
         let moment = Moment()
         moment.now.sheet = true
@@ -100,6 +110,7 @@ import Testing
 
         moment.now.sheet = false
         center.post(name: NSWindow.didEndSheetNotification, object: nil)
+        await settle()
         #expect(first == 0)
         #expect(second == 1)
     }

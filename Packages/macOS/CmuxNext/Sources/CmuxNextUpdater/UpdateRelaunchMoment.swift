@@ -12,8 +12,10 @@ public struct UpdateRelaunchMoment: Equatable, Sendable {
     public var sheet = false
     /// A menu (or another tracking loop: a context menu, a drag) is tracking the pointer.
     public var tracking = false
-    /// The key window's first responder holds marked text: an input method is composing. Covers
-    /// AppKit text views and both web engines, whose typing views are `NSTextInputClient`s.
+    /// A window's first responder holds marked text: an input method is composing. Covers AppKit
+    /// text views and both web engines, whose typing views are `NSTextInputClient`s: `WKWebView`,
+    /// and Chromium's `RenderWidgetHostViewCocoa` in the page's `CefNSWindow`, a child window
+    /// that takes key so the page gets the keyboard (`ChromiumPageWindowMain`).
     public var composing = false
 
     public init(modal: Bool = false, sheet: Bool = false, tracking: Bool = false, composing: Bool = false) {
@@ -35,12 +37,12 @@ public struct UpdateRelaunchMoment: Equatable, Sendable {
     /// The app's moment now (main thread).
     @MainActor public static func current() -> UpdateRelaunchMoment {
         let app = NSApplication.shared
-        let key = app.keyWindow
+        let windows = app.windows
         return UpdateRelaunchMoment(
             modal: app.modalWindow != nil,
-            sheet: app.windows.contains { $0.attachedSheet != nil },
+            sheet: windows.contains { $0.attachedSheet != nil },
             tracking: RunLoop.main.currentMode == .eventTracking,
-            composing: (key?.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true)
+            composing: windows.contains { ($0.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true })
     }
 }
 
@@ -86,13 +88,9 @@ final class UpdateRelaunchMomentHold {
         let names: [Notification.Name] = [NSWindow.didEndSheetNotification, NSMenu.didEndTrackingNotification,
                                           NSApplication.didUpdateNotification]
         observers = names.map { name in
-            // AppKit posts these on the main thread; the check runs there, in the same pass.
+            // AppKit posts these on the main thread; the check runs on the main actor right after.
             center.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
-                guard Thread.isMainThread else {
-                    Task { @MainActor [weak self] in self?.recheck() }
-                    return
-                }
-                MainActor.assumeIsolated { self?.recheck() }
+                Task { @MainActor [weak self] in self?.recheck() }
             }
         }
         scheduleRecheck()

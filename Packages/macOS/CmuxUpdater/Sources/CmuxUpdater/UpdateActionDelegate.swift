@@ -26,6 +26,10 @@ public protocol UpdateActionDelegate: AnyObject {
     /// installs it at once. False starts the install now.
     func updaterDefersAutomaticInstall(until ready: @escaping @MainActor () -> Void) -> Bool
 
+    /// A click, a cancel or the end of the update session took over a held automatic install:
+    /// the host drops its hold without calling `ready`.
+    func updaterEndsAutomaticInstallHold()
+
     /// Sparkle is about to install `build` over the running bundle (keep it for rollback).
     func updaterWillInstallUpdate(build: String)
 
@@ -37,6 +41,9 @@ public protocol UpdateActionDelegate: AnyObject {
 extension UpdateActionDelegate {
     /// Hosts that hold nothing start the automatic install at once.
     public func updaterDefersAutomaticInstall(until ready: @escaping @MainActor () -> Void) -> Bool { false }
+
+    /// Hosts that hold nothing have nothing to drop.
+    public func updaterEndsAutomaticInstallHold() {}
 
     /// Hosts without rollback ignore it.
     public func updaterWillInstallUpdate(build: String) {}

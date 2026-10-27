@@ -41,6 +41,11 @@ extension UpdaterService: UpdateActionDelegate {
         relaunchMomentHold.hold(ready)
     }
 
+    /// A click, a cancel or the end of the update session took over: the hold goes, with its observers and timer.
+    public func updaterEndsAutomaticInstallHold() {
+        relaunchMomentHold.cancel()
+    }
+
     /// Reads the executable's live blocker provider before Sparkle relaunches.
     public func updaterRelaunchBlockers() -> UpdateRelaunchBlockers {
         relaunchBlockers()

@@ -9,6 +9,7 @@ private final class DeferringHost: UpdateActionDelegate {
     var holds = true
     var asked = 0
     var ready: (@MainActor () -> Void)?
+    var ended = 0
 
     func updaterRequestsRetryCheckForUpdates() {}
     func updaterWillRelaunchApplication() {}
@@ -19,6 +20,7 @@ private final class DeferringHost: UpdateActionDelegate {
         self.ready = ready
         return true
     }
+    func updaterEndsAutomaticInstallHold() { ended += 1 }
 }
 
 /// Host double with the protocol's default: it never holds an automatic install (classic).
@@ -89,6 +91,7 @@ private final class PlainHost: UpdateActionDelegate {
         installing.retryTerminatingApplication()
         #expect(reply.choice == .install)
         #expect(!driver.relaunchIsAutomatic)
+        #expect(host.ended == 1)
 
         reply.choice = nil
         host.ready?()
@@ -125,5 +128,65 @@ private final class PlainHost: UpdateActionDelegate {
         #expect(host.asked == 0)
         #expect(reply.choice == .install)
         #expect(!driver.relaunchIsAutomatic)
+    }
+
+    @Test func cancellingAHeldUpdateEndsTheHostsHold() {
+        let host = DeferringHost()
+        let driver = makeDriver(host)
+        stage(driver, into: ChoiceBox())
+        #expect(driver.cancelStaged())
+        #expect(host.ended == 1)
+    }
+
+    @Test func anAutomaticRelaunchIsHeldAtSparklesRelaunchToo() {
+        let host = DeferringHost()
+        host.holds = false
+        let driver = makeDriver(host)
+        driver.holdsUserInstalls = false
+        stage(driver, into: ChoiceBox())
+        #expect(driver.relaunchIsAutomatic)
+
+        // A sheet came up while Sparkle installed.
+        host.holds = true
+        var relaunches = 0
+        #expect(driver.handleShouldPostponeRelaunch(installHandler: { relaunches += 1 }))
+        #expect(relaunches == 0)
+        #expect(model.text == "Restart to Complete Update")
+
+        host.ready?()
+        #expect(relaunches == 1)
+        host.ready?()
+        #expect(relaunches == 1)
+    }
+
+    @Test func aClickOnAHeldRelaunchRelaunchesOnce() {
+        let host = DeferringHost()
+        host.holds = false
+        let driver = makeDriver(host)
+        driver.holdsUserInstalls = false
+        stage(driver, into: ChoiceBox())
+        host.holds = true
+        var relaunches = 0
+        #expect(driver.handleShouldPostponeRelaunch(installHandler: { relaunches += 1 }))
+        guard case .installing(let installing) = model.state else {
+            Issue.record("expected the held state, got \(model.state)")
+            return
+        }
+        installing.retryTerminatingApplication()
+        #expect(relaunches == 1)
+        #expect(host.ended == 1)
+        host.ready?()
+        #expect(relaunches == 1)
+    }
+
+    @Test func aClickedRelaunchIsNeverHeld() {
+        let host = DeferringHost()
+        let driver = makeDriver(host)
+        driver.holdsUserInstalls = false
+        driver.installsWhenStaged = true
+        stage(driver, into: ChoiceBox())
+        let asked = host.asked
+        #expect(!driver.handleShouldPostponeRelaunch(installHandler: {}))
+        #expect(host.asked == asked)
     }
 }

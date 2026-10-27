@@ -253,7 +253,7 @@ type Props = {
   placeholder?: string;
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
   /// keeps it with the tab, so a relaunch opens the chat with it (cx-z5vd).
-  onUnsentDraft?(text: string): void;
+  onUnsentDraft?(text: string): void | Promise<unknown>;
   /// The person edited the prompt of a chat that has a session: the pane tells acpmux it types
   /// (multiplayer). A draft coming back is not an edit.
   onTyping?(text: string, sessionId?: string): void;
@@ -650,9 +650,16 @@ export function Composer({
         shell: shellRef.current.shell,
         shellText: shellRef.current.shellText,
       }),
-      settleDraft() {
-        unsentDraft.current?.flush();
-        return settlePendingDraftWrites();
+      async settleDraft() {
+        // The editor's value, not React's state: a keystroke whose effects have not run yet counts.
+        const typed = field.current?.value() ?? textRef.current;
+        const session = persistedSession.current;
+        if (session && hydratedSession.current === session && typed !== textRef.current) {
+          writePersistedDraft(session, typed);
+        }
+        const unsent = unsentDraft.current;
+        if (unsent) unsent.push(typed);
+        await Promise.all([unsent?.settle(), settlePendingDraftWrites()]);
       },
       wake(state) {
         const back = state.attachments ?? [];

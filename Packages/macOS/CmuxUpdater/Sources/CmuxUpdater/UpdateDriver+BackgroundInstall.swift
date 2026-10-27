@@ -96,6 +96,7 @@ extension UpdateDriver {
     func installStaged(automatic: Bool = false) -> Bool {
         guard let install = stagedInstall else { return false }
         log.append("background install: installing staged update (automatic=\(automatic))")
+        if !automatic { endAutomaticInstallHold() }
         stagedInstall = nil
         stagedCancel = nil
         installsWhenStaged = false
@@ -113,6 +114,7 @@ extension UpdateDriver {
     @discardableResult
     func cancelStaged() -> Bool {
         guard let cancel = stagedCancel else { return false }
+        endAutomaticInstallHold()
         log.append("background install: cancelling the staged update's installer")
         stagedInstall = nil
         stagedCancel = nil

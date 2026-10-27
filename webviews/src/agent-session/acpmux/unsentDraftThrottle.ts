@@ -13,12 +13,14 @@ export interface UnsentDraftThrottle {
   push(text: string): void;
   /** Sends the waiting text now, if any. */
   flush(): void;
+  /** Sends the waiting text now and resolves once the host answered the last send (a quit waits on it). */
+  settle(): Promise<void>;
   /** Stops the timer (a waiting text is not sent: call `flush()` first to keep it). */
   dispose(): void;
 }
 
 export interface UnsentDraftThrottleOptions {
-  send(text: string): void;
+  send(text: string): void | Promise<unknown>;
   intervalMs?: number;
   now?: () => number;
   setTimer?: (run: () => void, ms: number) => unknown;
@@ -35,12 +37,13 @@ export function createUnsentDraftThrottle(options: UnsentDraftThrottleOptions): 
   let pending: string | undefined;
   let timer: unknown;
   let sentNonEmpty = false;
+  let lastDelivery: Promise<unknown> = Promise.resolve();
 
   const deliver = (text: string) => {
     lastSent = text;
     lastSentAt = now();
     if (text) sentNonEmpty = true;
-    options.send(text);
+    lastDelivery = Promise.resolve(options.send(text)).catch(() => undefined);
   };
   const stopTimer = () => {
     if (timer !== undefined) clearTimer(timer);
@@ -62,6 +65,10 @@ export function createUnsentDraftThrottle(options: UnsentDraftThrottleOptions): 
       if (timer === undefined) timer = setTimer(sendPending, wait);
     },
     flush: sendPending,
+    settle() {
+      sendPending();
+      return lastDelivery.then(() => undefined);
+    },
     dispose: stopTimer,
   };
 }

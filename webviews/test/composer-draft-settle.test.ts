@@ -78,3 +78,35 @@ test("a draft write that never answers costs the quit at most the cap", async ()
 test("a page without a composer answers at once", async () => {
   await settleDraftWithin(null, 10_000);
 });
+
+test("a new chat's settle sends the waiting text and waits for the host's answer", async () => {
+  const { createUnsentDraftThrottle } = await import("../src/agent-session/acpmux/unsentDraftThrottle");
+  const sent: string[] = [];
+  let answer: (() => void) | undefined;
+  let clock = 0;
+  const throttle = createUnsentDraftThrottle({
+    send: (text) => {
+      sent.push(text);
+      return new Promise<void>((resolve) => (answer = resolve));
+    },
+    intervalMs: 300,
+    now: () => clock,
+    setTimer: () => 1,
+    clearTimer: () => {},
+  });
+  throttle.push("h");
+  answer?.();
+  clock = 10;
+  throttle.push("hi"); // inside the interval: waits for the timer
+  expect(sent).toEqual(["h"]);
+  let settled = false;
+  const settle = throttle.settle().then(() => {
+    settled = true;
+  });
+  expect(sent).toEqual(["h", "hi"]);
+  await tick();
+  expect(settled).toBe(false);
+  answer?.();
+  await settle;
+  throttle.dispose();
+});
