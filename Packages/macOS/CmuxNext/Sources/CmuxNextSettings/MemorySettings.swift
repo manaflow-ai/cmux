@@ -1,6 +1,6 @@
 public import CmuxNextActions
 public import CmuxNextCompat
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `memory.saver` in cmux-next.json: how hard cmux trims memory it can recreate, by Chrome's four
 /// Memory Saver modes (``MemorySaverMode``).

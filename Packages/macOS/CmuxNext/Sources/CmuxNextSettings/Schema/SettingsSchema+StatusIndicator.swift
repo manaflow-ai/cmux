@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextDesignTokens
 
 /// Appearance status indicator descriptors kept separate from the main schema list.
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).

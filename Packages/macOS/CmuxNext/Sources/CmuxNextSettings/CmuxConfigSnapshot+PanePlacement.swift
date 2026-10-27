@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// Where new panes open (`PanePlacement`): `layout.newPanePlacement` (tab or
 /// split) and `layout.tileBrowsers` (browsers split too under split

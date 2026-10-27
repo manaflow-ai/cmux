@@ -1,5 +1,3 @@
-import CmuxNextDesign
-
 /// The defaults a new agent chat starts with (Agents > Agent Chat). acpmux
 /// reads `agents.defaultPermissionMode` at each new chat
 /// (`cmux-tui/crates/acpmux/src/hub/start_mode.rs`): a mode picked in a chat

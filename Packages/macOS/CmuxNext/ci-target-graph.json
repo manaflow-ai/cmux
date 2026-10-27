@@ -1643,6 +1643,7 @@
         "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -1653,6 +1654,7 @@
       "targets": [
         "CmuxNextActions",
         "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextSettings"
       ],
       "packages": [],

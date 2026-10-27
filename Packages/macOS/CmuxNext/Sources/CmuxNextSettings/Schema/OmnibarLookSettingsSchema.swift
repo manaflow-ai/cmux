@@ -1,5 +1,3 @@
-import CmuxNextDesign
-
 /// The Settings rows of the address bar's look (Browser > Address Bar,
 /// cx-gkz5): the glass material, its tint from the terminal theme, the
 /// corner radius, the shadow and the fill's opacity over a see-through

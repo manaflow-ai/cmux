@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `focusRing.*` and `notifications.attention.*` in cmux.json. A bad value
 /// keeps its default with a diagnostic.

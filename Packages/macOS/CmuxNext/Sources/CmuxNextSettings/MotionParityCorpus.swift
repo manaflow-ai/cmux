@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 import CoreGraphics
 
 /// The motion parity corpus of this port (`debug.motion {action:
