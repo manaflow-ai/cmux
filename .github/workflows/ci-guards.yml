@@ -1581,6 +1581,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_sign_runner.py
 
+      - name: Validate the nightly-next build takes an idle owned Mac or a moving Blacksmith label
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_build_runner.py
+
       - name: Validate test compilation cache seeding
         if: ${{ !cancelled() && matrix.group == 'quality-sharding' }}
         run: |

@@ -1792,13 +1792,86 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # The route for build-nightly-app on nightly-next, read right before it queues
+  # (scripts/ci/nightly_build_runner.py): `owned`, the owned label while one of its
+  # runners is idle now, and `blacksmith`, the Blacksmith macOS 26 label whose queue
+  # moves. Owned Macs first, Blacksmith last (Leo, 2026-10-24); never one label with no
+  # fallback. Until 2026-10-27 the build read vars.CI_NIGHTLY_NEXT_BUILD_RUNNER alone for
+  # every attempt: runs 40446901975 and 40448164753 died at "Set up runner" on it, and a
+  # rescue re-run went back to the label that had refused it. Attempt 1 takes `owned`
+  # when set; a refusal or a stuck queue there is re-run by ci-owned-pool-rescue.yml as
+  # attempt 2, which takes `blacksmith`. A failed pick reads as success with empty outputs,
+  # and the build then takes blacksmith-6vcpu-macos-26, never an unvalidated variable.
+  pick-nightly-build-runner:
+    needs: [decide, resolve-nightly-cmux-tui-client]
+    if: ${{ !cancelled() && needs.resolve-nightly-cmux-tui-client.result == 'success' }}
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # Checkout, the two token mints (1 + 1) and the pick (2).
+    timeout-minutes: 6
+    permissions:
+      # The queue janitor's pool snapshot (an artifact).
+      actions: read
+      contents: read
+    outputs:
+      owned: ${{ steps.pick.outputs.owned }}
+      blacksmith: ${{ steps.pick.outputs.blacksmith }}
+    steps:
+      - name: Checkout the runner picker at the workflow commit
+        if: github.ref == 'refs/heads/nightly-next'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .publish-tooling
+          sparse-checkout: scripts/ci
+
+      # Only nightly-next push runs on attempt 1, the scope ci-owned-pool-rescue.yml
+      # watches (owned_pool_rescue.nightly_target), and only while owned pools are on:
+      # without the rescue nothing would move a refused or stuck owned job.
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && github.event_name == 'push' && github.ref == 'refs/heads/nightly-next'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
+      - name: Pick an idle owned Mac, else a moving Blacksmith label
+        id: pick
+        if: github.ref == 'refs/heads/nightly-next'
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          SNAPSHOT_TOKEN: ${{ github.token }}
+          # In order; only labels ci-owned-pool-rescue.yml watches are offered.
+          OWNED_LABELS: ${{ format('{0} {1}', vars.CI_NIGHTLY_NEXT_BUILD_RUNNER, vars.CI_SIDE_LANE_RUNNER) }}
+          CANDIDATE: ${{ vars.MACOS_RUNNER_26 }}
+        run: python3 .publish-tooling/scripts/ci/nightly_build_runner.py
+
   build-nightly-app:
     permissions:
       contents: write
       actions: read
       attestations: write
       id-token: write
-    needs: [decide, resolve-nightly-cmux-tui-client]
+    needs: [decide, resolve-nightly-cmux-tui-client, pick-nightly-build-runner]
     # One build slot per run: a newer nightly-next push builds alongside an
     # older one and never replaces it while it waits. A shared warm slot
     # ('nightly-next-build-app-warm', 2026-10-19) evicted waiting builds, which
@@ -1816,14 +1889,16 @@ jobs:
       daemon_version: ${{ steps.resume.outputs.version || steps.remote_daemon.outputs.version }}
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true' && needs.decide.outputs.continue_only != 'true'
     # Native nightlies use the same controller-managed owned-Mac pool as dev builds.
-    # The owned side label is a pool, never a single reserved host. Blacksmith
-    # remains the release fallback when the owned pool cannot take the job.
+    # On nightly-next, pick-nightly-build-runner gives attempt 1 an owned label only
+    # while one of its runners is idle now, and every other case (a busy fleet, a
+    # refused or stuck attempt the rescue re-runs) the moving Blacksmith label: the
+    # build never waits on one label with no fallback.
     # Main's ci-cache-writer environment never follows NEXT onto that worker:
     # NEXT retains only its own local Release state, without shared restores.
     # Rescue watches both refs. Signing, notarization and GUI checks follow the
     # same owned-Mac then Blacksmith route; secrets remain in the protected
     # release environment. Non-Mac control and publication steps use Linux.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && 'blacksmith-4vcpu-ubuntu-2404' || github.ref == 'refs/heads/nightly-next' && vars.CI_NIGHTLY_NEXT_BUILD_RUNNER || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/nightly-next' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && 'blacksmith-4vcpu-ubuntu-2404' || github.ref == 'refs/heads/nightly-next' && (github.run_attempt == 1 && needs.pick-nightly-build-runner.outputs.owned || needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && vars.CI_SEED_TRUSTED_POOL || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
     # The cloud cache is scoped per branch and also drops main's own
     # entry (runs 35179030871 and 35182663752 restored nothing and were
