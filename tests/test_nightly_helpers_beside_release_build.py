@@ -172,7 +172,15 @@ class WorkflowStructureTests(unittest.TestCase):
                 run = step["run"]
                 self.assertIn("background_build.py start", run)
                 command = run[run.index("background_build.py start"):]
-                self.assertIn(script, command.split("\n", 2)[1], "the build script runs only inside the start command")
+                invocation = command.split("\n", 2)[1]
+                if '"${build[@]}"' in invocation:
+                    # The reuse wrapper and the source build are selected as argv,
+                    # then executed by the same background owner.
+                    selected = next(line for line in run.splitlines() if script in line)
+                    self.assertIn("build=(", selected)
+                    self.assertLess(run.index(selected), run.index("background_build.py start"))
+                else:
+                    self.assertIn(script, invocation, "the build script runs only inside the start command")
                 self.assertEqual(run.count(script), 1)
                 # Set for xcodebuild, these would make its phase require a binary still building.
                 self.assertNotIn(f"CMUX_NEXT_{env}_BIN=", run.replace(f"CMUX_NEXT_{env}_PENDING_BIN=", ""))
