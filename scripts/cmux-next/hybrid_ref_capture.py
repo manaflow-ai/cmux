@@ -21,6 +21,7 @@ way, keyed on that compile's own settings and recipe; unset, the profile is dev.
   hybrid_ref_capture.py capture --log LOG --workspace WS --derived-data DD --sha SHA
                                 --key KEY --run-id N --out DIR [--lane L] [--upload]
                                 [--read-workspace SNAP_WS --read-derived-data SNAP_DD]
+                                [--deadline EPOCH]
       Checks that the log (a build with EMIT_FRONTEND_COMMAND_LINES=YES) has a frontend
       compile line for the module of every SwiftDriver task; a module without one makes the
       capture incomplete (manifest "complete": false, "missing": [...]) and nothing is
@@ -32,7 +33,8 @@ way, keyed on that compile's own settings and recipe; unset, the profile is dev.
       them, cloned while the build still held its host lock (compile-dev-release.sh). A DD
       inside WS (the nightly's build-universal) is packed once, as DerivedData. It
       writes DIR/manifest.json: names, sizes and sha256 only, never file contents, since the
-      manifest goes to this public repository's Actions artifacts.
+      manifest goes to this public repository's Actions artifacts. With --deadline (a Unix time)
+      a capture still packing or uploading then stops, its upload killed, and writes no manifest.
 """
 from __future__ import annotations
 
@@ -46,9 +48,11 @@ import platform
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
+import time
 from pathlib import Path
 
 SCHEMA = 1
@@ -238,12 +242,44 @@ def split(path: Path) -> list[Path]:
     return parts
 
 
+class DeadlinePassed(Exception):
+    pass
+
+
 def capture(a: argparse.Namespace, environ=os.environ) -> int:
+    deadline = getattr(a, "deadline", None)
+    if deadline is None:
+        return capture_now(a, environ)
+    left = int(deadline - time.time())
+    if left <= 0:
+        print("hybrid-ref capture: the deadline has passed; nothing captured")
+        return 3
+
+    def expire(_signum, _frame):
+        raise DeadlinePassed()
+
+    previous = signal.signal(signal.SIGALRM, expire)
+    signal.alarm(left)
+    try:
+        # subprocess.run kills a running upload when the alarm's exception reaches it.
+        return capture_now(a, environ)
+    except DeadlinePassed:
+        print(f"hybrid-ref capture: stopped at its deadline ({left} s); no manifest")
+        return 3
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, previous)
+
+
+def capture_now(a: argparse.Namespace, environ=os.environ) -> int:
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     # The build's paths go in the manifest; the files are read from the snapshot of them.
     ws, dd, log = Path(a.workspace), Path(a.derived_data), Path(a.log)
     read_ws, read_dd = Path(a.read_workspace or ws), Path(a.read_derived_data or dd)
+    # The packer keeps directory links as links: a linked package cache would ship without sources.
+    if (read_ws / ".spm-cache").is_symlink():
+        raise SystemExit(f"hybrid_ref_capture: {read_ws}/.spm-cache is a link; snapshot what it points to")
     modules, compiled, command = drivers_and_lines(log)
     missing = sorted(set(modules) - compiled)
     manifest = {
@@ -314,6 +350,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--read-workspace", help="where to read the workspace from (a snapshot of --workspace)")
     c.add_argument("--read-derived-data", help="where to read DerivedData from (a snapshot of --derived-data)")
     c.add_argument("--lane", default="hybrid-ref-dev")
+    c.add_argument("--deadline", type=int, help="Unix time by which the capture ends, or stops without a manifest")
     c.add_argument("--upload", action="store_true")
     a = parser.parse_args(argv)
     if a.cmd == "key":

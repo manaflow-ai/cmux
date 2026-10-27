@@ -2432,13 +2432,21 @@ jobs:
           rm -rf -- "$snapshot"
           mkdir -p "$snapshot"
           python3 -I scripts/ci/apfs_clone.py "$GITHUB_WORKSPACE" "$snapshot/src"
+          # A trusted worker links .spm-cache to the SourcePackages it keeps (nightly_build_state.py).
+          # The REF needs the package sources, so the snapshot holds a clone of what the link names.
+          if [ -L "$GITHUB_WORKSPACE/.spm-cache" ]; then
+            packages="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$GITHUB_WORKSPACE/.spm-cache")"
+            rm -f -- "$snapshot/src/.spm-cache"
+            python3 -I scripts/ci/apfs_clone.py "$packages" "$snapshot/src/.spm-cache"
+          fi
           # Its GITHUB_OUTPUT is this step's, which is closed before the capture ends.
           python3 scripts/ci/background_build.py start --state "$RUNNER_TEMP/hybrid-ref-builds" capture -- \
             env -u GITHUB_OUTPUT nice -n 10 python3 -I "$snapshot/src/scripts/cmux-next/hybrid_ref_capture.py" capture \
             --log "$RUNNER_TEMP/hybrid-ref-xcodebuild.log" --workspace "$GITHUB_WORKSPACE" \
             --derived-data "$GITHUB_WORKSPACE/build-universal" --read-workspace "$snapshot/src" \
             --read-derived-data "$snapshot/src/build-universal" --sha "$BUILD_SHA" --key "$KEY" \
-            --run-id "$GITHUB_RUN_ID" --lane hybrid-ref-nightly-next --out "$RUNNER_TEMP/hybrid-ref-capture" --upload
+            --run-id "$GITHUB_RUN_ID" --lane hybrid-ref-nightly-next --out "$RUNNER_TEMP/hybrid-ref-capture" --upload \
+            --deadline "$(( STARTED + 130 * 60 ))"
           echo "started=true" >> "$GITHUB_OUTPUT"
 
       # cmux-next ships THIRD_PARTY_LICENSES.md for exactly what this nightly
@@ -2835,7 +2843,8 @@ jobs:
           [ "$status" = 0 ] || { echo "the dSYM upload to Sentry failed (status ${status:-none})" >&2; exit 1; }
 
       # Last, and bounded: it waits at most 4 minutes for the capture, and never past minute 130 of
-      # this job's 150, so the job cannot reach its limit and the sign job that needs it waits
+      # this job's 150 (the capture itself stops at minute 130 too, whatever the steps between
+      # wait on), so the job cannot reach its limit and the sign job that needs it waits
       # little (the capture runs beside the steps above, about once per REF key). A capture still
       # running is stopped and uploads no manifest; the next nightly-next build of the key takes it.
       - name: Finish the Linux build's REF capture

@@ -17,7 +17,9 @@ scripts/cmux-next/hybrid_ref_capture.py and the cmux-scheme-compile steps around
 - the nightly-next profile: its key moves with the nightly compile's settings and step and not
   with the DEV recipe, the DEV key is unchanged, and a DerivedData inside the workspace is packed
   once; nightly.yml captures the same way, off unless NIGHTLY_HYBRID_REF_CAPTURE is 1, on an owned
-  mini only, beside the rest of build-nightly-app, and waits for it only within a bound.
+  mini only, beside the rest of build-nightly-app, and waits for it only within a bound; the
+  capture stops at its deadline with its upload killed, refuses a linked package cache, and reads
+  the build's arguments from the log run-xcodebuild-with-diagnostics.sh keeps.
 """
 from __future__ import annotations
 
@@ -31,6 +33,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from argparse import Namespace
 from pathlib import Path
@@ -379,6 +382,55 @@ class NightlyProfile(unittest.TestCase):
                 self.assertEqual(tar.extractfile(cap.BROWSER_SOURCES).read(), b'{"real": true}\n',
                                  "the nightly's tree as its compiler read it, not the DEV file")
 
+    def nightly_args(self, root: Path, **extra) -> Namespace:
+        repo = make_repo(root)
+        if not (repo / "build-universal").exists():
+            shutil.copytree(make_dd(root), repo / "build-universal")
+        log = root / "xcodebuild.log"
+        log.write_text(LOG + CMUX_LINE)
+        return Namespace(log=str(log), workspace="/w", derived_data="/w/build-universal", read_workspace=str(repo),
+                         read_derived_data=str(repo / "build-universal"), sha="c" * 40, key="d" * 64, run_id=9,
+                         out=str(root / "out"), lane="hybrid-ref-nightly-next", upload=True, **extra)
+
+    def test_a_blocked_upload_stops_at_the_deadline_without_a_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            client = root / "cmux-ci"
+            client.write_text("#!/bin/sh\nexec sleep 60\n")
+            client.chmod(0o755)
+            env = dict(NIGHTLY_ENV, CMUX_CI_CLIENT=str(client))
+            started = time.monotonic()
+            self.assertEqual(cap.capture(self.nightly_args(root, deadline=int(time.time()) + 2), env), 3)
+            self.assertLess(time.monotonic() - started, 20, "the upload is killed at the deadline")
+            self.assertFalse((root / "out/manifest.json").exists())
+            self.assertEqual(cap.capture(self.nightly_args(root, deadline=int(time.time()) - 1), env), 3)
+            self.assertFalse((root / "out/manifest.json").exists())
+
+    def test_a_linked_package_cache_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "kept/SourcePackages/checkouts/x").mkdir(parents=True)
+            args = self.nightly_args(root, deadline=None)
+            (Path(args.read_workspace) / ".spm-cache").symlink_to(root / "kept/SourcePackages")
+            with self.assertRaises(SystemExit):
+                cap.capture(args, dict(NIGHTLY_ENV))
+
+    def test_the_kept_xcodebuild_log_names_the_command(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            log = root / "kept.log"
+            env = dict(os.environ, CMUX_XCODEBUILD_OUTPUT_LOG=str(log), RUNNER_TEMP=str(root),
+                       CMUX_XCODEBUILD_HEARTBEAT_SECONDS="5")
+            subprocess.run(["bash", str(ROOT / "scripts/ci/run-xcodebuild-with-diagnostics.sh"), "--", "env",
+                            "CMUX_SKIP_ZIG_BUILD=1", "printf", "%s\\n", "OTHER_SWIFT_FLAGS=$(inherited) -DX"],
+                           env=env, check=True, capture_output=True)
+            text = log.read_text()
+            self.assertEqual(text.count("xcodebuild command: "), 1)
+            _, _, command = cap.drivers_and_lines(log)
+            self.assertEqual(cap.shlex.split(command), ["env", "CMUX_SKIP_ZIG_BUILD=1", "printf", "%s\\n",
+                                                        "OTHER_SWIFT_FLAGS=$(inherited) -DX"])
+            self.assertIn("OTHER_SWIFT_FLAGS=$(inherited) -DX\n", text, "the build's own output follows")
+
 
 class NightlyWorkflow(unittest.TestCase):
     @classmethod
@@ -425,6 +477,9 @@ class NightlyWorkflow(unittest.TestCase):
         self.assertIn("env -u GITHUB_OUTPUT nice -n 10", start["run"])
         self.assertIn("--lane hybrid-ref-nightly-next", start["run"])
         self.assertIn('--read-derived-data "$snapshot/src/build-universal"', start["run"])
+        self.assertIn('--deadline "$(( STARTED + 130 * 60 ))"', start["run"], "the capture itself ends by minute 130")
+        self.assertIn('if [ -L "$GITHUB_WORKSPACE/.spm-cache" ]; then', start["run"])
+        self.assertIn('apfs_clone.py "$packages" "$snapshot/src/.spm-cache"', start["run"])
         self.assertIn("budget=$(( 130 * 60 - ($(date +%s) - STARTED) ))", finish["run"])
         self.assertIn("(( budget > 240 )) && budget=240", finish["run"])
         self.assertLessEqual(130 + finish["timeout-minutes"] + upload["timeout-minutes"], self.job["timeout-minutes"] - 10,
