@@ -182,14 +182,6 @@ fn parse(args: Vec<OsString>) -> Result<Options> {
         args: args[end + 2..].to_vec(),
     })
 }
-fn validate_handoff(
-    payload: &[u8],
-    fds: Vec<OwnedFd>,
-    proxy_port: u16,
-    api_port: Option<u16>,
-) -> Result<Vec<TcpListener>> {
-    validate_handoff_inner(payload, fds, proxy_port, api_port, true)
-}
 fn validate_handoff_with_notify(
     payload: &[u8],
     mut fds: Vec<OwnedFd>,
@@ -824,7 +816,7 @@ mod tests {
     }
     #[test]
     fn handoff_refuses_wrong_counts_ports_and_order() {
-        assert!(validate_handoff(&payload(3128, None), vec![], 3128, None).is_err());
+        assert!(validate_handoff_for_test(&payload(3128, None), vec![], 3128, None).is_err());
         for count in [1, 2, 3] {
             let (proxy, port) = listener("127.0.0.1");
             let (api, api_port) = listener("127.0.0.1");
@@ -866,13 +858,18 @@ mod tests {
         ] {
             let (fd, port) = listener("127.0.0.1");
             let text = text.replace("PORT", &port.to_string());
-            assert!(validate_handoff(text.as_bytes(), vec![fd], port, None).is_err(), "{text}");
+            assert!(
+                validate_handoff_for_test(text.as_bytes(), vec![fd], port, None).is_err(),
+                "{text}"
+            );
         }
         let (fd, port) = listener("127.0.0.1");
         let duplicate = format!("{{\"proxy\":{port},\"proxy\":{port},\"api\":null}}\n");
-        assert!(validate_handoff(duplicate.as_bytes(), vec![fd], port, None).is_err());
+        assert!(validate_handoff_for_test(duplicate.as_bytes(), vec![fd], port, None).is_err());
         let (fd, port) = listener("127.0.0.1");
-        assert!(validate_handoff(&payload(port, Some(port)), vec![fd], port, None).is_err());
+        assert!(
+            validate_handoff_for_test(&payload(port, Some(port)), vec![fd], port, None).is_err()
+        );
     }
     #[test]
     fn handoff_refuses_nonlisteners_and_other_bind_addresses() {
@@ -884,17 +881,17 @@ mod tests {
             TcpStream::connect_timeout(&tcp.local_addr().unwrap(), Duration::from_secs(2)).unwrap();
         let stream_port = stream.local_addr().unwrap().port();
         for (fd, port) in [(file, 3128), (udp.into(), udp_port), (stream.into(), stream_port)] {
-            assert!(validate_handoff(&payload(port, None), vec![fd], port, None).is_err());
+            assert!(validate_handoff_for_test(&payload(port, None), vec![fd], port, None).is_err());
         }
         for address in ["0.0.0.0", "127.0.0.2"] {
             let (fd, port) = listener(address);
-            assert!(validate_handoff(&payload(port, None), vec![fd], port, None).is_err());
+            assert!(validate_handoff_for_test(&payload(port, None), vec![fd], port, None).is_err());
         }
     }
     #[test]
     fn handoff_refuses_a_listener_from_the_keeper_network_namespace() {
         let (fd, port) = listener("127.0.0.1");
-        assert!(validate_handoff(&payload(port, None), vec![fd], port, None).is_err());
+        assert!(validate_handoff_for_test(&payload(port, None), vec![fd], port, None).is_err());
     }
     #[test]
     fn handoff_without_notify_fd_is_refused() {

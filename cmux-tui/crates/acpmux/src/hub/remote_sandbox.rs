@@ -807,7 +807,7 @@ fi
 u=unknown
 if [ -n "$6" ]; then
   socket=$6; helper=$7; shift 7
-  if probe=$("$helper" "$@" __remote-sandbox-canary-unix "$socket" 2>/dev/null); then
+  if probe=$("$helper" "$@" __remote-sandbox-canary-unix "$socket"); then
     case "$probe" in unix=0) u=0;; unix=1) u=1;; esac
   fi
 fi
@@ -955,7 +955,7 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
         t.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
         u.map_or("unknown".into(), |c| if c == 0 { "allowed".to_owned() } else { "denied".into() }),
         out.status,
-        String::from_utf8_lossy(&out.stderr).chars().take(300).collect::<String>(),
+        String::from_utf8_lossy(&out.stderr).chars().take(1200).collect::<String>(),
     ))
 }
 
