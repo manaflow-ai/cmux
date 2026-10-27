@@ -335,7 +335,7 @@ public final class MainJobGate: Sendable {
         Counters(heldByOrigin: Self.named(Origin.allCases, heldCounts, \.name),
                  exemptByRule: Self.named(ExemptRule.allCases, exemptCounts, \.name),
                  releasedBy: Self.named(Release.allCases, releaseCounts, \.name),
-                 stampOverflow: stampOverflow.value.load(ordering: .relaxed), held: heldCount)
+                 stampOverflow: UInt64(stampOverflow.value.load(ordering: .relaxed)), held: heldCount)
     }
 
     private static func named<Key>(_ keys: [Key], _ words: [GateWord], _ name: (Key) -> String) -> [String: UInt64] {
