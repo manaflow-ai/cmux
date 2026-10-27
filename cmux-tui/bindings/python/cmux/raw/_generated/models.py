@@ -928,6 +928,29 @@ class CellPixelSurface:
 
 
 @dataclass(frozen=True)
+class ClientHelloFeaturePending:
+    __cmux_schema_path__: ClassVar[str] = 'types/ClientHelloFeaturePending'
+    app: bool
+    daemon: bool
+    name: str
+
+
+@dataclass(frozen=True)
+class ClientHelloFeatureReport:
+    __cmux_schema_path__: ClassVar[str] = 'types/ClientHelloFeatureReport'
+    applied: List[str]
+    hash: str
+    pending: List[ClientHelloFeaturePending]
+
+
+@dataclass(frozen=True)
+class ClientHelloFeatures:
+    __cmux_schema_path__: ClassVar[str] = 'types/ClientHelloFeatures'
+    values: Dict[str, bool]
+    hash: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ClientHelloPageOperations:
     __cmux_schema_path__: ClassVar[str] = 'types/ClientHelloPageOperations'
     confirm: List[str]
@@ -940,6 +963,7 @@ class ClientHelloResult:
     __cmux_schema_path__: ClassVar[str] = 'types/ClientHelloResult'
     connection_id: str
     user_origin_allowed: bool
+    features: Union[ClientHelloFeatureReport, MissingType] = field(default=MISSING)
     install_id: Union[str, MissingType] = field(default=MISSING)
     nonce: Union[str, MissingType] = field(default=MISSING)
     page: Union[str, MissingType] = field(default=MISSING)
@@ -3743,6 +3767,7 @@ class ClientFocusResult:
 @dataclass(frozen=True)
 class ClientHelloRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/client-hello/request'
+    features: Union[ClientHelloFeatures, None, MissingType] = field(default=MISSING)
     install_id: Union[str, MissingType] = field(default=MISSING)
     page: Union[str, None, MissingType] = field(default=MISSING)
     proof: Union[str, MissingType] = field(default=MISSING)
@@ -7772,6 +7797,9 @@ __all__ = [
     'CellPixelFailure',
     'CellPixelResize',
     'CellPixelSurface',
+    'ClientHelloFeaturePending',
+    'ClientHelloFeatureReport',
+    'ClientHelloFeatures',
     'ClientHelloPageOperations',
     'ClientHelloResult',
     'ClientInfo',

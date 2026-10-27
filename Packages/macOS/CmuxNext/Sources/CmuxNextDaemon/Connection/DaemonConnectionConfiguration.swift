@@ -114,9 +114,12 @@ public struct ClientHelloIdentity: Sendable {
     /// Nil: role main only (the daemon may still verify the app by its
     /// code signature).
     public var installKey: FrontendInstallKey?
+    /// The app's daemon features, sent in each hello (p12-perf-process-150); nil sends none.
+    public var features: DaemonFeatureHello?
 
-    public init(installKey: FrontendInstallKey?) {
+    public init(installKey: FrontendInstallKey?, features: DaemonFeatureHello? = nil) {
         self.installKey = installKey
+        self.features = features
     }
 }
 

@@ -8724,6 +8724,20 @@
       }
     },
     "request:client-hello": {
+      "/features": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/features/hash": {
+        "ty": "string"
+      },
+      "/features/values": {
+        "ty": "map",
+        "required": true
+      },
+      "/features/values/*": {
+        "ty": "boolean"
+      },
       "/install_id": {
         "ty": "string"
       },
@@ -15543,6 +15557,39 @@
     },
     "response:client-hello": {
       "/data/connection_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/features": {
+        "ty": "object"
+      },
+      "/data/features/applied": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/features/applied/*": {
+        "ty": "string"
+      },
+      "/data/features/hash": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/features/pending": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/features/pending/*": {
+        "ty": "object"
+      },
+      "/data/features/pending/*/app": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/features/pending/*/daemon": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/features/pending/*/name": {
         "ty": "string",
         "required": true
       },

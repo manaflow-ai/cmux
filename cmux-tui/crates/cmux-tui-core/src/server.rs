@@ -151,6 +151,7 @@ pub mod agent_transfer;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
+pub use client_hello::{daemon_features, install_daemon_features};
 mod command_args;
 mod frame_dispatch;
 #[cfg(unix)]

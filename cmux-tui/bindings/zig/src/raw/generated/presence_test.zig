@@ -277,6 +277,8 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "endpoint");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "hosting");
     try expectExplicitNullRejected(protocol.BrowserProviderSnapshot, "provider_id");
+    try expectExplicitNullRejected(protocol.ClientHelloFeatures, "hash");
+    try expectExplicitNullRejected(protocol.ClientHelloResult, "features");
     try expectExplicitNullRejected(protocol.ClientHelloResult, "install_id");
     try expectExplicitNullRejected(protocol.ClientHelloResult, "nonce");
     try expectExplicitNullRejected(protocol.ClientHelloResult, "page");

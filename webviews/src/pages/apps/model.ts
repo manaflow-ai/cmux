@@ -58,6 +58,16 @@ export function parseRoute(hash: string): StoreRoute {
   };
 }
 
+/** The fragment `parseRoute` reads back as `route`; defaults are left out. */
+export function routeHash(route: StoreRoute): string {
+  const params = new URLSearchParams();
+  if (route.layout !== "grid") params.set("layout", route.layout);
+  if (route.card !== "standard") params.set("card", route.card);
+  if (route.app) params.set("app", route.app);
+  const query = params.toString();
+  return `#/${route.tab}${query ? `?${query}` : ""}`;
+}
+
 /**
  * Every whitespace-separated word must appear in id, name, description, publisher, categories or
  * keywords (Swift `AppStoreListing.matches`), case insensitive.

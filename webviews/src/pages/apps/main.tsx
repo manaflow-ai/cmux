@@ -5,12 +5,13 @@
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
+import { openPageState } from "../shared/pageState";
 import { createStrings } from "../shared/i18n";
 import { subscribePageStreams } from "../shared/pageStreams";
 import { AppsPage } from "./AppsPage";
 import table from "./generated/strings.json";
 import { MockAppsProvider } from "./mockProvider";
-import { AppsStore } from "./store";
+import { APPS_PAGE, AppsStore } from "./store";
 import { languageDirection, UiProvider } from "../../ui/UiProvider";
 import "../shared/pageBase.css";
 import "./styles.css";
@@ -18,9 +19,14 @@ import "./styles.css";
 export function mountAppsPage(
   root: HTMLElement,
   client: PageClient | null = defaultClient(),
-  hash = location.hash,
+  hash?: string,
 ): AppsStore {
-  const store = new AppsStore(client, hash);
+  // Before the store reads the fragment: a restored document shows the route it had moved on to.
+  const state = openPageState(client, APPS_PAGE);
+  const store = new AppsStore(client, hash ?? location.hash, {
+    replaceRoute: (route) => history.replaceState(history.state, "", route),
+  });
+  state.keep(() => store.pageInputs());
   // The app's key dispatcher sends page commands; the page never reads chords.
   if (client) {
     void subscribePageStreams(client, {

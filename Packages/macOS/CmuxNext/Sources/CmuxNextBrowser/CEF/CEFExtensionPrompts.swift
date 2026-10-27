@@ -35,6 +35,16 @@ final class CEFExtensionPrompts {
         }
     }
 
+    /// The Chromium Host ended (`CEFRuntime.hostGone`, task 091): the prompts were its own, so every
+    /// sheet closes in this turn and no answer is sent, as a dead pipe's dialogs close in Chrome
+    /// (mojo/public/cpp/bindings/lib/interface_endpoint_client.cc, `NotifyError`).
+    func hostEnded() {
+        let shown = Array(sheets.values)
+        sheets.removeAll()
+        // Each completion finds its prompt gone from `sheets` and replies nothing.
+        for sheet in shown { sheet.end(.abort) }
+    }
+
     /// Prompts waiting for an answer (`debug.extensions.prompt`).
     var pending: [ExtensionInstallPrompt] {
         sheets.values.map(\.prompt).sorted { $0.id < $1.id }
