@@ -195,13 +195,12 @@ nonisolated func ghosttyCloseSurface(_ userdata: UnsafeMutableRawPointer?, _ pro
 }
 
 /// `ghostty_surface_vsync_wanted_cb` (ghostty-next p03-rendering-082), set in a surface's config when it runs on
-/// external vsync (``TerminalVSync/setExternal(in:)``): on the surface's renderer thread, on each edge of whether it
-/// wants ticks. `userdata` is the surface's ``TerminalVSync``, which its view releases only after
-/// ghostty_surface_free returns. It takes the pacer's lock briefly and arms its hub subscription; it never waits for
-/// main or calls into Ghostty.
+/// external vsync (``SurfaceBridge/setExternalVSync(in:userdata:)``): on the surface's renderer thread, on each
+/// edge of whether it wants ticks. `userdata` is the surface's bridge, released only after ghostty_surface_free
+/// returns (and never when the view is freed off main), so its ``SurfaceBridge/vsync`` outlives every call. It
+/// takes the pacer's lock briefly and arms its hub subscription (or its linkless deadline); it never waits for main
+/// or calls into Ghostty.
 nonisolated func ghosttySurfaceVSyncWanted(_ userdata: UnsafeMutableRawPointer?, _ wanted: Bool) {
-    // SAFETY: a surface's `vsync_userdata`, its TerminalVSync (above); borrowed for this call only.
-    guard let raw = unsafe userdata else { return }
-    // SAFETY: as above.
-    unsafe Unmanaged<TerminalVSync>.fromOpaque(raw)._withUnsafeGuaranteedRef { $0.wantedChanged(wanted) }
+    // SAFETY: a surface's `vsync_userdata`, its bridge (above).
+    unsafe SurfaceBridge.from(userdata)?.vsync.wantedChanged(wanted)
 }

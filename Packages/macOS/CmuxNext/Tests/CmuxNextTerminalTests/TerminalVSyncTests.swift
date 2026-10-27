@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextCompat
 @testable import CmuxNextTerminal
 @testable import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import GhosttyNextKit
 import QuartzCore
 import Testing
@@ -15,7 +16,7 @@ import Testing
     /// surface; not wanted: the next tick refreshes nothing and says done. Hidden again: the subscription goes.
     @Test func onlyADrawingSurfaceSubscribesAndAnIdleOneIsDoneAfterOneEmptyTick() throws {
         let source = FakeVSyncSource()
-        let pacer = TerminalVSync(fallback: { 1 })
+        let pacer = makePacer(fallback: 1)
         let refreshes = Counter()
         pacer.attach(refresh: { refreshes.add() })
 
@@ -47,7 +48,7 @@ import Testing
     /// `ghostty_surface_new` returns): the subscription is armed as it is made.
     @Test func aWantedEdgeBeforeTheSubscriptionArmsIt() throws {
         let source = FakeVSyncSource()
-        let pacer = TerminalVSync(fallback: { 1 })
+        let pacer = makePacer(fallback: 1)
         pacer.attach(refresh: {})
         pacer.wantedChanged(true)
 
@@ -62,7 +63,7 @@ import Testing
     /// The same display again changes nothing.
     @Test func aDisplayChangeMovesTheSubscription() throws {
         let source = FakeVSyncSource()
-        let pacer = TerminalVSync(fallback: { 1 })
+        let pacer = makePacer(fallback: 1)
         let refreshes = Counter()
         pacer.attach(refresh: { refreshes.add() })
         pacer.wantedChanged(true)
@@ -87,16 +88,100 @@ import Testing
     /// A display with no screen (no link can exist) paces the surface on the main display's clock.
     @Test func aDisplayWithNoScreenFallsBackToTheMainDisplay() throws {
         let source = FakeVSyncSource(screens: [1])
-        let pacer = TerminalVSync(fallback: { 1 })
+        let pacer = makePacer(fallback: 1)
         pacer.follow(9, source: source)
         let subscription = try #require(source.live.first)
         #expect(subscription.display == 1)
     }
 
+    /// No screen on the surface's display nor on the main one: no subscription, and a later follow of the same
+    /// display tries again; once that display has a screen, it subscribes there and ticks.
+    @Test func aSurfaceWithNoScreenAnywhereSubscribesOnceItsScreenAppears() throws {
+        let source = FakeVSyncSource(screens: [])
+        let pacer = makePacer(fallback: 1)
+        let refreshes = Counter()
+        pacer.attach(refresh: { refreshes.add() })
+
+        pacer.follow(9, source: source)
+        #expect(source.made.isEmpty)
+        #expect(!pacer.isSubscribed)
+
+        source.screens = [9]
+        pacer.follow(9, source: source)
+        let subscription = try #require(source.live.first, "the same display's follow did not try again")
+        #expect(subscription.display == 9)
+        pacer.wantedChanged(true)
+        #expect(subscription.isArmed)
+        #expect(subscription.tick() == .more)
+        #expect(refreshes.value == 1)
+    }
+
+    /// A surface on the main display's clock (its own display has no screen) stays there while its own display
+    /// has none, and the retry deadline moves it to its own display's clock once that display has a screen.
+    @Test func theRetryDeadlineMovesAFallbackSurfaceToItsOwnDisplay() async throws {
+        let source = FakeVSyncSource(screens: [1])
+        let retryClock = ManualClock()
+        let pacer = TerminalVSync(fallback: { 1 }, pacingClock: ManualClock(), retryClock: retryClock, ledger: WakeupLedger())
+        let refreshes = Counter()
+        pacer.attach(refresh: { refreshes.add() })
+        pacer.wantedChanged(true)
+        pacer.follow(9, source: source)
+        let onMain = try #require(source.live.first)
+        #expect(onMain.display == 1)
+
+        pacer.follow(9, source: source)
+        #expect(source.made.count == 1, "a follow that still found no screen remade the main display's subscription")
+
+        source.screens = [1, 9]
+        let (subscribed, subscribe) = AsyncStream.makeStream(of: CGDirectDisplayID.self)
+        source.onSubscribe = { _ = subscribe.yield($0) }
+        try await retryClock.waitForSleeper()
+        retryClock.advance(by: TerminalVSync.retryInterval)
+        var moves = subscribed.makeAsyncIterator()
+        let moved = await moves.next()
+        #expect(moved == 9)
+
+        #expect(onMain.cancelled)
+        let own = try #require(source.live.first)
+        #expect(source.live.count == 1)
+        #expect(own.display == 9)
+        #expect(own.isArmed, "the moved subscription must keep ticking while Ghostty wants frames")
+        #expect(onMain.tick() == .done)
+        #expect(own.tick() == .more)
+        #expect(refreshes.value == 1)
+    }
+
+    /// With no subscription anywhere, a surface Ghostty wants frames from still refreshes, on the linkless
+    /// deadline; one that wants none runs no deadline.
+    @Test func aSurfaceWithNoScreenAnywhereIsPacedOnTheLinklessDeadline() async throws {
+        let source = FakeVSyncSource(screens: [])
+        let pacingClock = ManualClock()
+        let pacer = TerminalVSync(fallback: { 1 }, pacingClock: pacingClock, retryClock: ManualClock(), ledger: WakeupLedger())
+        let (refreshed, refresh) = AsyncStream.makeStream(of: Void.self)
+        let refreshes = Counter()
+        pacer.attach(refresh: {
+            refreshes.add()
+            refresh.yield()
+        })
+
+        pacer.follow(9, source: source)
+        try #require(!pacer.isSubscribed)
+        #expect(pacingClock.sleeperCount == 0, "a surface that wants no frame ran the linkless deadline")
+
+        pacer.wantedChanged(true)
+        var ticks = refreshed.makeAsyncIterator()
+        for expected in 1...2 {
+            try await pacingClock.waitForSleeper()
+            pacingClock.advance(by: TerminalVSync.linklessInterval)
+            _ = await ticks.next()
+            #expect(refreshes.value == expected)
+        }
+    }
+
     /// Closing (before `ghostty_surface_free`) leaves the hub, and no later tick reaches the surface.
     @Test func closeLeavesAndNoTickRefreshesAfterIt() throws {
         let source = FakeVSyncSource()
-        let pacer = TerminalVSync(fallback: { 1 })
+        let pacer = makePacer(fallback: 1)
         let refreshes = Counter()
         pacer.attach(refresh: { refreshes.add() })
         pacer.wantedChanged(true)
@@ -112,13 +197,30 @@ import Testing
         #expect(refreshes.value == 0)
     }
 
+    /// Ghostty's wanted callback gets the surface's bridge as its userdata and reaches the bridge's pacer: the
+    /// pacer lives exactly as long as the bridge, which a view freed off main never releases.
+    @Test func theWantedCallbackReachesTheBridgesPacer() throws {
+        let io = ScriptedTerminalIO()
+        let bridge = SurfaceBridge(input: TerminalInputSink(lane: TerminalInputLane(drain: io.inputDrain()),
+                                                            typingSurface: TypingLatencyProbe(path: nil).makeSurfaceKey()))
+        let source = FakeVSyncSource()
+        bridge.vsync.follow(1, source: source)
+        let subscription = try #require(source.live.first)
+
+        unsafe ghosttySurfaceVSyncWanted(Unmanaged.passUnretained(bridge).toOpaque(), true)
+
+        #expect(subscription.isArmed, "the wanted edge did not reach the bridge's pacer")
+        bridge.vsync.close()
+        #expect(subscription.cancelled)
+    }
+
     /// With the real hub: a visible surface's wanted edge runs its display's link, ticks refresh it on the hub
     /// thread, and once Ghostty stops wanting frames one empty tick disarms it and pauses the link (0 live links).
     @Test func theHubPausesTheLinkAfterAnIdleSurfacesEmptyTick() async throws {
         let links = FakeHubLinks()
         let hub = VSyncHub(makeLink: links.make, postToMain: { _ in })
         defer { hub.stopThreads() }
-        let pacer = TerminalVSync(fallback: { 3 })
+        let pacer = makePacer(fallback: 3)
         let refreshes = Counter()
         pacer.attach(refresh: { refreshes.add() })
 
@@ -176,10 +278,17 @@ private nonisolated final class Counter: Sendable {
     var value: Int { count.withLock { $0 } }
 }
 
+/// A pacer whose deadlines sleep on clocks no test moves, recording into a private ledger.
+private func makePacer(fallback: CGDirectDisplayID) -> TerminalVSync {
+    TerminalVSync(fallback: { fallback }, pacingClock: ManualClock(), retryClock: ManualClock(), ledger: WakeupLedger())
+}
+
 /// A vsync source whose subscriptions the test ticks by hand.
 private final class FakeVSyncSource: TerminalVSyncSource {
-    /// Displays that have a screen; nil: every display.
-    private let screens: Set<CGDirectDisplayID>?
+    /// Displays that have a screen; nil: every display. A test adds a screen by changing it.
+    var screens: Set<CGDirectDisplayID>?
+    /// Called with the display of each subscription made.
+    var onSubscribe: ((CGDirectDisplayID) -> Void)?
     private(set) var made: [FakeSubscription] = []
 
     init(screens: Set<CGDirectDisplayID>? = nil) {
@@ -193,6 +302,7 @@ private final class FakeVSyncSource: TerminalVSyncSource {
         if let screens, !screens.contains(display) { return nil }
         let subscription = FakeSubscription(display: display, onVSync: onVSync)
         made.append(subscription)
+        onSubscribe?(display)
         return subscription
     }
 }

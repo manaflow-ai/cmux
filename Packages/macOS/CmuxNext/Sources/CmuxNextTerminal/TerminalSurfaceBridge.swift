@@ -3,14 +3,15 @@ import CmuxNextWakeups
 import GhosttyNextKit
 
 /// Per-surface userdata handed to Ghostty as `userdata`, `io_write_userdata`
-/// and, with renderer-owned frames, `presented_userdata` (ghostty.h).
+/// and, with renderer-owned frames, `presented_userdata` and, on external vsync,
+/// `vsync_userdata` (ghostty.h).
 ///
 /// Retained for the surface's lifetime and released only after
 /// `ghostty_surface_free` returns, because free joins the IO thread that may
 /// still be inside `io_write_cb` and waits for a running `presented_cb`.
 ///
-/// Checked Sendable: Ghostty's IO and Core Animation threads read only the
-/// immutable `input`, `linkFilter`, `frames` and `frameMarks`; everything
+/// Checked Sendable: Ghostty's IO, renderer and Core Animation threads read only the
+/// immutable `input`, `linkFilter`, `frames`, `frameMarks` and `vsync` (itself Sendable); everything
 /// mutable is main-actor isolated.
 nonisolated final class SurfaceBridge: Sendable {
     let input: TerminalInputSink
@@ -35,6 +36,9 @@ nonisolated final class SurfaceBridge: Sendable {
     let frames: GhosttyTraceHook.Surface
     /// Where this surface's presented frames are marked (``ghosttySurfacePresented(_:_:_:_:)``); nil: nowhere.
     let frameMarks: GhosttyTraceHook.Recorder?
+    /// Paces the surface from its display's ``VSyncHub`` thread on external vsync (``TerminalVSync``). Owned here
+    /// so it lives exactly as long as the `vsync_userdata` Ghostty holds, past `ghostty_surface_free`.
+    let vsync = TerminalVSync()
 
     init(input: TerminalInputSink, echoStage: TerminalEchoStage? = nil, frameMarks: GhosttyTraceHook.Recorder? = nil) {
         self.input = input
@@ -124,6 +128,20 @@ nonisolated final class SurfaceBridge: Sendable {
         unsafe config.presented_cb = ghosttySurfacePresented
         // SAFETY: as above.
         unsafe config.presented_userdata = userdata
+        #endif
+    }
+
+    /// Turns external vsync on in `config` (ghostty-next p03-rendering-082): the surface makes no display link,
+    /// and its wanted edges reach ``vsync`` through ``ghosttySurfaceVSyncWanted(_:_:)``. `userdata` is the
+    /// surface's bridge, as in ``setCallbacks(in:userdata:)``. Without the export (`GHOSTTY_EXTERNAL_VSYNC` off)
+    /// the config is left as it is.
+    static func setExternalVSync(in config: inout ghostty_surface_config_s, userdata: UnsafeMutableRawPointer) {
+        #if GHOSTTY_EXTERNAL_VSYNC
+        config.vsync_external = true
+        // SAFETY: the callback has ghostty_surface_vsync_wanted_cb's signature; `userdata` as above.
+        unsafe config.vsync_wanted_cb = ghosttySurfaceVSyncWanted
+        // SAFETY: as above.
+        unsafe config.vsync_userdata = userdata
         #endif
     }
 

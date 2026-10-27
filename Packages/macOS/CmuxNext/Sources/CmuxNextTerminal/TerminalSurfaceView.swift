@@ -119,9 +119,9 @@ public final class TerminalSurfaceView: NSView {
     private var appliedContentScale: NSSize?
     /// The display ID last given to the surface (`updateContentScale`); nil before it is first shown.
     private(set) var appliedDisplayID: UInt32?
-    /// Paces the surface from its display's ``VSyncHub`` thread while it draws (``TerminalVSync``); Ghostty's
-    /// `vsync_wanted_cb` borrows it, so it is released with the view, after `ghostty_surface_free`.
-    let vsync = TerminalVSync()
+    /// Paces the surface from its display's ``VSyncHub`` thread while it draws (``TerminalVSync``). The bridge
+    /// owns it, so it lives as long as the userdata Ghostty's `vsync_wanted_cb` gets (`bridge`'s note).
+    var vsync: TerminalVSync { bridgeObject.vsync }
     /// The hub the surface runs on (external vsync), nil: Ghostty's own display link per surface.
     private let vsyncSource: (any TerminalVSyncSource)?
     var trackingArea: NSTrackingArea?
@@ -237,8 +237,8 @@ public final class TerminalSurfaceView: NSView {
         config.io_mode = mode
         // SAFETY: as above.
         unsafe SurfaceBridge.setCallbacks(in: &config, userdata: userdata)
-        // The pacer lives as long as the view, past the free (`vsync`).
-        if vsyncSource != nil { vsync.setExternal(in: &config) }
+        // SAFETY: as above; the pacer is the bridge's (`vsync`).
+        if vsyncSource != nil { unsafe SurfaceBridge.setExternalVSync(in: &config, userdata: userdata) }
         // SAFETY: as above; `app` is the runtime's live app (never freed).
         guard let surface = unsafe ghostty_surface_new(app, &config) else {
             GhosttyRuntime.logger.error("ghostty_surface_new failed")
