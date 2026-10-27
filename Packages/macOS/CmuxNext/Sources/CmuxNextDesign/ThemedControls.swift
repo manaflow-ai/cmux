@@ -36,6 +36,7 @@ public class ThemedBezelButton: NSButton {
         applyTheme()
     }
 
+    // visibility-walk-allow: a bezel color store (and a key-hint title's colors); no layout, cheaper than a deferral
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()
@@ -53,6 +54,12 @@ public class ThemedBezelButton: NSButton {
             applyTitle()
         }
     }
+
+    /// The first press on the button acts even when its window is not key: a hover card's button (the card's window
+    /// never becomes key, `HoverCardPanel.canBecomeKey`).
+    public var actsOnFirstClick = false
+
+    public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { actsOnFirstClick || super.acceptsFirstMouse(for: event) }
 
     /// The title without the keycap while a ``keyHint`` shows (what callers set and read).
     private var plainTitle = ""

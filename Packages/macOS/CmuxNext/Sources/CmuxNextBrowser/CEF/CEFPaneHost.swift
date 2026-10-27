@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import Foundation
 import CmuxNextWakeups
 
@@ -135,12 +136,8 @@ final class CEFPaneHost {
     func setNeedsHostVisibility() {
         guard !hostVisibilityPending else { return }
         hostVisibilityPending = true
-        let main = CFRunLoopGetMain()
-        CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) { [weak self] in
-            // main-proof: a CFRunLoopGetMain() block runs on the main thread
-            MainActor.assumeIsolated { self?.applyHostVisibility() }
-        }
-        CFRunLoopWakeUp(main)
+        // input-hop-allow: the pass must run in this run-loop pass's blocks, before Core Animation commits its frame; a classed post can land after the commit and show the page window hidden for one frame of a tab switch.
+        MainRunLoopBlock.perform { [weak self] in self?.applyHostVisibility() }
     }
 
     private func applyHostVisibility() {
@@ -165,6 +162,7 @@ final class CEFPaneHost {
         // not override a hide it applied (a pane parked off screen).
         hostView.isHidden = tab.isContentHidden
         visibleTab = tab
+        suggestionsFollowShownBrowser(tab.browserID)
         tab.applyHostBackdrop()
         // Tabs from windows cmux does not host go to a pane, never a panel.
         if !isPopupHost { runtime.lastShownHost = self }
@@ -204,6 +202,7 @@ final class CEFPaneHost {
         lifecycleTrace.record(tab.id, "host-conceal wasShown=\(visibleTab === tab)")
         guard visibleTab === tab else { return }
         visibleTab = nil
+        suggestionsFollowShownBrowser(nil)
     }
 
     // MARK: Creation
@@ -413,7 +412,7 @@ final class CEFPaneHost {
         if tabs.contains(where: \.awaitsWindowMove) {
             // Never inside OnAfterCreated (Chromium's tab insertion): moving
             // a tab between tab strips there would re-enter it.
-            Task { @MainActor [weak self] in self?.movePopupsIn() }
+            endOfTurn { [weak self] in self?.movePopupsIn() }
         }
     }
 
@@ -448,6 +447,7 @@ final class CEFPaneHost {
         if windowTab === tab { windowTab = nil }
         if visibleTab === tab { visibleTab = nil }
         if placeholder === tab { placeholder = nil }
+        suggestionsFollowShownBrowser(visibleTab?.browserID)
         // The resize deadline addresses the page window through a live browser of it.
         hostView.layerHosting.windowBrowsersChanged(tabs.filter { !$0.awaitsWindowMove }.compactMap(\.browserID))
         // A taken spare whose tab closed before it joined: the spare again.

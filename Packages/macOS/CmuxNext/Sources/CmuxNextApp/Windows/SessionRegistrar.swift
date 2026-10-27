@@ -12,7 +12,8 @@ import Foundation
 /// open. Nothing runs against a home daemon without `profiles-v1`.
 @MainActor
 final class SessionRegistrar {
-    private unowned let machines: MachineRegistry
+    /// Held strongly, as the session observation's read already holds it; the registry holds nothing of this.
+    private let machines: MachineRegistry
     /// Where the Mac's name and the one-time imports are awaited, off the main actor.
     private let work: BackgroundWork
     /// Where the session list is followed and the replies land: bookkeeping nobody sees, `background`.

@@ -1,6 +1,9 @@
 public import CmuxNextCompat
 public import Dispatch
 import Darwin
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The memory coordinator's release sink: it drops what consumers unlinked on a utility-QoS serial
 /// queue, and after a critical release pass asks the heap allocators there to give free pages back.
@@ -57,8 +60,8 @@ public nonisolated final class MemoryReleaseSink: MemoryReleaseSinking {
 
     /// Returns when the drops and reliefs asked for before this call have run.
     public func drained() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            queue.async(flags: .inheritQoS) { continuation.resume() }
+        _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
+            queue.async(flags: .inheritQoS) { continuation.resume(returning: ()) }
         }
     }
 }

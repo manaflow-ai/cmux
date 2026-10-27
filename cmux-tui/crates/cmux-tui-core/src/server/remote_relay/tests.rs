@@ -896,7 +896,17 @@ fn a_remote_entry_connection_keeps_the_remote_path_after_disconnect() {
 // revocation step fails closed and returns a typed error.
 
 /// Poisons `mutex`: a panic while it is held.
-fn poison<T>(mutex: &Mutex<T>) {
+/// Poisons a remote-access lock (a std mutex of `RemoteRelayState`).
+fn poison<T>(mutex: &std::sync::Mutex<T>) {
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _held = mutex.lock().unwrap();
+        panic!("poisons the lock for a fail-closed test");
+    }));
+    assert!(mutex.is_poisoned());
+}
+
+/// Poisons a daemon lock (`cmux_threads::sync::Mutex`).
+fn poison_timed<T>(mutex: &Mutex<T>) {
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _held = mutex.lock().unwrap();
         panic!("poisons the lock for a fail-closed test");
@@ -963,7 +973,7 @@ fn a_poisoned_peers_lock_gives_no_principal_and_no_local_trust() {
 #[test]
 fn a_poisoned_registry_lock_trusts_no_client_as_local() {
     let fixture = fixture();
-    poison(&fixture.mux.control_clients.state);
+    poison_timed(&fixture.mux.control_clients.state);
     assert!(fixture.mux.control_clients.transport_of(fixture.local).is_none());
     assert!(fixture.mux.is_remote_client(fixture.local));
 }
@@ -1074,7 +1084,7 @@ fn a_remote_bind_on_a_poisoned_bindings_lock_refuses_without_a_panic() {
 fn a_poisoned_registry_trusts_no_unix_client_and_still_removes_a_record() {
     let fixture = fixture();
     let one = remote(&fixture, "inst_1", OWNER);
-    poison(&fixture.mux.control_clients.state);
+    poison_timed(&fixture.mux.control_clients.state);
     assert!(!fixture.mux.control_clients.is_unix(fixture.local));
     assert_eq!(fixture.mux.principal(fixture.local), None);
     assert!(fixture.mux.control_clients.remove(one).is_some());

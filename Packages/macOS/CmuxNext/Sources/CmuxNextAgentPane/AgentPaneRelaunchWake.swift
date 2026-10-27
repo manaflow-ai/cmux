@@ -145,6 +145,8 @@ public final class AgentPaneRelaunchWake {
         let read = read
         // task-owner: every ask is awaited below, before the quit goes on.
         let asks = pages.map { page in
+            // main-hop-allow: each ask is the page's main-actor async state read (a page script); the quit's collect
+            // starts them all at once and awaits each below, as the history writers' quit flushes do
             (page, page.view.model.pendingWake == nil && page.view.model.hasHandshake ? Task { await read(page.view, limit) } : nil)
         }
         for (page, ask) in asks {

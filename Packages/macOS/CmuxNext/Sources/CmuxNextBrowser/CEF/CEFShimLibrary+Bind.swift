@@ -274,11 +274,15 @@ nonisolated extension CEFShimLibrary {
         }
         tabSetFrozen = r.optional("cmux_shim_tab_set_frozen")
         tabSendClick = r.optional("cmux_shim_tab_send_click")
+        tabSendMouseMove = r.optional("cmux_shim_tab_send_mouse_move")
         tabSetColorScheme = r.optional("cmux_shim_tab_set_color_scheme")
         tabDiscard = r.hostExports == nil ? r.optional("cmux_shim_tab_discard") : nil
+        tabCopySurface = r.optional("cmux_shim_tab_copy_surface")
         widgets = CEFShimWidgetOps(setGeometry: r.optional("cmux_shim_widget_set_geometry"), dismiss: r.optional("cmux_shim_widget_dismiss"),
                                    sendInput: r.optional("cmux_shim_widget_send_input"))
         dragTarget = try CEFShimDragTargetOps(r)
+        popupMenus = try CEFShimPopupMenuOps(r)
+        suggestions = try CEFShimSuggestionOps(r)
         let cImeSetComposition: (@convention(c) (Int32, UnsafePointer<UInt8>?, Int32, UnsafePointer<UInt8>?, Int32, Int32, Int32, Int32,
                                                  Int32) -> Void)? = unsafe r.optional("cmux_shim_browser_ime_set_composition")
         let cImeCommitText: (@convention(c) (Int32, UnsafePointer<UInt8>?, Int32, Int32, Int32) -> Void)? = unsafe r.optional("cmux_shim_browser_ime_commit_text")

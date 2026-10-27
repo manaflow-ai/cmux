@@ -4,16 +4,18 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHangReports
+import CmuxNextTrace
 import CmuxNextWakeups
 
 /// Where the main-thread watchdog's findings go (moved out of `AppDelegate`): each hang still
 /// running after 2 s to crash reporting with its stack and to a file per hang; each finished lag
 /// spike of 250 ms and up to crash reporting (rate-limited); and both to opt-in hang reports
 /// (``HangReportsController``), whose sink does nothing while they are off, as each committed key's `key.frame`
-/// time (`AppServices.inputFrameSignposts`); with the main thread's phase
-/// (`main_thread_phase`, `cef_pump`). The blocking detector's new call sites go to ``BlockingReportSink``.
+/// time (`AppServices.inputFrameSignposts`); with the main thread's phase (`main_thread_phase`, `cef_pump`)
+/// and `hang.cef` in the CEF pump. The blocking detector's new call sites go to ``BlockingReportSink``.
 @MainActor
 enum WatchdogReporting {
     /// Wires `watchdog` and returns this launch's hang report controller (held by `AppProcessRoot`).
@@ -31,15 +33,25 @@ enum WatchdogReporting {
             work: services.work, mainWork: services.mainWork,
             metricsFolder: TraceBlackBoxFileSteps.appDirectory(bundleID: Bundle.main.bundleIdentifier),
             daemonPID: { [weak services] in services?.daemon.identity?.pid },
-            wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)))
+            wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)),
+            features: { [features = FeatureFlagsPage.report(services.features, tunables: TunableStore.shared)] in
+                HangReport.FeatureState(features.fieldState)
+            },
+            blockingSites: { [blocking = services.blocking] in blocking.mainThreadRead })
         let collector = hangReports.collector
+        // The drain queue is a hang-watched lane for the process's life (Compat cannot see the watch). Set before
+        // the sink: both are drain-queue jobs in call order, so the replay below runs inside the watch.
+        if services.blocking.isCompiledIn {
+            let drain = HangWatchedLane("blocking.drain", deadline: BlockingDetector.drainHangDeadline, on: TraceRuntime.shared.hangWatch)
+            services.blocking.watchDrain { job in drain.run(job) }
+        }
         // Replays the sites the detector recorded before this point (BlockingDetector.install).
         services.blocking.install(sink: BlockingReportSink(collector: collector, nonFatal: .init(
             consented: { reporter.isStarted },
             send: { reporter.captureNonFatal($0.message, type: $0.type, fingerprint: $0.fingerprint, tags: $0.tags, extra: $0.extra) })))
         watchdog.onHang = { hang in
             reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) },
-                                phase: hang.phase, attribution: .init(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass, location: hang.attribution.location, turnNanos: hang.attribution.turnNanos))
+                                phase: hang.phase, cef: hang.cef, attribution: .init(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass, location: hang.attribution.location, turnNanos: hang.attribution.turnNanos))
             collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses, task: HangSample.MainTask(owner: hang.attribution.owner, taskClass: hang.attribution.taskClass))
         }
         // A watched thread still in its hang-watch scope 2 s past its budget (p09-observability-068): a crash report
@@ -63,7 +75,7 @@ enum WatchdogReporting {
             }
         }
         watchdog.onStall = { record in
-            lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses, phase: record.details["phase"]?.stringValue)
+            lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses, phase: record.details["phase"]?.stringValue, cef: record.details["cef"]?.boolValue == true)
             collector?.noteStall(durationNanos: Self.nanos(record.duration), cpuNanos: Self.nanos(record.cpu), addresses: record.addresses)
         }
         // A slow key frame takes the black box (one compare, then one atomic load while reports are off).

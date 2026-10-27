@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// request (camera, microphone, location, notifications, downloads), a JavaScript alert, confirm, or text input, HTTP
 /// authentication (user name and password), or a link to another app
 /// (Open, with "Always allow" for the site).
-final class PromptBarView: NSView {
+final class PromptBarView: ChromeFrameView {
     private(set) var prompt: BrowserPrompt?
     private let messageLabel = ChromeLabel(wrappingLabelWithString: "")
     private let inputField = ChromeTextField()
@@ -14,15 +14,18 @@ final class PromptBarView: NSView {
     let passwordField = ChromeSecureTextField()
     /// "Always allow" of a link to another app.
     private let alwaysCheck = ThemedCheckbox(checkboxWithTitle: "", target: nil, action: nil)
-    private let buttons = NSStackView()
-    private let stack = NSStackView()
+    /// The answer buttons of the prompt shown, in reading order.
+    private var buttons: [PromptResponseButton] = []
+    /// The bar's content (the glass's), where the column lays out.
+    private let content = OverlayBackingView()
     private let density = DensityBinding()
     /// The bar's material: glass, or opaque under Reduce Transparency.
     private(set) var glass: OverlaySurfaceView?
+    /// The room `followRoom()` last saw.
+    private var measuredRoom: CGFloat?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
-        translatesAutoresizingMaskIntoConstraints = false
 
         messageLabel.maximumNumberOfLines = 6
 
@@ -34,74 +37,90 @@ final class PromptBarView: NSView {
         passwordField.setPlaceholder(Strings.authPassword)
         applyColors()
 
-        buttons.setHuggingPriority(.required, for: .horizontal)
-
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(messageLabel)
-        stack.addArrangedSubview(inputField)
-        stack.addArrangedSubview(userField)
-        stack.addArrangedSubview(passwordField)
-        stack.addArrangedSubview(alwaysCheck)
-        stack.addArrangedSubview(buttons)
-
-        let content = OverlayBackingView()
-        content.addSubview(stack)
+        for view in [messageLabel, inputField, userField, passwordField, alwaysCheck] as [NSView] {
+            view.translatesAutoresizingMaskIntoConstraints = true
+            content.addSubview(view)
+        }
         let glass = Glass.makeOverlayPanel(content: content, cornerRadius: BrowserMetrics.overlayCornerRadius)
+        glass.translatesAutoresizingMaskIntoConstraints = true
+        glass.autoresizingMask = [.width, .height]
+        glass.frame = bounds
         addSubview(glass)
         self.glass = glass
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: content.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
-            glass.topAnchor.constraint(equalTo: topAnchor),
-            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            density.bind(widthAnchor.constraint(lessThanOrEqualToConstant: 0)) { BrowserMetrics.promptMaxWidth },
-            // Preferred minimum: a pane narrower than it narrows the bar.
-            density.bind(widthAnchor.constraint(greaterThanOrEqualToConstant: 0).prioritized(.init(450))) { BrowserMetrics.promptMinWidth },
-        ])
-        for field in [inputField, userField, passwordField] as [NSTextField] {
-            NSLayoutConstraint.activate([
-                density.bind(field.widthAnchor.constraint(equalTo: stack.widthAnchor)) { -BrowserMetrics.overlayPadding * 2 },
-                density.bind(field.heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight },
-            ])
-        }
         density.update { [weak self] in
             guard let self else { return }
-            let padding = BrowserMetrics.overlayPadding
             messageLabel.font = BrowserMetrics.bodyFont
             alwaysCheck.font = BrowserMetrics.bodyFont
-            messageLabel.preferredMaxLayoutWidth = BrowserMetrics.promptMaxWidth - padding * 2
             for field in [inputField, userField, passwordField] as [NSTextField] {
                 field.layer?.cornerRadius = BrowserMetrics.controlCornerRadius
             }
-            buttons.spacing = BrowserMetrics.itemSpacing
-            stack.spacing = padding
-            stack.edgeInsets = NSEdgeInsets(top: padding, left: padding, bottom: padding, right: padding)
             glass.cornerRadius = BrowserMetrics.overlayCornerRadius
+            contentDidChange()
         }
         density.start(in: self)
     }
 
-    /// The message wraps at the width the bar may take: `promptMaxWidth`,
-    /// or less in a narrower pane (its container, else the bar itself),
-    /// minus the padding. Never the label's own last width: a short earlier
-    /// message (or a narrow first pass) would stick, and a long question
-    /// would wrap one character per line.
-    override func layout() {
-        super.layout()
-        let room = superview.map { $0.bounds.width - BrowserMetrics.overlayInset * 2 } ?? bounds.width
-        let width = min(BrowserMetrics.promptMaxWidth, room) - BrowserMetrics.overlayPadding * 2
-        if width > 0, abs(messageLabel.preferredMaxLayoutWidth - width) > 0.5 {
-            messageLabel.preferredMaxLayoutWidth = width
-            needsLayout = true
-        }
+    /// The bar: the message, the shown fields (as wide as the bar), the
+    /// "Always allow" check and the answer row, leading, with the overlay
+    /// padding around and between them; at most `promptMaxWidth` wide and,
+    /// room permitting, at least `promptMinWidth`.
+    var cardLayout: OverlayCardLayout {
+        let padding = BrowserMetrics.overlayPadding
+        return OverlayCardLayout(column: ChromeColumnLayout(spacing: padding, insets: ChromeInsets(all: padding),
+                                                            alignment: .leading, rightToLeft: laysOutRightToLeft),
+                                 minWidth: BrowserMetrics.promptMinWidth, maxWidth: BrowserMetrics.promptMaxWidth)
     }
 
+    private var items: [ChromeColumnItem] {
+        var items: [ChromeColumnItem] = [.view(messageLabel)]
+        for field in [inputField, userField, passwordField] as [NSView] where !field.isHidden {
+            items.append(.fill(field, height: BrowserMetrics.controlHeight))
+        }
+        if !alwaysCheck.isHidden { items.append(.view(alwaysCheck)) }
+        items.append(.row(buttons, ChromeRowLayout(spacing: BrowserMetrics.itemSpacing, rightToLeft: laysOutRightToLeft)))
+        return items
+    }
+
+    /// The bar's size in a room `width` wide: the message wraps at the width
+    /// the bar takes there, never at a width an earlier message left.
+    func size(fittingWidth width: CGFloat) -> CGSize {
+        cardLayout.measure(items, room: width)
+    }
+
+    /// The room the bar may take: its container less the overlay insets
+    /// (the widest bar before it has one).
+    private var room: CGFloat {
+        superview.map { $0.bounds.width - BrowserMetrics.overlayInset * 2 } ?? BrowserMetrics.promptMaxWidth
+    }
+
+    /// Its size in its container's room, for an owner that places it with
+    /// constraints.
+    override var intrinsicContentSize: NSSize { size(fittingWidth: room) }
+
+    /// The owner calls this from its `layout()` before it solves its
+    /// subviews: a container that got wider or narrower measures the bar
+    /// again in the new room.
+    func followRoom() {
+        let room = self.room
+        guard room != measuredRoom else { return }
+        measuredRoom = room
+        invalidateIntrinsicContentSize() // invalidate: the container's width changed since the last measure
+    }
+
+    override func layout() {
+        super.layout()
+        if let glass, glass.frame != bounds { glass.frame = bounds }
+        cardLayout.column.layout(items, in: CGRect(origin: .zero, size: bounds.size))
+    }
+
+    /// The message, the fields or the answers changed: the column lays out
+    /// again and the bar's size is measured again.
+    private func contentDidChange() {
+        invalidateIntrinsicContentSize() // invalidate: the shown content changed (callers change it first)
+        needsLayout = true // invalidate: as above
+    }
+
+    // visibility-walk-allow: three field layer colors, a text color and the glass tint in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
@@ -123,7 +142,8 @@ final class PromptBarView: NSView {
     func show(_ prompt: BrowserPrompt) {
         guard prompt !== self.prompt else { return }
         self.prompt = prompt
-        buttons.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        buttons.forEach { $0.removeFromSuperview() }
+        buttons = []
         inputField.isHidden = true
         userField.isHidden = true
         passwordField.isHidden = true
@@ -197,6 +217,7 @@ final class PromptBarView: NSView {
             if offer.link != nil { addButton(Strings.verificationOpenLink, prominent: offer.code == nil, response: .allowOnce) }
             if offer.code != nil { addButton(Strings.verificationFillCode, prominent: true, response: .accept) }
         }
+        contentDidChange()
         if !inputField.isHidden {
             window?.makeFirstResponder(inputField)
         } else if !userField.isHidden {
@@ -223,7 +244,8 @@ final class PromptBarView: NSView {
     private func addButton(_ title: String, prominent: Bool, response: BrowserPromptResponse?) {
         let button = PromptResponseButton(title: title, prominent: prominent, action: #selector(respond(_:)), target: self)
         button.response = response
-        buttons.addArrangedSubview(button)
+        content.addSubview(button)
+        buttons.append(button)
     }
 
     @objc private func respond(_ sender: PromptResponseButton) {

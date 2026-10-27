@@ -50,27 +50,39 @@ public final class SiteZoomLevels {
     /// Reads `profile`'s file once (off the main actor). Levels set before
     /// it arrives win over the file; followers re-apply what it brings.
     public func load(_ profile: BrowserProfileID) async {
-        guard !requested.contains(profile) else { return await pending[profile]?.value ?? () }
-        requested.insert(profile)
-        guard let file = file(for: profile) else { return }
-        let task = Task { [weak self] in
-            let stored = await SiteZoomFile.read(file)
-            guard let self else { return }
-            var table = stored
-            table.merge(levels[profile] ?? [:]) { _, current in current }
-            levels[profile] = table
-            pending[profile] = nil
-            for host in stored.keys { notify(profile, host) }
-        }
-        pending[profile] = task
-        await task.value
+        await beginLoad(profile)?.value
     }
 
     private var requested: Set<BrowserProfileID> = []
     private var pending: [BrowserProfileID: Task<Void, Never>] = [:]
 
+    /// The read of `profile`'s file, started now when it has not been; nil once it landed or with no file.
+    @discardableResult
+    private func beginLoad(_ profile: BrowserProfileID) -> Task<Void, Never>? {
+        guard !requested.contains(profile) else { return pending[profile] }
+        requested.insert(profile)
+        guard let file = file(for: profile) else { return nil }
+        // task-owner: the profile's one read (`pending`); load() awaits it.
+        // main-hop-allow: the read runs on SiteZoomFile's actor; the resume merges it into this store's few-entry table and tells its followers (BrowserSharedStores takes no scheduler: AppServices builds it in a property initializer)
+        let task = Task { [weak self] in
+            let stored = await SiteZoomFile.read(file)
+            self?.merge(stored, into: profile)
+        }
+        pending[profile] = task
+        return task
+    }
+
+    /// `profile`'s file arrived: levels set before it win over the file, and followers re-apply what it brings.
+    private func merge(_ stored: [String: Double], into profile: BrowserProfileID) {
+        var table = stored
+        table.merge(levels[profile] ?? [:]) { _, current in current }
+        levels[profile] = table
+        pending[profile] = nil
+        for host in stored.keys { notify(profile, host) }
+    }
+
     private func loaded(_ profile: BrowserProfileID) -> [String: Double] {
-        if !requested.contains(profile) { Task { await load(profile) } }
+        beginLoad(profile)
         return levels[profile] ?? [:]
     }
 
@@ -84,7 +96,8 @@ public final class SiteZoomLevels {
     private func save(_ table: [String: Double], profile: BrowserProfileID) {
         guard let file = file(for: profile) else { return }
         let previous = lastWrite
-        lastWrite = Task {
+        // task-owner: the write chain (`lastWrite`). Off main: nothing of it runs on the main thread.
+        lastWrite = Task { @concurrent in
             await previous?.value
             await SiteZoomFile.write(table, to: file)
         }

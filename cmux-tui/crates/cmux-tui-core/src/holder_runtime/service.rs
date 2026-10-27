@@ -65,12 +65,16 @@ pub(crate) fn holder_frame_name(kind: u32) -> &'static str {
 }
 
 /// Every frame the link's reader routes is a `holder-link` scope of the
-/// process's request watchdog.
+/// process's request watchdog, and a hang the holder reports about its own
+/// loop goes to the process's hang log.
 const HOLDER_FRAME_WATCH: FrameWatch = FrameWatch {
     enter: |kind| {
         crate::server::process_enter(crate::server::WatchKind::HolderLink, u32::from(kind))
     },
     exit: crate::server::process_exit,
+    hang: |report| {
+        crate::server::process_report_holder_hang(&report.site, report.deadline_ms, report.busy_ms);
+    },
 };
 
 /// The holder of one terminal host root (one daemon session).

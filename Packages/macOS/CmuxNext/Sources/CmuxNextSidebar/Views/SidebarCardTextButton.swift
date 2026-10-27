@@ -80,6 +80,7 @@ final class SidebarCardTextButton: NSView {
         }
     }
 
+    // visibility-walk-allow: only invalidates; AppKit draws a hidden view when it shows, so the repaint already waits for it
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true
@@ -88,7 +89,7 @@ final class SidebarCardTextButton: NSView {
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         for area in trackingAreas where area.owner === self { removeTrackingArea(area) }
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
     }
 
     override func mouseEntered(with event: NSEvent) { isHovered = true }
@@ -103,6 +104,7 @@ final class SidebarCardTextButton: NSView {
         press()
     }
 
+    // visibility-walk-allow: resets the press and hover input state; a hidden button must not keep a press (rule 3)
     override func viewDidHide() {
         super.viewDidHide()
         isHovered = false
@@ -138,6 +140,7 @@ final class SidebarCardTextButton: NSView {
         return (window as? InputTapHosting)?.inputTap?.lastDispatched?.eventClass != .button
     }
 
+    // visibility-walk-allow: AppKit's key-view loop asks the view itself (Full Keyboard Access); a hidden view never takes the focus
     override var canBecomeKeyView: Bool { acceptsFirstResponder && !isHiddenOrHasHiddenAncestor }
 
     override func viewDidMoveToWindow() {

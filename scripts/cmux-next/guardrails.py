@@ -65,8 +65,8 @@ one move pool per push with the new-file rule (move_pools).
   scripts/cmux-next/guardrails.py                    # what HEAD adds over origin/feat-cmux-next
   scripts/cmux-next/guardrails.py --base A --head B   # exactly what B adds over A
   scripts/cmux-next/guardrails.py --list
-  scripts/cmux-next/guardrails.py --self-test        # the input-monitor, target-settings, safety-todo and
-                                                     # raw-continuation cases
+  scripts/cmux-next/guardrails.py --self-test        # the input-monitor, target-settings, safety-todo,
+                                                     # raw-continuation and decode-trap cases
 """
 from __future__ import annotations
 
@@ -2691,27 +2691,38 @@ RULES += MAIN_CLASS_RULES
 # ---------------------------------------------------------------- end of main-thread classes (p06-scheduler)
 
 
-# ---------------------------------------------------------------- raw-continuation (p10-stability-083)
+# ---------------------------------------------------------------- raw-continuation (p10-stability-083, 089)
 # A raw `with(Checked|Unsafe)(Throwing)?Continuation` traps on a second resume and leaks its task when the producer
 # drops it; CmuxSafeConcurrency's OnceContinuation resumes exactly once (a second resume is a no-op and a fault, a
 # drop throws `.abandoned`, cancellation only with `.cancellable`), as Chromium's base::OnceCallback runs once and
 # is safe to destroy unrun. The class and its scope are crash_ratchet.py's report-only `raw_continuation` (one
-# definition; `--report raw_continuation` prints the queue Q06 that tasks 084-088 empty). Local only, like every
-# guardrail. The block owns its lines from here to `RULES += RAW_CONTINUATION_RULES`.
+# definition; `--report raw_continuation` prints the queue Q06 that tasks 084-089 emptied). The class is banned
+# (089), as crash_ratchet.py bans a class at zero: every raw continuation in a file the push changes is refused,
+# old lines and moved ones too, not only the lines it adds. Local only, like every guardrail. The block owns its
+# lines from here to `RULES += RAW_CONTINUATION_RULES`.
 RAW_CONTINUATION = Matcher(ratchet.REPORT_SWIFT["raw_continuation"], allow_marker("raw-continuation"),
                            code=ratchet_code)
 
 
 def raw_continuation(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
-    """New raw continuations in a package's Sources, outside the package that implements OnceContinuation."""
-    judged = [c for c in changes if c.path.endswith(".swift") and "/Sources/" in c.path
-              and not ratchet.report_owned("raw_continuation", c.path)]
-    return matcher_rule(RAW_CONTINUATION)(judged, moved)
+    """Every raw continuation left in a package Sources file the push changed (added or removed a line in),
+    outside the package that implements OnceContinuation. Unchanged context files are not judged."""
+    hits = []
+    for change in changes:
+        if (not change.path.endswith(".swift") or "/Sources/" not in change.path or change.is_deleted
+                or ratchet.report_owned("raw_continuation", change.path) or not (change.added or change.removed)):
+            continue
+        lines = change.head_lines
+        hits += [Added(change.path, index + 1, line) for index, line in enumerate(lines)
+                 if RAW_CONTINUATION.pattern.search(RAW_CONTINUATION.code(line))
+                 and not escaped_in(lines, index, RAW_CONTINUATION)]
+    return hits
 
 
 RAW_CONTINUATION_RULES = (
     Rule("raw-continuation", "A raw continuation (`withCheckedContinuation`, `withCheckedThrowingContinuation`, "
-         "`withUnsafeContinuation`, `withUnsafeThrowingContinuation`) in a package's Sources",
+         "`withUnsafeContinuation`, `withUnsafeThrowingContinuation`) in a package Sources file the push changes "
+         "(banned: old lines count too)",
          "a second resume stops the process and a dropped continuation hangs its task for ever; the twelve private "
          "resume-once helpers each fixed one site (p10-stability.md, CONTINUATIONS)",
          "CmuxSafeConcurrency's `withOnceContinuation { once in ... }` (or `withOnceThrowingContinuation`, or "
@@ -2723,7 +2734,64 @@ RAW_CONTINUATION_RULES = (
          scope=("Packages/",)),
 )
 RULES += RAW_CONTINUATION_RULES
-# ---------------------------------------------------------------- end of raw-continuation (p10-stability-083)
+# ---------------------------------------------------------------- end of raw-continuation (p10-stability-083, 089)
+
+
+# ---------------------------------------------------------------- decode-trap (p10-stability-093)
+# Outside input never traps (p10-stability.md, section D): a file in decode-paths.json reads a peer's, a device's or
+# a file's bytes, and holds no index subscript and no trapping integer conversion, by the crash ratchet's own
+# definitions (crash_ratchet.py's index_subscript and int_conversion: one definition). Unlike a count ratchet this
+# is a ban: a push that touches a listed file is refused for every unescaped hit in the whole file, so a listed
+# file stays at zero. An operand that is not input (a C constant, a bound the code set itself) carries
+# `// decode-trap-allow: <why>`. Like Chromium's checks.md, input gets validation that returns an error, and only an
+# internal invariant keeps a check. Local only, like every guardrail. The block owns its lines from here to
+# `RULES += DECODE_TRAP_RULES`.
+DECODE_PATHS = HERE / "decode-paths.json"
+DECODE_TRAP_ESCAPE = allow_marker("decode-trap")
+
+
+@functools.lru_cache(maxsize=1)
+def decode_paths() -> tuple[str, ...]:
+    """The listed decode files (repo-relative)."""
+    return tuple(entry["path"] for entry in json.loads(DECODE_PATHS.read_text())["files"])
+
+
+def decode_trap_hits(lines: list[str]) -> list[tuple[int, int]]:
+    """[(0-based line, hits)] of LINES (one decode file): index subscripts and trapping integer conversions outside
+    comments, string contents and lines escaped with `// decode-trap-allow:` (on the line or the comment block above).
+    A subscript on a name the file declares only as a dictionary cannot trap and does not count."""
+    dictionaries = ratchet.file_dictionaries(lines, frozenset(), frozenset())
+    found = []
+    for index, line in enumerate(lines):
+        code = ratchet_code(line)
+        hits = ratchet.index_hits(code, dictionaries) + ratchet.int_conversion_hits(code) if code.strip() else 0
+        if hits and not any(DECODE_TRAP_ESCAPE.search(lines[j]) for j in escape_window(lines, index)):
+            found.append((index, hits))
+    return found
+
+
+def decode_trap(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Every unescaped hit in each listed decode file the push changes and keeps."""
+    listed = set(decode_paths())
+    return [Added(c.path, index + 1, c.head_lines[index])
+            for c in changes if c.path in listed and not c.is_deleted and c.head_lines != [""]
+            for index, _ in decode_trap_hits(c.head_lines)]
+
+
+DECODE_TRAP_RULES = (
+    Rule("decode-trap", "An index subscript (`bytes[i]`, `buffer[a..<b]`) or a trapping integer conversion (`Int(x)`, "
+         "`UInt8(x)`) in a decode file (scripts/cmux-next/decode-paths.json)",
+         "the file reads bytes a peer, a device or a file chose: an index or a value they push out of range ends the "
+         "app instead of the connection (p10-stability.md, section D: outside input never traps)",
+         "read fields from the front of what is left (`prefix`, `dropFirst`, `popFirst`, a reader that throws), "
+         "widen with `truncatingIfNeeded:` from a narrower unsigned type, convert with `Int(exactly:)` and turn nil "
+         "into the file's typed error (RFBError.protocolViolation, SurfaceSourceWireError, ...); never clamp input",
+         "// decode-trap-allow: <why the operand is not input: a C constant, a bound this code set>",
+         decode_trap,
+         scope=("Packages/",)),
+)
+RULES += DECODE_TRAP_RULES
+# ---------------------------------------------------------------- end of decode-trap (p10-stability-093)
 
 
 # ---------------------------------------------------------------- wakeup-ext (p14-energy, PL-energy)
@@ -4760,6 +4828,37 @@ def perf_hot_warnings(changes: dict[str, FileChange], benches: dict) -> list[str
     return out
 
 
+def list_perf_hot(repo: Path, wanted: list[str]) -> int:
+    """Prints each path id of BENCHES (or only WANTED) with the markers this hook's resolver sees in the tracked
+    Swift files of REPO's working tree, and each marker that marks no declaration or names an unknown id. Exit 1
+    when a listed id has no marker that marks a declaration, or a marker marks none."""
+    paths = json.loads((repo / BENCHES).read_text(encoding="utf-8")).get("paths", {})
+    unknown = [pid for pid in wanted if pid not in paths]
+    if unknown:
+        print(f"guardrails: not in {BENCHES}: {', '.join(unknown)}")
+        return 1
+    files = git(repo, "grep", "-I", "-z", "-l", "--no-color", "-F", "perf-hot:", "--", "*.swift", check=False)
+    found: dict[str, list[tuple[str, PerfHotMarker]]] = collections.defaultdict(list)
+    for path in sorted(p for p in files.split("\0") if p):
+        lines = (repo / path).read_text(encoding="utf-8", errors="replace").split("\n")
+        for marker in perf_hot_markers(lines):
+            found[marker.path_id].append((path, marker))
+    failed = False
+    for pid in wanted or list(paths):
+        markers = found.get(pid, [])
+        resolved = [(path, m) for path, m in markers if m.span is not None]
+        print(f"{pid}: {len(resolved)} marker{'s' if len(resolved) != 1 else ''}" + ("" if resolved else " (none)"))
+        for path, marker in markers:
+            target = f"marks `{marker.declaration[:80]}`" if marker.span else "MARKS NO DECLARATION"
+            print(f"  {path}:{marker.line}: {marker.budget}, {target}")
+        failed = failed or not resolved or len(resolved) != len(markers)
+    if not wanted:
+        for pid in sorted(set(found) - set(paths)):
+            sites = ", ".join(f"{path}:{m.line}" for path, m in found[pid])
+            print(f"{pid or '(no path id)'}: not in {BENCHES}: {sites}")
+    return 1 if failed else 0
+
+
 def marker_ids(lines) -> collections.Counter:
     """`// perf-hot:` markers in LINES per path id (the budget when a marker has no id)."""
     found = collections.Counter()
@@ -5486,26 +5585,34 @@ SAFETY_TODO_CASES = (
 
 
 SELF_TEST_WAIT = "Packages/Shared/Linked/Sources/Linked/Wait.swift"
-SELF_TEST_OLD_WAIT = ("func value() async -> Int {\n"
+SELF_TEST_OTHER_WAIT = "Packages/Shared/Linked/Sources/Linked/OtherWait.swift"
+SELF_TEST_OLD_WAIT = ("func value() async throws -> Int {\n"
                       "    await withCheckedContinuation { continuation in\n"
                       "        continuation.resume(returning: 1)\n    }\n}\n")
-SELF_TEST_CONTINUATION_BASE = {SELF_TEST_WAIT: SELF_TEST_OLD_WAIT}
+SELF_TEST_ONCE_WAIT = SELF_TEST_OLD_WAIT.replace("await withCheckedContinuation", "try await withOnceContinuation")
+# The base: one file already on OnceContinuation, one with an old raw continuation the push may leave alone.
+SELF_TEST_CONTINUATION_BASE = {SELF_TEST_WAIT: SELF_TEST_ONCE_WAIT, SELF_TEST_OTHER_WAIT: SELF_TEST_OLD_WAIT}
 SELF_TEST_NEW_WAIT = ("func next() async throws -> Int {{\n"
                       "    try await {call} {{ continuation in\n"
                       "        continuation.resume(returning: 2)\n    }}\n}}\n")
+SELF_TEST_NOTE = "// notes\n"
 RAW_CONTINUATION_CASES = (
     *((f"a new {call} in a package's Sources",
        {"Packages/macOS/CmuxNext/Sources/CmuxNextApp/Next.swift": SELF_TEST_NEW_WAIT.format(call=call)}, True)
       for call in ("withCheckedContinuation", "withCheckedThrowingContinuation", "withUnsafeContinuation",
                    "withUnsafeThrowingContinuation")),
-    ("a new raw continuation in a Shared package", {SELF_TEST_WAIT: SELF_TEST_OLD_WAIT
+    ("a new raw continuation in a Shared package", {SELF_TEST_WAIT: SELF_TEST_ONCE_WAIT
                                                      + SELF_TEST_NEW_WAIT.format(call="withCheckedContinuation")},
      True),
-    ("an old raw continuation moved to another file",
-     {SELF_TEST_WAIT: "", "Packages/Shared/Linked/Sources/Linked/Moved.swift": SELF_TEST_OLD_WAIT}, False),
+    ("an old raw continuation in a file the push changes elsewhere (the ban)",
+     {SELF_TEST_OTHER_WAIT: SELF_TEST_NOTE + SELF_TEST_OLD_WAIT}, True),
+    ("an old raw continuation moved to another file (the ban)",
+     {SELF_TEST_OTHER_WAIT: "", "Packages/Shared/Linked/Sources/Linked/Moved.swift": SELF_TEST_OLD_WAIT}, True),
+    ("an old raw continuation in a file the push does not change",
+     {SELF_TEST_WAIT: SELF_TEST_NOTE + SELF_TEST_ONCE_WAIT}, False),
     ("an old raw continuation replaced by OnceContinuation",
-     {SELF_TEST_WAIT: SELF_TEST_OLD_WAIT.replace("await withCheckedContinuation",
-                                                 "try await withOnceContinuation")}, False),
+     {SELF_TEST_OTHER_WAIT: SELF_TEST_ONCE_WAIT}, False),
+    ("a file with its raw continuation deleted", {SELF_TEST_OTHER_WAIT: None}, False),
     ("a raw continuation inside CmuxSafeConcurrency, which implements OnceContinuation",
      {"Packages/Shared/CmuxSafeConcurrency/Sources/CmuxSafeConcurrency/Wait.swift":
       SELF_TEST_NEW_WAIT.format(call="withCheckedContinuation")}, False),
@@ -5513,11 +5620,51 @@ RAW_CONTINUATION_CASES = (
      {"Packages/Shared/Linked/Tests/LinkedTests/WaitTests.swift":
       SELF_TEST_NEW_WAIT.format(call="withCheckedContinuation")}, False),
     ("a raw continuation named only in a comment or a string",
-     {SELF_TEST_WAIT: SELF_TEST_OLD_WAIT + "// replaces withCheckedContinuation\n"
-                                           "let note = \"withCheckedContinuation\"\n"}, False),
+     {SELF_TEST_WAIT: SELF_TEST_ONCE_WAIT + "// replaces withCheckedContinuation\n"
+                                            "let note = \"withCheckedContinuation\"\n"}, False),
     ("a reviewed escape",
-     {SELF_TEST_WAIT: SELF_TEST_OLD_WAIT + SELF_TEST_NEW_WAIT.format(call="withUnsafeContinuation").replace(
+     {SELF_TEST_WAIT: SELF_TEST_ONCE_WAIT + SELF_TEST_NEW_WAIT.format(call="withUnsafeContinuation").replace(
          "    try await", "    // raw-continuation-allow: fixture for the escape\n    try await")}, False),
+    ("an old raw continuation given a reviewed escape",
+     {SELF_TEST_OTHER_WAIT: SELF_TEST_OLD_WAIT.replace(
+         "    await", "    // raw-continuation-allow: fixture for the escape\n    await")}, False),
+)
+
+
+SELF_TEST_DECODE = "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Transport/RFBReader.swift"
+SELF_TEST_DECODE_BASE = {SELF_TEST_DECODE: ("func length(_ bytes: [UInt8]) throws -> Int {\n"
+                                            "    let word = bytes.prefix(4).reduce(UInt32(0)) { $0 << 8 | UInt32(truncatingIfNeeded: $1) }\n"
+                                            "    guard let length = Int(exactly: word) else { throw Failure.tooLong }\n"
+                                            "    return length\n}\n"),
+                         # A listed file that already has a hit (before its wave): any push that touches it fixes it.
+                         "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/VNCEndpoint.swift":
+                             "func port(_ b: [UInt8], _ i: Int) -> UInt8 { b[i] }\n"}
+
+
+def _decode_edit(body: str, path: str = SELF_TEST_DECODE) -> dict[str, str]:
+    """The base decode file with BODY added at its end (at PATH)."""
+    return {path: SELF_TEST_DECODE_BASE[SELF_TEST_DECODE] + body}
+
+
+DECODE_TRAP_CASES = (
+    ("an index subscript in a decode file", _decode_edit("func first(_ b: [UInt8], _ i: Int) -> UInt8 { b[i] }\n"), True),
+    ("a range subscript in a decode file", _decode_edit("func head(_ b: [UInt8], _ n: Int) -> ArraySlice<UInt8> { b[0..<n] }\n"),
+     True),
+    ("a trapping conversion in a decode file", _decode_edit("func count(_ w: UInt32) -> UInt16 { UInt16(w) }\n"), True),
+    ("an old hit on a line the push did not change, in a decode file it touches",
+     {"Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/VNCEndpoint.swift":
+      "// The port byte.\nfunc port(_ b: [UInt8], _ i: Int) -> UInt8 { b[i] }\n"}, True),
+    ("front reads and checked conversions", _decode_edit("func pair(_ b: [UInt8]) -> UInt16? {\n"
+                                                         "    UInt16(exactly: b.dropFirst(1).prefix(2).count)\n}\n"), False),
+    ("a dictionary subscript", _decode_edit("func kind(_ k: String) -> Int? {\n"
+                                            "    let kinds: [String: Int] = [:]\n    return kinds[k]\n}\n"), False),
+    ("an escaped C constant", _decode_edit("// decode-trap-allow: a C macro, not input\n"
+                                           "let maxBytes = Int(CMUX_MAX_BYTES)\n"), False),
+    ("a subscript named only in a comment or a string", _decode_edit("// bytes[i] traps\nlet note = \"bytes[i]\"\n"),
+     False),
+    ("a subscript in a file that is not listed",
+     _decode_edit("func first(_ b: [UInt8], _ i: Int) -> UInt8 { b[i] }\n",
+                  "Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/Other.swift"), False),
 )
 
 
@@ -5527,6 +5674,7 @@ SELF_TEST_SUITES = (
     ("target-settings", SELF_TEST_MANIFEST_BASE, TARGET_SETTINGS_CASES),
     ("safety-todo", SELF_TEST_SAFETY_BASE, SAFETY_TODO_CASES),
     ("raw-continuation", SELF_TEST_CONTINUATION_BASE, RAW_CONTINUATION_CASES),
+    ("decode-trap", SELF_TEST_DECODE_BASE, DECODE_TRAP_CASES),
 )
 
 
@@ -5551,9 +5699,12 @@ def self_test() -> int:
                     return subprocess.run(["git", "-C", str(repo), *args], env=env, text=True, capture_output=True,
                                           check=True).stdout.strip()
 
-                def commit(files: dict[str, str], message: str) -> str:
+                def commit(files: dict[str, str | None], message: str) -> str:
                     for relative, text in files.items():
                         path = repo / relative
+                        if text is None:  # a deleted file
+                            path.unlink()
+                            continue
                         path.parent.mkdir(parents=True, exist_ok=True)
                         path.write_text(text)
                     run("add", "-A")
@@ -5592,11 +5743,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--list", action="store_true", help="print the rules")
     parser.add_argument("--self-test", action="store_true",
-                        help="judge the input-monitor, target-settings, safety-todo and raw-continuation rules' "
+                        help="judge the input-monitor, target-settings, safety-todo, raw-continuation and decode-trap rules' "
                              "refuse and escape cases in a scratch repository")
+    parser.add_argument("--list-perf-hot", nargs="*", metavar="PATH_ID",
+                        help=f"print the `// perf-hot:` markers per path id of {BENCHES} as this hook resolves them "
+                             "(only the ids given, if any); exit 1 when an id has no marker or a marker marks no "
+                             "declaration")
     args = parser.parse_args(argv)
     if args.self_test:
         return self_test()
+    if args.list_perf_hot is not None:
+        return list_perf_hot(Path(args.repo or git(Path.cwd(), "rev-parse", "--show-toplevel").strip()),
+                             args.list_perf_hot)
     if args.list:
         for rule in RULES:
             print(f"{rule.id}: {rule.title}\n  why: {rule.why}\n  do:  {rule.fix}\n  escape: {rule.escape or '-'}")

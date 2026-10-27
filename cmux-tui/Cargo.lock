@@ -1190,6 +1190,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-hang-watch"
+version = "0.1.0"
+dependencies = [
+ "cmux-trace",
+ "libc",
+]
+
+[[package]]
 name = "cmux-history"
 version = "0.1.0"
 dependencies = [
@@ -1384,8 +1392,11 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "cmux-trace",
  "libc",
  "serde_json",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -1789,6 +1800,7 @@ dependencies = [
  "anyhow",
  "backtrace",
  "base64",
+ "bytes",
  "cmux-agent-pane-policy",
  "cmux-api-compat",
  "cmux-app-host",

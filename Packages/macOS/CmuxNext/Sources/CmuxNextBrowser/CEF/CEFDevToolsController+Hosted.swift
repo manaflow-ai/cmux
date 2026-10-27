@@ -87,6 +87,15 @@ extension CEFDevToolsController {
         _ = tab?.runtime.shim?.browserSetPageVisibility(browser, page.pageVisibility.rawValue)
     }
 
+    /// Host mode: ``hostedPage`` while it shows DevTools browser `browser`, the view its `<select>`
+    /// popups show over: in the DevTools window, or docked while the pane shows the tab (as a page's
+    /// popups need its tab shown, ``CEFRuntime/popupMenuView(of:)``). Nil otherwise.
+    func hostedPopupMenuView(of browser: Int32) -> NSView? {
+        guard devToolsBrowserID == browser, let tab, tab.devTools.isOpen, let page = hostedPage, page.window != nil,
+              !tab.devTools.dock.isDocked || tab.host.visibleTab === tab else { return nil }
+        return page
+    }
+
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Host mode: sends the DevTools page view's input method op to the host's IME exports for the
     /// DevTools browser (``CEFPaneHost/sendTextInput(_:)``); nothing goes while no DevTools is open

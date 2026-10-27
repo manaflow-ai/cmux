@@ -15,7 +15,9 @@ import Foundation
 /// extensions, cookies) touches a cmux page. Each page's key is a key of that profile, so it takes
 /// the pages spare window the warm start built (`ChromiumWarmup`, p13-webui-016) instead of building
 /// a window in the turn that opened it. The page tabs of one pane share that pane's page window
-/// (``PageChromiumWindow``, p13-webui-063): the second page of a pane builds no window.
+/// (``PageChromiumWindow``, p13-webui-063): the second page of a pane builds no window. A page tab runs no
+/// browser-tab document script and attaches none of their DevTools bridges (``CEFEngine/makePagesTab(_:)``,
+/// p13-webui-068): only its first paint is read.
 @MainActor
 final class ChromiumPageHost: PageChromiumHosting {
     enum Failure: Error {

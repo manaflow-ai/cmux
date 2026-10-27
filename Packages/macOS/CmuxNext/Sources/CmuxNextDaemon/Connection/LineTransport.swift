@@ -82,7 +82,7 @@ final class LineTransport: Sendable {
 
     /// - Parameter opened: An opened bridge (``open(path:bridge:role:stats:hangs:writerTarget:trace:)``); nil connects to `path`.
     /// - Parameter stats: Where the connection counts (``DaemonEndpoint/wireStats``); nil for none.
-    /// - Parameter hangs: Watches each line's handling on the reader thread; nil watches nothing. `writerTarget`: see `open`.
+    /// - Parameter hangs: Watches each line the reader handles and each writer drain step; nil: none. `writerTarget`: see `open`.
     /// - Parameter clock: What reply deadlines are measured and slept on; tests pass a `ManualClock`.
     init(path: String, opened: DaemonBridge.Opened? = nil, role: DaemonWireStats.Role, stats: DaemonWireStats?,
          hangs: (any HangWatchScoping)? = nil, writerTarget: DispatchQueue? = nil, trace: TraceRuntime = .shared,
@@ -107,7 +107,7 @@ final class LineTransport: Sendable {
         }
         Self.sizeBuffers(fd)
         socket = Mutex(Socket(fd: fd))
-        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS, target: writerTarget)
+        writer = SocketWriter(fd: fd, label: "com.cmuxterm.next.daemon.write", qos: role.writerQoS, target: writerTarget, hangs: hangs)
         recorder?.connectionOpened(role, bridged: opened != nil)
         // After the last throw: a transport that never opened registers nothing (its deinit does not run).
         hangWatched = hangs.map { HangWatchedLane("daemon.line", deadline: Self.lineHangDeadline, on: $0) }

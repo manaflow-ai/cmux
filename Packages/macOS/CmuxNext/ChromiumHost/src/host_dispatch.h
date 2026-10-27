@@ -34,6 +34,10 @@
 //                                              answered with i32 joined
 //   kOpTextInputStats                          no fields: answered with the text
 //                                              input push counters (host_text_input.h)
+//   kOpEnergySaver                              the app's Energy Saver: i32 version, i32 enabled,
+//                                              str exempt scheme (host_energy_saver.h); the
+//                                              host's shim applies it after initialize, and a
+//                                              token is answered with i32 its result
 //   kOpGeometryStats                            no fields: answered with GeometryStats as
 //                                              i64 frames, applied, unchanged, unplaced
 //                                              (chromium-host-bench.py geometry row)
@@ -44,7 +48,10 @@
 //                                              (HandleLayerHosting)
 //   kOpBrowserSetPageVisibility                 the generated case; the host also keeps
 //                                              the value (KeepPageVisibility) and applies
-//                                              it when it detaches the page window
+//                                              it when it detaches the page window, and
+//                                              holds its App Nap activity while a page is
+//                                              shown (host_page_activity.h, task
+//                                              p14-energy-128)
 //   kOpBrowserAccessibilityToken                the generated case; for a browser cmux
 //                                              minted whose creation has not come, held
 //                                              and run once its AFTER_CREATED went out
@@ -60,7 +67,8 @@
 // task 014); everything else after it.
 //
 // Messages the host sends:
-//   kOpHello   str kWireID, StrList of the optional exports its shim defines;
+//   kOpHello   str kWireID, StrList of the optional exports its shim defines
+//              (and kEnergySaverHelloName when its fork has the saver);
 //              once, after the MIRRORs whose only refresh is attach
 //   kOpMirror  i32 mirror op, bytes key (EncodeFields), then bytes value
 //              (EncodeFields), or no value: cmux forgets the key
@@ -69,6 +77,9 @@
 //   kOpReply   reply flag, token, the op's result and out-parameters
 //   kOpTextInputState  a watched browser's text input state, at most once per
 //              display frame (host_text_input.h)
+//   kOpEvent   CMUX_SHIM_WHEEL_ACK: the fork's ack of one of a page's wheels,
+//              with that wheel's input seq (host_wheel_ack.h); the HELLO lists
+//              kWheelAcksHelloName when the fork has the handler
 //
 // Everything here runs on the host's main thread (Chromium's UI thread), so
 // it holds no lock (p01-process section 4, rule 1).
@@ -89,9 +100,12 @@
 #include "chromium_host_control.h"
 #include "chromium_host_tlv.h"
 #include "chromium_host_wire.h"
+#include "host_energy_saver.h"
 #include "host_mirror.h"
+#include "host_page_activity.h"
 #include "host_resize.h"
 #include "host_text_input.h"
+#include "host_wheel_ack.h"
 
 namespace cmux_host {
 
@@ -204,6 +218,10 @@ class HostContext {
   HostContext(const HostContext&) = delete;
   HostContext& operator=(const HostContext&) = delete;
 
+  // The fork's cmux_set_wheel_ack_handler (host_wheel_ack.h), nullptr when
+  // it has none. Before Attach: the HELLO lists kWheelAcksHelloName with it,
+  // and Resume installs OnWheelAck through it.
+  void SetWheelAckHandler(SetWheelAckHandlerFn set) { set_wheel_ack_handler_ = set; }
   // The mirrors whose only refresh is attach, then the hello. Once, before
   // the first OnMessages; the framework is loaded, CEF not started.
   void Attach();
@@ -219,6 +237,15 @@ class HostContext {
   // cmux_shim_browser_text_input_watch's fn; ctx is this HostContext and
   // `state` the fork's cmux_text_input_state_t.
   static void OnTextInput(void* ctx, int browser_id, const void* state);
+  // The fork's wheel ack handler; ctx is this HostContext and `ack` the
+  // fork's cmux_wheel_ack_t. Forwards CMUX_SHIM_WHEEL_ACK with the input seq
+  // of the browser's oldest unacked wheel (WheelSent).
+  static void OnWheelAck(void* ctx, int browser_id, const void* ack);
+  // The input dispatch gave Chromium's `chromium_id` the wheel of input seq
+  // `seq` through the fork's wheel call (a momentum wheel when `momentum`):
+  // the fork's first ack of that browser after the acks of the wheels sent
+  // before it answers it.
+  void WheelSent(int chromium_id, uint32_t seq, bool momentum) { wheel_acks_.Sent(chromium_id, seq, momentum); }
   static int OnWindowRequest(void* ctx, int kind, int disposition, int source_browser_id, int has_bounds, int x,
                              int y, int width, int height, int user_gesture, const char* url,
                              const char* profile_path);
@@ -275,10 +302,25 @@ class HostContext {
   const GeometryStats& geometry_stats() const { return geometry_stats_; }
 
   const TextInputPushes& text_input() const { return text_input_; }
+  const WheelAcks& wheel_acks() const { return wheel_acks_; }
 
   // Where kOpPageResize's fences go (browser_host_main.mm, before Attach);
   // nullptr resizes with no fence.
   void SetPageResizes(PageResizes* resizes) { resizes_ = resizes; }
+
+  // cmux_shim_set_energy_saver's signature.
+  using EnergySaverFn = int (*)(int enabled, const char* exempt_scheme);
+  // The host shim's saver when its fork has cmux_cef_set_energy_saver
+  // (browser_host_main.mm, before Attach, which then lists
+  // kEnergySaverHelloName); nullptr takes kOpEnergySaver and changes nothing.
+  void SetEnergySaver(EnergySaverFn energy_saver) { energy_saver_ = energy_saver; }
+
+  // What the shown page count holds (browser_host_main.mm, before Attach):
+  // the count goes to it after each kOpBrowserSetPageVisibility, at each
+  // browser's close and once initialize returned; nullptr holds nothing.
+  void SetPageShowActivity(PageShowActivity* activity) { page_activity_ = activity; }
+  // Chromium windows cmux shows (PageWindowVisibility).
+  size_t shown_pages() const { return page_windows_.shown(); }
 
  private:
   enum class State { kPreinit, kInitializing, kRunning, kEnded };
@@ -308,14 +350,25 @@ class HostContext {
   bool HandleLayerHosting(const control::Message& message);
   // kOpBrowserSetPageVisibility, before its generated case: keeps cmux's
   // value for the browser, since the fork takes none until the page window
-  // is detached (task p01-process-220). False past kMaxPageVisibilities.
+  // is detached (task p01-process-220), and keeps it for the browser's
+  // Chromium window in page_windows_, so a page that shows has the activity
+  // before the fork draws it. False past kMaxPageVisibilities.
   bool KeepPageVisibility(const control::Message& message);
+  // After `client`'s event changed HostMirrors' windows: page_windows_
+  // follows the tab into its window and drops `window_before` (its window
+  // before the event) or `event_window` (a TAB_EVENT's window, else 0) when
+  // no tab is left in it.
+  void FollowPageWindows(int32_t client, int64_t window_before, int64_t event_window);
+  // Hands page_windows_' shown count to page_activity_.
+  void UpdatePageActivity();
   // Keeps `geometry` as `client_id`'s newest until its creation; past
   // kMaxPendingBinds held ids it is dropped (unplaced).
   void HoldGeometry(int32_t client_id, const PageGeometry& geometry);
   // `chromium_id`'s page view takes `geometry` when it changed.
   void PlaceBrowser(int chromium_id, const PageGeometry& geometry);
   bool HandlePageResize(const control::Message& message);
+  // kOpEnergySaver: false for a malformed op.
+  bool HandleEnergySaver(const control::Message& message);
   // Keeps `token`'s size for the next op that opens its view (view_sizes_).
   void RememberViewSize(uint64_t token, int32_t width, int32_t height);
   // Watches `chromium_id`'s text input in the fork: its result (0 refused).
@@ -410,6 +463,11 @@ class HostContext {
   // Browsers cmux watches the text input of, by Chromium id.
   TextInputPushes text_input_;
   PageResizes* resizes_ = nullptr;
+  // The fork's wheel ack handler setter (SetWheelAckHandler) and each page's
+  // unacked wheels, by Chromium id.
+  SetWheelAckHandlerFn set_wheel_ack_handler_ = nullptr;
+  WheelAcks wheel_acks_;
+  EnergySaverFn energy_saver_ = nullptr;
   // Text input watches of minted ids whose creation has not come, by the
   // minted id: the watch tokens Bind arms and answers. Bounded with
   // pending_binds_ (AwaitsCreation).
@@ -427,6 +485,10 @@ class HostContext {
   // cmux's last page visibility (cmux_shim_page_visibility_t) by client id,
   // applied again when HandleLayerHosting detaches that browser's page window.
   std::unordered_map<int32_t, int32_t> page_visibility_;
+  // The same posts by Chromium window, which the fork applies them to: the
+  // shown count page_activity_ holds on.
+  PageWindowVisibility page_windows_;
+  PageShowActivity* page_activity_ = nullptr;
   GeometryStats geometry_stats_;
 };
 

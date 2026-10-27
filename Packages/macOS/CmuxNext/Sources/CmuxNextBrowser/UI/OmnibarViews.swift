@@ -30,6 +30,8 @@ final class OmnibarPillView: NSView {
     private var glass: GlassPanelView?
     /// Follows cmux.json's look (``followLook(on:)``); ends with the view.
     private var lookWatch: FrameObservation<OmnibarGlassLook>?
+    /// The node the pill's repaint waits on (R-appear): its bar's (``AddressBarView/visibilityNode``).
+    var visibilityNode = VisibilityNode(root: "browser.omnibar.pill.standalone", own: .visible)
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -63,11 +65,13 @@ final class OmnibarPillView: NSView {
 
     // Hover is the pill's frame under the pointer (the bar above it takes
     // the clicks); hiding with the pane or leaving the window clears it.
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidHide() {
         super.viewDidHide()
         hover?.refresh()
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidUnhide() {
         super.viewDidUnhide()
         hover?.refresh()
@@ -81,8 +85,16 @@ final class OmnibarPillView: NSView {
         refresh(animated: false)
     }
 
+    /// A hidden tab's pill repaints once, when it shows (R-appear).
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        visibilityNode.deferUntilVisible(key: Self.appearanceKey) { [weak self] in self?.appearanceChanged() }
+    }
+
+    /// The ``visibilityNode`` key of the pill's deferred repaint.
+    static let appearanceKey = "OmnibarPillView.appearance"
+
+    private func appearanceChanged() {
         // Reduce Transparency may have changed since the material was built.
         if drawsGlass != (glass != nil) { rebuildMaterial() } else { refresh(animated: false) }
     }
@@ -244,6 +256,7 @@ final class OmnibarCardTopView: NSView {
         CATransaction.commit()
     }
 
+    // visibility-walk-allow: one layer color store in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refresh()

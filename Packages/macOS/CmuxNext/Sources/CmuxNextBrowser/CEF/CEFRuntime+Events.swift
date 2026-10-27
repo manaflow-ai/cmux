@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextInput
 import Foundation
 import os
@@ -20,8 +21,8 @@ let cefEventCallback: CEFShimLibrary.EventFn = { context, kind, browser, request
     // future shim path emits elsewhere, hop instead of trapping in
     // assumeIsolated (the strings are already copied into `event`).
     guard Thread.isMainThread else {
-        DispatchQueue.main.async { MainActor.assumeIsolated { CEFRuntime.from(address)?.receive(event) } } // main-proof: a DispatchQueue.main block runs on the main thread
-        return
+        // FIFO with every other run-loop block: a commit or a crash is never reordered by class.
+        return MainRunLoopBlock.perform { CEFRuntime.from(address)?.receive(event) }
     }
     MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread above
         CEFRuntime.from(address)?.receive(event)
@@ -72,6 +73,7 @@ let cefDevToolsKeyCallback: CEFShimLibrary.KeyFn = { context, browser, nsEvent i
 
 extension CEFRuntime {
     func dispatch(_ event: CEFShimEvent) {
+        if mergedEvents.holds(event, for: event.browserID.flatMap { tabsByBrowser[$0] }) { return }
         switch event {
         case .contextInitialized:
             logger.info("CEF context initialized")
@@ -83,6 +85,8 @@ extension CEFRuntime {
             chromeWindowCommandBlocked(command, browser: browser)
         case .beforeClose(let browser):
             widgetHost?.ownerClosed(browser)
+            hostStart?.popupMenus?.ownerClosed(browser)
+            hostStart?.files?.browserClosed(browser)
             browserClosed(browser)
         case .beforeUnloadDialog(let browser, let token, let isReload):
             // A page with no tab to ask in never keeps its unload waiting: it leaves.
@@ -102,11 +106,14 @@ extension CEFRuntime {
             widgetHost?.remove(widget)
         case .pageView(let browser, let change):
             tabsByBrowser[browser]?.host.pageViewChanged(change, browser: browser)
+        case .popupMenu(let browser, let token, let popup):
+            popupMenuOpened(browser: browser, token: token, popup: popup)
+        case .popupMenuHidden(let browser, let token):
+            hostStart?.popupMenus?.hide(browser: browser, token: token)
         case .pageDragEnter(let browser, let pathsJSON):
             if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
-        case .fileDialog(_, let dialogID, _, _, _):
-            // Only after the host turned choosers on (setFileDialogs): until a handler answers, cancel, so a page never waits.
-            _ = shim?.fileDialogAnswer(dialogID, 0, nil)
+        case .fileDialog(let browser, let dialogID, let mode, let acceptTypes, let defaultPath):
+            fileDialogAsked(dialogID, browser: browser, request: ChromiumFileDialogRequest(mode: mode, acceptTypes: acceptTypes, defaultPath: defaultPath))
         case .devToolsResult(let browser, let messageID, let success, let json):
             let key = CEFDevToolsKey(browser: browser, message: messageID)
             let result: Result<String, any Error> = success ? .success(json) : .failure(BrowserTabError.javaScript(json))
@@ -116,7 +123,8 @@ extension CEFRuntime {
             }
         case .reply(_, let id, let value, let json):
             let reply = CEFSiteReply(value: value, json: json)
-            if !builtInLoader.answer(reply: id, value: value), !siteReplies.resolve(id, with: .success(reply)), siteReplyBrowsers[id] != nil {
+            if !surfaceCopies.answer(reply: id, value: value, json: json), !builtInLoader.answer(reply: id, value: value),
+               !siteReplies.resolve(id, with: .success(reply)), siteReplyBrowsers[id] != nil {
                 earlySiteReplies[id] = reply
             }
         case .tab(let kind, let browser, let window, let value):
@@ -129,6 +137,7 @@ extension CEFRuntime {
             tabsByBrowser[browser]?.devToolsController.opened(browser: devTools, docked: docked)
         case .devToolsClosed(let browser, let devTools):
             tabsByBrowser[browser]?.devToolsController.closed(browser: devTools)
+            hostStart?.popupMenus?.ownerClosed(devTools)
         case .installPrompt(let browser, let promptID, let json):
             extensionPrompts.arrived(promptID: promptID, browser: browser, json: json)
         case .download(let event):
@@ -266,6 +275,7 @@ extension CEFRuntime {
     private func browserClosed(_ browser: Int32) {
         windowRequests.linkClicks.forget(opener: browser)
         if let tab = tabsByBrowser.removeValue(forKey: browser) {
+            mergedEvents.forget(tab, browser: browser)
             pageWindowWidgetsBrowserClosed(browser)
             tab.browserDidClose(closesTab: shutdownSequence == nil)
         } else {
@@ -275,6 +285,7 @@ extension CEFRuntime {
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)
         failEvaluations(of: browser)
+        surfaceCopies.browserClosed(browser)
         // The fork counts a browser's window until its destructor, after this close.
         if let shim { shutdownSequence?.windowsOpen(Int(shim.windowCount())) }
         shutdownSequence?.browserClosed(remaining: tabsByBrowser.count + pendingWindows.count)
@@ -302,20 +313,16 @@ extension CEFRuntime {
             shutdownSequence?.windowDestroyed(remaining: value)
             shutdownProgressed()
         case .activated:
-            // Chromium (an extension) switched the window's tab: cmux selects
-            // it. Our own cmux_tab_activate echoes for the visible tab.
-            // The event arrives inside Chromium's tab strip notification, which
-            // forbids re-entrant tab strip changes (cmux_tab_activate); the
-            // host selects the tab on the next main-actor turn.
-            // An echo of our own activation (or of the tab's creation) that
-            // lands after the user selected another tab must not select this
-            // one again: that stale completion jumped the selection back.
+            // Chromium (an extension) switched the window's tab: cmux selects it at the end of the turn, outside
+            // Chromium's tab strip notification, which forbids re-entrant tab strip changes (cmux_tab_activate).
+            // An echo of our own activation or of the tab's creation, late after the person chose another tab,
+            // selects nothing: that stale completion jumped the selection back.
             if let tab = tabsByBrowser[browser], tab.host.visibleTab !== tab {
                 guard tab.host.isForeignActivation(of: tab) else {
                     tab.host.lifecycleTrace.record(tab.id, "chromium-activated echo dropped")
                     return
                 }
-                Task { @MainActor [weak tab] in
+                tab.host.endOfTurn { [weak tab] in
                     guard let tab, tab.host.isForeignActivation(of: tab) else { return }
                     tab.host.lifecycleTrace.record(tab.id, "chromium-activated selects tab")
                     tab.emit(.activate)
@@ -442,29 +449,5 @@ extension CEFRuntime {
         let waiter = shutdownWaiter
         shutdownWaiter = nil
         waiter?.resume(returning: ())
-    }
-}
-
-extension CEFShimEvent {
-    var browserID: Int32? {
-        switch self {
-        case .address(let b, _), .title(let b, _), .favicon(let b, _), .loadingState(let b, _, _, _),
-             .loadStart(let b, _, _), .loadEnd(let b, _), .loadError(let b, _, _, _, _), .progress(let b, _),
-             .fullscreen(let b, _), .findResult(let b, _, _, _, _), .closeRequested(let b), .popup(let b, _, _, _),
-             .afterCreated(let b, _, _, _), .beforeClose(let b), .createFailed(let b, _), .chromeCommand(let b, _), .devToolsResult(let b, _, _, _), .tab(_, let b, _, _),
-             .reply(let b, _, _, _), .contextMenu(let b, _, _, _, _, _),
-             .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
-             .renderTerminated(let b, _, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
-             .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .keyUnhandledChord(let b, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
-             .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
-             .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),
-             .fileDialog(let b, _, _, _, _), .pageView(let b, _),
-             .pageMessage(let b, _, _, _), .widgetGone(let b, _):
-            b
-        case .widgetContext(let context):
-            context.owner
-        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult, .unknown:
-            nil
-        }
     }
 }

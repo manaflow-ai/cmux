@@ -2,9 +2,11 @@
 //! connection's cancellation token, clear-history barriers, and the
 //! dispatcher thread that runs queued surface operations in order.
 //!
-//! Request threads (this dispatcher, its clear-history workers, the WebSocket
-//! connection thread) start through [`spawn_request_thread`]: UserInitiated,
-//! blocking disallowed (p02-threads task 211).
+//! Request threads (this dispatcher, the WebSocket connection thread) start
+//! through [`spawn_request_thread`]: UserInitiated, blocking disallowed
+//! (p02-threads task 211). The dispatcher then rests at its connection's
+//! class (connection_qos.rs, task 224). A clear-history request runs as a
+//! `Mux::work` item at its cause's priority, blocking disallowed (task 230).
 
 use super::MessageWriter;
 use crate::panic_free::RecoverPoison;
@@ -25,17 +27,21 @@ use super::send_request_error;
 use super::send_request_error_with_delivery;
 use super::terminal_create;
 use crate::Mux;
+#[path = "connection_qos.rs"]
+pub(super) mod connection_qos;
 use crate::SurfaceId;
 use crate::event_cause::EventCause;
 use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
 use crate::thread_qos::ThreadType;
 use cmux_threads::ThreadQos;
+use cmux_threads::sync::Condvar;
+use cmux_threads::sync::Mutex;
+use cmux_threads::work::{Lane, Shutdown};
+use connection_qos::{ConnectionClassCell, ConnectionThread, RestingClass};
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::Condvar;
-use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
@@ -45,8 +51,8 @@ use std::time::Instant;
 /// The QoS of the threads that run a connection's requests and write its
 /// replies and events: the person waits on them (Chromium's kDefault,
 /// base/threading/platform_thread_apple.mm), [`ThreadType::Interactive`].
-/// Task 224 moves automation connections to Utility once they name their
-/// client.
+/// An automation connection's request threads rest at Utility once it is
+/// classified (connection_qos.rs, task 224).
 pub(super) const REQUEST_THREAD_QOS: ThreadQos = ThreadType::Interactive.qos();
 
 /// Starts request thread `name` at [`REQUEST_THREAD_QOS`] with blocking
@@ -152,6 +158,9 @@ pub(super) struct ConnectionSurfaceScheduler {
     pub(super) dispatcher: Mutex<Option<JoinHandle<()>>>,
     pub(super) connection_permit: Mutex<Option<ConnectionPermit>>,
     pub(super) creations: terminal_create::ConnectionCreations,
+    /// The connection's client class, set by its registry record; the
+    /// dispatcher rests at it (connection_qos.rs).
+    pub(super) class: Arc<ConnectionClassCell>,
 }
 
 impl Default for ConnectionSurfaceScheduler {
@@ -185,7 +194,19 @@ impl ConnectionSurfaceScheduler {
             dispatcher: Mutex::new(None),
             connection_permit: Mutex::new(connection_permit),
             creations: terminal_create::ConnectionCreations::default(),
+            class: Arc::default(),
         }
+    }
+
+    /// The scheduler of a connection whose client class is `class` (its
+    /// registry record's cell, `ClientRegistry::connection_class`).
+    pub(super) fn classed(mut self, class: Arc<ConnectionClassCell>) -> Self {
+        self.class = class;
+        self
+    }
+
+    fn resting_class(&self, mux: &Mux) -> RestingClass {
+        RestingClass::new(self.class.clone(), ConnectionThread::Request, mux.request_qos())
     }
 }
 
@@ -352,7 +373,8 @@ impl ConnectionSurfaceScheduler {
                 self.changed.notify_all();
                 return None;
             }
-            state = self.changed.wait(state).recover_poison();
+            // Idle for the connection's next request: not blocking work.
+            state = self.changed.idle().wait(state).recover_poison();
         }
     }
 
@@ -454,6 +476,30 @@ impl Drop for ActiveClearGuard {
     }
 }
 
+/// A clear-history request on its way to its work item. Dropped unrun (a
+/// refused post, a queued item dropped at shutdown) it ends the barrier and
+/// answers that the request did not run, so no request goes unanswered.
+struct ClearWork {
+    reply: MessageWriter,
+    pending: Option<PendingSurfaceRequest>,
+    active: Option<ActiveClearGuard>,
+}
+
+impl Drop for ClearWork {
+    fn drop(&mut self) {
+        let Some(pending) = self.pending.take() else { return };
+        let id = pending.request.id.clone();
+        drop(pending);
+        drop(self.active.take());
+        let _ = send_request_error_with_delivery(
+            &self.reply,
+            id,
+            "clear-history did not run: the daemon is shutting down",
+            Some(ResponseErrorDelivery::KnownNotDelivered),
+        );
+    }
+}
+
 struct ConnectionDispatcherGuard(Arc<ConnectionSurfaceScheduler>);
 
 impl Drop for ConnectionDispatcherGuard {
@@ -504,8 +550,10 @@ fn run_connection_surface_dispatcher(
     writer: MessageWriter,
 ) {
     let _dispatcher = ConnectionDispatcherGuard(scheduler.clone());
+    let mut resting = scheduler.resting_class(&mux);
     while writer.is_open() {
         let Some(pending) = scheduler.next_request() else { return };
+        resting.follow();
         if pending.request.cmd.is_clear_history()
             && let Some(surface) = pending.request.cmd.ordering_surface()
         {
@@ -524,48 +572,42 @@ fn run_connection_surface_dispatcher(
                 }
                 continue;
             };
-            let shared_pending = Arc::new(Mutex::new(Some(pending)));
-            let worker_pending = shared_pending.clone();
+            // A work item at the priority of the request it serves (its
+            // cause), as Chrome posts a task at its caller's priority; it runs
+            // the request as a request thread does, blocking disallowed. It
+            // waits on the terminal and its PTY, so it is system-lane work.
+            let priority = pending.cause.work_priority();
+            let mut clear = ClearWork {
+                reply: pending.reply_writer(&writer),
+                pending: Some(pending),
+                active: Some(ActiveClearGuard { scheduler: scheduler.clone(), surface }),
+            };
             let worker_scheduler = scheduler.clone();
             let worker_mux = mux.clone();
             let worker_writer = writer.clone();
-            let spawn = spawn_request_thread("mux-surface-control", move || {
-                let _active = ActiveClearGuard { scheduler: worker_scheduler.clone(), surface };
-                // Drop the mux-wide permit before `_active` wakes the next
-                // request queued behind this surface barrier.
-                let _worker_permit = worker_permit;
-                // The request is handed over exactly once: here, or to
-                // the spawn-failure path below.
-                let Some(pending) = worker_pending.lock().recover_poison().take() else {
-                    return;
-                };
-                if !run_pending_request(
-                    &worker_scheduler,
-                    &worker_mux,
-                    client,
-                    pending,
-                    &worker_writer,
-                ) {
-                    worker_scheduler.close();
-                }
-            });
-            if let Err(error) = spawn {
-                let Some(pending) = shared_pending.lock().recover_poison().take() else {
-                    scheduler.finish_clear(surface);
-                    continue;
-                };
-                let (id, reply) = (pending.request.id.clone(), pending.reply_writer(&writer));
-                drop(pending);
-                scheduler.finish_clear(surface);
-                if !send_request_error_with_delivery(
-                    &reply,
-                    id,
-                    &format!("could not start clear-history worker: {error}"),
-                    Some(ResponseErrorDelivery::KnownNotDelivered),
-                ) {
-                    scheduler.close();
-                    return;
-                }
+            let posted =
+                mux.work.post(priority, Lane::System, Shutdown::SkipOnShutdown, move || {
+                    // Drop the mux-wide permit before the barrier ends and wakes
+                    // the next request queued behind it.
+                    let _active = clear.active.take();
+                    let _worker_permit = worker_permit;
+                    let Some(pending) = clear.pending.take() else { return };
+                    cmux_threads::blocking::with_blocking_disallowed(|| {
+                        if !run_pending_request(
+                            &worker_scheduler,
+                            &worker_mux,
+                            client,
+                            pending,
+                            &worker_writer,
+                        ) {
+                            worker_scheduler.close();
+                        }
+                    });
+                });
+            // Refused (shutdown began): the dropped item answered the request.
+            if posted.is_err() {
+                scheduler.close();
+                return;
             }
         } else if pending.request.cmd.creates_terminal() {
             if !scheduler.submit_creation(&mux, client, pending, &writer) {

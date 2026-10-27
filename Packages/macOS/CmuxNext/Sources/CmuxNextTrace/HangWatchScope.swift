@@ -20,19 +20,13 @@ public struct HangWatchScope: ~Copyable {
         self.owner = owner
     }
 
-    /// Closes the scope now (before the end of the code block that holds it). It restores the deadline,
-    /// then discards itself, so the deinit does not restore a second time.
-    public consuming func close() {
-        restore()
-        discard self
-    }
+    /// Closes the scope now (before the end of the code block that holds it): consuming it ends the
+    /// value here, so its deinit restores the deadline, once. (No `discard self`: the scope holds its
+    /// ``HangWatch``, which is not trivially destroyed.)
+    public consuming func close() {}
 
+    /// Puts `previousDeadline` back in the slot: the one place a scope restores, at close or when it goes away.
     deinit {
-        restore()
-    }
-
-    /// Puts `previousDeadline` back in the slot: the one place close and deinit restore.
-    private func restore() {
         owner?.close(slotAddress: slotAddress, registration: registration, previous: previousDeadline)
     }
 }
