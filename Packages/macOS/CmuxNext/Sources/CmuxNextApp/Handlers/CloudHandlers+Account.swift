@@ -302,7 +302,7 @@ extension CloudHandlers {
             let name = session.machine.title
             guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudMoveStrings.notConnected(name)) }
             var cwd: String?
-            let folder = await plan.folder(work: services.work)
+            let folder = try await plan.folder(work: services.work)
             if let folder, let binary = cloud.move.cli {
                 guard let socket = await connection.endpoint?.socketPath else { throw ActionFailure(message: CloudMoveStrings.notConnected(name)) }
                 let cli = CloudMoveCLI(binary: binary, timeout: cloud.move.timeout)

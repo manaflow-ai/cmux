@@ -40,10 +40,11 @@ public nonisolated struct CloudNewWorkspacePlan: Sendable, Equatable {
         source = inheritsFolder ? cwd : nil
     }
 
-    /// The folder copied to the machine, read on `work`'s files lane (never the main thread).
-    public func folder(work: BackgroundWork) async -> CloudMoveFolder? {
+    /// The folder copied to the machine, read on `work`'s files lane (never the main thread). Throws
+    /// when the creation was cancelled meanwhile, so nothing more is made on the machine.
+    public func folder(work: BackgroundWork) async throws -> CloudMoveFolder? {
         guard source != nil else { return nil }
-        return (try? await work.run(.userBlocking, mayBlock: .files) { resolvedFolder() }) ?? nil
+        return try await work.run(.userBlocking, mayBlock: .files) { resolvedFolder() }
     }
 
     /// The git working copy around ``source``, read from disk now. Only a working copy is copied: a
