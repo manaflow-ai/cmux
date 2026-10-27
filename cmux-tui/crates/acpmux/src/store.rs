@@ -610,6 +610,13 @@ pub trait Store: Send + Sync {
             if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
         })
     }
+    /// `scan` from the start, passing each record's head ([`RecordHead`]) until `visit` returns
+    /// false; the reader parses only the records it needs (`RecordHead::record`). A file store
+    /// reads a head without parsing its line: adopting a host after a restart reads its whole
+    /// log four times, and parsing every line held big-red's daemon at a full core for minutes.
+    fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
+        self.scan(id, 0, &mut |rec| visit(&RecordHead::parsed(&rec)))
+    }
     /// Make every appended record durable (called on shutdown).
     fn flush(&self) -> Result<()> {
         Ok(())
@@ -655,6 +662,94 @@ pub trait Store: Send + Sync {
     fn briefs_path(&self) -> Option<PathBuf> {
         None
     }
+}
+
+/// One record as [`Store::scan_heads`] passes it: the fields a log line holds before its `msg`,
+/// and the whole record on demand.
+pub struct RecordHead<'a> {
+    pub seq: u64,
+    pub at: u64,
+    pub dir: &'a str,
+    pub kind: &'a str,
+    pub host_seq: Option<u64>,
+    body: HeadBody<'a>,
+}
+
+enum HeadBody<'a> {
+    /// A log line, not parsed yet.
+    Line(&'a [u8]),
+    /// A record the store holds parsed, or a line whose head did not read.
+    Parsed(&'a EventRecord),
+}
+
+impl<'a> RecordHead<'a> {
+    fn parsed(rec: &'a EventRecord) -> Self {
+        Self {
+            seq: rec.seq,
+            at: rec.at,
+            dir: &rec.dir,
+            kind: &rec.kind,
+            host_seq: rec.host_seq,
+            body: HeadBody::Parsed(rec),
+        }
+    }
+
+    /// The head of a line the daemon wrote (`{"seq":N,"at":N,"dir":"..","kind":"..","msg":..}`,
+    /// then `"hostSeq":N` when it has one); None for any other shape, which the caller parses.
+    fn read(line: &'a [u8]) -> Option<Self> {
+        let body = line.trim_ascii_end();
+        if body.last() != Some(&b'}') {
+            return None;
+        }
+        let text = |field: &'a [u8]| {
+            std::str::from_utf8(field).ok().filter(|s| !s.contains('\\') && !s.is_empty())
+        };
+        let host_seq = record_host_seq(body);
+        // A `hostSeq` anywhere but last is not the daemon's field order.
+        let head = body.get(..160).unwrap_or(body);
+        let head = head.get(..memchr::memmem::find(head, b"\"msg\":")?).unwrap_or_default();
+        if host_seq.is_none() && memchr::memmem::find(head, b"\"hostSeq\"").is_some() {
+            return None;
+        }
+        Some(Self {
+            seq: record_seq(body)?,
+            at: record_at(body)?,
+            dir: text(record_dir(body)?)?,
+            kind: text(record_kind(body)?)?,
+            host_seq,
+            body: HeadBody::Line(body),
+        })
+    }
+
+    /// The whole record (None for a line that does not parse, which `scan` passes too).
+    pub fn record(&self) -> Option<EventRecord> {
+        match self.body {
+            HeadBody::Line(line) => parse_record(line).ok(),
+            HeadBody::Parsed(rec) => Some(rec.clone()),
+        }
+    }
+
+    /// Whether the record's line may hold `needle`: true for a record held parsed, so a reader
+    /// uses it only to pass a record it surely does not need.
+    pub fn may_contain(&self, needle: &[u8]) -> bool {
+        match self.body {
+            HeadBody::Line(line) => memchr::memmem::find(line, needle).is_some(),
+            HeadBody::Parsed(_) => true,
+        }
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Log lines parsed on this thread by `scan` and `scan_heads` (tests count them).
+    pub(crate) static PARSED_LINES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Parses one log line into its record.
+fn parse_record(line: &[u8]) -> serde_json::Result<EventRecord> {
+    #[cfg(test)]
+    PARSED_LINES.with(|n| n.set(n.get() + 1));
+    serde_json::from_slice(line)
 }
 
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
@@ -853,6 +948,31 @@ fn record_seq(line: &[u8]) -> Option<u64> {
         return None;
     }
     std::str::from_utf8(rest.get(..digits)?).ok()?.parse().ok()
+}
+
+/// The `at` of one serialized record, read without parsing it: `{"seq":N,"at":N,...`.
+fn record_at(line: &[u8]) -> Option<u64> {
+    let rest = line.strip_prefix(b"{\"seq\":")?;
+    let rest = rest.get(rest.iter().take_while(|b| b.is_ascii_digit()).count()..)?;
+    let rest = rest.strip_prefix(b",\"at\":")?;
+    let digits = rest.iter().take_while(|b| b.is_ascii_digit()).count();
+    if digits == 0 || digits > 19 || rest.get(digits) != Some(&b',') {
+        return None;
+    }
+    std::str::from_utf8(rest.get(..digits)?).ok()?.parse().ok()
+}
+
+/// The `hostSeq` of one serialized record, read without parsing it: the daemon writes it last
+/// (`...,"hostSeq":N}`), so a nested one is followed by more than the record's closing brace.
+fn record_host_seq(line: &[u8]) -> Option<u64> {
+    let rest = line.strip_suffix(b"}")?;
+    let digits = rest.iter().rev().take_while(|b| b.is_ascii_digit()).count();
+    if digits == 0 || digits > 19 {
+        return None;
+    }
+    let (rest, number) = rest.split_at(rest.len() - digits);
+    rest.strip_suffix(b",\"hostSeq\":")?;
+    std::str::from_utf8(number).ok()?.parse().ok()
 }
 
 /// The `dir` of one serialized record, read without parsing it, as `record_kind` reads its kind.
@@ -1151,8 +1271,38 @@ impl Store for LocalStore {
                 if record_seq(&line).is_some_and(|seq| seq <= after) {
                     continue;
                 }
-                let Ok(rec) = serde_json::from_slice::<EventRecord>(&line) else { continue };
+                let Ok(rec) = parse_record(&line) else { continue };
                 if rec.seq > after && !visit(rec) {
+                    return Ok(());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Reads each line's head (`RecordHead::read`) and parses only the lines the reader asks
+    /// for, or a line whose head does not read.
+    fn scan_heads(&self, id: &str, visit: &mut dyn FnMut(&RecordHead<'_>) -> bool) -> Result<()> {
+        let mut line = Vec::new();
+        for (_, path) in self.segments(id)? {
+            let mut reader =
+                BufReader::with_capacity(256 * 1024, crate::config::private_state_file(&path)?);
+            loop {
+                line.clear();
+                if reader.read_until(b'\n', &mut line)? == 0 {
+                    break;
+                }
+                if line.iter().all(u8::is_ascii_whitespace) {
+                    continue;
+                }
+                let more = match RecordHead::read(&line) {
+                    Some(head) => visit(&head),
+                    None => {
+                        let Ok(rec) = parse_record(&line) else { continue };
+                        visit(&RecordHead::parsed(&rec))
+                    }
+                };
+                if !more {
                     return Ok(());
                 }
             }
@@ -1503,3 +1653,6 @@ mod permission_tests {
 
 #[cfg(all(test, unix))]
 mod line_rev_tests;
+
+#[cfg(test)]
+mod head_tests;
