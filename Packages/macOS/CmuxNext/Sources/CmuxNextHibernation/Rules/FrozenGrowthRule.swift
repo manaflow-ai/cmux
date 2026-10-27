@@ -157,11 +157,49 @@ package nonisolated struct FrozenGrowthRule: Sendable {
     ///   - start: The page.
     ///   - openers: Each opened page's opener.
     package static func openerGroup<Node: Hashable>(of start: Node, openers: [Node: Node]) -> Set<Node> {
+        group(of: start, linked: links(openers))
+    }
+
+    /// The opener group of every linked page (``openerGroup(of:openers:)``), from one walk of
+    /// `openers`: O(links), whatever the number of pages asked. A page with no link is in none.
+    ///
+    /// - Parameter openers: Each opened page's opener.
+    package static func openerGroups<Node: Hashable>(openers: [Node: Node]) -> [Node: Set<Node>] {
+        let linked = links(openers)
+        var groups: [Node: Set<Node>] = [:]
+        for node in linked.keys where groups[node] == nil {
+            let members = group(of: node, linked: linked)
+            for member in members { groups[member] = members }
+        }
+        return groups
+    }
+
+    /// A page's opener group for one plan, itself included: `links` (each opened page's opener) is read and
+    /// grouped at the first ask only, so a plan that asks for no group reads nothing and one that asks for
+    /// many costs O(links), never O(pages asked x links).
+    ///
+    /// - Parameter links: Each opened page's opener, now (`BrowserScriptOpeners`).
+    package static func openerGroups(links: @escaping () -> [String: String]) -> (String) -> Set<String> {
+        var groups: [String: Set<String>]?
+        return { key in
+            let all = groups ?? Self.openerGroups(openers: links())
+            groups = all
+            return all[key] ?? [key]
+        }
+    }
+
+    /// Each page's links, in both directions.
+    private static func links<Node: Hashable>(_ openers: [Node: Node]) -> [Node: [Node]] {
         var linked: [Node: [Node]] = [:]
         for (child, opener) in openers {
             linked[child, default: []].append(opener)
             linked[opener, default: []].append(child)
         }
+        return linked
+    }
+
+    /// Every page `linked` reaches from `start`, itself included.
+    private static func group<Node: Hashable>(of start: Node, linked: [Node: [Node]]) -> Set<Node> {
         var group: Set<Node> = [start]
         var queue = [start]
         while let node = queue.popLast() {

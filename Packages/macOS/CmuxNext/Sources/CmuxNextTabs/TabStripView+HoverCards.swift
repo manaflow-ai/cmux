@@ -36,7 +36,7 @@ extension TabStripView {
         guard let window else { return }
         let point = convert(window.convertPoint(fromScreen: hoverCards.currentPointer()), from: nil)
         let lit = buttonReveal.pointerInStrip || hoveredID != nil || groups.hoveredChip != nil
-        let inside = bounds.intersection(visibleRect).contains(point) && !isHiddenOrHasHiddenAncestor
+        let inside = bounds.intersection(visibleRect).contains(point) && isShownInWindow
         if inside {
             if lit { updateHover(at: point, moved: false) }
         } else if lit || newTabButton.isHovered || closingModeWidth != nil { pointerLeft() }
