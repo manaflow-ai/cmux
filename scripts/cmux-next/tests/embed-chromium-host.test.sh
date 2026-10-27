@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
-# embed-cef.sh puts the Chromium host (prototype) into Debug and bench builds only:
-# a Debug embed builds it with build-chromium-host.sh (not with the shim)
+# embed-cef.sh puts the Chromium host into every build (Release since
+# p01-process-088): it builds it with build-chromium-host.sh (not with the shim)
 # against the shim build and its artifact, and puts it at
 # Contents/MacOS/<Product> Chromium Host (the app is Chromium's main bundle, so
 # the helpers' sandbox reaches the framework); it removes the earlier
 # Frameworks/<Product> Chromium Host.app; the same build's remote shim goes to
-# Frameworks/libcmux_cef_shim_remote.dylib. A Release embed never builds it and
-# removes one left by an earlier Debug build, so Release, RC and NIGHTLY
-# bundles carry no host. A host that does not build leaves a Debug
-# build without the host app (a warning), unless
+# Frameworks/libcmux_cef_shim_remote.dylib. A host that does not build leaves
+# the build without the host (a warning), unless
 # CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1. Every build step is a stand-in (no
 # network, no compiler, no signing).
 #
@@ -95,16 +93,17 @@ for pair in libcmux_cef_shim.dylib=shim cmux-cef-helper=helper cmux-chromium-hos
 done
 [[ ! -e "$TMP/CEF-dSYMs" ]] || fail "a Debug embed unpacked Chromium's dSYM"
 
-# 2. Release on the same bundle: no host build, and the Debug host app is gone.
-rm -f "$TMP/host-builds"
+# 2. Release (and so RC and NIGHTLY, p01-process-088) on a fresh bundle: the
+# host and its remote shim, as in Debug, for sign-cef.sh to sign as nested code.
+rm -rf "$TMP/build/app.app" "$TMP/derived" "$TMP/host-builds"
 embed Release
-[[ ! -e "$host_app" ]] || fail "a Release embed keeps a Chromium host app"
-[[ ! -e "$remote_shim" ]] || fail "a Release embed keeps the remote shim"
-# The shim's dSYMs stay; the host's go with the host; Chromium's is unpacked beside the products.
-[[ "$(kept_dsym libcmux_cef_shim.dylib)" == shim && "$(kept_dsym cmux-cef-helper)" == helper ]] ||
-  fail "a Release embed lost the shim's dSYMs"
-[[ ! -e "$TMP/build/cmux-chromium-host.dSYM" && ! -e "$TMP/build/libcmux_cef_shim_remote.dylib.dSYM" ]] ||
-  fail "a Release embed keeps the dSYMs of a host it does not ship"
+[[ "$(cat "$TMP/host-builds")" == "arm64 $dist $TMP/shim" ]] || fail "a Release embed did not build the host: $(cat "$TMP/host-builds" 2>/dev/null)"
+[[ "$(cat "$host_app")" == "host binary" ]] || fail "a Release embed has no Chromium host"
+[[ "$(cat "$remote_shim")" == "remote shim" ]] || fail "a Release embed has not the host build's remote shim"
+# Every shipped binary's dSYM stays, the host's too; Chromium's is unpacked beside the products.
+for pair in libcmux_cef_shim.dylib=shim cmux-cef-helper=helper cmux-chromium-host=host libcmux_cef_shim_remote.dylib=remote; do
+  [[ "$(kept_dsym "${pair%%=*}")" == "${pair#*=}" ]] || fail "a Release embed keeps no dSYM for ${pair%%=*}: $(ls "$TMP/build")"
+done
 [[ "$(cat "$TMP/CEF-dSYMs/arm64/$cef_dwarf" 2>/dev/null)" == "cef dwarf" ]] ||
   fail "a Release embed did not keep Chromium's dSYM: $(cat "$TMP/embed-Release.log")"
 # A second Release build reuses the unpacked dSYM (the archive is not read again).
@@ -114,17 +113,17 @@ embed Release
 [[ "$(cat "$TMP/CEF-dSYMs/arm64/$cef_dwarf" 2>/dev/null)" == "cef dwarf" ]] ||
   fail "a Release embed read the dSYM archive again instead of the unpacked one: $(cat "$TMP/embed-Release.log")"
 mv "$TMP/cef-dsym.tar" "$dist/Chromium Embedded Framework.dSYM.tar.xz"
-[[ ! -e "$TMP/host-builds" ]] || fail "a Release embed built the Chromium host"
 [[ -d "$TMP/build/app.app/Contents/Frameworks/app Helper.app" ]] || fail "a Release embed lost the base helper"
 
-# 2b. A bench build (Release with -DCMUX_BENCH_HOOKS, reload.sh --config bench) compiles
-# `debug.chromium_host` in, so it carries the host; a Release build after it drops it again.
-embed Release 'OTHER_SWIFT_FLAGS=-DDEBUG_UNRELATED -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS'
-[[ -f "$host_app" ]] || fail "a bench embed has no Chromium host"
-[[ "$(cat "$remote_shim")" == "remote shim" ]] || fail "a bench embed has not the host build's remote shim"
-embed Release 'OTHER_SWIFT_FLAGS=-DCMUX_BENCH_HOOKS_OFF'
-[[ ! -e "$host_app" ]] || fail "a Release embed whose flags only look like the bench flag keeps the host"
-rm -f "$TMP/host-builds"
+# 2b. A Release host that does not build: the Release still builds, with a warning and no host.
+: > "$TMP/host-fails"
+embed Release
+[[ ! -e "$host_app" ]] || fail "a Release embed whose host did not build keeps a host"
+[[ ! -e "$remote_shim" ]] || fail "a Release embed whose host did not build keeps the remote shim"
+grep -q "warning: the Chromium host app did not build" "$TMP/embed-Release.log" || fail "no warning for a Release host that did not build"
+[[ ! -e "$TMP/build/cmux-chromium-host.dSYM" && ! -e "$TMP/build/libcmux_cef_shim_remote.dylib.dSYM" ]] ||
+  fail "a Release embed keeps the dSYMs of a host it does not ship"
+rm -f "$TMP/host-fails" "$TMP/host-builds"
 
 # 3. Debug with a host that does not build: the build still succeeds, says so,
 # and carries no host app (none left from step 1 either).
