@@ -121,9 +121,9 @@ def _minutes(seconds_flag: str, run: str) -> int:
     return int(match.group(1)) // 60
 
 
-def test_classic_publishers_share_one_lease_that_outlives_each_job() -> None:
+def test_classic_publishers_share_one_lease_that_outlives_each_holder() -> None:
     document = load(WORKFLOWS / "auto-resume-nightly-notarization.yml")
-    keys, ttls = set(), set()
+    keys, ttls, waits, holds = set(), set(), set(), []
     for name in NO_CONCURRENCY_GROUP["auto-resume-nightly-notarization.yml"]:
         job = document["jobs"][name]
         keys.add(job["env"]["LEASE_KEY"])
@@ -134,14 +134,19 @@ def test_classic_publishers_share_one_lease_that_outlives_each_job() -> None:
         release = names.index("Release the channel publication lease")
         lock = steps[take]["run"]
         assert "r2_cas.py lock" in lock, name
-        # The lease must outlive the whole job (it is taken after the job
-        # starts), and the wait must leave room for the work inside the timeout.
         ttl, wait = _minutes("--ttl", lock), _minutes("--wait", lock)
         ttls.add(ttl)
-        assert ttl > job["timeout-minutes"], (name, ttl, job["timeout-minutes"])
-        assert wait < job["timeout-minutes"] - 60, (name, wait, job["timeout-minutes"])
+        waits.add(wait)
         assert steps[release].get("if") == "always()", name
         assert "r2_cas.py unlock" in steps[release]["run"], name
+        # Every step run while the lease is held is bounded, so the hold is.
+        held = steps[take + 1:release + 1]
+        for step in held:
+            assert "timeout-minutes" in step, (name, step.get("name"))
+        hold = sum(step["timeout-minutes"] for step in held)
+        holds.append(hold)
+        assert steps[take]["timeout-minutes"] > wait, name
+        assert job["timeout-minutes"] >= steps[take]["timeout-minutes"] + hold, (name, job["timeout-minutes"])
         # Every read of the live feed and every write comes after the lease.
         for index, step in enumerate(steps):
             body = str(step.get("run", ""))
@@ -149,10 +154,15 @@ def test_classic_publishers_share_one_lease_that_outlives_each_job() -> None:
                                                  "upload-r2-object.py", "update-release-tag.py",
                                                  "gh release edit")):
                 assert take < index < release, (name, step.get("name"))
-    # A waiter judges the holder's lease by its own --ttl, so every holder
-    # uses the same one, longer than any holder's timeout.
-    assert len(keys) == 1 and len(ttls) == 1, (keys, ttls)
-
+    # A waiter judges the holder's lease by its own --ttl, so every holder uses
+    # the same one, longer than any hold: the lease is never taken from a
+    # holder that is still writing.
+    assert len(keys) == 1 and len(ttls) == 1 and len(waits) == 1, (keys, ttls, waits)
+    (ttl,), (wait,) = ttls, waits
+    assert ttl > max(holds), (ttl, holds)
+    # A waiter outlasts an abandoned lease and then one full hold, so a newer
+    # publication is not lost behind one stuck and one slow publisher.
+    assert wait >= ttl + max(holds), (wait, ttl, holds)
 
 if __name__ == "__main__":
     test_required_delivery_workflows_exist()
@@ -162,5 +172,5 @@ if __name__ == "__main__":
     test_newest_wins_jobs_take_no_concurrency_group()
     test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups()
     test_nightly_push_runs_never_share_a_build_group()
-    test_classic_publishers_share_one_lease_that_outlives_each_job()
+    test_classic_publishers_share_one_lease_that_outlives_each_holder()
     print("PASS: nightly and DEV delivery never cancel or replace waiting builds")

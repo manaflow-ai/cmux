@@ -1044,8 +1044,9 @@ jobs:
       contents: write
       issues: write
     runs-on: ubuntu-24.04
-    # No concurrency group: see LEASE_KEY. Bounded so the lease outlives the job.
-    timeout-minutes: 180
+    # No concurrency group: see LEASE_KEY. GitHub's 6-hour maximum: a wait
+    # for the lease, then the bounded steps that hold it.
+    timeout-minutes: 360
     env:
       # One lease on R2 serializes the channel's writers (publish and
       # republish-deltas, every run). It replaces the release-publish-<tag>
@@ -1148,11 +1149,16 @@ jobs:
             --manifest "nightly-out/cmuxd-remote-manifest-${NIGHTLY_BUILD}.json" \
             --assets-dir nightly-out
 
-      # The lease (3h05m on R2's clock) outlives every holder's timeout, so it is
-      # never taken from a holder that is still writing; a holder that dies
-      # without releasing it frees it when it expires. The wait (45 minutes)
-      # fits inside the timeout with the work.
+      # Every step that runs while the lease is held has its own timeout, so
+      # no holder keeps it longer than those steps add up to (98 minutes for
+      # publish, 45 for republish-deltas). The lease lasts 105 minutes on R2's
+      # clock, so it is never taken from a holder that is still writing, and a
+      # holder that dies without releasing it frees it when it expires. A
+      # waiter waits 3h30m: through an abandoned lease and then one full hold,
+      # so a newer publication is not lost behind one stuck and one slow
+      # publisher.
       - name: Take the channel publication lease
+        timeout-minutes: 215
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
@@ -1161,10 +1167,11 @@ jobs:
           R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
-          python3 scripts/ci/r2_cas.py lock --key "$LEASE_KEY" --owner "$LEASE_OWNER" --ttl 11100 --wait 2700 \
-            || { echo "::error::another $RELEASE_TAG publisher held the lease for 45 minutes" >&2; exit 1; }
+          python3 scripts/ci/r2_cas.py lock --key "$LEASE_KEY" --owner "$LEASE_OWNER" --ttl 6300 --wait 12600 \
+            || { echo "::error::another $RELEASE_TAG publisher held the lease for 3h30m" >&2; exit 1; }
 
       - name: Reject stale continuation before publication
+        timeout-minutes: 5
         run: |
           set -euo pipefail
           python3 - "$GITHUB_REPOSITORY" "$RELEASE_TAG" "$SOURCE_HEAD_SHA" "$NIGHTLY_BUILD" <<'PY' > "$RUNNER_TEMP/publication-guard"
@@ -1264,6 +1271,7 @@ jobs:
           fi
 
       - name: Publish accepted assets and feeds
+        timeout-minutes: 40
         if: env.ALREADY_PUBLISHED != 'true'
         run: |
           set -euo pipefail
@@ -1292,6 +1300,7 @@ jobs:
             --alias nightly-out/${DMG_PREFIX}.dmg
 
       - name: Prepare publication notes
+        timeout-minutes: 5
         if: env.ALREADY_PUBLISHED != 'true'
         run: |
           set -euo pipefail
@@ -1317,6 +1326,7 @@ jobs:
           PY
 
       - name: Publish notes-enriched feeds
+        timeout-minutes: 25
         if: env.ALREADY_PUBLISHED != 'true'
         run: |
           set -euo pipefail
@@ -1330,6 +1340,7 @@ jobs:
             --feed nightly-out/appcast.xml
 
       - name: Upload accepted appcasts to R2
+        timeout-minutes: 5
         if: env.ALREADY_PUBLISHED != 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
@@ -1343,6 +1354,7 @@ jobs:
           done
 
       - name: Mint release tag token
+        timeout-minutes: 3
         id: release-tag-token
         if: env.ALREADY_PUBLISHED != 'true'
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -1355,6 +1367,7 @@ jobs:
           permission-workflows: write
 
       - name: Move channel tag after complete publication
+        timeout-minutes: 10
         if: env.ALREADY_PUBLISHED != 'true'
         env:
           GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
@@ -1366,6 +1379,7 @@ jobs:
           python3 scripts/ci/update-release-tag.py "${args[@]}"
 
       - name: Record release metadata
+        timeout-minutes: 5
         if: env.ALREADY_PUBLISHED != 'true'
         run: |
           set -euo pipefail
@@ -1377,6 +1391,7 @@ jobs:
 
       - name: Release the channel publication lease
         if: always()
+        timeout-minutes: 2
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
@@ -1528,7 +1543,8 @@ jobs:
       actions: read
       contents: write
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    # GitHub's 6-hour maximum: a wait for the lease, then the bounded steps that hold it.
+    timeout-minutes: 360
     environment: release
     env:
       # One lease on R2 serializes the channel's writers (publish and
@@ -1566,11 +1582,16 @@ jobs:
           path: nightly-deltas
           merge-multiple: true
 
-      # The lease (3h05m on R2's clock) outlives every holder's timeout, so it is
-      # never taken from a holder that is still writing; a holder that dies
-      # without releasing it frees it when it expires. The wait (45 minutes)
-      # fits inside the timeout with the work.
+      # Every step that runs while the lease is held has its own timeout, so
+      # no holder keeps it longer than those steps add up to (98 minutes for
+      # publish, 45 for republish-deltas). The lease lasts 105 minutes on R2's
+      # clock, so it is never taken from a holder that is still writing, and a
+      # holder that dies without releasing it frees it when it expires. A
+      # waiter waits 3h30m: through an abandoned lease and then one full hold,
+      # so a newer publication is not lost behind one stuck and one slow
+      # publisher.
       - name: Take the channel publication lease
+        timeout-minutes: 215
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
@@ -1579,10 +1600,11 @@ jobs:
           R2_BUCKET: cmux-binaries
         run: |
           set -euo pipefail
-          python3 scripts/ci/r2_cas.py lock --key "$LEASE_KEY" --owner "$LEASE_OWNER" --ttl 11100 --wait 2700 \
-            || { echo "::error::another $RELEASE_TAG publisher held the lease for 45 minutes" >&2; exit 1; }
+          python3 scripts/ci/r2_cas.py lock --key "$LEASE_KEY" --owner "$LEASE_OWNER" --ttl 6300 --wait 12600 \
+            || { echo "::error::another $RELEASE_TAG publisher held the lease for 3h30m" >&2; exit 1; }
 
       - name: Republish deltas only for the current channel head
+        timeout-minutes: 40
         id: republish
         run: |
           set -euo pipefail
@@ -1623,6 +1645,7 @@ jobs:
           echo "publish=true" >> "$GITHUB_OUTPUT"
 
       - name: Upload revised appcasts to R2
+        timeout-minutes: 5
         if: steps.republish.outputs.publish == 'true'
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
@@ -1645,6 +1668,7 @@ jobs:
 
       - name: Release the channel publication lease
         if: always()
+        timeout-minutes: 2
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
