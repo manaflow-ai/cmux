@@ -438,7 +438,8 @@ public final class AddMachineModel {
     static func needsAppInstall(_ report: HostReport) -> Bool {
         report.steps.contains { step in
             step.step == .install && step.state == .fail
-                && [HostStepResult.wrongPlatform, HostStepResult.notThisProgram].contains(step.reason)
+                && [HostStepResult.wrongPlatform, HostStepResult.notThisProgram,
+                    HostStepResult.peerVersionSkew].contains(step.reason)
         } && !report.steps.contains { $0.step == .reach && $0.state == .fail }
     }
 

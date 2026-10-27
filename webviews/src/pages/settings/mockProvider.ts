@@ -253,6 +253,10 @@ export class MockSettingsProvider {
         this.wentBack = params.build as string;
         return {};
       },
+      "cmux.settings.channels.update_machine": (params) => {
+        this.updatedMachines.push(params.id as string);
+        return {};
+      },
       "cmux.settings.agents.state": () => this.agents.state,
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
       "cmux.settings.voice_input.set": (params) => {
@@ -486,6 +490,7 @@ export class MockSettingsProvider {
       "cmux.settings.accounts.run",
       "cmux.settings.channels.state",
       "cmux.settings.channels.go_back",
+      "cmux.settings.channels.update_machine",
       "cmux.settings.agents.state",
       "cmux.settings.agents.run",
       "cmux.chief.profile.list",
@@ -673,6 +678,8 @@ export class MockSettingsProvider {
   channelSwitch: ChannelSwitch | null = null;
   /** The build the card's Go Back asked for. */
   wentBack: string | null = null;
+  /** The machines the card's Update buttons asked for, in order. */
+  updatedMachines: string[] = [];
   /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */
   chiefAvatars = new Map<string, Params>();
 

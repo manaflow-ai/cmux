@@ -118,8 +118,6 @@ pub mod approvers;
 mod own_host;
 mod peer_cache;
 mod peer_lease;
-// The store and the hub's taps come in the next PRs (cmuxterm-hq#4381); until then only tests use it.
-#[allow(dead_code)]
 pub(crate) mod peer_snapshot;
 pub use peer_lease::PeerLease;
 mod peers;
@@ -377,6 +375,9 @@ pub struct Hub {
     /// started (`peer_lease.rs`); never saved. Lock order: this, then
     /// `peers`; never `peers` first.
     pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
+    /// Each peer session's events as this daemon saw them, kept on disk
+    /// (`peer_snapshot.rs`): a paused or offline peer's chat paints from it.
+    pub(super) peer_snapshots: peer_snapshot::PeerSnapshots,
     pub(super) peer_notices: mpsc::Sender<(String, u64, crate::peer::PeerNotice)>,
     pub(super) peer_notices_rx:
         Mutex<Option<mpsc::Receiver<(String, u64, crate::peer::PeerNotice)>>>,
@@ -540,6 +541,9 @@ impl Hub {
         // after a restart, before the app pushes again (`start_mode_state.rs`).
         let start_mode_state =
             start_mode_state::StartModeCell::load(start_mode_state::state_file(&config).as_deref());
+        // Beside the peer caches, in the home they are in; a memory store keeps neither.
+        let home = store.peer_cache_dir().and_then(|p| p.parent().map(Path::to_path_buf));
+        let peer_snapshots = peer_snapshot::PeerSnapshots::open(home);
         let briefs = dispatch::Briefs::open(store.briefs_path());
         let hub = Arc::new(Self {
             config: RwLock::new(config),
@@ -556,6 +560,7 @@ impl Hub {
             remote_sessions: Default::default(),
             child_tags: Default::default(),
             peer_leases: StdMutex::new(HashMap::new()),
+            peer_snapshots,
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
             known_models: StdMutex::new(HashMap::new()),
