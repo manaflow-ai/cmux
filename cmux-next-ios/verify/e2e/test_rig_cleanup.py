@@ -305,6 +305,25 @@ class RigCleanupTests(unittest.TestCase):
                 c.register_rig()
         self.assertFalse(os.path.exists(self.rig))
 
+    def test_a_malformed_record_is_neither_taken_over_nor_obeyed(self):
+        os.makedirs(rig_cleanup.registry_dir(), exist_ok=True)
+        dead = self.gone_pid()
+        for bad in ({"owner_pid": dead, "owner_start": 1},
+                    {"schema": "cleanup-registry/v1", "tool": "other", "kind": "job", "path": self.rig,
+                     "owner_pid": dead, "owner_start": 1},
+                    {"schema": "cleanup-registry/v1", "tool": "cmux-next-ios-e2e", "kind": "job",
+                     "path": "/elsewhere", "owner_pid": dead, "owner_start": 1}):
+            with open(rig_cleanup.record_file(self.rig), "w") as f:
+                json.dump(bad, f)
+            with self.assertRaises(rig_cleanup.Held):
+                rig_cleanup.register(self.rig, os.getpid(), rig_cleanup.process_start(os.getpid()))
+        # A malformed record naming this owner does not let the removal act.
+        mine = {"owner_pid": dead, "owner_start": 1}
+        with open(rig_cleanup.record_file(self.app_home), "w") as f:
+            json.dump(mine, f)
+        self.assertFalse(rig_cleanup.remove_recorded(self.app_home, dead, 1))
+        self.assertTrue(os.path.isdir(self.app_home))
+
 
 if __name__ == "__main__":
     unittest.main()
