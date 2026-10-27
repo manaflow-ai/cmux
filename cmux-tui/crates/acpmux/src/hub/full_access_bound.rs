@@ -459,7 +459,11 @@ impl Hub {
     /// restart left, by what that host reported since it started (`reported_by_left_host`). Once
     /// that read finds no full access, what this daemon keeps is complete (every later report
     /// reaches it live), so the log is read once per host, not at each check
-    /// (`FloorState::left_host_read`, cleared at each `host_started`). A log that cannot be read
+    /// (`FloorState::left_host_read`, cleared at each `host_started`), and only when the host
+    /// records could be read (review 69): records that could not may leave a live host unproven, so
+    /// its log is read again at the next check. A host whose own record this build cannot read is
+    /// never adopted, so its log does not hear what it did since: under MDM's off it counts as in
+    /// full access (review 2 of #26055). A log that cannot be read
     /// says nothing either way: under MDM's off the host counts as in full access (review 61).
     /// Host records that cannot be read do not prove the host gone, so its log is read back then
     /// too (`host_record_gone`, review 67).
@@ -482,10 +486,13 @@ impl Hub {
         {
             return false;
         }
+        if records.is_some_and(|r| r.unreadable.contains(&session.id)) {
+            return true;
+        }
         let reported = self
             .reported_by_left_host(session)
             .is_none_or(|view| runs_full_access(&view).is_some());
-        if !reported {
+        if !reported && records.is_some() {
             session.floor.left_host_read.store(true, Ordering::SeqCst);
         }
         reported
