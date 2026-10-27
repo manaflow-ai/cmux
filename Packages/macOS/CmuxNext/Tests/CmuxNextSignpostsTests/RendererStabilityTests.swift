@@ -69,7 +69,7 @@ struct RendererStabilityTests {
         let reports = Reports()
         let stability = Self.stability(rig, reports)
         for _ in 0 ..< 3 {
-            stability.webKitContentEnded(on: .browserTab)
+            stability.webKitContentEnded(on: .browserTab, process: nil)
             rig.advance(.seconds(20))
         }
 
@@ -79,10 +79,44 @@ struct RendererStabilityTests {
         #expect(ends.count == 3)
         let signal = HistogramID.stabilityChildExit(.webkit).layout.bucketIndex(of: HistogramID.ChildExit.signal.rawValue)
         #expect(ends.buckets.map(\.index) == [signal].compactMap { $0 }, "every end counts as ended by a signal")
+        let pages = try #require(rig.histogram(.stabilityRenderer(.contentEnd, .webkit)))
+        let browserTab = HistogramID.stabilityRenderer(.contentEnd, .webkit).layout.bucketIndex(of: HistogramID.RendererSurface.browserTab.rawValue)
+        #expect(pages.count == 3 && pages.buckets.map(\.index) == [browserTab].compactMap { $0 }, "3 browser-tab page ends")
         let instants = rig.records.filter { $0.name == SignpostName.crashWebContentEnd.rawValue }
         #expect(instants.count == 3)
         #expect(instants.allSatisfy { $0.phase == .instant && $0.arg0 == RendererStability.Surface.browserTab.rawValue })
         #expect(instants.allSatisfy { $0.categoryBit == SignpostCategory.crash.traceBit })
+    }
+
+    @Test("Grouped pages of one ended process are one process end and a page end each, by surface")
+    func onePageEndEachAndOneProcessEnd() throws {
+        let rig = Rig()
+        let stability = Self.stability(rig, nil)
+        stability.webKitContentCommitted(in: 4242)
+        stability.webKitContentEnded(on: .page, process: 4242)
+        stability.webKitContentEnded(on: .page, process: 4242)
+        stability.webKitContentEnded(on: .warmup, process: 4242)
+
+        #expect(try #require(rig.histogram(.stabilityChildExit(.webkit))).count == 1, "WebKit told 3 pages of one process")
+        let pages = try #require(rig.histogram(.stabilityRenderer(.contentEnd, .webkit)))
+        #expect(pages.count == 3)
+        let layout = HistogramID.stabilityRenderer(.contentEnd, .webkit).layout
+        let page = try #require(layout.bucketIndex(of: HistogramID.RendererSurface.page.rawValue))
+        let warmup = try #require(layout.bucketIndex(of: HistogramID.RendererSurface.warmup.rawValue))
+        #expect(pages.buckets.filter { $0.count > 0 }.map { [$0.index, Int($0.count)] } == [[page, 2], [warmup, 1]])
+    }
+
+    @Test("A commit in an ended pid makes its next end another process's")
+    func aCommitInAReusedPidCountsItsEndAgain() throws {
+        let rig = Rig()
+        let stability = Self.stability(rig, nil)
+        stability.webKitContentEnded(on: .browserTab, process: 77)
+        stability.webKitContentEnded(on: .browserTab, process: 77)
+        stability.webKitContentCommitted(in: 77) // the system gave a new WebContent process the same pid
+        stability.webKitContentEnded(on: .browserTab, process: 77)
+        stability.webKitContentEnded(on: .browserTab, process: nil) // ended before any commit: its own process
+        #expect(try #require(rig.histogram(.stabilityChildExit(.webkit))).count == 3)
+        #expect(try #require(rig.histogram(.stabilityRenderer(.contentEnd, .webkit))).count == 4)
     }
 
     @Test("The first event after the hour reports the count since the last report")
@@ -90,12 +124,12 @@ struct RendererStabilityTests {
         let rig = Rig()
         let reports = Reports()
         let stability = Self.stability(rig, reports)
-        stability.webKitContentEnded(on: .page)
+        stability.webKitContentEnded(on: .page, process: nil)
         rig.advance(.seconds(60))
-        stability.webKitContentEnded(on: .page)
-        stability.webKitContentEnded(on: .page)
+        stability.webKitContentEnded(on: .page, process: nil)
+        stability.webKitContentEnded(on: .page, process: nil)
         rig.advance(.seconds(3_600))
-        stability.webKitContentEnded(on: .page)
+        stability.webKitContentEnded(on: .page, process: nil)
         #expect(reports.all.map(\.count) == [1, 3], "two ends waited in the hour; the third after it reports all three")
         #expect(reports.all.allSatisfy { $0.surface == .page })
     }
@@ -105,10 +139,10 @@ struct RendererStabilityTests {
         let rig = Rig()
         let reports = Reports()
         let stability = Self.stability(rig, reports)
-        stability.webKitContentEnded(on: .browserTab)
-        stability.webKitContentEnded(on: .page)
-        stability.webKitContentEnded(on: .warmup)
-        stability.webKitContentEnded(on: .page)
+        stability.webKitContentEnded(on: .browserTab, process: nil)
+        stability.webKitContentEnded(on: .page, process: nil)
+        stability.webKitContentEnded(on: .warmup, process: nil)
+        stability.webKitContentEnded(on: .page, process: nil)
         #expect(reports.all.map(\.surface) == [.browserTab, .page, .warmup])
     }
 
@@ -116,7 +150,7 @@ struct RendererStabilityTests {
     func noSinkStillCounts() throws {
         let rig = Rig()
         let stability = Self.stability(rig, nil)
-        stability.webKitContentEnded(on: .warmup)
+        stability.webKitContentEnded(on: .warmup, process: nil)
         #expect(try #require(rig.histogram(.stabilityChildExit(.webkit))).count == 1)
         #expect(rig.records.map(\.name) == [SignpostName.crashWebContentEnd.rawValue])
         #expect(rig.records.first?.arg0 == RendererStability.Surface.warmup.rawValue)
@@ -131,6 +165,7 @@ struct RendererStabilityTests {
         stability.unresponsiveShown(page, surface: .browserTab)
         stability.unresponsiveShown(page, surface: .browserTab) // the renderer says it again: one span
         #expect(stability.isUnresponsive(page))
+        #expect(rig.histogram(.stabilityRenderer(.unresponsive, .chromium))?.count == 1, "a hang counts at its start")
         rig.advance(.milliseconds(1_500))
         stability.unresponsiveEnded(page, .responsive)
         stability.unresponsiveEnded(page, .closed) // nothing open any more

@@ -7,9 +7,11 @@ public import CmuxNextTrace
 /// - a trace ring record in the `crash` category: one ``SignpostName/crashWebContentEnd`` instant per content end,
 ///   one ``SignpostName/crashRendererUnresponsive`` async slice (AB/AE) per hang, from the "Page unresponsive" state's
 ///   start to its end. `arg0` is the ``Surface`` code.
-/// - a stability count in the metrics file: `stability.child_exit.webkit` (``HistogramID/ChildExit/signal``) per content
-///   end, and one `renderer.unresponsive_ms` sample per hang that ended, its length in ms. The frozen catalog (task 000)
-///   has no surface dimension, so the surface is in the ring and the report only.
+/// - stability counts in the metrics file: one `stability.renderer.<event>.<engine>` sample per page, its value the
+///   surface (``HistogramID/RendererSurface``): each page a content process served when it ended, each page that
+///   started a hang. `stability.child_exit.webkit` (``HistogramID/ChildExit/signal``) counts each ended WebContent
+///   process once, however many pages it served (WebKit tells each of them). One `renderer.unresponsive_ms` sample per
+///   hang that ended, its length in ms.
 /// - a rate-limited ``Report`` to the sink (crash reporting in the app): the first event of a kind, engine and surface
 ///   goes at once, the next ones of that key in the following hour only count, and the next event after the hour carries
 ///   the count since the last report. 3 ends in a minute are 3 counts and 1 report.
@@ -17,13 +19,16 @@ public import CmuxNextTrace
 /// Chrome counts renderer process ends per process type the same way (components/metrics/stability_metrics_helper.cc,
 /// `LogRendererCrash`), and follows a hang from `WebContentsDelegate::RendererUnresponsive` to `RendererResponsive`
 /// (content/public/browser/web_contents_delegate.h); task 083 limits Chromium helper-exit reports to 1 per type per hour.
+/// A process end counts once per process as `RenderProcessHostObserver::RenderProcessExited` runs once per host
+/// (content/public/browser/render_process_host_observer.h): a page names the WebContent process it last committed in.
 ///
 /// All calls come from the engines' delegate callbacks on the main thread; a call does no I/O and the sink only hands
 /// the report off.
 ///
 /// ```swift
 /// let stability = RendererStability(sink: { report in sentry.send(report) })
-/// stability.webKitContentEnded(on: .browserTab)
+/// stability.webKitContentCommitted(in: pid)
+/// stability.webKitContentEnded(on: .browserTab, process: pid)
 /// stability.unresponsiveShown(ObjectIdentifier(tab), surface: .browserTab)
 /// stability.unresponsiveEnded(ObjectIdentifier(tab), .responsive)
 /// ```
@@ -35,6 +40,13 @@ public final class RendererStability {
         case webKit = "webkit"
         /// A Chromium renderer.
         case chromium
+
+        var metric: HistogramID.RendererEngine {
+            switch self {
+            case .webKit: .webkit
+            case .chromium: .chromium
+            }
+        }
     }
 
     /// The kind of view that showed the page.
@@ -45,6 +57,15 @@ public final class RendererStability {
         case page = 2
         /// The agent pages' WebKit warm-up page (`AgentPageWarmup`).
         case warmup = 3
+
+        /// The surface's value in the `stability.renderer` counts.
+        var metric: HistogramID.RendererSurface {
+            switch self {
+            case .browserTab: .browserTab
+            case .page: .page
+            case .warmup: .warmup
+            }
+        }
 
         /// The report's name of the surface.
         public var name: String {
@@ -117,6 +138,8 @@ public final class RendererStability {
     private var limits: [Key: Limit] = [:]
     /// The open "Page unresponsive" spans, by page.
     private var spans: [ObjectIdentifier: Span] = [:]
+    /// The WebContent processes whose end was counted, until a page commits in that pid again (a pid can be reused).
+    private var endedProcesses: Set<Int32> = []
 
     /// - Parameters:
     ///   - trace: The runtime whose ring and metrics file take the records (the process's by default; tests pass theirs).
@@ -135,19 +158,36 @@ public final class RendererStability {
     /// Whether `page` shows "Page unresponsive" now (an open span).
     public func isUnresponsive(_ page: ObjectIdentifier) -> Bool { spans[page] != nil }
 
+    /// A WebKit page committed a document in content process `process`: that process lives, so a later end under its
+    /// pid is a new process's.
+    public func webKitContentCommitted(in process: Int32) {
+        endedProcesses.remove(process)
+    }
+
     /// A WebKit content process ended under a page of `surface`. WebKit's public delegate call gives no reason: a
     /// content process that ends under a live page crashed or was killed, so it counts as ``HistogramID/ChildExit/signal``.
-    public func webKitContentEnded(on surface: Surface) {
+    ///
+    /// - Parameters:
+    ///   - surface: The kind of view that showed the page.
+    ///   - process: The pid the page last committed in (``webKitContentCommitted(in:)``); the other pages of that
+    ///     process add no process end. Nil (no commit yet) counts the end as its own process.
+    public func webKitContentEnded(on surface: Surface, process: Int32?) {
         signposter.event(.crashWebContentEnd, "surface=\(surface.name)", arg0: surface.rawValue)
-        metrics.record(.stabilityChildExit(.webkit), HistogramID.ChildExit.signal.rawValue)
+        metrics.record(.stabilityRenderer(.contentEnd, .webkit), surface.metric.rawValue)
+        let newProcess = process.map { endedProcesses.insert($0).inserted } ?? true
+        if newProcess {
+            metrics.record(.stabilityChildExit(.webkit), HistogramID.ChildExit.signal.rawValue)
+        }
         report(Key(kind: .contentEnded, engine: .webKit, surface: surface), milliseconds: nil, ending: nil)
     }
 
-    /// `page` started showing "Page unresponsive". A second call before its end changes nothing.
+    /// `page` started showing "Page unresponsive": its span opens, and the hang counts at its start, so a hang the app
+    /// never sees end still counts. A second call before its end changes nothing.
     public func unresponsiveShown(_ page: ObjectIdentifier, engine: Engine = .chromium, surface: Surface) {
         guard spans[page] == nil else { return }
         let interval = signposter.begin(.crashRendererUnresponsive, "surface=\(surface.name)", arg0: surface.rawValue)
         spans[page] = Span(interval: interval, engine: engine, surface: surface)
+        metrics.record(.stabilityRenderer(.unresponsive, engine.metric), surface.metric.rawValue)
     }
 
     /// `page` stopped showing "Page unresponsive" for `ending`: its span ends, and its length is one

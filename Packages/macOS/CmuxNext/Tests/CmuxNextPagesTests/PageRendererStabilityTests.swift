@@ -59,6 +59,59 @@ struct PageRendererStabilityTests {
         #expect(view.crash.reloads == 2, "the crash recovery reloads the page as before")
     }
 
+    @Test func twoGroupedPagesOfOneEndedProcessAreOneProcessEnd() throws {
+        let trace = TraceRuntime(role: .app)
+        let store = Self.store(on: trace)
+        let host = host(RendererStability(trace: trace))
+        let first = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
+        let second = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
+        defer {
+            host.close(first)
+            host.close(second)
+            try? FileManager.default.removeItem(at: root)
+        }
+        // Both committed in one shared WebContent process (``WebProcessGroups``); WebKit tells each page it ended.
+        first.crash.webKitCommitted(in: 4242)
+        second.crash.webKitCommitted(in: 4242)
+
+        first.webViewWebContentProcessDidTerminate(try #require(first.webKitEngine))
+        second.webViewWebContentProcessDidTerminate(try #require(second.webKitEngine))
+
+        let histograms = store.delta().histograms
+        #expect(histograms.first { $0.name == HistogramID.stabilityChildExit(.webkit).name }?.count == 1, "one process ended")
+        #expect(histograms.first { $0.name == HistogramID.stabilityRenderer(.contentEnd, .webkit).name }?.count == 2, "two pages lost it")
+    }
+
+    /// A loaded spare runs a WebContent process before any claim: its end is a `page` event too.
+    @Test func aSparesContentEndBeforeAnyClaimIsOnePageEvent() async throws {
+        let trace = TraceRuntime(role: .app)
+        let store = Self.store(on: trace)
+        let reports = Reports()
+        let memory = PageTestMemory()
+        let window = PageHostPoolLaunchWindowTests.shownWindow()
+        var policy = PageHostPool.Policy()
+        policy.idleInput = .milliseconds(5)
+        let pool = PageHostPool(memory: memory.coordinator, policy: policy, activity: { 0 }, isTrackingMenu: { false })
+        defer {
+            pool.dropSpare()
+            window.close()
+            try? FileManager.default.removeItem(at: root)
+        }
+        pool.rendererStability = RendererStability(trace: trace) { reports.surfaces.append($0.surface) }
+        pool.follow(window)
+        pool.noteLikely()
+        let ready = await PageTestWait.value("spare ready", seconds: 10) { (done: @escaping (Bool) -> Void) in
+            pool.onSpareReady = { _ in done(true) }
+        }
+        try #require(ready == true)
+        let spare = try #require(pool.spareHost)
+
+        spare.webViewWebContentProcessDidTerminate(try #require(spare.webKitEngine))
+
+        #expect(reports.surfaces == [.page])
+        #expect(store.delta().histograms.first { $0.name == HistogramID.stabilityRenderer(.contentEnd, .webkit).name }?.count == 1)
+    }
+
     @Test func aChromiumEndOrAHostWithoutStabilityRecordsNothing() throws {
         let trace = TraceRuntime(role: .app)
         let store = Self.store(on: trace)

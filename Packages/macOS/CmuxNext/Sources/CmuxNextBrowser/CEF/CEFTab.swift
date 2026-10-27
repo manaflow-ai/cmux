@@ -320,6 +320,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// the daemon and reopens at relaunch.
     func browserDidClose(closesTab: Bool = true) {
         browserID = nil
+        runtime.rendererStability.unresponsiveEnded(ObjectIdentifier(self), .closed)
         agentRelay.browserEnded()
         findRequests.cancel()
         dismissPrompts()

@@ -55,6 +55,7 @@ extension PageHostPool {
         await Self.nextTurn()
         let host = measure("pool.makeSpare.create") { PageWebView(recipe: recipe) }
         host.countsTouches = false
+        host.crash.stability = rendererStability  // a spare's content process can end before a claim
         await Self.nextTurn()
         guard isLikely, allowsSpare, spare == nil, let content = target?.contentView else {
             host.close()

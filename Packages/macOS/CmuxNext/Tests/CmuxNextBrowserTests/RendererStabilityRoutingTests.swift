@@ -29,9 +29,31 @@ import Testing
         for _ in 0 ..< 3 { tab.webViewWebContentProcessDidTerminate(tab.webView) }
 
         #expect(rig.reports == [.init(kind: .contentEnded, engine: .webKit, surface: .browserTab, count: 1)])
-        #expect(rig.histogram(.stabilityChildExit(.webkit))?.count == 3)
+        #expect(rig.histogram(.stabilityChildExit(.webkit))?.count == 3, "no commit named a process: each end is its own")
+        #expect(rig.histogram(.stabilityRenderer(.contentEnd, .webkit))?.count == 3)
         #expect(tab.state.processExit != nil, "the sad tab still shows")
         #expect(!String(reflecting: rig.reports).contains("planted.example"), "a report names no page")
+    }
+
+    @Test func aTabAndItsPopupInOneProcessAreOneProcessEndAndTwoPageEnds() throws {
+        let rig = StabilityRig()
+        let engine = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory())
+        engine.rendererStability = rig.stability
+        let opener = engine.makeWebKitTab(), popup = engine.makeWebKitTab()
+        defer { opener.close(); popup.close(); withExtendedLifetime(engine) {} }
+        // Both committed in pid 4242, as a popup runs in its opener's WebContent process.
+        opener.committedContentProcess = 4242
+        popup.committedContentProcess = 4242
+
+        opener.webViewWebContentProcessDidTerminate(opener.webView)
+        popup.webViewWebContentProcessDidTerminate(popup.webView)
+
+        #expect(rig.histogram(.stabilityChildExit(.webkit))?.count == 1, "one process ended")
+        let pages = try #require(rig.histogram(.stabilityRenderer(.contentEnd, .webkit)))
+        #expect(pages.count == 2, "each page it served counts")
+        let browserTab = HistogramID.stabilityRenderer(.contentEnd, .webkit).layout.bucketIndex(of: HistogramID.RendererSurface.browserTab.rawValue)
+        #expect(pages.buckets.map(\.index) == [browserTab].compactMap { $0 })
+        #expect(opener.committedContentProcess == nil && popup.committedContentProcess == nil)
     }
 
     // MARK: Chromium
@@ -70,6 +92,7 @@ import Testing
 
         #expect(rig.recorded.endings == [.responsive, .processEnded, .navigated, .closed])
         #expect(rig.recorded.histogram(.rendererUnresponsive)?.count == 4)
+        #expect(rig.recorded.histogram(.stabilityRenderer(.unresponsive, .chromium))?.count == 4)
         #expect(!String(reflecting: rig.recorded.reports).contains("planted.example"), "a report names no page")
     }
 
@@ -81,6 +104,32 @@ import Testing
         rig.runtime.handle(.renderUnresponsive(browser: 7))
         rig.runtime.handle(.renderResponsive(browser: 7))
         #expect(rig.recorded.reports.map(\.surface) == [.page])
+    }
+
+    @Test func aHangAfterTheCloseOpensNoSpan() throws {
+        let rig = try CEFStabilityRig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        tab.close() // the tab stays registered until Chromium destroys its browser
+        rig.runtime.handle(.renderUnresponsive(browser: 7)) // its unload hangs
+        #expect(!rig.runtime.rendererStability.isUnresponsive(ObjectIdentifier(tab)))
+        rig.runtime.handle(.beforeClose(browser: 7))
+
+        #expect(!rig.runtime.rendererStability.isUnresponsive(ObjectIdentifier(tab)))
+        #expect(rig.recorded.reports.isEmpty)
+        #expect(rig.recorded.histogram(.rendererUnresponsive) == nil)
+        #expect(rig.recorded.histogram(.stabilityRenderer(.unresponsive, .chromium)) == nil)
+    }
+
+    @Test func aHangOpenWhenChromiumDestroysTheBrowserEndsAsClosed() throws {
+        let rig = try CEFStabilityRig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        rig.runtime.handle(.renderUnresponsive(browser: 7))
+        rig.runtime.handle(.beforeClose(browser: 7))
+
+        #expect(!rig.runtime.rendererStability.isUnresponsive(ObjectIdentifier(tab)))
+        #expect(rig.recorded.endings == [.closed])
     }
 
     @Test func aTabThatNeverHungRecordsNothing() throws {
@@ -133,13 +182,17 @@ import Testing
     private let uptime = Uptime()
     let store: MetricsStore
     private(set) var reports: [Sent] = []
-    private(set) lazy var stability: RendererStability = RendererStability(trace: trace, clock: uptime.clock) { [weak self] report in
+    private let reportInterval: Duration
+    private(set) lazy var stability: RendererStability = RendererStability(trace: trace, clock: uptime.clock,
+                                                                           reportInterval: reportInterval) { [weak self] report in
         self?.reports.append(Sent(kind: report.kind, engine: report.engine, surface: report.surface, count: report.count,
                                   milliseconds: report.unresponsiveMilliseconds, ending: report.ending))
     }
     private let trace = TraceRuntime(role: .app)
 
-    init() {
+    /// - Parameter reportInterval: The stability's rate limit (the app's hour by default).
+    init(reportInterval: Duration = .seconds(3_600)) {
+        self.reportInterval = reportInterval
         let profile = MetricsProfile(appVersion: "1.0", buildNumber: "1", channel: "test", osVersion: "26.1.0", hardwareClass: "Mac16,10",
                                      buildDay: MetricsProfile.Day(year: 2026, month: 10, day: 27))
         store = MetricsStore(role: .app, profile: profile)
@@ -175,8 +228,8 @@ extension StabilityRig.Sent {
 /// A runtime on a spy shim whose window creates start and whose other functions do nothing, with a test stability.
 @MainActor final class CEFStabilityRig {
     let runtime: CEFRuntime
-    /// What the runtime's stability events recorded.
-    let recorded = StabilityRig()
+    /// What the runtime's stability events recorded: with no rate limit, so every hang that ends is a report.
+    let recorded = StabilityRig(reportInterval: .zero)
     private let root: URL
 
     init() throws {

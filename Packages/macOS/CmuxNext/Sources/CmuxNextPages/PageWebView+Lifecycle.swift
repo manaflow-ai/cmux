@@ -1,5 +1,4 @@
 import CmuxNextDesign
-import CmuxNextSignposts
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
@@ -146,7 +145,7 @@ extension PageWebView {
     }
 
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        crash.stability?.webKitContentEnded(on: .page)
+        crash.webKitContentEnded()
         contentProcessTerminated()
     }
 

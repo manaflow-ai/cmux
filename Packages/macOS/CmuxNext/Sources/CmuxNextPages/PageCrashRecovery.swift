@@ -35,6 +35,9 @@ package final class PageCrashRecovery {
     private var shown = false
     /// The renderer the page's document committed in; nil once it died, until the next commit.
     private var renderer: PageRendererID?
+    /// The WebContent process the page's WebKit document last committed in, the one its content end names to
+    /// ``stability``; nil before then and once it ended.
+    private var webKitProcess: Int32?
 
     package init() {}
 
@@ -54,6 +57,19 @@ package final class PageCrashRecovery {
             if !reloading { Self.logStop(page) }
         }
         page.onCrash?(page, reloading)
+    }
+
+    /// The page's WebKit document committed in `process` (``PageWebView/webView(_:didCommit:)``).
+    func webKitCommitted(in process: Int32?) {
+        webKitProcess = process
+        if let process { stability?.webKitContentCommitted(in: process) }
+    }
+
+    /// The page's WebKit content process ended: one `page` stability event that names the process, so the other
+    /// grouped pages it served (``WebProcessGroups``) add no process end.
+    func webKitContentEnded() {
+        stability?.webKitContentEnded(on: .page, process: webKitProcess)
+        webKitProcess = nil
     }
 
     /// `page` committed a document (``PageWebView/documentCommitted()``): its renderer is read, the one

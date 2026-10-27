@@ -85,6 +85,9 @@ public final class AgentPageWarmup {
     private let chromiumChat: @MainActor () -> Bool
     /// Where the page's content-process end goes as a stability event (p09-observability-108); nil records none.
     private let stability: RendererStability?
+    /// The WebContent process the page committed in: grouped pages can run in it too
+    /// (``WebUIHost/groupedWebKitConfiguration()``), so its end names it and counts that process once.
+    private var committedProcess: Int32?
 
     /// - Parameters:
     ///   - chromiumChat: Whether the agent chat may run in Chromium (the app passes feature `agentChromium`,
@@ -147,15 +150,23 @@ public final class AgentPageWarmup {
         if plan.loadEnded() { dropPage() }
     }
 
+    /// The warm-up page committed its document in `process`.
+    fileprivate func committed(in process: Int32?) {
+        committedProcess = process
+        if let process { stability?.webKitContentCommitted(in: process) }
+    }
+
     /// The warm-up page's content process ended: a stability event, then the end of its load.
     fileprivate func contentProcessEnded() {
-        stability?.webKitContentEnded(on: .warmup)
+        stability?.webKitContentEnded(on: .warmup, process: committedProcess)
+        committedProcess = nil
         loadEnded()
     }
 
     private func dropPage() {
         page?.navigationDelegate = nil
         page = nil
+        committedProcess = nil
     }
 }
 
@@ -235,6 +246,10 @@ private final class AgentPageWarmupLoadEnd: NSObject, WKNavigationDelegate {
 
     init(warmup: AgentPageWarmup) {
         self.warmup = warmup
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
+        warmup?.committed(in: webView.contentProcessID)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
