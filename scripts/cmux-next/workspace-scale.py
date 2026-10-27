@@ -54,6 +54,7 @@ def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--sizes", default="50,100,200,400")
     parser.add_argument("--empty", action="store_true")
+    parser.add_argument("--focus", action="store_true", help="visit each created workspace (diagnostic control)")
     parser.add_argument("--seconds", type=float, default=10)
     parser.add_argument("--deadline", type=float, default=3600)
     opts = parser.parse_args()
@@ -66,6 +67,7 @@ def main():
     if sizes != sorted(set(sizes)) or not sizes or sizes[0] < 1 or sizes[-1] > 400:
         parser.error("sizes must be unique, increasing, and between 1 and 400")
     report = dict(status="running", mode="empty" if opts.empty else "terminal",
+                  focus_each=opts.focus,
                   host=platform.node(), facts=host_facts(), checkpoints=[], creations=[])
     app = BenchApp(opts.app, out=str(out), env={"CMUX_NEXT_NO_ACTIVATE": None})
     deadline = time.monotonic() + opts.deadline
@@ -120,6 +122,34 @@ def main():
             time.sleep(.1)  # bounded wait for CLI-created workspaces to mirror, not a completion claim
         raise RuntimeError(f"workspace population never matched requested fixture: {detail}")
 
+    def show_created(output):
+        created = json.loads(output)
+        workspace = created.get("result", created)["value"]["workspace_id"]
+        end = min(deadline, time.monotonic() + 10)
+        match = None
+        while time.monotonic() < end:
+            snapshot = rpc("snapshot.get")
+            topology = snapshot.get("topology", snapshot)
+            match = next((w for w in topology["workspaces"] if w["id"] == workspace), None)
+            if match:
+                break
+            time.sleep(.05)  # wait for the daemon-created model before issuing its UI action
+        if match is None:
+            raise RuntimeError(f"created workspace {workspace} never mirrored")
+        rpc("action.run", {"action": "goToWorkspace", "args": {"workspace": match["key"]},
+                           "origin": "script", "focus": True})
+        end = min(deadline, time.monotonic() + 10)
+        while time.monotonic() < end:
+            snapshot = rpc("snapshot.get")
+            topology = snapshot.get("topology", snapshot)
+            match = next((w for w in topology["workspaces"] if w["id"] == workspace), None)
+            screens = rpc("debug.screens").get("windows", [])
+            if (match and topology["focus"]["workspace"] == workspace and
+                    any(window["workspace"] == match["key"] for window in screens)):
+                return
+            time.sleep(.05)  # bounded wait until the created native workspace is actually mounted
+        raise RuntimeError(f"created workspace {workspace} never mounted in the window")
+
     try:
         app.launch()
         report.update(pid=app.process.pid, socket=app.socket, limits=app.limits,
@@ -138,9 +168,11 @@ def main():
             while made < target:
                 check_deadline()
                 name = f"scale-{made + 1:03d}"
-                args = [app.cli, "--app-socket", app.socket, "workspace", "create", "--name", name]
+                args = [app.cli, "--app-socket", app.socket, "--json", "workspace", "create", "--name", name]
                 if opts.empty:
                     args.append("--empty")
+                if opts.focus:
+                    args.append("--focus")
                 start = time.monotonic()
                 result = subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True,
                                         text=True, timeout=30, env=app.launched_env)
@@ -149,6 +181,8 @@ def main():
                                                 error=result.stderr[-300:]))
                 if result.returncode:
                     raise RuntimeError(f"workspace {made + 1} create failed: {result.stderr[-300:]}")
+                if opts.focus:
+                    show_created(result.stdout)
                 made += 1
             topology, population = verified_topology(target)
             checkpoint = dict(created=made, creation_seconds=time.monotonic() - segment_start,
