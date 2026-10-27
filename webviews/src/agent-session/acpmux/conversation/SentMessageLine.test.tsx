@@ -142,11 +142,12 @@ test("a captured file body is rendered, while an unavailable file keeps Raw as t
   await act(async () => rendered.querySelector<HTMLElement>(".cv-sent")!.click());
   expect(rendered.querySelector(".cv-subsession__under h2")?.textContent).toBe("Captured summary");
   expect(rendered.querySelector(".cv-subsession__under strong")?.textContent).toBe("Ready");
-
-  const unavailable = await line(bash("acpmux send --no-wait reports:leo - < /tmp/summary.md", { output: "queued" }));
-  await act(async () => unavailable.querySelector<HTMLElement>(".cv-sent")!.click());
-  expect(unavailable.querySelector(".cv-subsession__under .cv-md")).toBeNull();
-  expect(unavailable.querySelector(".cv-subsession__under .cv-subsession__raw")).not.toBeNull();
+  // Without a captured event body, the parser still marks this as a file input and the row falls
+  // back to Raw; it must never inspect `/tmp/summary.md` while rendering history.
+  expect(acpmuxSendCall(bash("acpmux send --no-wait reports:leo - < /tmp/summary.md", { output: "queued" }))).toMatchObject({
+    fileInput: true,
+    text: undefined,
+  });
 });
 
 test("a failed send says it could not send and opens to its output", async () => {
