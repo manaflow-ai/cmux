@@ -202,16 +202,19 @@ describe("Run migrations replay onto every starting shape", () => {
     expect(await catalog(pool)).toEqual(snapshot);
   });
 
-  dbTest("a database that recorded the old versions runs neither again and keeps their ledger rows", async () => {
-    const pool = await freshDatabase();
-    await applyPendingMigrations(pool, webDir, folder({ before: "20261017010000", replace: oldVersions }));
-    const recorded = (await journal(pool)).filter((row) => rewritten.includes(row.name));
-    expect(recorded).toHaveLength(2);
+  // next's databases recorded the old versions alone; staging recorded them and then main's four (the hybrid).
+  for (const [label, extra] of [["next's", []], ["staging's hybrid", mainRunMigrations]] as const) {
+    dbTest(`a database that recorded the old versions (${label}) runs neither again and keeps their ledger rows`, async () => {
+      const pool = await freshDatabase();
+      await applyPendingMigrations(pool, webDir, folder({ before: "20261017010000", replace: oldVersions, extra }));
+      const recorded = (await journal(pool)).filter((row) => rewritten.includes(row.name));
+      expect(recorded).toHaveLength(2);
 
-    expect(await applyRealFolder(pool)).toBeGreaterThan(0);
-    // The ledger matches by name: the old hashes stay, and the rewritten files never ran here.
-    expect((await journal(pool)).filter((row) => rewritten.includes(row.name))).toEqual(recorded);
-    expect(await missingSchemaColumns(pool)).toEqual({ runs: [], run_attempts: [] });
-    expect(await applyRealFolder(pool)).toBe(0);
-  });
+      expect(await applyRealFolder(pool)).toBeGreaterThan(0);
+      // The ledger matches by name: the old hashes stay, and the rewritten files never ran here.
+      expect((await journal(pool)).filter((row) => rewritten.includes(row.name))).toEqual(recorded);
+      expect(await missingSchemaColumns(pool)).toEqual({ runs: [], run_attempts: [] });
+      expect(await applyRealFolder(pool)).toBe(0);
+    });
+  }
 });
