@@ -251,7 +251,12 @@ test("with no folder known, a relative Last turn path is read by its name too", 
 test("an incomplete checkpoint marks the tool-call view partial, so it never says no test changed", async () => {
   const { turnDisplay } = await import("../src/agent-session/acpmux/changes/turnCheckpoint");
   const { translatorFor } = await import("../src/agent-session/acpmux/i18n");
-  const display = turnDisplay(translatorFor("en"), turn(["/repo/src/a.ts"]), { state: "incomplete", checkpointId: "c1" }, false);
+  const display = turnDisplay(
+    translatorFor("en"),
+    turn(["/repo/src/a.ts"]),
+    { state: "incomplete", checkpointId: "c1" },
+    false,
+  );
   expect(display.source).toBe("tools");
   expect(display.partial).toBe(true);
   const container = dom.window.document.getElementById("root")!;
