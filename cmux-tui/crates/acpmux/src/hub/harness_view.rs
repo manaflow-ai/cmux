@@ -16,7 +16,18 @@ impl Hub {
         for (name, p) in &cfg.harnesses {
             let mut v = serde_json::to_value(p).unwrap_or(Value::Null);
             if let Some(o) = v.as_object_mut() {
-                o.insert("family".into(), json!(crate::config::derive_family(name, p)));
+                let family = crate::config::derive_family(name, p);
+                // The one icon every client draws (`config/harness_icon.rs`).
+                let meta = cfg.profile_meta.get(name);
+                let icon = crate::config::harness_icon::resolve(
+                    name,
+                    meta.and_then(|m| m.display_name.as_deref()),
+                    p,
+                    &family,
+                    meta.map(|m| &m.loaded_icon),
+                );
+                o.insert("iconSpec".into(), json!(icon));
+                o.insert("family".into(), json!(family));
                 // What a remote device (a phone) may start with it: the modes
                 // a session it starts runs in, the start mode first, or why
                 // not (`web_modes::remote_start`, the remote guard's rules).
