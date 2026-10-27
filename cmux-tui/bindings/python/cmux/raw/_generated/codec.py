@@ -184,6 +184,8 @@ MODEL_BY_PATH = {
     'types/Screen': models.Screen,
     'types/SendExpectAgent': models.SendExpectAgent,
     'types/ServerStatsConnections': models.ServerStatsConnections,
+    'types/ServerStatsHangRecord': models.ServerStatsHangRecord,
+    'types/ServerStatsHangs': models.ServerStatsHangs,
     'types/ServerStatsHistogram': models.ServerStatsHistogram,
     'types/ServerStatsIpc': models.ServerStatsIpc,
     'types/ServerStatsIpcKind': models.ServerStatsIpcKind,

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "92ea0b6da7b0bd288ec4e10c0f31751140797c17e8fcdbcb3a76d518df4b8499";
+inline constexpr std::string_view kProtocolIrSha256 = "b161373da62182850ee20a5afe3837aa66baa22735c6bb700a775c22a953ea31";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -221,6 +221,8 @@ struct SavedTabGroupRecord;
 struct Screen;
 struct SendExpectAgent;
 struct ServerStatsConnections;
+struct ServerStatsHangRecord;
+struct ServerStatsHangs;
 struct ServerStatsHistogram;
 struct ServerStatsIpc;
 struct ServerStatsIpcKind;
@@ -6316,6 +6318,19 @@ struct ServerStatsConnections {
     friend bool operator==(const ServerStatsConnections&, const ServerStatsConnections&) = default;
 };
 
+struct ServerStatsHangRecord {
+    std::uint64_t duration_ms{};
+    std::uint64_t sequence{};
+    std::string span{};
+    friend bool operator==(const ServerStatsHangRecord&, const ServerStatsHangRecord&) = default;
+};
+
+struct ServerStatsHangs {
+    std::uint64_t over_250ms{};
+    std::vector<ServerStatsHangRecord> records{};
+    friend bool operator==(const ServerStatsHangs&, const ServerStatsHangs&) = default;
+};
+
 struct ServerStatsHistogram {
     std::uint64_t count{};
     std::uint64_t max{};
@@ -6591,6 +6606,7 @@ struct ServerStatsWritePath {
 struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsHistogram> dispatch_queue_us{};
+    std::optional<ServerStatsHangs> hangs{};
     std::optional<ServerStatsIpc> ipc{};
     std::optional<std::vector<ServerStatsMethodLatency>> ipc_methods{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
@@ -8949,6 +8965,18 @@ template <>
 struct Codec<ServerStatsConnections> {
     static Result<Json> encode(const ServerStatsConnections& value);
     static Result<ServerStatsConnections> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsHangRecord> {
+    static Result<Json> encode(const ServerStatsHangRecord& value);
+    static Result<ServerStatsHangRecord> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsHangs> {
+    static Result<Json> encode(const ServerStatsHangs& value);
+    static Result<ServerStatsHangs> decode(const Json& value);
 };
 
 template <>

@@ -54,8 +54,14 @@
 //! the other kinds have only the hang tier. The holder link has no `Mux` at
 //! hand, so the owner makes its Mux's watchdog the process's
 //! ([`RequestWatchdog::watch_for_process`]).
+//!
+//! Every kind of scope busy past [`HANG_THRESHOLD`] (250 ms) is also counted
+//! once in the daemon's hang ledger (cmux-tui-util `hang_watch`, server-stats
+//! `hangs`, the perf lab's `daemon.hangs_over_250ms`) with its span and
+//! duration: seen busy on a tick, or handed over by its end.
 
 use cmux_threads::sync::Mutex;
+use cmux_tui_util::hang_watch::{HANG_THRESHOLD, HangLedger, HangsSnapshot, Wake, next_wake};
 use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::VecDeque;
@@ -90,13 +96,15 @@ const SLOW_REQUEST_RING: usize = 128;
 const THREAD_NAME: &str = "mux-request-watchdog";
 
 /// A busy word: the start in microseconds since the watchdog's epoch plus
-/// one, above three flags. A free slot is 0. `RECORDED`: in
-/// `slow_requests`; `HUNG`: written to the hang log.
+/// one, above four flags. A free slot is 0. `RECORDED`: in
+/// `slow_requests`; `HUNG`: written to the hang log; `OVER`: counted in the
+/// hang ledger.
 const FINISHED: u64 = 1;
 const RECORDED: u64 = 1 << 1;
 const HUNG: u64 = 1 << 2;
-const FLAGS: u64 = FINISHED | RECORDED | HUNG;
-const START_SHIFT: u32 = 3;
+const OVER: u64 = 1 << 3;
+const FLAGS: u64 = FINISHED | RECORDED | HUNG | OVER;
+const START_SHIFT: u32 = 4;
 
 /// A slot's word while its claimer writes the client: start field 0, so the
 /// watcher skips it, but not 0, so no other run claims the slot.
@@ -236,6 +244,9 @@ struct Slot {
     /// End (µs since the epoch) of a run that finished slow; published by
     /// the [`FINISHED`] flag.
     end_us: AtomicU64,
+    /// The hang ledger's sequence of the run once it is [`OVER`]; only the
+    /// watchdog thread writes and reads it.
+    hang_sequence: AtomicU64,
 }
 
 impl Slot {
@@ -283,6 +294,8 @@ struct Shared {
     hang_sink: HangSink,
     /// Runs written to the hang log.
     hangs: AtomicU64,
+    /// Runs of every kind busy past [`HANG_THRESHOLD`] (server-stats `hangs`).
+    hang_ledger: HangLedger,
     /// Hangs another process reported, for the watchdog thread to write.
     #[cfg(unix)]
     reported: reported::ReportedHangs,
@@ -337,8 +350,10 @@ impl Shared {
     }
 
     /// The first tier of `kind`: a run that ends before it frees its slot.
+    /// Never past [`HANG_THRESHOLD`], so the ledger counts every run over it.
     fn first_tier_us(&self, kind: WatchKind) -> u64 {
-        if kind.records_slow() { self.threshold_us() } else { self.hang_us(kind) }
+        let tier = if kind.records_slow() { self.threshold_us() } else { self.hang_us(kind) };
+        tier.min(hang_threshold_us())
     }
 
     /// Claim a slot for one run of `method` of `kind` and publish its start.
@@ -433,18 +448,10 @@ impl Shared {
             let now = self.now_us();
             let scan = self.scan(now, previous_scan);
             previous_scan = now;
-            let next_tick = (now / period).saturating_add(1).saturating_mul(period);
-            if woke_by_arm {
-                // The arming run started after the last tick, so it cannot
-                // overrun before the tick one period on: skip the next one.
+            let watching = scan.pending || scan.started_since;
+            if let Wake::At(tick) = next_wake(now, period, woke_by_arm, watching) {
                 woke_by_arm = false;
-                self.sleep_until(
-                    now.saturating_add(period).div_ceil(period).saturating_mul(period),
-                );
-                continue;
-            }
-            if scan.pending || scan.started_since {
-                self.sleep_until(next_tick);
+                self.sleep_until(tick);
                 continue;
             }
             // Disarm, then look again: a run that started after the scan saw
@@ -452,7 +459,9 @@ impl Shared {
             self.armed.store(false, Ordering::SeqCst);
             if self.any_pending() {
                 self.armed.store(true, Ordering::SeqCst);
-                self.sleep_until(next_tick);
+                if let Wake::At(tick) = next_wake(now, period, false, true) {
+                    self.sleep_until(tick);
+                }
                 continue;
             }
             while !self.armed.load(Ordering::SeqCst) && !self.stopping.load(Ordering::Acquire) {
@@ -476,8 +485,9 @@ impl Shared {
         }
     }
 
-    /// A run left to watch: one not yet written as a hang (its last tier),
-    /// or one that finished slow; or a reported hang left to write.
+    /// A run left to watch: one not yet written as a hang (its last tier) or
+    /// counted in the ledger, or one that finished slow; or a reported hang
+    /// left to write.
     fn any_pending(&self) -> bool {
         #[cfg(unix)]
         if self.has_reported() {
@@ -485,7 +495,8 @@ impl Shared {
         }
         self.slots.iter().any(|slot| {
             let word = slot.busy.load(Ordering::SeqCst);
-            word_start_us(word).is_some() && word & (FINISHED | HUNG) != HUNG
+            word_start_us(word).is_some()
+                && (word & FINISHED != 0 || word & (HUNG | OVER) != HUNG | OVER)
         })
     }
 
@@ -512,6 +523,16 @@ impl Shared {
             let method = slot.method.load(Ordering::Relaxed);
             let thread = slot.thread.load(Ordering::Relaxed);
             fence(Ordering::Acquire);
+            if word & OVER == 0 && now >= start.saturating_add(hang_threshold_us()) {
+                if !flag(slot, &mut word, OVER) {
+                    // It ended meanwhile: finished for the next scan.
+                    scan.pending = true;
+                    continue;
+                }
+                let busy_ms = now.saturating_sub(start) / 1000;
+                let sequence = self.hang_ledger.record(hang_span(kind, method), busy_ms);
+                slot.hang_sequence.store(sequence, Ordering::Relaxed);
+            }
             if kind.records_slow() && word & RECORDED == 0 {
                 if now < start.saturating_add(threshold) {
                     scan.pending = true;
@@ -539,6 +560,8 @@ impl Shared {
                 );
             }
             if word & HUNG != 0 {
+                // An echo item's hang tier is under the ledger's threshold.
+                scan.pending |= word & OVER == 0;
                 continue;
             }
             if now < start.saturating_add(self.hang_us(kind)) || !flag(slot, &mut word, HUNG) {
@@ -651,6 +674,11 @@ impl Shared {
             let end = start.saturating_add(duration_us);
             self.write_hang(run, end, Some(duration_us), CapturedStack::failed(RUN_ENDED));
         }
+        if word & OVER != 0 {
+            self.hang_ledger.finish(slot.hang_sequence.load(Ordering::Relaxed), duration_ms);
+        } else if duration_us >= hang_threshold_us() {
+            self.hang_ledger.record(hang_span(run.kind, run.method), duration_ms);
+        }
         slot.busy.store(0, Ordering::Release);
     }
 
@@ -668,6 +696,11 @@ impl Shared {
         }
         recent.push_back(RecentEntry { slot, word, request });
     }
+}
+
+/// A run's span in the hang ledger: `<scope>:<method>`.
+fn hang_span(kind: WatchKind, method: u32) -> String {
+    format!("{}:{}", kind.name(), kind.method_name(method))
 }
 
 /// What a hang record names about one run.
@@ -761,6 +794,7 @@ impl RequestWatchdog {
                 hang_for_test: None,
                 hang_sink,
                 hangs: AtomicU64::new(0),
+                hang_ledger: HangLedger::default(),
                 #[cfg(unix)]
                 reported: reported::ReportedHangs::default(),
                 slots: (0..SLOT_COUNT).map(|_| Slot::default()).collect(),
@@ -846,6 +880,14 @@ impl RequestWatchdog {
     }
 }
 
+impl RequestWatchdog {
+    /// The `hangs` section of `server-stats`: runs of every kind busy past
+    /// [`HANG_THRESHOLD`] since daemon start.
+    pub(crate) fn hangs(&self) -> HangsSnapshot {
+        self.shared.hang_ledger.snapshot()
+    }
+}
+
 impl Drop for RequestWatchdog {
     fn drop(&mut self) {
         self.shared.stopping.store(true, Ordering::Release);
@@ -901,6 +943,10 @@ impl<'a> RequestScope<'a> {
     }
 }
 
+fn hang_threshold_us() -> u64 {
+    duration_us(HANG_THRESHOLD)
+}
+
 fn duration_us(duration: Duration) -> u64 {
     u64::try_from(duration.as_micros()).unwrap_or(u64::MAX).max(1)
 }
@@ -939,3 +985,7 @@ mod hang_tests;
 #[cfg(test)]
 #[path = "request_watchdog_echo_tests.rs"]
 mod echo_tests;
+
+#[cfg(test)]
+#[path = "request_watchdog_ledger_tests.rs"]
+mod ledger_tests;

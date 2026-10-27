@@ -34,6 +34,7 @@ mod owner_panic_log;
 pub use owner_panic_log::spawn_owner_hang_test;
 pub use owner_panic_log::{owner_hang_log_path, owner_panic_log_path};
 mod slow_requests;
+pub use cmux_tui_util::hang_watch::{HangRecord, HangsSnapshot};
 pub use slow_requests::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
 mod method_latency;
 pub use method_latency::{MethodLatencySnapshot, MethodLatencyStats, MethodName, MethodSample};
@@ -749,6 +750,11 @@ pub struct ServerStatsSnapshot {
     /// when the request names `ipc_methods` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ipc_methods: Option<Vec<MethodLatencySnapshot>>,
+    /// Watched scopes of every kind (requests, journal commits, holder-link
+    /// frames, echo items) busy past 250 ms: the count since daemon start
+    /// and the newest records; present only when the request names `hangs`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hangs: Option<HangsSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;
