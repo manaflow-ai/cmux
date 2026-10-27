@@ -32,6 +32,8 @@ use std::sync::Arc;
 
 pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 
+#[cfg(any(windows, test))]
+mod console_ctrl_c;
 #[cfg(target_vendor = "apple")]
 mod input_queue;
 #[cfg(unix)]
@@ -274,6 +276,12 @@ mod platform {
         for (key, value) in command.environment {
             builder.env(key, value);
         }
+        // The child inherits the spawning process's ignore-Ctrl+C attribute,
+        // which a CREATE_NEW_PROCESS_GROUP start sets; clear it so Ctrl+C in
+        // the terminal reaches the child (console_ctrl_c.rs).
+        super::console_ctrl_c::set_for_the_next_child().map_err(|error| {
+            anyhow::anyhow!("failed to let the terminal's child process Ctrl+C: {error}")
+        })?;
         let child = slave.0.spawn_command(builder)?;
         Ok(Box::new(super::windows_jobs::JobChild::new(child)))
     }
