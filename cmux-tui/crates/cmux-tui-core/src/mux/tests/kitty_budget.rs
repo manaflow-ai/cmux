@@ -877,3 +877,68 @@ fn kitty_quota_worker_exhausts_deadline_pool_admission_rejections() {
     assert!(survivor_blocked, "pool admission exhaustion did not fail closed for the live surface");
     assert!(closed_retired, "a closed surface remained in the Kitty quota registry");
 }
+
+/// The budget worker is a background thread (p14-energy-076): started by a
+/// terminal's creation, it registers at the raisable class of Utility, and
+/// while it waits for a quota wave it rests there, as the kernel reports
+/// (`pthread_get_qos_class_np` on macOS, nice on Linux).
+#[test]
+fn kitty_budget_worker_rests_at_the_raisable_utility_class() {
+    const WORKER: &str = "kitty-image-budget";
+    let mux = test_mux();
+    let first = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+    wait_for_kitty_image_budget(&mux);
+    let before: Vec<Option<u64>> = cmux_threads::snapshot()
+        .into_iter()
+        .filter(|row| row.name == WORKER)
+        .map(|row| row.tid)
+        .collect();
+    let gate = Arc::new((Mutex::new(false), Condvar::new()));
+    let (started_sender, started_receiver) = std::sync::mpsc::sync_channel(1);
+    *mux.kitty_image_budget_operation.lock().unwrap() = Some(Arc::new({
+        let gate = gate.clone();
+        move |surface, limits, _deadline| {
+            let _ = started_sender.try_send(());
+            let (released, changed) = &*gate;
+            let mut released = released.lock().unwrap();
+            while !*released {
+                released = changed.wait(released).unwrap();
+            }
+            drop(released);
+            surface.set_kitty_graphics_limits(
+                limits.image_bytes,
+                limits.inflight_bytes,
+                limits.images,
+                limits.placements,
+            )
+        }
+    }));
+    let creating_mux = mux.clone();
+    let creator = std::thread::spawn(move || {
+        creating_mux.new_tab(Some(pane), None, Some((80, 24))).map(|surface| surface.id)
+    });
+
+    let class =
+        cmux_tui_platform::qos::raisable_class(crate::thread_qos::ThreadType::Utility.qos());
+    #[cfg(target_vendor = "apple")]
+    assert_eq!(class, cmux_threads::ThreadQos::Utility);
+    // The wave is on the pool: the worker now waits for it holding no lock.
+    started_receiver.recv_timeout(Duration::from_secs(2)).unwrap();
+    let rows = crate::thread_qos::tests::new_rows_at_rest(WORKER, &before, class);
+    {
+        let (released, changed) = &*gate;
+        *released.lock().unwrap() = true;
+        changed.notify_all();
+    }
+    creator.join().unwrap().unwrap();
+    *mux.kitty_image_budget_operation.lock().unwrap() = None;
+    wait_for_kitty_image_budget(&mux);
+
+    for row in rows {
+        assert_eq!(row.declared, class, "{WORKER}");
+        if cmux_threads::reachable(class) {
+            assert_eq!(row.refused_changes, 0, "{WORKER}");
+        }
+    }
+}

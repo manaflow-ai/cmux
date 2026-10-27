@@ -266,8 +266,9 @@ fn every_role_runs_at_its_class_in_its_body() {
 /// `before` rests at `class`: its own applied change (`effective`, set in
 /// its body) and the kernel's report agree. A watcher holding a ranked lock
 /// is raised for that moment, and a row is listed before its class is set,
-/// so a single read may see neither.
-fn new_rows_at_rest(
+/// so a single read may see neither. Reads are 1 ms apart: a snapshot holds
+/// the process thread registry, which every thread start and exit takes.
+pub(crate) fn new_rows_at_rest(
     name: &str,
     before: &[Option<u64>],
     class: ThreadQos,
@@ -288,7 +289,7 @@ fn new_rows_at_rest(
             std::time::Instant::now() < deadline,
             "{name} never rested at {class} ({live:?}): {rows:?}"
         );
-        std::thread::yield_now();
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
 }
 
