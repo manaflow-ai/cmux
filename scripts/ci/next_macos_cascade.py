@@ -91,11 +91,12 @@ their R2 cache keys carry the workspace path (a hosted /Users/runner/work
 build never restores a Blacksmith one), and they use no Blacksmith-only
 action. A PR's scheme compile stays off hosted: a cold app compile, web bundles
 and launch-time budget on about 3 vCPU are unmeasured against its 60 min
-budget. A DEV daily's (HOSTED_FRESH_JOBS, when it is in FRESH_JOBS) takes
-hosted the same way, with a 90 min timeout: a feed's freshness outranks a
-cold build (2026-10-26: the DEV feed unpublished from 21:01Z, its compile
-queued 70 min on blacksmith-6vcpu-macos-26 behind about 75 jobs while hosted
-macos-26 was free). Without the snapshot's waits nothing is stalled and nothing goes to
+budget. A feed's compile (HOSTED_FRESH_JOBS, when it is in FRESH_JOBS: a DEV
+daily's scheme compile, a feat push's Release compile) takes hosted the same
+way, with a 90 min timeout: a feed's freshness outranks a cold build
+(2026-10-26: the DEV feed unpublished from 21:01Z, its compile queued 70 min
+on blacksmith-6vcpu-macos-26 behind about 75 jobs while hosted macos-26 was
+free; 23:35Z-00:50Z, five push Release compiles sat 45-94 min unstarted there). Without the snapshot's waits nothing is stalled and nothing goes to
 hosted, which is the previous route.
 
 The rescue's full re-run (attempt 2, triggered by RESCUE_ACTOR: bot_rerun()) is
@@ -145,7 +146,7 @@ HOSTED = "macos-26"
 HOSTED_CAPACITY = 5
 HOSTED_JOBS = ("fast-tier", "swift-canary")
 # A feed's compile whose runs-on also reads hosted_jobs: it takes hosted only as one of FRESH_JOBS.
-HOSTED_FRESH_JOBS = ("cmux-scheme-compile",)
+HOSTED_FRESH_JOBS = ("cmux-scheme-compile", "release-compile")
 STALL_MINUTES = 25
 IDLE_STALL_MINUTES = 5
 # simple_pool_picker.CAPACITY's figures for these labels. 12 vCPU: at most six

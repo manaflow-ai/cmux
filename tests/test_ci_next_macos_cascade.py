@@ -319,9 +319,19 @@ class Place(unittest.TestCase):
         # A free Blacksmith slot still comes first.
         self.assertEqual(cascade.place(dev, (), {LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}, seen).jobs,
                          none_placed(**{LARGE: ("cmux-scheme-compile",)}))
-        # A push's Release compile, whose runs-on reads no hosted route, still takes 6 vCPU unread.
+        # A feat push's Release compile takes the same route: hosted unread, and hosted when Blacksmith is full
+        # (23:35Z-00:50Z 2026-10-26: five push Release compiles sat 45-94 min unstarted on 6 vCPU).
         push = env(CASCADE_RUNS=" release-compile ", FRESH_JOBS="release-compile")
-        self.assertEqual(cascade.place(push, (), None, None).jobs, none_placed(**{SMALL: ("release-compile",)}))
+        self.assertEqual(cascade.place(push, (), None, None).jobs, none_placed(**{HOSTED: ("release-compile",)}))
+        self.assertEqual(cascade.place(push, (), full, {LARGE: 0, SMALL: 0}, seen).jobs,
+                         none_placed(**{HOSTED: ("release-compile",)}))
+        # A free Blacksmith slot the snapshot shows still comes first (one 6 vCPU job's room in the pool).
+        self.assertEqual(cascade.place(push, (), {LARGE: 0, SMALL: 9}, {LARGE: 0, SMALL: 0}, seen).jobs,
+                         none_placed(**{SMALL: ("release-compile",)}))
+        self.assertEqual(cascade.place(push, (), full, {LARGE: 0, SMALL: 0}, busy).jobs, none_placed())
+        # Not a feed's compile (a PR's): it keeps the owned label when Blacksmith is full.
+        self.assertEqual(cascade.place(env(CASCADE_RUNS=" release-compile "), (), full, {LARGE: 0, SMALL: 0},
+                                       seen).jobs, none_placed())
 
     def test_unread_counts_place_nothing(self):
         self.assertEqual(cascade.place(env(), (), None, None).jobs, none_placed())
@@ -344,10 +354,10 @@ class Place(unittest.TestCase):
                 self.assertEqual(result.retry_runner, "")
                 self.assertIn(f"take `{HOSTED}`", result.why)
         push = env(CASCADE_RUNS=" fast-tier cmux-scheme-compile release-compile ", FRESH_JOBS="release-compile")
-        self.assertEqual(cascade.place(push, (), None, None).jobs, none_placed(**{SMALL: ("release-compile",)}))
+        self.assertEqual(cascade.place(push, (), None, None).jobs, none_placed(**{HOSTED: ("release-compile",)}))
         # An idle mini is spent on the run's other jobs first; as many idle minis as jobs, and nothing moves.
         self.assertEqual(cascade.place(push, ("fast-tier",), None, None).jobs,
-                         none_placed(**{SMALL: ("release-compile",)}))
+                         none_placed(**{HOSTED: ("release-compile",)}))
         self.assertEqual(cascade.place(push, ("a", "b", "c"), None, None).jobs, none_placed())
         # A job that does not run here, or a run with no FRESH_JOBS, still places nothing.
         self.assertEqual(cascade.place(env(FRESH_JOBS="release-compile"), (), None, None).jobs, none_placed())
@@ -675,7 +685,7 @@ class Stall(unittest.TestCase):
         self.assertEqual(readers, {"fast-tier", "swift-canary", *cascade.HOSTED_FRESH_JOBS})
         # Their runs-on, and swift-canary's and the scheme compile's CMUX_NEXT_RUNNER copies: no other job reads
         # the hosted label.
-        self.assertEqual(WORKFLOW.read_text(encoding="utf-8").count("needs.macos-placement.outputs.hosted_runner"), 5)
+        self.assertEqual(WORKFLOW.read_text(encoding="utf-8").count("needs.macos-placement.outputs.hosted_runner"), 7)
         for name in readers:
             with self.subTest(job=name):
                 timeout = jobs[name]["timeout-minutes"]
@@ -1034,11 +1044,29 @@ class Wiring(unittest.TestCase):
         self.assertEqual(evaluate(runs_on, owned), "glaeda-side-std-xcode-26.6")
         self.assertEqual(evaluate(runs_on, spill), LARGE)
 
+    def test_a_feat_push_release_compile_takes_the_hosted_spill(self):
+        # The same route #25798 gave a DEV daily's compile: hosted when the placement chose it, on attempt 1.
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["release-compile"]
+        self.assertEqual(jobs["env"]["CMUX_NEXT_RUNNER"], jobs["runs-on"])
+        for attempt, actor, placed, expected in (("1", "teamleaderleo", "1", HOSTED), ("2", BOT, "1", SMALL),
+                                                 ("2", "teamleaderleo", "1", SMALL)):
+            with self.subTest(attempt=attempt, actor=actor):
+                context = self.context(attempt, actor, runner="", hosted=" release-compile ", placed=placed)
+                context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next", event={})
+                context["needs"]["release-compile-fast"] = {"result": "skipped", "outputs": {"verdict": ""}}
+                self.assertEqual(evaluate(jobs["runs-on"], context), expected)
+        context = self.context(runner="glaeda-side-std-xcode-26.6", hosted="")
+        context["github"].update(event_name="push", ref="refs/heads/feat-cmux-next", event={})
+        context["needs"]["release-compile-fast"] = {"result": "skipped", "outputs": {"verdict": ""}}
+        self.assertEqual(evaluate(jobs["runs-on"], context), "glaeda-side-std-xcode-26.6")
+
     def test_attempt_1_takes_the_hosted_spill_the_placement_chose(self):
         for name in CASCADED:
             runs_on = self.jobs[name]["runs-on"]
             with self.subTest(job=name):
-                spilled = HOSTED if name in cascade.HOSTED_JOBS + cascade.HOSTED_FRESH_JOBS else SIDE
+                # A PR's Release compile is owned first (it reads hosted only on a feat push, its one FRESH_JOBS run).
+                spilled = (HOSTED if name in cascade.HOSTED_JOBS + cascade.HOSTED_FRESH_JOBS
+                           and name != "release-compile" else SIDE)
                 self.assertEqual(evaluate(runs_on, self.context(hosted=f" x {name} ")), spilled)
                 self.assertEqual(evaluate(runs_on, self.context(hosted=f" {name}-x ")), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, hosted=f" {name} ")), spilled)
