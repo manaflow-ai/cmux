@@ -741,6 +741,12 @@
       "row": "global_mutable_statics",
       "allow": 1,
       "why": "p08-startup-082: GlobalJobCensus.installedBits (CmuxNextLaunch), the one word through which the launch's off-main job census reaches its recorder. swift_task_enqueueGlobal_hook is a thin function with no context argument, so the census the composition root makes is published here once (a compare-exchange from 0; a second install is refused). Debug and bench-hooks builds only, and only in a launch armed by CMUX_NEXT_GLOBAL_JOB_CENSUS=1. Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
+    },
+    {
+      "date": "2026-10-27",
+      "row": "blocking_allow_escapes",
+      "allow": 1,
+      "why": "p10-stability-168: MessagesLabHome FieldTextView.log (vendored appkit-native Compose.swift), the opt-in `--caret-log` lab diagnostic. Its legacy seekToEndOfFile() and write(_:) raised NSFileHandleOperationException on a failed append; they become try seekToEnd() and try write(contentsOf:), which the raw-blocking-ext rule sees as new FileHandle I/O. The write stays on the main thread on purpose: the log places each caret and run-loop event between a key's own work and Core Animation's commits, in order, so a queue hop would reorder what it measures. Off unless the lab is launched with --caret-log; never in the cmux app. The vendored package has no CmuxThreading dependency for blockingCall."
     }
   ],
   "observer_wrappers": [

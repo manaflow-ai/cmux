@@ -45,10 +45,11 @@ extension FileHandle {
         return unsafe withUnsafeTemporaryAllocation(byteCount: max(count, 1), alignment: 1) {
             (buffer: UnsafeMutableRawBufferPointer) -> AvailableRead in
             guard let base = unsafe buffer.baseAddress else { return .end(.failed(errno: ENOMEM)) }
-            var result: Int
-            repeat {
+            // A signal can interrupt the read before it moved a byte; each retry is one more read, never a poll.
+            var result = unsafe blockingRead(descriptor, base, buffer.count, fileID: fileID, line: line)
+            while result < 0 && errno == EINTR {
                 result = unsafe blockingRead(descriptor, base, buffer.count, fileID: fileID, line: line)
-            } while result < 0 && errno == EINTR
+            }
             if result > 0 { return .bytes(unsafe Data(bytes: base, count: result)) }
             return .end(result == 0 ? .endOfFile : .failed(errno: errno))
         }
