@@ -199,6 +199,28 @@ pub(crate) fn mount_aliases(protected: &[PathBuf], mountinfo: &str) -> Vec<Strin
 fn local_filesystem(fs_type: &str) -> bool {
     matches!(fs_type, "ext2" | "ext3" | "ext4" | "xfs" | "btrfs" | "tmpfs" | "f2fs" | "bcachefs")
 }
+
+fn join_mount_path(base: &Path, suffix: &Path) -> PathBuf {
+    if suffix.as_os_str().is_empty() { base.to_path_buf() } else { base.join(suffix) }
+}
+
+fn same_writable_view(root: &Path, containing: &MountEntry, other: &MountEntry) -> bool {
+    if containing.device != other.device {
+        return false;
+    }
+    let Ok(rest) = root.strip_prefix(&containing.point) else {
+        return false;
+    };
+    let underlying = containing.root.join(rest);
+    if let Ok(suffix) = other.root.strip_prefix(&underlying) {
+        return other.point == join_mount_path(root, suffix);
+    }
+    if let Ok(suffix) = underlying.strip_prefix(&other.root) {
+        return root == join_mount_path(&other.point, suffix).as_path();
+    }
+    false
+}
+
 /// Reject alternate views of writable roots and recursive bind aliases below them.
 /// Only a whole filesystem with no overlapping same-device mount is exempt.
 /// Loops end after the supplied roots and finite mount table.
@@ -234,20 +256,24 @@ pub(super) fn writable_mount_aliases(roots: &[&PathBuf], mountinfo: &str) -> Vec
             if other_index == index || other.device != mount.device {
                 continue;
             }
-            let Ok(suffix) = underlying.strip_prefix(&other.root) else {
-                continue;
-            };
-            let alternate = if suffix.as_os_str().is_empty() {
-                other.point.clone()
-            } else {
-                other.point.join(suffix)
-            };
-            if alternate.as_path() != root.as_path() {
-                aliases.insert(format!(
-                    "{} is also visible at {}",
-                    root.display(),
-                    alternate.display()
-                ));
+            if let Ok(suffix) = underlying.strip_prefix(&other.root) {
+                let alternate = join_mount_path(&other.point, suffix);
+                if alternate.as_path() != root.as_path() {
+                    aliases.insert(format!(
+                        "{} is also visible at {}",
+                        root.display(),
+                        alternate.display()
+                    ));
+                }
+            } else if let Ok(suffix) = other.root.strip_prefix(&underlying) {
+                let exposed = join_mount_path(root.as_path(), suffix);
+                if other.point != exposed {
+                    aliases.insert(format!(
+                        "{} is also visible at {}",
+                        exposed.display(),
+                        other.point.display()
+                    ));
+                }
             }
         }
     }
@@ -260,6 +286,15 @@ pub(super) fn writable_mount_aliases(roots: &[&PathBuf], mountinfo: &str) -> Vec
             });
         for root in roots {
             if mount.point.starts_with(root) {
+                let containing = mounts
+                    .iter()
+                    .filter(|candidate| root.starts_with(&candidate.point))
+                    .max_by_key(|candidate| candidate.point.components().count());
+                if containing
+                    .is_some_and(|candidate| same_writable_view(root.as_path(), candidate, mount))
+                {
+                    continue;
+                }
                 if !local_filesystem(&mount.fs_type) {
                     aliases.insert(format!(
                         "{} is on non-local filesystem {} inside writable folder {}",
@@ -316,7 +351,7 @@ mod tests {
     fn writable_roots_without_alternate_views_are_allowed() {
         let root = PathBuf::from("/home/u/repo");
         for info in [
-            "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 /home/u/repo/.git /mnt/meta rw - ext4 root rw\n",
+            "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 /home/u/other /mnt/meta rw - ext4 root rw\n",
             "1 0 0:42 /@home /home rw - btrfs root rw\n",
         ] {
             let reasons = writable_mount_aliases(&[&root], info);
@@ -331,7 +366,7 @@ mod tests {
             ("2 1 8:1 /home/u/work/cache /home/u/victim/.git/hooks rw - ext4 root rw\n", true),
             ("2 1 8:1 /home/u/work /mnt/other rw - ext4 root rw\n", true),
             ("2 1 8:1 /home/u/work/a/b /mnt/x rw - ext4 root rw\n", true),
-            ("2 1 8:1 /home/u rw - ext4 root rw\n", true),
+            ("2 1 8:1 /home/u /mnt/u rw - ext4 root rw\n", true),
             ("2 1 8:1 /home/u/other /mnt/o rw - ext4 root rw\n", false),
             ("2 1 8:1 /home/u/work/sub /home/u/work/sub rw - ext4 root rw\n", false),
         ];
@@ -347,22 +382,34 @@ mod tests {
         let root = PathBuf::from("/work");
         let base = "1 0 8:1 / / rw - ext4 root rw\n";
         for (entry, expected) in [
-            ("2 1 8:1 /work/.git/hooks /work/cache rw - ext4 root rw\n", "/work/cache"),
-            ("2 1 8:1 /elsewhere /work rw - ext4 root rw\n", "/work"),
-            ("2 1 8:1 / /work/cache rw - ext4 root rw\n", "/work/cache"),
+            (
+                "2 1 8:1 /work/.git/hooks /work/cache rw - ext4 root rw\n",
+                &[
+                    "/work/.git/hooks is also visible at /work/cache",
+                    "/work/cache is a bind mount inside the writable folder /work",
+                ][..],
+            ),
+            (
+                "2 1 8:1 /elsewhere /work rw - ext4 root rw\n",
+                &["/work is also visible at /elsewhere"][..],
+            ),
+            (
+                "2 1 8:1 / /work/cache rw - ext4 root rw\n",
+                &[
+                    "/work is also visible at /work/cache",
+                    "/work/cache is a bind mount inside the writable folder /work",
+                ][..],
+            ),
         ] {
             let reasons = writable_mount_aliases(&[&root], &format!("{base}{entry}"));
-            assert!(
-                reasons.contains(&format!(
-                    "{expected} is a bind mount inside the writable folder /work"
-                )),
-                "{reasons:?}"
-            );
+            let expected: Vec<String> =
+                expected.iter().map(|reason| (*reason).to_owned()).collect();
+            assert_eq!(reasons, expected, "{entry}");
         }
         for entry in [
             "2 1 0:42 / /work/cache rw - tmpfs tmpfs rw\n",
             "2 1 0:42 / /work rw - tmpfs tmpfs rw\n",
-            "2 1 8:1 /work/.git/hooks /work-other/cache rw - ext4 root rw\n",
+            "2 1 8:1 /other/.git/hooks /work-other/cache rw - ext4 root rw\n",
             "",
         ] {
             assert!(writable_mount_aliases(&[&root], &format!("{base}{entry}")).is_empty());

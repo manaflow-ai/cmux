@@ -472,13 +472,13 @@ mod tests {
                 encode(&point)
             );
             let error = plan(&paths, &[], &info, &strings(&["true"])).unwrap_err();
-            assert_eq!(
-                error,
-                format!(
+            assert!(
+                error.contains(&format!(
                     "{} is a bind mount inside the writable folder {}",
                     point.display(),
                     root.display()
-                )
+                )),
+                "{error}"
             );
         }
     }
