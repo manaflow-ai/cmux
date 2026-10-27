@@ -291,9 +291,10 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         guard !summaries.isEmpty, JSONSerialization.isValidJSONObject(summaries),
               let data = try? JSONSerialization.data(withJSONObject: summaries) else { return }
         // task-owner: one main-actor note of what the daemon answered; nothing waits on it
+        let remoteHost = host
         Task { @MainActor in
             let copy = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
-            RemoteAgentSessionLinks.shared.note(copy, host: self.host)
+            RemoteAgentSessionLinks.shared.note(copy, host: remoteHost)
         }
     }
 

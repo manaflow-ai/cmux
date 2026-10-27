@@ -25,7 +25,8 @@ public final class RemoteAgentSessionLinks {
     /// Notes the parent of each summary (`sessionId` with `startedBy`, else `spawnedBy`).
     /// A host-qualified note keeps identical ids from separate remote daemons distinct.
     public func note(_ summaries: [[String: Any]], host: String? = nil) {
-        var parents = host == nil ? parents : parentsByHost[host!] ?? [:]
+        var parents: [String: String]
+        if let host { parents = parentsByHost[host] ?? [:] } else { parents = self.parents }
         for summary in summaries {
             guard let child = summary["sessionId"] as? String, !child.isEmpty,
                   let parent = (summary["startedBy"] as? String) ?? (summary["spawnedBy"] as? String),
@@ -41,12 +42,13 @@ public final class RemoteAgentSessionLinks {
     }
 
     /// True when `session` descends from `root` (a child, or a child's child, ...).
-    public func descends(_ session: String, from root: String) -> Bool {
+    public func descends(_ session: String, from root: String, host: String? = nil) -> Bool {
         var seen: Set<String> = []
-        var next = parents[session]
+        let links = host.flatMap { parentsByHost[$0] } ?? parents
+        var next = links[session]
         while let parent = next, seen.insert(parent).inserted {
             if parent == root { return true }
-            next = parents[parent]
+            next = links[parent]
         }
         return false
     }
