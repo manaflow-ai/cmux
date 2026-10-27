@@ -32,9 +32,12 @@ final class SidebarBridge {
     private var appSections: SidebarAppSections?
     /// The bottom-left cards (SidebarBridge+Cards).
     var cards: ServiceObservation<SidebarCardFeed.Cards>?
-    /// The Priority view and the window's top items.
-    var cardsObservation: Task<Void, Never>?
-    var nowPlayingFeed: AnyObject?  // the Now Playing card's feed (`SidebarModel.followNowPlaying`); released, it stops
+    /// The Now Playing card's feed (`SidebarModel.followNowPlaying`); released, it stops.
+    var nowPlayingFeed: AnyObject?
+    /// The Priority view (`SidebarPriorityFeed`).
+    var priority: ServiceObservation<SidebarPriorityPanel?>?
+    /// The window's top items (`SidebarModel.followTopItems`); nil for a window with no saved state.
+    var topItems: ServiceObservation<SidebarModel.TopItems>?
     /// The footer's avatar (`SidebarProfileControl.followAvatar`).
     private var profileAvatar: ServiceObservation<SidebarAvatar>?
     /// True once the sidebar shows real content: saved rows, the first
@@ -135,9 +138,10 @@ final class SidebarBridge {
         widthObservation?.cancel()
         sectionsObservation?.cancel()
         appSections?.releaseAll()
-        cardsObservation?.cancel()
         nowPlayingFeed = nil
         cards?.cancel()
+        priority?.cancel()
+        topItems?.cancel()
         profileAvatar?.cancel()
         // The update surface pages cancel their subscriptions (cx-urd.61.2).
         container.sidebarView.updateSurfaces = nil
