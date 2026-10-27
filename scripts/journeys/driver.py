@@ -1058,11 +1058,15 @@ class Journey:
         record["named_terminals"] = found
         # Restore settles when every shown terminal view is attached live (restore-journey.py's rule); then the
         # creation hold a restored selection opens is waited out (CREATION_HOLD_SECONDS).
+        # `settle_on: "panes"`: the restored window may show no terminal at all (a browser tab selected in the only
+        # terminal pane, beside Home): restore settles once the app lists its panes and every shown terminal is live.
+        any_pane = step.get("settle_on") == "panes"
         settled = False
         while now() < end and not settled:
             try:
-                shown = [p for p in app.panes() if p.get("kind") == "terminal" and p.get("presence") == "visible"]
-                settled = bool(shown) and all(p.get("attach") == "live" for p in shown)
+                panes = app.panes()
+                shown = [p for p in panes if p.get("kind") == "terminal" and p.get("presence") == "visible"]
+                settled = bool(panes if any_pane else shown) and all(p.get("attach") == "live" for p in shown)
             except (StepError, OSError, ValueError):
                 pass
             if not settled:
