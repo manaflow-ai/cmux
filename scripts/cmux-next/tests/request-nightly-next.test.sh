@@ -40,6 +40,8 @@ git_q -C "$src" add -A
 git_q -C "$src" commit -m one
 git_q -C "$src" update-index --add --cacheinfo 160000,"$(git -C "$src" rev-parse HEAD)",ghostty
 git_q -C "$src" commit -m gitlink
+# origin is the fixture itself: nightly-next is read from it (absent until set).
+git -C "$src" remote add origin "$src"
 key() { (cd "$src" && python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$1" 2>/dev/null); }
 
 cdn="$TMP/cdn"
@@ -324,6 +326,11 @@ git -C "$src" remote set-url origin "$far"
 request --sha "$greenx" --release-compile-green
 [[ "$status" == 0 ]] && [[ ! -s "$TMP/gh.log" ]] \
   || fail "a compiled commit not provably ahead of nightly-next must not be requested (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+# nightly-next cannot be read at all (origin unreachable): nothing is requested.
+git -C "$src" remote set-url origin "$TMP/no-such-remote"
+request --sha "$greenx" --release-compile-green
+[[ "$status" == 0 ]] && [[ ! -s "$TMP/gh.log" ]] \
+  || fail "a compile whose nightly-next lookup failed must request nothing (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 git -C "$src" remote set-url origin "$src"
 git_q -C "$src" update-ref refs/heads/nightly-next "$head^"
 request --sha "$greenx" --release-compile-green

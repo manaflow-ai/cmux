@@ -127,10 +127,11 @@ strings_fresh() { # <sha>
 # (empty otherwise). It bounds the --tree-ready search from below, and a commit
 # it already contains is never requested again: main's promote job keeps one
 # waiting request, so a stale request would evict a newer one.
-promoted=""
-if line="$(git ls-remote origin refs/heads/nightly-next 2>/dev/null)" \
-   && [[ "${line%%[[:space:]]*}" =~ ^[0-9a-f]{40}$ ]]; then
-  promoted="${line%%[[:space:]]*}"
+promoted="" promoted_unknown=""
+if line="$(git ls-remote origin refs/heads/nightly-next 2>/dev/null)"; then
+  [[ ! "${line%%[[:space:]]*}" =~ ^[0-9a-f]{40}$ ]] || promoted="${line%%[[:space:]]*}"
+else
+  promoted_unknown=1
 fi
 already_promoted() { # <sha>
   # Equality needs no history: cmux-next.yml checks out one commit.
@@ -225,6 +226,12 @@ fi
 # only when it provably descends from nightly-next: a compile that finished
 # late, beyond this history's reach, must not ask for its old commit (main's
 # promote job would refuse it as behind nightly-next).
+# After a Release compile, nothing is requested unless nightly-next was read:
+# without it no candidate is provably ahead of it.
+if [[ "$mode" == release-compile-green && -n "$promoted_unknown" ]]; then
+  echo "not requesting: could not read nightly-next from origin; the tree side asks"
+  exit 0
+fi
 if [[ "$mode" == release-compile-green && -n "$promoted" ]] && ! git cat-file -e "$promoted^{commit}" 2>/dev/null; then
   echo "not requesting: nightly-next (${promoted:0:12}) is not in this history, so no candidate is provably ahead of it; the tree side asks"
   exit 0
