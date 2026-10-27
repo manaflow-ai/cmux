@@ -71,8 +71,17 @@ cleanup() {
   fi
   # Attempted even when the simulator set's removal failed.
   if [[ -n "$xcodegen_dir" ]]; then rm -rf "$xcodegen_dir" || true; fi
-  # pair-e2e's Mac app build (its DerivedData, app included).
-  if [[ -n "${mac_dd:-}" ]]; then rm -rf "$mac_dd" || true; fi
+  # pair-e2e's Mac app build (its DerivedData, app included), reload.sh's
+  # /tmp/cmux-<tag> link to it, and the host's last-debug-log pointer as it was.
+  if [[ -n "${mac_dd:-}" ]]; then
+    # The tag is this run's own (its PID is in it), so its link is too.
+    if [[ -n "${mac_tag:-}" && -L "/tmp/cmux-$mac_tag" ]]; then rm -f "/tmp/cmux-$mac_tag" || true; fi
+    if [[ -n "${mac_tag:-}" ]] && grep -qF -- "$mac_tag" /tmp/cmux-last-debug-log-path 2>/dev/null; then
+      if [[ -n "${prev_last_log:-}" ]]; then printf '%s\n' "$prev_last_log" > /tmp/cmux-last-debug-log-path || true
+      else rm -f /tmp/cmux-last-debug-log-path || true; fi
+    fi
+    rm -rf "$mac_dd" || true
+  fi
 }
 trap cleanup EXIT
 
@@ -275,6 +284,7 @@ if [[ "$mode" == pair-e2e ]]; then
   t0=$SECONDS
   # A tag of this run only: its own bundle id, socket, settings and state.
   mac_tag="iospair-$(git rev-parse --short=8 HEAD)-$$"
+  prev_last_log="$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || true)"
   mac_dd="$work/mac-dd"
   # A fleet build (CMUX_FLEET_BUILD_TAG) builds acpmux, optchat-chief and
   # cmux-mobile-host on a cache miss and requires them in the bundle.

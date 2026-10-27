@@ -44,9 +44,7 @@ def shows_a_code():
     """Whether this ref's Mobile Pairing page sends a pairing code (`qr`): on a ref without it no
     code is the expected "before"; on one with it, no code is a failure."""
     src = os.path.join(ROOT, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPageProvider.swift")
-    if not os.path.exists(src):
-        raise SystemExit(f"Mobile Pairing page provider not found at {src}: update shows_a_code()")
-    return 'reply["qr"]' in open(src).read()
+    return os.path.exists(src) and 'reply["qr"]' in open(src).read()
 
 
 def dev_credential():
@@ -129,21 +127,25 @@ def main():
         with open(a.summary, "a") as f:
             f.write(line + "\n")
 
+    # Read before anything is written, so nothing it decides leaves state behind.
+    expects_code = shows_a_code()
+    note(f"- this ref's pairing page {'shows' if expects_code else 'shows no'} pairing codes")
+
     # ---- the Mac app ------------------------------------------------------
     info = plistlib.load(open(os.path.join(a.mac_app, "Contents/Info.plist"), "rb"))
     ls_env = {k: str(v) for k, v in (info.get("LSEnvironment") or {}).items()}
     mac_bundle, tag = info["CFBundleIdentifier"], ls_env["CMUX_TAG"]
     sock = ls_env.get("CMUX_SOCKET_PATH") or f"/tmp/cmux-debug-{tag}.sock"
     support = os.path.expanduser(f"~/Library/Application Support/{mac_bundle}")
+    # The DEBUG auth's file fallback (CloudConfiguration.credentialsDirectory): this bundle id's only.
+    auth_files = os.path.expanduser(f"~/Library/Application Support/cmux/{mac_bundle}")
     rig = os.path.join(a.work, "pair-rig")
     os.makedirs(rig, mode=0o700, exist_ok=True)
     config = os.path.join(rig, "cmux-next.json")
     with open(config, "w") as f:
         json.dump({"mobile": {"allowIPhoneConnections": True}}, f)
     email, password = dev_credential()
-    creds = os.path.join(rig, "dev-auth.env")
-    with os.fdopen(os.open(creds, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
-        f.write(f"CMUX_UITEST_STACK_EMAIL={email}\nCMUX_UITEST_STACK_PASSWORD={password}\n")
+    creds = os.path.join(rig, "dev-auth.env")  # written once cleanup is armed (below)
     # Launched by its binary (its PID is this script's child), with the environment `open`
     # would give it (LSEnvironment) plus the rig's settings. An empty seed trusts no phone.
     env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX")}
@@ -187,8 +189,6 @@ def main():
             last.update(value)
         return value
 
-    expects_code = shows_a_code()
-
     def mac_shot(name):
         """The Mac page as rendered, only on a ref that never shows a code: a code's image carries a
         live token (text redaction can't reach it, and a code may render between a status read and
@@ -217,6 +217,8 @@ def main():
     teardown.install()
     streams, app, paired, url = [], None, None, None
     try:
+        with os.fdopen(os.open(creds, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as f:
+            f.write(f"CMUX_UITEST_STACK_EMAIL={email}\nCMUX_UITEST_STACK_PASSWORD={password}\n")
         if os.path.exists(sock):
             os.unlink(sock)  # this run's own tag
         exe = os.path.join(a.mac_app, "Contents/MacOS", info["CFBundleExecutable"])
@@ -300,6 +302,7 @@ def main():
         teardown.end()
         shutil.rmtree(rig, ignore_errors=True)  # the credential file
         shutil.rmtree(support, ignore_errors=True)  # this run's bundle id only
+        shutil.rmtree(auth_files, ignore_errors=True)  # its tokens, if the Keychain refused them
         forget_keychain(mac_bundle)
         for path in (sock, f"/tmp/cmux-debug-{tag}.log"):
             if os.path.exists(path):
