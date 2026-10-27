@@ -4,8 +4,17 @@ import type { AcpmuxRow } from "../model";
 import { opensTurn } from "../turnStart";
 import { MOTION_MS } from "../../../motion/scale.generated";
 
-export type ReplySpan = { text: string; bold: boolean };
+export type ReplySpan = { text: string; bold: boolean; code?: true };
 export type ReplyBlock = { kind: "paragraph" | "item"; spans: ReplySpan[] };
+export type MinimapTurnMetadata = {
+  at: number;
+  durationMs?: number;
+  toolCount?: number;
+  fileCount?: number;
+  links: string[];
+  failed?: boolean;
+  failure?: string;
+};
 export type MinimapTurn = {
   /// The user row's index in the transcript rows (and in the layout's tops).
   index: number;
@@ -18,6 +27,7 @@ export type MinimapTurn = {
   prompt: string;
   /// The start of the first reply after the prompt.
   reply: ReplyBlock[];
+  metadata?: MinimapTurnMetadata;
 };
 
 /// The rail's geometry and timing, measured from 60 Hz recordings of the Codex desktop app's prompt
@@ -72,9 +82,11 @@ export const SETTLE_FRAMES = 45;
 /// The landing highlight on the prompt's bubble.
 export const HIGHLIGHT_MS = 1400;
 export const HIGHLIGHT_EASING = "cubic-bezier(0.23, 1, 0.32, 1)";
-/// Blocks of a reply the preview keeps (the card clamps to three lines).
+/// Blocks of a reply the preview keeps (the card clamps to four lines).
 const PREVIEW_BLOCKS = 4;
 const PREVIEW_CHARS = 360;
+const METADATA_TEXT_LIMIT = 1024;
+const PR_LINK = /https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+(?:#[\w.-]+)?/g;
 
 /// How magnified a row is (0 to 1) at `distance` rows from the hovered one; undefined is no hover.
 export function tickProgress(distance: number | undefined): number {
@@ -210,6 +222,68 @@ export function jumpDuration(distance: number): number {
 /// chat's snapshot hashes and previews only the turns that changed.
 const turnsByPrompt = new WeakMap<AcpmuxRow, { turn: MinimapTurn; sessionId: string; reply?: AcpmuxRow }>();
 
+type CardState = { metadata: MinimapTurnMetadata; files: ReadonlySet<string> };
+type CardContribution = {
+  version: number;
+  shape: string;
+  before?: CardState;
+  state: CardState;
+  paths?: readonly string[];
+};
+// Contributions join during the existing row walk. An unchanged row and prefix reuse the whole
+// state, including its sets. turnView recreates live activity wrappers: source id/version, rather
+// than the wrapper's identity, keeps those contributions stable across reply tokens. Each prompt
+// owns one entry per row, replaced on revision; releasing the prompt releases the cache.
+const cardStates = new WeakMap<AcpmuxRow, Map<string, CardContribution>>();
+const noFiles: ReadonlySet<string> = new Set();
+
+function cardState(prompt: AcpmuxRow, row: AcpmuxRow, before?: CardState): CardState {
+  let contributions = cardStates.get(prompt);
+  if (!contributions) cardStates.set(prompt, (contributions = new Map()));
+  const previous = contributions.get(row.id);
+  // Live runs and an ended turn's merged edits use different version arithmetic; the same numeric
+  // revision can name both. Their drawn shape separates those contributions without reading items.
+  const shape = `${row.kind}:${row.ended ?? ""}:${row.foldRun ?? ""}:${row.settled ?? ""}`;
+  const cached = previous?.version === row.version && previous.shape === shape ? previous : undefined;
+  if (cached && cached.before === before) return cached.state;
+  let state = before ?? { metadata: { at: row.at, links: [] }, files: noFiles };
+  let metadata = state.metadata;
+  let files = state.files;
+  // A link discovered in a still-streaming reply is not stable yet. Read only its bounded prefix
+  // once it finishes; prompts are immutable and the row cache reads their links once.
+  if (!before || (row.kind === "assistant" && !row.streaming)) {
+    const links = [...(row.text ?? "").slice(0, METADATA_TEXT_LIMIT).matchAll(PR_LINK)].map((match) => match[0]);
+    const added = links.filter((link) => !metadata.links.includes(link));
+    if (added.length) metadata = { ...metadata, links: [...metadata.links, ...new Set(added)] };
+  }
+  let paths = cached?.paths;
+  if (row.kind === "activity") {
+    if (!paths) {
+      paths = (row.items ?? []).flatMap((item) => item.tool?.diffs?.map((diff) => diff.canonical ?? diff.path) ?? []);
+    }
+    if (paths.some((path) => !files.has(path))) {
+      files = new Set([...files, ...paths]);
+      metadata = { ...metadata, fileCount: files.size };
+    }
+  }
+  const failure = row.error || row.delivery?.error || row.delivery?.reason;
+  const failed =
+    row.failed ||
+    row.delivery?.state === "failed" ||
+    (row.kind === "turnSummary" && (row.status === "failed" || row.status === "error"));
+  if (row.kind === "turnSummary" || (!before && (failure || failed)))
+    metadata = {
+      ...metadata,
+      ...(row.durationMs !== undefined && { durationMs: row.durationMs }),
+      ...(row.toolCount !== undefined && { toolCount: row.toolCount }),
+      ...(failed && { failed: true }),
+      ...(failure && { failure }),
+    };
+  if (metadata !== state.metadata || files !== state.files) state = { metadata, files };
+  contributions.set(row.id, { version: row.version, shape, before, state, paths });
+  return state;
+}
+
 /// What a turn's tick on the rail shows: its prompt, by key. A tick changes only when its prompt
 /// does, not when the reply it previews streams on.
 export type MinimapTick = Pick<MinimapTurn, "key" | "id" | "prompt">;
@@ -277,12 +351,17 @@ export function minimapTurns(
   let user: AcpmuxRow | undefined;
   let userIndex = 0;
   let reply: AcpmuxRow | undefined;
+  let details: CardState | undefined;
   const close = () => {
     if (!user) return;
     const kept = turnsByPrompt.get(user);
     const same = kept && kept.sessionId === sessionId && kept.turn.index === userIndex;
-    if (same && kept.reply === reply) tail.push(kept.turn);
-    else if (same && reply?.text && kept.reply?.text && samePreview(kept.turn.reply, replyPreview(reply.text))) {
+    const nextMetadata = details?.metadata;
+    const sameReply =
+      same &&
+      (kept.reply === reply ||
+        (reply?.text && kept.reply?.text && samePreview(kept.turn.reply, replyPreview(reply.text))));
+    if (sameReply && kept.turn.metadata === nextMetadata) {
       // A reply streamed on past its preview (replyPreview stops once the preview is full): the
       // turn is the same, so the list of turns can be too.
       kept.reply = reply;
@@ -293,13 +372,15 @@ export function minimapTurns(
         id: user.id,
         key: turnKey(sessionId, user),
         prompt: (user.text ?? "").replace(/\s+/g, " ").trim(),
-        reply: reply?.text ? replyPreview(reply.text) : [],
+        reply: sameReply ? kept.turn.reply : reply?.text ? replyPreview(reply.text) : [],
+        metadata: nextMetadata,
       };
       turnsByPrompt.set(user, { turn, sessionId, reply });
       tail.push(turn);
     }
     user = undefined;
     reply = undefined;
+    details = undefined;
   };
   const start = keep < (reuse?.turns.length ?? 0) ? reuse!.turns[keep]!.index : 0;
   for (let index = reuse && keep > 0 ? start : 0; index < rows.length; index += 1) {
@@ -309,7 +390,14 @@ export function minimapTurns(
       close();
       user = row;
       userIndex = index;
-    } else if (user && !reply && row.kind === "assistant" && row.text) reply = row;
+      details = cardState(row, row);
+    } else if (user) {
+      if (!reply && row.kind === "assistant" && row.text) {
+        reply = row;
+        details = cardState(user, row, details);
+      }
+      if (row.kind === "activity" || row.kind === "turnSummary") details = cardState(user, row, details);
+    }
   }
   close();
   const old = reuse?.turns;
@@ -371,7 +459,12 @@ function samePreview(a: readonly ReplyBlock[], b: readonly ReplyBlock[]): boolea
     return (
       block.kind === other.kind &&
       block.spans.length === other.spans.length &&
-      block.spans.every((span, at) => span.text === other.spans[at]!.text && !!span.bold === !!other.spans[at]!.bold)
+      block.spans.every(
+        (span, at) =>
+          span.text === other.spans[at]!.text &&
+          !!span.bold === !!other.spans[at]!.bold &&
+          !!span.code === !!other.spans[at]!.code,
+      )
     );
   });
 }
@@ -453,7 +546,7 @@ export function turnScrollTop(turn: MinimapTurn, tops: Float64Array): number {
   return Math.max(0, THREAD_PADDING_TOP + (tops[turn.index] ?? 0) - LANDING_OFFSET);
 }
 
-/// The start of a reply as plain blocks with bold spans; code, headings' marks and link targets drop.
+/// The start of a reply as blocks with bold/code spans; fenced code, heading marks and link targets drop.
 export function replyPreview(markdown: string): ReplyBlock[] {
   const blocks: ReplyBlock[] = [];
   let chars = 0;
@@ -508,23 +601,20 @@ export function replyPreview(markdown: string): ReplyBlock[] {
 
 function inlineSpans(text: string): ReplySpan[] {
   const plain = (value: string) =>
-    value
-      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
-      .replace(/`([^`]*)`/g, "$1")
-      .replace(/(^|[^\w*])[*_]([^*_\s][^*_]*?)[*_](?=[^\w*]|$)/g, "$1$2");
+    value.replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/(^|[^\w*])[*_]([^*_\s][^*_]*?)[*_](?=[^\w*]|$)/g, "$1$2");
   const spans: ReplySpan[] = [];
-  const add = (value: string, bold: boolean) => {
-    const clean = plain(value);
+  const add = (value: string, bold: boolean, code = false) => {
+    const clean = code ? value : plain(value);
     if (!clean) return;
     const last = spans.at(-1);
-    if (last && last.bold === bold) last.text += clean;
-    else spans.push({ text: clean, bold });
+    if (last && last.bold === bold && !!last.code === code) last.text += clean;
+    else spans.push({ text: clean, bold, ...(code && { code: true }) });
   };
-  const strong = /(\*\*|__)(.+?)\1/g;
+  const tokens = /(`+)(.*?)\1|(\*\*|__)(.+?)\3/g;
   let at = 0;
-  for (let match = strong.exec(text); match; match = strong.exec(text)) {
+  for (let match = tokens.exec(text); match; match = tokens.exec(text)) {
     add(text.slice(at, match.index), false);
-    add(match[2], true);
+    add(match[1] ? match[2] : match[4], !match[1], !!match[1]);
     at = match.index + match[0].length;
   }
   add(text.slice(at), false);

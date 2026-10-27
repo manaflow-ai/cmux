@@ -254,8 +254,12 @@
   top: 0;
   left: 0;
   z-index: var(--layer-tooltip);
-  width: 320px;
-  max-width: calc(100vw - 16px);
+  width: fit-content;
+  /* The existing rail origin is at most 52px in; keep another 12px clear at the far edge. */
+  min-width: min(240px, calc(100vw - 64px));
+  max-width: min(360px, calc(100vw - 64px));
+  isolation: isolate;
+  will-change: transform;
   box-sizing: border-box;
   /* The edge is an inset shadow one device pixel wide (--cmux-hairline, #20713); appearance.borders
      none clears it through --acpmux-minimap-rim. Glass, as the chat's other hover cards (the link
@@ -271,23 +275,26 @@
     inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-minimap-rim, var(--acpmux-minimap-card-ring)),
     var(--elevation-2);
   color: var(--agent-text);
-  font: var(--text-body, 13px) / 20px -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font: var(--text-body, 13px) / 20px var(--font-ui);
   -webkit-font-smoothing: antialiased;
   cursor: default;
 }
 .acpmux-minimap__title {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  height: 20px;
+  min-height: 20px;
   font-weight: 500;
 }
 .acpmux-minimap__prompt {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .acpmux-minimap__bookmark {
   flex: none;
@@ -318,19 +325,64 @@
 .acpmux-minimap__reply {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 4;
   overflow: hidden;
   margin-top: 4px;
   color: var(--agent-muted);
+}
+.acpmux-minimap__metadata {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin-top: 5px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  line-height: 16px;
+}
+.acpmux-minimap__meta-link {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--agent-link, var(--agent-text));
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-minimap__meta-link:hover {
+  text-decoration: underline;
+}
+.acpmux-minimap__failure {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  margin-top: 5px;
+  color: var(--agent-status-failure, var(--agent-muted));
+  overflow-wrap: anywhere;
+}
+.acpmux-minimap__failure-icon {
+  margin-right: 5px;
+  vertical-align: -2px;
 }
 .acpmux-minimap__reply p {
   margin: 0;
 }
 .acpmux-minimap__reply p + p {
-  margin-top: 4px;
+  margin-top: 0;
 }
 .acpmux-minimap__reply strong {
   font-weight: 600;
+}
+.acpmux-minimap__reply code {
+  font-family: var(--font-mono);
+  font-size: inherit;
+}
+.acpmux-minimap__full-token {
+  position: absolute;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  pointer-events: none;
 }
 .acpmux-minimap__item {
   padding-left: 14px;

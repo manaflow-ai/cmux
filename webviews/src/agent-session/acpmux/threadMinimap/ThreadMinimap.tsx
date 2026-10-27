@@ -843,6 +843,7 @@ export function ThreadMinimap({
           scroller={scroller.current}
           prompt={cardTurn.prompt}
           reply={cardTurn.reply}
+          metadata={cardTurn.metadata}
           bookmark={marks.can(cardTurn) ? { marked: cardMarked, toggle: () => marks.toggle(cardTurn) } : undefined}
           onPointerLeave={(event) => {
             // Back onto the rail keeps it (its row takes over); anywhere else it goes.
