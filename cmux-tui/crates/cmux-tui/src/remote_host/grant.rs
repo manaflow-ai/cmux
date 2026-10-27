@@ -52,7 +52,7 @@ impl Scope {
     }
 }
 
-/// One teammate grant in `remote.json`.
+/// One teammate grant in the host config.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Grant {
     pub login: String,
@@ -67,15 +67,9 @@ pub(crate) struct Grant {
     pub revoked_at: Option<String>,
 }
 
-/// Records `login`'s approved grant of `scopes`, replacing any earlier one, and says whether the
-/// login's open connections must close. A connection keeps what it was admitted with (a raw
-/// daemon splice for `shell`, the filtered proxy for `agents`), so any change to a live grant
-/// restarts the listener, as `revoke` does; a first grant or the same scopes again does not.
-pub(crate) fn replace(config: &mut Config, login: &str, scopes: Vec<Scope>) -> bool {
-    let closes = config
-        .grants
-        .iter()
-        .any(|g| same_login(&g.login, login) && g.revoked_at.is_none() && g.scopes != scopes);
+/// Records `login`'s approved grant of `scopes`, replacing any earlier one. The write goes
+/// through `config::commit`, which closes the open connections admitted under the old grant.
+pub(crate) fn replace(config: &mut Config, login: &str, scopes: Vec<Scope>) {
     config.grants.retain(|g| !same_login(&g.login, login));
     config.grants.push(Grant {
         login: login.to_owned(),
@@ -84,7 +78,6 @@ pub(crate) fn replace(config: &mut Config, login: &str, scopes: Vec<Scope>) -> b
         consented_via: Some("cli-tty".to_owned()),
         revoked_at: None,
     });
-    closes
 }
 
 pub(crate) fn on_allowlist(login: &str) -> bool {

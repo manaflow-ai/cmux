@@ -3,53 +3,49 @@
 # session's checkout (.claude/settings.json reads this file from origin/feat-cmux-next and runs it).
 # A pull request's worktree holds that branch's copy of the guards: a branch made before a guard fix
 # kept the old guard, and a pull request could edit the guard that judges its own merge
-# (palette-audit, 2026-10-21). So this takes each guard and its hook from origin/feat-cmux-next
-# (the settings hook fetched it first for a merge), into a temporary directory:
-#   - merge-compile-guard-hook.sh (merge_compile_guard.py): refuses a hand merge of a Swift PR
-#     before its Release compile passed;
-#   - base-merge-warning-hook.sh (base_merge_warning.py): warns before an update-branch cancels CI.
-# A refusal from either is the answer; otherwise their warnings are joined into one answer on stdout. A
-# merge whose guards can't be read from the base, or whose guard fails, goes ahead with a warning: only a
-# compile that finished red refuses (merge_compile_guard.py).
+# (palette-audit, 2026-10-21).
+#
+# A merge is judged by the landing gate installed from cmuxterm-hq main (tools/agent-guards'
+# require-cmux-guards, which guards-sync keeps current every 10 minutes), never by a copy in this
+# repository: after hq#2830, #23472 still ran a copy here without that fix (deputy-2, 2026-10-21). When
+# this account registers the gate, Claude Code runs it and this defers; when only its file is
+# installed, this runs it; when it is not installed, the merge goes ahead with a warning that says how
+# to install it (2026-10-21: no guard blocks a merge it can't judge, only a compile that finished red).
+#
+# The update-branch warning (base-merge-warning-hook.sh, base_merge_warning.py) still comes from
+# origin/feat-cmux-next (the settings hook fetched it first for a merge), into a temporary directory.
+# A refusal is the answer; otherwise every warning is joined into one answer on stdout.
 #
 # Usage: printf '%s' "$payload" | bash guards-from-base.sh CHECKOUT
 set -uo pipefail
 dir="${1:-.}"
 input=$(</dev/stdin)
 merge=0
-case $input in *"pr merge"* | *"/merge"*) merge=1 ;; esac
-# A merge the guards can't judge goes ahead with a warning the person and the agent both see, as
-# merge_compile_guard.py lets through one it can't read; the update-branch warning goes to stderr.
+case $input in *"pr merge"* | *"/merge"* | *mergePullRequest* | *PullRequestAutoMerge*) merge=1 ;; esac
+said=()
+# A guard that can't run is a warning: for a merge the person and the agent both see it and the merge goes
+# ahead; otherwise it goes to stderr.
 cannot() {
   if ((merge)); then
-    python3 -I -c 'import json, sys; text = sys.argv[1] + "; merging anyway"
-json.dump({"systemMessage": text, "hookSpecificOutput": {"hookEventName": "PreToolUse",
-  "additionalContext": text}}, sys.stdout)' "$1"
-    exit 0
+    said+=("$1")
+    return
   fi
   echo "$1" >&2
   exit 1
 }
-base="$(git -C "$dir" rev-parse -q --verify 'origin/feat-cmux-next^{commit}')" \
-  || cannot "cmux guards: no origin/feat-cmux-next in $dir to run the merge guards from"
-work="$(mktemp -d)" || cannot "cmux guards: no temporary directory for the merge guards"
-trap 'rm -rf "$work"' EXIT
-git -C "$dir" archive "$base" scripts/ci/merge-compile-guard-hook.sh scripts/ci/merge_compile_guard.py \
-  scripts/ci/base-merge-warning-hook.sh scripts/ci/base_merge_warning.py | tar -x -C "$work" \
-  || cannot "cmux guards: cannot read the guards at origin/feat-cmux-next ${base:0:12}"
-# Each guard runs: a refusal from either is the answer. Otherwise their warnings are joined, so a merge's
-# warning never hides the update-branch warning of the same command. A guard that crashes or exits
-# non-zero (exit 2 would block the tool call in Claude Code) is only a warning: no guard blocks on its own failure.
-said=()
-for hook in merge-compile-guard-hook.sh base-merge-warning-hook.sh; do
-  out="$(printf '%s' "$input" | bash "$work/scripts/ci/$hook" 2>/dev/null)"
+# judge NAME COMMAND...: runs one guard on the payload. A refusal is the answer the moment its guard gives it,
+# read as JSON whatever its spacing: the next guard could run the hook past its timeout with the refusal
+# unprinted. A guard that crashes or exits non-zero (exit 2 would block the tool call in Claude Code) is only a
+# warning: no guard blocks on its own failure.
+judge() {
+  local name=$1 out status
+  shift
+  out="$(printf '%s' "$input" | "$@" 2>/dev/null)"
   status=$?
   if ((status != 0)); then
-    out="cmux guards: $hook exited $status, so it judged nothing"
+    out="cmux guards: $name exited $status, so it judged nothing"
   fi
-  [[ -n "$out" ]] || continue
-  # A refusal is the answer the moment its guard gives it, read as JSON whatever its spacing: the next
-  # guard could run the hook past its timeout with the refusal unprinted.
+  [[ -n "$out" ]] || return 0
   if python3 -I -c 'import json, sys
 try:
     spec = json.loads(sys.argv[1]).get("hookSpecificOutput") or {}
@@ -60,7 +56,58 @@ sys.exit(0 if isinstance(spec, dict) and spec.get("permissionDecision") == "deny
     exit 0
   fi
   said+=("$out")
-done
+}
+if ((merge)); then
+  gate="$HOME/.claude/hooks/require-cmux-guards.sh"  # where tools/agent-guards/install.py puts it
+  if [[ ! -f $gate ]]; then
+    cannot "cmux guards: the landing gate (require-cmux-guards, cmuxterm-hq tools/agent-guards) is not \
+installed on this machine, so nothing judges this merge. Install it with guards-sync (cmuxterm-hq \
+tools/agent-guards/guards-sync, which also keeps it current) or python3 tools/agent-guards/install.py from a \
+cmuxterm-hq checkout"
+  # A registration: a PreToolUse command of this account's settings, under a matcher that covers Bash (none, "*",
+  # or a pattern Bash matches), that runs the gate's file: one of its words is that file, not just a mention of it.
+  elif ! python3 -I - "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" <<'PY'; then
+import json, os, re, shlex, sys
+def covers_bash(matcher):
+    if matcher in (None, "", "*"):
+        return True
+    try:
+        return re.fullmatch(str(matcher), "Bash") is not None
+    except re.error:
+        return False
+def runs_gate(command):
+    try:
+        words = shlex.split(str(command))
+    except ValueError:
+        return False
+    return any(os.path.basename(word) in ("require-cmux-guards.sh", "require-cmux-guards.py") for word in words)
+try:
+    with open(sys.argv[1]) as f:
+        pre = (json.load(f).get("hooks") or {}).get("PreToolUse") or []
+    sys.exit(0 if any(covers_bash((e or {}).get("matcher")) and runs_gate((h or {}).get("command", ""))
+                      for e in pre for h in (e or {}).get("hooks") or []) else 1)
+except (OSError, ValueError, AttributeError, TypeError):
+    sys.exit(1)
+PY
+    judge require-cmux-guards.sh bash "$gate"
+  fi
+fi
+work=""
+if base="$(git -C "$dir" rev-parse -q --verify 'origin/feat-cmux-next^{commit}')"; then
+  if work="$(mktemp -d)"; then
+    trap 'rm -rf "$work"' EXIT
+    if git -C "$dir" archive "$base" scripts/ci/base-merge-warning-hook.sh scripts/ci/base_merge_warning.py \
+      | tar -x -C "$work"; then
+      judge base-merge-warning-hook.sh bash "$work/scripts/ci/base-merge-warning-hook.sh"
+    else
+      cannot "cmux guards: cannot read the guards at origin/feat-cmux-next ${base:0:12}"
+    fi
+  else
+    cannot "cmux guards: no temporary directory for the guards"
+  fi
+else
+  cannot "cmux guards: no origin/feat-cmux-next in $dir to run the guards from"
+fi
 ((${#said[@]})) || exit 0
 # No refusal: one answer from every warning. A guard's JSON gives its systemMessage and additionalContext,
 # any other text is a note. The person sees the systemMessage, the agent the additionalContext.

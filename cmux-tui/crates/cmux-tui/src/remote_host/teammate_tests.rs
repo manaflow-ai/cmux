@@ -506,9 +506,9 @@ fn a_share_is_pinned_to_the_consented_chat() {
 }
 
 #[test]
-fn a_changed_grant_closes_the_open_connections_and_admits_with_the_new_scopes() {
-    // A connection keeps what it was admitted with (a raw splice for shell, the filtered proxy for
-    // agents), so narrowing or changing a live grant must restart the listener.
+fn a_changed_grant_replaces_the_old_one_and_admits_with_the_new_scopes() {
+    // `config::commit` restarts the running listener on every write, so the connections admitted
+    // under the old grant close; the next connection gets exactly the new scopes.
     for (before, after) in [
         (&[Scope::Shell][..], &[Scope::Agents][..]),
         (&[Scope::Shell][..], &[Scope::Status][..]),
@@ -516,24 +516,91 @@ fn a_changed_grant_closes_the_open_connections_and_admits_with_the_new_scopes() 
         (&[Scope::Agents][..], &[Scope::Agents, Scope::Shell][..]),
     ] {
         let mut config = leo_host(consented(LAWRENCE, before));
-        assert!(
-            grant::replace(&mut config, "Lawrence@Manaflow.ai", after.to_vec()),
-            "{before:?} -> {after:?}"
-        );
+        grant::replace(&mut config, "Lawrence@Manaflow.ai", after.to_vec());
         assert_eq!(config.grants.len(), 1, "the old grant is replaced, never kept beside it");
         match decide_for(&config, PEER, person(LAWRENCE)) {
-            Decision::Guest(_, scopes) => assert_eq!(scopes, after.to_vec()),
+            Decision::Guest(_, scopes) => {
+                assert_eq!(scopes, after.to_vec(), "{before:?} -> {after:?}");
+            }
             other => panic!("expected guest, got {other:?}"),
         }
     }
-    // The same scopes again, a first grant, or a grant after a revoke (which already closed them)
-    // leave connections alone.
-    let mut same = leo_host(consented(LAWRENCE, &[Scope::Agents]));
-    assert!(!grant::replace(&mut same, LAWRENCE, vec![Scope::Agents]));
-    let mut first = Config { enabled: true, owner: Some(LEO.to_owned()), ..Config::default() };
-    assert!(!grant::replace(&mut first, LAWRENCE, vec![Scope::Shell]));
-    let mut revoked = consented(LAWRENCE, &[Scope::Shell]);
-    revoked.revoked_at = Some("2026-10-20T10:00:00Z".to_owned());
-    let mut after_revoke = leo_host(revoked);
-    assert!(!grant::replace(&mut after_revoke, LAWRENCE, vec![Scope::Status]));
+}
+
+/// The verbs that replace or stop the listener themselves after their commit.
+const LISTENER_CALLERS: &[&str] = &["enable_report", "disable"];
+
+/// The function a byte offset of `source` sits in: the last `fn NAME(` before it.
+fn enclosing_fn(source: &str, at: usize) -> &str {
+    let start = source[..at].rfind("fn ").map(|i| i + 3).unwrap_or(0);
+    source[start..].split(|c: char| !(c.is_alphanumeric() || c == '_')).next().unwrap_or("")
+}
+
+/// How a source file (not config.rs) gets around `config::commit`: naming the config file, the
+/// old save, the config's path (only `shown_path` is public), or `Listener::Caller` outside the
+/// verbs that handle the listener themselves.
+fn bypasses(source: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    for (needle, what) in [
+        ("remote.json", "names remote.json"),
+        ("config::save", "calls config::save"),
+        ("config::path", "takes the config's path"),
+        ("config::dir()?.join(\"remote", "builds the config's path"),
+    ] {
+        if source.contains(needle) {
+            found.push(what.to_owned());
+        }
+    }
+    for (at, _) in source.match_indices("Listener::Caller") {
+        let caller = enclosing_fn(source, at);
+        if !LISTENER_CALLERS.contains(&caller) {
+            found.push(format!("Listener::Caller in {caller}"));
+        }
+    }
+    found
+}
+
+#[test]
+fn every_config_write_goes_through_commit() {
+    // `config::save` and `config::path` are private to config.rs, so a new verb cannot call
+    // them; this also reads every file here at test time (new ones included) for a hand-built
+    // write of remote.json and a `Listener::Caller` outside enable and disable. A scan cannot
+    // prove no write exists; it catches the plain ways, and review covers the rest.
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/remote_host");
+    let mut scanned = 0;
+    let mut callers = 0;
+    let mut restarting = std::collections::BTreeSet::new();
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        if !name.ends_with(".rs") || name == "config.rs" || name == "teammate_tests.rs" {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).unwrap();
+        scanned += 1;
+        callers += source.matches("Listener::Caller").count();
+        for (at, _) in source.match_indices("Listener::Restart") {
+            restarting.insert(format!("{name}:{}", enclosing_fn(&source, at)));
+        }
+        let found = bypasses(&source);
+        assert!(found.is_empty(), "{name}: {found:?}; write the config through config::commit");
+    }
+    assert!(scanned >= 10, "read the remote_host sources ({scanned})");
+    assert_eq!(callers, 2, "enable and disable each pass Listener::Caller once");
+    // allow/deny, grant, revoke, and share/unshare (`shares::run`) restart a running listener.
+    assert_eq!(
+        restarting.into_iter().collect::<Vec<_>>(),
+        ["mod.rs:edit_allow", "mod.rs:grant_access", "mod.rs:revoke_access", "shares.rs:run"],
+        "every verb but enable and disable commits with Listener::Restart"
+    );
+    // The scan catches a new verb's plain write, an unlocked write by path, and a moved Caller.
+    let by_name = r#"fn pause() { std::fs::write(config::dir()?.join("remote.json"), b"{}"); }"#;
+    assert!(!bypasses(by_name).is_empty());
+    let by_path =
+        "fn pause() -> anyhow::Result<()> { std::fs::write(config::path()?, b\"{}\")?; Ok(()) }";
+    assert_eq!(bypasses(by_path), ["takes the config's path"]);
+    let moved = "fn revoke_access(args: &[String]) {\n    config::commit(&config, &lock, config::Listener::Caller)?;\n}";
+    assert_eq!(bypasses(moved), ["Listener::Caller in revoke_access"]);
+    let kept = "fn disable(args: &[String]) {\n    config::commit(&config, &lock, config::Listener::Caller)?;\n}";
+    assert!(bypasses(kept).is_empty());
 }

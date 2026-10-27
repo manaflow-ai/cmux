@@ -222,6 +222,17 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
         )
 
 
+class NightlyNextBuildVariable(unittest.TestCase):
+    def test_an_owned_side_or_dev_label_or_blacksmith_is_allowed(self) -> None:
+        name = "CI_NIGHTLY_NEXT_BUILD_RUNNER"
+        for label in ("glaeda-dev-std-xcode-26.6", "glaeda-side-std-xcode-26.6", "blacksmith-6vcpu-macos-26", ""):
+            with self.subTest(label=label):
+                self.assertEqual(drifted_runner_variables({name: label}), [])
+        for label in ("glaeda-std-xcode-26.6", "glaeda-runner-cmux7s-mac-mini-nightly-next", "self-hosted"):
+            with self.subTest(label=label):
+                self.assertTrue(drifted_runner_variables({name: label}))
+
+
 class SideLaneVariable(unittest.TestCase):
     def test_only_an_owned_side_label_is_allowed_beyond_the_policy(self) -> None:
         # CI_SIDE_LANE_RUNNER and CI_LIGHT_LANE_RUNNER are the picker-less side lanes' whole runs-on.

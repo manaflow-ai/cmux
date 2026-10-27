@@ -209,6 +209,14 @@ impl Hub {
             // parent (`crate::subagents`); they are not the session's own
             // message stream.
             let mut value = msg.to_value();
+            // The agent's own display line on its ask is neither logged nor shown
+            // (`permissions/display.rs`): only acpmux writes the line a person reads.
+            if d == "in"
+                && msg.method() == Some(crate::rpc::method::SESSION_REQUEST_PERMISSION)
+                && let Some(params) = value.get_mut("params")
+            {
+                super::drop_display_lines(params);
+            }
             let mut subagent = None;
             if d == "in"
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)

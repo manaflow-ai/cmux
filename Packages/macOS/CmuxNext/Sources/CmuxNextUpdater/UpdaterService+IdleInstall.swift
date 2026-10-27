@@ -12,7 +12,10 @@ extension UpdaterService {
         }
         recordForAutomaticInstall()
         keepRunningBuildForRollback()
-        automaticInstallInFlight = true
+        // A click while the update downloaded (`flow.installRequested`) owns this install: its
+        // relaunch activates as a click's does.
+        automaticInstallInFlight = !flow.installRequested
+        automaticInstallFrontmost = frontmost()
         return true
     }
 }

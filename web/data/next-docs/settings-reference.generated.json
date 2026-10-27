@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 499,
+  "count": 500,
   "sections": [
     {
       "id": "general",
@@ -88,6 +88,14 @@
           "help": "A badge in the chat header counts what your agents wait on; a click lists every ask with its answers. New agent tabs.",
           "kind": "toggle",
           "default": false,
+          "group": "Agent Chat"
+        },
+        {
+          "key": "agentPane.scrollToBottomOnSend",
+          "title": "Scroll to Bottom When I Send",
+          "help": "When off, sending while you are reading up keeps your place and shows new messages below.",
+          "kind": "toggle",
+          "default": true,
           "group": "Agent Chat"
         },
         {
@@ -4974,7 +4982,8 @@
             "machine-blue",
             "moon",
             "moon-blue",
-            "fox"
+            "fox",
+            "mochi"
           ]
         },
         {

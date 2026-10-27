@@ -188,7 +188,34 @@ fn is_accepted(kind: &Kind, value: &Value, domains: &Domains) -> bool {
         Kind::StringMap => {
             value.as_object().is_some_and(|members| members.values().all(Value::is_string))
         }
+        Kind::SoundRules => {
+            value.as_object().is_some_and(|members| members.values().all(is_sound_rule))
+        }
     }
+}
+
+/// The events a sound rule may name (Swift `NotificationSoundEvent`).
+pub(crate) const SOUND_RULE_EVENTS: [&str; 5] =
+    ["finished", "needsInput", "error", "bell", "message"];
+
+/// Swift `NotificationSoundRule.accepts`: a sound name, or an object of an
+/// optional string `sound`, an optional `volume` from 0 to 1, and optional
+/// `events` naming known events with string sounds; nothing else.
+fn is_sound_rule(value: &Value) -> bool {
+    if value.is_string() {
+        return true;
+    }
+    let Some(members) = value.as_object() else { return false };
+    members.iter().all(|(key, member)| match key.as_str() {
+        "sound" => member.is_string(),
+        "volume" => member.as_f64().is_some_and(|x| x.is_finite() && (0.0..=1.0).contains(&x)),
+        "events" => member.as_object().is_some_and(|events| {
+            events.iter().all(|(name, sound)| {
+                SOUND_RULE_EVENTS.contains(&name.as_str()) && sound.is_string()
+            })
+        }),
+        _ => false,
+    })
 }
 
 /// Swift `CustomDensitiesSetting.density(from:)`: an object with a density
@@ -300,6 +327,9 @@ fn accepted(kind: &Kind, domains: &Domains) -> Accepted {
         Kind::OrderedChoices(choices) => Accepted::Choices(values(choices)),
         Kind::NumberList(range) => Accepted::Range { min: range.min, max: range.max },
         Kind::StringMap => Accepted::Shape("an object of strings"),
+        Kind::SoundRules => Accepted::Shape(
+            "an object of sound names or {\"sound\": name, \"volume\": 0...1, \"events\": {event: name}}",
+        ),
     }
 }
 

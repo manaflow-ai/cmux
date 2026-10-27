@@ -20,7 +20,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "palette.openGhosttySettings",
                 title: String(localized: "action.palette.openGhosttySettings", defaultValue: "Open Ghostty Config", bundle: .module),
-                keywords: ["config", "settings", "file"], category: .settings, symbol: "doc.plaintext",
+                keywords: ["config", "settings", "file", "edit", "ghostty"], category: .settings, symbol: "doc.plaintext",
                 surfaces: [.palette, .menu], cliName: "settings open-ghostty-config", mainMenu: .app
             ),
             // R92 diagnostics: Settings > Terminal lists the Ghostty lines cmux
