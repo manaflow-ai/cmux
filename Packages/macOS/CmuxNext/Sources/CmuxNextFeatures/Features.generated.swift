@@ -1709,12 +1709,12 @@ nonisolated extension Feature {
         replaces: ["motion.pane.holdContent"]
     )
 
-    /// Resize edges (pane dividers, column and row edges, both sidebars, the DevTools divider), canvas pane drags and pans and the strip scrollbar thumb move on a display frame's first drag event and once more at the frame, to the latest point; every drag event still counts toward the release velocity.
+    /// Resize edges, dividers, canvas pane drags and pans and the strip scrollbar thumb move, and tab, workspace, pane-swap, link and screen-tab drags hit-test, on a frame's first drag event and once more at the frame, at the latest point; every drag event still counts toward the release velocity.
     public static let pointerFrameDrags = Feature(
         index: 98,
         name: "pointerFrameDrags",
         owner: "PL-motion-cef",
-        description: "Resize edges (pane dividers, column and row edges, both sidebars, the DevTools divider), canvas pane drags and pans and the strip scrollbar thumb move on a display frame's first drag event and once more at the frame, to the latest point; every drag event still counts toward the release velocity.",
+        description: "Resize edges, dividers, canvas pane drags and pans and the strip scrollbar thumb move, and tab, workspace, pane-swap, link and screen-tab drags hit-test, on a frame's first drag event and once more at the frame, at the latest point; every drag event still counts toward the release velocity.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

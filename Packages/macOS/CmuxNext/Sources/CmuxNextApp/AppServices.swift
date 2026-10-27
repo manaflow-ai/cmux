@@ -359,10 +359,11 @@ final class AppServices {
     /// Chromium has one input queue per frame widget. It is the application's own `frameInput`, the one `sendEvent`
     /// flushes before discrete input (a test's app has none: its own). Read only while a feature below uses it.
     private lazy var pointerFrames: FrameInputCoalescers = (NSApp as? CmuxApplication)?.frameInput ?? FrameInputCoalescers()
-    /// Resize drags (feature `pointerFrameDrags`): pane dividers, column and row edges, both sidebars' resize edges
-    /// and the DevTools divider move on a frame interval's first drag event and once more at its frame. Nil while it
-    /// is off: each drag event moves them.
-    private(set) lazy var dragFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameDrags) ? pointerFrames : nil
+    /// Drags (feature `pointerFrameDrags`): pane dividers, column and row edges, both sidebars' resize edges and the
+    /// DevTools divider move, and tab, workspace, pane-swap, link and screen-tab drags hit-test, on a frame interval's
+    /// first drag event and once more at its frame (p04-input-030, 031, 032). Nil while it is off: each drag event
+    /// moves or hit-tests them. Tests set their own before the first read.
+    lazy var dragFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameDrags) ? pointerFrames : nil
     /// A drag's resampler, made on its start (feature `resampledDrags`, p04-input-040): a pane divider, a tab ghost or a
     /// pane-swap preview is drawn at the pointer resampled at each frame while `input.resampleDrags` is on. Nil without
     /// `pointerFrameDrags`, with the feature or the setting off; the layout and ``dragSession`` add Reduce Motion.
