@@ -1,6 +1,6 @@
 //! `peer_snapshot.rs`: the store's bounds, a full disk, refused removals, a restart, and a
-//! directory that does not read; then which copy may grow: generations, joins, links, lags
-//! (the files: `disk_tests.rs`). The tests drive the store's thread body directly; `keep` puts a
+//! directory that does not read; then which copy may grow: generations, joins, links, lags;
+//! purges, removed peers and the queue's losses (the files: `disk_tests.rs`). The tests drive the store's thread body directly; `keep` puts a
 //! copy in place for the tests of what is done with it.
 
 use super::*;
@@ -666,24 +666,6 @@ fn a_record_of_another_session_is_never_kept_as_this_ones() {
 }
 
 #[test]
-fn what_was_unlisted_before_the_disk_read_is_applied_to_it() {
-    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
-    let mut store = store_at(dir.path());
-    list(&mut store, &[("m2", 7), ("m3", 7)]);
-    for m in ["m2", "m3"] {
-        put(&mut store, m, attach(7, 1, false, recs(1..=2)));
-    }
-    store.write_due(None, When::Last);
-    // The next run cannot read the disk at first; meanwhile m2 is recreated and a full list
-    // leaves m3 out.
-    let mut again = Store::new(disk::root(dir.path()), Arc::default());
-    list(&mut again, &[("m2", 8)]);
-    assert!(again.scan());
-    assert!(again.copies.is_empty(), "{:?}", again.copies.keys().collect::<Vec<_>>());
-    assert!(!file(dir.path(), "m2").exists() && !file(dir.path(), "m3").exists());
-}
-
-#[test]
 fn an_empty_journal_starts_an_empty_copy_and_a_page_out_of_bounds_is_not_one() {
     let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
     let mut store = store_at(dir.path());
@@ -715,4 +697,320 @@ fn a_name_too_long_for_a_file_is_never_kept() {
     list(&mut store, &[(long.as_str(), 7)]);
     put(&mut store, &long, attach(7, 1, false, recs(1..=2)));
     assert!(!store.copies.contains_key(&key(&long)));
+}
+
+/// What `mux`'s file holds: its head and its seqs.
+fn on_disk(path: &Path, mux: &str) -> Option<(Head, Vec<u64>)> {
+    let read = disk::read(path, &(PEER.to_owned(), mux.to_owned())).unwrap();
+    read.map(|(head, records)| (head, records.into_keys().collect()))
+}
+
+#[test]
+fn a_purged_generation_stays_purged_until_the_peer_lists_without_it() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7)]);
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=3)));
+    store.write_due(None, When::Last);
+    store.take(Op::Gone { key: key("m1"), generation: Some(7) });
+    assert!(!file(dir.path(), "m1").exists());
+    // A list sent before the purge names 7 again: still purged.
+    list(&mut store, &[("m1", 7)]);
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=3)));
+    assert!(seqs(&mut store, "m1").is_empty());
+    // The session recreated as 8 is kept.
+    list(&mut store, &[("m1", 8)]);
+    put(&mut store, "m1", attach(8, 1, false, recs(1..=2)));
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2]);
+    // A purge with no generation bars every one until a full list leaves the session out.
+    store.take(Op::Gone { key: key("m1"), generation: None });
+    list(&mut store, &[("m1", 9)]);
+    put(&mut store, "m1", attach(9, 1, false, recs(1..=2)));
+    assert!(seqs(&mut store, "m1").is_empty());
+    list(&mut store, &[]);
+    assert!(store.barred.is_empty());
+    list(&mut store, &[("m1", 9)]);
+    put(&mut store, "m1", attach(9, 1, false, recs(1..=2)));
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2]);
+}
+
+#[test]
+fn what_was_purged_or_unlisted_before_the_disk_read_is_applied_to_it() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7), ("m2", 7), ("m3", 7)]);
+    for m in ["m1", "m2", "m3"] {
+        put(&mut store, m, attach(7, 1, false, recs(1..=2)));
+    }
+    store.write_due(None, When::Last);
+    // The next run cannot read the disk at first; meanwhile m1 is purged, m2 recreated, and a
+    // full list leaves m3 out.
+    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    again.take(Op::Gone { key: key("m1"), generation: Some(7) });
+    list(&mut again, &[("m2", 8)]);
+    assert!(again.scan());
+    assert!(again.copies.is_empty(), "{:?}", again.copies.keys().collect::<Vec<_>>());
+    for m in ["m1", "m2", "m3"] {
+        assert!(!file(dir.path(), m).exists());
+    }
+
+    // Every op of m4's peer, and of another peer, lost before the disk reads: what an earlier run
+    // kept of them goes too, so no copy comes back past what it missed.
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m4", 7)]);
+    put(&mut store, "m4", attach(7, 1, false, recs(1..=2)));
+    let rows = vec![("n".to_owned(), Some(7))];
+    store.take(Op::Listed { peer: "other".into(), rows, full: true });
+    let page = attach(7, 1, false, vec![json!({"sessionId": "n", "seq": 1, "kind": "k"})]);
+    store.take(Op::Page { key: ("other".into(), "n".into()), page });
+    store.write_due(None, When::Last);
+    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    again.take(Op::LostPeer(PEER.into()));
+    again.take(Op::LostPeer("other".into()));
+    assert!(again.scan());
+    assert!(again.copies.is_empty(), "{:?}", again.copies.keys().collect::<Vec<_>>());
+}
+
+#[test]
+fn a_late_purge_of_an_older_generation_leaves_the_newer_copy() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 8)]);
+    put(&mut store, "m1", attach(8, 1, false, recs(1..=2)));
+    store.take(Op::Gone { key: key("m1"), generation: Some(7) });
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2]);
+    put(&mut store, "m1", events(8, 1, 2, recs(3..=3)));
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2, 3], "8 is still the listed generation");
+    store.take(Op::Gone { key: key("m1"), generation: Some(8) });
+    assert!(seqs(&mut store, "m1").is_empty());
+}
+
+#[test]
+fn a_late_purge_of_an_older_generation_keeps_a_newer_copy_on_disk_and_a_late_listing_leaves_it() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 8)]);
+    put(&mut store, "m1", attach(8, 1, false, recs(1..=2)));
+    store.write_due(None, When::Last);
+    // The next run lists 8, then is told of a purge of 7, before it can read the disk: generation
+    // 8 there stays.
+    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    list(&mut again, &[("m1", 8)]);
+    again.take(Op::Gone { key: key("m1"), generation: Some(7) });
+    assert!(again.scan());
+    assert_eq!(seqs(&mut again, "m1"), vec![1, 2]);
+    // A list sent before the purge, naming 7, takes nothing and leaves 8 listed and kept.
+    list(&mut again, &[("m1", 7)]);
+    assert_eq!(again.listed.get(&key("m1")), Some(&Some(8)));
+    put(&mut again, "m1", events(8, 1, 2, recs(3..=3)));
+    assert_eq!(seqs(&mut again, "m1"), vec![1, 2, 3]);
+}
+
+#[test]
+fn a_purge_told_again_without_its_generation_still_lets_the_recreated_session_back() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 42)]);
+    put(&mut store, "m1", attach(42, 1, false, recs(1..=2)));
+    // The hub's own purge names 42; the peer's notice of it comes once the row is gone.
+    store.take(Op::Gone { key: key("m1"), generation: Some(42) });
+    store.take(Op::Gone { key: key("m1"), generation: None });
+    assert_eq!(store.barred.get(&key("m1")), Some(&Some(42)));
+    list(&mut store, &[("m1", 43)]);
+    put(&mut store, "m1", attach(43, 1, false, recs(1..=2)));
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2]);
+    // Purges of sessions churned through stay within their bound.
+    for i in 0..3 * BARRED_KEYS {
+        store.take(Op::Gone { key: key(&format!("x{i}")), generation: Some(1) });
+    }
+    assert!(store.barred.len() <= BARRED_KEYS);
+    // Before the disk reads, a bar that goes takes everything an earlier run kept with it.
+    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    for i in 0..=BARRED_KEYS {
+        again.take(Op::Gone { key: key(&format!("x{i}")), generation: Some(1) });
+    }
+    assert!(again.unread_all);
+}
+
+#[test]
+fn a_removed_peer_added_again_keeps_its_new_copies() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7)]);
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=2)));
+    store.write_due(None, When::Last);
+    store.take(Op::ForgetPeer(PEER.into()));
+    assert!(!file(dir.path(), "m1").exists());
+    list(&mut store, &[("m1", 9)]);
+    store.take(Op::Page {
+        key: key("m1"),
+        page: Page { link: (2, 0), ..attach(9, 0, false, recs(1..=3)) },
+    });
+    store.write_due(None, When::Last);
+    store.sweep();
+    assert!(file(dir.path(), "m1").exists());
+}
+
+#[test]
+fn captures_that_fall_behind_drop_the_copy_instead_of_leaving_a_hole() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let snaps = PeerSnapshots::open(Some(dir.path().to_owned()));
+    snaps.listed(PEER, vec![("m1".into(), Some(7))], true);
+    snaps.page((PEER, "m1"), attach(7, 1, false, recs(1..=3)));
+    snaps.flush_now();
+    snaps.queued.fetch_add(QUEUED_BYTES, Ordering::AcqRel);
+    snaps.record((PEER, "m1"), (1, 1), rec("m1", 4));
+    snaps.queued.fetch_sub(QUEUED_BYTES, Ordering::AcqRel);
+    snaps.record((PEER, "m1"), (1, 1), rec("m1", 5));
+    snaps.flush_now();
+    assert_eq!(on_disk(&disk::path(&disk::root(dir.path()), &key("m1")).unwrap(), "m1"), None);
+    assert!(snaps.dropped().peers.is_empty());
+}
+
+#[test]
+fn nothing_of_a_peer_is_queued_while_its_loss_waits() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let snaps = PeerSnapshots::open(Some(dir.path().to_owned()));
+    // The thread's end of the queue, held here: nothing is taken.
+    let rx = hold(&snaps);
+    snaps.queued.store(QUEUED_BYTES, Ordering::Release);
+    snaps.gone(PEER, "m1", Some(7));
+    snaps.queued.store(0, Ordering::Release);
+    // Room again, but the loss stands for these: a list from before the purge, a page, a purge.
+    snaps.listed(PEER, vec![("m1".into(), Some(7))], true);
+    snaps.page((PEER, "m1"), attach(7, 1, false, recs(1..=2)));
+    snaps.gone(PEER, "m1", Some(7));
+    snaps.listed("other", vec![], true);
+    // A removal of the peer lost too is kept with the loss.
+    snaps.forget_peer(PEER);
+    let mut ops: Vec<Op> = rx.try_iter().filter_map(Queued::take).collect();
+    assert_eq!(ops.len(), 2);
+    assert!(matches!(&ops[0], Op::LostPeer(p) if p == PEER));
+    assert!(matches!(&ops[1], Op::Listed { peer, .. } if peer == "other"));
+    let mut store = Store::new(disk::root(dir.path()), snaps.dropped.clone());
+    store.scan();
+    store.barred.insert(key("m1"), None);
+    store.links.insert(PEER.into(), (1, 1));
+    store.take(ops.remove(0));
+    assert!(store.barred.is_empty() && store.links.is_empty() && snaps.dropped().peers.is_empty());
+}
+
+#[test]
+fn past_its_bound_what_went_before_the_disk_read_takes_every_earlier_copy() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7)]);
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=2)));
+    store.write_due(None, When::Last);
+    let mut again = Store::new(disk::root(dir.path()), Arc::default());
+    for i in 0..=UNREAD_KEYS {
+        again.remove(&key(&format!("x{i}")));
+        again.take(Op::LostPeer(format!("p{i}")));
+    }
+    assert_eq!((again.unread.len(), again.forgotten.len()), (UNREAD_KEYS, UNREAD_KEYS));
+    assert!(again.scan());
+    assert!(again.copies.is_empty() && !file(dir.path(), "m1").exists());
+}
+
+#[test]
+fn a_capture_the_thread_never_took_is_a_loss_and_a_thread_that_ended_starts_again() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let snaps = PeerSnapshots::open(Some(dir.path().to_owned()));
+    snaps.listed(PEER, vec![("m1".into(), Some(7))], true);
+    snaps.page((PEER, "m1"), attach(7, 1, false, recs(1..=3)));
+    snaps.flush_now();
+    // The thread ends (a panic) with the record in its queue: the record is not taken, so the copy
+    // goes instead of growing past a hole, and the next op starts a thread again.
+    let rx = hold(&snaps);
+    snaps.record((PEER, "m1"), (1, 1), rec("m1", 4));
+    drop(rx);
+    snaps.flush_now();
+    assert!(snaps.dropped().peers.is_empty() && snaps.dropped().unsent.is_empty());
+    assert_eq!(on_disk(&disk::path(&disk::root(dir.path()), &key("m1")).unwrap(), "m1"), None);
+    assert_eq!(snaps.queued.load(Ordering::Acquire), 0);
+}
+
+#[test]
+fn a_loss_not_sent_yet_goes_with_the_next_op_or_flush_of_any_peer() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let snaps = PeerSnapshots::open(Some(dir.path().to_owned()));
+    let unsent = |p: &str| {
+        let mut dropped = snaps.dropped();
+        dropped.peers.insert(p.to_owned(), false);
+        dropped.unsent.insert(p.to_owned());
+    };
+    // The thread's end of the queue, held here.
+    let rx = hold(&snaps);
+    unsent("a");
+    snaps.listed("other", vec![], true);
+    unsent("b");
+    snaps.flush(None);
+    let ops: Vec<Op> = rx.try_iter().filter_map(Queued::take).collect();
+    assert!(matches!(&ops[0], Op::Listed { peer, .. } if peer == "other"));
+    assert!(matches!(&ops[1], Op::LostPeer(p) if p == "a"));
+    assert!(matches!(&ops[2], Op::LostPeer(p) if p == "b"));
+    assert!(matches!(&ops[3], Op::Flush { peer: None, .. }));
+    assert!(snaps.dropped().unsent.is_empty());
+    {
+        // Taken, as the thread does.
+        let mut dropped = snaps.dropped();
+        dropped.peers.clear();
+        dropped.flushes.clear();
+    }
+    // The thread ends (a panic) with a page of "d" and a flush in its queue: the page goes as a
+    // loss of its peer, sent with the next op, and the flush is no longer counted as queued.
+    snaps.page(("d", "m1"), attach(7, 1, false, recs(1..=2)));
+    snaps.flush(None);
+    drop(rx);
+    assert_eq!(snaps.untaken.lock().unwrap().len(), 2);
+    snaps.flush_now();
+    assert!(snaps.untaken.lock().unwrap().is_empty() && snaps.dropped().flushes.is_empty());
+    assert!(snaps.dropped().peers.is_empty() && snaps.dropped().unsent.is_empty());
+    assert_eq!(snaps.queued.load(Ordering::Acquire), 0);
+}
+
+#[test]
+fn a_purge_of_an_id_no_file_can_have_bars_nothing() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    let long = "x".repeat(200);
+    list(&mut store, &[(long.as_str(), 7)]);
+    store.take(Op::Gone { key: key(&long), generation: Some(7) });
+    assert!(store.barred.is_empty() && store.listed.is_empty());
+}
+
+#[test]
+fn flushes_and_losses_wait_in_the_queue_once_and_captures_reserve_their_room() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let snaps = PeerSnapshots::open(Some(dir.path().to_owned()));
+    for _ in 0..1000 {
+        snaps.flush(Some(PEER));
+    }
+    assert!(snaps.queued.load(Ordering::Acquire) <= OP_BYTES, "one flush of a peer waits at most");
+    assert!(snaps.reserve(QUEUED_BYTES / 2));
+    assert!(!snaps.reserve(QUEUED_BYTES), "past the bound, nothing is counted");
+    snaps.queued.fetch_sub(QUEUED_BYTES / 2, Ordering::AcqRel);
+}
+
+#[test]
+fn a_catch_up_that_finds_nothing_new_joins_its_link_and_a_lag_leaves_late_pages_late() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7)]);
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=3)));
+    // A reconnect (link 2) whose catch-up after 3 holds all there is and nothing new: it covers
+    // no seq, but the copy now continues on link 2.
+    let mut caught = events(7, 2, 3, vec![]);
+    (caught.through, caught.host_last_seq) = (Some(3), Some(3));
+    put(&mut store, "m1", caught);
+    live(&mut store, "m1", 2, 4);
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2, 3, 4]);
+    // A lag of link 2 stops its records until a page, but link 2 still joined the copy: a page of
+    // it that read `lastSeq` 3 before record 4 came is only late, not a peer gone back.
+    store.take(Op::Lagged { peer: PEER.into(), link: (1, 2) });
+    live(&mut store, "m1", 2, 5);
+    let mut late = events(7, 2, 2, recs(3..=3));
+    late.host_last_seq = Some(3);
+    put(&mut store, "m1", late);
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2, 3, 4]);
 }

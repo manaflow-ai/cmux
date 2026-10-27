@@ -38,6 +38,7 @@ mod health_view;
 mod idle;
 mod launch_roots;
 mod launchers;
+pub mod lineage;
 mod live_models;
 mod locate;
 pub mod media_handles;
@@ -50,6 +51,8 @@ pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 mod hosts;
 mod lifecycle;
 mod log_load;
+mod retention;
+pub use retention::RetentionRequest;
 pub(crate) mod model_availability;
 pub(crate) use log_load::AdoptionReady;
 mod model_options;
@@ -406,6 +409,8 @@ pub struct Hub {
     pub(super) login_env_requested: AtomicBool,
     /// Session ids an `import` is writing right now.
     pub(super) importing: StdMutex<std::collections::HashSet<String>>,
+    /// A log retention pass runs (`hub/retention.rs`): one at a time per hub.
+    pub(super) retention_running: Arc<AtomicBool>,
     pub(super) handoffs: handoff::Handoffs,
     /// New agents run under agent hosts (`enable_agent_hosts`).
     pub(super) agent_hosts: AtomicBool,
@@ -564,6 +569,7 @@ impl Hub {
             catalog_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
             importing: StdMutex::new(std::collections::HashSet::new()),
+            retention_running: Arc::new(AtomicBool::new(false)),
             handoffs,
             agent_hosts: AtomicBool::new(false),
             shutdown_plan: StdMutex::new(shutdown::ShutdownPlan::default()),
@@ -863,6 +869,7 @@ impl Hub {
             harness_turn: AtomicBool::new(false),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
+            start_calls: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),
         });
         // Found by its tags from now on (`permissions/display.rs`).
