@@ -10,13 +10,12 @@ private let welcomeLog = Logger(subsystem: "dev.cmux.mobile", category: "welcome
 private let theme = CmuxMobileTheme.standard
 
 /// The launch screen's mark, re-drawn as the first SwiftUI frame so the handoff
-/// is seamless (SPEC 5.1): same 72 pt gradient chevron, same center, on `bg`.
+/// is seamless (SPEC 5.1): the same image, same 72 pt chevron, same center, on `bg`.
 public struct LaunchMarkView: View {
     public init() {}
 
     public var body: some View {
-        WelcomeMark(gradient: 1, glow: WelcomeMark.launchGlow)
-            .frame(width: 72, height: 72)
+        CmuxLogoMark(chevronHeight: 72)
     }
 }
 
@@ -189,13 +188,11 @@ public struct WelcomeView: View {
             let fade = reduceMotion ? E.seg(t, 0, 0.35) : 1
             ZStack {
                 if reduceMotion {
-                    WelcomeMark(gradient: 1, glow: WelcomeMark.launchGlow)
-                        .frame(width: Self.launchMarkSize, height: Self.launchMarkSize)
+                    CmuxLogoMark(chevronHeight: Self.launchMarkSize)
                         .position(center)
                         .opacity(1 - fade)
                 }
-                WelcomeMark(gradient: 1, glow: WelcomeMark.launchGlow)
-                    .frame(width: size, height: size)
+                CmuxLogoMark(chevronHeight: size)
                     .position(lockupMark == .zero ? center : E.lerp(center, target, glide))
                     .opacity(fade)
             }
@@ -412,32 +409,25 @@ private final class WelcomeIntroClock {
     }
 }
 
-/// The cmux chevron. `gradient` 0 is a monochrome mark (`label`), 1 is the app
-/// icon's cyan-to-indigo gradient with a soft glow (`glow` 0...1).
-struct WelcomeMark: View {
-    var gradient: Double
-    var glow: Double
+/// The cmux chevron: the chevron layer of the app icon (`AppIcon.icon`), the
+/// image the launch screen shows (`LaunchMark`, written by
+/// `scripts/generate-launch-mark.swift`), glow included. The image is
+/// `imageSize` points with its solid chevron `imageChevronHeight` tall at its
+/// center; `chevronHeight` scales it so the solid chevron is that tall.
+struct CmuxLogoMark: View {
+    var chevronHeight: CGFloat
 
-    /// The launch screen's glow. `scripts/generate-launch-mark.swift` draws
-    /// the launch image (`LaunchMark`) with the same gradient and glow.
-    static let launchGlow = 0.3
-    @Environment(\.colorScheme) private var colorScheme
-
-    /// Sampled from `AppIcon.icon` (leading edge to the chevron tip).
-    private static let iconGradient = LinearGradient(
-        colors: [Color(hex: "#06CDFE"), Color(hex: "#2AA0F9"), Color(hex: "#5170F3")],
-        startPoint: .leading, endPoint: .trailing
-    )
+    private static let imageSize = CGSize(width: 70, height: 86)
+    private static let imageChevronHeight: CGFloat = 72
 
     var body: some View {
-        ZStack {
-            CmuxMark().fill(theme.colors.label).opacity(1 - gradient)
-            CmuxMark()
-                .fill(Self.iconGradient)
-                .shadow(color: Color(hex: "#2AA0F9").opacity((colorScheme == .dark ? 0.55 : 0.3) * glow), radius: 4 + 8 * glow)
-                .opacity(gradient)
-        }
-        .accessibilityHidden(true)
+        let k = chevronHeight / Self.imageChevronHeight
+        // The app's asset catalog (main bundle): the launch screen reads the same entry.
+        Image("LaunchMark", bundle: .main)
+            .resizable()
+            .interpolation(.high)
+            .frame(width: Self.imageSize.width * k, height: Self.imageSize.height * k)
+            .accessibilityHidden(true)
     }
 }
 
