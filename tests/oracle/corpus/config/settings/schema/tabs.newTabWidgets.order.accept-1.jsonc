@@ -1,0 +1,11 @@
+{
+  "tabs": {
+    "newTabWidgets": {
+      "order": [
+        "chats",
+        "actions",
+        "projects"
+      ]
+    }
+  }
+}

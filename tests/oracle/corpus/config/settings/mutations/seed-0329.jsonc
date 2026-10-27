@@ -1,0 +1,15 @@
+{
+    /* // inside */ "sidebar": {
+        "workspaceRow": {
+            // note
+"mixed": {
+                "tabCount": false
+            }
+        }
+    },
+    "oracleUnknown": {
+        "nested": {
+            /* // inside */ "key": "x"
+        }
+    }
+}

@@ -1,0 +1,9 @@
+{
+  "tabs": {
+    "tabBar": {
+      "browser": {
+        "nested": 1
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "appearance": {
+    "surfaces": {
+      "splitDivider": {
+        "color": "#1234567"
+      }
+    }
+  }
+}

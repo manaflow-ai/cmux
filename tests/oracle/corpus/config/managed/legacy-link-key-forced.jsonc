@@ -1,0 +1,12 @@
+{
+  "file": "{}\n",
+  "forced": {
+    "browser.openTerminalLinksInCmuxBrowser": false
+  },
+  "recommended": {},
+  "team": {
+    "name": "",
+    "defaults": {},
+    "enforced": {}
+  }
+}

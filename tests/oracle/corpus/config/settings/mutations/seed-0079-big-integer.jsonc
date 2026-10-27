@@ -1,0 +1,17 @@
+{
+  "sidebar": {
+    "spacesPosition": "bottom",
+    "showSpaces": true
+  },
+  "diff": {
+    "showBackgrounds": null
+  },
+  "labs": {
+    "classicHome": true
+  },
+  "oracleUnknown": {
+    "nested": {
+      "key": "x"
+    }
+  }
+, "oracle": 12345678901234567890}

@@ -1,0 +1,7 @@
+{
+  "agents": {
+    "subsessions": {
+      "maxDepth": 50.5
+    }
+  }
+}

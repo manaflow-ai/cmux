@@ -1,0 +1,20 @@
+{
+  "file": "{}\n",
+  "forced": {},
+  "recommended": {},
+  "team": {
+    "name": "Oracle Team",
+    "defaults": {
+      "notifications.mutedWorkspaces": [
+        1
+      ],
+      "markdown.tables": "wrap"
+    },
+    "enforced": {
+      "diff.wordDiffs": null,
+      "notifications.mutedWorkspaces": [
+        ""
+      ]
+    }
+  }
+}

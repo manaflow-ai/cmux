@@ -1,0 +1,14 @@
+{
+  "file": "{}\n",
+  "forced": {},
+  "recommended": {},
+  "team": {
+    "name": "Oracle Team",
+    "defaults": {
+      "tabs.newTabWidgets.actions": false,
+      "diff.showBulkActions": null,
+      "tabs.newTabWidgets.projects": "true"
+    },
+    "enforced": {}
+  }
+}

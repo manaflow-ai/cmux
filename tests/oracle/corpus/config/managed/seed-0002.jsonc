@@ -1,0 +1,12 @@
+{
+  "file": "{}\n",
+  "forced": {},
+  "recommended": {},
+  "team": {
+    "name": "Oracle Team",
+    "defaults": {},
+    "enforced": {
+      "computerUse.enabled": null
+    }
+  }
+}

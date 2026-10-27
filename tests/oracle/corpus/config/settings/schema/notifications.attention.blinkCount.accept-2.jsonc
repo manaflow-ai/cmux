@@ -1,0 +1,7 @@
+{
+  "notifications": {
+    "attention": {
+      "blinkCount": 5.5
+    }
+  }
+}

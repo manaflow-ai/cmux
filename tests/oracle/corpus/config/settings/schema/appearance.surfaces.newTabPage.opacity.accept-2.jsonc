@@ -1,0 +1,9 @@
+{
+  "appearance": {
+    "surfaces": {
+      "newTabPage": {
+        "opacity": 0.5
+      }
+    }
+  }
+}

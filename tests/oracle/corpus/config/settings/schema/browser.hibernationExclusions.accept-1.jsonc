@@ -1,0 +1,8 @@
+{
+  "browser": {
+    "hibernationExclusions": [
+      "localhost",
+      "*.example.com"
+    ]
+  }
+}

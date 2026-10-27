@@ -1,0 +1,16 @@
+{
+    "editor": {
+        "bracketPairColorization": {
+            "enabled": true
+        }
+    },
+    "browser": {
+        "searchEngine": "brave"
+    },
+    "computerUse": {
+        "driver": true
+    },
+    "app": {
+        "warnBeforeClosingAgentSession": true
+    }
+}

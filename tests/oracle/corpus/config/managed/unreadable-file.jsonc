@@ -1,0 +1,12 @@
+{
+  "file": "{ not jsonc",
+  "forced": {
+    "history.terminalCommands": false
+  },
+  "recommended": {},
+  "team": {
+    "name": "",
+    "defaults": {},
+    "enforced": {}
+  }
+}

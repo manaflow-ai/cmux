@@ -1,0 +1,32 @@
+{
+    "sidebar": {
+        "detailedStatusIcons": null,
+        // "quoted"
+"groupHeader": {
+            // note
+"memberCount": true
+        }
+    },
+    "editor": {
+        "renderLineHighlight": "line",
+    },
+    // a { brace
+"appearance": {
+        "metrics": {
+            "tabMinInactiveWidth": 168
+        }
+    },
+    "layout": {
+        "columnWidthPresets": [3.9,]
+    },
+    "tabs": {
+        "newTabWidgets": {
+            /* block */ "greeting": null,
+        },
+    },
+    /* * */ "oracleUnknown": {
+        "nested": {
+            /* block */ "key": [true,],
+        },
+    },
+}

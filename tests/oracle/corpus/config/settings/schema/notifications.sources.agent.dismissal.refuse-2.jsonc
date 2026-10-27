@@ -1,0 +1,9 @@
+{
+  "notifications": {
+    "sources": {
+      "agent": {
+        "dismissal": true
+      }
+    }
+  }
+}

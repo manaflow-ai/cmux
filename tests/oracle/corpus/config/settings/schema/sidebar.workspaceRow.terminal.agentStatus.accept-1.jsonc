@@ -1,0 +1,9 @@
+{
+  "sidebar": {
+    "workspaceRow": {
+      "terminal": {
+        "agentStatus": false
+      }
+    }
+  }
+}

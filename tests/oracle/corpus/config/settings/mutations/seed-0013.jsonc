@@ -1,0 +1,33 @@
+{
+  "browser": "flat",
+  // "quoted"
+"sidebar": {
+    "workspaceRow": {
+      "agent": {
+        "tabCount": true
+      }
+    }
+  },
+  /* // inside */ "editor": {
+    /* block */ "stickyScroll": {
+      // a { brace
+"enabled": true
+    },
+    // "quoted"
+"smoothScrolling": 1
+  },
+  "tabs": {
+    // "quoted"
+"terminalFirst": false
+  },
+  "ui": {
+    "animations": {
+      "web": true
+    }
+  },
+  "notifications": {
+    "attention": {
+      /* block */ "duration": "1"
+    }
+  }
+}

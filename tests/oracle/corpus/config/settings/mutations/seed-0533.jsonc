@@ -1,0 +1,24 @@
+{
+    "browser": {
+        "searchEngine": true
+    },
+    "sidebar": {
+        /* // inside */ "workspaceRow": {
+            /* {"k": 1} */ "browser": {
+                "working": 1,
+            },
+        }
+    },
+    "tabs": {
+        "newTabWidgets": {
+            "actions": false,
+        }
+    },
+    /* block */ "palette": {
+        "scopes": {
+            "tabs": {
+                "prefix": "="
+            },
+        }
+    }
+}

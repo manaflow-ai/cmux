@@ -1,0 +1,26 @@
+{
+	"browser": {
+		"customSearchEngine": {
+			"suggest": "",
+		},
+		"links": {
+			"cmdClick": "backgroundTab",
+		},
+	},
+	"appearance": {
+		"hue": 1
+	},
+	"tabs": {
+		"newTabWidgets": {
+			"timer": 1
+		},
+	},
+	"editor": {
+		"autoClosingQuotes": 1,
+	},
+	"oracleUnknown": {
+		"nested": {
+			"key": [true,],
+		}
+	}
+, "oracle": 12345678901234567890}

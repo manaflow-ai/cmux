@@ -1,0 +1,37 @@
+{
+  "browser": {
+    "toolbar": {
+      "extensions": 10E-1
+    },
+  },
+  "sidebar": {
+    "sectionLook": "quiet",
+  },
+  "history": {
+    "commandRetentionDays": 300E-1,
+  },
+  "layout": {
+    "tileBrowsers": "shadowed",
+    "tileBrowsers": 10E-1
+  },
+  "updates": {
+    "idleInstallQuietSeconds": 60.0,
+  },
+  "appearance": null,
+  "appearance": {
+    "metrics": {
+      "tabPinnedWidth": 216e0,
+    }
+  },
+  "sessions": {
+    "keepAwake": "pluggedIn"
+  },
+  "editor": {
+    "trimTrailingWhitespace": false
+  },
+  "chief": {
+    "reactionClassifier": {
+      "prompt": ""
+    },
+  },
+}

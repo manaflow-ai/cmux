@@ -1,0 +1,19 @@
+{
+    "markdown": {
+        /* {"k": 1} */ "layout": {
+            "width": 515
+        }
+    },
+    /* // inside */ "sidebar": {
+        "workspaceRow": {
+            "terminal": {
+                "branch": true,
+                "lastActivity": null
+            }
+        }
+    },
+    /* block */ "editor": {
+        // note
+"wordBasedSuggestions": false
+    }
+}

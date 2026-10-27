@@ -1,0 +1,15 @@
+{
+	"notifications": {
+		/* block */ "attention": {
+			// "quoted"
+"flashOnTyping": false,
+		}
+	},
+	"markdown": {
+		// "quoted"
+"tables": "scroll"
+	},
+	"editor": {
+		"trimTrailingWhitespace": false,
+	},
+}

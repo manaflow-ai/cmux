@@ -1,0 +1,19 @@
+{
+    // a { brace
+"sidebar": {
+        // note
+"workspaceRow": {
+            "browser": {
+                "working": "true",
+            }
+        },
+    },
+    "editor": {
+        "renderWhitespace": "boundary",
+    },
+    /* {"k": 1} */ "terminal": {
+        "linkOpener": {
+            "default": 1,
+        }
+    }
+}

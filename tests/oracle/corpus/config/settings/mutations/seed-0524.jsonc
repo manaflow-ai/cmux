@@ -1,0 +1,18 @@
+{
+	"diff": {
+		"groupByKind": false,
+	},
+	"agentPane": {
+		"editedFiles": {
+			"scope": true
+		}
+	},
+	"home": {
+		"channelsEnabled": false
+	},
+	"oracleUnknown": {
+		"nested": {
+			"key": [true,]
+		},
+	}
+}

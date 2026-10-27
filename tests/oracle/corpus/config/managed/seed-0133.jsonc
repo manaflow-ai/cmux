@@ -1,0 +1,16 @@
+{
+  "file": "{\n  \"browser\": {\n    \"newTabPage\": \"https://cmux.com\"\n  }\n}\n",
+  "forced": {
+    "editor.smoothScrolling": false
+  },
+  "recommended": {
+    "window.trafficLightClearance": 80
+  },
+  "team": {
+    "name": "",
+    "defaults": {},
+    "enforced": {
+      "layout.scrollAreas": 1
+    }
+  }
+}

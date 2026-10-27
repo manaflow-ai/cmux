@@ -1,0 +1,15 @@
+{
+  "sidebar": {
+    "workspaceRow": {
+      "secondLineOrder": [
+        "notification",
+        "directory",
+        "branch",
+        "process",
+        "agentStatus",
+        "ports",
+        "lastActivity"
+      ]
+    }
+  }
+}

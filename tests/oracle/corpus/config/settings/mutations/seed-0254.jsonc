@@ -1,0 +1,15 @@
+{
+    "appearance": {
+        "appTheme": true,
+    },
+    "sessions": {
+        "keepAwake": true,
+    },
+    "sidebar": {
+        "workspaceRow": {
+            "mixed": {
+                "tabCount": null
+            }
+        }
+    }
+}

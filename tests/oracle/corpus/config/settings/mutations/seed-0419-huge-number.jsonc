@@ -1,0 +1,18 @@
+{
+  "tabs": {
+    /* // inside */ "newTabWidgets": {
+      // note
+"clock": false
+    }
+  },
+  "layout": {
+    "scrollAreas": 1
+  },
+  /* block */ "diff": {
+    "groupByKind": 1
+  },
+  // note
+"sidebar": {
+    /* * */ "showSearchButton": true
+  }
+, "oracle": 1e400}

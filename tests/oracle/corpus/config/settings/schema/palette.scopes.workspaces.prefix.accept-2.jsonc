@@ -1,0 +1,9 @@
+{
+  "palette": {
+    "scopes": {
+      "workspaces": {
+        "prefix": ">"
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "sidebar": {
+    "workspaceRow": {
+      "terminal": {
+        "progress": "true"
+      }
+    }
+  }
+}

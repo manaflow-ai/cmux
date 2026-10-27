@@ -1,0 +1,18 @@
+{
+	"sidebar": {
+		"stepping": 1
+	},
+	"ui": {
+		"animations": {
+			"cursor": null,
+		}
+	},
+	"tabs": {
+		"newTabWidgets": {
+			"greeting": null,
+		},
+	},
+	"layout": {
+		"panePadding": 16
+	},
+}

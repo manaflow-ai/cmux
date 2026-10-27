@@ -1,0 +1,14 @@
+{
+  "file": "{\n  \"appearance\": {\n    \"metrics\": {\n      \"sidebarWidth\": 160\n    }\n  }\n}\n",
+  "forced": {
+    "appearance.colorTransition.enabled": true
+  },
+  "recommended": {},
+  "team": {
+    "name": "",
+    "defaults": {},
+    "enforced": {
+      "window.trafficLightClearance": 72
+    }
+  }
+}

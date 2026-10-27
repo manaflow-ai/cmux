@@ -1,0 +1,11 @@
+{
+	"appearance": "flat",
+	"ui": {
+		"reducedBackgrounds": false
+	},
+	"oracleUnknown": {
+		"nested": {
+			"key": [true]
+		}
+	}
+}

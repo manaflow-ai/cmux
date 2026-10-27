@@ -1,0 +1,28 @@
+{
+  "notifications": {
+    "attention": {
+      "persist": true
+    }
+  },
+  "sidebar": {
+    "hoverCards": {
+      "groups": {
+        "sections": {
+          "status": null,
+          "ports": null
+        }
+      }
+    }
+  },
+  "editor": {
+    "folding": true,
+    "guides": {
+      "bracketPairs": "true"
+    }
+  },
+  "oracleUnknown": {
+    "nested": {
+      "key": [true]
+    }
+  }
+}

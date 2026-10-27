@@ -1319,6 +1319,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextServerHelper"],
             swiftSettings: daemonSwiftSettings
         ),
+        // The oracle's config suite, app side (p15-oracle-212): dumps the effective config of
+        // every tests/oracle/corpus/config file; cmux-config's oracle_effective example dumps the
+        // daemon side. An executable, not a test target; the app does not link it.
+        .executableTarget(
+            name: "OracleConfigDump",
+            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups"],
+            swiftSettings: daemonSwiftSettings
+        ),
         .target(
             name: "CmuxNextResources",
             dependencies: ["CmuxNextWakeups", "CmuxNextDesign"],

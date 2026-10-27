@@ -1,0 +1,9 @@
+{
+  "appearance": {
+    "surfaces": {
+      "tabBar": {
+        "color": "red"
+      }
+    }
+  }
+}

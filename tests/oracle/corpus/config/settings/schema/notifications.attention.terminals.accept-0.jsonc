@@ -1,0 +1,7 @@
+{
+  "notifications": {
+    "attention": {
+      "terminals": "glow"
+    }
+  }
+}

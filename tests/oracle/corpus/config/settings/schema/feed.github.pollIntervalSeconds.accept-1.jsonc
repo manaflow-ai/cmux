@@ -1,0 +1,7 @@
+{
+  "feed": {
+    "github": {
+      "pollIntervalSeconds": 900
+    }
+  }
+}

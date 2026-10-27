@@ -1,0 +1,9 @@
+{
+  "appearance": {
+    "surfaces": {
+      "sidebar": {
+        "opacity": 2
+      }
+    }
+  }
+}

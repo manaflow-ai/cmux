@@ -1,0 +1,14 @@
+{
+  "browser": {
+    "toolbarButtons": [
+      "devTools",
+      "theme",
+      "profile",
+      "designMode",
+      "downloads",
+      "favorites",
+      "zoom",
+      "media"
+    ]
+  }
+}

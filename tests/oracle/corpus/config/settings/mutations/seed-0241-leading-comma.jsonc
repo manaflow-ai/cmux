@@ -1,0 +1,12 @@
+{,
+  "tabs": {
+    "newTabTemplate": "composer"
+  },
+  "appearance": {
+    "surfaces": {
+      "home": {
+        "color": "#12345"
+      }
+    }
+  }
+}

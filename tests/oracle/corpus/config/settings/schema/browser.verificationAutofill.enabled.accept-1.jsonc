@@ -1,0 +1,7 @@
+{
+  "browser": {
+    "verificationAutofill": {
+      "enabled": false
+    }
+  }
+}

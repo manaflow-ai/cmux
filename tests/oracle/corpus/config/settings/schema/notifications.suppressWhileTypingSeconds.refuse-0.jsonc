@@ -1,0 +1,5 @@
+{
+  "notifications": {
+    "suppressWhileTypingSeconds": -60
+  }
+}

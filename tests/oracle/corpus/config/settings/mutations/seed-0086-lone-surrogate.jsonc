@@ -1,0 +1,18 @@
+{
+    "home": {
+        "chiefPetMascot": "moon-blue"
+    },
+    /* block */ "sidebar": {
+        "workspaceRow": {
+            /* {"k": 1} */ "browser": {
+                // url: https://localhost/x
+"lastActivity": false,
+            },
+        }
+    },
+    "oracleUnknown": {
+        "nested": {
+            "key": [true,],
+        },
+    },
+, "oracle": "\ud800"}

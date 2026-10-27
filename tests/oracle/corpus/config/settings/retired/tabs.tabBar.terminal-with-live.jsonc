@@ -1,0 +1,10 @@
+{
+  "tabs": {
+    "tabBar": {
+      "terminal": true
+    }
+  },
+  "history": {
+    "terminalCommands": true
+  }
+}

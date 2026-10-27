@@ -1,0 +1,9 @@
+{
+  "notifications": {
+    "sources": {
+      "terminal": {
+        "dismissal": "keystroke"
+      }
+    }
+  }
+}
