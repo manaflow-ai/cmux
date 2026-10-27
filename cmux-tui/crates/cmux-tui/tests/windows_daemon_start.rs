@@ -1,16 +1,28 @@
-//! Windows: a session daemon started on a fresh socket answers, and keeps
-//! answering after whatever started it goes away.
+//! Windows: a session daemon started on a fresh socket answers, and which
+//! launches keep it answering after the launcher's Job Object closes.
 //!
 //! The Windows fork starts its daemon from `%LOCALAPPDATA%\cmux` with
 //! `daemon start --session <name> --socket <path>` and then asks it for its
 //! terminals (handoff cmux-tui-windows-daemon-start.md). A launcher often
 //! runs inside a Job Object that kills its processes when it closes: an ssh
-//! or IAP session, a Task Scheduler task, an IDE or terminal. `daemon ensure`
-//! must start an owner that outlives such a job, as the terminal host
-//! (`terminal_host_runtime/sys/windows/standby.rs`) and acpmux's daemon do;
-//! otherwise the owner dies with the job and leaves a 0-byte socket file
-//! and its `.spawn-lock` behind, and every later connect is refused
-//! (WSAECONNREFUSED, 10061).
+//! or IAP session (limit flags 0x2800 on win-2), an IDE or terminal. A
+//! process killed with such a job leaves a 0-byte socket file and its
+//! `.spawn-lock` behind (the lock file stays by design, see
+//! `SocketStartLock`), and every later connect is refused (WSAECONNREFUSED,
+//! 10061).
+//!
+//! - `daemon ensure` is the detached form: its owner leaves the caller's job
+//!   (`CREATE_BREAKAWAY_FROM_JOB`), as the terminal host
+//!   (`terminal_host_runtime/sys/windows/standby.rs`) and acpmux's daemon do.
+//! - `daemon start` is the foreground owner on every platform: it lives in
+//!   the job its launcher gives it, as on Unix it lives in its launcher's
+//!   session. A launcher that must outlive its own job passes
+//!   `CREATE_BREAKAWAY_FROM_JOB` itself (Chromium's
+//!   `LaunchOptions::force_breakaway_from_job_` is a launcher option too) or
+//!   runs `daemon ensure`.
+//!
+//! Each test uses a private data folder and state, so it never reaches a
+//! person's real sessions.
 #![cfg(windows)]
 
 use std::os::windows::io::AsRawHandle;
@@ -27,6 +39,7 @@ use windows_sys::Win32::System::Threading::{
 const DETACHED_PROCESS: u32 = 0x0000_0008;
 const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
 const CREATE_SUSPENDED: u32 = 0x0000_0004;
+const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
 /// What the brief asks of a fresh daemon: an answer within 10 s.
 const ANSWER_DEADLINE: Duration = Duration::from_secs(10);
 
@@ -315,5 +328,125 @@ fn daemon_ensure_owner_outlives_the_launchers_kill_on_close_job() {
         data.socket.display(),
     );
     let list = data.wait_for_terminal_list(Instant::now(), ANSWER_DEADLINE);
+    assert_eq!(list, serde_json::json!([]), "a fresh session has no terminals");
+}
+
+/// What `launcher_in_a_job` hands the helper below: the session, the socket,
+/// the creation flags for `daemon start`, and the file to write its pid to.
+const LAUNCH_SESSION_ENV: &str = "CWDS_LAUNCH_SESSION";
+const LAUNCH_SOCKET_ENV: &str = "CWDS_LAUNCH_SOCKET";
+const LAUNCH_FLAGS_ENV: &str = "CWDS_LAUNCH_FLAGS";
+const LAUNCH_PID_FILE_ENV: &str = "CWDS_LAUNCH_PID_FILE";
+const LAUNCHER_HELPER: &str = "launcher_helper_starts_daemon_start_and_exits";
+
+/// Not a test of its own: the launcher process of
+/// `daemon_start_outlives_its_launchers_job_only_when_launched_with_breakaway`.
+/// That test runs this binary again with only this test selected, inside a
+/// kill-on-close job, so this function is a launcher in a job (an app or a
+/// script in an ssh session): it starts `daemon start` with the given
+/// creation flags and exits. It does nothing without its environment.
+#[test]
+#[ignore = "launcher helper; run by daemon_start_outlives_its_launchers_job_only_when_launched_with_breakaway"]
+fn launcher_helper_starts_daemon_start_and_exits() {
+    let (Ok(session), Ok(socket), Ok(flags), Ok(pid_file)) = (
+        std::env::var(LAUNCH_SESSION_ENV),
+        std::env::var(LAUNCH_SOCKET_ENV),
+        std::env::var(LAUNCH_FLAGS_ENV),
+        std::env::var(LAUNCH_PID_FILE_ENV),
+    ) else {
+        return;
+    };
+    // The launcher exits and leaves the daemon running, as an app or script
+    // that starts it does; the test that runs this helper stops the daemon.
+    #[allow(
+        clippy::zombie_processes,
+        reason = "Windows has no zombies; the daemon must outlive this launcher"
+    )]
+    let daemon = Command::new(bin())
+        .args(["daemon", "start", "--session", &session, "--socket", &socket])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(flags.parse().unwrap())
+        .spawn()
+        .unwrap();
+    std::fs::write(pid_file, daemon.id().to_string()).unwrap();
+}
+
+/// Runs the launcher helper inside `job` with `flags` for `daemon start`;
+/// returns the daemon's pid once the launcher has exited.
+fn launch_daemon_start_from(job: &KillOnCloseJob, data: &DataDir, flags: u32) -> u32 {
+    let pid_file = data.dir.join("daemon.pid");
+    let mut launcher = Command::new(std::env::current_exe().unwrap());
+    launcher
+        .args(["--exact", LAUNCHER_HELPER, "--ignored", "--test-threads=1", "--quiet"])
+        .current_dir(&data.dir)
+        .env("CMUX_TUI_STATE_DIR", data.dir.join("state"))
+        .env("CMUX_TUI_CONFIG", data.dir.join("config.json"))
+        .env(LAUNCH_SESSION_ENV, &data.session)
+        .env(LAUNCH_SOCKET_ENV, &data.socket)
+        .env(LAUNCH_FLAGS_ENV, flags.to_string())
+        .env(LAUNCH_PID_FILE_ENV, &pid_file)
+        .stdin(Stdio::null());
+    // Files, not pipes: the daemon may inherit the launcher's std handles,
+    // and a pipe it holds would keep a read open until the daemon exits.
+    let log = data.dir.join("launcher.log");
+    let log_file = std::fs::File::create(&log).unwrap();
+    launcher.stdout(log_file.try_clone().unwrap()).stderr(log_file);
+    let status = job.spawn(&mut launcher).wait().unwrap();
+    assert!(
+        status.success(),
+        "the launcher failed: {status:?}\n{}",
+        std::fs::read_to_string(&log).unwrap_or_default(),
+    );
+    std::fs::read_to_string(&pid_file)
+        .unwrap_or_else(|error| panic!("the launcher wrote no daemon pid ({error})"))
+        .trim()
+        .parse()
+        .unwrap()
+}
+
+/// The contract for whoever runs `daemon start` (the Windows app's
+/// `daemon_launch`, a script): the daemon lives in its launcher's job. A
+/// launcher in a kill-on-close job (an ssh or IAP session) that starts it
+/// with only `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` (what
+/// `Start-Process` does) loses it when that job closes, which leaves the
+/// 0-byte socket file and `.spawn-lock` of the handoff with nothing
+/// listening; started with `CREATE_BREAKAWAY_FROM_JOB` as well, the daemon
+/// outlives the job and still answers. The first daemon is the control: it
+/// proves that this job does kill what stays in it.
+#[test]
+fn daemon_start_outlives_its_launchers_job_only_when_launched_with_breakaway() {
+    let mut inside = DataDir::new("in-job");
+    let mut away = DataDir::new("away");
+    let job = KillOnCloseJob::new();
+    let detached = DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP;
+    let inside_pid = launch_daemon_start_from(&job, &inside, detached);
+    inside.owner_pid = Some(inside_pid);
+    let away_pid = launch_daemon_start_from(&job, &away, detached | CREATE_BREAKAWAY_FROM_JOB);
+    away.owner_pid = Some(away_pid);
+    let inside_process = Process::open(inside_pid).expect("the in-job daemon runs");
+    let away_process = Process::open(away_pid).expect("the breakaway daemon runs");
+    // Both answer while the launcher's job is open.
+    for data in [&inside, &away] {
+        let list = data.wait_for_terminal_list(Instant::now(), ANSWER_DEADLINE);
+        assert_eq!(list, serde_json::json!([]), "a fresh session has no terminals");
+    }
+
+    drop(job);
+    assert!(
+        inside_process.exits_within(Duration::from_secs(5)),
+        "control: the daemon (pid {inside_pid}) left in its launcher's kill-on-close job must end with it",
+    );
+    assert!(
+        inside.socket.exists() && !inside.terminal_list().status.success(),
+        "a daemon killed with its job leaves {} with no listener",
+        inside.socket.display(),
+    );
+    assert!(
+        !away_process.exits_within(Duration::from_secs(2)),
+        "the daemon (pid {away_pid}) started with CREATE_BREAKAWAY_FROM_JOB died with its launcher's job",
+    );
+    let list = away.wait_for_terminal_list(Instant::now(), ANSWER_DEADLINE);
     assert_eq!(list, serde_json::json!([]), "a fresh session has no terminals");
 }
