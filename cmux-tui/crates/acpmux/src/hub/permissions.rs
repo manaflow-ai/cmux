@@ -31,6 +31,18 @@ impl Hub {
                     ..
                 } => {
                     if m == method::SESSION_UPDATE {
+                        // Debug builds only: `ACPMUX_TEST_UPDATE_DELAY_MS` holds each update
+                        // before it is applied (the log has it already), as a busy inbound loop
+                        // does, so the daemon's integration tests can reach an agent first.
+                        // Bounded; release builds have no seam.
+                        #[cfg(debug_assertions)]
+                        if let Some(ms) = std::env::var("ACPMUX_TEST_UPDATE_DELAY_MS")
+                            .ok()
+                            .and_then(|v| v.parse::<u64>().ok())
+                        {
+                            tokio::time::sleep(std::time::Duration::from_millis(ms.min(2_000)))
+                                .await;
+                        }
                         // A /context breakdown or usage limits from an agent that was replaced
                         // (a failover's dying primary answering late) are not the chat's now. The
                         // child lock is held while it is applied: a failover takes it to retire
@@ -44,6 +56,25 @@ impl Hub {
                             {
                                 self.on_update(&session, params.as_ref(), false);
                             }
+                            continue;
+                        }
+                        // A mode or option report of an agent MDM's off ended, or of one older, is
+                        // not the next agent's: only a newer agent's is applied
+                        // (`FloorState::retired_through`). Checked and applied under the agent
+                        // slot's lock, which that end takes, so no end comes between the two
+                        // (reviews 3, 5 and 6 of #26052).
+                        let kind =
+                            params.as_ref().and_then(|p| p["update"]["sessionUpdate"].as_str());
+                        let slot =
+                            if matches!(kind, Some("current_mode_update" | "config_option_update"))
+                            {
+                                Some(session.child.lock().await)
+                            } else {
+                                None
+                            };
+                        if slot.is_some()
+                            && agent <= session.floor.retired_through.load(Ordering::SeqCst)
+                        {
                             continue;
                         }
                         let replayed = session
@@ -288,9 +319,16 @@ impl Hub {
         if let Some(claude) = reported_tools {
             self.absorb_reported_tools(session, &claude);
         }
+        // Applied: the tap's count of it goes, under the lock the write publishes its mode under
+        // (`FloorState::unapplied_full_access`, review 5 of #26052).
+        let settles =
+            params.is_some_and(|p| super::full_access_bound::own_full_access_report(session, p));
         // Default deny on drift: also a mode the harness changes by itself.
         if let Some(w) = mode_write {
-            self.write_mode_state(session, [w]);
+            self.write_mode_state_settling(session, [w], settles);
+        } else if settles {
+            let _m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            settle_full_access_report(session);
         }
         if mark_cleared {
             self.save_meta(session);
@@ -1308,4 +1346,14 @@ pub(super) fn status_after_ask(session: &Session, prev: SessionStatus) -> Sessio
         (false, SessionStatus::Running | SessionStatus::Waiting) => SessionStatus::Ready,
         (false, prev) => prev,
     }
+}
+
+/// Takes back one count of a full-access report the inbound loop applied
+/// (`FloorState::unapplied_full_access`); the caller holds the session's meta lock.
+pub(super) fn settle_full_access_report(session: &Session) {
+    let _ =
+        session
+            .floor
+            .unapplied_full_access
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
 }
