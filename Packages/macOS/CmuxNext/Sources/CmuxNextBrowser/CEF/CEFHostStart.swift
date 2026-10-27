@@ -34,6 +34,8 @@ final class CEFHostStart {
     /// The host's autofill, password and `<datalist>` suggestions show in cmux's list (feature
     /// `chromiumHostSuggestions`, ``CEFRuntimeSource/drawsHostSuggestions``; task 061). Read at the attach.
     var drawsSuggestions = false
+    /// Pages' pointer and keyboard locks in cmux (feature `chromiumHostLocks`, ``CEFHostLocks``; task 229); nil leaves them to Chromium.
+    var locks: CEFHostLocks?
     /// Page file choosers answered by cmux's pickers (feature `chromiumHostFileDialogs`,
     /// `CEFRuntime.fileDialogAsked`); nil leaves Chromium's own panel.
     let files: ChromiumHostFiles?

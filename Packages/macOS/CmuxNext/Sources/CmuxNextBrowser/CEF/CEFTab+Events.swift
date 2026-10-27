@@ -107,7 +107,9 @@ extension CEFTab {
             machine.apply(.faviconChanged(faviconURL))
             loadFavicon(faviconURL)
         case .progress(_, let value): machine.apply(.progress(value))
-        case .fullscreen(_, let entering): machine.apply(.contentFullscreenChanged(entering))
+        case .fullscreen(let browser, let entering):
+            machine.apply(.contentFullscreenChanged(entering))
+            host.hostedPageView?.exclusiveAccess.fullscreenChanged(entering, browser: browser) // Escape ends it (task 229)
         case .findResult(_, let findID, let count, let active, let isFinal):
             findRequests.result(findID: findID, count: count, active: active, isFinal: isFinal)?.run()
         case .closeRequested: emit(.close)

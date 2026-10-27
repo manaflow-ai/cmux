@@ -134,6 +134,7 @@ void HostContext::Attach() {
   // Not an export: the host acks every wheel of a gesture (OnWheelAck), so cmux asks the page nothing.
   if (set_wheel_ack_handler_) exports.push_back(kWheelAcksHelloName);
   if (energy_saver_) exports.push_back(kEnergySaverHelloName);
+  if (set_lock_handler_) exports.push_back(kLocksHelloName);
   TlvWriter hello;
   hello.Str(kWireID);
   hello.StrList(exports.data(), static_cast<int>(exports.size()));
@@ -198,7 +199,8 @@ void HostContext::Handle(control::Message& message) {
     case State::kPreinit:
       if (message.op == kOpInitialize) {
         if (!HandleInitialize(message)) Bad("a malformed initialize");
-      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize || message.op == kOpEnergySaver) {
+      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize || message.op == kOpEnergySaver ||
+                 message.op == kOpSetLockHandler) {
         waiting_.push_back(std::move(message));  // CEF state: read once initialize returned
       } else {
         Dispatch(message);  // a preinit op: the remote shim sends nothing else before initialize
@@ -241,6 +243,10 @@ void HostContext::Handle(control::Message& message) {
       }
       if (message.op == kOpEnergySaver) {
         if (!HandleEnergySaver(message)) Bad("a malformed energy saver");
+        return;
+      }
+      if (message.op == kOpSetLockHandler) {
+        if (!HandleLockHandler(message)) Bad("a malformed lock handler");
         return;
       }
       if (IsMirrorOp(message.op)) return Watch(message.op, message.fields);
@@ -330,6 +336,19 @@ bool HostContext::HandleEnergySaver(const control::Message& message) {
     reply.I32(result);
     Reply(message.token, reply);
   }
+  return true;
+}
+
+// The fork's delegate calls OnLock on the UI thread, this one; a fork that
+// lacks it (no set_lock_handler_) takes nothing, and cmux's remote shim never
+// sends the op to such a host (its HELLO lists no kLocksHelloName).
+bool HostContext::HandleLockHandler(const control::Message& message) {
+  const std::optional<bool> installed = DecodeLockHandler(message.fields);
+  if (!installed) return false;
+  if (set_lock_handler_ && !set_lock_handler_(*installed ? &HostContext::OnLock : nullptr, *installed ? this : nullptr)) {
+    fprintf(stderr, "cmux-chromium-host: the fork refused the lock handler\n");
+  }
+  Ack(message.token);
   return true;
 }
 
@@ -549,6 +568,12 @@ void HostContext::OnWheelAck(void* ctx, int browser_id, const void* ack) {
   const std::optional<WheelAckEvent> event = host->wheel_acks_.Acked(browser_id, readable ? &read : nullptr);
   if (!event) return;
   host->ForwardEvent(kEventWheelAck, browser_id, event->request, event->a, event->b, "", "");
+}
+
+void HostContext::OnLock(void* ctx, int event, int browser_id, int detail) {
+  auto* host = static_cast<HostContext*>(ctx);
+  if (host->state_ == State::kEnded) return;
+  host->ForwardEvent(CMUX_SHIM_LOCK, browser_id, event, detail, 0, "", "");
 }
 
 void HostContext::Dispatch(const control::Message& message) {

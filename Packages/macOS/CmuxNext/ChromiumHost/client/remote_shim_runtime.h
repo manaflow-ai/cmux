@@ -7,8 +7,9 @@
 //
 // The exports are generated (generated/remote_shim.inc, scripts/cmux-next/gen-chromium-host-wire.py)
 // except the `local` ones: remote_shim.mm (load, prepare_application, initialize, do_work, free,
-// free_owned, password_entry_size) and remote_shim_local.mm (task 014b: the exports with a
-// function-pointer parameter). This header is the interface both include.
+// free_owned, password_entry_size, and set_lock_handler, whose fn ../src/host_locks.h's LockClient
+// keeps, task 229) and remote_shim_local.mm (task 014b: the exports with a function-pointer
+// parameter). This header is the interface both include.
 //
 // Threads: every shim call is on the main thread (cmux_cef_shim.h), so the client's state is
 // main-thread state with no lock; each entry asserts it. The control channel's reader thread

@@ -7,11 +7,14 @@ extension CEFRuntime {
     /// Fork API 31 sends `<select>` popups as data (task 171, `cmux_browser_set_popup_menu_handler`).
     static let popupMenuForkAPI: Int32 = 31
 
-    /// Host mode, at the start (after the attach, before `cmux_shim_initialize`): the host's widgets and
-    /// `<select>` popups in cmux, as the source asks. `forkAPIVersion` is the host's fork's.
-    func showHostNativeUI(_ shim: CEFShimLibrary, forkAPIVersion: Int32) {
+    /// Host mode, at the start (after the attach, before `cmux_shim_initialize`): the host's widgets,
+    /// `<select>` popups and page locks in cmux, as the source asks. `forkAPIVersion` is the host's
+    /// fork's; `context` is the runtime's callback token.
+    func showHostNativeUI(_ shim: CEFShimLibrary, forkAPIVersion: Int32, context: UnsafeMutableRawPointer?) {
         showHostWidgets(shim)
         showHostPopupMenus(shim, forkAPIVersion: forkAPIVersion)
+        // SAFETY: `context` is the runtime's token, which the shim only hands back to the lock fn.
+        unsafe hostStart?.locks?.install(shim, forkAPIVersion: forkAPIVersion, context: context)
     }
 
     /// Host mode, at the start: turns the host's popups into POPUP_MENU events and shows them when the

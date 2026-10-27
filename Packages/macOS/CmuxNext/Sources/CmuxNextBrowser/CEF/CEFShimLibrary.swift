@@ -279,6 +279,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let widgets: CEFShimWidgetOps
     /// Drops into a detached page (task 050, fork API 31).
     let dragTarget: CEFShimDragTargetOps
+    /// Pointer lock and keyboard lock (task 229, fork API 31).
+    let locks: CEFShimLockOps
     /// <select> popups as data (task 060, fork API 31).
     let popupMenus: CEFShimPopupMenuOps
     /// Autofill, password and `<datalist>` suggestions as data (task 061, fork API 31).

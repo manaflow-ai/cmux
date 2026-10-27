@@ -64,6 +64,7 @@ extension ChromiumHostPageView {
     /// key-down is held under the browser and input seq the writer stamped on the frame that
     /// carries the key itself, for the host's report.
     private func key(_ event: NSEvent, phase: Int32) {
+        if exclusiveAccess.takesEscape(event, phase: phase) { return }
         var frame = ChromiumHostFrame(.key, v: [phase, Int32(event.keyCode), event.type == .flagsChanged ? 0 : (event.isARepeat ? 1 : 0)],
                                       flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp))
         if event.type != .flagsChanged {

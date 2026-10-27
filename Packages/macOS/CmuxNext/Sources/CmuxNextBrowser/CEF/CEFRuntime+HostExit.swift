@@ -72,10 +72,11 @@ extension CEFRuntime {
     /// ``hostEnded(_:)`` when the supervisor reports them (``ChromiumHostExitReporting``).
     func adoptHost(_ supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, takesDrags: Bool = false,
                    fencesResizes: Bool = false, drawsPopupMenus: Bool = false, drawsSuggestions: Bool = false,
-                   fileDialogs: (any ChromiumFileDialogAnswering)? = nil) {
+                   fileDialogs: (any ChromiumFileDialogAnswering)? = nil, handlesLocks: Bool = false) {
         hostStart = CEFHostStart(supervisor: supervisor, showsWidgets: showsWidgets, takesDrags: takesDrags,
                                  fencesResizes: fencesResizes, drawsPopupMenus: drawsPopupMenus, fileDialogs: fileDialogs)
         hostStart?.drawsSuggestions = drawsSuggestions
+        hostStart?.locks = handlesLocks ? CEFHostLocks(runtime: self) : nil
         guard let reporting = supervisor as? any ChromiumHostExitReporting else { return }
         reporting.onHostEnded = { [weak self] exit in self?.hostEnded(exit) }
     }
@@ -86,6 +87,7 @@ extension CEFPaneHost {
     /// it, so the next tab shown here asks the next host for a new one.
     func hostEnded() {
         (window, windowTab, lastActivated, popupWindow) = (.none, nil, nil, nil)
+        hostedPageView?.exclusiveAccess.hostEnded()
         hostView.layerHosting.windowBrowsersChanged([])
         hostedPageView?.show(contextID: 0)
         hostedPageView?.suggestions.hostEnded()

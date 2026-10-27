@@ -130,6 +130,8 @@ public final class ChromiumHostPageView: NSView {
     var accessibilityWindowClose: EventSubscription?
     /// Drags from outside into the page (ChromiumHostPageView+Drag.swift); none until ``takeDrags(through:)``.
     let dragDestination = ChromiumHostDragDestination()
+    /// The shown page's pointer lock, keyboard lock and fullscreen (task 229).
+    let exclusiveAccess = ChromiumHostExclusiveAccess(cursor: .system)
     /// The page's autofill, password and `<datalist>` suggestions, drawn by cmux (task 061).
     private(set) lazy var suggestions = ChromiumHostSuggestionList(view: self)
     /// The window's part of the page's visibility (ChromiumHostPageView+Visibility.swift): hidden
@@ -235,6 +237,7 @@ public final class ChromiumHostPageView: NSView {
     }
 
     private func firstResponderChanged(_ focused: Bool) {
+        if !focused { exclusiveAccess.focusLost() }
         onFocusChange?(focused)
         #if DEBUG || CMUX_BENCH_HOOKS
         _ = sink?(ChromiumHostFrame(.focus, v: [focused ? 1 : 0]))
@@ -318,6 +321,7 @@ public final class ChromiumHostPageView: NSView {
         if window == nil {
             lastGeometry = nil
             keyDowns.removeAll()
+            exclusiveAccess.showing(nil)
             onLeftWindow?()
         } else {
             presentedRectDidChange()
@@ -419,6 +423,7 @@ extension ChromiumHostPageView {
 
     /// A down ends an open composition first, keeping its text (``textInputMouseDown()``).
     func mouse(_ event: NSEvent, phase: Int32, button: Int32) {
+        if exclusiveAccess.takesMove(event, phase: phase) { return }
         if phase == 1 { textInputMouseDown() }
         let point = pagePoint(event)
         let buttons = Self.pressedButtons()

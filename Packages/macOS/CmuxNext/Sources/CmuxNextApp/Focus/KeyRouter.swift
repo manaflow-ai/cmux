@@ -163,7 +163,7 @@ final class KeyRouter: BrowserKeyRouting {
                 if case .terminal = focus.resolved, !WhenClause.has(KeyContext.terminalCopyMode).evaluate(context) { return .deliver }
                 if candidate.tier == .content { return .deliver }
             }
-            if Self.allows(candidate.tier, id: candidate.id, focus: focus) {
+            if Self.keyboardLockTakes(candidate, facts: facts) { return .deliver } else if Self.allows(candidate.tier, id: candidate.id, focus: focus) {
                 return Self.offersToPage(candidate, focus: focus, facts: facts) ? .offerToPage(candidate) : .run(candidate)
             }
         }
@@ -456,7 +456,7 @@ final class KeyRouter: BrowserKeyRouting {
         // page window is a child of the shell.
         let step = chords.step(event, window: ObjectIdentifier(controller.window ?? window), focus: focus.resolved, table: table,
                                context: context, isRunnable: runnable,
-                               canArm: { ChordTracker.canArm(focus: focus, hasMarkedText: facts.hasMarkedText) })
+                               canArm: { !facts.pageLocksKeys && ChordTracker.canArm(focus: focus, hasMarkedText: facts.hasMarkedText) })
         if let keys = chords.armedKeys, let shell = controller.window {
             let rows = WhichKeyListing.rows(after: keys, table: table, context: context, isRunnable: runnable, registry: registry)
             whichKey?.show(after: keys, rows: rows, in: shell)

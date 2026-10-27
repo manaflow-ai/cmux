@@ -2,7 +2,8 @@
 // once, the preinit replay log (latest values) goes first at every attach, the attach queue never
 // drops and coalesces state ops, optional ops need the HELLO, ids are minted from 1 << 20, mirror
 // values pushed before an EVENT are read in that event's callback, a post's pending keys hide
-// the old value until the ack, and a bad frame ends the host. Built and run by
+// the old value until the ack, a lock push reaches cmux's lock fn (and a host's end unlocks
+// what it held), and a bad frame ends the host. Built and run by
 // scripts/cmux-next/tests/remote-shim-abi.test.sh; needs no CEF. One translation unit with the
 // client, for the generated op ids (generated/remote_shim.inc also defines the exports).
 #include "remote_shim.mm"
@@ -538,6 +539,98 @@ void TestEnergySaver() {
   CHECK(SaverFrames(Drain(&fourth)).empty());
   cmux_remote_shim_detach();
   ::close(fourth.fd);
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
+}
+
+// The lock fn's calls: "<event> <browser> <detail>".
+std::vector<std::string> lock_calls;
+void OnLock(void* context, int event, int browser_id, int detail) {
+  CHECK(context == &lock_calls);
+  lock_calls.push_back(std::to_string(event) + " " + std::to_string(browser_id) + " " + std::to_string(detail));
+}
+
+Message LockPush(int event, int browser, int detail) {
+  TlvWriter w;
+  w.I32(CMUX_SHIM_LOCK);
+  w.I32(browser);
+  w.I32(event);
+  w.I64(detail);
+  w.I64(0);
+  w.Str("");
+  w.Str("");
+  Message message;
+  message.op = cmux_remote::kOpEvent;
+  message.fields = w.Take();
+  return message;
+}
+
+// The lock handler frames among `messages`: their installed flag.
+std::vector<int> LockHandlerFrames(const std::vector<Message>& messages) {
+  std::vector<int> out;
+  for (const Message& m : messages) {
+    if (m.op != cmux_remote::kOpSetLockHandler) continue;
+    const std::optional<bool> installed = cmux_host::DecodeLockHandler(m.fields);
+    CHECK(installed.has_value() && m.token == 0);
+    out.push_back(installed.value_or(false) ? 1 : 0);
+  }
+  return out;
+}
+
+// cmux_shim_set_lock_handler in host mode (task 229): only the handler's on/off goes to a host
+// whose HELLO listed kLocksHelloName, again to every later host; the host's CMUX_SHIM_LOCK
+// pushes reach cmux's lock fn and never its event fn; a host that ends unlocks every lock it may
+// hold; a host without the delegate gets no frame and the call answers 0.
+void TestLocks() {
+  lock_calls.clear();
+  CHECK(cmux_remote_shim_attached() == 0);
+  CHECK(cmux_shim_set_lock_handler(&OnLock, &lock_calls) == 0);  // no host: kept for the next one
+  Host first;
+  CHECK(AttachNew(&first) == 1);
+  CHECK(LockHandlerFrames(Drain(&first)).empty());  // it waits for the HELLO
+  SayHello(&first, {cmux_host::kLocksHelloName});
+  CHECK(LockHandlerFrames(Drain(&first)) == std::vector<int>({1}));
+  const int events = seen.events;
+  const int browser = cmux_remote::kFirstMintedBrowserID;
+  first.Send(LockPush(CMUX_SHIM_POINTER_LOCK_REQUESTED, browser, 1));
+  first.Send(LockPush(CMUX_SHIM_KEYBOARD_LOCK_REQUESTED, browser + 1, 1));
+  first.Send(LockPush(CMUX_SHIM_KEYBOARD_LOCK_REQUESTED, browser + 2, 0));
+  first.Send(LockPush(CMUX_SHIM_KEYBOARD_UNLOCKED, browser + 2, 0));
+  first.Send(LockPush(9, browser, 0));  // an event this side does not know: dropped
+  CHECK(PumpUntil([] { return lock_calls.size() == 4; }));
+  const std::string b0 = std::to_string(browser), b1 = std::to_string(browser + 1), b2 = std::to_string(browser + 2);
+  CHECK(lock_calls == std::vector<std::string>({"0 " + b0 + " 1", "2 " + b1 + " 1", "2 " + b2 + " 0", "3 " + b2 + " 0"}));
+  CHECK(seen.events == events);  // cmux's event fn never sees a lock push
+  // The host ends: what it may hold is unlocked, pointer first.
+  lock_calls.clear();
+  cmux_remote_shim_detach();
+  CHECK(lock_calls == std::vector<std::string>({"1 " + b0 + " 0", "3 " + b1 + " 0"}));
+  ::close(first.fd);
+
+  // A host whose fork has no lock delegate: no frame, and the call answers 0.
+  lock_calls.clear();
+  Host second;
+  CHECK(AttachNew(&second) == 1);
+  SayHello(&second, {});
+  CHECK(LockHandlerFrames(Drain(&second)).empty());
+  CHECK(cmux_shim_set_lock_handler(&OnLock, &lock_calls) == 0);
+  CHECK(LockHandlerFrames(Drain(&second)).empty());
+  cmux_remote_shim_detach();
+  CHECK(lock_calls.empty());
+  ::close(second.fd);
+
+  // The next host gets the handler after its HELLO; removing it sends off, once.
+  Host third;
+  CHECK(AttachNew(&third) == 1);
+  SayHello(&third, {cmux_host::kLocksHelloName});
+  CHECK(LockHandlerFrames(Drain(&third)) == std::vector<int>({1}));
+  CHECK(cmux_shim_set_lock_handler(nullptr, nullptr) == 1);
+  CHECK(cmux_shim_set_lock_handler(nullptr, nullptr) == 0);  // already off: nothing to send
+  CHECK(LockHandlerFrames(Drain(&third)) == std::vector<int>({0}));
+  third.Send(LockPush(CMUX_SHIM_POINTER_LOCK_REQUESTED, browser, 0));
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
+  CHECK(lock_calls.empty());  // with no handler a push is dropped
+  cmux_remote_shim_detach();
+  ::close(third.fd);
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
 }
 
@@ -1078,6 +1171,7 @@ int main() {
 
   TestOrderingThroughTheRuntime();
   TestEnergySaver();
+  TestLocks();
 
   // View tokens: cmux passes the page view's token where the ABI takes a parent NSView*, and it
   // travels as is (never a pointer the client reads); NULL is 0.

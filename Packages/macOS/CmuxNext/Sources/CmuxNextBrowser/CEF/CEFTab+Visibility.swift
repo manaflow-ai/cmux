@@ -60,6 +60,13 @@ extension CEFTab: BrowserContentVisibilityReporting, BrowserVisibilityFollowing 
         return window.firstResponder === page
     }
 
+    /// Chromium Host: whether this tab's page view is `window`'s first responder and its page holds a
+    /// keyboard lock in its fullscreen (``ChromiumHostExclusiveAccess/holdsKeys``, task p01-process-229).
+    public func hostedPageLocksKeys(in window: NSWindow) -> Bool {
+        guard !isClosed, host.visibleTab === self, let page = host.hostedPageView, window.firstResponder === page else { return false }
+        return page.exclusiveAccess.holdsKeys
+    }
+
     /// A page window sits at the host view's screen rect to within 2 points.
     nonisolated static func frame(_ frame: CGRect, isPlacedAt rect: CGRect) -> Bool {
         abs(frame.minX - rect.minX) <= 2 && abs(frame.minY - rect.minY) <= 2

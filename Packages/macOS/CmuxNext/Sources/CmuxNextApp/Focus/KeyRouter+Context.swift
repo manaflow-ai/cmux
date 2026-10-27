@@ -157,6 +157,7 @@ extension KeyRouter {
         facts.omnibarListOpen = sources.suggestions?.isShowingSuggestions == true
         facts.terminalCopyMode = sources.copyMode?.isCopyModeActive == true
         facts.pageReportsUnhandledKeys = sources.chromiumPage.map { $0.isPageWindow(window) || $0.hostedPageHasKeys(in: window) } == true
+        facts.pageLocksKeys = sources.chromiumPage?.hostedPageLocksKeys(in: window) == true
         let page = sources.page
         facts.markdownReadOnly = page.map { markdownReadOnly($0) } ?? false
         facts.pageKeySequencePending = page.map { keySequencePending($0) } ?? false

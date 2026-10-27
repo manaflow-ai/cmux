@@ -43,6 +43,10 @@ public final class CEFRuntimeSource {
     /// go to the host as paths (feature `chromiumHostFileDialogs`, set by the App; ``ChromiumHostFiles``).
     /// Nil leaves Chromium's own panel, which in host mode opens in the host. Read when the runtime adopts the source.
     public var hostFileDialogs: (any ChromiumFileDialogAnswering)?
+    /// Host mode: a page's pointer lock and keyboard lock are cmux's, and Escape ends them and the page's
+    /// fullscreen (feature `chromiumHostLocks`, set by the App; ``CEFHostLocks``). Read when the runtime
+    /// adopts the source; in process it changes nothing.
+    public var handlesHostLocks = false
 
     /// Creates a source.
     ///

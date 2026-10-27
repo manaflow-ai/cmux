@@ -134,7 +134,9 @@ chromiumHostWidgets on and two test extensions, then the autofill and password r
 p01-process-061): the field's suggestions in cmux's list (`debug.cef` `host_suggestions`) with feature
 chromiumHostSuggestions on, then the page dialog rows (chromium_host_native_ui_dialogs.py, p01-process-064): file
 picker, certificate error, beforeunload and renderer hang, each answered by cmux while the host is never frontmost
-and shows no window, with feature chromiumHostFileDialogs on.
+and shows no window, with feature chromiumHostFileDialogs on, then the fullscreen and lock rows
+(chromium_host_native_ui_locks.py, p01-process-229): HTML fullscreen, pointer lock and keyboard lock held by cmux
+(`debug.cef` `host_locks`) and each ended by Escape, with feature chromiumHostLocks on.
 
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match
@@ -166,6 +168,7 @@ import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
 import chromium_host_native_ui_dialogs  # noqa: E402
+import chromium_host_native_ui_locks  # noqa: E402
 
 
 def parse(argv=None):
@@ -182,7 +185,7 @@ def parse(argv=None):
     parser.add_argument("--ime", action="store_true", help="helper: TEXT_INPUT_STATE pushes per keystroke (ime_row)")
     parser.add_argument("--native-ui", nargs="?", const="", default=None, metavar="ROWS",
                         help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
-                             f"({', '.join(chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)})")
+                             f"({', '.join(chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS + chromium_host_native_ui_locks.ROWS)})")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
     parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
     parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
@@ -198,7 +201,7 @@ def parse(argv=None):
     if args.native_ui is not None:
         try:
             args.native_ui = chromium_host_native_ui.rows_named(
-                args.native_ui, chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS)
+                args.native_ui, chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS + chromium_host_native_ui_locks.ROWS)
         except ValueError as error:
             parser.error(str(error))
     if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
@@ -675,7 +678,8 @@ def main():
         open(native, "w").write(chromium_host_native_ui.PAGE)
         url = pathlib.Path(native).as_uri()
         env.update(chromium_host_native_ui.launch_env(chromium_host_native_ui.write_extensions(opts.out)))
-        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_native_ui_dialogs.FEATURES]))
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_native_ui_dialogs.FEATURES,
+                                                             chromium_host_native_ui_locks.FEATURES]))
     if opts.find:
         find_page = os.path.join(opts.out, "find.html")
         open(find_page, "w").write(chromium_host_find.PAGE)
@@ -716,6 +720,14 @@ def main():
                     on_screen_windows, rows_to_run=dialog_rows)
                 RESULT["modes"]["native_ui"].update(dialogs)
                 ok = ok and dialogs_ok
+            lock_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_locks.ROWS]
+            if lock_rows:
+                locks, locks_ok = chromium_host_native_ui_locks.run(
+                    rpc, wait, lambda script: page_eval(rpc, script, None), opts.out,
+                    lambda: chromium_host_native_ui_dialogs.host_ui_clear(chromium_host_pid, front_pid, on_screen_windows),
+                    rows_to_run=lock_rows)
+                RESULT["modes"]["native_ui"].update(locks)
+                ok = ok and locks_ok
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
         inproc_tab = None
