@@ -63,6 +63,8 @@ pub(super) struct OpenWork {
     /// The receipts of the fenced lines its host took (`QUEUED_METHOD`, protocol 3) that have
     /// no receipt logged (`WRITTEN_METHOD`): its harness may not have them yet.
     pub(super) unwritten: std::collections::BTreeSet<u64>,
+    /// One of those notes could not be read: `unwritten` proves nothing (fail closed).
+    pub(super) receipts_unread: bool,
     /// Largest `hostSeq` logged under this incarnation. Every entry kind is
     /// logged in entry order before its ack, so this is the logged prefix.
     pub(super) last_host_seq: u64,
@@ -263,10 +265,8 @@ impl Hub {
             if self.end_if_runs_full_access(&session, off).await != FullAccessEnd::NotInFullAccess {
                 continue;
             }
-            let kept = record.clone();
             if let Err(e) = self.adopt_one(&session, record).await {
                 tracing::warn!(session = %session.id, "agent host adoption failed: {e:#}");
-                self.hold_unadopted(&session, &kept).await;
             }
         }
         for unreadable in bad {
@@ -326,10 +326,30 @@ impl Hub {
         self.save_meta(session);
     }
 
+    /// Adopts `record`'s host. The family gate is held from before the host is reached until
+    /// its log is read and what it may still write is held again (`hold_unwritten`), so no off
+    /// push returns in between. Whatever stops that short (the host can't be reached or spoken
+    /// to, or a remote one's end fails) leaves one hold that only the host's end settles
+    /// (`link::adopt_untold`): fail closed.
     async fn adopt_one(
         self: &Arc<Self>,
         session: &Arc<Session>,
         record: agent_host::HostRecord,
+    ) -> anyhow::Result<()> {
+        let kept = record.clone();
+        let mut hold = Some(self.family_hold().await);
+        let adopted = self.adopt_held(session, record, &mut hold).await;
+        if let Some(hold) = hold {
+            Self::hold_fences(session, hold, vec![agent_host::link::adopt_untold(&kept)]);
+        }
+        adopted
+    }
+
+    async fn adopt_held(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        record: agent_host::HostRecord,
+        hold: &mut Option<super::full_access_bound::FamilyHold>,
     ) -> anyhow::Result<()> {
         if session.meta().remote_origin
             && !self.remote_host_env_current(session, &record.incarnation)
@@ -344,6 +364,8 @@ impl Hub {
             .await;
             if ended {
                 agent_host::remove_artifacts(&dir, &record);
+                // Ended: nothing it had can be written now.
+                hold.take();
             }
             self.append(
                 session,
@@ -357,7 +379,6 @@ impl Hub {
         let tap = self.session_tap(session);
         let incarnation = record.incarnation.clone();
         let caller_token = record.caller_token.clone();
-        let kept = record.clone();
         let attached = ChildAgent::attach_hosted(
             &session.meta().harness,
             record,
@@ -374,7 +395,6 @@ impl Hub {
                     session,
                     json!({"hostProtocol": [min, max], "hostBuild": host_build}),
                 );
-                self.hold_unadopted(session, &kept).await;
                 return Ok(());
             }
         };
@@ -407,8 +427,6 @@ impl Hub {
         if !replayed {
             tracing::warn!(session = %session.id, "agent host replay incomplete; recovering from the partial log");
         }
-        // Taken before the log is read, so no off push returns between the read and the hold.
-        let hold = self.family_hold().await;
         self.append(
             session,
             "mux",
@@ -418,12 +436,9 @@ impl Hub {
         self.set_status(session, SessionStatus::Ready);
         let work = self.recovery_work(session, &incarnation, resume_after);
         // Handed on before recovery, which may take the family gate itself.
-        match child.host_record() {
-            Some(record) => {
-                let told = replayed && adopted.version >= agent_host::QUEUED_VERSION;
-                Self::hold_unwritten(session, hold, &record, told, &work);
-            }
-            None => drop(hold),
+        if let (Some(record), Some(hold)) = (child.host_record(), hold.take()) {
+            let told = replayed && adopted.version >= agent_host::QUEUED_VERSION;
+            Self::hold_unwritten(session, hold, &record, told, &work);
         }
         self.recover_work(session, &child, &incarnation, work).await;
         self.restart_unproven(session, proven);
@@ -605,7 +620,13 @@ impl Hub {
                 }
                 return true;
             }
-            let Some(mut e) = head.record() else { return true };
+            let Some(mut e) = head.record() else {
+                // A receipt note that can not be read proves nothing: fail closed.
+                work.receipts_unread |= current
+                    && head.dir == "out"
+                    && matches!(head.kind, agent_host::QUEUED_METHOD | agent_host::WRITTEN_METHOD);
+                return true;
+            };
             let subagents_own = e.dir == "in"
                 && e.msg.get("method").and_then(Value::as_str) == Some(method::SESSION_UPDATE)
                 && e.msg.get_mut("params").is_some_and(|p| subagents.annotate(p).is_some());
@@ -668,6 +689,7 @@ impl Hub {
                     work.withdrawn_asks.clear();
                     work.cancelled_permissions.clear();
                     work.unwritten.clear();
+                    work.receipts_unread = false;
                     open_request_ids.clear();
                     work.prompt_request = None;
                     work.prompt_response = None;
@@ -802,12 +824,15 @@ impl Hub {
                         steer.1 = Some(e.msg.clone());
                     }
                 }
-                ("out", agent_host::QUEUED_METHOD) if current => {
-                    work.unwritten.extend(e.msg.pointer("/params/receipt").and_then(Value::as_u64));
-                }
-                ("out", agent_host::WRITTEN_METHOD) if current => {
-                    if let Some(r) = e.msg.pointer("/params/receipt").and_then(Value::as_u64) {
-                        work.unwritten.remove(&r);
+                ("out", agent_host::QUEUED_METHOD | agent_host::WRITTEN_METHOD) if current => {
+                    match e.msg.pointer("/params/receipt").and_then(Value::as_u64) {
+                        Some(r) if e.kind == agent_host::QUEUED_METHOD => {
+                            work.unwritten.insert(r);
+                        }
+                        Some(r) => {
+                            work.unwritten.remove(&r);
+                        }
+                        None => work.receipts_unread = true,
                     }
                 }
                 ("out", "response") if current => {

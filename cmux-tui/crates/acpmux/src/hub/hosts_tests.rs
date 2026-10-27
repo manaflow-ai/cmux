@@ -247,8 +247,25 @@ fn work_fields(w: &OpenWork) -> String {
         w.withdrawn.iter().collect::<std::collections::BTreeSet<_>>(),
         w.cancelled_permissions.iter().collect::<std::collections::BTreeSet<_>>(),
         w.withdrawn_asks.iter().collect::<std::collections::BTreeSet<_>>(),
-        w.unwritten,
+        (&w.unwritten, w.receipts_unread),
     )
+}
+
+/// A receipt note that can not be read (no number) leaves adoption nothing to rule out: it fails
+/// closed (`OpenWork::receipts_unread`), whatever the other notes say.
+#[tokio::test]
+async fn an_unreadable_receipt_note_fails_closed() {
+    let mut log = hosted_log();
+    let method = agent_host::WRITTEN_METHOD;
+    let params = json!({"receipt": "42", "written": true});
+    log.push("out", method, json!({"jsonrpc": "2.0", "method": method, "params": params}), true);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.open_work(&session, "inc");
+    assert!(work.receipts_unread, "an unreadable receipt note was taken as proof");
+    assert!(!hub.open_work(&session, "old").receipts_unread, "another host's note counted");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(root);
 }
 
 /// What `open_work` recovers from the heads is what a parse of every record recovers: for the

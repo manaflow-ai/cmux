@@ -11,7 +11,7 @@ use crate::agent_host;
 
 impl Hub {
     /// [`Self::hold_until_written`] for `fences` already made: one hold for all of them (a
-    /// restart's, `hold_unwritten`), so no push takes the gate between two of them.
+    /// restart's, `hold_unwritten`, or an adoption's, `adopt_one`), so no push takes the gate between two of them.
     pub(super) fn hold_fences(
         session: &Session,
         hold: FamilyHold,
@@ -47,9 +47,10 @@ impl Hub {
     /// that reads nothing, with no fence in this daemon. Each one its log names and does not
     /// prove written (`OpenWork::unwritten`) is held again under the family gate, so an off
     /// push waits for it and then ends its host (`link::adopt_receipt`). `told`: the log names
-    /// them (protocol 3, replay complete); otherwise none can be ruled out (fail closed), and
-    /// one hold settles only with its host (`link::adopt_untold`): an off push then ends that
-    /// host, as it ends a protocol-1 host with a family line in flight (#26176).
+    /// them (protocol 3, replay complete, every note read); otherwise none can be ruled out
+    /// (fail closed), and one hold settles only with its host (`link::adopt_untold`): an off
+    /// push then ends that host, as it ends a protocol-1 host with a family line in flight
+    /// (#26176).
     pub(super) fn hold_unwritten(
         session: &Session,
         hold: FamilyHold,
@@ -57,19 +58,11 @@ impl Hub {
         told: bool,
         work: &OpenWork,
     ) {
-        let fences = if told {
+        let fences = if told && !work.receipts_unread {
             work.unwritten.iter().map(|&r| agent_host::link::adopt_receipt(record, r)).collect()
         } else {
             vec![agent_host::link::adopt_untold(record)]
         };
         Self::hold_fences(session, hold, fences);
-    }
-
-    /// A host this daemon could not adopt keeps what the previous daemon handed it, and no log
-    /// read here proves any of it written: one hold settles only with its host
-    /// (`link::adopt_untold`), so an off push ends it rather than return before it.
-    pub(super) async fn hold_unadopted(&self, session: &Session, record: &agent_host::HostRecord) {
-        let hold = self.family_hold().await;
-        Self::hold_fences(session, hold, vec![agent_host::link::adopt_untold(record)]);
     }
 }
