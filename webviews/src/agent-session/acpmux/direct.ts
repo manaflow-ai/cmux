@@ -968,6 +968,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       const old = previous.get(id);
       if (!old || old === row || old.kind !== row.kind || old.version !== row.version || !plainSame(old, row)) continue;
       super.set(id, old);
+      this.artifactUpdates.forget(id);
       const at = this.orderedIndex.get(id);
       if (this.ordered && at !== undefined) this.ordered[at] = old;
       changed = true;
@@ -975,7 +976,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (changed) this.snapshot = undefined;
   }
 
-  override set(id: string, row: AcpmuxRow): this {
+  override set(id: string, row: AcpmuxRow, changedItem?: number): this {
     const known = this.order.has(id);
     const previous = this.get(id);
     const unchanged = known && previous === row;
@@ -993,7 +994,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     } else if (this.current !== undefined) this.latest = Math.max(this.latest, this.current);
     if (this.ordered && !unchanged) this.keepOrdered(id, row, known);
     const result = super.set(id, row);
-    if (!unchanged) this.artifactUpdates.note(row, this.current ?? this.order.get(id) ?? row.at);
+    if (!unchanged) this.artifactUpdates.note(row, this.current ?? this.order.get(id) ?? row.at, previous, changedItem);
     return result;
   }
 
@@ -1044,6 +1045,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.pullRequestActivityVersion = Symbol();
     this.ordered = undefined;
     this.snapshot = undefined;
+    this.artifactUpdates.forget(id);
     this.order.delete(id);
     this.local.delete(id);
     return super.delete(id);
@@ -1053,6 +1055,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.pullRequestActivityVersion = Symbol();
     this.ordered = undefined;
     this.snapshot = undefined;
+    this.artifactUpdates.clear();
     this.order.clear();
     this.local.clear();
     this.latest = 0;
@@ -4253,14 +4256,18 @@ export class AcpmuxDirectClient {
       );
       if (itemIndex >= 0) items[itemIndex] = item;
       else items.push(item);
-      this.rows.set(id, {
+      this.rows.set(
         id,
-        version: (existing?.version ?? 0) + 1,
-        at: existing?.at ?? event.at,
-        kind: "activity",
-        toolCount: items.filter((entry) => entry.kind === "tool").length,
-        items,
-      });
+        {
+          id,
+          version: (existing?.version ?? 0) + 1,
+          at: existing?.at ?? event.at,
+          kind: "activity",
+          toolCount: items.filter((entry) => entry.kind === "tool").length,
+          items,
+        },
+        itemIndex < 0 ? items.length - 1 : itemIndex,
+      );
       this.toolRows.set(callId, id);
       if (!knownRow) this.streamingActivity = id;
     } else if (event.kind === "background_task_update") {
