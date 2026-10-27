@@ -401,7 +401,7 @@ extension CloudHandlers {
 /// the host's `ss -H -ltn` table, read over the machine's own link.
 struct MachineListeningTCPRequest: DaemonRequest {
     struct Response: Decodable, Sendable { var stdout: String }
-    static let command = "machine-listening-tcp"
+    static let commandName: DaemonCommandName = "machine-listening-tcp"
 
     /// Distinct listening ports, ascending, from `ss`/`netstat` lines.
     static func ports(in table: String) -> [Int] {

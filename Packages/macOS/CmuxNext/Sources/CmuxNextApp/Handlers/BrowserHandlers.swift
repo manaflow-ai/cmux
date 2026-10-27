@@ -82,11 +82,11 @@ enum BrowserHandlers {
                 }
             }
         })
-        registry.bind("palette.browserOpenDefault", run: { invocation in
+        registry.bindEffect("palette.browserOpenDefault", requires: nil, effect: { invocation in
             guard let url = try context.page(invocation).tab.state.url, url.scheme != "about" else {
                 throw ActionFailure(message: MiscHandlerStrings.noPageURL)
             }
-            try context.open(url)
+            return context.open(url)
         })
         // WebKit follows its view's appearance, Chromium a media emulation;
         // a page that is not loaded yet gets it when it is (the toolbar's bind).
@@ -110,7 +110,7 @@ enum BrowserHandlers {
         registry.bind("browserScreenshotSection", run: { invocation in
             let tab = try context.page(invocation).tab
             guard tab.contentView.window != nil else { throw ActionFailure(message: MiscHandlerStrings.noBrowser) }
-            let overlay = BrowserSectionOverlay(over: tab.contentView)
+            let overlay = BrowserSectionOverlay(over: tab.contentView, pointerFrames: context.services.dragFrameInput)
             Task {
                 guard let selection = await overlay.select() else { return }
                 copyScreenshot(context) { try await selection.capture(from: tab) }

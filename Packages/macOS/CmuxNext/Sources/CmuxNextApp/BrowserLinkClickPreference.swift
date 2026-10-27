@@ -1,6 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 
 extension BrowserLinkClickMapping {
@@ -21,20 +22,26 @@ extension BrowserLinkClickMapping {
     }
 }
 
-/// Both engines follow every loaded snapshot's `browser.links.*`.
+/// Both engines follow every loaded snapshot's `browser.links.*`. Chromium's engine gets the current values when
+/// it is built and each change after that (``ChromiumEngineSlot/whenBuilt(_:)``): following never builds it.
 @MainActor
 enum BrowserLinkClickPreference {
-    static func follow(_ settings: SettingsController, webKit: WebKitEngine, cef: CEFEngine) {
-        cef.builtInAdBlocker = { [weak settings] in settings?.snapshot.browserBuiltInAdBlocker ?? true }  // browser.builtInAdBlocker, read at Chromium start
-        // Chrome enterprise policies follow from here too: AppDelegate, which starts the followers, is at its line budget.
-        BrowserManagedPolicyPreference.follow(settings, webKit: webKit, cef: cef)
-        Task { [weak settings, weak webKit, weak cef] in
-            guard let settings else { return }
-            for await setting in ObservationStream({ settings.snapshot.browserLinkClicks }) {
-                let mapping = BrowserLinkClickMapping(setting)
-                webKit?.linkClicks = mapping
-                cef?.linkClicks = mapping
-            }
+    /// Starts following; the caller keeps the returned followers for as long as the engines follow (the app's life).
+    static func follow(_ settings: SettingsController, webKit: WebKitEngine, chromium: ChromiumEngineSlot,
+                       on mainWork: MainWorkScheduler) -> [AnyObject] {
+        chromium.whenBuilt { [weak settings] cef in
+            cef.builtInAdBlocker = { [weak settings] in settings?.snapshot.browserBuiltInAdBlocker ?? true }  // browser.builtInAdBlocker, read at Chromium start
+            if let settings { cef.linkClicks = BrowserLinkClickMapping(settings.snapshot.browserLinkClicks) }
         }
+        // `background`: the mapping is read at the next click; nothing on screen waits for it.
+        let links = ServiceObservation(.background, owner: "BrowserLinkClickPreference", on: mainWork) {
+            settings.snapshot.browserLinkClicks
+        } apply: { [weak webKit, weak chromium] setting in
+            let mapping = BrowserLinkClickMapping(setting)
+            webKit?.linkClicks = mapping
+            chromium?.built?.linkClicks = mapping
+        }
+        // Chrome enterprise policies follow from here too: AppDelegate, which starts the followers, is at its line budget.
+        return [links as AnyObject] + BrowserManagedPolicyPreference.follow(settings, webKit: webKit, chromium: chromium, on: mainWork)
     }
 }

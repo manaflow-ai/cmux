@@ -9,9 +9,15 @@
 //! functions are the archive's exported symbols, over one Rust runtime.
 //! Add a new in-tree C ABI here, never as another static library.
 //! `motion` is cmux-motion's C ABI (the spring step and motion tokens).
+//! `ffi_guard` is the panic boundary every export runs in and its record
+//! ring (`cmux_ffi_take_panic`, `include/cmux_ffi_guard.h` of that crate).
 
 pub mod motion;
 
+pub use cmux_ffi_guard as ffi_guard;
 pub use cmux_layout_reducer_ffi as layout_reducer;
 pub use cmux_palette_ranker::ffi as palette_ranker;
 pub use cmux_rd_ffi as rd;
+
+#[cfg(test)]
+mod boundary_tests;

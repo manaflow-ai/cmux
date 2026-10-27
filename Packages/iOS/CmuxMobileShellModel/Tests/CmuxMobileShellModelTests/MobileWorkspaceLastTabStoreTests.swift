@@ -13,20 +13,17 @@ import Testing
 /// ``MobileWorkspacePreview/lastTabStateID`` so it survives the aggregate
 /// list flipping between plain and Mac-scoped row ids.
 @Suite struct MobileWorkspaceLastTabStoreTests {
-    private func makeDefaults() -> UserDefaults {
-        let suite = "MobileWorkspaceLastTabStoreTests.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        return defaults
+    private func makeDefaults() -> (defaults: UserDefaults, open: @Sendable () -> UserDefaults) {
+        makeTestDefaultsSuite("MobileWorkspaceLastTabStoreTests")
     }
 
     @Test func roundTripsThroughInjectedDefaults() {
-        let defaults = makeDefaults()
-        var store = MobileWorkspaceLastTabStore(defaults: defaults)
+        let (_, open) = makeDefaults()
+        var store = MobileWorkspaceLastTabStore(defaults: open)
         store.set(MobileWorkspaceLastTab(kind: .terminal, tabID: "t-2"), for: "ws-a")
         store.set(MobileWorkspaceLastTab(kind: .macSurface, tabID: "s-1"), for: "ws-b")
 
-        let reloaded = MobileWorkspaceLastTabStore(defaults: defaults)
+        let reloaded = MobileWorkspaceLastTabStore(defaults: open)
         #expect(reloaded.lastTab(for: "ws-a") == MobileWorkspaceLastTab(kind: .terminal, tabID: "t-2"))
         #expect(reloaded.lastTab(for: "ws-b") == MobileWorkspaceLastTab(kind: .macSurface, tabID: "s-1"))
         #expect(reloaded.lastTab(for: "ws-c") == nil)
@@ -40,8 +37,8 @@ import Testing
     }
 
     @Test func reRecordingTheUnchangedTabDoesNotRewriteDefaults() {
-        let defaults = makeDefaults()
-        var store = MobileWorkspaceLastTabStore(defaults: defaults)
+        let (defaults, open) = makeDefaults()
+        var store = MobileWorkspaceLastTabStore(defaults: open)
         store.set(MobileWorkspaceLastTab(kind: .terminal, tabID: "t-1"), for: "ws-a")
         let persisted = defaults.data(forKey: MobileWorkspaceLastTabStore.defaultsKey)
         #expect(persisted != nil)
@@ -54,13 +51,13 @@ import Testing
     }
 
     @Test func unknownKindEntriesFromNewerBuildsAreIgnoredNotFatal() {
-        let defaults = makeDefaults()
+        let (defaults, open) = makeDefaults()
         let json = """
         {"ws-a":{"kind":"browserStream","tabID":"p1","seq":1},\
         "ws-b":{"kind":"holographicPane","tabID":"x","seq":2}}
         """
         defaults.set(json.data(using: .utf8), forKey: MobileWorkspaceLastTabStore.defaultsKey)
-        let store = MobileWorkspaceLastTabStore(defaults: defaults)
+        let store = MobileWorkspaceLastTabStore(defaults: open)
         #expect(store.lastTab(for: "ws-a") == MobileWorkspaceLastTab(kind: .browserStream, tabID: "p1"))
         #expect(store.lastTab(for: "ws-b") == nil)
     }

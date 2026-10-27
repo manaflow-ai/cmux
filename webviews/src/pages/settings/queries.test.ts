@@ -2,11 +2,11 @@
 // owner refuses it, and the owner's change event re-reads the scope. The store runs on any
 // SettingsTransport, so moving the owner (a Rust config service) changes only the transport.
 import { expect, test } from "bun:test";
-import type { ListRow, SettingsClient } from "./ops";
+import type { ListRow, SettingsClient, SettingsEventMeta } from "./ops";
 import { settingsKeys } from "./queries";
 import { schema } from "./schema";
 import { SettingsStore } from "./store";
-import { TransportError, type ChangeEvent, type SettingsTransport } from "./transport";
+import { pageTransport, TransportError, type ChangeEvent, type SettingsTransport } from "./transport";
 
 const KEY = "history.terminalCommands";
 
@@ -20,8 +20,8 @@ function memoryOwner() {
     hold: false,
     refuse: null as string | null,
     values,
-    emit(keys: string[]) {
-      changed?.({ keys, origin: "cli" });
+    emit(keys: string[], gap?: true) {
+      changed?.(gap ? { keys, origin: "cli", gap } : { keys, origin: "cli" });
     },
     release() {
       for (const resolve of pending.splice(0)) resolve();
@@ -109,4 +109,51 @@ test("the owner's change event invalidates the scope; the cache holds the only c
   const cached = store.queryClient.getQueryData<{ rows: Map<string, ListRow> }>(settingsKeys.scope("user"));
   expect(cached?.rows.get(KEY)?.value).toBe(true);
   store.dispose();
+});
+
+test("a change event after a gap clears every refusal, not only its own keys", async () => {
+  const owner = memoryOwner();
+  const store = new SettingsStore(noHost, { transport: owner.transport });
+  await store.start();
+  owner.refuse = "cmux.settings.invalid";
+  await store.set(KEY, true);
+  expect(store.getSnapshot().errors.get(KEY)?.code).toBe("invalid");
+  owner.refuse = null;
+  // Held while the page was hidden: the event that changed KEY was dropped, the newest names another key.
+  owner.values.set(KEY, true);
+  owner.emit(["some.other.key"], true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(store.getSnapshot().errors.has(KEY)).toBe(false);
+  expect(value(store)).toBe(true);
+  store.dispose();
+});
+
+test("a change event with no gap keeps refusals on keys it does not name", async () => {
+  const owner = memoryOwner();
+  const store = new SettingsStore(noHost, { transport: owner.transport });
+  await store.start();
+  owner.refuse = "cmux.settings.invalid";
+  await store.set(KEY, true);
+  owner.emit(["some.other.key"]);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(store.getSnapshot().errors.get(KEY)?.code).toBe("invalid");
+  store.dispose();
+});
+
+test("the page transport passes the host's gap on to the change listener", async () => {
+  const streams = new Map<string, (data: unknown, seq: number, meta?: SettingsEventMeta) => void>();
+  const client: SettingsClient = {
+    call: () => Promise.reject({ code: "cmux.protocol.unknown_op", message: "none" }),
+    subscribe: async <E>(stream: string, onEvent: (data: E, seq: number, meta?: SettingsEventMeta) => void) => {
+      streams.set(stream, onEvent as (data: unknown, seq: number, meta?: SettingsEventMeta) => void);
+      return () => {};
+    },
+  };
+  const events: ChangeEvent[] = [];
+  await pageTransport(client).subscribe({ changed: (event) => events.push(event), connection: () => {} });
+  const changed = streams.get("cmux.settings.changed");
+  changed?.({ keys: ["a"] }, 1);
+  changed?.({ keys: ["b"] }, 2, { gap: true });
+  expect(events).toEqual([{ keys: ["a"] }, { keys: ["b"], gap: true }]);
 });

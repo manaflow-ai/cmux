@@ -142,7 +142,8 @@ extension HistogramID {
         case remoteStream = "remote_stream"
     }
 
-    /// The launch temperature from the page-in count (Chrome's startup_metric_utils).
+    /// The launch temperature from the page-in count (Chrome's startup_metric_utils), built from the launch's one
+    /// classifier, `LaunchClock.Temperature` (``init(_:)``; an undetermined launch has none).
     public enum LaunchTemperature: String, Sendable, CaseIterable {
         /// Few page-ins: the app's pages were in memory.
         case warm
@@ -273,6 +274,32 @@ extension HistogramID {
         case panic = 2
         /// Killed for memory (jetsam).
         case oom = 3
+    }
+
+    /// The engines of the `stability.renderer` families: whose page process an event is about.
+    public enum RendererEngine: String, Sendable, CaseIterable {
+        /// A WebKit WebContent process.
+        case webkit
+        /// A Chromium renderer.
+        case chromium
+    }
+
+    /// The renderer events of the `stability.renderer` families.
+    public enum RendererEvent: String, Sendable, CaseIterable {
+        /// The content process ended under a page (each page it served counts).
+        case contentEnd = "content_end"
+        /// A page started showing "Page unresponsive".
+        case unresponsive
+    }
+
+    /// The kind of view that showed the page (`stability.renderer.<event>.<engine>` values).
+    public enum RendererSurface: Int64, Sendable, CaseIterable {
+        /// A browser tab.
+        case browserTab = 0
+        /// A cmux page (Home, Settings, the agent chat), in either engine.
+        case page = 1
+        /// The agent pages' WebKit warm-up page.
+        case warmup = 2
     }
 
     /// The Chromium histograms read from `base::StatisticsRecorder` (task 107's allowlist), by Chromium's

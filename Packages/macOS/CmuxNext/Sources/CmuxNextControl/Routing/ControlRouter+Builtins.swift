@@ -11,7 +11,7 @@ extension ControlRouter {
         [
             .snapshot("system.ping") { [identity] _ in
                 ["pong": true, "app": .string(identity.appName), "protocol_version": JSONValue(Self.protocolVersion)]
-            },
+            }.readingLastPublished(),
             .snapshot("system.identify") { [weak self] call in
                 guard let self else { throw Self.stopped }
                 guard case .object(var members) = self.identify() else { return self.identify() }
@@ -96,7 +96,7 @@ extension ControlRouter {
                 try ControlCallerLocation.annotate(&members, params: call.params, topology: call.snapshot.topology)
                 return .object(members)
             },
-        ] + diagnosticMethods()
+        ] + diagnosticMethods() + capabilitiesMethods()
     }
 
     static let stopped = ControlError(code: "unavailable", message: ControlStrings.text("control.error.routerStopped", "the control router stopped"))
@@ -192,10 +192,11 @@ extension ControlRouter {
     }
 }
 
-/// Tab switch timeline marks (cx-asb1): wall-clock ms, so a bench can line
-/// them up with the page's own clock. Debug level: nothing is written unless
-/// a `log stream --level debug` reads category "tab-switch".
+/// Tab switch timeline marks (cx-asb1), `request` and `run`: the one helper
+/// for both Control marks. Debug level: nothing is written unless a
+/// `log stream --level debug` reads category "tab-switch".
 private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
-private func tabSwitchMark(_ name: String) {
+func tabSwitchMark(_ name: String) {
+    // wall-clock: one timeline with the App and Browser tab-switch marks and the page's performance.timeOrigin
     tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }

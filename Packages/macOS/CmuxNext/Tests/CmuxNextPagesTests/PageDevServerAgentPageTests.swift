@@ -8,7 +8,7 @@ import Testing
 /// module at its own path and query.
 struct PageDevServerAgentPageTests {
     /// The agent page as the page host knows it (`PageDescriptor.agent` lives in CmuxNextAgentPane).
-    private let agent = PageDescriptor(id: "cmux.agent", resource: "agent-pane", namespaces: ["cmux.agent."])
+    private let agent = PageDescriptor(id: "cmux.agent", resource: "agent-pane", processGroup: .agent, namespaces: ["cmux.agent."])
     private let server = WebDevOverride.parse(Data(#"{"server": "http://127.0.0.1:4181/"}"#.utf8), home: URL(fileURLWithPath: "/")).server
 
     @Test func theDocumentIsTheServersAgentPanePage() throws {
@@ -40,7 +40,7 @@ struct PageDevServerAgentPageTests {
     /// An app page (not first-party) still never loads from the server.
     @Test func anAppPageIsNeverServed() throws {
         let server = try #require(server)
-        let app = PageDescriptor(id: "com.example.app", resource: "app", namespaces: ["com.example.app."])
+        let app = PageDescriptor(id: "com.example.app", resource: "app", processGroup: .solo, namespaces: ["com.example.app."])
         let url = try #require(URL(string: app.origin + "/"))
         #expect(server.url(for: url, page: app) == nil)
     }

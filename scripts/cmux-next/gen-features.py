@@ -545,7 +545,7 @@ def swift(features):
         params: {params},
         stories: [{stories}],
         sticky: {sticky},
-        runtimeMutable: {runtime_mutable}
+        runtimeMutable: {runtime_mutable}{replaces}
     )
 """.format(
             description=feature["description"], name=feature["name"], index=index, name_literal=_string(feature["name"]),
@@ -554,7 +554,9 @@ def swift(features):
             dev=_bool(defaults["dev"]), nightly=_bool(defaults["nightly"]), release=_bool(defaults["release"]),
             expires=_string(expires) if expires else "nil", params=params,
             stories=", ".join(_string(story) for story in feature["stories"]),
-            sticky=_bool(feature["sticky"]), runtime_mutable=_bool(feature["runtimeMutable"])))
+            sticky=_bool(feature["sticky"]), runtime_mutable=_bool(feature["runtimeMutable"]),
+            replaces=",\n        replaces: [%s]" % ", ".join(_string(key) for key in feature["replaces"])
+            if feature.get("replaces") else ""))
     body = "\n".join(blocks[:len(shipped)]) + ("\n" if shipped else "")
     registered = _swift_registered(features)
     if len(shipped) < len(features):
@@ -575,35 +577,41 @@ def _bool(value):
 
 
 def rust(features):
-    """The daemon's table in the interface cmux-features (task p12-perf-process-095) defines: `TABLE`, one
-    `crate::FeatureDef` per daemon-side feature, and a `feature` module with one handle per entry. Params,
-    owners and stories stay in the app's registry until the crate reads them."""
+    """The daemon-side features in the shape cmux-features/src/lib.rs reads: `TABLE` and one handle per entry
+    (`feature_handles!`, which fails the build on a name `TABLE` lacks). The daemon's `Snapshot` resolves only
+    the defaults, the kind (a client hello applies a kill switch at once) and the process; the other fields
+    stay in the JSON and the Swift registry."""
     daemon = [feature for feature in features if feature["process"] in ("daemon", "both")]
     entries = []
+    handles = []
     for feature in daemon:
         defaults = feature["defaults"]
         entries.append("""    crate::FeatureDef {{
         name: {name},
         defaults: crate::Defaults {{ dev: {dev}, nightly: {nightly}, release: {release} }},
+        kind: crate::Kind::{kind},
         process: crate::Process::{process},
-    }},
-""".format(name=_string(feature["name"]), dev=_bool(defaults["dev"]), nightly=_bool(defaults["nightly"]),
-           release=_bool(defaults["release"]), process=feature["process"].capitalize()))
-    table = "&[]" if not entries else "&[\n%s]" % "".join(entries)
-    handles = "".join("        %s = %s,\n" % (rust_const(feature["name"]), _string(feature["name"]))
-                      for feature in daemon)
-    module = "pub mod feature {\n    feature_handles!(\n        super::TABLE;\n%s    );\n}" % handles
+    }},""".format(
+            name=_string(feature["name"]), dev=_bool(defaults["dev"]), nightly=_bool(defaults["nightly"]),
+            release=_bool(defaults["release"]), kind=feature["kind"][0].upper() + feature["kind"][1:],
+            process=feature["process"].capitalize()))
+        handles.append("        /// {description}\n        {const} = {name},".format(
+            description=feature["description"], const=rust_const(feature["name"]), name=_string(feature["name"])))
     comment = "\n".join("// " + line for line in HEADER.split("\n"))
+    table = "&[\n%s\n]" % "\n".join(entries) if entries else "&[]"
+    handle_list = "\n" + "\n".join(handles) + "\n    " if handles else ""
     return """{comment}
 //
 // The daemon-side features (process "daemon" or "both"); the app's registry has every feature.
 
-/// One handle per daemon feature, for `Snapshot::is_enabled`.
-{module}
-
-/// Every daemon-side feature, in registry order.
+/// Every daemon-side feature in registry order; a handle is its index here.
 pub(crate) const TABLE: &[crate::FeatureDef] = {table};
-""".format(comment=comment, module=module, table=table)
+
+/// One handle per daemon feature, for `Snapshot::is_enabled`.
+pub mod feature {{
+    feature_handles!(super::TABLE;{handles});
+}}
+""".format(comment=comment, table=table, handles=handle_list)
 
 
 def outputs(features):

@@ -8,6 +8,7 @@ import CmuxNextFilesUI
 import CmuxNextHibernation
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
@@ -27,7 +28,8 @@ struct EditorDiscardTests {
     }
 
     static func documents() -> FileQuitDocuments {
-        let drafts = RecoveryDraftStore(directory: FileManager.default.temporaryDirectory.appending(path: "editor-discard-\(UUID().uuidString)"))
+        let drafts = RecoveryDraftStore(directory: FileManager.default.temporaryDirectory.appending(path: "editor-discard-\(UUID().uuidString)"),
+                                        deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         return FileQuitDocuments(drafts: drafts, registry: QuitUnsavedRegistry(drafts: drafts))
     }
 
@@ -38,7 +40,7 @@ struct EditorDiscardTests {
         let providers: [any InternalPageProvider] = [
             FileTreePageService(services: services),
             FilesPaneService(services: services),
-            FindPaneService(services: nil),
+            FindPaneService(services: nil, mainWork: MainWorkScheduler(budget: MainFrameBudget())),
             FilePageService(services: services, kind: .markdown, documents: Self.documents()),
             FilePageService(services: services, kind: .editor, documents: Self.documents()),
             DiffPageService(services: services),
@@ -276,14 +278,20 @@ struct EditorDiscardTests {
     static let other = RipgrepMatch(path: "/tmp/project/Sources/Other.swift", relativePath: "Sources/Other.swift",
                                     line: 3, column: 1, preview: "needle()")
 
+    /// A shown place for the find views: their results render only while their node is visible (VisibleObservation).
+    static let shown = VisibilityNode(root: "test.findTab", own: .visible)
+
     static func findView() -> FindSectionView {
         let model = FindSectionModel { _, _ in .matches([Self.other, Self.match], limited: false) }
-        return FindSectionView(model: model, rootFolder: { URL(fileURLWithPath: "/tmp/project", isDirectory: true) },
-                               effects: FileExplorerTests.Recorder())
+        let view = FindSectionView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget()),
+                                   rootFolder: { URL(fileURLWithPath: "/tmp/project", isDirectory: true) },
+                                   effects: FileExplorerTests.Recorder())
+        try? view.visibilityNode.attach(to: shown)
+        return view
     }
 
     @Test func aDiscardedFindTabSearchesAgainAndSelectsTheResultItHad() async throws {
-        let service = FindPaneService(services: nil)
+        let service = FindPaneService(services: nil, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let before = Self.findView()
         before.field.stringValue = "needle"
         await before.model.search("needle")
@@ -295,18 +303,18 @@ struct EditorDiscardTests {
         #expect(state.scroll == before.resultsScroll)
 
         let after = Self.findView()
-        service.restoreViewState(state, for: "tab", content: after)
+        await service.restoreViewState(state, for: "tab", content: after)
         #expect(after.field.stringValue == "needle")
         for _ in 0..<200 where after.cursor == nil { await Task.yield() }
         #expect(after.cursor == FindSectionView.cursor(of: Self.match))
     }
 
     @Test func aFindTabWithNoQueryRestoresNothing() async {
-        let service = FindPaneService(services: nil)
+        let service = FindPaneService(services: nil, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let view = Self.findView()
         let state = await service.saveViewState(for: "tab", content: view)
         #expect(state.search == "")
-        service.restoreViewState(state, for: "tab", content: view)
+        await service.restoreViewState(state, for: "tab", content: view)
         #expect(view.model.query == "")
     }
 

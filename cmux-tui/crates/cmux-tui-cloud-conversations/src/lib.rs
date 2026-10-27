@@ -10,6 +10,8 @@
 //! WebSocket seam. The cmux-tui binary installs the real backend
 //! (reqwest + tokio-tungstenite); tests install a scripted one.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 mod attachments;
 mod contract;
 mod error;

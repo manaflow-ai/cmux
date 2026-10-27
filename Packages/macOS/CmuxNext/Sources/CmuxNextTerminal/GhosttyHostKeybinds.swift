@@ -105,9 +105,12 @@ public nonisolated struct GhosttyHostKeybind: Sendable, Equatable {
     }
 
     /// Reads the table from a finalized config.
+    /// `config` is a live handle the caller owns for the call.
     static func read(from config: ghostty_config_t) -> [GhosttyHostKeybind] {
         routable.compactMap { name, action in
-            let trigger = name.withCString { ghostty_config_trigger(config, $0, UInt(name.utf8.count)) }
+            // SAFETY: the caller's live config; Swift passes a NUL-terminated copy of `name`
+            // for the call, its length without the NUL. The trigger is a plain value.
+            let trigger = unsafe ghostty_config_trigger(config, name, UInt(name.utf8.count))
             let modifiers = GhosttyInput.flags(trigger.mods)
             switch trigger.tag {
             case GHOSTTY_TRIGGER_UNICODE:
@@ -127,7 +130,8 @@ extension GhosttyRuntime {
     /// The routable Ghostty keybinds of the current config.
     public var hostKeybinds: [GhosttyHostKeybind] {
         if let cached = hostKeybindCache.binds { return cached }
-        let binds = config.map(GhosttyHostKeybind.read(from:)) ?? []
+        // SAFETY: the runtime's live applied config (GhosttyRuntime.config).
+        let binds = unsafe config.map { unsafe GhosttyHostKeybind.read(from: $0) } ?? []
         hostKeybindCache.binds = binds
         return binds
     }
@@ -139,16 +143,22 @@ extension GhosttyRuntime {
     /// Ghostty keybinds beat cmux defaults in a terminal). Read once.
     public var defaultHostKeybinds: [GhosttyHostKeybind] {
         if let cached = hostKeybindCache.defaults { return cached }
-        guard config != nil, let defaults = ghostty_config_new() else { return [] }
-        defer { ghostty_config_free(defaults) }
-        Self.loadKeybindDefaults(into: defaults)
-        ghostty_config_finalize(defaults)
-        let binds = GhosttyHostKeybind.read(from: defaults)
+        // SAFETY: a new config this getter owns and frees once (defer), after its last use.
+        guard config != nil, let defaults = unsafe ghostty_config_new() else { return [] }
+        // SAFETY: as above.
+        defer { unsafe ghostty_config_free(defaults) }
+        // SAFETY: as above.
+        unsafe Self.loadKeybindDefaults(into: defaults)
+        // SAFETY: as above.
+        unsafe ghostty_config_finalize(defaults)
+        // SAFETY: as above.
+        let binds = unsafe GhosttyHostKeybind.read(from: defaults)
         hostKeybindCache.defaults = binds
         return binds
     }
 }
 
+// memory: fixed two lists of at most one chord per `GhosttyHostKeybind.routable` action (43) per runtime.
 /// Memo of `GhosttyRuntime.hostKeybinds` (cleared on every config change)
 /// and of `defaultHostKeybinds` (kept: the defaults never change).
 final class HostKeybindCache {

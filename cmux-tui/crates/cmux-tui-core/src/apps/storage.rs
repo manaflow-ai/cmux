@@ -1,10 +1,18 @@
 //! Per-app local KV storage (`app.storage.*`): SQLite, one table per app.
 //! The supervisor owns it (plan section 7); uninstall drops the table in the
 //! same commit that clears the install record.
+//!
+//! Every entry point is the connection's checked scope (Chrome's
+//! `ScopedBlockingCall`): it notes `sqlite` at its caller, so a thread that
+//! disallows blocking records (or, in `CMUX_DAEMON_BLOCKING=panic`, panics
+//! at) the code that asked for the storage. The supervisor's lock in front
+//! of the connection is timed and named (`Supervisor::storage`).
 
 use std::path::Path;
 
 use rusqlite::{Connection, OptionalExtension, params};
+
+use crate::request_path::{BlockingKind, note};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -39,7 +47,9 @@ fn table(app: &str) -> String {
 
 impl Storage {
     /// Opens (or creates) the database; `None` opens an in-memory one.
+    #[track_caller]
     pub fn open(path: Option<&Path>) -> Result<Self, StorageError> {
+        note(BlockingKind::Sqlite);
         let db = match path {
             Some(path) => Connection::open(path),
             None => Connection::open_in_memory(),
@@ -47,6 +57,19 @@ impl Storage {
         .map_err(failed)?;
         db.pragma_update(None, "journal_mode", "WAL").ok();
         Ok(Self { db })
+    }
+
+    /// Frees the database's unused page cache (`mux/sqlite_trim.rs`).
+    #[track_caller]
+    pub fn release_memory(&self) -> Result<(), StorageError> {
+        note(BlockingKind::Sqlite);
+        self.db.release_memory().map_err(failed)
+    }
+
+    /// The bytes the database's page cache holds now.
+    #[cfg(test)]
+    pub(crate) fn cache_used_bytes(&self) -> Option<u64> {
+        cmux_history::page_cache::cache_used_bytes(&self.db)
     }
 
     fn ensure(&self, app: &str) -> Result<String, StorageError> {
@@ -58,7 +81,9 @@ impl Storage {
     }
 
     /// Runs one `app.storage.*` op and returns its value.
+    #[track_caller]
     pub fn call(&self, app: &str, op: &str, params: &Value) -> Result<Value, StorageError> {
+        note(BlockingKind::Sqlite);
         let key = || -> Result<&str, StorageError> {
             let key = params
                 .get("key")
@@ -134,7 +159,9 @@ impl Storage {
     }
 
     /// Deletes everything the app stored.
+    #[track_caller]
     pub fn clear(&self, app: &str) -> Result<(), StorageError> {
+        note(BlockingKind::Sqlite);
         self.db.execute_batch(&format!("DROP TABLE IF EXISTS {}", table(app))).map_err(failed)
     }
 }
@@ -161,6 +188,62 @@ mod tests {
         assert_eq!(s.call("cmux/b", "app.storage.get", &json!({ "key": "k" })).unwrap(), json!(2));
         s.call("cmux/b", "app.storage.delete", &json!({ "key": "k" })).unwrap();
         assert_eq!(s.call("cmux/b", "app.storage.keys", &json!({})).unwrap(), json!([]));
+    }
+
+    /// A file database's page cache, filled by 1,000 values of 1 KiB, goes
+    /// near 0 after a release; the values read again.
+    #[test]
+    fn sqlite_trim_storage_release_frees_its_page_cache() {
+        let dir = std::env::temp_dir()
+            .join(format!("cmux-apps-storage-trim-{}", crate::workspace_registry::new_uuid_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = Storage::open(Some(&dir.join("apps-storage.sqlite"))).unwrap();
+        let value = "x".repeat(1024);
+        for key in 0..1000 {
+            s.call("cmux/a", "app.storage.set", &json!({ "key": key.to_string(), "value": value }))
+                .unwrap();
+        }
+        assert_eq!(
+            s.call("cmux/a", "app.storage.keys", &json!({})).unwrap().as_array().unwrap().len(),
+            1000
+        );
+        let filled = s.cache_used_bytes().unwrap();
+        assert!(filled > 500_000, "the writes filled {filled} bytes");
+        s.release_memory().unwrap();
+        let trimmed = s.cache_used_bytes().unwrap();
+        assert!(trimmed < 64 * 1024, "release left {trimmed} of {filled} bytes");
+        assert_eq!(
+            s.call("cmux/a", "app.storage.get", &json!({ "key": "7" })).unwrap(),
+            json!(value)
+        );
+        drop(s);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A storage op on a thread that disallows blocking is recorded at the
+    /// op's caller; the same op on an ordinary thread records nothing.
+    #[test]
+    fn a_disallowed_storage_op_records_one_sqlite_site_at_its_caller() {
+        use cmux_threads::blocking::{
+            BlockingKind as ThreadsKind, BlockingMode, disallow_blocking, set_mode, snapshot,
+        };
+        set_mode(BlockingMode::Record);
+        let s = Storage::open(None).unwrap();
+        let (disallowed, allowed) = std::thread::spawn(move || {
+            let allowed = line!() + 1;
+            s.call("cmux/a", "app.storage.keys", &json!({})).unwrap();
+            disallow_blocking();
+            let disallowed = line!() + 1;
+            s.call("cmux/a", "app.storage.keys", &json!({})).unwrap();
+            (disallowed, allowed)
+        })
+        .join()
+        .unwrap();
+        let snapshot = snapshot();
+        let site = snapshot.site(file!(), disallowed).expect("the op's caller is recorded");
+        assert_eq!(site.count, 1);
+        assert!(site.kinds.contains(ThreadsKind::Sqlite));
+        assert_eq!(snapshot.site(file!(), allowed), None);
     }
 
     #[test]

@@ -174,8 +174,8 @@ final class GroupHeaderRowView: SidebarRowView {
         addButton.setAccessibilityIdentifier("cmux.sidebar.group.\(group.id.rawValue).add")
         setAccessibilityHelp(collapsed ? GroupEditorStrings.expand : GroupEditorStrings.collapse)
         setAccessibilityExpanded(!collapsed)
-        needsLayout = true
-        needsDisplay = true
+        // invalidate: the content changed (`needsConfigure` above).
+        needsLayout = true; needsDisplay = true
     }
 
     /// One disclosure convention with workspace rows (cx-fo2t, Finder and
@@ -223,29 +223,22 @@ final class GroupHeaderRowView: SidebarRowView {
     override var titleFont: NSFont { name.font ?? SidebarStyle.headerFont }
     private var renaming = false
     override func setTitleHidden(_ hidden: Bool) {
+        // Every reuse calls this: only a rename's start or end changes the name (`layout()` keeps it otherwise).
+        guard hidden != renaming else { return }
         renaming = hidden
         name.isHidden = hidden
+        // invalidate: a rename started or ended (the guard above).
         needsLayout = true
     }
 
-    /// The Debug Settings look (`sidebar.groupHeader`, `sidebar.groupColors`, cx-7yywz) and line layout (its joined
-    /// corner, `sidebar.groupLineLayout`); a change lays the header out and paints it again.
+    /// The Debug Settings look (`sidebar.groupHeader`, `sidebar.groupColors`, cx-7yywz); the sidebar's look
+    /// watch lays the header out and paints it again when it or the line layout (its joined corner,
+    /// `sidebar.groupLineLayout`) changes (`sidebarLookChanged`).
     private var look: (style: SidebarGroupHeaderStyle, themed: Bool) {
-        let read = { _ = SidebarStyle.groupLineLayout; return (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
-        guard !observesLook else { return read() }
-        observesLook = true
-        return withObservationTracking(read) { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.observesLook = false
-                self?.needsLayout = true
-                self?.needsDisplay = true
-            }
-        }
+        (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme)
     }
 
-    /// One observation of the look is registered at a time.
-    private var observesLook = false
-
+    /// Layer colors only: `layerContentsRedrawPolicy` (.onSetNeedsDisplay, SidebarRowView) runs it on needsDisplay, never on a resize.
     override func updateLayer() {
         performWithTheme {
             // The solid bar in the group's color (Lawrence 2026-10-11); hover,
@@ -425,13 +418,21 @@ final class GroupHeaderRowView: SidebarRowView {
         dot.cornerRadius = dotSide / 2
         // The members' line starts under this bar: one layer per group
         // under the rows (SidebarListView+GroupLines, cx-qno.17).
-        needsDisplay = true
+        // No repaint: `updateLayer` sets colors from state whose setters ask for it, none from geometry.
     }
 
     override func hoverChanged() {
         super.hoverChanged()
         // The fill still shows at once on entry; the + and more fade both ways (u2397).
         fadesNextHover = true
+        // invalidate: hover changed; the + and more show or hide in `layout()`.
         needsLayout = true
+    }
+}
+
+extension GroupHeaderRowView: SidebarLookFollower {
+    func sidebarLookChanged() {
+        // invalidate: the look watch calls this on a changed look only.
+        needsLayout = true; needsDisplay = true
     }
 }

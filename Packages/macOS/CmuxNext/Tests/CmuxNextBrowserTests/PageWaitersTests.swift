@@ -256,13 +256,13 @@ import Testing
 }
 
 /// A timer the queue arms and parks; the rig fires the queue itself.
-private final class IdleWakeUpTimer: MainWakeUpTimer {
+private nonisolated final class IdleWakeUpTimer: MainWakeUpTimer {
     func arm(at date: UInt64, tolerance: UInt64, now: UInt64) {}
     func park() {}
 }
 
 /// The rig's uptime in ns: the queue reads it from any thread, only the test's main actor moves it.
-private final class TestUptime: Sendable {
+private nonisolated final class TestUptime: Sendable {
     private let value = Atomic<UInt64>(0)
 
     var now: UInt64 { value.load(ordering: .relaxed) }

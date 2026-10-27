@@ -1,39 +1,66 @@
+import CmuxNextCompat
 import CoreVideo
 import Foundation
 import Metal
 import QuartzCore
 
+/// The presenter's `CAMetalLayer`, shared by the main actor, which places and
+/// scales it, and the render actor, which sizes and draws its drawables.
+nonisolated struct SharedMetalLayer: @unchecked Sendable { // crash-allow: main and the render queue touch disjoint layer state: main sets frame, isHidden, contentsGravity, filters and contentsScale, and device and pixel format before the first draw; the render queue only sets drawableSize (in its own CATransaction) and calls nextDrawable. Core Animation locks the layer in each property accessor
+    let layer: CAMetalLayer
+
+    init(_ layer: CAMetalLayer) {
+        self.layer = layer
+    }
+}
+
 /// Draws one NV12 frame into a `CAMetalLayer` drawable with a YUV to RGB
-/// shader (BT.709, 1:1 pixels). Every call runs on `queue`, a serial render
-/// queue off the main thread; `nextDrawable` may wait there for one of the
-/// two drawables, never on the main thread.
-nonisolated final class MetalYUVRenderer: @unchecked Sendable {
-    // @unchecked: every mutable member (texture cache, the layer's drawable
-    // size) is touched only on `queue`; the rest is immutable after init.
-    let queue = DispatchQueue(label: "cmux.remote-view.render", qos: .userInteractive)
-    private let layer: CAMetalLayer
+/// shader (BT.709, 1:1 pixels). The actor runs on its own serial render
+/// queue, off the main thread and off the cooperative pool: `nextDrawable`
+/// may wait there for one of the two drawables. Its texture cache and the
+/// layer's drawable size are touched only there.
+///
+/// The render queue is on threading-model.md's closed user-interactive list: the remote desktop's frames are a
+/// compositor-class motion path, which Chrome runs at `ThreadType::kDisplayCritical`
+/// (base/threading/platform_thread.h; user-interactive in base/threading/platform_thread_apple.mm).
+actor MetalYUVRenderer {
+    // qos-allow: closed list (threading-model.md): the remote view's frames wait on this queue, Chrome's kDisplayCritical
+    private nonisolated let queue = DispatchQueue.checkedSerial(label: "cmux.remote-view.render", qos: .userInteractive)
+    nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+    private let shared: SharedMetalLayer
     private let commandQueue: any MTLCommandQueue
     private let pipeline: any MTLRenderPipelineState
     private let textureCache: CVMetalTextureCache
 
-    init?(layer: CAMetalLayer) {
-        guard let device = layer.device ?? MTLCreateSystemDefaultDevice(),
+    init?(layer shared: SharedMetalLayer) {
+        guard let device = shared.layer.device ?? MTLCreateSystemDefaultDevice(),
               let commandQueue = device.makeCommandQueue(),
               let pipeline = Self.makePipeline(device: device) else { return nil }
         var cache: CVMetalTextureCache?
-        guard CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache) == kCVReturnSuccess,
+        // SAFETY: Core Video writes one +1 cache to the local `cache`, live for the call;
+        // the nil attribute dictionaries are not read.
+        guard unsafe CVMetalTextureCacheCreate(kCFAllocatorDefault, nil, device, nil, &cache) == kCVReturnSuccess,
               let cache else { return nil }
-        layer.device = device
-        self.layer = layer
+        shared.layer.device = device
+        self.shared = shared
         self.commandQueue = commandQueue
         self.pipeline = pipeline
         textureCache = cache
     }
 
+    /// Takes the mailbox's newest frame and draws it. Returns the frame when
+    /// it is on its way to the screen, nil when there was none or it could
+    /// not be drawn.
+    func drawNewest(from mailbox: LatestFrameMailbox<RemoteDecodedFrame>) -> RemoteDecodedFrame? {
+        guard let frame = mailbox.take(), render(frame) else { return nil }
+        return frame
+    }
+
     /// Draws `frame` and presents it at the next refresh. Returns false when
     /// the frame could not be drawn (no drawable within the layer's timeout,
     /// or a plane that does not map to a texture).
-    func render(_ frame: RemoteDecodedFrame) -> Bool {
+    private func render(_ frame: RemoteDecodedFrame) -> Bool {
+        let layer = shared.layer
         let buffer = frame.pixelBuffer
         let width = CVPixelBufferGetWidth(buffer)
         let height = CVPixelBufferGetHeight(buffer)
@@ -61,12 +88,13 @@ nonisolated final class MetalYUVRenderer: @unchecked Sendable {
         encoder.setRenderPipelineState(pipeline)
         encoder.setFragmentTexture(lumaTexture, index: 0)
         encoder.setFragmentTexture(chromaTexture, index: 1)
-        encoder.setFragmentBytes(&fullRange, length: MemoryLayout<Float>.size, index: 0)
+        // SAFETY: Metal copies length (one Float) bytes from the local `fullRange` during the call.
+        unsafe encoder.setFragmentBytes(&fullRange, length: MemoryLayout<Float>.size, index: 0)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         encoder.endEncoding()
-        // The cache textures must outlive the GPU's reads.
-        let retained = RetainedTextures(luma: luma, chroma: chroma)
-        commands.addCompletedHandler { _ in retained.release() }
+        // The cache textures must outlive the GPU's reads: the completed handler holds them.
+        let retained = [RemoteFrameBuffer(luma), RemoteFrameBuffer(chroma)]
+        commands.addCompletedHandler { _ in withExtendedLifetime(retained) {} }
         commands.present(drawable)
         commands.commit()
         return true
@@ -74,14 +102,15 @@ nonisolated final class MetalYUVRenderer: @unchecked Sendable {
 
     private func texture(_ buffer: CVPixelBuffer, plane: Int, format: MTLPixelFormat) -> CVMetalTexture? {
         var texture: CVMetalTexture?
-        let status = CVMetalTextureCacheCreateTextureFromImage(
+        // SAFETY: Core Video writes one +1 texture to the local `texture`, live for the call.
+        let status = unsafe CVMetalTextureCacheCreateTextureFromImage(
             kCFAllocatorDefault, textureCache, buffer, nil, format,
             CVPixelBufferGetWidthOfPlane(buffer, plane), CVPixelBufferGetHeightOfPlane(buffer, plane),
             plane, &texture)
         return status == kCVReturnSuccess ? texture : nil
     }
 
-    static func makePipeline(device: any MTLDevice) -> (any MTLRenderPipelineState)? {
+    nonisolated static func makePipeline(device: any MTLDevice) -> (any MTLRenderPipelineState)? {
         guard let library = try? device.makeLibrary(source: shaderSource, options: nil),
               let vertex = library.makeFunction(name: "rv_vertex"),
               let fragment = library.makeFunction(name: "rv_fragment") else { return nil }
@@ -94,7 +123,7 @@ nonisolated final class MetalYUVRenderer: @unchecked Sendable {
 
     /// A full-screen triangle; luma sampled nearest (1:1 pixels keep text
     /// exact), chroma linear (it is half resolution).
-    static let shaderSource = """
+    nonisolated static let shaderSource = """
     #include <metal_stdlib>
     using namespace metal;
     struct VOut { float4 position [[position]]; float2 uv; };
@@ -125,18 +154,4 @@ nonisolated final class MetalYUVRenderer: @unchecked Sendable {
         return float4(saturate(rgb), 1.0);
     }
     """
-}
-
-/// Keeps the cache textures alive until the command buffer completes.
-private nonisolated final class RetainedTextures: @unchecked Sendable {
-    // @unchecked: written once at init, cleared once by the completion handler.
-    private var textures: [CVMetalTexture]
-
-    init(luma: CVMetalTexture, chroma: CVMetalTexture) {
-        textures = [luma, chroma]
-    }
-
-    func release() {
-        textures.removeAll()
-    }
 }

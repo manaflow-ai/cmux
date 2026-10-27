@@ -114,7 +114,7 @@ import Testing
         // The visible batch paid 1 ms of its own, the automation request 2 ms.
         #expect(budget.stats.maxTaskNanos[0] == 1_000_000)
         #expect(budget.stats.maxTaskNanos[1] == 2_000_000)
-        #expect(budget.stats.overBudgetTasks == [0, 1, 0])
+        #expect(budget.stats.overBudgetTasks == [0, 1, 0, 0])
     }
 
     /// Idle-time scheduling (Chrome's idle tasks): with no input pending, a class past its own
@@ -645,7 +645,7 @@ private final class Box<Value: Sendable>: Sendable {
 /// A frame source with the app's budget: frames fire by hand and run as one automation batch
 /// (as the app's control `FrameBatcher` does); `scheduleSoon` hops through the main run loop,
 /// or (`soonOnRunLoop: false`) waits for the next hand-fired frame too.
-private final class BudgetedFrameSource: ControlFrameSource {
+final class BudgetedFrameSource: ControlFrameSource {
     private let frames = ManualFrameSource()
     nonisolated(unsafe) private let budgetRef: MainFrameBudget // crash-allow: read only on the main actor (mainFrameBudget, fire)
     let mainTaskBoard: MainTaskBoard?

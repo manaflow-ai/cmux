@@ -34,9 +34,20 @@ cmux-config = { path = "../crates/cmux-config" }
 cmux-holder = { path = "../crates/cmux-holder" }
 cmux-pane-protocol = { path = "../crates/cmux-pane-protocol" }
 cmux-remote-protocol = { path = "../crates/cmux-remote-protocol" }
-cmux-tui-core = { path = "../crates/cmux-tui-core" }
+# Task 020 reaches the host codec, journal, output store and page listener
+# decoders through `cmux_tui_core::fuzz_entry`, behind its `fuzz` feature.
+cmux-tui-core = { path = "../crates/cmux-tui-core", features = ["fuzz"] }
 ghostty-vt = { path = "../crates/ghostty-vt" }
 bytes = "1"
+# Batch 5 (task 021): cmux-tui input schedulers and keys, cmux-config, cmux-server-core.
+cmux-tui = { path = "../crates/cmux-tui", features = ["fuzzing"] }
+cmux-server-core = { path = "../crates/cmux-server-core" }
+# Batch 4 (task 020): host codec, journal, output store, page listener.
+anyhow = "1"
+arbitrary = { version = "1", features = ["derive"] }
+base64 = "0.22"
+flate2 = "1"
+sha2 = "0.10"
 
 # The same Crossterm patch as the main workspace, so any crate here that
 # reaches Crossterm builds the code cmux ships.
@@ -252,11 +263,154 @@ test = false
 doc = false
 bench = false
 
+# Batch 5 (task 021): terminal input, config, pairing.
+[[bin]]
+name = "tui_pty_input"
+path = "fuzz_targets/tui_pty_input.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tui_browser_input"
+path = "fuzz_targets/tui_browser_input.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tui_keys"
+path = "fuzz_targets/tui_keys.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config_keybindings"
+path = "fuzz_targets/config_keybindings.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config_schema"
+path = "fuzz_targets/config_schema.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config_store"
+path = "fuzz_targets/config_store.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "server_core_pairing"
+path = "fuzz_targets/server_core_pairing.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "server_core_enrollment"
+path = "fuzz_targets/server_core_enrollment.rs"
+test = false
+doc = false
+bench = false
+
 # Tests scripts/cmux-next/rust-fuzz.sh --self-test, not cmux code; --all and
 # --list leave out every selftest_ target.
 [[bin]]
 name = "selftest_findings"
 path = "fuzz_targets/selftest_findings.rs"
+test = false
+doc = false
+bench = false
+
+# Batch 4 (task 020): host codec, journal, output store, page listener. The journal
+# targets build their rows with `arbitrary`.
+[[bin]]
+name = "host_snapshot"
+path = "fuzz_targets/host_snapshot.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "host_resize"
+path = "fuzz_targets/host_resize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "host_launch"
+path = "fuzz_targets/host_launch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "host_default_colors"
+path = "fuzz_targets/host_default_colors.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "host_resync_kitty_limits"
+path = "fuzz_targets/host_resync_kitty_limits.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "host_identity_hex"
+path = "fuzz_targets/host_identity_hex.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "host_colors_wire"
+path = "fuzz_targets/host_colors_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "journal_record"
+path = "fuzz_targets/journal_record.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "journal_segment"
+path = "fuzz_targets/journal_segment.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "output_snapshot"
+path = "fuzz_targets/output_snapshot.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "output_segment_frames"
+path = "fuzz_targets/output_segment_frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "page_request_head"
+path = "fuzz_targets/page_request_head.rs"
 test = false
 doc = false
 bench = false

@@ -180,6 +180,10 @@ fn start(command: &mut Command, how: Start) -> io::Result<Child> {
             check(libc::posix_spawnattr_setpgroup(&mut setup.attr, pgid))?;
         }
         check(libc::posix_spawnattr_setflags(&mut setup.attr, flags))?;
+        // `Command::qos_ceiling` (`Command::spawn` checked the class).
+        if let Some(qos) = command.qos_ceiling {
+            check(libc::posix_spawnattr_set_qos_class_np(&mut setup.attr, qos.qos_class()))?;
+        }
         // The directory first: a later dup2 may reuse the number of the
         // descriptor `cwd_fd` holds.
         if let Some(dir) = &cwd {

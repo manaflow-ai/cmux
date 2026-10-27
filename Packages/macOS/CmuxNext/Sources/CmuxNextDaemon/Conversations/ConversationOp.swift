@@ -72,8 +72,7 @@ public enum ConversationOp: Encodable, Sendable, Hashable {
     }
 }
 
-/// A coding key spelled exactly as given (the request encoder converts
-/// camelCase keys to snake_case, which leaves these unchanged).
+/// A coding key spelled exactly as given.
 struct DynamicKey: CodingKey {
     var stringValue: String
     var intValue: Int? { nil }

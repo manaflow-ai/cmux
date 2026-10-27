@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CmuxSafeConcurrency
 public import SwiftUI
 public import UIKit
 
@@ -27,7 +28,10 @@ public final class MobileKeyboardFrameTracker {
     /// before the first keyboard notification observed by this instance.
     public private(set) var lastEndFrame: CGRect?
 
-    private nonisolated(unsafe) var tokens: [NSObjectProtocol] = []
+    /// The observer tokens, removed in the nonisolated `deinit`. Written in
+    /// `init`; a `Mutex` makes them reachable from `deinit` on any thread.
+    // carve-out: never contended (init writes, deinit reads), it only makes the tokens Sendable.
+    private nonisolated let tokens = Mutex<[any NSObjectProtocol]>([])
     private nonisolated let notificationCenter: NotificationCenter
 
     /// Creates a tracker subscribed to the keyboard frame notifications.
@@ -36,26 +40,37 @@ public final class MobileKeyboardFrameTracker {
         // will + did both update the record: `will` keeps an attach that lands
         // mid-transition current, `did` corrects a transition UIKit retargeted
         // after the `will` payload was posted.
-        tokens = [
+        observe([
             UIResponder.keyboardWillChangeFrameNotification,
             UIResponder.keyboardDidChangeFrameNotification,
-        ].map { name in
-            notificationCenter.addObserver(
-                forName: name,
-                object: nil,
-                queue: .main
-            ) { [weak self] notification in
-                let endFrame =
-                    notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
-                guard let endFrame else { return }
-                MainActor.assumeIsolated { self?.lastEndFrame = endFrame } // main-proof: observer on queue: .main
+        ]) { [weak self] notification in
+            let endFrame =
+                notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
+            guard let endFrame else { return }
+            MainActor.assumeIsolated { self?.lastEndFrame = endFrame } // main-proof: observer on queue: .main
+        }
+    }
+
+    /// Observes `names` on the main queue. The tokens are made inside the lock,
+    /// so they never belong to the main actor and `deinit` can remove them.
+    private nonisolated func observe(
+        _ names: [Notification.Name],
+        handler: @escaping @Sendable (Notification) -> Void
+    ) {
+        let notificationCenter = notificationCenter
+        tokens.withLock { tokens in
+            tokens += names.map { name in
+                notificationCenter.addObserver(forName: name, object: nil, queue: .main, using: handler)
             }
         }
     }
 
     deinit {
-        for token in tokens {
-            notificationCenter.removeObserver(token)
+        let notificationCenter = notificationCenter
+        tokens.withLock { tokens in
+            for token in tokens {
+                notificationCenter.removeObserver(token)
+            }
         }
     }
 

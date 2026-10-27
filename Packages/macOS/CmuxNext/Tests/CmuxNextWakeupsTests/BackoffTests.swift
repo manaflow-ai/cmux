@@ -59,6 +59,25 @@ private final class RecordingClock: Clock, Sendable {
         #expect(nanJitter.jitter == 0)
     }
 
+    /// A retry table walks its steps, repeats the last, and jitters each step as the geometric
+    /// schedule does; reset starts it over.
+    @Test func aStepTableWalksItsStepsThenRepeatsTheLast() {
+        var backoff = Backoff(steps: [.seconds(5), .seconds(15), .seconds(60)], random: { 0.5 })
+        #expect((0..<5).map { _ in backoff.next() } == [.seconds(5), .seconds(15), .seconds(60), .seconds(60), .seconds(60)])
+        #expect(backoff.initial == .seconds(5))
+        #expect(backoff.maximum == .seconds(60))
+        backoff.reset()
+        #expect(backoff.next() == .seconds(5))
+        var low = Backoff(steps: [.seconds(5)], jitter: 0.2, random: { 0 })
+        var high = Backoff(steps: [.seconds(5)], jitter: 0.2, random: { 0.999_999 })
+        #expect(abs(low.next().inSeconds - 4) < 0.001)
+        #expect(abs(high.next().inSeconds - 6) < 0.001)
+        var empty = Backoff(steps: [], random: { 0 })
+        #expect(empty.next() == .zero)
+        var negative = Backoff(steps: [.seconds(-1)], random: { 0 })
+        #expect(negative.next() == .zero)
+    }
+
     @Test func toleranceIsTenPercentOfTheStepWithAnEightMillisecondFloor() {
         #expect(Backoff.tolerance(for: .milliseconds(50)) == .milliseconds(8))
         #expect(Backoff.tolerance(for: .milliseconds(80)) == .milliseconds(8))

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import QuartzCore
 import Testing
 
@@ -43,7 +44,7 @@ struct CloseRenderMotionTests {
             model.rowsEnabledOverride = true
             let renderSwitch = Switch(renderServer)
             self.renderServer = renderSwitch
-            root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { renderSwitch.isOn })
+            root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { renderSwitch.isOn }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = reduceMotion
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)

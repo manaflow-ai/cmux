@@ -62,7 +62,7 @@ overrides and safe mode, is section 3.9 of `plans/cmux-next/chrome-parity/p12-pe
 | `stories` | yes (may be `[]`) | Lab stories that bench both arms. A perfPath feature needs at least one. Once `scripts/perf-lab/stories.d/` exists, each must have a file there. |
 | `sticky` | yes | A remote off stays off in safe mode, even when the remote document is dropped. |
 | `runtimeMutable` | yes | The feature can change while the process runs. `true` needs `teardownTest`, a test that exists. Swift: `Target.Suite/testName`, a method of the type or extension `Suite` in `Packages/macOS/**/Tests/<Target>/`, named `test*` (XCTest) or marked `@Test`. Rust: `crate::module::test`, a `#[test]` or `#[tokio::test]` fn directly in that module of the crate (inline `mod` blocks, `module.rs` or `module/mod.rs`; `crate::file::test` for `tests/file.rs`). |
-| `replaces` | no | Tunable keys and env switches this feature took over. Each key belongs to one feature. |
+| `replaces` | no | Tunable keys and env switches this feature took over. Each key belongs to one feature. On DEV and NIGHTLY the App reads each replaced Bool tunable from the build's `debug-tunables.json` at launch and gives it to the feature as its local override (step 3; `Feature.replaces`). |
 
 ## Generated interface
 
@@ -75,7 +75,7 @@ p12-perf-process-091) and `cmux-features` (task 095).
   `FeatureParamSpec(name:description:value:)` with `value` one of `.int(default:min:max:)`,
   `.double(default:min:max:)`, `.duration(default:min:max:)` (seconds) or `.bool(default:)`.
 - Rust: `pub(crate) const TABLE: &[crate::FeatureDef]`, one
-  `FeatureDef { name, defaults: crate::Defaults { dev, nightly, release }, process: crate::Process::{Daemon, Both} }`
+  `FeatureDef { name, defaults: crate::Defaults { dev, nightly, release }, kind: crate::Kind::{PerfPath, KillSwitch, Labs}, process: crate::Process::{Daemon, Both} }`
   per daemon-side feature in registry order, and `pub mod feature` with one
   `feature_handles!(super::TABLE; <SCREAMING_NAME> = "<name>", ...)` handle per entry. The daemon reads a
   feature as `snapshot.is_enabled(cmux_features::feature::<SCREAMING_NAME>)`.

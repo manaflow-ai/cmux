@@ -22,6 +22,16 @@ public protocol PageCoverSource: NSView {
     func pageCovers() -> [CGRect]
 }
 
+/// A view whose content can draw in its own child window above the cmux window (a Chromium page,
+/// `ChildWindowPageFallback`). No layer animation reaches that window: it follows the views' model
+/// frames, so the layout keeps motion that changes what stacks over it on the main thread's frames
+/// (`ScreenContentView.springZoomOnRenderServer`).
+@MainActor
+public protocol ChildWindowContent: NSView {
+    /// True while the content draws in its own child window, not in the window's layer tree.
+    var drawsInChildWindow: Bool { get }
+}
+
 /// That mask's layer: an opaque rect. A pane in front is ordered above it in the layer tree, so the
 /// mask carries no holes for it; a page in a child window leaves those parts out of its own clip
 /// shape (`PageCoverSource`, `ChildWindowPageFallback`).

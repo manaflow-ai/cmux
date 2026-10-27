@@ -4,7 +4,8 @@
   nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
     python3 scripts/cmux-next/bench-terminal-resize.py --app "$NX_APP" --out "$NX_ARTIFACTS"
 
-Launches the tagged app (no activation, automation socket, scratch config), then per layout drags a
+Launches the tagged app through bench_launch.BenchApp (the bench env: no activation, automation socket, a
+scratch config and Ghostty config, a fresh saved session, the tag's daemons ended after), then per layout drags a
 vertical divider left and right, one `debug.mouse` move per display frame:
 
   split-resize  Cmd-D, Cmd-W, Cmd-Shift-D, Cmd-W on a terminal showing less (`debug.terminal_final_grid`):
@@ -25,57 +26,64 @@ missed = an interval over 1.5 refresh periods), main-thread time in Ghostty's di
 (`debug.terminal_display`: before G1 each pass drew on main with the previous size's cells and waited
 for the GPU), and the render counters of every resized terminal (`debug.surfaces`): frames drawn by
 the main thread, fresh frames presented in the commit of their size, late passes (GhosttyNextKit with
-G1; absent before), full rebuilds. After the drag every terminal's drawn, fitted and owner grids must
-agree. Prints one JSON summary per layout and writes OUT/terminal-resize.json. Exit 0 always (a bench,
-not a gate); the summary says what to compare.
+G1; absent before), presents refused because the renderer already showed a newer frame
+(`host_superseded_presents`, p03-rendering-084, with `terminalPreCommitPresent` on), full rebuilds. After the drag every terminal's drawn, fitted and owner grids must
+agree. Prints one JSON summary per layout and writes OUT/terminal-resize.json. Exit 0 (a bench, not a
+gate; the summary says what to compare) unless a --story run could not write its cmux-perf-result/v1
+series (resize_bench_report.py): `--story terminal-resize` takes the light layouts (idle-cursor, light,
+split-resize), `--story terminal-resize-stress` the STRESS ones (stress, split-resize-stress).
 """
-import argparse, glob, importlib.util, json, os, plistlib, signal, socket, subprocess, sys, tempfile, time
+import argparse, importlib.util, json, os, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, HERE)
-from tag_teardown import TagTeardown  # noqa: E402
+sys.path.insert(0, HERE)  # its siblings, also under `python3 -I`
+from bench_launch import BenchApp  # noqa: E402
+import resize_bench_report as results  # noqa: E402
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--app", default=os.environ.get("NX_APP"))
-parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or "/tmp/bench-terminal-resize")
-parser.add_argument("--layouts", default="idle-cursor,light,stress")
-parser.add_argument("--steps", type=int, default=60, help="moves each way")
-parser.add_argument("--step-pt", type=float, default=4.0)
-parser.add_argument("--scrollback", type=int, default=20000, help="history lines printed in each light terminal")
-parser.add_argument("--rounds", type=int, default=2)
-parser.add_argument("--idle-s", type=float, default=5.0)
-parser.add_argument("--tag", help="the app's tag (split-spring.sh passes it)")
-parser.add_argument("--json", help="also write the report here (split-spring.sh's artifact)")
-opts = parser.parse_args()
-os.makedirs(opts.out, exist_ok=True)
-APP = (opts.app or "").rstrip("/")
-if not APP or not os.path.isdir(APP):
-    sys.exit("pass --app (or run under nx-remote --app-from-fleet)")
-with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
-    info = plistlib.load(f)
-BINARY = os.path.join(APP, "Contents/MacOS", info["CFBundleExecutable"])
-TAG = opts.tag or os.environ.get("NX_APP_TAG") or os.path.basename(APP).removesuffix(".app").split(" ")[-1]
-SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{TAG}.sock"
-CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
+WINDOW = (80, 80, 1600, 1000)
+
+
+def parse(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--app", default=os.environ.get("NX_APP"))
+    parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or "/tmp/bench-terminal-resize")
+    parser.add_argument("--layouts", default="idle-cursor,light,stress")
+    parser.add_argument("--steps", type=int, default=60, help="moves each way")
+    parser.add_argument("--step-pt", type=float, default=4.0)
+    parser.add_argument("--scrollback", type=int, default=20000, help="history lines printed in each light terminal")
+    parser.add_argument("--rounds", type=int, default=2)
+    parser.add_argument("--idle-s", type=float, default=5.0)
+    parser.add_argument("--tag", help="the app's tag (split-spring.sh passes it; the bundle carries it)")
+    parser.add_argument("--json", help="also write the report here (split-spring.sh's artifact)")
+    parser.add_argument("--story", help=f"write result-v1 under this story ({results.TERMINAL_STORY} or "
+                                        f"{results.TERMINAL_STRESS_STORY}); the layouts must be of its session")
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
+    parsed = parser.parse_args(argv)
+    parsed.app = (parsed.app or "").rstrip("/")
+    if not parsed.app or not os.path.isdir(parsed.app):
+        parser.error("pass --app (or run under nx-remote --app-from-fleet)")
+    parsed.layout_names = [n for n in parsed.layouts.split(",") if n]
+    try:
+        session = results.terminal_session(parsed.layout_names) if parsed.story else None
+    except ValueError as error:
+        parser.error(str(error))
+    problem = parsed.story and results.story_problem(parsed.story, "none", session)
+    if problem:
+        parser.error(problem)
+    parsed.session = session
+    return parsed
+
+
+# Set by main(): the options and the launched app (BenchApp). RAW: each drag layout's rounds' raw frames
+# ({intervals_ms, main_ms}), for result-v1; the report keeps the app's summary statistics.
+opts = bench = None
+RAW = {}
+STRESS = {}  # the launch's STRESS build summary under "summary" (stress_summary)
 
 
 def rpc(method, params=None, timeout=60):
-    try:
-        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        conn.settimeout(timeout)
-        conn.connect(SOCKET)
-        conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
-        buf = b""
-        while not buf.endswith(b"\n"):
-            chunk = conn.recv(1 << 22)
-            if not chunk:
-                break
-            buf += chunk
-        conn.close()
-        reply = json.loads(buf)
-        return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
-    except (OSError, ValueError) as error:
-        return {"error": str(error)}
+    return bench.rpc(method, params, timeout)
 
 
 def wait(predicate, seconds, step=0.25):
@@ -116,7 +124,7 @@ def surfaces():
 
 def write(text):
     env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
-    subprocess.run([CLI, "--app-socket", SOCKET, "--json", "terminal", "current", "write", "--text", text],
+    subprocess.run([bench.cli, "--app-socket", bench.socket, "--json", "terminal", "current", "write", "--text", text],
                    capture_output=True, text=True, timeout=60, env=env, stdin=subprocess.DEVNULL)
 
 
@@ -125,7 +133,7 @@ def counter_delta(before, after):
     a pane that appears, closes or moves between the two reads must not pair with another's counters).
     `unpaired` counts the terminals present in only one of the two reads."""
     keys = ("frames", "frame_updates", "full_resize", "full_swap", "host_display_passes", "host_present_calls", "host_main_draws", "host_fresh_presents",
-            "host_late_presents")
+            "host_late_presents", "host_superseded_presents")
     total = {k: 0 for k in keys}
     by_id = {b["id"]: b for b in before}
     paired = [(by_id[a["id"]], a) for a in after if a["id"] in by_id]
@@ -175,13 +183,14 @@ def measure(name):
     time.sleep(1.0)  # bench script: idle frames give the refresh period
     idle = rpc("debug.frames", {"action": "stop"}) or {}
     refresh_ms = idle.get("refresh_ms") or 16.67
-    rounds = []
+    rounds, raw = [], RAW.setdefault(name, [])
     for _ in range(opts.rounds):
         before = surfaces()
         rpc("debug.terminal_display", {"action": "start"})
         rpc("debug.frames", {"action": "start"})
         drag(x0, y0, refresh_ms / 1000)
-        frames = rpc("debug.frames", {"action": "stop"}) or {}
+        frames, round_raw = results.split_raw_frames(rpc("debug.frames", {"action": "stop", "raw": True}))
+        raw.append(round_raw)
         display = rpc("debug.terminal_display", {"action": "stop"}) or {}
         time.sleep(1.0)  # bench script: the drag's last grid lands at the owner
         after = surfaces()
@@ -206,7 +215,6 @@ def measure(name):
 
 
 def light():
-    before_ws = (rpc("debug.focus") or {}).get("workspace")
     rpc("action.run", {"action": "newTab", "focus": True})
     wait(lambda: surfaces(), 30)
     write(f"clear; seq 1 {opts.scrollback}; seq -s. 900\r")
@@ -253,13 +261,25 @@ def idle_cursor():
     return result
 
 
-def stress():
+def load_stress():
     path = os.path.join(HERE, "perf-stress-session.py")
     spec = importlib.util.spec_from_file_location("perf_stress_session", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    summary = module.Stress(rpc).build()
-    time.sleep(3.0)  # bench script: the session's pages and busy terminals start
+    return module
+
+
+def stress_summary():
+    """The STRESS session's build summary, built once per launch: the stress and split-resize-stress layouts share
+    it (a second build finds the first one's 60 workspaces and raises StressShapeError)."""
+    if "summary" not in STRESS:
+        STRESS["summary"] = load_stress().Stress(rpc).build()
+        time.sleep(3.0)  # bench script: the session's pages and busy terminals start
+    return STRESS["summary"]
+
+
+def stress():
+    summary = stress_summary()
     result = measure("stress")
     result["session"] = {k: summary.get(k) for k in ("workspaces", "measured_panes", "measured_tabs", "busy_terminals", "build_s")} \
         if isinstance(summary, dict) else None
@@ -313,12 +333,7 @@ def split_resize(stress_session=False):
     name = "split-resize-stress" if stress_session else "split-resize"
     summary = None
     if stress_session:
-        path = os.path.join(HERE, "perf-stress-session.py")
-        spec = importlib.util.spec_from_file_location("perf_stress_session", path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        summary = module.Stress(rpc).build()
-        time.sleep(3.0)  # bench script: the session's pages and busy terminals start
+        summary = stress_summary()
     else:
         rpc("action.run", {"action": "newTab", "focus": True})
         wait(lambda: surfaces(), 30)
@@ -329,17 +344,13 @@ def split_resize(stress_session=False):
         for action in ("splitRight", "closeTab", "splitDown", "closeTab"):
             rounds.append(final_grid_round(action))
             time.sleep(0.5)  # bench script: the next press starts at rest
-    def stats(field):
-        values = sorted(t[field] for r in rounds for t in r["terminals"] if t[field] is not None)
-        if not values:
-            return None
-        pick = lambda q: values[min(len(values) - 1, int(q * (len(values) - 1) + 0.5))]
-        return {"n": len(values), "p50": pick(0.5), "p95": pick(0.95), "max": values[-1]}
+    def times(field):
+        return results.spread(t[field] for r in rounds for t in r["terminals"])
     result = {"layout": name, "summary": {
-        "key_to_first_grid_sent_ms": stats("first_send_ms"),
-        "key_to_final_grid_sent_ms": stats("final_send_ms"),
-        "key_to_owner_final_grid_ms": stats("owner_final_ms"),
-        "key_to_first_frame_at_final_grid_ms": stats("drawn_final_ms"),
+        "key_to_first_grid_sent_ms": times("first_send_ms"),
+        "key_to_final_grid_sent_ms": times("final_send_ms"),
+        "key_to_owner_final_grid_ms": times("owner_final_ms"),
+        "key_to_first_frame_at_final_grid_ms": times("drawn_final_ms"),
         "note": "grid sent: exact (the send itself, TIOCSWINSZ follows in the daemon). owner grid and first "
                 "frame: sampled once per display frame, so <= 1 frame late.",
     }, "rounds": rounds}
@@ -348,42 +359,38 @@ def split_resize(stress_session=False):
     return result
 
 
-if os.path.exists(SOCKET):
-    os.unlink(SOCKET)
-scratch = tempfile.mkdtemp(prefix=f"bench-terminal-resize-{TAG}-")
-config = os.path.join(scratch, "cmux.json")
-with open(config, "w") as f:
-    f.write("{}\n")
-ghostty = os.path.join(scratch, "ghostty")
-open(ghostty, "w").close()
-env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-       "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": config,
-       "CMUX_NEXT_GHOSTTY_CONFIG": ghostty, "CMUX_NEXT_TEST_WINDOW_FRAME": "80,80,1600,1000"}
-# The measure entry (split-spring.sh) runs on an exclusive worker: same environment as its own bench.
-teardown = TagTeardown(APP)
-teardown.install()
-log = open(os.path.join(opts.out, "app.log"), "a")
-app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-report = {"pid": app.pid, "app": APP, "layouts": []}
-try:
-    if not wait(lambda: os.path.exists(SOCKET) and (rpc("debug.windows") or {}).get("windows"), 120):
-        log.flush()
-        tail = open(os.path.join(opts.out, "app.log"), errors="replace").read()[-3000:]
-        sys.exit(f"app did not come up: socket {SOCKET} exists={os.path.exists(SOCKET)}; app log tail:\n{tail}")
-    for name in [n for n in opts.layouts.split(",") if n]:
-        result = {"idle-cursor": idle_cursor, "light": light, "stress": stress, "split-resize": split_resize,
-                  "split-resize-stress": lambda: split_resize(stress_session=True)}[name]()
-        report["layouts"].append(result)
-        print(f"TERMINAL-RESIZE {json.dumps(result)}", flush=True)
-finally:
-    if app.poll() is None:
-        app.send_signal(signal.SIGTERM)
-        try:
-            app.wait(20)
-        except subprocess.TimeoutExpired:
-            app.kill()
-            app.wait()
-    teardown.end()
-    for path in [os.path.join(opts.out, "terminal-resize.json")] + ([opts.json] if opts.json else []):
-        with open(path, "w") as f:
-            json.dump(report, f, indent=1)
+# --layouts name -> its measure on the launched app.
+LAYOUTS = {"idle-cursor": idle_cursor, "light": light, "stress": stress, "split-resize": split_resize,
+           "split-resize-stress": lambda: split_resize(stress_session=True)}
+
+
+def main(argv=None):
+    global opts, bench
+    opts = parse(argv)
+    os.makedirs(opts.out, exist_ok=True)
+    # The measure entry (split-spring.sh) runs on an exclusive worker: same environment as its own bench.
+    bench = BenchApp(opts.app, out=opts.out, config={}, window=WINDOW, log_name="app.log",
+                     perf_session=opts.session or "light", build_config=opts.build_config)
+    report = {"pid": None, "app": opts.app, "layouts": []}
+    try:
+        bench.launch(timeout=120)  # ready once debug.windows lists a window
+        report["pid"] = bench.process.pid
+        for name in opts.layout_names:
+            result = LAYOUTS[name]()
+            report["layouts"].append(result)
+            print(f"TERMINAL-RESIZE {json.dumps(result)}", flush=True)
+    finally:
+        bench.stop()
+        for path in [os.path.join(opts.out, "terminal-resize.json")] + ([opts.json] if opts.json else []):
+            with open(path, "w") as f:
+                json.dump(report, f, indent=1)
+    if not opts.story:
+        return 0
+    problems = results.record(bench, results.terminal_resize_series(opts.story, opts.session, report["layouts"], RAW))
+    for problem in problems:
+        print(f"RESULT-V1 FAIL {problem}", flush=True)
+    return 1 if problems else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

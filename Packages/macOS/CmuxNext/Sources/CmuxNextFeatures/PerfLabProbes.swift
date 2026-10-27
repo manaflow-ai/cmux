@@ -1,8 +1,10 @@
 /// The key-down router as `AppServices` installs it. Where the build declares ``Feature/perfLabCanary`` (DEBUG and
 /// bench builds) and the feature is on, the perf lab canary's known regression runs first: a 2 ms spin
 /// (``PerfLabKeySpin``) before the router (scripts/perf-lab/canary.py, p12-perf-process.md 3.7). It is composed where
-/// the router is made, so it cannot miss the router or be dropped by a later reassignment. A shipped build gets the
-/// router unchanged.
+/// the router is made, so it cannot miss the router or be dropped by a later reassignment, and every caller of the
+/// route gets it (`CmuxApplication.keyDownInterceptor`, and `debug.key` into a window that is not key, which never
+/// passes the app's dispatch). The spin runs once per key-down event: a key routed twice (`debug.key` routes it, then
+/// sends it through the app) is held 2 ms, not 4. A shipped build gets the router unchanged.
 public struct PerfLabCanaryKeyDown {
     /// The launch's feature values, read on each key-down, so wrapping the router never builds them early.
     public let features: () -> FeatureList?
@@ -11,16 +13,26 @@ public struct PerfLabCanaryKeyDown {
         self.features = features
     }
 
-    public func wrap<A, B>(_ route: @escaping (A, B) -> Bool) -> (A, B) -> Bool {
+    public func wrap<A: AnyObject, B>(_ route: @escaping (A, B) -> Bool) -> (A, B) -> Bool {
         #if DEBUG || CMUX_BENCH_HOOKS
         let features = features
-        return PerfLabKeySpin(clock: ContinuousClock()).delaying(route, when: {
-            features()?.isEnabled(.perfLabCanary) == true
+        let held = LastHeld<A>()
+        return PerfLabKeySpin(clock: ContinuousClock()).delaying(route, whenEvent: { event in
+            guard features()?.isEnabled(.perfLabCanary) == true, held.event !== event else { return false }
+            held.event = event
+            return true
         })
         #else
         return route
         #endif
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The key-down event the canary last held. Weak, so a new event at a freed event's address is a new key-down.
+    private final class LastHeld<A: AnyObject> {
+        weak var event: A?
+    }
+    #endif
 }
 
 #if DEBUG || CMUX_BENCH_HOOKS
@@ -54,8 +66,14 @@ public struct PerfLabKeySpin<C: Clock>: Sendable where C.Duration == Duration {
     /// `dispatch` with ``spin()`` before each call for which `isOn` is true (``PerfLabCanaryKeyDown`` reads
     /// ``Feature/perfLabCanary``).
     public func delaying<A, B, R>(_ dispatch: @escaping (A, B) -> R, when isOn: @escaping () -> Bool) -> (A, B) -> R {
+        delaying(dispatch, whenEvent: { _ in isOn() })
+    }
+
+    /// `dispatch` with ``spin()`` before each call whose first argument `isOn` accepts (``PerfLabCanaryKeyDown``:
+    /// the canary is on and this key-down was not held yet).
+    public func delaying<A, B, R>(_ dispatch: @escaping (A, B) -> R, whenEvent isOn: @escaping (A) -> Bool) -> (A, B) -> R {
         { first, second in
-            if isOn() { spin() }
+            if isOn(first) { spin() }
             return dispatch(first, second)
         }
     }

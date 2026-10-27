@@ -3,6 +3,7 @@ import UIKit
 #else
 import AppKit
 #endif
+import os
 
 /// Text geometry of a part row for selection, copy, links and accessibility
 /// (agreed with the selection agent, 2026-10-06). Points are body-local: the
@@ -87,8 +88,8 @@ extension MarkdownLayout: RowTextGeometry {
             let dx = offsetX(f.region)
             let a = inter.length > 0 ? inter.location - f.range.location : f.range.length
             let b = inter.length > 0 ? NSMaxRange(inter) - f.range.location : f.range.length
-            let x0 = inter.length > 0 || empty ? CTLineGetOffsetForStringIndex(f.line, a, nil) : f.width
-            let x1 = CTLineGetOffsetForStringIndex(f.line, b, nil) + (tail ? 4 : 0)
+            let x0 = inter.length > 0 || empty ? f.line.offset(forStringIndex: a) : f.width
+            let x1 = f.line.offset(forStringIndex: b) + (tail ? 4 : 0)
             var rect = CGRect(x: f.origin.x - dx + x0, y: f.origin.y, width: max(2, x1 - x0), height: f.height)
             if f.region >= 0, let reg = regions[checked: f.region] { rect = rect.intersection(reg.frame) } // checked
             if !rect.isNull, rect.width > 0 { out.append(rect) }
@@ -146,7 +147,7 @@ extension MarkdownLayout: RowTextGeometry {
             let idx = CTLineGetStringIndexForPosition(f.line, CGPoint(x: x, y: 0))
             guard idx != kCFNotFound else { continue }
             // The index is a caret position: the glyph under x is the one before it when x is past its middle.
-            let x0 = CTLineGetOffsetForStringIndex(f.line, idx, nil)
+            let x0 = f.line.offset(forStringIndex: idx)
             let glyph = x < x0 ? max(0, idx - 1) : idx
             if let hit = f.links.first(where: { NSLocationInRange(glyph, $0.0) }) { return hit.1 }
         }
@@ -166,18 +167,18 @@ extension MarkdownLayout: RowTextGeometry {
 }
 
 /// Horizontal scroll offsets of markdown regions (code blocks, wide tables), keyed by
-/// layout identity (source and width) and region index. Main thread.
+/// layout identity (source and width) and region index. The main thread scrolls them; row
+/// bitmaps and long-text tiles read them on the render queues: the lock owns them.
 enum MarkdownScroll {
-    private static var offsets: [Int: [Int: CGFloat]] = [:]
-    private static let lock = NSLock()
+    private static let offsets = OSAllocatedUnfairLock<[Int: [Int: CGFloat]]>(initialState: [:])
     static func offset(identity: Int, region: Int) -> CGFloat {
-        lock.lock(); defer { lock.unlock() }
-        return offsets[identity]?[region] ?? 0
+        offsets.withLock { $0[identity]?[region] ?? 0 }
     }
     static func set(identity: Int, region: Int, _ x: CGFloat) {
-        lock.lock(); defer { lock.unlock() }
-        offsets[identity, default: [:]][region] = x
-        if offsets.count > 4096 { offsets.removeAll() }
+        offsets.withLock { offsets in
+            offsets[identity, default: [:]][region] = x
+            if offsets.count > 4096 { offsets.removeAll() }
+        }
     }
-    static func all(_ identity: Int) -> [Int: CGFloat] { lock.lock(); defer { lock.unlock() }; return offsets[identity] ?? [:] }
+    static func all(_ identity: Int) -> [Int: CGFloat] { offsets.withLock { $0[identity] ?? [:] } }
 }

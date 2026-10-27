@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785. */
+/* cmux-tui mux protocol 12, IR 5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785" as const;
+export const SDK_IR_SHA256 = "5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -38,6 +38,50 @@ export const PROFILES = {
   }
 } as const;
 export const COMMAND_METADATA = {
+  "access-request": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "access-request-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local Unix connections that are not remote clients (else access_request.not_trusted), on a cmux Cloud host only (else access_request.unavailable). A command-bearing, unknown or non-string param is access_request.bad_request.",
+      "64 requests are kept, pending or answered (access_request.limit); each is forgotten 15 minutes after it was made or answered."
+    ]
+  },
+  "access-request-answer": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "access-request-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local Unix connections that are not remote clients (else access_request.not_trusted), on a cmux Cloud host only (else access_request.unavailable). A command-bearing, unknown or non-string param is access_request.bad_request.",
+      "A pending request only: access_request.unknown_request or access_request.answered."
+    ]
+  },
+  "access-request-list": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "access-request-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local Unix connections that are not remote clients (else access_request.not_trusted), on a cmux Cloud host only (else access_request.unavailable). A command-bearing, unknown or non-string param is access_request.bad_request.",
+      "The pending requests, oldest first."
+    ]
+  },
+  "access-request-status": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "access-request-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local Unix connections that are not remote clients (else access_request.not_trusted), on a cmux Cloud host only (else access_request.unavailable). A command-bearing, unknown or non-string param is access_request.bad_request.",
+      "access_request.unknown_request; the first read of a delivered secret takes its value."
+    ]
+  },
   "ack-tab-notifications": {
     "authority": "control",
     "since": 12,
@@ -145,6 +189,60 @@ export const COMMAND_METADATA = {
       "expected_machine_id must name this daemon's machine (else agent_cli_job.owner_mismatch) and expected_session_id its session (else agent_cli_job.session_mismatch).",
       "cli is 1-128 ASCII letters, digits, '_', '.' or '-'; idempotency_key is the original intent key and is reused after a lost reply.",
       "Reads the creation journal of the original idempotency_key without preparing, reconciling or starting anything; no state authorizes execution."
+    ]
+  },
+  "agent-inventory": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-inventory-v1",
+    "fields": {
+      "expected_machine_id": {
+        "since": null,
+        "capability": "agent-inventory-owner-v1"
+      }
+    },
+    "stream": null,
+    "constraints": [
+      "Trusted native Unix control connections only: WebSocket clients and the conversations-only relay get agent_inventory.not_trusted before params are read.",
+      "Reads this daemon's own acpmux cache (harnessInventory); never starts acpmux, scans PATH or refreshes registries.",
+      "Reads, refreshes and watch handshakes share eight concurrent owner workers per daemon; one more gets agent_inventory.busy.",
+      "Errors are agent_inventory.not_trusted, bad_request, owner_mismatch, unavailable, unsupported, busy or invalid_response."
+    ]
+  },
+  "agent-inventory-refresh": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-inventory-refresh-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted native Unix control connections only: WebSocket clients and the conversations-only relay get agent_inventory.not_trusted before params are read.",
+      "Asks the owner's fixed registries about the cached installations (harnessInventoryRefresh); the reply waits at most 25 seconds and an overlapping refresh gets agent_inventory.busy.",
+      "Reads, refreshes and watch handshakes share eight concurrent owner workers per daemon; one more gets agent_inventory.busy.",
+      "Errors are agent_inventory.not_trusted, bad_request, owner_mismatch, unavailable, unsupported, busy or invalid_response."
+    ]
+  },
+  "agent-inventory-watch": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-inventory-watch-v1",
+    "fields": {
+      "admission_receipt": {
+        "since": null,
+        "capability": "agent-inventory-watch-admission-v1"
+      },
+      "expected_watch_id": {
+        "since": null,
+        "capability": "agent-inventory-watch-fence-v1"
+      }
+    },
+    "stream": null,
+    "constraints": [
+      "Trusted native Unix control connections only: WebSocket clients and the conversations-only relay get agent_inventory.not_trusted before params are read.",
+      "One lease per control connection and at most eight per daemon; the lease ends with the connection.",
+      "While the lease is active, agent-inventory-changed and agent-inventory-watch-ended go only to this connection; enabled:false replies an empty object.",
+      "Reads, refreshes and watch handshakes share eight concurrent owner workers per daemon; one more gets agent_inventory.busy.",
+      "Errors are agent_inventory.not_trusted, bad_request, owner_mismatch, unavailable, unsupported, busy or invalid_response. The request line is at most 4096 bytes."
     ]
   },
   "agent-session-attach": {
@@ -302,6 +400,145 @@ export const COMMAND_METADATA = {
       "Without level it answers acpmux's acp.trust.get {cwd} reply ({cwd, level, harnesses?, decided?}); with level, acpmux's acp.trust.set reply. A client sends level only for the person's own answer.",
       "trusted for / or a folder above the home folder is agent_session.above_home; the home folder takes trusted only with home_confirmed, else agent_session.home_unconfirmed.",
       "The tab must be an agent_session tab whose host names this store (agent_session.unknown_tab); at most 8 calls run at once (agent_session.limit)."
+    ]
+  },
+  "agent-transfer-abort": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-transfer-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+      "surface must be an agent tab of this store with a session (else agent_transfer.unknown_tab).",
+      "The daemon forgets the move even when acpmux refuses the abort."
+    ]
+  },
+  "agent-transfer-begin": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-transfer-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+      "surface must be an agent tab of this store with a session (else agent_transfer.unknown_tab).",
+      "A chat already in a move is agent_transfer.refused with error_details.transfer_id."
+    ]
+  },
+  "agent-transfer-commit": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-transfer-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+      "surface must be an agent tab of this store with a session (else agent_transfer.unknown_tab).",
+      "The chat closes here once the target has it."
+    ]
+  },
+  "agent-transfer-finish": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-transfer-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+      "Reads this machine's kind at each call: agent_session.team_vm_blocked on a team VM, agent_session.host_unverified on a Cloud VM of unknown kind.",
+      "Imports the chat in the receive's own folder and records it as landed here before the reply."
+    ]
+  },
+  "agent-transfer-read": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-transfer-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+      "agent_transfer.unknown_transfer for a move not begun through this daemon."
+    ]
+  },
+  "agent-transfer-receive": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-transfer-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+      "Reads this machine's kind at each call: agent_session.team_vm_blocked on a team VM, agent_session.host_unverified on a Cloud VM of unknown kind.",
+      "The daemon builds the receive guard from its own host; an acpmux that does not apply it is agent_transfer.unguarded.",
+      "Records the receive's move before the reply, so a later receive-abort can ask about it after a restart."
+    ]
+  },
+  "agent-transfer-receive-abort": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-transfer-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+      "Sends acpmux's forget with the ids of the receive's own manifest; a receive the daemon recorded stays askable after a restart."
+    ]
+  },
+  "agent-transfer-source": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-transfer-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+      "surface must be an agent tab of this store with a session (else agent_transfer.unknown_tab).",
+      "Reads the tab's store record without reaching acpmux."
+    ]
+  },
+  "agent-transfer-write": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-transfer-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
+      "agent_transfer.unknown_receive for a receive this daemon does not hold."
+    ]
+  },
+  "agent-update-apply": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-update-v1",
+    "fields": {
+      "expected_machine_id": {
+        "since": null,
+        "capability": "agent-update-owner-v1"
+      }
+    },
+    "stream": null,
+    "constraints": [
+      "Trusted local Unix connections only, as agent-session-attach; others get agent_update.not_trusted. An unknown param is agent_update.bad_request.",
+      "One apply at a time per daemon (agent_update.busy); each update may take 15 minutes, the call at most two hours.",
+      "Starts acpmux when nothing listens on its socket (agent_update.acpmux_unavailable when it cannot)."
+    ]
+  },
+  "agent-update-plan": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-update-v1",
+    "fields": {
+      "expected_machine_id": {
+        "since": null,
+        "capability": "agent-update-owner-v1"
+      }
+    },
+    "stream": null,
+    "constraints": [
+      "Trusted local Unix connections only, as agent-session-attach; others get agent_update.not_trusted. An unknown param is agent_update.bad_request.",
+      "Never starts acpmux: with nothing on its socket the answer has no harness and no thread."
     ]
   },
   "apply-layout": {
@@ -511,6 +748,10 @@ export const COMMAND_METADATA = {
         "since": null,
         "capability": "terminal-snapshot-v1"
       },
+      "stream": {
+        "since": 12,
+        "capability": "attach-streams-v1"
+      },
       "viewer_backlog_bytes": {
         "since": null,
         "capability": "terminal-snapshot-v1"
@@ -529,6 +770,7 @@ export const COMMAND_METADATA = {
         "render-state",
         "resized",
         "scroll-changed",
+        "stream-end",
         "vt-state"
       ],
       "kind": "attach",
@@ -540,7 +782,8 @@ export const COMMAND_METADATA = {
           "notification",
           "scroll-changed",
           "overflow",
-          "detached"
+          "detached",
+          "stream-end"
         ],
         "bytes": [
           "vt-state",
@@ -550,14 +793,16 @@ export const COMMAND_METADATA = {
           "scroll-changed",
           "notification",
           "overflow",
-          "detached"
+          "detached",
+          "stream-end"
         ],
         "render": [
           "render-state",
           "render-delta",
           "scroll-changed",
           "overflow",
-          "detached"
+          "detached",
+          "stream-end"
         ]
       },
       "ordering": "Initial state precedes the command response. Later surface events preserve order. A resized replay replaces the previous byte mirror; overflow ends that surface stream.",
@@ -704,6 +949,41 @@ export const COMMAND_METADATA = {
       "Browser surfaces only; queue acknowledgement is not page-load success."
     ]
   },
+  "browser-runtime-start": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "browser-runtime-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Starts cmux-remote-browser-host from the install directory; the reply comes when it listens (browser-runtime.start-failed after 45 s or when it exits).",
+      "4 runtimes per connection and 16 per daemon (browser-runtime.limit); browser-runtime.not-installed without an installed host.",
+      "The runtime belongs to the connection: closing it stops its runtimes.",
+      "Local (Unix) connections that declared browser-runtime-v1 with set-client-info only (browser-runtime.not-enabled otherwise); the remote relay refuses it."
+    ]
+  },
+  "browser-runtime-status": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "browser-runtime-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The installed browser host version, the daemon platform and this connection's runtimes.",
+      "Local (Unix) connections that declared browser-runtime-v1 with set-client-info only (browser-runtime.not-enabled otherwise); the remote relay refuses it."
+    ]
+  },
+  "browser-runtime-stop": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "browser-runtime-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "browser-runtime.unknown for a runtime this connection does not own.",
+      "Local (Unix) connections that declared browser-runtime-v1 with set-client-info only (browser-runtime.not-enabled otherwise); the remote relay refuses it."
+    ]
+  },
   "browser-wheel": {
     "authority": "frontend",
     "since": 6,
@@ -737,6 +1017,17 @@ export const COMMAND_METADATA = {
       "Cancels the caller's own running apps-run request or script cell; unknown, answered or another connection's requests change nothing.",
       "Advertised with apps-v1.",
       "Local (Unix) connections only (apps.local otherwise)."
+    ]
+  },
+  "cancel-stream": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": "attach-streams-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Ends the attach stream with stream-end{reason:\"canceled\"}, dropping what it still queues, and removes its view before the reply.",
+      "Idempotent: an id with no open stream answers outcome:ended."
     ]
   },
   "chief-inspect": {
@@ -780,6 +1071,18 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "client-hello": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "origin-claim-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Fixes the connection's role. Only the first line, or the second right after exactly one identify (client_hello.window_closed otherwise); every error closes the hello window.",
+      "Step 2 is the very next line after a step 1 reply with a nonce.",
+      "Local (Unix) connections only (client_hello.local_only)."
+    ]
   },
   "close-pane": {
     "authority": "control",
@@ -1562,6 +1865,16 @@ export const COMMAND_METADATA = {
       "See spec/commands.md for the result object."
     ]
   },
+  "debug-daemon-locks": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner-only diagnostics (trusted local connection); never journaled and safe to poll."
+    ]
+  },
   "delete-bookmark": {
     "authority": "control",
     "since": 12,
@@ -1647,6 +1960,10 @@ export const COMMAND_METADATA = {
     "since": 10,
     "capability": "view-attachment-detach-v1",
     "fields": {
+      "stream": {
+        "since": 12,
+        "capability": "attach-streams-v1"
+      },
       "view": {
         "since": 12,
         "capability": "shared-sizing-v1"
@@ -1767,6 +2084,93 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "fs.delete": {
+    "authority": "control",
+    "since": 12,
+    "capability": "fs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Served on the trusted local socket and on the link's remote entry (its gate admits exactly the seven fs ops); WebSocket clients get fs.permission_denied, and a daemon that is not a cmux Cloud host answers fs.unavailable.",
+      "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
+      "Removes folders with everything in them and never follows a symlink; fs.not_found."
+    ]
+  },
+  "fs.list": {
+    "authority": "control",
+    "since": 12,
+    "capability": "fs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Served on the trusted local socket and on the link's remote entry (its gate admits exactly the seven fs ops); WebSocket clients get fs.permission_denied, and a daemon that is not a cmux Cloud host answers fs.unavailable.",
+      "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
+      "fs.not_a_directory, fs.too_large and cursor.expired."
+    ]
+  },
+  "fs.mkdir": {
+    "authority": "control",
+    "since": 12,
+    "capability": "fs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Served on the trusted local socket and on the link's remote entry (its gate admits exactly the seven fs ops); WebSocket clients get fs.permission_denied, and a daemon that is not a cmux Cloud host answers fs.unavailable.",
+      "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
+      "fs.exists when the name is taken."
+    ]
+  },
+  "fs.read": {
+    "authority": "control",
+    "since": 12,
+    "capability": "fs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Served on the trusted local socket and on the link's remote entry (its gate admits exactly the seven fs ops); WebSocket clients get fs.permission_denied, and a daemon that is not a cmux Cloud host answers fs.unavailable.",
+      "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
+      "stream:true is params.invalid on the line path: a byte stream needs a link dial of its own (commands.md, File system).",
+      "fs.not_a_file for anything but a regular file."
+    ]
+  },
+  "fs.rename": {
+    "authority": "control",
+    "since": 12,
+    "capability": "fs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Served on the trusted local socket and on the link's remote entry (its gate admits exactly the seven fs ops); WebSocket clients get fs.permission_denied, and a daemon that is not a cmux Cloud host answers fs.unavailable.",
+      "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
+      "Renames inside the same folder and never replaces: fs.exists or fs.not_found."
+    ]
+  },
+  "fs.stat": {
+    "authority": "control",
+    "since": 12,
+    "capability": "fs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Served on the trusted local socket and on the link's remote entry (its gate admits exactly the seven fs ops); WebSocket clients get fs.permission_denied, and a daemon that is not a cmux Cloud host answers fs.unavailable.",
+      "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
+      "fs.not_found when nothing is at path."
+    ]
+  },
+  "fs.write": {
+    "authority": "control",
+    "since": 12,
+    "capability": "fs-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Served on the trusted local socket and on the link's remote entry (its gate admits exactly the seven fs ops); WebSocket clients get fs.permission_denied, and a daemon that is not a cmux Cloud host answers fs.unavailable.",
+      "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
+      "stream:true is params.invalid on the line path: a byte stream needs a link dial of its own (commands.md, File system).",
+      "At most 12 MiB per call; written to a temporary file, fsynced and renamed over the target.",
+      "fs.exists, fs.revision_mismatch (error_details.current), fs.too_large, fs.no_space and fs.read_only."
     ]
   },
   "get-blob": {
@@ -2025,6 +2429,87 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "loopback-close": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Aborts the stream (loopback-closed with error closed-by-client).",
+      "Usually sent without id (no reply). An unknown stream changes nothing.",
+      "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it."
+    ]
+  },
+  "loopback-credit": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Usually sent without id (no reply). An unknown stream changes nothing.",
+      "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it."
+    ]
+  },
+  "loopback-data": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Usually sent without id (no reply). The daemon returns credit with loopback-credit events; more than the daemon window in flight ends the stream (window-exceeded).",
+      "An unknown stream answers loopback.unknown-stream, or a loopback-closed event without id.",
+      "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it."
+    ]
+  },
+  "loopback-open": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Connects to a service on the daemon machine's loopback interface; data, EOF and close of the stream follow as loopback-* events.",
+      "128 streams per connection and 512 per daemon (loopback.limit); 3 s connect timeout.",
+      "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it. Otherwise loopback.not-enabled."
+    ]
+  },
+  "loopback-shutdown": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Half close: after the queued bytes the daemon shuts down the target socket's write side.",
+      "Usually sent without id (no reply). An unknown stream changes nothing.",
+      "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it."
+    ]
+  },
+  "loopback-status": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The policy switch, stream counts, limits and audit ring.",
+      "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it. Otherwise loopback.not-enabled."
+    ]
+  },
+  "machine-catalog-publish": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "machine-catalog-publish-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified app's projection of its admitted remote routes; readers keep machine.list/get. The connection is its lease.",
+      "Only a verified-app local (Unix) connection not bound to an agent (machine_catalog.not_trusted); one publisher at a time (machine_catalog.taken); at most 128 KiB."
+    ]
   },
   "machine-listening-tcp": {
     "authority": "control",
@@ -2745,6 +3230,10 @@ export const COMMAND_METADATA = {
     "since": 10,
     "capability": "view-attachment-lease-v1",
     "fields": {
+      "stream": {
+        "since": 12,
+        "capability": "attach-streams-v1"
+      },
       "view": {
         "since": 12,
         "capability": "shared-sizing-v1"
@@ -2933,6 +3422,10 @@ export const COMMAND_METADATA = {
         "since": 12,
         "capability": "shared-sizing-v1"
       },
+      "stream": {
+        "since": 12,
+        "capability": "attach-streams-v1"
+      },
       "view": {
         "since": 12,
         "capability": "shared-sizing-v1"
@@ -3002,6 +3495,52 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "script-repl-close": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs a local Unix connection that is not a page relay and is bound to no agent; others get script.forbidden, a daemon without a script host script.unavailable, a malformed request bad-request."
+    ]
+  },
+  "script-repl-eval": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs a local Unix connection that is not a page relay and is bound to no agent; others get script.forbidden, a daemon without a script host script.unavailable, a malformed request bad-request.",
+      "Console output arrives before the reply as script-log events on this connection; cancel-request {target} ends a running cell.",
+      "Needs a request id; the session must be this connection's."
+    ]
+  },
+  "script-repl-open": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs a local Unix connection that is not a page relay and is bound to no agent; others get script.forbidden, a daemon without a script host script.unavailable, a malformed request bad-request.",
+      "Console output arrives before the reply as script-log events on this connection; cancel-request {target} ends a running cell.",
+      "Needs a request id; the session ends when this connection closes."
+    ]
+  },
+  "script-run": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Needs a local Unix connection that is not a page relay and is bound to no agent; others get script.forbidden, a daemon without a script host script.unavailable, a malformed request bad-request.",
+      "Console output arrives before the reply as script-log events on this connection; cancel-request {target} ends a running cell.",
+      "Needs a request id."
     ]
   },
   "scroll-surface": {
@@ -3079,6 +3618,16 @@ export const COMMAND_METADATA = {
       "PTY surfaces only."
     ]
   },
+  "server-blocking": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "server-threads-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner-only diagnostics (trusted local connection); never journaled and safe to poll."
+    ]
+  },
   "server-stats": {
     "authority": "local-admin",
     "since": 12,
@@ -3087,7 +3636,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path, request_path_io); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes, ipc_methods, hangs); unknown names are ignored."
+    ]
+  },
+  "server-threads": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "server-threads-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner-only diagnostics (trusted local connection); never journaled and safe to poll."
     ]
   },
   "set-cell-pixels": {
@@ -3479,7 +4038,12 @@ export const COMMAND_METADATA = {
     "authority": "frontend",
     "since": 12,
     "capability": "terminal-snapshot-v1",
-    "fields": {},
+    "fields": {
+      "stream": {
+        "since": 12,
+        "capability": "attach-streams-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "Requires a snapshot attach (attach-surface with snapshot ghostsnp) of the same surface on this connection, else not_attached.",
@@ -4383,6 +4947,38 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "loopback-closed": {
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
+  "loopback-credit": {
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
+  "loopback-data": {
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
+  "loopback-eof": {
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "machine-usage-changed": {
     "since": 12,
     "capability": "machine-usage-v1",
@@ -4532,6 +5128,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "script-log": {
+    "since": 12,
+    "capability": null,
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "scroll-changed": {
     "since": 6,
     "capability": null,
@@ -4540,6 +5144,14 @@ export const EVENT_METADATA = {
       "attach-byte",
       "attach-render",
       "attach-browser"
+    ],
+    "emission": "emitted"
+  },
+  "server-diagnostic-site": {
+    "since": 12,
+    "capability": "diagnostic-sites-v1",
+    "streams": [
+      "subscribe"
     ],
     "emission": "emitted"
   },
@@ -4566,6 +5178,16 @@ export const EVENT_METADATA = {
     "capability": null,
     "streams": [
       "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "stream-end": {
+    "since": 12,
+    "capability": "attach-streams-v1",
+    "streams": [
+      "attach-byte",
+      "attach-render",
+      "attach-browser"
     ],
     "emission": "emitted"
   },
@@ -4760,6 +5382,164 @@ export interface CommandSchema {
   readonly result: TypeSchema;
 }
 export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
+  "AccessRequestKind": {
+    "kind": "enum",
+    "values": [
+      "file",
+      "secret"
+    ]
+  },
+  "AccessRequestPending": {
+    "additional_properties": false,
+    "fields": {
+      "age_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AccessRequestKind"
+        }
+      },
+      "name": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "path": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "reason": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "request_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "session": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AccessRequestStatus": {
+    "kind": "tagged_union",
+    "tag": "state",
+    "variants": {
+      "delivered": {
+        "additional_properties": false,
+        "fields": {
+          "path": {
+            "constraints": [
+              "Where the Mac put a file on this machine."
+            ],
+            "nullable": false,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "state": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "delivered"
+            }
+          },
+          "taken": {
+            "constraints": [
+              "A secret an earlier status read took."
+            ],
+            "nullable": false,
+            "presence": "optional",
+            "type": {
+              "kind": "literal",
+              "value": true
+            }
+          },
+          "value": {
+            "constraints": [
+              "A secret, answered to the first status read only."
+            ],
+            "nullable": false,
+            "presence": "optional",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "denied": {
+        "additional_properties": false,
+        "fields": {
+          "reason": {
+            "nullable": true,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "state": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "denied"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "pending": {
+        "additional_properties": false,
+        "fields": {
+          "state": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "pending"
+            }
+          }
+        },
+        "kind": "object"
+      }
+    }
+  },
   "ActivitySnapshot": {
     "additional_properties": false,
     "constraints": [
@@ -5155,6 +5935,259 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "AgentInventoryAuth": {
+    "kind": "enum",
+    "values": [
+      "signedIn",
+      "signedOut",
+      "unknown"
+    ]
+  },
+  "AgentInventoryChannel": {
+    "kind": "enum",
+    "values": [
+      "npm",
+      "bun",
+      "brew",
+      "brewCask",
+      "native",
+      "launcher",
+      "standalone",
+      "missing"
+    ]
+  },
+  "AgentInventoryFamily": {
+    "kind": "enum",
+    "values": [
+      "claude",
+      "codex",
+      "opencode",
+      "pi",
+      "chief",
+      "gemini",
+      "amp",
+      "copilot",
+      "cursor"
+    ]
+  },
+  "AgentInventoryHarness": {
+    "additional_properties": false,
+    "fields": {
+      "auth": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AgentInventoryAuth"
+        }
+      },
+      "channel": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AgentInventoryChannel"
+        }
+      },
+      "checkedAt": {
+        "description": "When the owner's health check saved this row, in Unix milliseconds.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "family": {
+        "description": "Recognized CLI family from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "AgentInventoryFamily"
+        }
+      },
+      "id": {
+        "description": "Harness profile id: 1-128 bytes of `[A-Za-z0-9._-]`.",
+        "max_bytes": 128,
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "latest": {
+        "description": "Latest registry version from the last successful check, or null.",
+        "max_bytes": 64,
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "latestCheckedAt": {
+        "description": "When `latest` was checked, in Unix milliseconds; null when never checked.",
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "outdated": {
+        "description": "True only when `version` and `latest` are both known and `latest` is newer.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "version": {
+        "description": "Installed semantic version, or null when unknown.",
+        "max_bytes": 64,
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AgentInventoryRefreshResult": {
+    "additional_properties": false,
+    "constraints": [
+      "The agent-inventory cache after the owner's registry refresh; installed versions, auth and checkedAt stay cached."
+    ],
+    "fields": {
+      "cached": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": true
+        }
+      },
+      "harnesses": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "AgentInventoryHarness"
+          },
+          "kind": "array",
+          "max_items": 256
+        }
+      },
+      "machine": {
+        "description": "Canonical public machine id (`machine_…`) of the daemon that answered.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "view": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "inventory"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AgentInventoryResult": {
+    "additional_properties": false,
+    "constraints": [
+      "A partial cache of the owner's last health check: empty rows mean no observations, not that the machine has no agents. No paths, commands, account labels or diagnostics."
+    ],
+    "fields": {
+      "cached": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": true
+        }
+      },
+      "harnesses": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "AgentInventoryHarness"
+          },
+          "kind": "array",
+          "max_items": 256
+        }
+      },
+      "view": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "inventory"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AgentInventoryWatchActive": {
+    "additional_properties": false,
+    "fields": {
+      "machine": {
+        "description": "Canonical public machine id (`machine_…`) of the daemon that answered.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "revision": {
+        "description": "The owner's inventory revision when the lease became active.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "watch_id": {
+        "description": "Opaque lease id: `inventory_watch_` and 32 lowercase hex digits.",
+        "max_bytes": 48,
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AgentInventoryWatchResult": {
+    "kind": "untagged_union",
+    "variants": [
+      {
+        "kind": "ref",
+        "name": "AgentInventoryWatchActive"
+      },
+      {
+        "kind": "ref",
+        "name": "EmptyResult"
+      }
+    ]
+  },
   "AgentPresenceActivity": {
     "kind": "enum",
     "values": [
@@ -5359,6 +6392,82 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "done",
       "unknown"
     ]
+  },
+  "AgentUpdateHarness": {
+    "additional_properties": false,
+    "fields": {
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "latest": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "version": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AgentUpdateOutcome": {
+    "additional_properties": false,
+    "fields": {
+      "error": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "ok": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "version": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
   },
   "AppGrant": {
     "additional_properties": false,
@@ -6384,6 +7493,159 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "BrowserRuntimeRow": {
+    "additional_properties": false,
+    "fields": {
+      "port": {
+        "constraints": [
+          "The host's loopback port on the daemon machine."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "runtime": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "BrowserRuntimeStartResult": {
+    "additional_properties": false,
+    "fields": {
+      "installed": {
+        "constraints": [
+          "The version that was started."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "port": {
+        "constraints": [
+          "Reach it with loopback-open on the same connection."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "runtime": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "secret": {
+        "constraints": [
+          "64 hex characters: the host's cmux.rd/1 hello token. Keep it in memory only."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "BrowserRuntimeStatusResult": {
+    "additional_properties": false,
+    "fields": {
+      "installed": {
+        "constraints": [
+          "The installed version (the directory `current` names), null when none is installed."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "platform": {
+        "constraints": [
+          "<os>-<arch> of the daemon machine, for example macos-aarch64."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "runtimes": {
+        "constraints": [
+          "This connection's runtimes."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "BrowserRuntimeRow"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "BrowserRuntimeStopResult": {
+    "additional_properties": false,
+    "fields": {
+      "stopped": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": true
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "CancelStreamResult": {
+    "additional_properties": false,
+    "fields": {
+      "outcome": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "applied",
+            "ended"
+          ]
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "CellPixelFailure": {
     "additional_properties": false,
     "fields": {
@@ -6469,6 +7731,262 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ClientHelloFeaturePending": {
+    "additional_properties": false,
+    "fields": {
+      "app": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "daemon": {
+        "constraints": [
+          "The value the daemon keeps for its session."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ClientHelloFeatureReport": {
+    "additional_properties": false,
+    "fields": {
+      "applied": {
+        "constraints": [
+          "The process=daemon kill switches the hello turned off now (a verified app only)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "hash": {
+        "constraints": [
+          "The daemon's values hash after the hello."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "pending": {
+        "constraints": [
+          "Every other difference; the daemon keeps its value until it restarts."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ClientHelloFeaturePending"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ClientHelloFeatures": {
+    "additional_properties": false,
+    "fields": {
+      "hash": {
+        "constraints": [
+          "FNV-1a 64 of name=1 or name=0 per value in registry order, 16 hex digits; equal to the daemon's skips the comparison."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "values": {
+        "constraints": [
+          "The app's value of each of its daemon and both features, by registry name; at most 512."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "map",
+          "values": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ClientHelloPageOperations": {
+    "additional_properties": false,
+    "fields": {
+      "confirm": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "gesture": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "read": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ClientHelloResult": {
+    "additional_properties": false,
+    "fields": {
+      "connection_id": {
+        "constraints": [
+          "The daemon's id for this connection (the relay_connection_id of origin.confirmation.issue)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "features": {
+        "constraints": [
+          "A role main hello with features, once the daemon installed its own: what it reconciled (step 2 again, with the proved app's kill switches)."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ClientHelloFeatureReport"
+        }
+      },
+      "install_id": {
+        "constraints": [
+          "Step 2 only: the proved install id."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "nonce": {
+        "constraints": [
+          "Step 1, role main with an install_id: 64 hex digits; the very next line must be step 2."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "page": {
+        "constraints": [
+          "Step 1 of a page relay that named its page."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "page_events": {
+        "constraints": [
+          "Step 1 of a page relay that named its page: the subscribe events it hears (page-events-v1)."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "page_operations": {
+        "constraints": [
+          "Step 1 of a page relay that named its page: its allow list (page-router-v1)."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ClientHelloPageOperations"
+        }
+      },
+      "user_origin_allowed": {
+        "constraints": [
+          "Whether a request with origin user is accepted on this connection now."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "verified": {
+        "constraints": [
+          "Step 2 only."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "literal",
+          "value": true
         }
       }
     },
@@ -8209,6 +9727,424 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "FsEntry": {
+    "additional_properties": false,
+    "fields": {
+      "hidden": {
+        "nullable": false,
+        "omit_nil": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "FsEntryKind"
+        }
+      },
+      "mtime": {
+        "constraints": [
+          "Milliseconds since the epoch; null before 1970."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "revision": {
+        "constraints": [
+          "s<size>-m<mtime ms>; set on the entry a write, mkdir or rename answers."
+        ],
+        "nullable": false,
+        "omit_nil": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "size": {
+        "constraints": [
+          "null for a folder."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "target_kind": {
+        "constraints": [
+          "A symlink's target kind when it resolves inside the roots."
+        ],
+        "nullable": false,
+        "omit_nil": true,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "FsEntryKind"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "FsEntryKind": {
+    "kind": "enum",
+    "values": [
+      "file",
+      "dir",
+      "symlink",
+      "other"
+    ]
+  },
+  "FsEntryResult": {
+    "additional_properties": false,
+    "fields": {
+      "entry": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "FsEntry"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "FsFilter": {
+    "additional_properties": false,
+    "fields": {
+      "hidden": {
+        "constraints": [
+          "Dotfiles are listed only when true."
+        ],
+        "default": false,
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "kinds": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "FsEntryKind"
+          },
+          "kind": "array"
+        }
+      },
+      "query": {
+        "constraints": [
+          "Keeps entries whose name contains it, case-insensitively; empty keeps all."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "FsPage": {
+    "additional_properties": false,
+    "fields": {
+      "cursor": {
+        "constraints": [
+          "null on the last page."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "entries": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "FsEntry"
+          },
+          "kind": "array"
+        }
+      },
+      "listing": {
+        "constraints": [
+          "The snapshot id (lst_...), kept 5 minutes after its last use."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "revision": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "total": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "FsReadResult": {
+    "kind": "tagged_union",
+    "tag": "encoding",
+    "variants": {
+      "base64": {
+        "additional_properties": false,
+        "fields": {
+          "bytes_base64": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "ref",
+              "name": "Base64"
+            }
+          },
+          "encoding": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "base64"
+            }
+          },
+          "size": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            }
+          },
+          "truncated": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "boolean"
+            }
+          }
+        },
+        "kind": "object"
+      },
+      "utf-8": {
+        "additional_properties": false,
+        "fields": {
+          "encoding": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "literal",
+              "value": "utf-8"
+            }
+          },
+          "size": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "uint64"
+            }
+          },
+          "text": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "string"
+            }
+          },
+          "truncated": {
+            "nullable": false,
+            "presence": "required",
+            "type": {
+              "kind": "scalar",
+              "name": "boolean"
+            }
+          }
+        },
+        "kind": "object"
+      }
+    }
+  },
+  "FsSort": {
+    "additional_properties": false,
+    "fields": {
+      "dir": {
+        "default": "asc",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "FsSortDirection"
+        }
+      },
+      "dirs_first": {
+        "default": false,
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "key": {
+        "default": "name",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "FsSortKey"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "FsSortDirection": {
+    "kind": "enum",
+    "values": [
+      "asc",
+      "desc"
+    ]
+  },
+  "FsSortKey": {
+    "kind": "enum",
+    "values": [
+      "name",
+      "modified",
+      "size",
+      "kind"
+    ]
+  },
+  "FsStatResult": {
+    "additional_properties": false,
+    "fields": {
+      "hidden": {
+        "nullable": false,
+        "omit_nil": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "FsEntryKind"
+        }
+      },
+      "mode_display": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "mtime": {
+        "constraints": [
+          "Milliseconds since the epoch; null before 1970."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "owner_display": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "revision": {
+        "constraints": [
+          "s<size>-m<mtime ms>."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "size": {
+        "constraints": [
+          "null for a folder."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "target_kind": {
+        "constraints": [
+          "A symlink's target kind when it resolves inside the roots."
+        ],
+        "nullable": false,
+        "omit_nil": true,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "FsEntryKind"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "GetCellPixelsResult": {
     "additional_properties": false,
     "fields": {
@@ -8731,6 +10667,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "bulk_frame_max": {
+        "constraints": [
+          "The longest stream frame, in bytes, a connection writes whole; longer frames leave in chunks between control replies (CMUX_IPC_BULK_FRAME_MAX). Only with identify {revisions: true}."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
       "capabilities": {
         "default": [],
         "nullable": false,
@@ -8771,6 +10718,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "literal",
           "value": 1
+        }
+      },
+      "framed_methods": {
+        "constraints": [
+          "The method ids this daemon answers on REQUEST frames, in id order; a client sends every other command as a line. Only with identify {revisions: true} on a connection offered ipc-frames-v2."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "uint16"
+          },
+          "kind": "array"
         }
       },
       "generation": {
@@ -8892,6 +10853,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": false,
         "presence": "required",
         "since": 7,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "sdk_schema_digest": {
+        "constraints": [
+          "FNV-1a 64 of the sdk-schema.json bytes this daemon's method tables came from, as 16 lowercase hex digits. A client sends REQUEST frames only when its own table has the same digest. Only with identify {revisions: true} on a connection offered ipc-frames-v2."
+        ],
+        "nullable": true,
+        "presence": "optional",
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -9435,6 +11407,375 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     },
     "kind": "object"
+  },
+  "LoopbackAuditRecord": {
+    "additional_properties": false,
+    "fields": {
+      "at_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "bytes_from_target": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "bytes_to_target": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "client": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "duration_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "host": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "outcome": {
+        "constraints": [
+          "ok, or the error code of a refused or failed open."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "port": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "LoopbackLimits": {
+    "additional_properties": false,
+    "fields": {
+      "daemon_window": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "frame_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "per_client": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "total": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "LoopbackOpenResult": {
+    "additional_properties": false,
+    "fields": {
+      "address": {
+        "constraints": [
+          "The loopback socket address the daemon connected to."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "window": {
+        "constraints": [
+          "The daemon's receive window in bytes (256 KiB)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "LoopbackStatusResult": {
+    "additional_properties": false,
+    "fields": {
+      "audit": {
+        "constraints": [
+          "The last 256 finished or refused connections."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "LoopbackAuditRecord"
+          },
+          "kind": "array"
+        }
+      },
+      "client_streams": {
+        "constraints": [
+          "Open and opening streams of this connection."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "enabled": {
+        "constraints": [
+          "server.loopback_forward allows forwarding."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "limits": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "LoopbackLimits"
+        }
+      },
+      "open_streams": {
+        "constraints": [
+          "Open streams of every connection."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "opened": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "refused": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "MachineCatalogEntry": {
+    "additional_properties": false,
+    "fields": {
+      "capabilities": {
+        "constraints": [
+          "Up to 16 tokens: 1-64 of a-z 0-9 . _ -, starting with a letter."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "id": {
+        "constraints": [
+          "A canonical machine public id, not this daemon's own and unique in the snapshot."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "name": {
+        "constraints": [
+          "1-64 characters, no control characters."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "origin": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "MachineCatalogOrigin"
+        }
+      },
+      "platform": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "MachineCatalogPlatform"
+        }
+      },
+      "status": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "MachineCatalogStatus"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "MachineCatalogOrigin": {
+    "kind": "enum",
+    "values": [
+      "cloud",
+      "ssh",
+      "server"
+    ]
+  },
+  "MachineCatalogPlatform": {
+    "additional_properties": false,
+    "fields": {
+      "arch": {
+        "constraints": [
+          "1-64 of A-Z a-z 0-9 . _ -."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "os": {
+        "constraints": [
+          "1-64 of A-Z a-z 0-9 . _ -."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "MachineCatalogPublishResult": {
+    "additional_properties": false,
+    "fields": {
+      "replayed": {
+        "constraints": [
+          "True for an exact replay of the current snapshot."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "sequence": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "MachineCatalogStatus": {
+    "kind": "enum",
+    "values": [
+      "running",
+      "connecting",
+      "unavailable",
+      "sleeping",
+      "stopped"
+    ]
   },
   "MachineListeningTcpResult": {
     "additional_properties": false,
@@ -11400,6 +13741,70 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsHangRecord": {
+    "additional_properties": false,
+    "constraints": [
+      "sequence is the hang's ordinal since daemon start, 1 for the first.",
+      "span is <scope>:<method>, catalog names only.",
+      "duration_ms is the final duration once the scope ended, else how long it had run when it was seen."
+    ],
+    "fields": {
+      "duration_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "sequence": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "span": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsHangs": {
+    "additional_properties": false,
+    "constraints": [
+      "over_250ms counts watched scopes busy 250 ms or more since daemon start, each once; it is never reset.",
+      "records keeps the newest 64, oldest first."
+    ],
+    "fields": {
+      "over_250ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "records": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsHangRecord"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsHistogram": {
     "additional_properties": false,
     "constraints": [
@@ -11453,6 +13858,246 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsIpc": {
+    "additional_properties": false,
+    "constraints": [
+      "Counters accumulate since daemon start over the connections of every transport: the local socket, the remote entry and WebSocket.",
+      "streams counts each connection's stream 0 (no connection opens a second stream yet), so open is the open connections.",
+      "sequence_depth samples the requests in a connection's sequence as each request arrives at it, itself included, also when the full sequence refuses it.",
+      "received and sent list only kinds seen at least once, line first, then frames in wire order.",
+      "bad_message counts connections closed for a malformed message: a JSON line over the size limit or not UTF-8, a bad frame, or a WebSocket message that is oversized, not UTF-8, binary or against the protocol."
+    ],
+    "fields": {
+      "bad_message": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "parses": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsIpcParses"
+        }
+      },
+      "received": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsIpcKind"
+          },
+          "kind": "array"
+        }
+      },
+      "sent": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsIpcKind"
+          },
+          "kind": "array"
+        }
+      },
+      "sequence_depth": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      },
+      "streams": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsIpcStreams"
+        }
+      },
+      "writes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsIpcWrites"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsIpcKind": {
+    "additional_properties": false,
+    "constraints": [
+      "kind is line (a JSON line, bytes counting its delimiter, or a WebSocket text message) or a frame kind name (output, grid, event, snapshot, snapshot_more, replay, ring, ring_advance, input, shared_buffer, ring_ack, request, reply, error, typed_event, cancel); a frame's bytes count its header."
+    ],
+    "fields": {
+      "bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "messages": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsIpcParse": {
+    "additional_properties": false,
+    "constraints": [
+      "json_parses counts every JSON parse of a request message's bytes where it happens: the admission's, the hello gate's, the v2 probe's and each feature route's, also a route that then declines the message; json_parses_per_request is 0 before the first request."
+    ],
+    "fields": {
+      "json_parses": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "json_parses_per_request": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
+        }
+      },
+      "requests": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsIpcParses": {
+    "additional_properties": false,
+    "constraints": [
+      "lines counts every non-blank JSON line or WebSocket text message a connection reads, the ones its admission or hello gate answers included; frames counts admitted binary REQUEST frames."
+    ],
+    "fields": {
+      "frames": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsIpcParse"
+        }
+      },
+      "lines": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsIpcParse"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsIpcStreams": {
+    "additional_properties": false,
+    "constraints": [
+      "Every connection's stream 0 counts, and each stream a client opens on it; open is the number open now and peak its highest value."
+    ],
+    "fields": {
+      "open": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "opened": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "peak": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsIpcWrites": {
+    "additional_properties": false,
+    "constraints": [
+      "messages counts messages handed to the connection writers and syscalls their write calls; stalls counts write calls that blocked for at least 1 ms on a full peer receive buffer."
+    ],
+    "fields": {
+      "messages": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "stalls": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "syscalls": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "syscalls_per_message": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "float64"
         }
       }
     },
@@ -11572,6 +14217,122 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsLockClass": {
+    "additional_properties": false,
+    "constraints": [
+      "wait_p95_us is the 95th percentile of wait_us, a bucket upper bound like its other percentiles."
+    ],
+    "fields": {
+      "hold_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      },
+      "wait_p95_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "wait_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHistogram"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsLockClassSet": {
+    "additional_properties": false,
+    "constraints": [
+      "frontend is the verified app's own requests, automation is agents, scripts, the CLI and pages, program is work no request started (terminal output, hooks, the journal writer).",
+      "An automation caller that holds no ranked lock waits while a frontend caller waits; one is let through at least every 4 ms. automation_yields counts the automation acquisitions that waited so; automation_due_admissions counts those let through while frontends still waited."
+    ],
+    "fields": {
+      "automation": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockClass"
+        }
+      },
+      "automation_due_admissions": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "automation_yields": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "frontend": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockClass"
+        }
+      },
+      "program": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockClass"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsLockClasses": {
+    "additional_properties": false,
+    "constraints": [
+      "One entry per lock that admits by class: the workspace registry lock, the registry connection lock (first acquisitions only) and the mux state lock."
+    ],
+    "fields": {
+      "registry": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockClassSet"
+        }
+      },
+      "registry_connection": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockClassSet"
+        }
+      },
+      "state": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockClassSet"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsLockHolder": {
     "additional_properties": false,
     "constraints": [
@@ -11664,6 +14425,211 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsLockWait": {
+    "additional_properties": false,
+    "constraints": [
+      "lock is registry.connection, chief.store, conversation.store or apps.storage.",
+      "holder is the thread that took the lock last before the waiter got it or gave up; it is absent when holders are not tracked (a release daemon that does not record).",
+      "waiter is the thread that waited; site is the file:line of the code that asked for the lock."
+    ],
+    "fields": {
+      "holder": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "lock": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "site": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "waited_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "waiter": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsLockWaits": {
+    "additional_properties": false,
+    "constraints": [
+      "long_waits counts lock waits of 2 ms or more since daemon start, on the registry connection, the Chief and conversation stores and app storage.",
+      "recent holds the newest waits first, at most 64; dropped counts records lost to a concurrent write of the same ring slot."
+    ],
+    "fields": {
+      "dropped": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "long_waits": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "recent": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsLockWait"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsMethodLatency": {
+    "additional_properties": false,
+    "constraints": [
+      "method is the cmd tag, the cmux.protocol/2 operation, or route:<class> for a line a feature route answers.",
+      "id is the schema method_id (family << 8 | ordinal), the key of the app's debug.daemon.wire methods rows; null for a route line or a method the schema gives no id.",
+      "trace_id is the method id of the daemon.request trace slice, a row of this build's command table; class is its request_latency_us class.",
+      "latency_us is arrival to reply queued, handler_us handler start to reply queued, lock_wait_us the lock waits of the threads that handled it in between."
+    ],
+    "fields": {
+      "class": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "handler_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsPercentiles"
+        }
+      },
+      "id": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "latency_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsPercentiles"
+        }
+      },
+      "lock_wait_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsPercentiles"
+        }
+      },
+      "method": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "trace_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsPercentiles": {
+    "additional_properties": false,
+    "constraints": [
+      "Percentiles are log-linear bucket upper bounds, at most 25% above the true value."
+    ],
+    "fields": {
+      "count": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "max": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "p50": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "p95": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "p99": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },
@@ -11818,7 +14784,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "Counters accumulate since daemon start: notes of blocking work made on request threads (inside a frame or a queued request).",
       "scopes counts outermost request scopes entered: frames read plus queued requests run.",
       "lock_hold_over_1ms is present only while recording is true: registry connection holds are timed only then.",
-      "sites holds the newest notes first, at most 128, and is empty unless recording is true."
+      "sites holds the newest notes first, at most 128, and is empty unless recording is true.",
+      "lock_waits is the daemon process's lock waits of 2 ms or more (every thread, not only request threads); a server before it omits the field."
     ],
     "fields": {
       "child_process": {
@@ -11859,6 +14826,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      },
+      "lock_waits": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockWaits"
         }
       },
       "network": {
@@ -12115,7 +15090,11 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "write_path is present only when the request names it in include.",
       "request_path_io is present only when the request names it in include.",
       "slow_requests is present only when the request names it in include.",
-      "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start."
+      "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start.",
+      "lock_classes is present only when the request names it in include.",
+      "ipc is present only when the request names it in include.",
+      "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last.",
+      "hangs is present only when the request names it in include."
     ],
     "fields": {
       "connections": {
@@ -12134,12 +15113,47 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "ServerStatsHistogram"
         }
       },
+      "hangs": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHangs"
+        }
+      },
+      "ipc": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsIpc"
+        }
+      },
+      "ipc_methods": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsMethodLatency"
+          },
+          "kind": "array"
+        }
+      },
       "journal_writer": {
         "nullable": true,
         "presence": "required",
         "type": {
           "kind": "ref",
           "name": "ServerStatsJournalWriter"
+        }
+      },
+      "lock_classes": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockClasses"
         }
       },
       "registry_lock": {
@@ -15495,6 +18509,192 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   }
 };
 export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
+  "access-request": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "kind": {
+          "constraints": [
+            "file (with path) or secret (with name)."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "name": {
+          "constraints": [
+            "A secret's name: A-Za-z0-9._-, at most 128 bytes."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "path": {
+          "constraints": [
+            "An absolute path on the Mac, at most 4096 bytes."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "reason": {
+          "constraints": [
+            "At most 1000 bytes."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "session": {
+          "constraints": [
+            "The asking chat's agent session, at most 200 plain characters."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "request_id": {
+          "constraints": [
+            "32 hex digits."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "access-request-answer": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "outcome": {
+          "constraints": [
+            "delivered (path for a file, value for a secret) or denied (reason?)."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "path": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "reason": {
+          "constraints": [
+            "At most 1000 bytes."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "request_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "value": {
+          "constraints": [
+            "A secret value, 1 B to 64 KiB, kept in memory only."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    }
+  },
+  "access-request-list": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "requests": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "AccessRequestPending"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "access-request-status": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "request_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AccessRequestStatus"
+    }
+  },
   "ack-tab-notifications": {
     "request": {
       "additional_properties": false,
@@ -15907,6 +19107,100 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "AgentCLIJobResolution"
+    }
+  },
+  "agent-inventory": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "expected_machine_id": {
+          "capability": "agent-inventory-owner-v1",
+          "description": "Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AgentInventoryResult"
+    }
+  },
+  "agent-inventory-refresh": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "expected_machine_id": {
+          "description": "Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AgentInventoryRefreshResult"
+    }
+  },
+  "agent-inventory-watch": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "admission_receipt": {
+          "capability": "agent-inventory-watch-admission-v1",
+          "description": "Only with enabled:true: an unavailable, unsupported or busy refusal carries data {machine, admission:\"not_admitted\"} when this connection holds no lease.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "enabled": {
+          "description": "true opens (or acknowledges again) this connection's lease; false retires it without an ended event.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "expected_machine_id": {
+          "description": "Identity fence: the canonical public machine id the caller expects; another daemon refuses with agent_inventory.owner_mismatch. Never a routing selector.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "expected_watch_id": {
+          "capability": "agent-inventory-watch-fence-v1",
+          "description": "Only with enabled:false: retire the lease only while it has this id.",
+          "max_bytes": 48,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AgentInventoryWatchResult"
     }
   },
   "agent-session-attach": {
@@ -16496,6 +19790,648 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "AgentSessionAcpmuxReply"
+    }
+  },
+  "agent-transfer-abort": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "transfer_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "aborted": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "literal",
+            "value": true
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-transfer-begin": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "ask_first": {
+          "constraints": [
+            "Narrows the chat's policy, rules and mode to asking ones first."
+          ],
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "interrupt": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "manifest": {
+          "constraints": [
+            "The bundle manifest without the source's absolute paths and launch settings."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "source_session": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "transfer_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-transfer-commit": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "to": {
+          "constraints": [
+            "Any JSON up to 4 KiB, recorded in the chat's log."
+          ],
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "transfer_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "committed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "literal",
+            "value": true
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-transfer-finish": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "name": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "receive_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "session": {
+          "constraints": [
+            "acpmux's session summary of the landed chat."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-transfer-read": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "limit": {
+          "constraints": [
+            "1 B to 4 MiB; default 1 MiB."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "offset": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "path": {
+          "constraints": [
+            "Exactly a path the begin manifest lists."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "transfer_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "data": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Base64"
+          }
+        },
+        "eof": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "next": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-transfer-receive": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "cwd": {
+          "constraints": [
+            "The absolute folder the chat runs in here; it must be under the daemon's guard roots (else agent_transfer.outside_roots)."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "manifest": {
+          "constraints": [
+            "The source's agent-transfer-begin manifest."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "map",
+            "values": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "receive_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-transfer-receive-abort": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "receive_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "dropped": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "forgotten": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "landed": {
+          "constraints": [
+            "null when whether the chat landed is not known yet; ask again."
+          ],
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-transfer-source": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "session": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-transfer-write": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "data": {
+          "constraints": [
+            "At most 4 MiB decoded."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Base64"
+          }
+        },
+        "offset": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "path": {
+          "constraints": [
+            "A relative bundle path."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "receive_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "next": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-update-apply": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "continue_threads": {
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "expected_machine_id": {
+          "capability": "agent-update-owner-v1",
+          "constraints": [
+            "This daemon's canonical machine id: a condition, never a selector. Another id is agent_update.owner_mismatch, null or a malformed one agent_update.bad_request; checked before acpmux is consulted.",
+            "When present the reply adds machine."
+          ],
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "ids": {
+          "constraints": [
+            "At most 64 ids of 1-128 bytes without control characters."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "machine": {
+          "capability": "agent-update-owner-v1",
+          "constraints": [
+            "The daemon's canonical machine id, only when the request named expected_machine_id."
+          ],
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "results": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "AgentUpdateOutcome"
+            },
+            "kind": "array"
+          }
+        },
+        "threads_after_turn": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "threads_error": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "threads_failed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "threads_restarted": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-update-plan": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "expected_machine_id": {
+          "capability": "agent-update-owner-v1",
+          "constraints": [
+            "This daemon's canonical machine id: a condition, never a selector. Another id is agent_update.owner_mismatch, null or a malformed one agent_update.bad_request; checked before acpmux is consulted.",
+            "When present the reply adds machine."
+          ],
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "harnesses": {
+          "constraints": [
+            "Outdated harnesses whose update needs no elevated rights."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "AgentUpdateHarness"
+            },
+            "kind": "array"
+          }
+        },
+        "live_threads": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "machine": {
+          "capability": "agent-update-owner-v1",
+          "constraints": [
+            "The daemon's canonical machine id, only when the request named expected_machine_id."
+          ],
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "running_threads": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
     }
   },
   "apply-layout": {
@@ -17159,7 +21095,8 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "cols and rows must be supplied together.",
         "Browser surfaces reject mode:render.",
         "expected_generation and expected_terminal_id must be supplied together and match the current daemon and terminal.",
-        "snapshot \"ghostsnp\" with the host's snapshot_version starts the byte stream with a snapshot event instead of vt-state; another version gets the byte replay. viewer_backlog_bytes (default 8388608 = 8 MiB, set per attach, no daemon setting; clamped to 65536..8388608) bounds the viewer's backlog; overflow resyncs by snapshot."
+        "snapshot \"ghostsnp\" with the host's snapshot_version starts the byte stream with a snapshot event instead of vt-state; another version gets the byte replay. viewer_backlog_bytes (default 8388608 = 8 MiB, set per attach, no daemon setting; clamped to 65536..8388608) bounds the viewer's backlog; overflow resyncs by snapshot.",
+        "With stream, every item of the view carries stream, stream-end is its last item, and the id is free once the client reads that stream-end. A failure after the id was taken queues stream-end{reason:\"attach_failed\"} before the error reply."
       ],
       "fields": {
         "cols": {
@@ -17255,7 +21192,22 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "stream": {
+          "capability": "attach-streams-v1",
+          "constraints": [
+            "A client-minted id for this view, unique among this connection's open attach streams; an id whose stream-end has not been queued is stream_in_use."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
         "surface": {
+          "default": null,
           "nullable": true,
           "presence": "optional",
           "type": {
@@ -17811,6 +21763,63 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "browser-runtime-start": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "url": {
+          "constraints": [
+            "The first page: an http or https URL of at most 8 KiB (browser-runtime.bad-url otherwise)."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "BrowserRuntimeStartResult"
+    }
+  },
+  "browser-runtime-status": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "BrowserRuntimeStatusResult"
+    }
+  },
+  "browser-runtime-stop": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "runtime": {
+          "constraints": [
+            "A runtime this connection started."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "BrowserRuntimeStopResult"
+    }
+  },
   "browser-wheel": {
     "request": {
       "additional_properties": false,
@@ -17937,6 +21946,26 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "cancel-stream": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "stream": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "CancelStreamResult"
     }
   },
   "chief-inspect": {
@@ -18077,6 +22106,73 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         }
       },
       "kind": "object"
+    }
+  },
+  "client-hello": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "features": {
+          "constraints": [
+            "Step 1, role main only: the app's daemon features (client_hello.bad_request {field: features} otherwise)."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "ClientHelloFeatures"
+          }
+        },
+        "install_id": {
+          "constraints": [
+            "1-128 of A-Z a-z 0-9 _ -. Step 1 with role main: asks for a nonce. Step 2, required: the install id it proves."
+          ],
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "page": {
+          "constraints": [
+            "Step 1 with role page_relay only (page-router-v1): the page the relay serves."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "proof": {
+          "constraints": [
+            "Step 2, required: the install-key proof over the step 1 nonce (client_hello.refused otherwise)."
+          ],
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "role": {
+          "constraints": [
+            "Step 1, required: main or page_relay (client_hello.bad_request {field: role} otherwise)."
+          ],
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "ClientHelloResult"
     }
   },
   "close-pane": {
@@ -22250,6 +26346,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "debug-daemon-locks": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "opaque_json",
+      "reason": "Per-lock wait and hold histograms by caller class and request op; the op rows are the ops that took the lock since start. See spec/commands.md debug-daemon-locks."
+    }
+  },
   "delete-bookmark": {
     "request": {
       "additional_properties": false,
@@ -22515,6 +26622,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        },
+        "stream": {
+          "capability": "attach-streams-v1",
+          "constraints": [
+            "With attach-streams-v1, the attach stream this request acts on: it must be open on this connection (unknown_stream) and view surface (stream_surface_mismatch). Without lease and view it selects that stream's lease (stream_has_no_lease when it has none); with lease, the lease must be that stream's (stream_lease_mismatch)."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
           }
         },
         "surface": {
@@ -22827,6 +26948,309 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "JsonValue"
     }
   },
+  "fs.delete": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "paths": {
+          "constraints": [
+            "1 to 1000 paths; all are checked before any is removed."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "permanent": {
+          "constraints": [
+            "Must be true."
+          ],
+          "default": false,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    }
+  },
+  "fs.list": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "cursor": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "filter": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "FsFilter"
+          }
+        },
+        "limit": {
+          "constraints": [
+            "1 to 1000."
+          ],
+          "default": 200,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "listing": {
+          "constraints": [
+            "Pages the snapshot this caller's earlier list made."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "path": {
+          "constraints": [
+            "Required unless listing pages an earlier snapshot."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "sort": {
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "FsSort"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "FsPage"
+    }
+  },
+  "fs.mkdir": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "name": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "path": {
+          "constraints": [
+            "The folder (mkdir) or the entry to rename."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "FsEntryResult"
+    }
+  },
+  "fs.read": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "max_bytes": {
+          "constraints": [
+            "At most 16 MiB is answered; truncated is true when more remains."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "offset": {
+          "default": 0,
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "path": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "FsReadResult"
+    }
+  },
+  "fs.rename": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "name": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "path": {
+          "constraints": [
+            "The folder (mkdir) or the entry to rename."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "FsEntryResult"
+    }
+  },
+  "fs.stat": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "path": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "FsStatResult"
+    }
+  },
+  "fs.write": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "bytes_base64": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "Base64"
+          }
+        },
+        "expected": {
+          "constraints": [
+            "The revision replace and append require."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "mode": {
+          "constraints": [
+            "create, overwrite, replace or append."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "path": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "permissions": {
+          "constraints": [
+            "0644, 0755, 0600 or 0700 as a decimal number; not with append."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint32"
+          }
+        },
+        "text": {
+          "constraints": [
+            "Exactly one of text and bytes_base64."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "FsEntryResult"
+    }
+  },
   "get-blob": {
     "request": {
       "additional_properties": false,
@@ -23094,7 +27518,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         },
         "revisions": {
           "constraints": [
-            "Adds api_revision, min_api_revision, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
+            "Adds api_revision, min_api_revision, crate_version, install, update_command and bulk_frame_max to the reply. Off by default so strict older SDK decoders keep reading the reply."
           ],
           "nullable": false,
           "presence": "optional",
@@ -23569,6 +27993,232 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "Tree"
+    }
+  },
+  "loopback-close": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "stream": {
+          "constraints": [
+            "The client-chosen stream id of a loopback-open on this connection."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "loopback-credit": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "bytes": {
+          "constraints": [
+            "More send window for the daemon, after the client consumed target bytes."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "stream": {
+          "constraints": [
+            "The client-chosen stream id of a loopback-open on this connection."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "loopback-data": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "data": {
+          "constraints": [
+            "Base64 of at most 64 KiB."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "stream": {
+          "constraints": [
+            "The client-chosen stream id of a loopback-open on this connection."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "loopback-open": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "host": {
+          "constraints": [
+            "localhost, a name under .localhost, or a loopback IP literal; never resolved through DNS."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "port": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "stream": {
+          "constraints": [
+            "Client-chosen, unique among the connection's open streams (loopback.duplicate-stream)."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "window": {
+          "constraints": [
+            "The client's receive window: at least 16 KiB (loopback.bad-request), at most 4 MiB, default 256 KiB."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "LoopbackOpenResult"
+    }
+  },
+  "loopback-shutdown": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "stream": {
+          "constraints": [
+            "The client-chosen stream id of a loopback-open on this connection."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "loopback-status": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "LoopbackStatusResult"
+    }
+  },
+  "machine-catalog-publish": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "expected_machine_id": {
+          "constraints": [
+            "This daemon's machine public id (machine_catalog.owner_mismatch otherwise)."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "machines": {
+          "constraints": [
+            "At most 256 remote records."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "MachineCatalogEntry"
+            },
+            "kind": "array"
+          }
+        },
+        "sequence": {
+          "constraints": [
+            "Positive and increasing on the connection; an older or conflicting one is machine_catalog.stale."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "MachineCatalogPublishResult"
     }
   },
   "machine-listening-tcp": {
@@ -26702,6 +31352,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "stream": {
+          "capability": "attach-streams-v1",
+          "constraints": [
+            "With attach-streams-v1, the attach stream this request acts on: it must be open on this connection (unknown_stream) and view surface (stream_surface_mismatch). Without lease and view it selects that stream's lease (stream_has_no_lease when it has none); with lease, the lease must be that stream's (stream_lease_mismatch)."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
         "surface": {
           "nullable": false,
           "presence": "required",
@@ -27355,6 +32019,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint16"
           }
         },
+        "stream": {
+          "capability": "attach-streams-v1",
+          "constraints": [
+            "With attach-streams-v1, the attach stream this request acts on: it must be open on this connection (unknown_stream) and view surface (stream_surface_mismatch). Without lease and view it selects that stream's lease (stream_has_no_lease when it has none); with lease, the lease must be that stream's (stream_lease_mismatch)."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
         "surface": {
           "nullable": false,
           "presence": "required",
@@ -27638,6 +32316,187 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "scalar",
             "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "script-repl-close": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "session": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "closed": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "script-repl-eval": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "args": {
+          "constraints": [
+            "An object; anything else runs with {}."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "code": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "session": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "timeout_ms": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "dropped_log_lines": {
+          "constraints": [
+            "script-log lines dropped over the cell's line budget."
+          ],
+          "nullable": false,
+          "omit_nil": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "value": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "script-repl-open": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "session": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "script-run": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "args": {
+          "constraints": [
+            "An object; anything else runs with {}."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          }
+        },
+        "code": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "timeout_ms": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "dropped_log_lines": {
+          "constraints": [
+            "script-log lines dropped over the cell's line budget."
+          ],
+          "nullable": false,
+          "omit_nil": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "value": {
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
           }
         }
       },
@@ -27938,6 +32797,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "server-blocking": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "opaque_json",
+      "reason": "The blocking calls made on threads that disallow blocking, by call site, with their kinds and counts since start. See spec/commands.md server-blocking."
+    }
+  },
   "server-stats": {
     "request": {
       "additional_properties": false,
@@ -27960,6 +32830,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "ServerStatsResult"
+    }
+  },
+  "server-threads": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "opaque_json",
+      "reason": "Every registered daemon thread with its declared, desired and kernel QoS and scheduler priority, the work lanes, and the process task role; the rows are the threads alive at the read. See spec/commands.md server-threads."
     }
   },
   "set-cell-pixels": {
@@ -29430,6 +34311,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "stream": {
+          "capability": "attach-streams-v1",
+          "constraints": [
+            "With attach-streams-v1, the attach stream this request acts on: it must be open on this connection (unknown_stream) and view surface (stream_surface_mismatch). The snapshot is asked of that view only."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
         "surface": {
           "nullable": false,
           "presence": "required",
@@ -30408,7 +35303,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "additional_properties": false,
       "fields": {
         "favicon_url": {
-          "default": null,
           "nullable": true,
           "presence": "optional",
           "type": {
@@ -30426,7 +35320,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "profile_id": {
-          "default": null,
           "description": "Move the frontend browser tab to this browser profile; null clears its profile.",
           "nullable": true,
           "presence": "optional",
@@ -30622,7 +35515,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "snapshot": {
-          "default": null,
           "nullable": true,
           "presence": "optional",
           "type": {
@@ -30639,7 +35531,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "title": {
-          "default": null,
           "nullable": true,
           "presence": "optional",
           "type": {
@@ -33333,6 +38224,128 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "loopback-closed": {
+    "additional_properties": false,
+    "fields": {
+      "error": {
+        "constraints": [
+          "Absent after a clean close; else closed-by-client, read-failed, write-failed, window-exceeded, bad-frame, data-after-shutdown, overflow, unknown-stream, client-gone or internal.",
+          "With an error the close aborts the stream: the daemon sends it on the control lane, so it may arrive before loopback-data it had already queued for the stream. A clean close follows the stream's last loopback-data and loopback-eof."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "loopback-closed"
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "loopback-credit": {
+    "additional_properties": false,
+    "fields": {
+      "bytes": {
+        "constraints": [
+          "Client bytes the daemon wrote to the target."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "loopback-credit"
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "loopback-data": {
+    "additional_properties": false,
+    "fields": {
+      "data": {
+        "constraints": [
+          "Base64 target bytes, within the client's credit."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "loopback-data"
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "loopback-eof": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "loopback-eof"
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "machine-usage-changed": {
     "additional_properties": false,
     "fields": {
@@ -34311,6 +39324,60 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "script-log": {
+    "additional_properties": false,
+    "constraints": [
+      "Sent only on the connection that runs the cell, before that cell's reply; exactly one of request and session.",
+      "A cell's lines past its line budget are dropped and counted in its reply's dropped_log_lines."
+    ],
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "script-log"
+        }
+      },
+      "level": {
+        "description": "The console method that wrote the line (log, info, warn, error, debug).",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "message": {
+        "description": "The line, its arguments joined as the console prints them.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "request": {
+        "description": "The id of the script-run that wrote the line; absent for a REPL session's line.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "JsonValue"
+        }
+      },
+      "session": {
+        "description": "The REPL session (script-repl-open) whose cell wrote the line; absent for a script-run's line.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "scroll-changed": {
     "additional_properties": false,
     "fields": {
@@ -34355,6 +39422,98 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "server-diagnostic-site": {
+    "additional_properties": false,
+    "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
+      "crate": {
+        "description": "Blocking and inversion: the crate of the call site without its version, or other. Never a path.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "server-diagnostic-site"
+        }
+      },
+      "family": {
+        "description": "blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold, or a holder-link frame or a journal commit past its hang tier.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "blocking",
+            "inversion",
+            "hang"
+          ]
+        }
+      },
+      "file_hash": {
+        "description": "Blocking and inversion: 16 hex digits, FNV-1a of the file's path from the crate folder on. Never a path.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "kind": {
+        "description": "The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or for a hang its scope: request, holder-link or journal-writer.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "lane_sync": {
+        "description": "Blocking: a work item's wait for other work.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "line": {
+        "description": "Blocking and inversion: the call site's line.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "method": {
+        "description": "Hang: what ran: the request's command or v2 operation name (a colon written as a dot), the holder frame kind (data, exit, ...) or commit-batch.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },
@@ -34497,6 +39656,44 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "stream-end": {
+    "additional_properties": false,
+    "constraints": [
+      "The last item of a client-minted attach stream; nothing of that stream follows it, and its id is free for a new attach-surface."
+    ],
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "stream-end"
+        }
+      },
+      "reason": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "canceled",
+            "detached",
+            "overflow",
+            "attach_failed"
+          ]
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
         }
       }
     },

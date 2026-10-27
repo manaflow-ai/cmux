@@ -24,6 +24,8 @@ final class CloudPageService: InternalPageProvider {
     private var shownPlaces: [String: (version: Int, fragment: String?)] = [:]
     /// The place each discarded Cloud tab showed, for the page its next show makes.
     private var discardedRoutes: [String: String] = [:]
+    /// The place each ``open(focus:route:)`` asked for, for the page of a tab with no page yet.
+    private let opens = PageOpenRequests<String>()
     /// Makes a tab's page on a route (default: ``PageFactory/cloudWebPage(_:route:)``; tests pass
     /// their own engine).
     private let makePage: (String?) -> MadePage?
@@ -42,10 +44,11 @@ final class CloudPageService: InternalPageProvider {
     /// showing `route` (a URL fragment such as `/get`, the storefront) when given.
     func open(focus: Bool, route: String? = nil) throws {
         guard let services, let window = services.windows.active,
-              let view = services.pages.show(.cloud, in: window, focus: focus) else {
+              let view = opens.open(route, { services.pages.show(.cloud, in: window, focus: focus) }) else {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)
         }
-        if let route, let page = view.content as? PageWebView { page.open(route: route) }
+        // A shown page moves to the route; a tab with no page yet opens on it at its first show.
+        if let route, view.isBuilt, let page = view.content as? PageWebView { page.open(route: route) }
     }
 
     var page: InternalPageID { .cloud }
@@ -54,8 +57,10 @@ final class CloudPageService: InternalPageProvider {
     var icon: IconName? { .cloud }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        // A rebuilt page opens on the place its discarded one showed.
-        guard let made = makePage(discardedRoutes.removeValue(forKey: key)) else { return NSView() }
+        // A page opens on the place its tab's show asked for, a rebuilt one on the place its
+        // discarded one showed.
+        let asked = opens.take(for: key), discarded = discardedRoutes.removeValue(forKey: key)
+        guard let made = makePage(asked ?? discarded) else { return NSView() }
         pages[key] = made
         return made.page
     }
@@ -63,6 +68,7 @@ final class CloudPageService: InternalPageProvider {
     func tabClosed(_ key: String) {
         shownPlaces[key] = nil
         discardedRoutes[key] = nil
+        opens.forget(key)
         close(key)
     }
 

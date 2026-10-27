@@ -13,7 +13,7 @@ public nonisolated enum BrowserPresentation: Hashable, Sendable {
     /// The content is a normal view inside `BrowserTab.contentView`.
     case inView
     /// The content is a separate child window that tracks `contentView`
-    /// (CEF Chrome style). Overlays must be separate panels above it, and the
-    /// tab must be occluded during animations.
+    /// (CEF Chrome style, Chromium in process). Overlays must be separate panels
+    /// above it, and the tab must be occluded during animations.
     case childWindow
 }
