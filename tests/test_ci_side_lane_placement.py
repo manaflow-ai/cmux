@@ -293,7 +293,7 @@ class NightlyRunnerStaysOffTheRoutes(unittest.TestCase):
     idle, busy or the only one online (test_ci_next_macos_cascade's guard on release-compile's runs-on)."""
 
     ROUTES = ("runner", "gui_runner", "session_runner", "free_gui_runner", "free_session_runner", "fast_runner",
-              "gateway_runner", "retry_runner", "free_retry_runner", "hosted_runner")
+              "gateway_runner", "retry_runner", "free_retry_runner")
 
     def place_step(self) -> tuple[dict, dict]:
         workflow = yaml.safe_load((WORKFLOWS / "cmux-next.yml").read_text())

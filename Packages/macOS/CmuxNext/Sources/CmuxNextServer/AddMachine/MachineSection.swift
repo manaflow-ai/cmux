@@ -81,8 +81,9 @@ public struct MachineSectionListView: View {
         let rows = model.rows
         VStack(alignment: .leading, spacing: 2) {
             ForEach(rows) { row in
-                HStack(spacing: Metrics.panelInset) {
-                    Image(systemName: row.isLocal ? "laptopcomputer" : "cloud").foregroundStyle(.secondary)
+                HStack(alignment: .center, spacing: Metrics.panelInset) {
+                    Icon(row.isLocal ? .machineLocal : .machineRemote, size: Metrics.iconSize)
+                        .foregroundStyle(.secondary)
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: Metrics.space2) {
                             Text(verbatim: row.name).font(Font(Typography.body)).lineLimit(1)
@@ -105,13 +106,14 @@ public struct MachineSectionListView: View {
                     .accessibilityLabel(Text(AddMachineStrings.newWorkspace))
                     .disabled(!row.isConnected)
                 }
-                .padding(.vertical, 3).padding(.horizontal, Metrics.panelInset)
+                .padding(.vertical, 2).padding(.horizontal, Metrics.panelInset)
             }
             Button(action: addMachine) {
-                Label(AddMachineStrings.addMachine, systemImage: "plus.circle").font(Font(Typography.body))
+                Label(AddMachineStrings.addMachine, systemImage: "plus.circle")
+                    .font(Font(Typography.body))
             }
             .buttonStyle(.borderless)
-            .padding(.vertical, 3).padding(.horizontal, Metrics.panelInset)
+            .padding(.vertical, 2).padding(.horizontal, Metrics.panelInset)
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)

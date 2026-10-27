@@ -304,7 +304,32 @@ fn begin(session: &str, params: &Value) -> Result<Value, RpcError> {
         .map_err(|e| RpcError::internal(format!("cannot encode upload metadata: {e}")))?;
     crate::agent_tools::write_private(&meta, &metadata)
         .map_err(|e| failed_anyhow("cannot record upload", &meta, &e, None))?;
-    Ok(json!({"uploadId": id, "fileName": name, "size": size}))
+    let mut answer = json!({"uploadId": id, "fileName": name, "size": size});
+    // An upload for one prompt alone (`attach::blocks_for`): a token only its sender learns, which
+    // the prompt's reference carries to have it deleted if the prompt is refused
+    // (`prompt_uploads::owned`). A reference without it deletes nothing.
+    if params.get("forPrompt") == Some(&Value::Bool(true)) {
+        let mut bytes = [0u8; 16];
+        getrandom::fill(&mut bytes)
+            .map_err(|e| RpcError::internal(format!("the OS random generator: {e}")))?;
+        let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+        let owner = parent.join(OWNER);
+        crate::agent_tools::write_private(&owner, token.as_bytes())
+            .map_err(|e| failed_anyhow("cannot record upload", &owner, &e, None))?;
+        answer["ownerToken"] = json!(token);
+    }
+    Ok(answer)
+}
+
+/// The file in an upload's folder that holds its owner token ([`begin`] with `forPrompt`).
+const OWNER: &str = ".owner";
+
+/// The folder of upload `upload` of session `session` when `token` is its owner token: the
+/// sender that began it for one prompt alone. Blocking.
+pub(crate) fn owned_dir(session: &str, upload: &str, token: &str) -> Option<PathBuf> {
+    let dir = upload_dir(session, upload)?;
+    let saved = std::fs::read(dir.join(OWNER)).ok()?;
+    (!token.is_empty() && saved == token.as_bytes()).then_some(dir)
 }
 
 fn chunk(params: &Value) -> Result<Value, RpcError> {
@@ -755,14 +780,41 @@ pub fn cancel(id: &str, params: &Value) -> Result<Value, RpcError> {
         .and_then(Value::as_str)
         .and_then(upload_id)
         .ok_or_else(|| RpcError::invalid_params("uploadId is required"))?;
+    let token = params.get("ownerToken").and_then(Value::as_str).unwrap_or_default();
+    // Under the sweep's lock, so a prompt reading it at that moment never sees it half gone.
+    let _in_use = IN_USE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     let _held = hold(&upload);
-    if let Some(part) = part_path(id, &upload) {
-        let _ = std::fs::remove_file(part);
-    }
-    if let Some(meta) = meta_path(id, &upload) {
-        let _ = std::fs::remove_file(meta);
+    let Some(dir) = upload_dir(id, &upload) else { return Ok(json!({})) };
+    // An upload begun for a prompt goes whole, finished or not, only with its owner token (a
+    // sender that will not send the prompt naming it): nobody else's cancel deletes it. Any
+    // other upload's cancel deletes it while it is unfinished, as before.
+    let owner = dir.join(OWNER);
+    let goes = if owner.exists() {
+        owned_dir(id, &upload, token).is_some()
+    } else {
+        dir.join(".part").exists()
+    };
+    if goes {
+        let _ = std::fs::remove_dir_all(&dir);
     }
     Ok(json!({}))
+}
+
+/// Deletes upload folders `dirs` (each an [`upload_dir`]) under the sweep's lock and then each
+/// upload's own, the order the sweep and `cancel` take them, so a prompt reading one at that
+/// moment never sees it half gone and no write, status, finish or cancel on it runs between.
+/// Blocking.
+pub(crate) fn remove_uploads(dirs: &[PathBuf]) {
+    let _in_use = IN_USE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    for dir in dirs {
+        let _held = dir.file_name().and_then(|n| n.to_str()).map(hold);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+/// The folder of upload `upload` of session `session`; None for an id that is not a UUIDv7.
+pub(crate) fn upload_dir(session: &str, upload: &str) -> Option<PathBuf> {
+    Some(session_dir(session)?.join(upload_id(upload)?))
 }
 
 /// Writes the file of `params` for session `id` (this daemon's own) and answers `{path}`.

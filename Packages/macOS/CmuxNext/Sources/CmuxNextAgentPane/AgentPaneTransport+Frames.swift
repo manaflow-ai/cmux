@@ -1,6 +1,7 @@
 import Foundation
 import os
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// One page frame through the relay: the off-main checks and the main-actor decisions.
 extension AgentPaneTransport {
@@ -91,14 +92,27 @@ extension AgentPaneTransport {
             frame.withLock { (($0["params"] as? [String: Any])?[key] as? String) }
         }
 
-        /// Adds the person's decision proof (`_meta.acpmux`) of a relayed allow.
-        func setDecision(nonce: String, proof: String) {
+        /// Adds the decision proof (`_meta.acpmux`) of a relayed allow: the person's
+        /// (`personDecision`), or this Mac's signed one-time allow for a peer's prompt
+        /// (`approverDecision`, acpmux `hub/mac_approvers.rs`).
+        func setDecision(nonce: String, proof: some Sendable, field: String = "personDecision") {
+            setAcpmuxMeta(["decisionNonce": nonce, field: proof])
+        }
+
+        /// Whether the frame's `_meta.acpmux` has `key`.
+        func hasAcpmuxMeta(_ key: String) -> Bool {
+            frame.withLock { ((($0["params"] as? [String: Any])?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?[key] != nil }
+        }
+
+        /// Sets `key` of the frame's `_meta.acpmux`.
+        func setAcpmuxMeta(_ key: String, _ value: some Sendable) { setAcpmuxMeta([key: value]) }
+
+        private func setAcpmuxMeta(_ values: [String: any Sendable]) {
             frame.withLock { object in
                 var params = object["params"] as? [String: Any] ?? [:]
                 var meta = params["_meta"] as? [String: Any] ?? [:]
                 var acpmux = meta["acpmux"] as? [String: Any] ?? [:]
-                acpmux["decisionNonce"] = nonce
-                acpmux["personDecision"] = proof
+                for (key, value) in values { acpmux[key] = value }
                 meta["acpmux"] = acpmux
                 params["_meta"] = meta
                 object["params"] = params
@@ -187,6 +201,27 @@ extension AgentPaneTransport {
             }
         }
         draining = false
+        let waiting = drainWaiters
+        drainWaiters = []
+        for waiter in waiting { waiter.resume() }
+    }
+
+    /// Waits until the send line is empty (every frame handed over before now sent or refused), at
+    /// most `within`; true when it is. `sandbox.run` waits on it, so a start or open the page handed
+    /// over first is counted (``AcpmuxPaneReplacements``) before the send is admitted.
+    func lineDrained(within bound: Duration) async -> Bool {
+        if pending.isEmpty && !draining { return true }
+        // One deadline per wait: the drain resumes the waiters first, or it does; cancelled after.
+        let deadline = DemandTimer(owner: "agent-pane.sandbox-run.line-drained")
+        deadline.schedule(after: bound) { @MainActor [weak self] in
+            guard let self else { return }
+            let waiting = self.drainWaiters
+            self.drainWaiters = []
+            for waiter in waiting { waiter.resume() }
+        }
+        await withCheckedContinuation { drainWaiters.append($0) }
+        deadline.cancel()
+        return pending.isEmpty && !draining
     }
 
     /// The person proof (acpmux `hub/person.rs`, cx-fcaq), sent right after the page's first frame
@@ -217,10 +252,11 @@ extension AgentPaneTransport {
     /// The next frame's result, to its send; a send whose frames are done (or stopped) is answered.
     private func complete(_ step: Step) {
         guard let entry = pending.first else { return }
-        if !entry.frames.isEmpty { entry.frames.removeFirst() }
+        let frame = entry.frames.isEmpty ? nil : entry.frames.removeFirst()
         switch step {
         case .sent: break
-        case .refused(let error): entry.firstError = entry.firstError ?? error
+        case .refused(let error):
+            entry.firstError = entry.firstError ?? error
         case .stop(let error):
             entry.firstError = entry.firstError ?? error
             entry.frames.removeAll()
@@ -243,6 +279,11 @@ extension AgentPaneTransport {
 
     /// The main actor's part of one frame: small values only (the frame stays in its box).
     private func decide(_ facts: Facts, _ box: FrameBox, connection id: Int, socket: AcpmuxPaneSocket, ids: AcpmuxRequestIds) async -> Step {
+        // A start or open while a Sandboxed send runs is refused before it spends the gesture or
+        // leaves a start credit (the count below still decides).
+        if socket.refusesPageFrame(method: facts.method) {
+            return Self.refuse(.refuse(.methodRefused, method: facts.method, requestID: facts.pageID), socket: socket)
+        }
         // A gesture the folder check below uses: a new chat's start carries it to its first prompt.
         var startGesture = false
         if facts.needsPathCheck, !remoteWire {
@@ -354,7 +395,13 @@ extension AgentPaneTransport {
         // Only an allow that redeemed a ticket for this very prompt and option is signed.
         if !facts.isFirst, facts.needsGesture, facts.method == "_acpmux/permission_respond" {
             // The frame's own session: `facts.sessionId` is set only for a frame with a ticket.
-            signRelayedAllow(box, sessionId: box.param("sessionId"), ticketPick: ticketPick)
+            await signRelayedAllow(box, sessionId: box.param("sessionId"), ticketPick: ticketPick)
+            guard id == current, self.socket === socket else { return .stop(.staleConnection) }
+        }
+        // Peer-route approvals: a group's Allow once the person's click granted, for a peer's prompts.
+        if !facts.isFirst, facts.needsGesture, facts.method == "_acpmux/permission_group_respond" {
+            await signPeerGroupAllow(box)
+            guard id == current, self.socket === socket else { return .stop(.staleConnection) }
         }
         // A Trust answer on another machine for the folder the person chose there by Use Home
         // Folder (a root of this pane): that machine's daemon trusts its home folder only with
@@ -362,16 +409,24 @@ extension AgentPaneTransport {
         if remoteWire, facts.method == "acp.trust.set", let cwd = box.param("cwd"), remoteHomeChosen.contains(cwd) {
             box.setParam(RemoteAcpmuxWire.homeChosenParam, "true")
         }
+        // A start or open is counted before it goes, or refused while a Sandboxed send runs.
+        guard socket.sendingPageFrame(method: facts.method) else {
+            return Self.refuse(.refuse(.methodRefused, method: facts.method, requestID: facts.pageID), socket: socket)
+        }
         // The daemon sees only relay-owned ids; a page id is used by one request at a time.
         var relayID: Int?
         if let pageID = facts.pageID {
             let subject = facts.method == AgentPaneAgentReply.method ? box.param("sessionId") : nil
-            guard let next = ids.begin(pageID: pageID, method: facts.method ?? "", subject: subject) else { return Self.refuseInFlight() }
+            guard let next = ids.begin(pageID: pageID, method: facts.method ?? "", subject: subject) else {
+                socket.pageFrameNotSent(method: facts.method)
+                return Self.refuseInFlight()
+            }
             relayID = next
         }
         // A fork or handoff from a session outside the scope: the click's scope credit, used only
         // by a frame that goes out (every refusal above leaves it).
         if facts.foreignSource, !gestures.consumeScope() {
+            socket.pageFrameNotSent(method: facts.method)
             if let relayID { ids.cancel(relayID) }
             Self.logger.info("agent pane transport scope refused method=\(facts.method ?? "-", privacy: .public) \(self.gestures.debugDescription, privacy: .public)")
             return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
@@ -379,7 +434,10 @@ extension AgentPaneTransport {
         // The person's prompt is on disk before it goes, until acpmux acknowledges it.
         let relay = facts.method == "session/prompt" ? promptRelay : nil
         let journaled = await relay?.record(box, ids: ids, relayID: relayID)
-        if let relay, journaled != nil, id != current || self.socket !== socket { return await relay.withdraw(journaled, relayID: relayID, ids: ids) }
+        if let relay, journaled != nil, id != current || self.socket !== socket {
+            socket.pageFrameNotSent(method: facts.method)
+            return await relay.withdraw(journaled, relayID: relayID, ids: ids)
+        }
         if facts.isFirst {
             sentFirst = true
             localAppToken = nil
@@ -391,7 +449,17 @@ extension AgentPaneTransport {
                 gestures.clearTickets(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
             }
         }
+        // Whether this answer carries this Mac's signed allow, by its page id (one request at a
+        // time, `ids.begin` above): its reply is read against it (`AcpmuxDecisionContexts.sent`),
+        // so an unsigned one's refusal never offers to enroll.
+        let answer = !facts.isFirst
+            && (facts.method == "_acpmux/permission_respond" || facts.method == "_acpmux/permission_group_respond")
+        if answer, let pageID = facts.pageID {
+            decisions.sent(pageID: pageID, proved: box.hasAcpmuxMeta("approverDecision") || box.hasAcpmuxMeta("approverDecisions"))
+        }
         if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
+            socket.pageFrameNotSent(method: facts.method)
+            if answer, let pageID = facts.pageID { decisions.notSent(pageID: pageID) }
             if let relayID { ids.cancel(relayID) }
             await relay?.withdraw(journaled, relayID: nil, ids: ids)
             if error == .outboundOverflow { socket.close(code: 1008, reason: "outbound overflow", error: error) }
