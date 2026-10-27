@@ -109,7 +109,7 @@ ALLOWED: dict[str, str] = {
         "only while the pull request's head has not caught up with the event: at most four GraphQL re-reads (five in all), 5 s apart",
     "gallery-advisory.yml: Update the PR's gallery section":
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
-    "gallery-link.yml: Update the PR's review line":
+    "pr-checks.yml: Update the PR's review line":
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',
     'pr-status.yml: Write the line':
         'pr_status.py: a request is retried only after a rate limit or 5xx (at most 5 waits); the settle re-read after a write runs at most 4 rounds',

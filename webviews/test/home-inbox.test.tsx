@@ -48,6 +48,8 @@ const { createRoot } = await import("react-dom/client");
 const { HomeLists } = await import("../src/agent-session/acpmux/HomeLists");
 const { answerFromHome } = await import("../src/agent-session/acpmux/HomeInbox");
 const { NativeError } = await import("../src/agent-session/acpmux/nativeError");
+const { callPageHost } = await import("../src/agent-session/acpmux/pageHost");
+const { pageError } = await import("../src/pages/shared/pageClient");
 const { translate } = await import("../src/agent-session/acpmux/i18n");
 const { session } = await import("../src/gallery/fixtures/acpmux");
 const { minutesAgo } = await import("../src/gallery/clock");
@@ -259,7 +261,7 @@ test("an answer the host can't give here opens the chat and keeps its row", asyn
   await inbox.unmount();
 });
 
-test("answerFromHome: answered, opened on unsupported or unknown_op, and any other refusal rejects", async () => {
+test("answerFromHome: answered, opened on unsupported, and any other refusal rejects", async () => {
   const item = { sessionId: "tests", permissionId: "p-tests" } as NeedsYouItem;
   const choice = { id: "p-tests-yes", label: "Allow once", tone: "allow" } as const;
   const calls: unknown[] = [];
@@ -281,10 +283,10 @@ test("answerFromHome: answered, opened on unsupported or unknown_op, and any oth
     { sessionId: "tests", permissionId: "p-tests", optionId: "p-tests-yes" },
   ]);
   expect(await answer("unsupported")).toBe("opened");
-  expect(await answer("cmux.protocol.unknown_op")).toBe("opened");
-  expect(opened).toEqual(["tests", "tests"]);
+  expect(opened).toEqual(["tests"]);
   await expect(answer("refused")).rejects.toThrow();
-  expect(opened).toHaveLength(2);
+  await expect(answer("native.invalid_request")).rejects.toThrow();
+  expect(opened).toHaveLength(1);
 });
 
 test("the shortcuts answer nothing here while the home's own chat shows its card, or after unmount", async () => {
@@ -296,4 +298,43 @@ test("the shortcuts answer nothing here while the home's own chat shows its card
   await gone.unmount();
   await gone.event("cmux-acpmux-permissionAllowOnce");
   expect(gone.sent).toEqual([]);
+});
+
+test("on the shared page host, a host without the op opens the chat (its unknown_op, as callPageHost reports it)", async () => {
+  const item = { sessionId: "tests", permissionId: "p-tests" } as NeedsYouItem;
+  const choice = { id: "p-tests-yes", label: "Allow once", tone: "allow" } as const;
+  const opened: string[] = [];
+  const page = {
+    call: async () => {
+      throw pageError("cmux.protocol.unknown_op", "unknown op cmux.agent.chat.asks.answer");
+    },
+  } as unknown as Parameters<typeof callPageHost>[0];
+  const outcome = await answerFromHome(
+    (method, params) => callPageHost(page, method, params),
+    item,
+    choice,
+    (id) => void opened.push(id),
+  );
+  expect(outcome).toBe("opened");
+  expect(opened).toEqual(["tests"]);
+});
+
+test("on the shared page host, a malformed request still says refused (invalid_params opens nothing)", async () => {
+  const item = { sessionId: "tests", permissionId: "p-tests" } as NeedsYouItem;
+  const choice = { id: "p-tests-yes", label: "Allow once", tone: "allow" } as const;
+  const opened: string[] = [];
+  const page = {
+    call: async () => {
+      throw pageError("cmux.protocol.invalid_params", "bad params");
+    },
+  } as unknown as Parameters<typeof callPageHost>[0];
+  await expect(
+    answerFromHome(
+      (method, params) => callPageHost(page, method, params),
+      item,
+      choice,
+      (id) => void opened.push(id),
+    ),
+  ).rejects.toThrow();
+  expect(opened).toEqual([]);
 });

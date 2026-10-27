@@ -15,7 +15,7 @@
   "turns": [
     {
       "text": "[a903] Fix done and pushed to branch a903-home-paste (not on feat-cmux-next): the pre-push hook failed on cmux-tui/src/lib.rs, a file I did not touch. Tests green locally.",
-      "tail": "Subagents at work now: a903.",
+      "tail": "Subagents at work now: a903. Their tasks are not done until each reports: never say they are finished, and keep any reply about them to what is under way.",
       "checks": [
         {
           "type": "judge",

@@ -11,6 +11,7 @@ import { Icon } from "../icons/Icon";
 import type { AcpmuxActivity } from "../model";
 import { AgentCard } from "../subagents/AgentCard";
 import { SubsessionContext, useSenderChat, useSubsessionInfo, waitingLine } from "../subagents/subsessions";
+import { retryLabel, sessionRetry } from "../subagents/retryState";
 import { Spinner } from "./icons";
 import { Markdown } from "./Markdown";
 import { McpCallDetails } from "./McpCallRows";
@@ -66,9 +67,14 @@ function SessionCard({
   const live = useSubsessionInfo(sessionId);
   const listed = useSenderChat("", sessionId).harness;
   const open = useContext(SubsessionContext)?.open;
-  const state = live?.state ?? fallback?.state;
+  // The card's retry, as every surface reads it (retryState.ts ``sessionRetry``): while acpmux
+  // retries its failed turn, the card works, and its state says so. Its Retry is on its end line.
+  const phase = live ? sessionRetry(live) : undefined;
+  const retry = phase?.kind === "retrying" ? phase.retry : undefined;
+  const state = retry ? "working" : (live?.state ?? fallback?.state);
   const waiting = live ? live.waiting : fallback?.waiting;
-  const doing = waiting ? waitingLine(t, waiting) : live?.doing;
+  // A failed one says why (acpmux's lane error), a retry acpmux refused included.
+  const doing = waiting ? waitingLine(t, waiting) : (live?.doing ?? (state === "failed" ? live?.error : undefined));
   return (
     <AgentCard
       name={live?.name ?? name}
@@ -76,6 +82,7 @@ function SessionCard({
       sessionId={sessionId}
       model={live?.model ?? model}
       state={state}
+      {...(retry && { stateLabel: retryLabel(t, retry) })}
       slot={live ? live.slot === true : fallback?.slot === true}
       doing={doing}
       queued={live?.queued}
