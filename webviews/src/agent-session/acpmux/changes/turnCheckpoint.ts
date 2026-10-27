@@ -217,7 +217,8 @@ export function turnDisplay(
     case "error":
       return tools(t("turn.checkpoint.failed"));
     case "incomplete":
-      return tools(t("turn.checkpoint.incomplete"));
+      // The checkpoint left files out, so the turn's changes are only partly known.
+      return { ...tools(t("turn.checkpoint.incomplete")), partial: true };
     case "loaded": {
       if (pending) return tools(t("turn.checkpoint.pending"));
       const changed = [...toolFiles, ...pathsOnly];

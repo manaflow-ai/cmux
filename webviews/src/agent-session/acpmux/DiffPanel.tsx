@@ -91,7 +91,11 @@ export function kindPath(scope: ChangeScope, file: TurnFile, root: string | unde
     const full = spelling.startsWith("/") ? resolved(spelling) : resolved(top ? `${top}/${spelling}` : spelling);
     const path = full && unaliased(full);
     if (!path) continue;
-    if (!path.startsWith("/")) return path;
+    // A relative path is under the chat's folder only when that folder is known.
+    if (!path.startsWith("/")) {
+      if (top) return path;
+      continue;
+    }
     if (top && path.startsWith(top === "/" ? "/" : `${top}/`)) return path.slice(top === "/" ? 1 : top.length + 1);
   }
   return file.path.slice(file.path.lastIndexOf("/") + 1);
@@ -103,6 +107,15 @@ function absolute(path: string, root: string | undefined): string | undefined {
   const top = root && resolved(root);
   const full = path.startsWith("/") ? resolved(path) : top ? resolved(`${top}/${path}`) : undefined;
   return full && unaliased(full);
+}
+
+/// The one name a file has under every spelling: its absolute path (canonical first), else its path.
+function fileIdentity(file: TurnFile, root: string | undefined): string {
+  for (const spelling of [file.canonical, file.path]) {
+    const full = spelling === undefined ? undefined : absolute(spelling, root);
+    if (full) return full;
+  }
+  return file.path;
 }
 
 /// The listed file `path` names, by its path or canonical path, as written or resolved from the
@@ -272,18 +285,23 @@ export function DiffPanel({
   // Generated files and lockfiles start folded, as the diff viewer defers them; the reader opens
   // one from its header or the tree. Each file folds once, so one the reader opened stays open,
   // and the file the view was opened on is never folded.
+  // A file is remembered by its absolute path, so the checkpoint's absolute spelling of a file a
+  // tool call named relatively is the same file and does not fold again.
   const generated = useMemo(
-    () => files.filter((file) => fileKind(kindPath(scope, file, root)) === "generated").map((file) => file.path),
+    () =>
+      files
+        .filter((file) => fileKind(kindPath(scope, file, root)) === "generated")
+        .map((file) => ({ path: file.path, id: fileIdentity(file, root) })),
     [files, scope, root],
   );
   const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
   // The file the view was opened on, as the list names it now (a tool call's relative path, then
   // the checkpoint's absolute one).
   const openedPath = initialPath === undefined ? undefined : listedPath(files, initialPath, root);
-  const unfolded = generated.filter((path) => !folded.has(path));
+  const unfolded = generated.filter((file) => !folded.has(file.id));
   if (unfolded.length > 0) {
-    setFolded(new Set([...folded, ...unfolded]));
-    const fold = unfolded.filter((path) => path !== openedPath);
+    setFolded(new Set([...folded, ...unfolded.map((file) => file.id)]));
+    const fold = unfolded.map((file) => file.path).filter((path) => path !== openedPath);
     if (fold.length > 0) setCollapsed((current) => new Set([...current, ...fold]));
   }
   const [viewed, setViewed] = useState<ReadonlySet<string>>(() => new Set());

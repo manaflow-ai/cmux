@@ -238,6 +238,35 @@ test("with no folder known, a Last turn file is read by its name", async () => {
   }
 });
 
+test("with no folder known, a relative Last turn path is read by its name too", async () => {
+  const view = await render(turn(["tests/helpers.py", "src/a.ts"]), null);
+  try {
+    expect(view.kinds()).toEqual(["", ""]);
+    expect(view.noTests()).toBe("Code changed with no test.");
+  } finally {
+    await view.unmount();
+  }
+});
+
+test("an incomplete checkpoint marks the tool-call view partial, so it never says no test changed", async () => {
+  const { turnDisplay } = await import("../src/agent-session/acpmux/changes/turnCheckpoint");
+  const { translatorFor } = await import("../src/agent-session/acpmux/i18n");
+  const display = turnDisplay(translatorFor("en"), turn(["/repo/src/a.ts"]), { state: "incomplete", checkpointId: "c1" }, false);
+  expect(display.source).toBe("tools");
+  expect(display.partial).toBe(true);
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  try {
+    await act(async () =>
+      root.render(<DiffPanel files={display.files} turn={display} root="/repo" onClose={() => {}} />),
+    );
+    await settle();
+    expect(container.querySelector(".acpmux-diff-no-tests")).toBeNull();
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
 test("opening the view on a folded generated file unfolds it", async () => {
   const files = turn(["/repo/src/a.ts", "/repo/bun.lock"]);
   const container = dom.window.document.getElementById("root")!;
@@ -338,6 +367,44 @@ test("a view opened on a relative tool path keeps that generated file open once 
     );
     await settle();
     expect(folded()).toEqual(["/repo/yarn.lock"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("a generated file the reader opened by its relative tool path stays open once the checkpoint lists it absolutely", async () => {
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const folded = () =>
+    [...container.querySelectorAll<HTMLElement>(".acpmux-diff-file")]
+      .filter((block) => block.dataset.collapsed !== undefined)
+      .map((block) => block.dataset.path);
+  try {
+    await act(async () =>
+      root.render(<DiffPanel files={turn(["src/a.ts", "bun.lock"])} root="/repo" onClose={() => {}} />),
+    );
+    await settle();
+    expect(folded()).toEqual(["bun.lock"]);
+    // The reader opens it from its header.
+    const header = [...container.querySelectorAll<HTMLElement>(".acpmux-diff-file")]
+      .find((block) => block.dataset.path === "bun.lock")
+      ?.querySelector<HTMLButtonElement>(".acpmux-fh-name");
+    expect(header).toBeDefined();
+    await act(async () => header!.click());
+    await settle();
+    expect(folded()).toEqual([]);
+    await act(async () =>
+      root.render(
+        <DiffPanel
+          files={turn(["/repo/src/a.ts", "/repo/bun.lock"])}
+          turn={{ source: "checkpoint" }}
+          root="/repo"
+          onClose={() => {}}
+        />,
+      ),
+    );
+    await settle();
+    expect(folded()).toEqual([]);
   } finally {
     await act(async () => root.unmount());
   }
