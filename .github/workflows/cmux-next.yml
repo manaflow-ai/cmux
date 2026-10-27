@@ -4021,7 +4021,9 @@ jobs:
     permissions:
       actions: write
       contents: read
-    timeout-minutes: 5
+    # The request fetches feat-cmux-next's recent history to find the newest
+    # commit with the published tree (the --tree-ready search).
+    timeout-minutes: 10
     steps:
       - name: Record the Release compile admission
         env:

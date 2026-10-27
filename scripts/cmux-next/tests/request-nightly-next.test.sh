@@ -301,9 +301,23 @@ request --tree-ready "$publisher"
 [[ "$status" == 0 ]] && ! dispatched "$greenx" \
   || fail "a commit already on nightly-next must not be requested again (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 git_q -C "$src" checkout -q --detach "$greenx"
+branch "$greenx"
 request --sha "$greenx" --release-compile-green
 [[ "$status" == 0 ]] && ! dispatched "$greenx" && grep -q "already on nightly-next" <<<"$out" \
   || fail "--release-compile-green must not re-request a promoted commit (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+# A Release compile that finishes after nightly-next moved past its commit
+# (2026-10-27: requests dispatched at 04:41Z for a 00:30Z landing) asks for
+# nothing, and one that finishes after a newer commit with its tree landed
+# asks for that newer commit, never its own old one.
+git_q -C "$src" update-ref refs/heads/nightly-next "$publisher"
+branch "$publisher"
+request --sha "$greenx" --release-compile-green
+[[ "$status" == 0 ]] && [[ ! -s "$TMP/gh.log" ]] \
+  || fail "a late compile of a commit nightly-next contains must request nothing (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+git_q -C "$src" update-ref refs/heads/nightly-next "$head^"
+request --sha "$greenx" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$publisher" && ! dispatched "$greenx" \
+  || fail "a late compile must request the newest commit with its tree, not its own (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 git_q -C "$src" update-ref -d refs/heads/nightly-next
 git_q -C "$src" checkout -q --detach "$head"
 

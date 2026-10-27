@@ -17,8 +17,13 @@
 # Both finish asynchronously, so each side asks when its half completes:
 #
 #   --sha <sha> --release-compile-green
-#       cmux-next.yml, after the Release compile of <sha> passed. Requests <sha>
-#       if its tree is published; otherwise the artifacts side asks later.
+#       cmux-next.yml, after the Release compile of <sha> passed. If its tree is
+#       published, searches like --tree-ready: it requests the newest
+#       feat-cmux-next commit with that tree, never <sha> itself once a newer
+#       one has it, and nothing once nightly-next contains them. A compile that
+#       finished hours late used to request its own old commit (04:41Z for a
+#       00:30Z landing on 2026-10-27), which main's promote job then refused.
+#       Otherwise the artifacts side asks later.
 #   --tree-ready <sha>
 #       cmux-tui-artifacts.yml and nightly-next-tick, once the tree of <sha> is
 #       published. Requests the newest feat-cmux-next push whose tree key is the
@@ -47,7 +52,7 @@ while [[ $# -gt 0 ]]; do
     --tree-ready) sha="${2:-}"; mode=tree-ready; shift 2 ;;
     --repo) repo="${2:-}"; shift 2 ;;
     --release-compile-green) mode=release-compile-green; shift ;;
-    -h|--help) sed -n '2,33p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,41p' "$0"; exit 0 ;;
     *) echo "error: unknown argument $1" >&2; exit 2 ;;
   esac
 done
@@ -187,14 +192,7 @@ if curl -fsSL --proto '=https' --connect-timeout 20 --max-time 60 -o "$tree_meta
   fi
 fi
 
-if [[ "$mode" == release-compile-green ]]; then
-  rc=0
-  request "$sha" || rc=$?
-  [[ "$rc" != 2 ]] || exit 1
-  exit 0
-fi
-
-# 2. --tree-ready: the newest feat-cmux-next commit, by first-parent history,
+# 2. Both modes: the newest feat-cmux-next commit, by first-parent history,
 # that descends from nightly-next and has this tree key, whatever its Release
 # compile says (above). Candidates come from git, not from cmux-next.yml push
 # runs: a push that started no run (a bot or GITHUB_TOKEN push such as a base
@@ -245,7 +243,8 @@ while read -r run_sha; do
     fi
     [[ "$run_key" == "$key" ]] || continue
   fi
-  has_notary_gate "$run_sha" || continue
+  # <sha> itself goes to request(), which names a missing gate.
+  [[ "$run_sha" == "$sha" ]] || has_notary_gate "$run_sha" || continue
   rc=0
   request "$run_sha" || rc=$?
   [[ "$rc" != 0 ]] || exit 0
