@@ -194,4 +194,43 @@ enum CmuxStrings {
     static func planOpenLink(_ name: String) -> String {
         String(format: String(localized: "home.plan.openLink", defaultValue: "Open %@", table: "CmuxHome", bundle: .module), name)
     }
+
+    // MARK: A Chief's cards (HomeChiefCardRowProvider, cmux issue 25830)
+
+    static var chiefCardBrowser: String {
+        String(localized: "home.card.browser", defaultValue: "Browser", table: "CmuxHome", bundle: .module)
+    }
+    static var chiefCardComputer: String {
+        String(localized: "home.card.computer", defaultValue: "Computer", table: "CmuxHome", bundle: .module)
+    }
+    /// A browser card's button: the browser right of the Home chat.
+    static var chiefCardOpenBrowser: String {
+        String(localized: "home.card.openBrowser", defaultValue: "Open browser", table: "CmuxHome", bundle: .module)
+    }
+    /// A computer card's button: the Cloud machine's desktop.
+    static var chiefCardOpenDesktop: String {
+        String(localized: "home.card.openDesktop", defaultValue: "Open desktop", table: "CmuxHome", bundle: .module)
+    }
+    static var chiefCardSecureStore: String {
+        String(localized: "home.card.secureStore", defaultValue: "Secure Store", table: "CmuxHome", bundle: .module)
+    }
+    /// A sign-in card's line: "Sign in to linkedin.com".
+    static func chiefCardSignInTo(_ site: String) -> String {
+        String(format: String(localized: "home.card.signInTo", defaultValue: "Sign in to %@", table: "CmuxHome", bundle: .module), site)
+    }
+    static var chiefCardSignInAdd: String {
+        String(localized: "home.card.signIn.add", defaultValue: "Add", table: "CmuxHome", bundle: .module)
+    }
+    static var chiefCardSignInAdded: String {
+        String(localized: "home.card.signIn.added", defaultValue: "Added", table: "CmuxHome", bundle: .module)
+    }
+    /// The person's message after a sign-in was saved (it wakes the Chief, which fills the page).
+    static func chiefCardSignInAddedMessage(_ site: String) -> String {
+        String(format: String(localized: "home.card.signIn.addedMessage", defaultValue: "I added my sign-in for %@ to the Secure Store.",
+                              table: "CmuxHome", bundle: .module), site)
+    }
+    /// A next-step chip a person message already said (copy and VoiceOver).
+    static func chiefCardChoiceSent(_ choice: String) -> String {
+        String(format: String(localized: "home.card.choiceSent", defaultValue: "✓ %@ (sent)", table: "CmuxHome", bundle: .module), choice)
+    }
 }

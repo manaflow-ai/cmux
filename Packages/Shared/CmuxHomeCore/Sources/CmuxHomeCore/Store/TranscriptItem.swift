@@ -63,13 +63,14 @@ public struct TranscriptItem: Hashable, Sendable, Identifiable {
         self.attachmentProgress = attachmentProgress
     }
 
-    /// Hashes of this row's attachment parts and link preview images, in
-    /// part order.
+    /// Hashes of this row's attachment parts, link preview images and card
+    /// screenshots, in part order.
     public var attachmentHashes: [String] {
         parts.compactMap { part in
             switch part {
             case .attachment(let ref): ref.hash
             case .linkPreview(let link): link.image?.hash
+            case .card(let card): card.image?.hash
             default: nil
             }
         }

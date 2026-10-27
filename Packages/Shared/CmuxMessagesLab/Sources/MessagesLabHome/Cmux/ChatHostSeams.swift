@@ -50,6 +50,8 @@ protocol ChatIntents: AnyObject {
     func draftChanged()
     /// A link card was clicked (it opens too): a domain-only card may fetch its preview now.
     func linkTapped(_ ref: PartRef, url: String)
+    /// A click on a Chief card's control (cmux issue 25830): Open browser, Add, a next-step chip.
+    func chiefCardAction(_ action: HomeChiefCardAction, at ref: PartRef)
     /// My send can be cancelled (an upload, or a failed send): Cancel Upload.
     func canCancelSend(_ message: ID) -> Bool
     func cancelSend(_ message: ID)
@@ -82,6 +84,8 @@ protocol ChatIntents: AnyObject {
 }
 
 extension ChatIntents {
+    /// Hosts without Chief cards take no card clicks.
+    func chiefCardAction(_ action: HomeChiefCardAction, at ref: PartRef) {}
     /// No Forward… unless the host routes it (test hosts, the New Message composer).
     var canForward: Bool { false }
     func forward(_ text: String) {}

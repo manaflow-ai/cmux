@@ -493,6 +493,23 @@ public actor MockHomeSource: HomeSource {
         return true
     }
 
+    /// Gives the message posted under `key` new parts, as the owner commits its author's
+    /// `message.edit` (a Chief edits its live browser card at each step, cmux issue 25830): the
+    /// message's update reaches every subscriber. False when no such message exists.
+    @discardableResult
+    public func edit(key: IdempotencyKey, in conversation: ConversationID, parts: [MessagePart]) -> Bool {
+        guard var list = stored[conversation], let index = list.firstIndex(where: { $0.clientMessageID == key }),
+              var summary = conversations[conversation] else { return false }
+        list[index].parts = parts
+        list[index].editedAt = Date()
+        stored[conversation] = list
+        summary.rev += 1
+        if summary.lastMessage?.id == list[index].id { summary.lastMessage = list[index] }
+        conversations[conversation] = summary
+        publish(.message(list[index], rev: summary.rev))
+        return true
+    }
+
     /// Posts a message as someone else (incoming traffic for demos).
     public func receive(_ text: String, from author: ParticipantID, in conversation: ConversationID) {
         _ = try? commitMessage(in: conversation, author: author, parts: [.text(text)], key: .make())

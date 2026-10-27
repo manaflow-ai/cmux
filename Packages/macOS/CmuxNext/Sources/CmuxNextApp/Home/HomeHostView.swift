@@ -173,6 +173,11 @@ final class HomeHostView: NSView {
         transcript.onForward = { text in
             _ = registry.perform("home.sendSelectionTo", invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
         }
+        // A Chief's cards (cmux issue 25830): Open browser selects the browser right of this chat (or a
+        // Cloud machine's desktop); a sign-in card's Add saves into the Chief Secure Store.
+        HomeChiefCardActions.wire(transcript, services: services) { [weak self] url in
+            if let self { LinkRouter.shared.open(url, otherTarget: false, from: self) } else { LinkRouter.shared.open(url, otherTarget: false) }
+        }
         let store = service.homeStore
         // task-owner: lives as long as this view; event-driven (Observation):
         // whether this is the Chief conversation, and a refresh of the

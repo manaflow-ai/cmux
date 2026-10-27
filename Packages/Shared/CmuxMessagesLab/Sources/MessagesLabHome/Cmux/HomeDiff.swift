@@ -74,7 +74,8 @@ struct HomeDiff: Equatable {
                 // A shown reply whose thread or parent changed (its root or parent paged in or out, or was retracted): MessagesLab has no action for it.
                 guard HomeMapping.replyTo(was, roots: oldRoots) == HomeMapping.replyTo(item, roots: roots),
                       HomeMapping.parent(was, roots: oldRoots) == HomeMapping.parent(item, roots: roots) else { d.rebuild = true; return d }
-                guard changes(from: was, to: item, oldSummary: oldSummary, newSummary: newSummary, me: me, id: id(item), into: &d) else {
+                guard changes(from: was, to: item, oldSummary: oldSummary, newSummary: newSummary, me: me, id: id(item),
+                              parts: { msg($0).parts }, into: &d) else {
                     d.rebuild = true; return d
                 }
             } else if aliases[item.key] != nil {
@@ -131,9 +132,29 @@ struct HomeDiff: Equatable {
     }
 
     /// Actions for one shown message; false when MessagesLab cannot express it.
+    /// A message with a Chief card (cmux issue 25830) that changed (the Chief edits its browser card at
+    /// each step) takes its new parts in place, without "Edited": `.cmuxSetParts` when it shows as
+    /// many parts as before, else a rebuild.
     private static func changes(from o: TranscriptItem, to n: TranscriptItem, oldSummary: ConversationSummary?,
-                                newSummary: ConversationSummary?, me: ParticipantID, id: ID, into d: inout HomeDiff) -> Bool {
+                                newSummary: ConversationSummary?, me: ParticipantID, id: ID, parts: (TranscriptItem) -> [Part],
+                                into d: inout HomeDiff) -> Bool {
         if !o.isRetracted, n.isRetracted { d.actions.append(.unsend(id)); return true }
+        let card = { (item: TranscriptItem) in item.parts.contains { if case .card = $0 { return true } else { return false } } }
+        if o.parts != n.parts, !n.isRetracted, card(o) || card(n) {
+            guard owners(o, oldSummary).count == owners(n, newSummary).count else { return false }
+            d.actions.append(.cmuxSetParts(id, parts(n)))
+        } else {
+            guard edited(from: o, to: n, oldSummary: oldSummary, newSummary: newSummary, id: id, into: &d) else { return false }
+        }
+        let s0 = HomeMapping.status(o, me: me, summary: oldSummary), s1 = HomeMapping.status(n, me: me, summary: newSummary)
+        if let s1, s1 != s0 { d.actions.append(.status(id, s1)) }
+        if o.reactions != n.reactions { react(from: o.reactions, to: n.reactions, id: id, owners: owners(n, newSummary), me: me, into: &d) }
+        return true
+    }
+
+    /// A text edit as MessagesLab's `.edit`; false when the content changed in a way it cannot express.
+    private static func edited(from o: TranscriptItem, to n: TranscriptItem, oldSummary: ConversationSummary?,
+                               newSummary: ConversationSummary?, id: ID, into d: inout HomeDiff) -> Bool {
         // MessagesLab's `.edit` replaces one text bubble: a text that shows as
         // several (Messages' link rule) before or after the edit is a rebuild.
         let split = owners(o, oldSummary).count != o.parts.count || owners(n, newSummary).count != n.parts.count
@@ -142,9 +163,6 @@ struct HomeDiff: Equatable {
         } else if o.parts != n.parts {
             return false
         }
-        let s0 = HomeMapping.status(o, me: me, summary: oldSummary), s1 = HomeMapping.status(n, me: me, summary: newSummary)
-        if let s1, s1 != s0 { d.actions.append(.status(id, s1)) }
-        if o.reactions != n.reactions { react(from: o.reactions, to: n.reactions, id: id, owners: owners(n, newSummary), me: me, into: &d) }
         return true
     }
 

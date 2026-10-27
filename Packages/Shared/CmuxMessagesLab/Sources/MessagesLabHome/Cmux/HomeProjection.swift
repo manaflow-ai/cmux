@@ -76,6 +76,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onForward: ((String) -> Void)?
     /// Cancel Upload (`HomeStoreBinding.cancelSend`).
     var onCancelSend: (IdempotencyKey) -> Bool = { _ in false }
+    /// A Chief card's Open browser or Open desktop (cmux issue 25830): the host opens the target,
+    /// with the card's page URL. Nil: the button opens nothing.
+    var onChiefCardOpen: ((ChiefCard.Target, String?) -> Void)?
+    /// A sign-in card's Add: the host asks for the sign-in and saves it in the Secure Store, then
+    /// calls `done(true)`; the projection then sends the Added message. Nil: Add does nothing.
+    var onChiefSignIn: ((_ site: String, _ url: String?, _ done: @escaping @MainActor (Bool) -> Void) -> Void)?
+    /// The Secure Store's sites changed (``HomeChiefCards/storedSites``): shown sign-in cards redraw.
+    var storedSitesObserver: NSObjectProtocol?
     /// Bubble pictures and originals.
     let media = HomeMedia()
     /// Inline video playback in the bubbles.
@@ -147,6 +155,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
         video.controller = controller
         // A finished picture redraws only the rows that show it (not every attachment row shown).
         media.onReady = { [weak self] hash in self?.refreshAttachments(only: hash) }
+        storedSitesObserver = NotificationCenter.default.addObserver(forName: HomeChiefCards.storedSitesChanged, object: nil,
+                                                                     queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshCards() }
+        }
     }
 
     func start() {
@@ -161,6 +173,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         liveLine.stop()
         turnPopover?.close()
         controller.intents = nil
+        if let storedSitesObserver { NotificationCenter.default.removeObserver(storedSitesObserver) }
+        storedSitesObserver = nil
     }
 
     // MARK: HomeStore -> projection
@@ -601,6 +615,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
                     refreshLinkPicture(link, in: message)
                     continue
                 }
+                if case .card(let card) = part {
+                    // A browser card's screenshot: `refreshCards` puts it in once it is ready.
+                    if let image = card.image { media.request(image.attachmentRef) }
+                    continue
+                }
                 guard case .attachment(let ref) = part else { continue }
                 media.request(ref)
                 let want = HomeMapping.attachment(ref, picture: media.asset(ref.hash), progress: Self.shownProgress(item, ref))
@@ -611,6 +630,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
                 if let have, have != want { controller.dispatch(.cmuxSetAttachment(id, want)) }
             }
         }
+        refreshCards()
     }
 
     /// A link preview's picture, fetched by its hash like an attachment's

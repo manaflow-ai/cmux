@@ -18,6 +18,9 @@ public enum MessagePart: Hashable, Sendable, Codable {
     case linkPreview(LinkPreview)
     /// A shared location.
     case location(LocationRef)
+    /// A Chief's card (cmux issue 25830): a live browser step, a Secure Store sign-in, or
+    /// next-step chips. Only agents post one.
+    case card(ChiefCard)
 
     public var plainText: String {
         switch self {
@@ -28,15 +31,17 @@ public enum MessagePart: Hashable, Sendable, Codable {
         case .attachment(let file): file.name
         case .linkPreview(let link): link.title ?? link.url
         case .location(let place): place.label ?? "\(place.latitude), \(place.longitude)"
+        case .card(let card): card.plainText
         }
     }
 
     /// Content hashes of the blobs this part shows: an attachment's bytes,
-    /// poster and preview, or a link preview's image.
+    /// poster and preview, a link preview's image, or a browser card's screenshot.
     public var blobHashes: [String] {
         switch self {
         case .attachment(let ref): [ref.hash] + [ref.posterHash, ref.preview?.hash].compactMap { $0 }
         case .linkPreview(let link): link.image.map { [$0.hash] } ?? []
+        case .card(let card): card.image.map { [$0.hash] } ?? []
         case .text, .work, .approval, .question, .location: []
         }
     }

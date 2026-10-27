@@ -26,14 +26,17 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     func fixture(showing view: HomeNativeTranscriptView) -> HomeNativeFixture? { fixtures.values.first { $0.shows(view) } }
     /// The next page shows the attachment fixture (`{"attachments": true}`).
     var nextAttachments = false
+    /// The next page also shows the Chief's cards (`{"cards": true}`, cmux issue 25830).
+    var nextCards = false
 
     var page: InternalPageID { .homeNativeFixture }
     var title: String { HomeNativeFixture.title }
     var symbol: String { "bubble.left.and.bubble.right" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let fixture = HomeNativeFixture(attachments: nextAttachments, openPanel: openPanel)
+        let fixture = HomeNativeFixture(attachments: nextAttachments, cards: nextCards, openPanel: openPanel)
         nextAttachments = false
+        nextCards = false
         fixtures[key] = fixture
         return fixture.container
     }
@@ -217,9 +220,10 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         return .object(["ok": .bool(true)])
     }
 
-    static func open(services: AppServices, attachments: Bool = false, fresh: Bool = false) -> JSONValue {
+    static func open(services: AppServices, attachments: Bool = false, cards: Bool = false, fresh: Bool = false) -> JSONValue {
         if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel)) }
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextAttachments = attachments
+        (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextCards = cards
         let view = fresh ? services.pages.openNew(.homeNativeFixture, in: services.windows.active, focus: true)
             : services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)
         return .object(["ok": .bool(view != nil), "page": .string(InternalPageID.homeNativeFixture.rawValue)])

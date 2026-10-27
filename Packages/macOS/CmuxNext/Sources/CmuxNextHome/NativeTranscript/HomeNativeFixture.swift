@@ -28,11 +28,15 @@ public final class HomeNativeFixture {
     /// With `attachments`, the conversation also gets a photo, a video and a
     /// PDF from me (prepared and sent through the store like a drop).
     private let attachments: Bool
+    /// With `cards`, the Chief also posts its three cards (cmux issue 25830): a live browser card with a
+    /// screenshot, a reply with next-step chips (one already chosen) and a Secure Store sign-in card.
+    private let cards: Bool
     /// The app's made-ahead file picker for the fixture's "+"; nil opens none.
     private let openPanel: MadeAheadOpenPanel?
 
-    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil) {
+    public init(attachments: Bool = false, cards: Bool = false, openPanel: MadeAheadOpenPanel? = nil) {
         self.attachments = attachments
+        self.cards = cards
         self.openPanel = openPanel
         store = HomeStore(source: source)
         store.start()
@@ -60,6 +64,7 @@ public final class HomeNativeFixture {
         shown = (id, chief)
         await view.binding.opened()
         if attachments { await addAttachments(in: id) }
+        if cards { await addCards(in: id, chief: chief, me: me) }
     }
 
     /// True when `view` is this fixture's transcript.
@@ -81,6 +86,30 @@ public final class HomeNativeFixture {
             if done { await source.receive(text, from: shown.chief, in: shown.conversation) }
         }
         return true
+    }
+
+    /// The Chief's cards as the reference screenshots show them (Chief chat, 2026-10-26).
+    private func addCards(in id: ConversationID, chief: ParticipantID, me: ParticipantID) async {
+        // The browser card's screenshot: an attachment record of the conversation, as the Chief uploads it.
+        var image: ChiefCard.Image?
+        if let photo = try? await HomeFixtureMedia.make().first,
+           let prepared = try? await store.prepareAttachment(fileURL: photo, keepLocation: false),
+           let ref = try? await source.upload(AttachmentUpload(conversation: id, fileURL: prepared.fileURL, ref: prepared.ref,
+                                                               previewURL: prepared.previewURL)) {
+            image = ChiefCard.Image(hash: ref.hash, mimeType: ref.mimeType, byteCount: ref.byteCount, width: ref.width, height: ref.height)
+        }
+        guard !Task.isCancelled else { return }
+        let posts: [(ParticipantID, [MessagePart])] = [
+            (me, [.text("then reply to junbeom or something")]),
+            (chief, [.card(.browser(step: "Returning to LinkedIn Messaging", live: true, target: "browser:right",
+                                    url: "https://www.linkedin.com/messaging/", image: image))]),
+            (chief, [.text("Also done since you asked: the apology replies to Jeff and daval.ai are sent and verified. "
+                           + "The Jun Beom Lee LinkedIn reply for Wed Oct 28 at 10 AM is in progress."),
+                     .card(.nextSteps(["Try sending the Kernel update again", "Check the Nov 4 event thread"]))]),
+            (chief, [.card(.signIn(site: "linkedin.com", url: "https://www.linkedin.com/login"))]),
+            (me, [.text("Check the Nov 4 event thread")]),
+        ]
+        for (author, parts) in posts { await source.post(parts, from: author, in: id, key: .make()) }
     }
 
     private func addAttachments(in id: ConversationID) async {

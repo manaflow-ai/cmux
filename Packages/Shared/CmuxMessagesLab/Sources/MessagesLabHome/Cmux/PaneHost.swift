@@ -811,6 +811,12 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // (the vendored handler had no caller here: the band took no click, Lawrence 2026-10-21).
         if demo.longTextBandHit(p) { return }
         if let hit = demo.hit(p) {
+            // cmux: a Chief card's button or chip (cmux issue 25830), found with the layout it was drawn with.
+            if case let .custom(c) = hit.row.part,
+               let action = HomeChiefCardRowProvider.action(c, at: CGPoint(x: p.x - hit.body.minX, y: p.y - hit.body.minY), width: hit.body.width) {
+                intents?.chiefCardAction(action, at: hit.row.ref)
+                return
+            }
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
             if openLink(hit, at: p) { return }
             // cmux: a reply's quote shows its words in the original (ChatController+ReplyQuote.swift).
