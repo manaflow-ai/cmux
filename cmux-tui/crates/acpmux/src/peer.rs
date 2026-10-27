@@ -564,7 +564,8 @@ impl Peer {
         // Keepalive: a ping after each interval without a frame; any frame is
         // an answer (`peer_keepalive.rs`). A peer silent for the whole budget,
         // or one that stops reading so a send cannot go out, is dropped and
-        // reconnected; one interval of silence only marks it degraded.
+        // reconnected; a ping unanswered for an interval only marks it
+        // degraded.
         let timings = self.timings;
         let budget = timings.silence_budget();
         let mut ping = keepalive::SilenceDeadline::new(timings.ping_every);
@@ -587,7 +588,7 @@ impl Peer {
                     if silent >= budget {
                         break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
                     }
-                    if silent >= timings.ping_every {
+                    if ping.unanswered() {
                         self.with_link(Link::overdue);
                     }
                     match tokio::time::timeout(budget, sink.send(Frame::Ping(Vec::new().into()))).await {

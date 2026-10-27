@@ -11,6 +11,11 @@
 //! Only frames from the far side move it. A frame this end sends proves
 //! nothing about the path, and the dead-path checks run on the keepalive's
 //! own deadline, so they stay as they were.
+//!
+//! A ping is due after silence, so the silence alone does not say the far
+//! side is late: an idle healthy peer is silent for a whole interval before
+//! each ping. Late means a ping went out and no frame came since
+//! (`unanswered`), as QUIC counts a probe without an ack, not idle time.
 
 use std::pin::Pin;
 use std::time::Duration;
@@ -23,6 +28,8 @@ pub struct SilenceDeadline {
     heard: Instant,
     /// The deadline `timer` is armed at.
     armed: Instant,
+    /// A ping went out after the last frame from the far side.
+    unanswered: bool,
     timer: Pin<Box<Sleep>>,
 }
 
@@ -36,6 +43,7 @@ impl SilenceDeadline {
             slack: every / 10,
             heard: now,
             armed,
+            unanswered: false,
             timer: Box::pin(tokio::time::sleep_until(armed)),
         }
     }
@@ -44,6 +52,7 @@ impl SilenceDeadline {
     pub fn heard(&mut self) {
         let now = Instant::now();
         self.heard = now;
+        self.unanswered = false;
         let due = now + self.every;
         if due >= self.armed + self.slack {
             self.arm(due);
@@ -59,6 +68,12 @@ impl SilenceDeadline {
         let intervals = (self.silence() + self.slack).as_nanos() / every + 1;
         let next = Duration::from_nanos(u64::try_from(intervals * every).unwrap_or(u64::MAX));
         self.arm(self.heard + next);
+        self.unanswered = true;
+    }
+
+    /// A ping went out and no frame came since: the far side is late.
+    pub fn unanswered(&self) -> bool {
+        self.unanswered
     }
 
     /// How long the far side has been silent.
@@ -180,5 +195,110 @@ mod tests {
         assert_eq!(keepalive.due().await, EVERY * 2);
         keepalive.pinged();
         assert_eq!(keepalive.due().await, EVERY * 3);
+    }
+
+    /// What the peer link loop (`peer.rs`) saw: when the link was marked
+    /// overdue, as silence, and the silence it dropped at.
+    #[derive(Debug, Default)]
+    struct PeerRun {
+        overdue_at: Vec<Duration>,
+        dropped_at: Option<Duration>,
+    }
+
+    /// Runs the peer arm's keepalive rules on a real `Link` for `total`. The
+    /// far side sends a frame every second for `burst`, then answers each
+    /// ping after `rtt` (never when `None`).
+    async fn peer_link_over(total: Duration, burst: Duration, rtt: Option<Duration>) -> PeerRun {
+        use crate::peer_link::{Link, PeerState};
+        let budget = EVERY * 4;
+        let mut link = Link::default();
+        link.opened(0);
+        link.ready(0);
+        let mut keepalive = SilenceDeadline::new(EVERY);
+        let start = tokio::time::Instant::now();
+        let end = start + total;
+        let burst_end = start + burst;
+        let mut next_frame = Some(start + Duration::from_secs(1)).filter(|at| *at < burst_end);
+        let mut pong_at: Option<tokio::time::Instant> = None;
+        let mut run = PeerRun::default();
+        loop {
+            let frame_at = match (next_frame, pong_at) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+            tokio::select! {
+                biased;
+                _ = tokio::time::sleep_until(end) => return run,
+                _ = tokio::time::sleep_until(frame_at.unwrap_or(end)), if frame_at.is_some() => {
+                    let now = tokio::time::Instant::now();
+                    if pong_at.is_some_and(|at| at <= now) {
+                        pong_at = None;
+                    }
+                    if next_frame.is_some_and(|at| at <= now) {
+                        next_frame = Some(now + Duration::from_secs(1)).filter(|at| *at < burst_end);
+                    }
+                    keepalive.heard();
+                    link.heard(0);
+                }
+                silent = keepalive.due() => {
+                    if silent >= budget {
+                        run.dropped_at = Some(silent);
+                        return run;
+                    }
+                    if keepalive.unanswered() {
+                        link.overdue();
+                    }
+                    if link.state() == PeerState::Degraded {
+                        run.overdue_at.push(silent);
+                    }
+                    keepalive.pinged();
+                    pong_at = rtt.map(|rtt| tokio::time::Instant::now() + rtt);
+                }
+            }
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn peer_keepalive_an_idle_answering_peer_is_never_overdue() {
+        for rtt in [Duration::from_millis(1), Duration::from_millis(50), Duration::from_secs(1)] {
+            let run = peer_link_over(Duration::from_secs(600), Duration::ZERO, Some(rtt)).await;
+            assert!(run.overdue_at.is_empty(), "rtt {rtt:?}: {run:?}");
+            assert_eq!(run.dropped_at, None, "rtt {rtt:?}");
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn peer_keepalive_a_burst_then_silence_is_never_overdue() {
+        // Frames each second for a while, then the peer only answers pings:
+        // the first ping comes a whole interval after the last frame.
+        for burst in [Duration::from_secs(37), Duration::from_millis(37_500)] {
+            let run =
+                peer_link_over(Duration::from_secs(600), burst, Some(Duration::from_millis(50)))
+                    .await;
+            assert!(run.overdue_at.is_empty(), "burst {burst:?}: {run:?}");
+            assert_eq!(run.dropped_at, None, "burst {burst:?}");
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn peer_keepalive_an_unanswered_ping_marks_overdue_then_drops() {
+        // Ping at 15 s, unanswered: overdue at the next due (30 s), and the
+        // link drops at the silence budget (60 s).
+        let run = peer_link_over(Duration::from_secs(600), Duration::ZERO, None).await;
+        assert_eq!(run.overdue_at, [EVERY * 2, EVERY * 3]);
+        assert_eq!(run.dropped_at, Some(EVERY * 4));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn peer_keepalive_unanswered_until_a_frame() {
+        let mut keepalive = SilenceDeadline::new(EVERY);
+        assert!(!keepalive.unanswered());
+        keepalive.due().await;
+        assert!(!keepalive.unanswered());
+        keepalive.pinged();
+        assert!(keepalive.unanswered());
+        tokio::time::advance(Duration::from_millis(50)).await;
+        keepalive.heard();
+        assert!(!keepalive.unanswered());
     }
 }
