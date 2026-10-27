@@ -15,6 +15,8 @@ on:
       - scripts/import-apple-developer-id-intermediates.sh
       - scripts/apple-developer-id-certs/**
       - tests/test_signing_keychain_real_import.sh
+      - tests/test_derive_sparkle_public_key.sh
+      - scripts/derive_sparkle_public_key.swift
       - tests/test_bash32_parse_guard.sh
       - scripts/*.sh
       - scripts/cmux-next/*.sh
@@ -28,6 +30,8 @@ on:
       - scripts/import-apple-developer-id-intermediates.sh
       - scripts/apple-developer-id-certs/**
       - tests/test_signing_keychain_real_import.sh
+      - tests/test_derive_sparkle_public_key.sh
+      - scripts/derive_sparkle_public_key.swift
       - tests/test_bash32_parse_guard.sh
       - scripts/*.sh
       - scripts/cmux-next/*.sh
@@ -42,8 +46,61 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The triggers above are wide for bash32-syntax (any scripts/ci change can
+  # break macOS /bin/bash 3.2), and that job runs on Linux. The real import
+  # needs a Mac but tests only the keychain tool, so this Linux job starts it
+  # only when the tool, what it sources, its test or this workflow changed.
+  # Before this, every scripts/*.sh PR queued a Blacksmith macOS job (nine at
+  # once on 2026-10-27, ahead of nightly signing on the same label). A diff
+  # that cannot be read (new branch, too many files, API error) runs it.
+  real-import-plan:
+    name: Does the keychain tool change?
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      run: ${{ steps.plan.outputs.run }}
+    steps:
+      - name: Compare the changed files with the keychain tool's inputs
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          # Keep in sync with tests/test_signing_keychain_real_import_gate.py.
+          INPUTS: |-
+            ^scripts/ci/signing-keychain\.sh$
+            ^scripts/ci/lib/signing-runtime-guard\.sh$
+            ^scripts/import-apple-developer-id-intermediates\.sh$
+            ^scripts/apple-developer-id-certs/
+            ^scripts/select-ci-xcode\.sh$
+            ^tests/test_signing_keychain_real_import\.sh$
+            ^tests/test_derive_sparkle_public_key\.sh$
+            ^scripts/derive_sparkle_public_key\.swift$
+            ^\.github/workflows/signing-keychain-macos\.yml$
+        run: |
+          set -uo pipefail
+          run=true
+          if [ "$EVENT" != workflow_dispatch ] && [ -n "$BASE" ] && [ "${BASE//0/}" != "" ]; then
+            if files="$(gh api "repos/$REPO/compare/$BASE...$HEAD" \
+                --jq 'if (.files | length) >= 300 then error("too many files") else .files[].filename end')"; then
+              if ! grep -E -f <(printf '%s\n' "$INPUTS") <<<"$files" >/dev/null; then
+                run=false
+              fi
+            else
+              echo "::warning::could not read the diff; running the real import"
+            fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+          echo "real import: $run" >> "$GITHUB_STEP_SUMMARY"
+
   real-import:
     name: Real keychain import (throwaway identity)
+    needs: real-import-plan
+    if: ${{ needs.real-import-plan.outputs.run == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 10
     permissions:

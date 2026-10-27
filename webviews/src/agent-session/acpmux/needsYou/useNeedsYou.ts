@@ -4,7 +4,7 @@ import { useMemo, useRef } from "react";
 import { revealTurnWhenShown } from "../links";
 import type { AcpmuxSnapshot } from "../model";
 import { reply, replyParams, selection } from "../question/model";
-import { nextAsk, needsYouPillOn, type TranscriptNeedsYou } from "./JumpPill";
+import { nextAsk, needsYouPillOn, pillAsks, type TranscriptNeedsYou } from "./JumpPill";
 import { needsYouItems, type NeedsYouAnswer, type NeedsYouItem } from "./model";
 import { needsYouMode, type NeedsYouActions, type NeedsYouMode } from "./NeedsYou";
 
@@ -95,14 +95,20 @@ export function useNeedsYou({
   };
   // The last ask the pill went to, so the next press goes to the one after it.
   const last = useRef<string | undefined>(undefined);
-  const elsewhere = items.filter((item) => item.sessionId !== sessionId).length;
+  // The pill speaks for this chat and the chats it started only (JumpPill.tsx `pillAsks`); the
+  // header's list keeps every ask.
+  const ours = useMemo(
+    () => (pillOn ? pillAsks(items, sessions, sessionId) : []),
+    [pillOn, items, sessions, sessionId],
+  );
+  const elsewhere = ours.filter((item) => item.sessionId !== sessionId).length;
   const pill: TranscriptNeedsYou | undefined =
-    pillOn && items.length > 0
+    pillOn && ours.length > 0
       ? {
-          count: items.length,
+          count: ours.length,
           elsewhere,
           next: (behind) => {
-            const item = nextAsk(items, sessionId, behind, last.current);
+            const item = nextAsk(ours, sessionId, behind, last.current);
             if (!item) return;
             last.current = item.id;
             goTo(item);

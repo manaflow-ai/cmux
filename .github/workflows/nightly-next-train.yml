@@ -173,7 +173,7 @@ jobs:
   build:
     name: nightly-next train Release compile
     if: github.repository == 'manaflow-ai/cmux' && inputs.mode == 'build' && startsWith(github.ref, 'refs/heads/nightly-train/')
-    runs-on: ${{ vars.NIGHTLY_NEXT_TRAIN_RUNNER || 'macos-26' }} # nightly path: never Blacksmith (tests/test_ci_nightly_off_blacksmith.py)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.NIGHTLY_NEXT_TRAIN_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # The same one-architecture Release xcodebuild as cmux-next.yml's
     # "cmux-next Release compile (Xcode 26)", on the candidate train commit.
     timeout-minutes: 60

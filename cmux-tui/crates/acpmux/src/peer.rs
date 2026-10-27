@@ -57,6 +57,8 @@ pub enum PeerNotice {
     Notification {
         method: String,
         params: Value,
+        /// The link it came on (`Peer::link_epoch` when it was read).
+        link: u64,
     },
 }
 
@@ -92,6 +94,8 @@ pub struct Peer {
     trust_gate: AtomicBool,
     /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
     file_put: AtomicBool,
+    /// It lists `filePutChunks` (`hub/file_uploads.rs`).
+    file_put_chunks: AtomicBool,
     /// Whether the peer serves `_acpmux/media_open` and `_acpmux/media_range` (`hub/media_read.rs`).
     media_read: AtomicBool,
     /// Bumped each time a connection to the peer ends (and at `stop`): what the peer kept for
@@ -101,6 +105,10 @@ pub struct Peer {
     subagent_transcript: AtomicBool,
     /// Whether the peer saves a message's attachments (`attach.rs`).
     send_attach: AtomicBool,
+    /// The peer lists `promptUploads` (`prompt_uploads.rs`).
+    prompt_uploads: AtomicBool,
+    /// The peer lists `uploadResume` (`hub/file_uploads.rs`).
+    upload_resume: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -162,10 +170,13 @@ impl Peer {
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
             file_put: AtomicBool::new(false),
+            file_put_chunks: AtomicBool::new(false),
             media_read: AtomicBool::new(false),
             link_epoch: AtomicU64::new(0),
             subagent_transcript: AtomicBool::new(false),
             send_attach: AtomicBool::new(false),
+            prompt_uploads: AtomicBool::new(false),
+            upload_resume: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
@@ -411,6 +422,11 @@ impl Peer {
         self.file_put.load(Ordering::SeqCst)
     }
 
+    /// Whether the peer takes uploads in chunks (`file_put_begin`/`_chunk`/`_finish`/`_cancel`).
+    pub fn supports_file_put_chunks(&self) -> bool {
+        self.file_put_chunks.load(Ordering::SeqCst)
+    }
+
     /// Whether the peer said at its last handshake that it serves the media reader.
     pub fn supports_media_read(&self) -> bool {
         self.media_read.load(Ordering::SeqCst)
@@ -434,6 +450,17 @@ impl Peer {
     /// Whether the peer said at its last handshake that it saves a message's attachments.
     pub fn supports_send_attach(&self) -> bool {
         self.send_attach.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer said at its last handshake that it reads uploaded files a message names.
+    pub fn supports_prompt_uploads(&self) -> bool {
+        self.prompt_uploads.load(Ordering::SeqCst)
+    }
+
+    /// Whether the peer said at its last handshake that it answers upload status and checks a
+    /// finish's `sha256` (`hub/file_uploads.rs`).
+    pub fn supports_upload_resume(&self) -> bool {
+        self.upload_resume.load(Ordering::SeqCst)
     }
 
     pub fn summary(&self) -> Value {
@@ -472,9 +499,20 @@ impl Peer {
     }
 
     pub async fn request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
+        self.request_on(m, params, None).await
+    }
+
+    /// `request` on the link of epoch `epoch` only, when the caller read it before (it labels
+    /// what the answer holds with it, `hub/peer_snapshot.rs`): unreachable once that link ended.
+    pub async fn request_on(
+        &self,
+        m: &str,
+        params: Value,
+        epoch: Option<u64>,
+    ) -> Result<Value, RpcError> {
         // Read before the check: `run` moves the epoch on before it fails what
         // waits, so a request that is registered after that sees the change.
-        let epoch = self.link_epoch();
+        let epoch = epoch.unwrap_or_else(|| self.link_epoch());
         if !self.connected.load(Ordering::SeqCst) || self.admitting.load(Ordering::SeqCst) {
             return Err(self.unreachable_error());
         }
@@ -525,10 +563,20 @@ impl Peer {
         };
         match answer {
             // A full disk the peer reports is the peer's, not this machine's (`recovery.rs`).
-            Ok(Ok(r)) => r.map_err(|mut e| {
-                crate::recovery::annotate_peer(&mut e, &self.name);
-                e
-            }),
+            // No display line of the peer's own reaches this daemon's clients, on any route that
+            // returns a peer's reply or its error's data (`hub::drop_display_lines`).
+            Ok(Ok(r)) => r
+                .map(|mut result| {
+                    crate::hub::drop_display_lines(&mut result);
+                    result
+                })
+                .map_err(|mut e| {
+                    crate::recovery::annotate_peer(&mut e, &self.name);
+                    if let Some(data) = e.data.as_mut() {
+                        crate::hub::drop_display_lines(data);
+                    }
+                    e
+                }),
             Ok(Err(_)) => {
                 Err(RpcError::internal(format!("peer {} dropped the request", self.name)))
             }
@@ -724,10 +772,15 @@ impl Peer {
                     .is_some_and(|features| features.iter().any(|f| f.as_str() == Some(feature)))
             };
             me.file_put.store(lists(crate::hub::FILE_PUT_FEATURE), Ordering::SeqCst);
+            let chunks = lists(crate::hub::file_uploads::CHUNKS_FEATURE);
+            me.file_put_chunks.store(chunks, Ordering::SeqCst);
             me.media_read.store(lists(crate::hub::MEDIA_READ_FEATURE), Ordering::SeqCst);
             me.subagent_transcript
                 .store(lists(crate::hub::SUBAGENT_TRANSCRIPT_FEATURE), Ordering::SeqCst);
             me.send_attach.store(lists(crate::attach::FEATURE), Ordering::SeqCst);
+            me.prompt_uploads.store(lists(crate::prompt_uploads::FEATURE), Ordering::SeqCst);
+            let resume = lists(crate::hub::file_uploads::RESUME_FEATURE);
+            me.upload_resume.store(resume, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
             me.request(method::MUX_WATCH, json!({"enabled": true})).await?;
             me.with_link(|l| l.ready(crate::store::now_ms()));
@@ -835,7 +888,7 @@ impl Peer {
                                     seq: p.get("seq").and_then(Value::as_u64).unwrap_or(0),
                                 }
                             } else {
-                                PeerNotice::Notification { method: m, params: p }
+                                PeerNotice::Notification { method: m, params: p, link: self.link_epoch() }
                             };
                             if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
                                 break Ok(());
