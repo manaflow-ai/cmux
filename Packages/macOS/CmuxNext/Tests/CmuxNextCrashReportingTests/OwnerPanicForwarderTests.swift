@@ -111,8 +111,9 @@ import Testing
 
     static func forwarder(_ logs: [RustDiagnosticsLog], dir: URL, sends: Bool = true, recorder: Recorder,
                           attached: Bool = true) -> OwnerPanicForwarder {
-        OwnerPanicForwarder(logs: logs, stateFile: dir.appending(path: "state.json"), sends: sends,
-                            hangEntries: attached ? { recorder.hang($0, $1) } : nil, capture: { recorder.capture($0) })
+        let entries: OwnerPanicForwarder.HangEntries = { recorder.hang($0, $1) }
+        return OwnerPanicForwarder(logs: logs, stateFile: dir.appending(path: "state.json"), sends: sends,
+                                   hangEntries: attached ? entries : nil, capture: { recorder.capture($0) })
     }
 
     /// The hang log of `logs` that holds `file`, by the log's folder rule.
