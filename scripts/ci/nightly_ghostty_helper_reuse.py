@@ -99,8 +99,15 @@ def job_log(repo: str, job_id: int, token: str) -> str:
             opener.open(req, timeout=60)
         except urllib.error.HTTPError as error:
             if error.code in (301, 302, 303, 307, 308) and error.headers.get("Location"):
-                with urllib.request.urlopen(error.headers["Location"], timeout=60) as resp:
-                    return resp.read().decode("utf-8", "replace")
+                try:
+                    with urllib.request.urlopen(error.headers["Location"], timeout=60) as resp:
+                        return resp.read().decode("utf-8", "replace")
+                except urllib.error.HTTPError as missing:
+                    if missing.code == 404:  # a live job's log is not a blob yet
+                        return ""
+                    raise
+            if error.code == 404:
+                return ""
             raise
         raise SystemExit("job log did not redirect to blob storage")
 
