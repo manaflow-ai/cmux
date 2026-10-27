@@ -281,21 +281,24 @@ class Workflow(unittest.TestCase):
         self.assertIn("pick-nightly-build-runner", job["needs"])
         source = job["runs-on"].removeprefix("${{").removesuffix("}}")
         pick = "pick-nightly-build-runner"
-        for attempt, owned, dedicated, blacksmith in itertools.product(
-                (1, 2), ("", SIDE, DEDICATED), ("", DEDICATED), ("", LARGE)):
+        for event, attempt, picked_for, owned, dedicated, blacksmith in itertools.product(
+                ("push", "workflow_dispatch"), (1, 2), ("1", "2"), ("", SIDE, DEDICATED), ("", DEDICATED), ("", LARGE)):
             if (owned == DEDICATED) != (dedicated == DEDICATED):
                 continue
             context = {"github.repository_owner": "manaflow-ai", "github.repository": "manaflow-ai/cmux",
-                       "github.event_name": "push", "github.ref": "refs/heads/nightly-next",
+                       "github.event_name": event, "github.ref": "refs/heads/nightly-next",
                        "github.run_attempt": attempt, "vars.CI_PR_POOL_OWNED": "1",
                        "vars.CI_SIDE_LANE_RUNNER": SIDE, "vars.CI_SEED_TRUSTED_POOL": "glaeda-trusted-std-xcode-26.6",
                        "vars.LINUX_RUNNER": "", "inputs.nightly_next_unsigned_run": "",
+                       f"needs.{pick}.outputs.attempt": picked_for,
                        "needs.resolve-nightly-ghostty-cli-helper.outputs.hit": "false",
                        f"needs.{pick}.outputs.owned": owned, f"needs.{pick}.outputs.dedicated": dedicated,
                        f"needs.{pick}.outputs.blacksmith": blacksmith}
-            with self.subTest(attempt=attempt, owned=owned, dedicated=dedicated, blacksmith=blacksmith):
+            with self.subTest(event=event, attempt=attempt, picked_for=picked_for, owned=owned, dedicated=dedicated,
+                              blacksmith=blacksmith):
                 label = evaluate(parse_expression(source), context)
-                if attempt == 1 and owned == SIDE:
+                # The same rule as build-nightly-app: only a pick made for this attempt.
+                if picked_for == str(attempt) and owned == SIDE:
                     self.assertEqual(label, SIDE)
                 else:
                     # The picker's moving label, else the default; never a dropped pick.

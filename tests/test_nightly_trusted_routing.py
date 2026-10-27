@@ -128,11 +128,16 @@ class NightlyTrustedRouting(unittest.TestCase):
                  # nightly-next reads pick-nightly-build-runner's owned and Blacksmith picks
                  # (tests/test_nightly_build_runner.py covers every combination).
                  'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-side-std-xcode-26.6',
+                 'needs.pick-nightly-build-runner.outputs.attempt': '1',
                  'needs.pick-nightly-build-runner.outputs.dedicated': '',
                  'needs.pick-nightly-build-runner.outputs.blacksmith': 'blacksmith-6vcpu-macos-26', **changes})
         self.assertEqual(helper(), 'glaeda-side-std-xcode-26.6')
-        # A retry or rescue re-run leaves a busy mini for Blacksmith macOS 26.
+        # A retry or rescue re-run (a re-run of failed jobs keeps attempt 1's pick) leaves a busy mini for
+        # Blacksmith macOS 26; a dispatch, or a re-run that picked again, takes its own owned pick.
         self.assertEqual(helper(**{'github.run_attempt': 2}), 'blacksmith-6vcpu-macos-26')
+        self.assertEqual(helper(**{'github.event_name': 'workflow_dispatch'}), 'glaeda-side-std-xcode-26.6')
+        self.assertEqual(helper(**{'github.run_attempt': 2, 'needs.pick-nightly-build-runner.outputs.attempt': '2'}),
+                         'glaeda-side-std-xcode-26.6')
         # The dedicated builder admits only build-nightly-app: the helper never takes it.
         self.assertEqual(helper(**{'needs.pick-nightly-build-runner.outputs.owned': 'glaeda-trusted-next-nightly',
                                    'needs.pick-nightly-build-runner.outputs.dedicated': 'glaeda-trusted-next-nightly'}),
@@ -140,7 +145,7 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertEqual(helper(**{'github.ref': 'refs/heads/main'}), 'glaeda-trusted-std-xcode-26.6')
         self.assertEqual(helper(**{'github.ref': 'refs/heads/main', 'github.event_name': 'schedule'}),
                          'glaeda-trusted-std-xcode-26.6')
-        # A dispatch mints no routing token, so the picker offers no owned label.
+        # No owned pick (busy fleet, no routing token): Blacksmith.
         for changes in ({'github.run_attempt': 2},
                         {'github.event_name': 'workflow_dispatch', 'needs.pick-nightly-build-runner.outputs.owned': ''},
                         {'github.ref': 'refs/heads/main', 'vars.CI_PR_POOL_OWNED': '0'},
