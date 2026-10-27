@@ -5,9 +5,18 @@
 #
 # The Linux half of the tip DMG (cmux-next-dev-daily.yml, job tip-dmg): a Mac
 # builds the unsigned DMG (hdiutil has no Linux equivalent for ULMO), and this
-# signs it with stock rcodesign (0.29.0, scripts/ci/install-rcodesign.sh), makes
-# Apple's notary service accept it, and staples the ticket. It replaces
-# codesign --force --timestamp, notarytool submit/wait and stapler staple.
+# signs it with rcodesign 0.29.0 plus scripts/ci/rcodesign-0.29.0-dmg.patch
+# (scripts/ci/build-rcodesign-dmg.sh), makes Apple's notary service accept it,
+# and staples the ticket. It replaces codesign --force --timestamp, notarytool
+# submit/wait and stapler staple.
+#
+# The signature is codesign's (Leo, 2026-10-24: "the linux built ones the ones
+# we send to apple we wanna make sure it's byte perfect"): the patched signer
+# writes the 0x20200 Code Directory with the certificate's team and the
+# Developer ID designated requirement, with no flags (codesign sets none on a
+# DMG; --for-notarization would add the hardened runtime flag, so the time
+# stamp is asked for directly). The step after signing refuses a signature
+# whose team, requirement, version or flags differ from that.
 #
 # Env: APPLE_CERTIFICATE_BASE64 and APPLE_CERTIFICATE_PASSWORD (the PKCS#12),
 # APPLE_SIGNING_IDENTITY (the certificate must match it, as in
@@ -48,6 +57,8 @@ unset APPLE_CERTIFICATE_PASSWORD APPLE_CERTIFICATE_BASE64
   { echo "error: the PKCS#12 must hold exactly one private key" >&2; exit 1; }
 subject="$(openssl x509 -noout -subject -nameopt multiline,utf8,-esc_msb < "$secrets/identity.pem")"
 cn="$(awk '/^ *commonName *=/ { sub(/^ *commonName *= */, ""); print; exit }' <<<"$subject")"
+team="$(awk '/^ *organizationalUnitName *=/ { sub(/^ *organizationalUnitName *= */, ""); print; exit }' <<<"$subject")"
+[[ "$team" == 7WLXT3NR37 ]] || { echo "error: the certificate ($cn) is for team '$team', not 7WLXT3NR37" >&2; exit 1; }
 [[ "$cn" == "Developer ID Application:"* ]] ||
   { echo "error: the certificate ($cn) is not a Developer ID Application certificate" >&2; exit 1; }
 want="$APPLE_SIGNING_IDENTITY"
@@ -60,8 +71,17 @@ elif [[ "$cn" != *"$want"* ]]; then
 fi
 
 echo "==> signing ${DMG##*/} as $cn"
-"$R" sign --config-file /dev/null --pem-file "$secrets/identity.pem" --for-notarization "$DMG"
+"$R" sign --config-file /dev/null --pem-file "$secrets/identity.pem" \
+  --timestamp-url http://timestamp.apple.com/ts01 "$DMG"
 rm -f "$secrets/identity.pem"
+
+# What codesign writes for a Developer ID DMG (scripts/ci/build-rcodesign-dmg.sh).
+ident="$(basename "$DMG" .dmg)"
+info="$("$R" print-signature-info "$DMG")"
+want_dr="designated(3): 0: (identifier \"$ident\") and ((anchor apple generic) and ((certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */) and ((certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */) and (certificate leaf[subject.OU] = \"$team\"))));"
+for want in "version: '0x20200'" "flags: CodeSignatureFlags(0x0)" "identifier: $ident" "team_name: $team" "$want_dr"; do
+  grep -qF -- "$want" <<<"$info" || { echo "error: the DMG signature lacks: $want" >&2; echo "$info" >&2; exit 1; }
+done
 
 (umask 077 && printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 -d > "$secrets/AuthKey_${ASC_API_KEY_ID}.p8") 2>/dev/null ||
   { echo "error: ASC_API_KEY_P8_BASE64 is not valid base64" >&2; exit 1; }
