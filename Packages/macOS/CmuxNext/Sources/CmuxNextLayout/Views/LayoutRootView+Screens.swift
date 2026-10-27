@@ -198,7 +198,7 @@ extension LayoutRootView {
                                            velocity: RectComponents(x: slide.velocity.x, y: slide.velocity.y))
         if let layer = view.layer, slide.fromAlpha != slide.toAlpha {
             let rest = view.alphaValue
-            moves.append(RenderSpring.Move(layer, "opacity", from: rest + alphaScale * (slide.fromAlpha - slide.toAlpha), to: rest,
+            moves.append(RenderSpring.Move(layer, RenderSpringKey<CGFloat>.opacity, from: rest + alphaScale * (slide.fromAlpha - slide.toAlpha), to: rest,
                                            velocity: alphaScale * slide.alphaVelocity))
         }
         return moves
