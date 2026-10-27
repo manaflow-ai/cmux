@@ -1392,6 +1392,14 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: thread count per manual surface = 1 (test).
 - Test phase: zig build test; thread count with 20 terminals about 20 lower.
 - Size M.
+- Fork branch: manaflow-ai/ghostty-next `cp/p03-rendering-086`, commit `d6b9e5348` (on ghostty-next main `9ce9b7d08`). `termio.Thread`
+  has two modes: `.own` (exec: its own loop and thread, as before) and `.hosted` (manual: no loop, no stop handle,
+  no thread). The renderer thread takes a `LoopGuest` before it starts; it attaches the termio mailbox wakeup and
+  the three termio timers (resize coalesce, synchronized-output reset, selection scroll) to its own loop, and
+  detaches after the loop stops. If the renderer fails to start, the loop still runs for the guest, so a full
+  mailbox never blocks its producer. Chromium: sequences on a shared thread, not a thread per client
+  (`base/task/sequenced_task_runner.h`). The hosted handlers follow the renderer QoS (lower when hidden).
+  The ghostty-next gitlink is not moved: the integrator lane (task 079) lands the branch and bumps the pin.
 
 #### p03-rendering-087 Shared atlas and command queue
 - Files: `ghostty-next/src/renderer/generic.zig`, `src/renderer/Metal.zig`, `src/font/SharedGrid.zig`.
