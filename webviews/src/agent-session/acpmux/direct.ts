@@ -2102,6 +2102,46 @@ export class AcpmuxDirectClient {
     }
   }
 
+  /// Whether the row of the chat attached on screen, with no attach or open out, names another
+  /// session than its rows are of: one recreated (another `createdAt`) or moved to another machine
+  /// (another `peer`, a Cloud move or Bring Back Local). An attach or open out decides for itself
+  /// (`attach` holds every reply to the row as it answers).
+  private rowsOfAnother(session: SessionSummary): boolean {
+    if (this.opening || this.attachedGeneration !== this.selectionGeneration) return false;
+    const peer = typeof session.peer === "string" ? session.peer : undefined;
+    const createdAt = typeof session.createdAt === "number" ? session.createdAt : undefined;
+    return (
+      peer !== this.rowsPeer ||
+      (this.rowsGeneration !== undefined && createdAt !== undefined && createdAt !== this.rowsGeneration)
+    );
+  }
+
+  /// The chat on screen was recreated or moved to another machine while it sat attached, idle: its
+  /// rows, cursors and live stream are of the session before, and a send would act on what the
+  /// pane no longer shows. As a switch does, everything of the old session goes, and the session
+  /// listed now is attached from nothing; the attach holds its reply to the row, as every one does.
+  /// A new selection generation drops any read of the old session still out, and the composer's
+  /// target (`attachedSession`) waits for this attach. It claims no attach token (`copyAttaches`):
+  /// a reconnect's attach that starts meanwhile takes over, as it does a select's. A machine that
+  /// does not answer draws the Mac's copy of the session listed now, offline (`keepPeerCopy`).
+  private async followSession(sessionId: string): Promise<void> {
+    const generation = ++this.selectionGeneration;
+    const mine = this.copyAttaches;
+    this.wire.lifecycle("session moved", { sessionId });
+    forgetTail(sessionId);
+    this.resetSessionState();
+    this.rebuild();
+    try {
+      await this.attach(sessionId, generation, 0);
+    } catch (error) {
+      // A reconnect's attach took the chat over meanwhile: its outcome decides.
+      if (mine !== this.copyAttaches) return;
+      if (await this.keepPeerCopy(sessionId, generation, error)) return;
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+      this.dropPeerCopy(sessionId);
+    }
+  }
+
   /// The session of a chat shown offline from the Mac's copy was recreated while its machine stays
   /// down: the old copy goes, and the Mac's copy of the new session is drawn, offline, when it has
   /// one; else the chat is off screen as after a failed open, and opens again once the machine is.
@@ -3246,6 +3286,7 @@ export class AcpmuxDirectClient {
         if (back) this.copyBack = id;
         void this.redrawPeerCopy(id);
       } else if (copy?.offline && back) void this.reattachPeerCopy(id);
+      else if (!copy && this.rowsOfAnother(session)) void this.followSession(id);
     }
     if (this.offerChildIds().includes(session.sessionId) || this.isStartedChild(session))
       this.childChanged(session.sessionId);
