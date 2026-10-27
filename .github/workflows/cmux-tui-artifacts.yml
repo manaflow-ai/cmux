@@ -1832,38 +1832,12 @@ jobs:
       # reads a budget exhausted, else 60, 120 and 240 s for the secondary limit,
       # at most 15 minutes in all. The last try is not continue-on-error, so no
       # binary is published without provenance.
-      # Every workflow's github.token is one actor, and its secondary limit is
-      # what refused the attestation. The release App is another actor with its
-      # own limits, so tries 1 and 3 go out as the App when its token can be
-      # minted, and tries 2 and 4 as github.token (#25490's App-first, then
-      # github.token). With no App credentials in this job's environment, or a
-      # failed mint, every try uses github.token.
-      - name: Look for the release App credentials
-        id: release-app
-        env:
-          APP_ID: ${{ secrets.CMUX_RELEASE_APP_ID }}
-        run: echo "present=$([ -n "$APP_ID" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-
-      - name: Mint the release App token for the attestation
-        id: attest-app-token
-        if: steps.release-app.outputs.present == 'true'
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ secrets.CMUX_RELEASE_APP_ID }}
-          private-key: ${{ secrets.CMUX_RELEASE_APP_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-attestations: write
-
       - name: Attest raw binary subjects
         id: attest_subjects
         continue-on-error: true
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          github-token: ${{ steps.attest-app-token.outputs.token || github.token }}
-          subject-path: &attest-subject-paths |
+        with: &attest-subjects
+          subject-path: |
             assets/cmux-tui/cmux-tui-*
             assets/cmux-tui/manifest.json
             assets/cmux-tui-windows/cmux-tui-*
@@ -1889,10 +1863,7 @@ jobs:
         if: steps.attest_subjects.outcome == 'failure'
         continue-on-error: true
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          github-token: ${{ github.token }}
-          subject-path: *attest-subject-paths
-          push-to-registry: false
+        with: *attest-subjects
 
       - name: Back off before the third attestation try
         if: steps.attest_subjects_2.outcome == 'failure'
@@ -1904,10 +1875,7 @@ jobs:
         if: steps.attest_subjects_2.outcome == 'failure'
         continue-on-error: true
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          github-token: ${{ steps.attest-app-token.outputs.token || github.token }}
-          subject-path: *attest-subject-paths
-          push-to-registry: false
+        with: *attest-subjects
 
       - name: Back off before the last attestation try
         if: steps.attest_subjects_3.outcome == 'failure'
@@ -1917,10 +1885,7 @@ jobs:
       - name: Attest raw binary subjects (last try)
         if: steps.attest_subjects_3.outcome == 'failure'
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          github-token: ${{ github.token }}
-          subject-path: *attest-subject-paths
-          push-to-registry: false
+        with: *attest-subjects
 
       - name: Upload to R2
         env:
