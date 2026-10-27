@@ -7,11 +7,12 @@ name: cmux NEXT DEV daily dispatcher
 # never cancels another run. GitHub's cron fired every 15-25 minutes on
 # 2026-10-25 (a merge reached the tip feed 48 minutes later), so a
 # feat-cmux-next push also starts this dispatcher at once: cmux-next-dev-kick.yml,
-# or the push run's dev-landing-publish when its landing compiled no app. Every
-# landing gets its own DEV build, with no spacing: a landing the push run already
-# compiles (its "cmux NEXT DEV Release compile (landing)" job, recorded under the
-# whole-app reuse key) needs none, and its finished app is handed over here too
-# when the push run's own handoff was lost.
+# or the push run's dev-landing-publish when its landing compiled no app. A
+# landing the push run compiles itself (its "cmux NEXT DEV Release compile
+# (landing)" job) needs no DEV build; its finished app is handed over here too
+# when the push run's own handoff was lost. A landing whose landing compile ran
+# and produced nothing gets its DEV build at once; only a push with no landing
+# path keeps the five-minute spacing (its cmux-scheme-compile builds the app).
 on:
   schedule:
     - cron: "2-59/5 * * * *"
@@ -167,8 +168,7 @@ jobs:
             // dev-landing-place, then dev-landing-compile) and hands it to the
             // publisher. While that compile is placed, running or done, the tip
             // needs no DEV build; a finished one whose handoff was lost is
-            // handed over here. No spacing otherwise: every landing that has no
-            // landing compile gets its own DEV build at once.
+            // handed over here.
             const landingCompile = 'cmux NEXT DEV Release compile (landing)';
             const landingPlace = 'cmux NEXT DEV landing placement';
             const { data: pushes } = await api.rest.actions.listWorkflowRuns({
@@ -180,6 +180,7 @@ jobs:
               head_sha: sha,
               per_page: 5,
             });
+            let landingTried = false;
             for (const push of pushes.workflow_runs.filter((run) => run.head_sha === sha)) {
               const { data: pushJobs } = await api.rest.actions.listJobsForWorkflowRun({
                 owner,
@@ -225,6 +226,25 @@ jobs:
               }
               if (compiled || pending) {
                 core.notice(`The landing compile of push run ${push.id} covers feat-cmux-next ${sha}`);
+                return;
+              }
+              if (pushJobs.jobs.some((job) => job.name === landingPlace && job.conclusion !== 'skipped')) {
+                landingTried = true;
+              }
+            }
+            // The five-minute spacing holds only where the push run has no landing
+            // path (vars.CMUX_NEXT_DEV_LANDING_COMPILE=0, or a push before it): its
+            // cmux-scheme-compile produces the push's DEV app, and a DEV build per
+            // merge would compile it twice. A landing whose own compile was tried
+            // and produced nothing gets its DEV build at once.
+            if (!landingTried) {
+              const devName = /^cmux NEXT DEV daily · [0-9a-f]{40}$/;
+              const recent = data.workflow_runs.find((run) =>
+                (devName.test(run.name || '') || devName.test(run.display_title || '')) &&
+                ['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) &&
+                Date.now() - Date.parse(run.created_at) < 5 * 60 * 1000);
+              if (recent) {
+                core.notice(`DEV source run ${recent.id} started under five minutes ago and ${sha} has no landing compile; the next push or tick asks for it`);
                 return;
               }
             }

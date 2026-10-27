@@ -231,10 +231,17 @@ def active_run(run_id, sha, age_s, status="in_progress", title=None, name="cmux-
             "name": name, "display_title": title or f"cmux NEXT DEV daily · {sha}"}
 
 
-check("spacingMs" not in text, "the dispatcher must not space DEV builds")
+# A tip with no landing path (no push run with a landing placement: the landing
+# compile off) keeps the five-minute spacing: its push run's cmux-scheme-compile
+# builds the app, and a DEV build per merge would compile it twice.
 for status in ("queued", "requested", "waiting", "pending", "in_progress"):
     calls = run([active_run(20, "2" * 40, 60, status=status)], {})
-    check(built(calls) == [TIP], f"a {status} DEV build of an older landing must not hold the tip, got {built(calls)}")
+    check(built(calls) == [], f"with no landing path a {status} DEV build under five minutes old spaces the tip, got {built(calls)}")
+calls = run([active_run(21, "2" * 40, 6 * 60)], {})
+check(built(calls) == [TIP], f"a DEV build over five minutes old must not hold the tip, got {built(calls)}")
+for title in ("cmux NEXT DEV daily · publish 123", "cmux NEXT DEV daily · abc"):
+    calls = run([active_run(20, "2" * 40, 60, title=title)], {})
+    check(built(calls) == [TIP], f"{title!r} is not a dispatched DEV build and must not space the tip, got {built(calls)}")
 calls = run([active_run(23, TIP, 60)], {})
 check(built(calls) == [], f"a running DEV build of the tip itself covers it, got {built(calls)}")
 check(run([], {}) and built(run([], {})) == [TIP], "with no DEV build running the tip is built")
@@ -275,6 +282,10 @@ for label, jobs, status in (("failed", landing_jobs(compile_=("completed", "fail
                             ("placement failed", landing_jobs(place=("completed", "failure")), "completed")):
     calls = run([], {33: jobs}, push_runs=[push_run(33, status=status)])
     check(built(calls) == [TIP], f"a landing compile that is {label} leaves the tip to a DEV build, got {calls}")
+    # A tried landing path is never spaced: an older landing's young DEV build does not hold it.
+    calls = run([active_run(20, "2" * 40, 60)], {33: jobs}, push_runs=[push_run(33, status=status)])
+    expected = [] if label == "off" else [TIP]
+    check(built(calls) == expected, f"a landing compile that is {label} with a young DEV build running: expected {expected}, got {calls}")
 calls = run([], {34: landing_jobs(compile_=("in_progress", None))}, push_runs=[push_run(34, sha="3" * 40)])
 check(built(calls) == [TIP], f"another commit's landing compile does not cover the tip, got {calls}")
 # A push run that has not listed its placement yet: young, it is about to place;
