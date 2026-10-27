@@ -3085,7 +3085,7 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
 
-      - name: Download the web bundles this run's Linux job built
+      - name: Download the web bundles this run's bundle job built
         id: web-bundle-artifact
         if: ${{ ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && steps.reuse.outputs.hit != 'true') && needs.web-bundles.result == 'success' }}
         continue-on-error: true
@@ -3426,7 +3426,7 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
 
-      - name: Download the web bundles this run's Linux job built
+      - name: Download the web bundles this run's bundle job built
         id: web-bundle-artifact
         if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && needs.web-bundles.result == 'success' }}
         continue-on-error: true
@@ -3808,7 +3808,7 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
 
-      - name: Download the web bundles this run's Linux job built
+      - name: Download the web bundles this run's bundle job built
         id: web-bundle-artifact
         if: ${{ ((steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && steps.reuse.outputs.hit != 'true') && needs.web-bundles.result == 'success' }}
         continue-on-error: true

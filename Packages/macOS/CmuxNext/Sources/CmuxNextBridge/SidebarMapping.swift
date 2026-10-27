@@ -68,7 +68,8 @@ public struct SidebarMapping {
                                 iconAsset: @escaping (String) -> SidebarFavicon? = { _ in nil },
                                 groupIconAsset: ((String) -> SidebarFavicon?)? = nil,
                                 rowSource: RowSource? = nil,
-                                workspaceFilter: (WorkspaceModel) -> Bool = { _ in true }) -> [SidebarRowSection] {
+                                workspaceFilter: (WorkspaceModel) -> Bool = { _ in true },
+                                harnessIcons: @escaping () -> HarnessIconLookup = { .none }) -> [SidebarRowSection] {
         // A personal group's icon lives on the home daemon, whichever machine's section shows it.
         func groupImage(_ icon: String) -> SidebarFavicon? { groupIconAsset.map { $0(icon) } ?? iconAsset(icon) }
         var nodes: [SidebarNode] = []
@@ -81,7 +82,7 @@ public struct SidebarMapping {
                     let make = { row(workspace, machine: machine.id, status: statusLine(workspace.id), showsUnread: showsUnread,
                                      muted: muted.contains(workspace.id), selectedTab: selectedTab, newTabPages: newTabPages,
                                      newTabTitle: newTabTitle, pageFace: pageFace, tabTitle: tabTitle,
-                                     notificationText: notificationText, iconAsset: iconAsset) }
+                                     notificationText: notificationText, iconAsset: iconAsset, harnessIcons: harnessIcons()) }
                     return rowSource.map { $0(workspace, machine.id, make) } ?? make()
                 }
             if let group = section.group {
@@ -118,7 +119,8 @@ public struct SidebarMapping {
                     muted: Bool = false, selectedTab: (PaneModel) -> String? = { _ in nil }, newTabPages: Set<String> = [],
                     newTabTitle: String = "", pageFace: (WorkspaceModel, TabModel, TabModel?) -> PageFace? = { _, _, _ in nil },
                     tabTitle: ((TabModel) -> String)? = nil, notificationText: (TabModel) -> String? = { _ in nil },
-                    iconAsset: (String) -> SidebarFavicon? = { _ in nil }) -> SidebarWorkspace {
+                    iconAsset: (String) -> SidebarFavicon? = { _ in nil },
+                    harnessIcons: HarnessIconLookup = .none) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
         let indicator = StatusMapping.shared.summary(tabs: tabs, status: workspace.status)
@@ -135,6 +137,7 @@ public struct SidebarMapping {
         // Another computer's folders shorten against that computer's home, never this Mac's (cx-gaq9).
         let shorten: (String) -> String = machine == .local ? { abbreviate($0) } : Self.abbreviateRemote
         let title = Self.sidebarTitle(workspace, page: page)
+        let rowAgent = agentMark(tabs, harnessIcons: harnessIcons)
         var row = SidebarWorkspace(
             id: SidebarWorkspaceID(workspace.id),
             machineID: machine,
@@ -162,8 +165,9 @@ public struct SidebarMapping {
                 : (showsUnread && (workspace.markedUnread || tabs.contains(where: \.markedUnread)) ? .dot : .none),
             activity: indicator.state,
             activityStyle: indicator.style,
-            agentBrand: agentBrand(tabs),
-            agentName: agentTab(tabs)?.agentName,
+            agentBrand: rowAgent.brand,
+            agentIcon: rowAgent.icon,
+            agentName: agentTab(tabs, harnessIcons: harnessIcons)?.agentName,
             progress: progress(workspace, tabs: tabs),
             tabs: tabs.map { tab in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
@@ -188,7 +192,7 @@ public struct SidebarMapping {
         row.workspaceDescription = workspace.workspaceDescription
         row.taskStatus = workspace.taskStatus.map(Self.taskStatus)
         row.checklist = workspace.checklist.map(Self.checklistItem)
-        row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab(tabs), front: front,
+        row.detail = detail(tabs: tabs, indicator: indicator.state, agentTab: agentTab(tabs, harnessIcons: harnessIcons), front: front,
                             notification: row.notificationText)
         return row
     }
@@ -280,9 +284,22 @@ public struct SidebarMapping {
         chatTab(frontTab(workspace, selectedTab: selectedTab), workspace.screens.flatMap(\.panes).flatMap(\.tabs))
     }
 
-    /// The tab whose agent the row names: a working or waiting one first.
-    func agentTab(_ tabs: [TabModel]) -> TabModel? {
-        let branded = tabs.lazy.filter { $0.agentBrand != nil }
+    /// The mark the row draws for its agent tab (`agentTab`): a custom harness's own icon (user
+    /// 12922; a mark it names is a brand, anything else the row's `agentIcon`), else the tab's brand.
+    func agentMark(_ tabs: [TabModel], harnessIcons: HarnessIconLookup) -> (brand: String?, icon: SidebarAgentIcon?) {
+        guard let tab = agentTab(tabs, harnessIcons: harnessIcons) else { return (nil, nil) }
+        switch harnessIcons.custom(for: tab.agentSession?.harness) {
+        case .brand(let brand)?: return (brand, nil)
+        case .symbol(let name)?: return (nil, .symbol(name))
+        case .image(_, let favicon)?: return (nil, .image(favicon))
+        case nil: return (tab.agentBrand, nil)
+        }
+    }
+
+    /// The tab whose agent the row names: a working or waiting one first. A chat on a custom
+    /// harness with its own icon counts like a branded one.
+    func agentTab(_ tabs: [TabModel], harnessIcons: HarnessIconLookup = .none) -> TabModel? {
+        let branded = tabs.lazy.filter { $0.agentBrand != nil || harnessIcons.custom(for: $0.agentSession?.harness) != nil }
         return branded.first { $0.agent?.state == .working || $0.agent?.state == .blocked } ?? branded.first
     }
 

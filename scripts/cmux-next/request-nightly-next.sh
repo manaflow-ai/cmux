@@ -173,7 +173,9 @@ key="$(sed -n 's/^key=//p' <<<"$resolved" | head -1)"
 # daemonTests "separate", and publish-tree-tested writes daemon-tests.json when
 # they pass. A tree published before that change (no field) was published only
 # after its tests, as before. Missing marker: not promoted now; the artifacts
-# run requests promotion again when the tests pass.
+# run requests promotion again when the tests pass. Only the marker's presence
+# counts: older markers carry a since-retired "os" field, newer ones do not,
+# and both promote.
 tree_base="${CMUX_TUI_PIN_BASE:-https://files.cmux.com/cmux-tui}/tree/$key"
 tree_meta="$(mktemp -d)"
 trap 'rm -rf "$tree_meta"; cleanup_strings' EXIT
