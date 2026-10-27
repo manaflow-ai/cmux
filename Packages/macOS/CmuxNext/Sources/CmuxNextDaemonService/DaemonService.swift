@@ -398,7 +398,7 @@ public final class DaemonService {
         do {
             try admit?(identity)
         } catch {
-            logger.error("\(machineID, privacy: .public): refused the daemon after the handshake: \(String(describing: error), privacy: .public)")
+            logger.error("\(self.machineID, privacy: .public): refused the daemon after the handshake: \(String(describing: error), privacy: .public)")
             // Stop (no run, deadline or path monitor); show the refusal unless
             // `admit` already stopped the service with its own text.
             let show = !Task.isCancelled
@@ -407,7 +407,7 @@ public final class DaemonService {
             return false
         }
         didConnect(connection, identity: identity)
-        logger.info("\(machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
+        logger.info("\(self.machineID, privacy: .public): cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
         return true
     }
 
