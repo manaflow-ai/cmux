@@ -54,13 +54,13 @@ final class ScreenDragSession {
         input = services.inputTap.subscribe(class: TabDragSession.dragInput, phase: .intercept(order: .dragSession)) { [weak self] event in
             self?.handle(event) ?? .pass
         }
-        resign = appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "ScreenDragSession") { [weak self] in
+        resign = appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "ScreenDragSession") { [weak self] in // raw-observer-allow: this is the AppEvents fan-out (one app observer), not a raw one
             self?.finish(at: nil)
         }
         moves = strip?.window.flatMap { services.dragFrameInput?.coalescer(for: $0) }?.consumer(owner: Self.movesOwner) { [weak self] input in
             // An ended drag gets none: its end cancels the consumer.
             guard let self, self.input != nil else { return }
-            self.track(CGPoint(x: input.latest.screenLocation.x, y: input.latest.screenLocation.y))
+            self.track(CGPoint(x: input.latest.location.x, y: input.latest.location.y))
         }
     }
 
@@ -71,8 +71,10 @@ final class ScreenDragSession {
         switch event.type {
         case .leftMouseDragged:
             // Once per frame interval's first move and once at its frame, with the coalescer (Chromium's rAF-aligned
-            // input, `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`).
-            if let moves { moves.post(event) } else { track(Self.screenPoint(of: event)) }
+            // input, `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`), in screen
+            // coordinates: the drag crosses windows.
+            let point = Self.screenPoint(of: event)
+            if let moves { moves.post(TabDragSession.moveRecord(at: point, time: event.timestamp)) } else { track(point) }
             return .consume
         case .leftMouseUp:
             // The app delivered the frame's last move before this release (the coalescer flushes its window's moves

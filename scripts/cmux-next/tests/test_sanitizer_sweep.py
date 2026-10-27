@@ -191,7 +191,7 @@ class SuppressionTests(unittest.TestCase):
         self.assertIn("AgentLaneStore", names)
         with self.assertRaisesRegex(ss.UsageError, "AgentLaneStore"):
             ss.check_suppressions("# third-party Sparkle: y\nrace:AgentLaneStore\n", lambda: names)
-        # CmuxUpdater's UpdateDriver+SPUUpdaterDelegate.swift: `race:SPUUpdater` would hide cmux code too.
+        # CmuxUpdater's SparkleSeam.swift declares `extension SPUUpdater`: `race:SPUUpdater` would hide cmux code too.
         with self.assertRaisesRegex(ss.UsageError, "SPUUpdater"):
             ss.check_suppressions("# third-party Sparkle: y\nrace:SPUUpdater\n", lambda: names)
 

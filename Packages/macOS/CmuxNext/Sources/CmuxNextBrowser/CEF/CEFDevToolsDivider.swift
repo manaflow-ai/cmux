@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextWakeups
 
 /// The line between a CEF page and its docked DevTools. Drag it to resize
 /// (the page and DevTools windows punch a hole for its grab area, so the
@@ -16,7 +17,7 @@ final class CEFDevToolsDivider: NSView {
     /// the line moves on a frame interval's first drag event and once more at its frame, to the latest
     /// point, as Chromium delivers rAF-aligned moves (main_thread_event_queue.cc). Nil: every drag
     /// event moves it.
-    var pointerFrames: PointerFrameCoalescers?
+    var pointerFrames: FrameInputCoalescers?
     /// This drag's consumer of its window's coalescer, from mouse-down to mouse-up.
     private var frameDrag: PointerFrameConsumer?
 
@@ -35,9 +36,18 @@ final class CEFDevToolsDivider: NSView {
         line.fill()
     }
 
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: devTools?.layout.dock.isSide == true ? .resizeLeftRight : .resizeUpDown)
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        addCursorUpdateArea()
     }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// The resize cursor across the dock's side (p04-input-090: set when the pointer enters, no cursor rects).
+    var resizeCursor: NSCursor { devTools?.layout.dock.isSide == true ? .resizeLeftRight : .resizeUpDown }
+
+    override func cursorUpdate(with event: NSEvent) { resizeCursor.set() }
 
     override func mouseDown(with event: NSEvent) {
         dragging = true

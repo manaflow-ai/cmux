@@ -246,7 +246,7 @@ import Testing
     @Test func theSnapshotStoreDropsTheLeastRecentlyUsedPicturePastItsBudget() async throws {
         let one = try #require(await HibernationSnapshots.compress(Self.noise(seed: 1)))
         let size = try #require(one.data?.count)
-        let store = HibernationSnapshots(capacityBytes: size * 5 / 2)
+        let store = HibernationSnapshots(fullCapacityBytes: size * 5 / 2)
         store.insert(one, for: "a")
         store.insert(try #require(await HibernationSnapshots.compress(Self.noise(seed: 2))), for: "b")
         _ = store.image(for: "a")  // "a" is used again: "b" is now the oldest
@@ -354,7 +354,7 @@ import Testing
         init() throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry())
+            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines)
             services.cache.hibernation = hibernation
             hibernation.apply(BrowserHibernationSetting(mode: .moderate))
             hibernation.pressureDidChange(.critical)

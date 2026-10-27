@@ -33,11 +33,14 @@ public final class HomeNativeFixture {
     private let openPanel: MadeAheadOpenPanel?
     /// The app's main-thread scheduler, for the transcript's live settings.
     private let mainWork: MainWorkScheduler
+    /// The app's lanes: the attachment files are written on its files lane.
+    private let work: BackgroundWork
 
-    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil, mainWork: MainWorkScheduler) {
+    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil, mainWork: MainWorkScheduler, work: BackgroundWork) {
         self.attachments = attachments
         self.openPanel = openPanel
         self.mainWork = mainWork
+        self.work = work
         store = HomeStore(source: source)
         store.start()
         loading = Task { [weak self] in await self?.load() }
@@ -88,7 +91,7 @@ public final class HomeNativeFixture {
     }
 
     private func addAttachments(in id: ConversationID) async {
-        guard let files = try? await HomeFixtureMedia.make(), !Task.isCancelled else { return }
+        guard let files = try? await HomeFixtureMedia.make(on: work), !Task.isCancelled else { return }
         for file in files {
             guard let prepared = try? await store.prepareAttachment(fileURL: file, keepLocation: false) else { continue }
             try? await store.send(conversation: id, text: "", attachments: [prepared])

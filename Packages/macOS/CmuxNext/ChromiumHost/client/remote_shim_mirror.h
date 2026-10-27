@@ -7,7 +7,8 @@
 // The host pushes a value (MIRROR) before the EVENT that changed it, and remote_shim.mm
 // applies both in one main-thread batch, so code that reacts to the event reads the new
 // value. A post with pending_keys marks those keys pending under its token until the host
-// acks the token: a read of a pending key finds no value, never the one the post changed.
+// acks the token (an async op's REPLY acks it too): a read of a pending key finds no value,
+// never the one the post changed.
 //
 // Main thread only, like every shim call (remote_shim.mm asserts it): no lock.
 #pragma once
@@ -45,7 +46,7 @@ class MirrorCache {
   void MarkPending(uint16_t op, uint32_t token, const std::vector<Field>& key, uint32_t wildcards) {
     pending_.push_back(Pending{op, token, wildcards, Encoded(key)});
   }
-  // The host ran the op of `token`.
+  // The host ran the op of `token` (its ACK, or its REPLY).
   void Ack(uint32_t token) {
     std::erase_if(pending_, [token](const Pending& p) { return p.token == token; });
   }

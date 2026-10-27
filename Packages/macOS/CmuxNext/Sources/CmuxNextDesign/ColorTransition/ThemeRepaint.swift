@@ -164,7 +164,9 @@ enum ThemeRepaint {
         for pass in passes {
             for view in pass.views {
                 view.viewDidChangeEffectiveAppearance()
+                // invalidate: the view's theme scope changed (a repaint request); its colors resolve again.
                 view.needsDisplay = true
+                // invalidate: the request asked for layout (a view whose layout() sets colors).
                 if pass.layout { view.needsLayout = true }
             }
         }
@@ -173,8 +175,9 @@ enum ThemeRepaint {
         // The views lay out and display now (the work the next display cycle does), so colors
         // set in `updateLayer()`, and in `layout()` by a view whose hook asks for layout, blend too.
         for root in blendRoots {
+            // sync-layout: the blend below reads each layer's new color, set in layout() and updateLayer().
             root.layoutSubtreeIfNeeded()
-            root.displayIfNeeded()
+            root.displayIfNeeded() // sync-layout: the blend below reads the colors updateLayer() sets.
         }
         for entry in shown {
             for (property, before) in entry.colors {
@@ -253,8 +256,9 @@ enum ThemeRepaint {
         if let marked = stale.object(forKey: view) { return marked.merge(scope: scope, layout: layout) }
         let region = StaleRegion(scope: scope)
         region.layout = layout
+        // raw-observer-allow: one KVO of this skipped view's own isHidden, dropped at its show; no notice or node says an arbitrary view shows
         region.observation = view.observe(\.isHidden, options: [.new]) { view, _ in
-            // AppKit shows views on the main thread: inline there, a hop otherwise.
+            // main-hop-allow: AppKit sets isHidden on main, so the repaint runs inline in the show's turn; only an off-main write hops
             MainDelivery().run { didShow(view) }
         }
         stale.setObject(region, forKey: view)

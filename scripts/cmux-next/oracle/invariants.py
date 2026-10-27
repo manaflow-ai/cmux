@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Oracle invariants I1-I7 over one case trace (p15-oracle-110).
+"""Oracle invariants I1-I7 (p15-oracle-110), I9 (p15-oracle-205), I10 (p15-oracle-206) and I17-I18
+(p15-oracle-188) over one case trace.
 
 Spec: plans/cmux-next/chrome-parity/p15-oracle.md section 3F ("Invariants at every checkpoint") and
 plans/cmux-next/oracle-DESIGN.md. Stdlib only, Python 3.9+, safe under `python3 -I`. Later tasks add
-I8 (204), I9 (205), I10 (206), I11-I15 (217), I16 (236) and I17-I18 (188) to INVARIANTS and CHECKS.
+I8 (204), I11-I15 (217) and I16 (236) to INVARIANTS and Checker.run.
 
 | Id | Rule                                                                  | Reads                          |
 | I1 | each mutation gives exactly one receipt or one typed error            | step replies                   |
@@ -13,12 +14,56 @@ I8 (204), I9 (205), I10 (206), I11-I15 (217), I16 (236) and I17-I18 (188) to INV
 | I5 | 0 `debug.desync` violations                                           | invariants facet               |
 | I6 | no orphan processes or sockets at teardown                            | teardown record                |
 | I7 | a hidden-workspace change does no view work                           | step layoutCounters + topology |
+| I9 | journal restore_preview == live daemon facet on the restorable sections | restorePreviews + daemon facet |
+| I10| a same-key retry: same result, replayed, same journal head and facets | replies + retry before/settled |
+| I17| 0 unexpected child exits unless `allow_crashes` covers the kind       | crashes facet + case            |
+| I18| live-object counts return to the fixture baseline after teardown      | liveObjects + daemon.oracle    |
 
 Chrome reference (chromium/src): content/public/test/browser_test_base.h checks invariants after every
 browser test (NoRendererCrashesAssertion, the leak checks of content/public/test/test_launcher.h) the
 way these run on every case, not per case; base/test/launcher/test_launcher.cc reports a leaked child
-process of a test as a failure of that test (I6). A failed check names its value, as gtest's
-EXPECT_EQ prints both sides; here every violation names its JSON pointer.
+process of a test as a failure of that test (I6). NoRendererCrashesAssertion fails a test on a renderer
+crash that no ScopedAllowRendererCrashes covers (I17, the case's `allow_crashes`), and Blink's leak
+detector compares InstanceCounters after a web test with the counts before it
+(third_party/blink/renderer/core/testing/internals.cc; I18). A failed check names its value, as gtest's
+EXPECT_EQ prints both sides; here every violation names its JSON pointer. I10 is the contract of
+net/http/http_request_info.h `idempotency`: HttpNetworkTransaction::ShouldResendRequest
+(net/http/http_network_transaction.cc) resends a request on a reset connection only when it is idempotent,
+because sending it twice must have the effect of sending it once.
+
+I10 finds a retry by its key: a mutating resource.call whose idempotencyKey, method, params and target equal
+an earlier step's (gen_daemon_ops.py adds one, step `retry`, to each operation's success case but those whose
+success ends the daemon). The same key with another request is idempotency.conflict's case, not a retry. When
+the first call got a receipt, the retry's reply equals the first reply, its MutationResult included except
+`replayed`: that flag is false on the first call (a key the trace never sent) and true on the retry, the
+daemon's own word that it answered from its receipt. The daemon journal head (raw `daemon.journalHead`,
+volatile in the canonical form) is the same at the retry's settled checkpoint as at its before checkpoint (no
+new record); and every model facet of the two checkpoints is equal under I3's projection. A refused first call
+recorded no effect to replay: its retry is not checked.
+
+I17 reads `crashes.counts`, totals since the app launched (holder: since the owner started): an exit is
+a rise of a kind's total from one comparable reading to the next. A rise first seen at a step's turn or
+settled checkpoint happened during that step; one first seen at its before checkpoint happened after the
+previous step, and belongs to it. When checkpoints between two readings are missing or not comparable
+(a kill step's reconnect), the rise belongs to every step it could have happened in, and an entry that
+covers any of them accepts it. The baseline is the first step's before checkpoint; without it the
+first step's exits are not checked. A total that falls was reset (a new owner counts from 0): its value
+is the rise.
+I9 reads the daemon's `oracle-restore-preview` reply (spec/commands.md): the latest journal checkpoint
+reduced through the journal head on a read-only journal reader, with the daemon's section map. At a
+checkpoint whose daemon facet has the preview's head as its `journalHead` (one cut), each section the map
+does not exclude with a reason must equal the live `session` facet's, after the facet's capture rules and
+volatile mask; a required record the reducer cannot apply fails too, and so does a state change it does not
+reduce (`stateChangesNotReduced`: `extra` is then the checkpoint's, so it is reported instead of compared).
+The daemon driver asks for the preview `through` the facet's `journalHead`, so both are one cut. This is
+Chromium's session restore
+check (chrome/browser/sessions/session_restore_browsertest.cc restores the commands SessionService wrote and
+compares the restored windows and tabs with the ones that wrote them), run on every checkpoint instead of
+once per test. A preview at another sequence, or with no journal checkpoint yet, is not checked.
+I18 compares the owned-object counts of `liveObjects` and `daemon.oracle.liveObjects` at the teardown
+checkpoint with those at the case's first checkpoint, the fixture baseline. `subscriptions` and `tasks`
+are timing state (armed observations, pending deadlines), not owned objects: a difference there is
+reported as not checked, never a failure.
 
 The checks run on raw checkpoints, before normalize.py: I4 pairs the cut by the raw sequences that the
 canonical form drops (x-oracle-volatile), and ids of one run need no relabeling to be compared with
@@ -31,16 +76,26 @@ Trace (`cmux.oracle.trace/v1`), for the product drivers (driver_daemon.py 023, d
      "steps": [{"id", "op", "readOnly"?, "expect"?, "args"?,
                 "target"?: {kind: public id}      (handles and $step refs already resolved),
                 "action"?: action id              (a key step: the action its keys ran, for I3's lastRefusal),
-                "replies": [{"receipt": KIND} | {"error": CODE}, ...]   (every reply the step got),
+                "replies": [{"receipt": KIND, "result"?: MutationResult} | {"error": CODE}, ...]
+                                                  (every reply the step got; `result` is the reply's result as
+                                                  the daemon sent it, for a mutation the MutationResult
+                                                  {value, generation, revision, replayed} of
+                                                  cmux-tui-core/src/resource_router.rs mutation_result),
                 "checkpoints": {"before"?|"turn"?|"settled"?: snapshot-v1 (raw)},
-                "layoutCounters"?: {"before": {name: n}, "after": {name: n}}   (debug.layout_counters)}],
-     "teardown"?: {"processes": [{"pid", "command"}], "sockets": [path]}}
-Step fields missing from the trace come from the case (`--case`), matched by step id.
+                "layoutCounters"?: {"before": {name: n}, "after": {name: n}},  (debug.layout_counters)
+                "restorePreviews"?: {"before"?|"turn"?|"settled"?: oracle-restore-preview reply}}],
+     "allow_crashes"?: [case-v1 allowCrash],
+     "teardown"?: {"processes": [{"pid", "command"}], "sockets": [path],
+                   "checkpoint"?: snapshot-v1 (raw, after the case's teardown and a settle)}}
+Step fields missing from the trace come from the case (`--case`), matched by step id; so does
+`allow_crashes` when the trace has none.
 
-Not run by any run yet: the driver protocol of oracle.py (017) returns canonical checkpoints only, and no
-driver writes this trace (raw checkpoints, replies, layoutCounters, teardown). A follow-up of 017, 023 and
-047 carries those fields in the driver result and makes `perform_run` turn a violation into a case
-Failure; until then `invariants.py check` runs on a trace file and `--selftest` on synthetic traces.
+Not run by oracle.py yet: its driver protocol (017) returns canonical checkpoints only. `driver_daemon.py
+run-case --trace TRACE.json` writes a partial trace (each step's id, op, raw checkpoints and I9's
+restorePreviews, through the facet's journalHead after a journal checkpoint at setup), so I9 runs on daemon
+cases. Replies, layoutCounters and teardown are in no driver trace yet. A follow-up of 017, 023 and 047
+carries them in the driver result and makes `perform_run` turn a violation into a case Failure; until then
+`invariants.py check` runs on a trace file and `--selftest` on synthetic traces.
 
 Report (`cmux.oracle.invariants/v1`): {"case", "violations": [{"invariant", "step", "checkpoint",
 "in": "snapshot"|"step"|"teardown", "pointer", "message"}], "notChecked": [{"invariant", "step",
@@ -69,9 +124,11 @@ from typing import Any, Dict, Iterable, Iterator, List, Mapping, Optional, Seque
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
-# `python3 -I` does not put the script's directory on sys.path; normalize.py owns the value rules I3 reuses.
+# `python3 -I` does not put the script's directory on sys.path; normalize.py owns the value rules I3 reuses,
+# check_snapshot_schema.py the capture rules I9 applies to the raw restore preview.
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
+from check_snapshot_schema import capture  # noqa: E402
 from normalize import MAX_SAFE_INT, _precision_decimals, canonical_json  # noqa: E402
 SNAPSHOT_SCHEMA = REPO / "schemas" / "oracle" / "snapshot-v1.schema.json"
 EXAMPLE_SNAPSHOT = REPO / "schemas" / "oracle" / "fixtures" / "snapshot-example.json"
@@ -79,6 +136,8 @@ EXAMPLE_SNAPSHOT = REPO / "schemas" / "oracle" / "fixtures" / "snapshot-example.
 TRACE_SCHEMA = "cmux.oracle.trace/v1"
 REPORT_SCHEMA = "cmux.oracle.invariants/v1"
 CHECKPOINT_ORDER = ("before", "turn", "settled")
+# MutationResult's flag (spec generics.MutationResult): false on a call that ran, true on a same-key replay (I10).
+REPLAY_FLAG = "replayed"
 # Typed outcomes, the patterns of case-v1 $defs.expect.error and .receipt.
 ERROR_CODE = re.compile(r"^[a-z][a-z_]*(\.[a-z][a-z_]*)+$")
 RECEIPT_KIND = re.compile(r"^[a-z][A-Za-z0-9]*([._][a-z][A-Za-z0-9]*)*$")
@@ -91,7 +150,12 @@ READ_CAPABLE_OPS = frozenset({"resource.call", "cli", "mcp"})
 KEY_OPS = frozenset({"key", "tui.key"})
 # Facets that count the pipeline, not the model: a pending intent at the turn becomes applied at the
 # settle, tasks finish, hit counters move. I3 compares the other facets.
+# liveObjects members that count timing state, not owned objects (I18): armed observations and the main
+# thread's pending deadlines (app), live event subscriptions (daemon).
+TIMING_LIVE_KINDS = frozenset({"subscriptions", "tasks"})
 BOOKKEEPING_FACETS = frozenset({"intents", "switches", "liveObjects", "crashes", "invariants"})
+# The crash kinds of the crashes facet and case-v1 `crashKind`, in schema order.
+CRASH_KINDS = ("renderer", "gpu", "browser", "utility", "daemon", "holder")
 # debug.layout_counters values that count view work (DebugLayoutCounters.swift). Left out:
 # topology_sends (the control topology, a model), indicator_resyncs (the sidebar shows hidden
 # workspaces' rows), pane_count_changes and sources (not counters).
@@ -134,6 +198,19 @@ INVARIANTS: Tuple[Invariant, ...] = (
               "teardown: /processes/<n> or /sockets/<n>", "p15-oracle-110"),
     Invariant("I7", "a hidden-workspace change does no view work (debug.layout_counters)",
               "step: /layoutCounters/after/<counter>", "p15-oracle-110"),
+    Invariant("I9", "journal restore_preview == live daemon facet on the restorable sections",
+              "snapshot: /daemon/session/<section>/... (the live value the restore misses) or /daemon/journalHead",
+              "p15-oracle-205"),
+    Invariant("I10", "a same-key retry gives the first call's result with replayed true, no new journal record and "
+              "no facet change",
+              "step: /replies/0/... of the retry (/replies/0/result/replayed: the flag); snapshot: /daemon/journalHead "
+              "or the first facet value that differs",
+              "p15-oracle-206"),
+    Invariant("I17", "0 unexpected child exits unless allow_crashes covers the kind",
+              "snapshot: /crashes/exits/<n> (an exit the app saw) or /crashes/counts/<kind>", "p15-oracle-188"),
+    Invariant("I18", "live-object counts return to the fixture baseline after teardown",
+              "snapshot: /liveObjects/<kind> or /daemon/oracle/liveObjects/<kind> of the teardown checkpoint",
+              "p15-oracle-188"),
 )
 BY_ID = {inv.id: inv for inv in INVARIANTS}
 
@@ -251,6 +328,7 @@ class Trace:
     case: str
     steps: List[Step]
     teardown: Optional[Mapping[str, Any]]
+    allow_crashes: List[Mapping[str, Any]] = field(default_factory=list)
 
     def states(self) -> List[State]:
         out = []
@@ -284,7 +362,13 @@ def load_trace(document: Any, case: Optional[Mapping[str, Any]] = None) -> Trace
     teardown = document.get("teardown")
     if teardown is not None and not isinstance(teardown, Mapping):
         raise TraceError("teardown: want an object")
-    return Trace(str(name), steps, teardown)
+    if teardown is not None and "checkpoint" in teardown and not isinstance(teardown["checkpoint"], Mapping):
+        raise TraceError("teardown/checkpoint: want a snapshot object")
+    allow = document.get("allow_crashes", (case or {}).get("allow_crashes", []))
+    if not isinstance(allow, list) or not all(isinstance(entry, Mapping) and entry.get("kind") in CRASH_KINDS
+                                               for entry in allow):
+        raise TraceError(f"allow_crashes: want a list of {{kind, reason, steps?, max?}} with kind in {CRASH_KINDS}")
+    return Trace(str(name), steps, teardown, list(allow))
 
 
 # ---------------------------------------------------------------------------------------------- volatile mask
@@ -299,6 +383,7 @@ class Projector:
     field."""
 
     def __init__(self, schema: Mapping[str, Any]):
+        self.schema = schema
         self.definitions = schema.get("definitions", {})
         self.facets = schema["properties"]["facets"]["properties"]
         self.open_volatile = [re.compile(e["key"]) for e in schema.get("x-oracle-open-keys", [])
@@ -350,6 +435,16 @@ class Projector:
             return self.round(value, branches)
         return value
 
+    def restore_section(self, name: str, live: Any, restored: Any) -> Tuple[Any, Any]:
+        """I9's projections of one `session.snapshot` section: the live value is the daemon facet's (already
+        captured), the restored one is raw wire, so it takes the facet's capture rules first
+        (check_snapshot_schema.capture: a `derive: sha256` field holds the hash); both then lose their
+        volatile fields and round as the daemon facet's schema says."""
+        node = (self.facets["daemon"]["oneOf"][0]["properties"]["session"]["properties"]).get(name)
+        if node is not None:
+            restored = capture(self.schema, node, restored)
+        return self.strip(live, node), self.strip(restored, node)
+
     def round(self, value: float, branches: List[Mapping[str, Any]]) -> Any:
         """normalize.py's step 4: an open number takes the default precision, a typed one its own."""
         if not branches:
@@ -361,6 +456,13 @@ class Projector:
             return value
         rounded = round(value, decimals) or 0.0  # -0.0 and 0.0 are one value
         return int(rounded) if rounded.is_integer() and abs(rounded) < MAX_SAFE_INT else rounded
+
+
+def without_replay_flag(reply: Any) -> Any:
+    """A reply with its MutationResult's `replayed` taken out: the one field a replay changes (I10)."""
+    if isinstance(reply, Mapping) and isinstance(reply.get("result"), Mapping) and REPLAY_FLAG in reply["result"]:
+        return {**reply, "result": {k: v for k, v in reply["result"].items() if k != REPLAY_FLAG}}
+    return reply
 
 
 def first_difference(a: Any, b: Any, at: str = "") -> Optional[Tuple[str, Any, Any]]:
@@ -841,10 +943,310 @@ class Checker:
                     self.violate("I7", step, None, f"/layoutCounters/after/{name}",
                                  f"{name} +{delta} while the step changed hidden workspace {workspace}", "step")
 
+    # I9 -----------------------------------------------------------------------------------------------
+    def i9(self) -> None:
+        replied = False
+        for state in self.states:
+            reply = (state.step.record.get("restorePreviews") or {}).get(state.checkpoint)
+            if reply is None:
+                continue
+            replied = True
+            daemon = facet(state.snapshot, "daemon")
+            head = (daemon or {}).get("journalHead")
+            preview = reply.get("preview") if isinstance(reply, Mapping) else None
+            if not isinstance(head, int):
+                self.skip("I9", state.step, f"the {state.checkpoint} checkpoint's daemon facet has no journalHead")
+                continue
+            if not isinstance(preview, Mapping):
+                self.skip("I9", state.step, f"no journal checkpoint at {state.checkpoint}: nothing to restore from")
+                continue
+            if preview.get("headSequence") != head:
+                self.skip("I9", state.step, f"the preview reduced through {preview.get('headSequence')}, the "
+                                            f"{state.checkpoint} daemon facet is at {head}: not one cut")
+                continue
+            self.checked("I9")
+            if preview.get("unsupportedCount"):
+                self.violate("I9", state.step, state.checkpoint, "/daemon/journalHead",
+                             f"{preview['unsupportedCount']} required journal record(s) the restore cannot apply: "
+                             f"{json.dumps(preview.get('unsupported'))[:200]}")
+            dropped = preview.get("stateChangesNotReduced")
+            if dropped:
+                self.violate("I9", state.step, state.checkpoint, pointer("daemon", "session", "extra"),
+                             f"{dropped} state_upsert/state_delete change(s) the restore does not reduce: it keeps "
+                             f"the checkpoint's extra.state")
+            restored = preview.get("session") or {}
+            live = daemon.get("session") or {}
+            for name in compared_sections(reply.get("sections") or {}, live):
+                if name == "extra" and dropped:
+                    continue
+                if name not in restored:
+                    self.violate("I9", state.step, state.checkpoint, pointer("daemon", "session", name),
+                                 f"{name} is a restorable section the preview lacks")
+                    continue
+                a, b = self.projector.restore_section(name, live.get(name), restored[name])
+                for at, message in section_differences(name, a, b):
+                    self.violate("I9", state.step, state.checkpoint, at, message)
+        if not replied:
+            self.skip("I9", None, "no checkpoint has an oracle-restore-preview reply")
+
+    # I10 ----------------------------------------------------------------------------------------------
+    @staticmethod
+    def request(step: Step) -> Tuple[Any, ...]:
+        args = step.record.get("args") or {}
+        return args.get("method"), args.get("params") or {}, dict(step.target)
+
+    def retries(self) -> Iterator[Tuple[Step, Step]]:
+        """(first call, retry) for each mutating resource.call that repeats an earlier step's key and request."""
+        first: Dict[str, Step] = {}
+        for step in self.trace.steps:
+            key = (step.record.get("args") or {}).get("idempotencyKey")
+            if step.op != "resource.call" or not step.mutating or not isinstance(key, str):
+                continue
+            original = first.setdefault(key, step)
+            if original is not step and self.request(original) == self.request(step):
+                yield original, step
+
+    def i10(self) -> None:
+        for original, retry in self.retries():
+            replies, again = original.record.get("replies"), retry.record.get("replies")
+            if not (isinstance(replies, list) and replies and isinstance(again, list) and again):
+                self.skip("I10", retry, f"the trace has no reply for {original.id} or its retry (I1 holds that)")
+                continue
+            if not (isinstance(replies[0], Mapping) and "receipt" in replies[0]):
+                self.skip("I10", retry, f"{original.id} was refused ({replies[0]!r:.80}): no effect to replay")
+                continue
+            self.checked("I10")
+            found = first_difference(without_replay_flag(replies[0]), without_replay_flag(again[0]), "/replies/0")
+            if found is not None:
+                at, was, now = found
+                self.violate("I10", retry, None, at, f"retry of {original.id} with its key replied "
+                             f"{json.dumps(now)[:120]}, the first call {json.dumps(was)[:120]}", "step")
+            self.replay_flags(original, retry, replies[0], again[0])
+            before, after = self.before_state(retry), self.after_state(retry)
+            if before is None or after is None:
+                self.skip("I10", retry, "the retry has no settled checkpoint or no checkpoint before it")
+                continue
+            heads = [(facet(state.snapshot, "daemon") or {}).get("journalHead") for state in (before, after)]
+            if not all(isinstance(head, int) for head in heads):
+                self.skip("I10", retry, "no daemon journalHead at both the retry's before and settled checkpoints")
+            elif heads[0] != heads[1]:
+                self.violate("I10", retry, after.checkpoint, pointer("daemon", "journalHead"),
+                             f"journal head {heads[0]} -> {heads[1]}: the retry of {original.id} added "
+                             f"{heads[1] - heads[0]} record(s)")
+            names = sorted(n for n in (after.snapshot.get("facets") or {})
+                           if n not in BOOKKEEPING_FACETS and facet(before.snapshot, n) is not None
+                           and facet(after.snapshot, n) is not None)
+            if not names:
+                self.skip("I10", retry, "the retry's before and settled checkpoints share no model facet")
+                continue
+            found = first_difference(self.projection(before.snapshot, names), self.projection(after.snapshot, names))
+            if found is not None:
+                at, was, now = found
+                self.violate("I10", retry, after.checkpoint, at, f"{json.dumps(was)[:120]} -> {json.dumps(now)[:120]}: "
+                             f"the retry of {original.id} changed the state")
+
+    def replay_flags(self, original: Step, retry: Step, first: Mapping[str, Any], again: Any) -> None:
+        """I10's direct signal: `replayed` false on the first call, true on its same-key retry."""
+        result = first.get("result")
+        if "result" not in first:
+            self.skip("I10", retry, f"the replies of {original.id} carry no result: only the receipt kind is compared")
+            return
+        if not (isinstance(result, Mapping) and REPLAY_FLAG in result):
+            self.skip("I10", retry, f"the result of {original.id} has no `{REPLAY_FLAG}` flag: not a MutationResult")
+            return
+        at = f"/replies/0/result/{REPLAY_FLAG}"
+        if result[REPLAY_FLAG] is not False:
+            self.violate("I10", original, None, at, f"the first call with its key replied {REPLAY_FLAG} "
+                         f"{json.dumps(result[REPLAY_FLAG])}, not false", "step")
+        retried = again.get("result") if isinstance(again, Mapping) else None
+        flag = retried.get(REPLAY_FLAG) if isinstance(retried, Mapping) else None
+        if flag is not True:
+            self.violate("I10", retry, None, at, f"the retry of {original.id} replied {REPLAY_FLAG} "
+                         f"{json.dumps(flag)}, not true: the daemon ran the call again instead of replaying its "
+                         "receipt", "step")
+
+    # I17 ----------------------------------------------------------------------------------------------
+    def exit_step(self, state: State) -> Optional[Step]:
+        """The step during which an exit first seen at `state` happened (None: before the first step)."""
+        if state.checkpoint != "before":
+            return state.step
+        return self.trace.steps[state.step.index - 1] if state.step.index > 0 else None
+
+    def exit_span(self, previous: State, skipped: List[State], state: Optional[State]) -> List[Optional[Step]]:
+        """Every step an exit between the reading at `previous` and the one at `state` (None: the teardown)
+        could have happened in, in case order: the step each skipped checkpoint and the reading names, and
+        the steps between with no checkpoint at all. The teardown is a None at the end. A reading follows
+        the first one, which is at or before its own step, so only the teardown gives None."""
+        last = state.step.index if state is not None else len(self.trace.steps)
+        steps = [self.exit_step(s) for s in skipped] + self.trace.steps[previous.step.index + 1:last]
+        if state is not None:
+            steps.append(self.exit_step(state))
+        by_index = {step.index: step for step in steps if step is not None}
+        span: List[Optional[Step]] = [by_index[i] for i in sorted(by_index)]
+        return span if state is not None else [*span, None]
+
+    @staticmethod
+    def span_text(span: List[Optional[Step]]) -> str:
+        names = ["the teardown" if s is None else f"step {s.id}" for s in span]
+        return names[0] if len(names) == 1 else f"one of {', '.join(names)}"
+
+    def i17(self) -> None:
+        states = self.states
+        readings = [(i, value) for i, state in enumerate(states) if (value := facet(state.snapshot, "crashes")) is not None]
+        if not readings:
+            self.skip("I17", None, "no checkpoint has the crashes facet")
+            return
+        first, previous = readings[0]
+        if states[first].step.index != 0 or states[first].checkpoint != "before":
+            unchecked = self.trace.steps[:states[first].step.index + 1]
+            self.skip("I17", states[first].step,
+                      f"no crashes reading before {unchecked[0].id}: exits up to {states[first].checkpoint} of "
+                      f"{states[first].step.id} are not checked")
+        allowances = [{"kind": e["kind"], "steps": set(e["steps"]) if e.get("steps") else None,
+                       "left": int(e.get("max", 1))} for e in self.trace.allow_crashes]
+        self.checked("I17")
+        teardown = facet((self.trace.teardown or {}).get("checkpoint"), "crashes")
+        later: List[Tuple[Optional[int], Mapping[str, Any]]] = list(readings[1:])
+        if teardown is not None:
+            later.append((None, teardown))  # an exit during the teardown: only a whole-case entry covers it
+        last = first
+        for index, value in later:
+            state = states[index] if index is not None else None
+            skipped = states[last + 1:index if index is not None else len(states)]
+            span = self.exit_span(states[last], skipped, state)
+            step = span[-1]
+            checkpoint = state.checkpoint if state is not None else "teardown"
+            exits = value.get("exits") or []
+            seen = len(previous.get("exits") or [])
+            counts, before = value.get("counts") or {}, previous.get("counts") or {}
+            for kind in CRASH_KINDS:
+                now, then = int(counts.get(kind, 0)), int(before.get(kind, 0))
+                rise = now if now < then else now - then
+                listed = [i for i in range(seen, len(exits)) if exits[i].get("kind") == kind]
+                for n in range(rise):
+                    if self.allow(allowances, kind, span):
+                        continue
+                    named = listed[n] if n < len(listed) else None
+                    at = pointer("crashes", "counts", kind) if named is None else pointer("crashes", "exits", named)
+                    reason = "" if named is None else f" ({exits[named].get('reason')})"
+                    during = self.span_text(span)
+                    self.violate("I17", step, checkpoint, at,
+                                 f"{kind} exit{reason} during {during} that no allow_crashes entry covers")
+            previous = value
+            if index is not None:
+                last = index
+
+    @staticmethod
+    def allow(allowances: List[Dict[str, Any]], kind: str, span: List[Optional[Step]]) -> bool:
+        """Takes one exit of `kind` from the first entry that covers a step of `span` and has some left."""
+        ids = {step.id for step in span if step is not None}
+        for entry in allowances:
+            covers = entry["steps"] is None or bool(ids & entry["steps"])
+            if entry["kind"] == kind and covers and entry["left"] > 0:
+                entry["left"] -= 1
+                return True
+        return False
+
+    # I18 ----------------------------------------------------------------------------------------------
+    @staticmethod
+    def live_counts(snapshot: Optional[Mapping[str, Any]]) -> Dict[Tuple[str, ...], Mapping[str, Any]]:
+        """The snapshot's live-object count maps by their facet-rooted path."""
+        out: Dict[Tuple[str, ...], Mapping[str, Any]] = {}
+        app = facet(snapshot, "liveObjects")
+        if app is not None:
+            out[("liveObjects",)] = app
+        daemon = facet(snapshot, "daemon")
+        extras = (daemon or {}).get("oracle")
+        if isinstance(extras, Mapping) and isinstance(extras.get("liveObjects"), Mapping):
+            out[("daemon", "oracle", "liveObjects")] = extras["liveObjects"]
+        return out
+
+    def i18(self) -> None:
+        end = (self.trace.teardown or {}).get("checkpoint")
+        if end is None:
+            self.skip("I18", None, "the trace has no teardown checkpoint")
+            return
+        after = self.live_counts(end)
+        baselines: Dict[Tuple[str, ...], Mapping[str, Any]] = {}
+        for state in self.states:
+            for path, counts in self.live_counts(state.snapshot).items():
+                baselines.setdefault(path, counts)
+        paths = [path for path in after if path in baselines]
+        if not paths:
+            self.skip("I18", None, "no live-object counts at both the fixture baseline and the teardown")
+            return
+        self.checked("I18")
+        for path in paths:
+            for kind in sorted(set(baselines[path]) | set(after[path])):
+                base, now = baselines[path].get(kind), after[path].get(kind)
+                if base == now:
+                    continue
+                what = (f"{now - base} more" if now > base else f"{base - now} fewer") \
+                    if isinstance(base, int) and isinstance(now, int) else "a different count"
+                message = f"{kind}: {now} after teardown, {base} at the fixture baseline ({what})"
+                if kind in TIMING_LIVE_KINDS:
+                    self.skip("I18", None, f"{pointer(*path, kind)} is timing state, not compared: {message}")
+                    continue
+                self.violate("I18", None, "teardown", pointer(*path, kind), message)
+
     def run(self) -> Report:
-        for check in (self.i1, self.i2, self.i3, self.i4, self.i5, self.i6, self.i7):
+        for check in (self.i1, self.i2, self.i3, self.i4, self.i5, self.i6, self.i7, self.i9, self.i10, self.i17,
+                      self.i18):
             check()
         return self.report
+
+
+def compared_sections(sections: Mapping[str, Any], live: Mapping[str, Any]) -> List[str]:
+    """The `session.snapshot` sections I9 compares: every section of the live session and of the daemon's
+    section map that the map does not exclude with a reason. An exclusion without a reason is compared."""
+    out = []
+    for name in sorted(set(live) | set(sections)):
+        entry = sections.get(name)
+        excluded = isinstance(entry, Mapping) and entry.get("restore") == "excluded" \
+            and isinstance(entry.get("reason"), str) and entry["reason"].strip()
+        if not excluded:
+            out.append(name)
+    return out
+
+
+def section_differences(name: str, live: Any, restored: Any) -> List[Tuple[str, str]]:
+    """Where a restored section differs from the live one. A list of objects with ids compares by id: the
+    restore reducer orders a collection by `index` then id, the live snapshot by topology, and each item's
+    `index` and parent ids already hold its place."""
+    at = ("daemon", "session", name)
+    live_rows = rows_by_id(live)
+    restored_rows = rows_by_id(restored)
+    if live_rows is None or restored_rows is None:
+        found = first_difference(live, restored)
+        if found is None:
+            return []
+        where, a, b = found
+        return [(pointer(*at) + where, f"live {json.dumps(a)[:120]}, restored {json.dumps(b)[:120]}")]
+    out = []
+    for key in sorted(set(live_rows) | set(restored_rows)):
+        if key not in restored_rows:
+            out.append((pointer(*at, live_rows[key][0]), f"{key} is live but the restore lacks it"))
+        elif key not in live_rows:
+            out.append((pointer(*at), f"the restore has {key}, which is not live"))
+        else:
+            found = first_difference(live_rows[key][1], restored_rows[key][1])
+            if found is not None:
+                where, a, b = found
+                out.append((pointer(*at, live_rows[key][0]) + where,
+                            f"{key}: live {json.dumps(a)[:120]}, restored {json.dumps(b)[:120]}"))
+    return out
+
+
+def rows_by_id(value: Any) -> Optional[Dict[str, Tuple[int, Any]]]:
+    """{id: (index in the list, row)} of a list of objects with string ids, else None."""
+    if not isinstance(value, list):
+        return None
+    out: Dict[str, Tuple[int, Any]] = {}
+    for i, row in enumerate(value):
+        if not isinstance(row, Mapping) or not isinstance(row.get("id"), str) or row["id"] in out:
+            return None
+        out[row["id"]] = (i, row)
+    return out
 
 
 def shown_workspaces(topology: Mapping[str, Any]) -> Set[str]:
@@ -929,7 +1331,7 @@ def load_schema(path: Path = SNAPSHOT_SCHEMA) -> Dict[str, Any]:
 
 def check_trace(document: Any, case: Optional[Mapping[str, Any]] = None,
                 schema: Optional[Mapping[str, Any]] = None) -> Report:
-    """I1-I7 over one cmux.oracle.trace/v1 document. Raises TraceError on a malformed trace."""
+    """I1-I7, I9, I10 and I17-I18 over one cmux.oracle.trace/v1 document. Raises TraceError on a malformed trace."""
     trace = load_trace(document, case)
     return Checker(trace, Projector(schema if schema is not None else load_schema())).run()
 
@@ -958,6 +1360,7 @@ WIN = "win_000000000000000000000000000000a1"
 PANE3 = "pane_000000000000000000000000000000d3"
 TAB3 = "tab_000000000000000000000000000000e3"
 TERM3 = "term_000000000000000000000000000000f3"
+REOPEN_ARGS = {"method": "closed.reopen", "params": {}, "idempotencyKey": "selftest.reopen"}
 
 
 def _add_tab(snapshot: Dict[str, Any], pane_id: str, tab_id: str, terminal: str) -> Dict[str, Any]:
@@ -1014,6 +1417,45 @@ def _with_hidden_workspace(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     return snap
 
 
+# The daemon's I9 section map (oracle_state.rs RESTORE_SECTIONS).
+RESTORE_SECTIONS = {
+    **{name: {"restore": "compared"} for name in (
+        "session", "workspaces", "screens", "panes", "tabs", "terminals", "browsers", "notifications", "agents",
+        "frontend_projections", "sidebar_views", "cursor", "extra")},
+    "machine": {"restore": "excluded", "reason": "the host the daemon runs on, not session state"},
+    "clients": {"restore": "excluded", "reason": "the connections of this daemon process"},
+}
+
+
+def _restorable(schema: Mapping[str, Any], snapshot: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """(snapshot, raw session): the example's daemon session as raw wire, with plain text where the facet
+    holds a capture hash, and the snapshot whose daemon facet is that wire captured."""
+    snap = copy.deepcopy(snapshot)
+    raw = copy.deepcopy(snap["facets"]["daemon"]["session"])
+    for row in raw.get("terminals") or []:
+        if row.get("title") is not None:
+            row["title"] = f"title of {row['id']}"
+    for row in raw.get("notifications") or []:
+        for key in ("title", "subtitle", "body"):
+            if row.get(key) is not None:
+                row[key] = f"{key} of {row['id']}"
+    node = schema["properties"]["facets"]["properties"]["daemon"]["oneOf"][0]["properties"]["session"]
+    snap["facets"]["daemon"]["session"] = capture(schema, node, raw)
+    return snap, raw
+
+
+def _restore_reply(raw: Mapping[str, Any], head: int, unsupported: Sequence[Any] = (),
+                   sections: Optional[Mapping[str, Any]] = None, state_changes: int = 0) -> Dict[str, Any]:
+    """An oracle-restore-preview reply that restores `raw` through `head`."""
+    sections = RESTORE_SECTIONS if sections is None else sections
+    restored = {name: copy.deepcopy(value) for name, value in raw.items()
+                if (sections.get(name) or {}).get("restore") != "excluded"}
+    return {"sections": copy.deepcopy(sections),
+            "preview": {"checkpointId": "checkpoint_1", "checkpointSequence": 1, "headSequence": head,
+                        "unsupportedCount": len(unsupported), "unsupported": list(unsupported),
+                        "stateChangesNotReduced": state_changes, "session": restored}}
+
+
 def _close_tab2(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     """The example after closing tab e2: its pane d2 and its browser close with it."""
     snap = copy.deepcopy(snapshot)
@@ -1048,13 +1490,19 @@ class InvariantsSelfTest(unittest.TestCase):
     def ids(self, report: Report) -> List[Tuple[str, str]]:
         return [(v.invariant, v.pointer) for v in report.violations]
 
+    @staticmethod
+    def core(report: Report) -> List[NotChecked]:
+        """The notChecked entries of I1-I7: their tests' traces carry no crashes facet or teardown checkpoint."""
+        return [n for n in report.not_checked if BY_ID[n.invariant].task == "p15-oracle-110"]
+
     def test_every_invariant_has_an_id_a_rule_and_a_pointer(self) -> None:
-        self.assertEqual([inv.id for inv in INVARIANTS], [f"I{n}" for n in range(1, 8)])
+        self.assertEqual([inv.id for inv in INVARIANTS], [*(f"I{n}" for n in range(1, 8)), "I9", "I10", "I17", "I18"])
         for inv in INVARIANTS:
             self.assertTrue(inv.rule and inv.pointer.split(":")[0] in {"step", "snapshot", "teardown"}, inv)
 
     def test_a_clean_trace_has_no_violation_and_checks_every_invariant(self) -> None:
         closed = _bump_sequences(_close_tab2(self.base), 1)
+        restorable, raw = _restorable(self.schema, closed)
         hidden_before = _bump_sequences(_with_hidden_workspace(self.base), 2)
         renamed = _bump_sequences(hidden_before, 1)
         renamed["facets"]["daemon"]["session"]["workspaces"][1]["name"] = "renamed"
@@ -1065,10 +1513,14 @@ class InvariantsSelfTest(unittest.TestCase):
             {"id": "close", "op": "action.run", "target": {"tab": TAB2}, "replies": [{"receipt": "action.applied"}],
              "checkpoints": {"before": self.base, "turn": turn, "settled": closed}},
             {"id": "read", "op": "resource.call", "readOnly": True, "replies": [],
-             "checkpoints": {"settled": closed}},
-            {"id": "reopen", "op": "resource.call", "target": {"pane": PANE1},
-             "replies": [{"receipt": "mutation_result", "result": {"tab": TAB2}}],
+             "checkpoints": {"settled": restorable},
+             "restorePreviews": {"settled": _restore_reply(raw, restorable["facets"]["daemon"]["journalHead"])}},
+            {"id": "reopen", "op": "resource.call", "target": {"pane": PANE1}, "args": REOPEN_ARGS,
+             "replies": [{"receipt": "mutation_result", "result": {"value": {"tab_id": TAB2}, "replayed": False}}],
              "checkpoints": {"settled": _bump_sequences(self.base, 1)}},
+            {"id": "reopen-retry", "op": "resource.call", "target": {"pane": PANE1}, "args": REOPEN_ARGS,
+             "replies": [{"receipt": "mutation_result", "result": {"value": {"tab_id": TAB2}, "replayed": True}}],
+             "checkpoints": {"before": _bump_sequences(self.base, 1), "settled": _bump_sequences(self.base, 1)}},
             {"id": "new-hidden", "op": "resource.call", "target": {"session": "session_00000000000000000000000000000002"},
              "replies": [{"receipt": "mutation_result", "result": {"workspace": HIDDEN_WS}}],
              "checkpoints": {"settled": hidden_before}},
@@ -1078,6 +1530,7 @@ class InvariantsSelfTest(unittest.TestCase):
              "layoutCounters": {"before": {"pane_snapshots": 4, "indicator_resyncs": 1},
                                 "after": {"pane_snapshots": 4, "indicator_resyncs": 2}}},
         )
+        doc["teardown"]["checkpoint"] = self.base
         report = self.check(doc)
         self.assertEqual(report.violations, [], [v.to_json() for v in report.violations])
         self.assertEqual(report.not_checked, [])
@@ -1276,7 +1729,7 @@ class InvariantsSelfTest(unittest.TestCase):
         key = dict(step, op="key", target={"window": WIN}, args={"keys": ["cmd+opt+right"]})
         report = self.check(_trace(key))
         self.assertEqual(report.violations, [])
-        self.assertEqual([n.invariant for n in report.not_checked], ["I3"])
+        self.assertEqual([n.invariant for n in self.core(report)], ["I3"])
         self.assertEqual(self.check(_trace(dict(key, action="pane.focus"))).violations, [])
 
     def test_i3_set_order_and_float_jitter_do_not_count(self) -> None:
@@ -1325,7 +1778,7 @@ class InvariantsSelfTest(unittest.TestCase):
         del v0["facets"]["daemon"]["journalHead"]
         report = self.check(_trace({"id": "s", "op": "settle", "checkpoints": {"settled": v0}}))
         self.assertEqual(report.violations, [])
-        self.assertEqual([(n.invariant, n.step) for n in report.not_checked], [("I4", "s")])
+        self.assertEqual([(n.invariant, n.step) for n in self.core(report)], [("I4", "s")])
 
     # I5
     def test_i5_reports_each_desync_where_it_first_shows(self) -> None:
@@ -1348,7 +1801,7 @@ class InvariantsSelfTest(unittest.TestCase):
         del doc["teardown"]
         report = self.check(doc)
         self.assertEqual(report.violations, [])
-        self.assertEqual([n.invariant for n in report.not_checked], ["I6"])
+        self.assertEqual([n.invariant for n in self.core(report)], ["I6"])
 
     # I7
     def test_i7_view_work_for_a_hidden_workspace(self) -> None:
@@ -1365,7 +1818,329 @@ class InvariantsSelfTest(unittest.TestCase):
         self.assertEqual(self.check(_trace(visible)).violations, [])
         del step["layoutCounters"]
         report = self.check(_trace(step))
-        self.assertEqual([(n.invariant, n.step) for n in report.not_checked], [("I7", "tab-in-hidden")])
+        self.assertEqual([(n.invariant, n.step) for n in self.core(report)], [("I7", "tab-in-hidden")])
+
+    # I10
+    @staticmethod
+    def created(tab: str, replayed: bool) -> Dict[str, Any]:
+        """The reply of tab.create_terminal as the daemon sends it: a receipt and its MutationResult."""
+        return {"receipt": "mutation_result",
+                "result": {"value": {"tab_id": tab}, "generation": "gen-1", "revision": "7", "replayed": replayed}}
+
+    def retry_trace(self, retry_reply: Dict[str, Any], retry_settled: Dict[str, Any], **change: Any) -> Dict[str, Any]:
+        """tab.create_terminal makes TAB3, then its same-key retry, recorded before and settled."""
+        args = {"method": "tab.create_terminal", "params": {}, "idempotencyKey": "selftest.call"}
+        created = _bump_sequences(_add_tab(self.base, PANE1, TAB3, TERM3), 1)
+        call = {"id": "call", "op": "resource.call", "target": {"pane": PANE1}, "args": args,
+                "replies": [self.created(TAB3, False)],
+                "checkpoints": {"before": self.base, "settled": created}}
+        retry = {**call, "id": "retry", "replies": [retry_reply],
+                 "checkpoints": {"before": created, "settled": retry_settled}, **change}
+        return _trace(call, retry)
+
+    def i10(self, report: Report) -> Tuple[List[Tuple[str, str]], List[str]]:
+        return ([(v.invariant, v.pointer) for v in report.violations if v.invariant == "I10"],
+                [n.reason for n in report.not_checked if n.invariant == "I10"])
+
+    def test_i10_a_replayed_retry_holds(self) -> None:
+        # The daemon's replay: the same value, generation and revision, and replayed false then true.
+        doc = self.retry_trace(self.created(TAB3, True), _bump_sequences(_add_tab(self.base, PANE1, TAB3, TERM3), 1))
+        report = self.check(doc)
+        self.assertEqual(self.i10(report), ([], []))
+        self.assertEqual(report.checked["I10"], 1)
+
+    def test_i10_a_double_create_breaks_the_result_the_flag_the_journal_and_the_facets(self) -> None:
+        # The double-create mutant: the retry runs the handler again, so a second tab, a new id and a new record,
+        # and the daemon says replayed false twice.
+        tab4, term4 = "tab_000000000000000000000000000000e4", "term_000000000000000000000000000000f4"
+        twice = _bump_sequences(_add_tab(_add_tab(self.base, PANE1, TAB3, TERM3), PANE1, tab4, term4), 2)
+        report = self.check(self.retry_trace(self.created(tab4, False), twice))
+        violations, _ = self.i10(report)
+        self.assertEqual([at for _, at in violations[:3]],
+                         ["/replies/0/result/value/tab_id", "/replies/0/result/replayed", "/daemon/journalHead"])
+        self.assertEqual(len(violations), 4, violations)
+        self.assertTrue(violations[3][1].startswith("/"), violations)
+        self.assertEqual({v.step for v in report.violations if v.invariant == "I10"}, {"retry"})
+        journal = next(v.message for v in report.violations if v.pointer == "/daemon/journalHead")
+        self.assertIn("added 1 record(s)", journal)
+
+    def test_i10_a_retry_that_says_it_ran_again_is_caught_on_the_flag_alone(self) -> None:
+        # Same value and no new record, but the daemon did not answer from its receipt.
+        doc = self.retry_trace(self.created(TAB3, False), _bump_sequences(_add_tab(self.base, PANE1, TAB3, TERM3), 1))
+        report = self.check(doc)
+        self.assertEqual(self.i10(report), ([("I10", "/replies/0/result/replayed")], []))
+        flag = next(v for v in report.violations if v.invariant == "I10")
+        self.assertEqual((flag.step, flag.where), ("retry", "step"))
+        self.assertIn("replied replayed false, not true", flag.message)
+
+    def test_i10_a_first_call_that_says_replayed_is_caught_on_that_call(self) -> None:
+        doc = self.retry_trace(self.created(TAB3, True), _bump_sequences(_add_tab(self.base, PANE1, TAB3, TERM3), 1))
+        doc["steps"][0]["replies"] = [self.created(TAB3, True)]
+        report = self.check(doc)
+        self.assertEqual(self.i10(report), ([("I10", "/replies/0/result/replayed")], []))
+        self.assertEqual(next(v.step for v in report.violations if v.invariant == "I10"), "call")
+
+    def test_i10_skips_a_refused_first_call_and_missing_inputs(self) -> None:
+        created = _bump_sequences(_add_tab(self.base, PANE1, TAB3, TERM3), 1)
+        doc = self.retry_trace({"error": "validation.invalid"}, created)
+        doc["steps"][0]["replies"] = [{"error": "validation.invalid"}]
+        self.assertEqual(self.i10(self.check(doc))[0], [])
+        self.assertIn("no effect to replay", self.i10(self.check(doc))[1][0])
+        bare = self.retry_trace({"receipt": "mutation_result"}, created)
+        bare["steps"][0]["replies"] = [{"receipt": "mutation_result"}]
+        del bare["steps"][1]["checkpoints"]["settled"]
+        self.assertEqual(self.i10(self.check(bare)),
+                         ([], ["the replies of call carry no result: only the receipt kind is compared",
+                               "the retry has no settled checkpoint or no checkpoint before it"]))
+        flagless = self.retry_trace({"receipt": "mutation_result", "result": {"tab": TAB3}}, created)
+        flagless["steps"][0]["replies"] = [{"receipt": "mutation_result", "result": {"tab": TAB3}}]
+        self.assertEqual(self.i10(self.check(flagless)),
+                         ([], ["the result of call has no `replayed` flag: not a MutationResult"]))
+        headless = self.retry_trace(self.created(TAB3, True), created)
+        for state in (headless["steps"][1]["checkpoints"]["before"], headless["steps"][1]["checkpoints"]["settled"]):
+            state["facets"]["daemon"].pop("journalHead")
+        self.assertEqual(self.i10(self.check(headless)),
+                         ([], ["no daemon journalHead at both the retry's before and settled checkpoints"]))
+
+    def test_i10_another_request_under_the_same_key_is_not_a_retry(self) -> None:
+        twice = _bump_sequences(_add_tab(self.base, PANE1, TAB3, TERM3), 2)
+        doc = self.retry_trace({"error": "idempotency.conflict"}, twice, target={"pane": PANE2})
+        report = self.check(doc)
+        self.assertEqual(self.i10(report), ([], []))
+        self.assertEqual(report.checked["I10"], 0)
+
+    # I17
+    def crash_trace(self, *rises: Tuple[str, str, Optional[Dict[str, int]]], allow: Optional[List[Dict[str, Any]]] = None,
+                    exits: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+        """A settle step per (step id, checkpoint, counts); each later snapshot also lists `exits` seen so far.
+        None counts is a not-comparable crashes facet (the daemon reconnecting); "-" a step with no checkpoint."""
+        steps = []
+        seen: List[Dict[str, Any]] = []
+        for step_id, checkpoint, counts in rises:
+            if checkpoint == "-":
+                steps.append({"id": step_id, "op": "snapshot", "checkpoints": {}})
+                continue
+            snap = copy.deepcopy(self.base)
+            if counts is None:
+                snap["facets"]["crashes"] = {"status": "not-comparable", "reason": "the daemon is not connected",
+                                             "task": "p15-oracle-188"}
+                existing = next((s for s in steps if s["id"] == step_id), None)
+                if existing is None:
+                    existing = {"id": step_id, "op": "snapshot", "checkpoints": {}}
+                    steps.append(existing)
+                existing["checkpoints"][checkpoint] = snap
+                continue
+            total = {kind: counts.get(kind, 0) for kind in CRASH_KINDS}
+            for e in exits or []:
+                if len([x for x in seen if x["kind"] == e["kind"]]) < total[e["kind"]] and e not in seen:
+                    seen.append(e)
+            snap["facets"]["crashes"] = {"counts": total, "exits": list(seen)}
+            existing = next((s for s in steps if s["id"] == step_id), None)
+            if existing is None:
+                existing = {"id": step_id, "op": "snapshot", "checkpoints": {}}
+                steps.append(existing)
+            existing["checkpoints"][checkpoint] = snap
+        doc = _trace(*steps)
+        if allow is not None:
+            doc["allow_crashes"] = allow
+        return doc
+
+    def test_i17_a_renderer_crash_without_allow_crashes_fails(self) -> None:
+        crash = {"kind": "renderer", "reason": "crashed", "exitCode": 11}
+        doc = self.crash_trace(("open", "settled", {}), ("crash", "settled", {"renderer": 1}), exits=[crash])
+        report = self.check(doc)
+        self.assertEqual([(v.invariant, v.step, v.pointer) for v in report.violations],
+                         [("I17", "crash", "/crashes/exits/0")])
+        self.assertIn("renderer exit (crashed) during step crash", report.violations[0].message)
+        allowed = self.crash_trace(("open", "settled", {}), ("crash", "settled", {"renderer": 1}), exits=[crash],
+                                   allow=[{"kind": "renderer", "reason": "chrome://crash on purpose", "steps": ["crash"]}])
+        self.assertEqual(self.check(allowed).violations, [])
+        self.assertEqual(self.check(allowed).checked["I17"], 1)
+
+    def test_i17_scope_kind_and_max_of_each_entry(self) -> None:
+        allow = [{"kind": "renderer", "reason": "chrome://crash on purpose", "steps": ["crash"]}]
+        # Outside the entry's steps, of another kind, and one more than its max.
+        elsewhere = self.crash_trace(("open", "settled", {}), ("crash", "settled", {}), ("after", "settled", {"renderer": 1}),
+                                     allow=allow)
+        self.assertEqual([(v.step, v.pointer) for v in self.check(elsewhere).violations],
+                         [("after", "/crashes/counts/renderer")])
+        gpu = self.crash_trace(("open", "settled", {}), ("crash", "settled", {"gpu": 1}), allow=allow)
+        self.assertEqual([v.pointer for v in self.check(gpu).violations], ["/crashes/counts/gpu"])
+        twice = self.crash_trace(("open", "settled", {}), ("crash", "settled", {"renderer": 2}), allow=allow)
+        self.assertEqual(len(self.check(twice).violations), 1)
+        whole = self.crash_trace(("open", "settled", {}), ("crash", "settled", {"holder": 2}),
+                                 allow=[{"kind": "holder", "reason": "the case kills holders", "max": 2}])
+        self.assertEqual(self.check(whole).violations, [])
+
+    def test_i17_an_exit_during_teardown_needs_a_whole_case_entry(self) -> None:
+        doc = self.crash_trace(("open", "settled", {}), ("close", "settled", {}))
+        end = copy.deepcopy(self.base)
+        end["facets"]["crashes"] = {"counts": {**{k: 0 for k in CRASH_KINDS}, "utility": 1},
+                                    "exits": [{"kind": "utility", "reason": "abnormal", "exitCode": 256}]}
+        doc["teardown"]["checkpoint"] = end
+        doc["allow_crashes"] = [{"kind": "utility", "reason": "the network service ends", "steps": ["close"]}]
+        self.assertEqual([(v.step, v.checkpoint, v.pointer) for v in self.check(doc).violations],
+                         [(None, "teardown", "/crashes/exits/0")])
+        doc["allow_crashes"] = [{"kind": "utility", "reason": "the network service ends"}]
+        self.assertEqual([v for v in self.check(doc).violations if v.invariant == "I17"], [])
+
+    def test_i17_an_exit_at_a_before_checkpoint_belongs_to_the_step_before(self) -> None:
+        allow = [{"kind": "holder", "reason": "the kill step ends a holder", "steps": ["kill"]}]
+        doc = self.crash_trace(("kill", "settled", {}), ("next", "before", {"holder": 1}), allow=allow)
+        self.assertEqual(self.check(doc).violations, [])
+
+    def test_i17_a_rise_after_unread_checkpoints_belongs_to_every_step_it_spans(self) -> None:
+        allow = [{"kind": "holder", "reason": "the kill step ends a holder", "steps": ["kill"]}]
+        # The kill step's settled crashes facet is not comparable (the daemon reconnects); the rise first
+        # shows at the next step's settled checkpoint.
+        reconnect = self.crash_trace(("open", "before", {}), ("kill", "settled", None), ("next", "settled", {"holder": 1}),
+                                     allow=allow)
+        self.assertEqual(self.check(reconnect).violations, [])
+        # The kill step has no checkpoint at all.
+        unread = self.crash_trace(("open", "before", {}), ("kill", "-", None), ("next", "settled", {"holder": 1}), allow=allow)
+        self.assertEqual(self.check(unread).violations, [])
+        # Without an entry for any step of the span the exit fails, and the message names the span.
+        report = self.check(self.crash_trace(("open", "before", {}), ("kill", "settled", None),
+                                             ("next", "settled", {"holder": 1})))
+        self.assertEqual([(v.step, v.pointer) for v in report.violations], [("next", "/crashes/counts/holder")])
+        self.assertIn("during one of step kill, step next", report.violations[0].message)
+        # Adjacent readings keep the step's own scope: an entry for kill does not cover next.
+        adjacent = self.crash_trace(("open", "before", {}), ("kill", "settled", {}), ("next", "settled", {"holder": 1}),
+                                    allow=allow)
+        self.assertEqual([v.step for v in self.check(adjacent).violations], ["next"])
+
+    def test_i17_the_baseline_is_before_the_first_step(self) -> None:
+        crash = {"kind": "renderer", "reason": "crashed", "exitCode": 11}
+        # The first step's exit is in its own first reading: not checked, never taken as the baseline silently.
+        late = self.crash_trace(("crash", "settled", {"renderer": 1}), ("read", "settled", {"renderer": 1}), exits=[crash])
+        report = self.check(late)
+        self.assertEqual([v for v in report.violations if v.invariant == "I17"], [])
+        self.assertIn(("I17", "crash"), [(n.invariant, n.step) for n in report.not_checked])
+        # With a before checkpoint of the first step, the same exit fails.
+        early = self.crash_trace(("crash", "before", {}), ("crash", "settled", {"renderer": 1}), exits=[crash])
+        report = self.check(early)
+        self.assertEqual([(v.step, v.pointer) for v in report.violations], [("crash", "/crashes/exits/0")])
+        self.assertNotIn(("I17", "crash"), [(n.invariant, n.step) for n in report.not_checked])
+
+    def test_i17_totals_since_launch_count_only_their_rise_and_a_reset(self) -> None:
+        doc = self.crash_trace(("open", "settled", {"renderer": 4, "daemon": 2}), ("read", "settled", {"renderer": 4, "daemon": 2}))
+        self.assertEqual(self.check(doc).violations, [])
+        reset = self.crash_trace(("open", "settled", {"holder": 5}), ("restart", "settled", {"holder": 1}))
+        self.assertEqual([v.pointer for v in self.check(reset).violations], ["/crashes/counts/holder"])
+
+    def test_i17_reads_allow_crashes_from_the_case_and_skips_without_the_facet(self) -> None:
+        doc = self.crash_trace(("open", "settled", {}), ("crash", "settled", {"renderer": 1}))
+        case = {"allow_crashes": [{"kind": "renderer", "reason": "chrome://crash on purpose"}]}
+        self.assertEqual(self.check(doc, case).violations, [])
+        report = self.check(_trace({"id": "s", "op": "settle"}))
+        self.assertIn(("I17", None), [(n.invariant, n.step) for n in report.not_checked])
+
+    # I18
+    def test_i18_a_leaked_tab_fails_and_a_balanced_case_passes(self) -> None:
+        opened = copy.deepcopy(self.base)
+        opened["facets"]["liveObjects"]["pageViews"] += 1
+        opened["facets"]["liveObjects"]["cefBrowsers"] += 1
+        opened["facets"]["daemon"]["oracle"]["liveObjects"]["terminals"] += 1
+        doc = _trace({"id": "open-tab", "op": "snapshot", "checkpoints": {"before": self.base, "settled": opened}})
+        doc["teardown"]["checkpoint"] = opened
+        report = self.check(doc)
+        self.assertEqual([(v.invariant, v.checkpoint, v.pointer) for v in report.violations],
+                         [("I18", "teardown", "/liveObjects/cefBrowsers"), ("I18", "teardown", "/liveObjects/pageViews"),
+                          ("I18", "teardown", "/daemon/oracle/liveObjects/terminals")])
+        self.assertIn("pageViews: 1 after teardown, 0 at the fixture baseline (1 more)", [v.message for v in report.violations])
+        doc["teardown"]["checkpoint"] = self.base
+        report = self.check(doc)
+        self.assertEqual(report.violations, [])
+        self.assertEqual(report.checked["I18"], 1)
+
+    def test_i18_timing_counts_are_reported_not_failed(self) -> None:
+        pending = copy.deepcopy(self.base)
+        pending["facets"]["liveObjects"]["tasks"] += 1
+        pending["facets"]["liveObjects"]["subscriptions"] += 2
+        pending["facets"]["daemon"]["oracle"]["liveObjects"]["subscriptions"] += 1
+        doc = _trace({"id": "close-tab", "op": "snapshot", "checkpoints": {"before": self.base}})
+        doc["teardown"]["checkpoint"] = pending
+        report = self.check(doc)
+        self.assertEqual([v for v in report.violations if v.invariant == "I18"], [])
+        skipped = [n.reason for n in report.not_checked if n.invariant == "I18"]
+        self.assertEqual(len(skipped), 3)
+        self.assertTrue(any("/liveObjects/tasks is timing state" in r and "1 more" in r for r in skipped))
+
+    def test_i18_without_a_teardown_checkpoint_is_not_checked(self) -> None:
+        report = self.check(_trace({"id": "s", "op": "settle", "checkpoints": {"settled": self.base}}))
+        self.assertIn(("I18", None), [(n.invariant, n.step) for n in report.not_checked])
+
+    # I9
+    def i9_trace(self, snapshot: Dict[str, Any], reply: Any) -> Dict[str, Any]:
+        return _trace({"id": "settle", "op": "settle", "checkpoints": {"settled": snapshot},
+                       "restorePreviews": {"settled": reply}})
+
+    def test_i9_a_restore_equal_to_the_live_session_passes(self) -> None:
+        snapshot, raw = _restorable(self.schema, self.base)
+        head = snapshot["facets"]["daemon"]["journalHead"]
+        reply = _restore_reply(raw, head)
+        restored = reply["preview"]["session"]
+        restored["tabs"].reverse()  # the reducer's order: index, then id
+        restored["cursor"]["revision"] = "7"  # volatile in the facet: counts commits, not state
+        restored["machine"] = {"id": "machine_elsewhere"}  # excluded with a reason
+        report = self.check(self.i9_trace(snapshot, reply))
+        self.assertEqual([v for v in report.violations if v.invariant == "I9"], [])
+        self.assertEqual(report.checked["I9"], 1)
+        self.assertEqual([n for n in report.not_checked if n.invariant == "I9"], [])
+
+    def test_i9_catches_the_skip_journal_append_mutant(self) -> None:
+        """A step whose journal record was never appended: the restore stops before its changes."""
+        _, raw_before = _restorable(self.schema, self.base)
+        after, raw_after = _restorable(self.schema, _bump_sequences(_with_hidden_workspace(self.base), 1))
+        head = after["facets"]["daemon"]["journalHead"]
+        report = self.check(self.i9_trace(after, _restore_reply(raw_before, head)))
+        live = after["facets"]["daemon"]["session"]
+        index = [w["id"] for w in live["workspaces"]].index(HIDDEN_WS)
+        self.assertIn(("I9", f"/daemon/session/workspaces/{index}"), self.ids(report))
+        self.assertTrue(any(v.pointer.startswith("/daemon/session/tabs/") for v in report.violations), report)
+
+        # A rename whose record was skipped: the restore keeps the old name.
+        renamed = copy.deepcopy(after)
+        renamed["facets"]["daemon"]["session"]["workspaces"][index]["name"] = "renamed"
+        report = self.check(self.i9_trace(renamed, _restore_reply(raw_after, head)))
+        self.assertEqual(self.ids(report), [("I9", f"/daemon/session/workspaces/{index}/name")])
+
+    def test_i9_another_cut_or_no_checkpoint_is_not_checked(self) -> None:
+        snapshot, raw = _restorable(self.schema, self.base)
+        head = snapshot["facets"]["daemon"]["journalHead"]
+        for reply in (_restore_reply(raw, head + 1), {"sections": RESTORE_SECTIONS, "preview": None}):
+            report = self.check(self.i9_trace(snapshot, reply))
+            self.assertEqual((report.checked["I9"], self.ids(report)), (0, []))
+            self.assertEqual([n.step for n in report.not_checked if n.invariant == "I9"], ["settle"])
+        report = self.check(_trace({"id": "s", "op": "settle", "checkpoints": {"settled": snapshot}}))
+        self.assertIn(("I9", None), [(n.invariant, n.step) for n in report.not_checked])
+
+    def test_i9_a_record_the_restore_cannot_apply_fails(self) -> None:
+        snapshot, raw = _restorable(self.schema, self.base)
+        head = snapshot["facets"]["daemon"]["journalHead"]
+        unsupported = [{"sequence": str(head), "event_id": "event_x", "kind": "plugin.change"}]
+        report = self.check(self.i9_trace(snapshot, _restore_reply(raw, head, unsupported)))
+        self.assertEqual(self.ids(report), [("I9", "/daemon/journalHead")])
+
+    def test_i9_an_exclusion_without_a_reason_is_compared(self) -> None:
+        snapshot, raw = _restorable(self.schema, self.base)
+        head = snapshot["facets"]["daemon"]["journalHead"]
+        sections = {**RESTORE_SECTIONS, "machine": {"restore": "excluded", "reason": " "}}
+        report = self.check(self.i9_trace(snapshot, _restore_reply(raw, head, sections=sections)))
+        self.assertEqual(self.ids(report), [("I9", "/daemon/session/machine")])
+
+    def test_i9_a_state_change_the_restore_does_not_reduce_fails(self) -> None:
+        """`extra` is compared while no state change followed the checkpoint; a dropped one fails once."""
+        snapshot, raw = _restorable(self.schema, self.base)
+        head = snapshot["facets"]["daemon"]["journalHead"]
+        stale = copy.deepcopy(raw)
+        stale["extra"] = {"state": {"closed": [{"id": "closed_1"}]}}
+        report = self.check(self.i9_trace(snapshot, _restore_reply(stale, head)))
+        extra = [at for _, at in self.ids(report)]
+        self.assertTrue(extra and all(at.startswith("/daemon/session/extra") for at in extra), extra)
+        report = self.check(self.i9_trace(snapshot, _restore_reply(stale, head, state_changes=2)))
+        self.assertEqual(self.ids(report), [("I9", "/daemon/session/extra")])
+        self.assertIn("2 state_upsert/state_delete", report.violations[0].message)
 
     def test_cli_exit_codes(self) -> None:
         import io

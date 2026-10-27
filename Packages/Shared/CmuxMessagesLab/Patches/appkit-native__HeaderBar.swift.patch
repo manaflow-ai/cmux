@@ -1,0 +1,30 @@
+--- a/Sources/MessagesLabHome/Vendor/appkit-native/HeaderBar.swift
++++ b/Sources/MessagesLabHome/Vendor/appkit-native/HeaderBar.swift
+@@ -253,7 +253,7 @@
+             ctx.translateBy(x: -294, y: -8)
+             // drawOverlay draws the whole header overlay; the clip keeps the
+             // avatar's 40 x 40 pt.
+-            HeaderView.drawOverlay(ctx, CGRect(x: 0, y: 0, width: Fixture.windowWidth, height: Fixture.headerHeight))
++            HeaderView.drawOverlay(ctx, CGRect(x: 0, y: 0, width: Fixture.windowWidth, height: Fixture.headerHeight), title: name)
+             ctx.restoreGState()
+             return true
+         }
+@@ -290,7 +290,8 @@
+         shadowView.setAccessibilityElement(false)
+     }
+     required init?(coder: NSCoder) { fatalError() }
+-    deinit { imageView.removeFromSuperview(); shadowView.removeFromSuperview(); lane.removeFromSuperview() }
++    // cmux: no deinit (it ran main-actor view calls off the actor): leaving the window takes the disc, its
++    // shadow and its lane out of the titlebar (viewDidMoveToWindow -> place()).
+     override func viewDidMoveToWindow() {
+         super.viewDidMoveToWindow()
+         place()
+@@ -367,7 +368,7 @@
+         let n = max(1, CrashGuard.int((side * scale).rounded(), in: 1...4096))
+         // The dropped disc, black at the shadow's opacity (CG: bottom-left origin, so the drop is -y).
+         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+-              let ctx = CGContext(data: nil, width: n, height: n, bitsPerComponent: 8, bytesPerRow: 0, space: space,
++              let ctx = CGContext.ownedBitmap(width: n, height: n, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+         ctx.scaleBy(x: scale, y: scale)
+         ctx.setFillColor(NSColor(white: 0, alpha: opacity).cgColor)

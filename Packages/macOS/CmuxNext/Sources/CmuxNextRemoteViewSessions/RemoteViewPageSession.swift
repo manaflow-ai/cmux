@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 public import CmuxNextRemoteView
 public import CmuxNextSettings
 
@@ -122,6 +123,12 @@ public final class RemoteViewPageSession {
         set { pane.onOwnContent = newValue }
     }
 
+    /// The windows' frame-aligned pointer input for the pane (feature `pointerFrameRemoteInput`).
+    public var pointerFrames: FrameInputCoalescers? {
+        get { pane.pointerFrames }
+        set { pane.pointerFrames = newValue }
+    }
+
     /// The person stopped the session or it ended: it stays so until the pane's Reconnect.
     public var isEnded: Bool { rdStopped || pane.state.isEnded }
 
@@ -181,6 +188,10 @@ public final class RemoteViewPageSession {
     public var focusTarget: NSView { view }
     public func picture() async -> CGImage? { nil }
     public var onOwnContent: (() -> Void)? {
+        get { nil }
+        set {}
+    }
+    public var pointerFrames: FrameInputCoalescers? {
         get { nil }
         set {}
     }

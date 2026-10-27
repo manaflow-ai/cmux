@@ -17,6 +17,8 @@ enum BrailleSpinnerImage {
         var family: String?
     }
 
+    // memory: fixed at most 17 entries (emptied past 16), each the 10 alpha-only frames of a status
+    // icon's square: 10 x side x side bytes, 10 KiB for a 16 pt tab icon at 2x.
     private static var cache: [Key: [CGImage]] = [:]
 
     /// The frames for a `side`-point square at `scale`, in `family` (the

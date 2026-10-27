@@ -166,9 +166,15 @@ impl SinkState {
         }
     }
 
-    /// An acknowledgement is due for what the parser confirmed.
+    /// An acknowledgement is due for what the parser confirmed: every
+    /// `ACK_EVERY` bytes, and once the stream went idle with
+    /// [`IDLE_ACK_BYTES`] unacknowledged, so a cold terminal's holder can
+    /// release its ring up to the end of a burst (p07-memory-094).
     fn due_ack(&mut self, can_ack: bool) -> Option<u64> {
-        (can_ack && self.confirmed >= self.acked + ACK_EVERY).then(|| {
+        let unacked = self.confirmed.saturating_sub(self.acked);
+        let idle = self.bytes.is_empty();
+        let due = unacked >= ACK_EVERY || (idle && unacked >= IDLE_ACK_BYTES);
+        (can_ack && due).then(|| {
             self.acked = self.confirmed;
             self.confirmed
         })
@@ -461,6 +467,11 @@ impl HolderSink {
     }
 }
 
+/// Unacknowledged parsed output that gets an ACK as soon as the stream goes
+/// idle: a keystroke echo never costs one, the tail of a burst does, so a
+/// cold terminal's holder ring keeps at most this much it could release.
+pub(super) const IDLE_ACK_BYTES: u64 = 16 * 1024;
+
 /// CAN: ends an escape sequence the parser is inside, so output after a
 /// gap does not continue a sequence (or a UTF-8 character) cut by it.
 pub(super) const CANCEL: u8 = 0x18;
@@ -683,6 +694,40 @@ mod tests {
         // holder's bytes is acknowledged, every ACK_EVERY bytes.
         assert!(acks.len() >= 2, "{acks:?}");
         assert!(last >= ACK_EVERY && last <= 2 * chunk.len() as u64, "{acks:?}");
+    }
+
+    /// p07-memory-094: the tail of a burst under `ACK_EVERY` is acknowledged
+    /// once the stream goes idle, so the holder may release its ring up to
+    /// the burst's end; an echo after it costs no acknowledgement.
+    #[test]
+    fn an_idle_stream_acknowledges_the_tail_of_a_burst_but_not_an_echo() {
+        let (acked, acks) = std::sync::mpsc::channel();
+        let sink = HolderSink::new(0);
+        sink.set_acker(Box::new(move |offset| {
+            let _ = acked.send(offset);
+        }));
+        let wait = std::time::Duration::from_secs(10);
+        assert_eq!(acks.recv_timeout(wait), Ok(0));
+        // Under ACK_EVERY: before p07-memory-094 it was never acknowledged.
+        let burst = (2 * IDLE_ACK_BYTES) as usize;
+        assert!((burst as u64) < ACK_EVERY);
+        sink.data(0, &vec![b'a'; burst]);
+        let reader = std::thread::spawn({
+            let sink = sink.clone();
+            move || {
+                let mut out = Vec::new();
+                SinkReader(sink).read_to_end(&mut out).unwrap();
+                out.len()
+            }
+        });
+        // The reader's next read confirms the burst, finds the stream idle
+        // and acknowledges all of it before it waits.
+        assert_eq!(acks.recv_timeout(wait), Ok(burst as u64));
+        // An echo: under IDLE_ACK_BYTES, no acknowledgement.
+        sink.data(burst as u64, b"y");
+        sink.exit(ExitStatus::Exited(0), burst as u64 + 1);
+        assert_eq!(reader.join().unwrap(), burst + 1);
+        assert!(acks.try_recv().is_err(), "an echo was acknowledged");
     }
 
     #[test]

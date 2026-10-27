@@ -18,10 +18,10 @@ extension NSView {
         // Offsets from the rest in the superlayer's space, on the layer's own rest values.
         let position = layer.position, size = layer.bounds.size
         return [
-            RenderSpring.Move(layer, "position.x", from: position.x + startPosition.x - restPosition.x, to: position.x, velocity: rate.position.x),
-            RenderSpring.Move(layer, "position.y", from: position.y + startPosition.y - restPosition.y, to: position.y, velocity: rate.position.y),
-            RenderSpring.Move(layer, "bounds.size.width", from: size.width + start.width - rest.width, to: size.width, velocity: rate.size.width),
-            RenderSpring.Move(layer, "bounds.size.height", from: size.height + start.height - rest.height, to: size.height,
+            RenderSpring.Move(layer, .positionX, from: position.x + startPosition.x - restPosition.x, to: position.x, velocity: rate.position.x),
+            RenderSpring.Move(layer, .positionY, from: position.y + startPosition.y - restPosition.y, to: position.y, velocity: rate.position.y),
+            RenderSpring.Move(layer, .boundsWidth, from: size.width + start.width - rest.width, to: size.width, velocity: rate.size.width),
+            RenderSpring.Move(layer, .boundsHeight, from: size.height + start.height - rest.height, to: size.height,
                               velocity: rate.size.height),
         ]
     }

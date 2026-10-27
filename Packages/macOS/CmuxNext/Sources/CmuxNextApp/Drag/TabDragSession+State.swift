@@ -49,7 +49,11 @@ extension TabDragSession {
         let lifecycle: TabDragLifecycle
         let ghost: TabDragGhostPanel
         var motion: TabDragGhostMotion
+        /// The real pointer: every hit test, the window order, autoscroll and the drop read it.
         var point: CGPoint
+        /// Where the ghost is drawn: the pointer resampled at the frame's time (feature `resampledDrags`); nil: at
+        /// ``point``. Only the ghost's rect reads it.
+        var shownPoint: CGPoint?
         /// Pointer velocity in points per second, from `samplePointer`.
         var pointerVelocity = CGVector.zero
         var lastPointerSample: (point: CGPoint, time: CFTimeInterval)?
@@ -69,6 +73,8 @@ extension TabDragSession {
         /// The drag's moves on the ghost window's coalescer (feature `pointerFrameDrags`): a frame interval's first
         /// move and the frame's latest hit-test. Nil while it is off: every move hit-tests.
         var moves: PointerFrameConsumer?
+        /// Resamples the drag's moves for the ghost (feature `resampledDrags`); nil: drawn at the real pointer.
+        var resampler: DragResampler?
         /// Hit tests run during this drag (debug.tab_drag and tests: at most two per frame with ``moves``).
         var hitTests = 0
         /// A delivery of ``moves`` hit-tested since the last ghost frame: that frame's scroll step or dwell does not

@@ -50,23 +50,23 @@ public struct RenderSpring {
         style(for: keyPath, shown: Motion.canAnimate(in: view)) != .snap
     }
 
-    /// Springs `layer.keyPath` to `value`. When the gate does not animate the key path, the
+    /// Springs `layer`'s `key` to `value`. When the gate does not animate the key path, the
     /// value shows in one frame (springs left on the key path are removed) and `completion`
     /// runs now; otherwise it runs when the layer lands (``Completion``). `view` is the view
     /// that shows `layer`, or nil only for a layer in no window.
-    public func animate<Value: RenderSpringValue>(_ layer: CALayer, _ keyPath: String, to value: Value, in view: NSView?,
+    public func animate<Value: RenderSpringValue>(_ layer: CALayer, _ key: RenderSpringKey<Value>, to value: Value, in view: NSView?,
                                                   completion: Completion? = nil) {
-        animateGroup([.init(layer, keyPath, to: value)], in: view, completion: completion)
+        animateGroup([.init(layer, key, to: value)], in: view, completion: completion)
     }
 
-    /// Springs the scalar `layer.keyPath` (`position.x`, `bounds.size.width`) to `value`,
+    /// Springs the scalar `key` of `layer` (`.positionX`, `.boundsWidth`) to `value`,
     /// starting with `velocity` (units of the value per second, as a fling's release
     /// velocity). One scalar per key path, because a `CASpringAnimation` has one initial
     /// velocity normalized to its distance: a point's velocity fits only when it is parallel
     /// to the distance.
-    public func animate(_ layer: CALayer, _ keyPath: String, to value: CGFloat, velocity: CGFloat, in view: NSView?,
+    public func animate(_ layer: CALayer, _ key: RenderSpringKey<CGFloat>, to value: CGFloat, velocity: CGFloat, in view: NSView?,
                         completion: Completion? = nil) {
-        animateGroup([.init(layer, keyPath, to: value, velocity: velocity)], in: view, completion: completion)
+        animateGroup([.init(layer, key, to: value, velocity: velocity)], in: view, completion: completion)
     }
 
     /// Springs a host layer and its sublayers to their rest frames on this one token, from
@@ -83,8 +83,8 @@ public struct RenderSpring {
         for (layer, frame) in frames { layer.frame = frame }
         var moves: [Move] = []
         for ((layer, _), (position, size)) in zip(frames, starts) {
-            moves.append(Move(layer, "position", from: position, to: layer.position))
-            moves.append(Move(layer, "bounds.size", from: size, to: layer.bounds.size))
+            moves.append(Move(layer, .position, from: position, to: layer.position))
+            moves.append(Move(layer, .boundsSize, from: size, to: layer.bounds.size))
         }
         animateGroup(moves, in: view, completion: completion)
         CATransaction.commit()
@@ -117,11 +117,11 @@ public struct RenderSpring {
         for (move, style) in zip(moves, styles) {
             guard style != .snap else {
                 Self.stop(move.layer, move.keyPath)
-                move.layer.setValue(move.target, forKeyPath: move.keyPath)
+                move.writeTarget()
                 continue
             }
-            let offset = move.offsetFrom(move.layer.value(forKeyPath: move.keyPath))
-            move.layer.setValue(move.target, forKeyPath: move.keyPath)
+            let offset = move.offsetFromModel()
+            move.writeTarget()
             let begin = move.layer.convertTime(now, from: nil)
             if case .crossfade(let duration) = style {
                 if let offset, offset.extent > 0 {
@@ -189,49 +189,51 @@ public struct RenderSpring {
     public struct Move {
         let layer: CALayer
         let keyPath: String
-        let target: Any
         let zero: Any
         let velocity: CGFloat
         /// The share of the distance covered per second at the start, toward the target (any value type).
         let progressVelocity: CGFloat
-        /// The offset from the model value read when the group starts.
-        let offsetFrom: (Any?) -> Offset?
+        /// Writes the target as the layer's model value.
+        let writeTarget: () -> Void
+        /// The offset from the model value, read when the group starts (before ``writeTarget``).
+        let offsetFromModel: () -> Offset?
 
-        /// `layer.keyPath` springs from its model value to `value`.
-        public init<Value: RenderSpringValue>(_ layer: CALayer, _ keyPath: String, to value: Value) {
-            self.init(layer, keyPath, from: nil, to: value, velocity: 0)
+        /// `layer`'s `key` springs from its model value to `value`.
+        public init<Value: RenderSpringValue>(_ layer: CALayer, _ key: RenderSpringKey<Value>, to value: Value) {
+            self.init(layer, key, from: nil, to: value, velocity: 0)
         }
 
-        /// The scalar `layer.keyPath` springs from its model value to `value`, starting at `velocity`.
-        public init(_ layer: CALayer, _ keyPath: String, to value: CGFloat, velocity: CGFloat) {
-            self.init(layer, keyPath, from: nil, to: value, velocity: velocity)
+        /// The scalar `key` of `layer` springs from its model value to `value`, starting at `velocity`.
+        public init(_ layer: CALayer, _ key: RenderSpringKey<CGFloat>, to value: CGFloat, velocity: CGFloat) {
+            self.init(layer, key, from: nil, to: value, velocity: velocity)
         }
 
         /// `from` replaces the model value read at the start (a frame already written: a pane host
         /// AppKit placed at rest in the change's turn springs from where it showed).
-        public init<Value: RenderSpringValue>(_ layer: CALayer, _ keyPath: String, from: Value?, to value: Value, velocity: CGFloat = 0) {
-            self.init(layer, keyPath, from: from, to: value, velocity: velocity, progressVelocity: 0)
+        public init<Value: RenderSpringValue>(_ layer: CALayer, _ key: RenderSpringKey<Value>, from: Value?, to value: Value,
+                                              velocity: CGFloat = 0) {
+            self.init(layer, key, from: from, to: value, velocity: velocity, progressVelocity: 0)
         }
 
-        /// `layer.keyPath` springs from `from` to `value`, starting at `progressVelocity`: the share of the
+        /// `layer`'s `key` springs from `from` to `value`, starting at `progressVelocity`: the share of the
         /// distance it covers per second at the start, toward `value`. Any value type takes it, a transform
         /// too: a `CASpringAnimation` moves every component by one progress, and its `initialVelocity` is
         /// that progress's rate.
-        public init<Value: RenderSpringValue>(_ layer: CALayer, _ keyPath: String, from: Value, to value: Value,
+        public init<Value: RenderSpringValue>(_ layer: CALayer, _ key: RenderSpringKey<Value>, from: Value, to value: Value,
                                               progressVelocity: CGFloat) {
-            self.init(layer, keyPath, from: from, to: value, velocity: 0, progressVelocity: progressVelocity)
+            self.init(layer, key, from: from, to: value, velocity: 0, progressVelocity: progressVelocity)
         }
 
-        private init<Value: RenderSpringValue>(_ layer: CALayer, _ keyPath: String, from: Value?, to value: Value,
+        private init<Value: RenderSpringValue>(_ layer: CALayer, _ key: RenderSpringKey<Value>, from: Value?, to value: Value,
                                                velocity: CGFloat, progressVelocity: CGFloat) {
             self.layer = layer
-            self.keyPath = keyPath
-            target = value.layerValue
+            keyPath = key.path
             zero = Value.springZero.layerValue
             self.velocity = velocity
             self.progressVelocity = progressVelocity
-            offsetFrom = { model in
-                guard let old = from ?? Value(layerValue: model) else { return nil }
+            writeTarget = { key.set(value, on: layer) }
+            offsetFromModel = {
+                guard let old = from ?? key.value(of: layer) else { return nil }
                 let delta = old.springDelta(to: value)
                 return Offset(value: delta.layerValue, extent: delta.springExtent, scalar: delta.springScalar)
             }
@@ -317,19 +319,17 @@ public struct RenderSpring {
     // MARK: Keys
 
     private static let keyPrefix = "cmux.renderSpring."
-    private static let serialKey = "cmux.renderSpring.serial"
 
     /// A key no running spring on `layer` uses, so a retarget stacks instead of replacing:
-    /// `cmux.renderSpring.<serial>.<keyPath>`, with the serial kept on the layer.
+    /// `cmux.renderSpring.<serial>.<keyPath>`, with the serial kept on the layer's landing table.
     private static func nextKey(on layer: CALayer, keyPath: String) -> String {
-        let serial = ((layer.value(forKey: serialKey) as? NSNumber)?.intValue ?? 0) &+ 1
-        layer.setValue(NSNumber(value: serial), forKey: serialKey)
+        let serial = Landing.Table.on(layer).nextSerial()
         return "\(keyPrefix)\(serial).\(keyPath)"
     }
 
     /// The key path of a key `nextKey` made, or nil for any other key.
     static func springKeyPath(_ key: String) -> String? {
-        guard key.hasPrefix(keyPrefix), key != serialKey else { return nil }
+        guard key.hasPrefix(keyPrefix) else { return nil }
         let rest = key.dropFirst(keyPrefix.count)
         guard let dot = rest.firstIndex(of: "."), Int(rest[..<dot]) != nil else { return nil }
         return String(rest[rest.index(after: dot)...])

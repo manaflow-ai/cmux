@@ -35,12 +35,15 @@ public final class SidebarSessionTreeFeed {
     }
 
     /// Follows the setting, the lanes and every machine's `workspaces` from now on. `localHost` is
-    /// this Mac's `install:<id>`: the lanes are this Mac's acpmux sessions.
+    /// this Mac's `install:<id>`: the lanes are this Mac's acpmux sessions. `reader` is the App's one
+    /// gh reader, whose runner the chat headers and reply cards share.
     public func start(workspaces: @escaping @MainActor @Sendable () -> [WorkspaceModel], localHost: String?,
+                      reader: AgentChatPullRequestReader,
                       lanes: AgentLaneStore = .shared, remote: RemoteAgentSessionLinks = .shared,
                       tree: SidebarSessionTree = .shared) {
         guard task == nil else { return }
         let pullRequests = pullRequests
+        pullRequests.reader = reader
         // task-owner: the app (one feed for the app's life); event-driven (Observation)
         task = Task {
             for await pass in ObservationStream({ () -> Pass? in
@@ -195,14 +198,15 @@ final class SidebarPullRequestStore {
     @ObservationIgnored private var failures: [String: Int] = [:]
     /// The most doublings of `freshness` a failing URL waits (5 minutes become 80).
     static let maximumBackoff = 4
-    @ObservationIgnored private let reader: AgentChatPullRequestReader
+    /// The App's one gh reader, set when the feed starts; with none the store reads nothing.
+    @ObservationIgnored var reader: AgentChatPullRequestReader?
     /// What the tree showed last, read again by ``recheck``.
     @ObservationIgnored private var shown: Set<String> = []
     /// Reads `shown` again once `freshness` passes, though nothing in the tree changed.
     @ObservationIgnored private let recheck = DemandTimer(owner: "sidebar.pullRequests.recheck")
     @ObservationIgnored private let freshness: Duration
 
-    init(reader: AgentChatPullRequestReader = AgentChatPullRequestReader(), freshness: Duration = .seconds(300)) {
+    init(reader: AgentChatPullRequestReader? = nil, freshness: Duration = .seconds(300)) {
         self.reader = reader
         self.freshness = freshness
     }
@@ -228,14 +232,14 @@ final class SidebarPullRequestStore {
             !asking.contains(key) && !isSettled(key) && (!onlyInFlight || inFlight(key)) && asked[key].map { ContinuousClock.now - $0 >= wait(key) } ?? true
         }
         let urls = stale.filter { $0.hasPrefix("https://") }.sorted()
-        for folder in stale.subtracting(urls).sorted() { ask(folder) }
-        if !urls.isEmpty { ask(urls: urls) }
+        guard let reader else { return }
+        for folder in stale.subtracting(urls).sorted() { ask(folder, with: reader) }
+        if !urls.isEmpty { ask(urls: urls, with: reader) }
     }
 
-    private func ask(_ folder: String) {
+    private func ask(_ folder: String, with reader: AgentChatPullRequestReader) {
         asking.insert(folder)
         asked[folder] = .now
-        let reader = reader
         // task-owner: one gh read per stale folder; its answer lands in `answers`.
         Task { [weak self] in
             let answer = await reader.read(in: folder)
@@ -246,10 +250,9 @@ final class SidebarPullRequestStore {
         }
     }
 
-    private func ask(urls: [String]) {
+    private func ask(urls: [String], with reader: AgentChatPullRequestReader) {
         asking.formUnion(urls)
         for url in urls { asked[url] = .now }
-        let reader = reader
         // task-owner: one batched gh read for every stale URL; the answers land in `answers`.
         Task { [weak self] in
             let read = await reader.read(urls: urls)
@@ -274,7 +277,7 @@ final class SidebarPullRequestStore {
     /// shown pull request open, and the store reads it again then without waiting for the tree.
     private func scheduleRecheck() {
         if freshness > .zero, shown.contains(where: inFlight) {
-            recheck.scheduleIfIdle(after: freshness) { @MainActor [weak self] in
+            recheck.scheduleOnMainIfIdle(after: freshness) { [weak self] in
                 guard let self else { return }
                 refresh(shown, onlyInFlight: true)
             }

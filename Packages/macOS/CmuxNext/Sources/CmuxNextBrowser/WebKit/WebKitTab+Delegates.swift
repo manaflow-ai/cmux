@@ -111,6 +111,7 @@ extension WebKitTab: WKNavigationDelegate {
         restored.navigationCommitted(url: webView.url)
         formResubmissionCommitted()
         pageDidCommit()
+        processSiteCommitted()
         guard let id = navigationID(for: navigation, creating: false) else { return }
         apply(.committed(id, url: webView.url))
         pageInfoActivity.documentCommitted(origin: webView.url.flatMap(PageInfoSite.origin(of:)))
@@ -129,6 +130,7 @@ extension WebKitTab: WKNavigationDelegate {
         pageDidFinish()
         // The load ended: a document with no contentful paint (an empty body) shows as it is.
         removeStandIn()
+        firstContentFrame.contentShown()
         syncHistory()
         refreshFavicon()
     }
@@ -140,7 +142,7 @@ extension WebKitTab: WKNavigationDelegate {
         // is a newer navigation taking this one's place, and that one's commit
         // decides: handing the page area back here would draw white over a
         // document that has not painted yet. `stop()` settles its own case.
-        if !failure.isBenignInterruption { pageDidFinish(); removeStandIn() }
+        if !failure.isBenignInterruption { pageDidFinish(); removeStandIn(); firstContentFrame.contentShown() } // what shows now is the tab's first frame
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
         apply(.failed(id, failure))
@@ -155,7 +157,7 @@ extension WebKitTab: WKNavigationDelegate {
         // keeps no background for good (`WebKitTab+LoadingBackground`). A
         // benign interruption is a newer navigation taking this one's place,
         // and that one's commit decides, as in `didFail`.
-        if !failure.isBenignInterruption { pageDidFinish(); removeStandIn() }
+        if !failure.isBenignInterruption { pageDidFinish(); removeStandIn(); firstContentFrame.contentShown() } // what shows now is the tab's first frame
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
         apply(.failed(id, failure))
@@ -172,6 +174,8 @@ extension WebKitTab: WKNavigationDelegate {
         setDrawsPageBackground(true)
         removeStandIn()
         apply(.processExited(BrowserProcessExit(reason: .crashed)))
+        processSiteEnded()
+        firstContentFrame.contentShown() // the sad tab is what the new tab shows
     }
 
 

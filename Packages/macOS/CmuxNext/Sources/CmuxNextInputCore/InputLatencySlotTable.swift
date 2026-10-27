@@ -172,10 +172,41 @@ public final class InputLatencySlotTable: Sendable {
         }
     }
 
+    /// Sets the view the input landed in once its dispatch knows it (the layout took a scroll the view under the
+    /// pointer would have had).
+    @discardableResult
+    public func setTarget(_ token: InputLatencyToken, _ target: InputTarget) -> Bool {
+        updateMeta(token) { meta in
+            meta & ~(0xFF << 8) | UInt64(target.rawValue) << 8
+        }
+    }
+
     /// Records that the input changed a layer or its contents (Chrome `caused_frame_update`).
     @discardableResult
     public func setCausedFrameUpdate(_ token: InputLatencyToken) -> Bool {
         updateMeta(token) { meta in meta | 1 << 23 }
+    }
+
+    /// Records that the frame showing the input went to a variable-refresh display.
+    @discardableResult
+    public func setVariableRefresh(_ token: InputLatencyToken) -> Bool {
+        updateMeta(token) { meta in meta | 1 << 19 }
+    }
+
+    /// The time `stage` of the slot `token` names was stamped at, from any thread, without
+    /// closing it: nil when the stage is not stamped yet or the slot is not open in the token's
+    /// generation.
+    // perf-hot: 0.05us key-dispatch
+    public func time(_ token: InputLatencyToken, _ stage: InputStage) -> UInt64? {
+        let index = token.index
+        guard index < capacity,
+              atomic(index, Self.stateWord).load(ordering: .acquiring) == token.generation << 8 | Phase.open.rawValue
+        else { return nil }
+        let base = atomic(index, Self.baseWord).load(ordering: .relaxed)
+        let word = atomic(index, Self.firstStageWord + Int(stage.rawValue)).load(ordering: .relaxed)
+        let stamped = word & Self.deltaMask
+        guard word >> Self.deltaBits == token.generation, stamped != 0 else { return nil }
+        return base &+ (stamped - 1)
     }
 
     /// Adds `count` coalesced OS events to the slot (saturating at `UInt16.max`).
@@ -208,9 +239,10 @@ public final class InputLatencySlotTable: Sendable {
         var slot = InputLatencySlot(
             kind: InputEventKind(rawValue: UInt8(truncatingIfNeeded: meta)) ?? .keyPress,
             target: InputTarget(rawValue: UInt8(truncatingIfNeeded: meta >> 8)) ?? .other,
-            entrypoint: InputEntrypoint(rawValue: UInt8(truncatingIfNeeded: meta >> 16 & 0xF)) ?? .person,
+            entrypoint: InputEntrypoint(rawValue: UInt8(truncatingIfNeeded: meta >> 16 & 0x7)) ?? .person,
             presentationSource: InputPresentationSource(rawValue: UInt8(truncatingIfNeeded: meta >> 20 & 0x7)) ?? .estimatedVsync,
             causedFrameUpdate: meta >> 23 & 1 == 1,
+            isVariableRefresh: meta >> 19 & 1 == 1,
             coalescedCount: UInt16(truncatingIfNeeded: meta >> 24)
         )
         for offset in 0..<Self.stageCount {
@@ -237,8 +269,9 @@ public final class InputLatencySlotTable: Sendable {
         return next == 0 ? 1 : next
     }
 
-    /// Meta bits: kind 0-7, target 8-15, entrypoint 16-19, presentation source 20-22, caused frame
-    /// update 23, coalesced count 24-39; the generation sits above them in 40-63.
+    /// Meta bits: kind 0-7, target 8-15, entrypoint 16-18, variable refresh 19, presentation
+    /// source 20-22, caused frame update 23, coalesced count 24-39; the generation sits above them
+    /// in 40-63.
     private static func meta(kind: InputEventKind, target: InputTarget, entrypoint: InputEntrypoint) -> UInt64 {
         UInt64(kind.rawValue) | UInt64(target.rawValue) << 8 | UInt64(entrypoint.rawValue) << 16
             | UInt64(InputPresentationSource.estimatedVsync.rawValue) << 20 | 1 << 24

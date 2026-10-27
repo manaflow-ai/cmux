@@ -36,7 +36,7 @@ public final class AppearanceSignals {
         /// Reduce Motion as `Motion` reads it: the system setting, the tests' pin or calm mode.
         case reduceMotion
         /// What every motion gate reads: `ui.animationSpeed`, `ui.animations.enabled`, a category
-        /// switch, calm mode or Reduce Motion.
+        /// switch, calm mode, Reduce Motion or Energy Saver (``DesignSettings/energySaver``).
         case motion
         /// Whether hover cards open (`sidebar.hoverCards.enabled` or calm mode).
         case hoverCards

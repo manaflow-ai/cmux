@@ -12,6 +12,7 @@ import CmuxNextSettings
 import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Page policies batch 5 (p07-memory-028): the App Store, CodeRouter, Cloud, Mobile Pairing, Mac
 /// Screen, Phone and Inbox pages each declare when their hidden tab's view may go, and a discard
@@ -48,9 +49,9 @@ import Testing
     @Test func aDiscardedCodeRouterTabClosesItsPageAndMakesANewOne() async throws {
         let web = try WebRig()
         defer { web.close() }
-        let clock = ManualClock()
+        let deadlineRig = MainDeadlineRig() // never fired: the Chromium fallback never runs out
         let tab = WebPageTab(.coderouter, symbol: "arrow.triangle.branch", title: "CodeRouter",
-                             discardPolicy: CodeRouterPageTab.hiddenPolicy) { Self.testPage(web, route: nil, clock: clock) }
+                             discardPolicy: CodeRouterPageTab.hiddenPolicy) { Self.testPage(web, route: nil, deadlines: deadlineRig.deadlines) }
         let rig = Rig(tab)
         let discarded = try await Self.discard(rig)
         #expect(!tab.hasPage(rig.key))
@@ -70,12 +71,12 @@ import Testing
         let web = try WebRig()
         defer { web.close() }
         Self.answerFragment(web, "#/installed") // the person moved there with the page's own links
-        let clock = ManualClock()
+        let deadlineRig = MainDeadlineRig() // never fired: the Chromium fallback never runs out
         let services = MachineIconTests.services()
         var routes: [String] = []
         let apps = AppsService(services: services) { route in
             routes.append(route)
-            return Self.testPage(web, route: route, clock: clock)
+            return Self.testPage(web, route: route, deadlines: deadlineRig.deadlines)
         }
         let rig = Rig(apps)
         let discarded = try await Self.discard(rig)
@@ -96,15 +97,16 @@ import Testing
         defer { web.close() }
         Self.answerFragment(web, "#/get")
         web.scrollY = 700 // the person scrolled the machine list
-        let clock = ManualClock()
+        let deadlineRig = MainDeadlineRig() // never fired: the Chromium fallback never runs out
         let services = MachineIconTests.services()
         var routes: [String?] = []
         let cloud = CloudPageService(services: services) { route in
             routes.append(route)
-            return Self.testPage(web, route: route, clock: clock).map { (page: $0, provider: CloudPageProvider(op: { _, _, _, _ in .object([:]) })) }
+            return Self.testPage(web, route: route, deadlines: deadlineRig.deadlines).map { (page: $0, provider: CloudPageProvider(op: { _, _, _, _ in .object([:]) })) }
         }
         let rig = Rig(cloud)
         let discarded = try await Self.discard(rig)
+        services.webUI.retirer.closeRetired() // the engine page ends at the retirer's deadline (p13-webui-064)
         #expect(web.hosting.made.first?.closed == true, "the discarded page's engine session outlived it")
         #expect(await Self.isClosed(discarded))
 
@@ -120,6 +122,7 @@ import Testing
         let engine = try #require(web.hosting.made.last)
         #expect(web.scrolled(engine), "the machine list did not scroll back")
         rig.pages.close(rig.key)
+        services.webUI.retirer.closeRetired()
         #expect(engine.closed, "a closed Cloud tab left its page open")
     }
 
@@ -250,14 +253,14 @@ import Testing
         #expect(tab.keepReasons(for: key) == [.unsavedEdits], "notes typed for a recording live only in the view")
         view.notesField.stringValue = ""
 
-        tab.nextDevice = PhoneDeviceID("sim:BBBB")
         tab.viewDiscarded(key)
         #expect(tab.route(for: key) == "sim:AAAA", "the tab forgot its phone")
         #expect(tab.keepReasons(for: key).isEmpty)
-        let second = try #require(tab.makeView(for: key, in: nil) as? PhoneTabView)
+        // Rebuilt while a `phone.show` for another phone runs: the tab keeps its own.
+        let rebuilt = tab.opens.during(PhoneDeviceID("sim:BBBB")) { tab.makeView(for: key, in: nil) }
+        let second = try #require(rebuilt as? PhoneTabView)
         #expect(second !== view)
-        #expect(second.route == "sim:AAAA")
-        #expect(tab.nextDevice == PhoneDeviceID("sim:BBBB"), "a rebuilt tab took the phone the next new tab shows")
+        #expect(second.route == "sim:AAAA", "a rebuilt tab took the phone another show asked for")
         tab.tabClosed(key)
     }
 
@@ -266,9 +269,9 @@ import Testing
     @Test func theInboxKeepsItsViewWhileABasketReplyIsTypedOrSent() throws {
         let model = FeedModel(source: MockFeedSource())
         model.replaceReports([FeedReport(id: "r1", sender: "host/alpha", body: "a report", createdAt: Date(timeIntervalSince1970: 1_000))])
-        let host = FeedHostView(model: model)
+        let host = FeedHostView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         #expect(!host.hasTypedReply && !host.isSendingReply)
-        let basket = ReportsBasketView(model: model, onReply: { _ in true })
+        let basket = ReportsBasketView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget()), onReply: { _ in true })
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -296,11 +299,11 @@ import Testing
     static let pairingDescriptor = PageDescriptor(id: "test.mobile-pairing", resource: "discard", processGroup: .privileged, namespaces: ["cmux.mobilePairing."])
 
     /// A page in `web`'s fake Chromium host, opened on `route`.
-    static func testPage(_ web: WebRig, route: String?, clock: ManualClock) -> PageWebView? {
+    static func testPage(_ web: WebRig, route: String?, deadlines: MainDeadlineScheduler) -> PageWebView? {
         let page = PageWebView(descriptor: PageDescriptor(id: "test.discard", resource: "discard", processGroup: .solo, namespaces: []),
                                root: web.folder, routes: [], route: route, chromium: web.hosting)
         // The engine's no-message deadline never runs out here.
-        page?.chromiumClock = clock
+        page?.chromiumDeadlines = deadlines
         return page
     }
 
@@ -351,7 +354,7 @@ import Testing
 
     static func macScreenPages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file), mainWork: linklessMainWork())
+        return MacScreenPages(store: MacScreenStore(file: file), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
     }
 
     static func phones() -> PhoneService {

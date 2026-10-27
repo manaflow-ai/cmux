@@ -39,7 +39,7 @@ extension SidebarMultiViewWindowTests {
     }
 
     /// Drags `k0`'s first tab from its strip to `spot` in twelve moves through the tap and releases it there;
-    /// `framed`: through a PointerFrameCoalescer whose frame comes after every third move.
+    /// `framed`: through a frame input coalescer whose frame comes after every third move.
     private func dropTab(at spot: FramedDropSpot, framed: Bool) async throws -> FramedDrop {
         let f = try await Fixture()
         let frames = PointerFrameTestRig()
@@ -47,7 +47,7 @@ extension SidebarMultiViewWindowTests {
             frames.close()
             f.close()
         }
-        f.services.dragFrameInput = framed ? frames.coalescers : nil
+        f.services.dragSession.moveFrames = framed ? frames.coalescers : nil
         try f.beginTabDrag()
         let drag = try #require(f.services.dragSession.drag)
         #expect((drag.moves != nil) == framed, "the drag's moves are \(drag.moves == nil ? "per event" : "framed")")

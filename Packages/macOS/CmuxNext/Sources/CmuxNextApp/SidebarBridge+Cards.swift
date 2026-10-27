@@ -7,17 +7,22 @@ import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextUpdater
+import CmuxNextWakeups
 import Observation
 
 extension SidebarBridge {
     func observeCards() {
         cardsObservation?.cancel()
+        cards?.cancel()
         let requests = services.cache.pageRequests
-        let nowPlaying = model.followNowPlaying(requests.sidebarSources, dismissal: requests.nowPlayingCard, settings: { [weak services] in services?.settings }, registry: services.registry)
+        let nowPlaying = model.followNowPlaying(services.nowPlayingSources, dismissal: requests.nowPlayingCard, settings: { [weak services] in services?.settings }, registry: services.registry,
+                                                 queries: services.workspaceQueries)
         // The Priority view (`sidebar.priorityView.*`) ends with the cards.
         let priority = SidebarPriorityFeed(services: services).start(container.sidebarView)
-        cardsObservation = SidebarCardFeed.start(model: model, updater: services.updater, window: state, registry: services.registry, settings: services.settings, asks: services.machineAsks)
-            .cancelling(nowPlaying).cancelling(priority)
+        cards = SidebarCardFeed.start(model: model, updater: services.updater, registry: services.registry, asks: services.machineAsks, on: services.mainWork)
+        // A window's sidebar also follows its top items (`SidebarModel.followTopItems`).
+        let followers = nowPlaying.cancelling(priority)
+        cardsObservation = state == nil ? followers : model.followTopItems().cancelling(followers)
     }
 }
 
@@ -37,26 +42,20 @@ enum SidebarCardFeed {
     /// Announcement cards are `announcement:<id>`.
     static let announcementPrefix = "announcement:"
 
-    /// The cards, and with `window` its top items (`SidebarModel.followTopItems`):
-    /// one task, so the bridge cancels both together. `registry` gives the
-    /// tip card its action's shortcut.
-    static func start(model: SidebarModel, updater: UpdaterService, window: WindowState?, registry: ActionRegistry? = nil,
-                      settings: SettingsController? = nil, asks: SidebarAsks? = nil) -> Task<Void, Never> {
-        let cards = start(model: model, updater: updater, registry: registry, asks: asks)
-        guard window != nil else { return cards }
-        let whatsNew = model.followTopItems()
-        return Task { await withTaskCancellationHandler { await cards.value } onCancel: { cards.cancel(); whatsNew.cancel() } }
-    }
+    /// The update, updated and notice cards, in that order.
+    typealias Cards = (SidebarUpdateCard?, SidebarUpdatedCard?, SidebarNoticeCard?)
 
-    static func start(model: SidebarModel, updater: UpdaterService, registry: ActionRegistry? = nil, asks: SidebarAsks? = nil) -> Task<Void, Never> {
-        Task {
-            for await (card, updated, notice) in ObservationStream({ () -> (SidebarUpdateCard?, SidebarUpdatedCard?, SidebarNoticeCard?) in
-                (updateCard(updater), updatedCard(updater), asks?.card ?? noticeCard(updater, registry: registry))
-            }) {
-                if model.updateCard != card { model.updateCard = card }
-                if model.updatedCard != updated { model.updatedCard = updated }
-                if model.noticeCard != notice { model.noticeCard = notice }
-            }
+    /// Keeps `model`'s cards current. They are the sidebar model's (its card views draw them): a service
+    /// observation, `visible` for the updater's own changes, sooner for the person's. `registry` gives the
+    /// tip card its action's shortcut. The caller holds the token; releasing it stops the cards.
+    static func start(model: SidebarModel, updater: UpdaterService, registry: ActionRegistry? = nil, asks: SidebarAsks? = nil,
+                      on work: MainWorkScheduler) -> ServiceObservation<Cards> {
+        ServiceObservation(.visible, owner: "SidebarCardFeed.cards", on: work) { () -> Cards in
+            (updateCard(updater), updatedCard(updater), asks?.card ?? noticeCard(updater, registry: registry))
+        } apply: { cards in
+            if model.updateCard != cards.0 { model.updateCard = cards.0 }
+            if model.updatedCard != cards.1 { model.updatedCard = cards.1 }
+            if model.noticeCard != cards.2 { model.noticeCard = cards.2 }
         }
     }
 

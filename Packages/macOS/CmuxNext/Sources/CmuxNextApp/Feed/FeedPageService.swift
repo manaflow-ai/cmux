@@ -49,7 +49,7 @@ final class FeedPageService: InternalPageProvider {
         let replies = replies
         // Resolved once at startup: a reply runs no executable lookup or signature check.
         let environment = feed.acpmuxEnvironment
-        let host = FeedHostView(model: feed.model, layoutOverride: layout) { reply in
+        let host = FeedHostView(model: feed.model, layoutOverride: layout, mainWork: services.mainWork) { reply in
             // A report poster's authenticated identity is its ACP session. A
             // human reply intentionally wakes that session, unlike delivery
             // into the reports basket. The feed owner remains the source of

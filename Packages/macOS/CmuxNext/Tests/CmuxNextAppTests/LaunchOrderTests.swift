@@ -28,6 +28,22 @@ import Testing
         #expect(ran.isSet, "the fence came down at completion")
     }
 
+    /// p02-threads-114: the 3 s cap lowers the fence when startup has not completed; the completion then only
+    /// records that the cap came first.
+    @Test func theCapLowersTheFenceBeforeASlowCompletion() async throws {
+        let f = LaunchOrderFixture()
+        let (idleRan, idleDone) = AsyncStream<Void>.makeStream()
+        f.background.post(.idle, mayBlock: .files) { idleDone.finish() }
+        try await f.capClock.waitForSleeper()
+        f.capClock.advance(by: BackgroundWork.LaunchFence.cap)
+        for await _ in idleRan {}
+        #expect(!f.fence.launch.isUp, "the cap lowered the fence with startup still held")
+        f.complete()
+        #expect(f.marks.names.last == LaunchOrder.fenceCappedMark)
+        #expect(f.marks.names.filter { $0.hasPrefix("startup_complete.") }.count == 1,
+                "the cap mark is no completion reason: startup_complete.<reason> holds only the reason")
+    }
+
     @Test func aQuitBeforeCompletionNeverMarksTheCompletion() {
         let f = LaunchOrderFixture()
         f.order.startup.beginQuit()
@@ -50,11 +66,18 @@ final class LaunchOrderFixture {
     /// The launch phase is already settled, so the scheduler arms its own failsafe (on a manual clock).
     init() {
         let scheduler = StartupTestScheduler(background: BackgroundWork(label: "test.launch-order"))
-        let marks = LaunchOrderMarks()
-        (self.scheduler, self.marks) = (scheduler, marks)
-        order = LaunchOrder(fence: LaunchOrder.BestEffortFence(raisingOn: scheduler.background), mainWork: scheduler.mainWork,
+        let marks = LaunchOrderMarks(), capClock = ManualClock()
+        (self.scheduler, self.marks, self.capClock) = (scheduler, marks, capClock)
+        // The fence's cap sleeps on its own manual clock: a slow runner never lowers it before completion.
+        fence = LaunchOrder.BestEffortFence(raisingOn: scheduler.background, clock: capClock)
+        order = LaunchOrder(fence: fence, mainWork: scheduler.mainWork,
                             startup: scheduler.startup) { marks.names.append($0) }
     }
+
+    /// The fence the order lowers.
+    let fence: LaunchOrder.BestEffortFence
+    /// The clock the fence's cap sleeps on.
+    let capClock: ManualClock
 
     /// One display frame, 17 ms after the last.
     func fire() { scheduler.fire() }

@@ -42,7 +42,13 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     private var loneRailWatch: FrameObservation<Bool>?
 
     /// - Parameter mainWork: the app's main-thread scheduler; a Debug Settings change lays out on its frames.
-    public init(sidebar: HomeSidebarView, content: NSView, widths: HomeSidebarWidth = HomeSidebarWidth(), mainWork: MainWorkScheduler) {
+    /// - Parameter caches: Home's cache consumer (`memoryHomeLabCaches`): the list's bitmaps join it; nil keeps
+    ///   MessagesLab's sizes.
+    /// - Parameter page: The Home page's node, under its window's (`ViewVisibility`): the consumer counts the page
+    ///   as shown only while its window shows (not occluded, miniaturized or in a hidden app). The split's own
+    ///   node is no window's child, so it is not the one tracked.
+    public init(sidebar: HomeSidebarView, content: NSView, widths: HomeSidebarWidth = HomeSidebarWidth(), mainWork: MainWorkScheduler,
+                caches: MessagesLabMemoryConsumer? = nil, page: VisibilityNode? = nil) {
         self.widths = widths
         self.mainWork = mainWork
         list = sidebar
@@ -57,8 +63,12 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         setHoldingPriority(.defaultHigh, forSubviewAt: 0)
         delegate = self
         setAccessibilityIdentifier("cmux.home.split")
-        sidebar.onContentChange = { [weak self] in self?.needsLayout = true }
+        sidebar.onContentChange = { [weak self] in self?.foldMayHaveChanged() }
         loneRailWatch = followLoneConversationTunable()
+        if let caches {
+            if let page { caches.track(page) }
+            caches.track(sidebar: sidebar)
+        }
     }
 
     @available(*, unavailable)
@@ -151,6 +161,12 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
             && !HomeSidebarHeaderLayout.isCompact(width: own) && !HomeTunables.loneConversationRail.value(in: tunables)
     }
 
+    /// An input of ``foldsLoneConversation`` changed (the list's content, the tunable, the saved
+    /// width): a layout folds or shows the list only when the answer differs from what shows.
+    private func foldMayHaveChanged() {
+        if foldsLoneConversation != list.isHidden { needsLayout = true }
+    }
+
     /// Hides or shows the list for ``foldsLoneConversation``; true while it is folded.
     private func foldLoneConversation() -> Bool {
         let fold = foldsLoneConversation
@@ -173,7 +189,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         FrameObservation(owner: "home.split.loneRail", delivery: .visible(visibility), on: mainWork) { [tunables] in
             HomeTunables.loneConversationRail.value(in: tunables)
         } onChange: { [weak self] _ in
-            self?.needsLayout = true
+            self?.foldMayHaveChanged()
         }
     }
 
@@ -200,9 +216,9 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     }
 
     private func place(_ width: CGFloat) {
-        // A folded list has no divider to move: the next layout shows it if the width needs it.
+        // A folded list has no divider to move: a layout shows it if the width needs it.
         guard !list.isHidden else {
-            needsLayout = true
+            foldMayHaveChanged()
             return
         }
         placing = true

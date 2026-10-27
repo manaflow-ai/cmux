@@ -6,8 +6,10 @@
 use anyhow::Context;
 use serde_json::{Value, json};
 
+use super::mux_work::Retry;
 use super::*;
 use crate::terminal_end::TerminalEnd;
+use cmux_threads::work::{Lane, Priority};
 
 impl Mux {
     #[cfg(test)]
@@ -52,6 +54,16 @@ impl Mux {
     /// termination signal wakes it, before any teardown.
     pub fn begin_session_shutdown(&self) {
         self.session_shutdown.begin();
+    }
+
+    /// A holder of this session ended without its terminal's exit: lost, or
+    /// replaced on its still-running shell. Counted for `oracle-state`
+    /// `childExits.holder` where the owner logs it, so the count is this
+    /// owner's own and never depends on the loss log's rotation or on other
+    /// sessions sharing its directory. Nothing when the oracle is compiled out.
+    pub(crate) fn note_holder_exit(&self) {
+        #[cfg(any(debug_assertions, feature = "oracle"))]
+        self.oracle_holder_exits.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Log that this owner got termination signal `signal` from `sender_pid`
@@ -117,42 +129,21 @@ impl Mux {
         let Some(detach_lease) = self.terminal_exit_detaches.acquire(terminal_id.clone()) else {
             return;
         };
-        let cleanup_id = terminal_id.clone();
-        let mux = Arc::downgrade(self);
         let surface = Arc::downgrade(surface);
-        let spawn_result = std::thread::Builder::new()
-            .name(format!("terminal-exit-detach-{terminal_id}"))
-            .spawn(move || {
-                let _detach_lease = detach_lease;
-                let mut delay = Duration::from_millis(25);
-                loop {
-                    crate::request_path::sleep(delay);
-                    let Some(mux) = mux.upgrade() else { break };
-                    if mux.shutting_down.load(Ordering::Acquire) {
-                        break;
-                    }
-                    let reconciled = surface
-                        .upgrade()
-                        .map(|surface| mux.mark_hosted_surface_exited(&surface, reason))
-                        .unwrap_or_else(|| {
-                            mux.detach_exited_terminal_topology(&terminal_id).map(drop)
-                        });
-                    match reconciled {
-                        Ok(()) => break,
-                        Err(error) => {
-                            eprintln!(
-                                "cmux-tui: could not detach exited terminal \
-                                 {terminal_id}: {error:#}"
-                            );
-                            delay = (delay * 2).min(Duration::from_secs(5));
-                        }
-                    }
-                }
-            });
-        if let Err(error) = spawn_result {
-            eprintln!(
-                "cmux-tui: could not schedule exited terminal {cleanup_id} detach: {error:#}"
-            );
+        let mut backoff = Duration::from_millis(25);
+        let posted = self.post_mux_retry(backoff, Priority::UserVisible, Lane::Files, move |mux| {
+            let _detach_lease = &detach_lease;
+            let reconciled = surface
+                .upgrade()
+                .map(|surface| mux.mark_hosted_surface_exited(&surface, reason))
+                .unwrap_or_else(|| mux.detach_exited_terminal_topology(&terminal_id).map(drop));
+            let Err(error) = reconciled else { return Retry::Done };
+            eprintln!("cmux-tui: could not detach exited terminal {terminal_id}: {error:#}");
+            backoff = (backoff * 2).min(Duration::from_secs(5));
+            Retry::After(backoff)
+        });
+        if posted.is_err() {
+            eprintln!("cmux-tui: could not schedule an exited terminal detach: shutting down");
         }
     }
 
@@ -222,6 +213,9 @@ impl Mux {
                     end,
                 );
                 loss.log();
+                if loss.is_loss() {
+                    self.note_holder_exit();
+                }
                 loss
             });
         // cx-6so.49: whether this loss may respawn, checked before the locks.

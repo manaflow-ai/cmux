@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// A variant's surface behind its content. The window's one backdrop (the
 /// main window's material and tint, `NSWindow.install`) is the surface of
@@ -16,9 +17,9 @@ final class OnboardingSurfaceView: NSView {
 
     let surface: OnboardingSurface
     private let fill = NSView()
-    private var loop: RenderLoop?
+    private var loop: ObservationLoop?
 
-    init(surface: OnboardingSurface, content: NSView) {
+    init(surface: OnboardingSurface, content: NSView, mainWork: MainWorkScheduler) {
         let reduced = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
         self.surface = reduced ? .opaque : surface
         super.init(frame: NSRect(origin: .zero, size: OnboardingMetrics.windowSize))
@@ -40,7 +41,8 @@ final class OnboardingSurfaceView: NSView {
             content.topAnchor.constraint(equalTo: topAnchor, constant: inset),
             content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -inset),
         ])
-        loop = RenderLoop { [weak self] in
+        // node-free: the onboarding tool window, in no tab
+        loop = ObservationLoop(owner: "onboarding.surface", delivery: .visible(nil), on: mainWork) { [weak self] in
             _ = ThemeScope.app.store.input
             self?.applyColors()
         }

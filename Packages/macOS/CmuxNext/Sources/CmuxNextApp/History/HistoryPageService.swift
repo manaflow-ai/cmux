@@ -212,6 +212,7 @@ extension TabContentCache {
                 pages.forget(key)
                 self?.leaveAppPage(key, to: target)
             }
+            page.pointerFrames = services.remotePointerFrames
             return page
         }
         if VaultPageAddress.matches(url) {
@@ -235,7 +236,7 @@ extension TabContentCache {
     /// page of its record's engine (WebKit when Chromium cannot start).
     func leaveAppPage(_ key: String, to url: URL) {
         let profile = browserProfile?(key) ?? .default
-        let config = BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: profile, initialURL: url)
+        let config = BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: profile, initialURL: url, origin: .user)
         guard let tab = tabModel(key), tab.browserEngine == BrowserEngineTag.cef.rawValue, browserTabs.cefUnavailable() == nil else {
             return swapPage(key, with: unproxiedWebKitPage(config))
         }

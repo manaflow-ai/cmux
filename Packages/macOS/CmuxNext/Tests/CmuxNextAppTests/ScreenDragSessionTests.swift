@@ -28,12 +28,13 @@ struct ScreenDragSessionTests {
         appEvents = AppEvents(center: center)
     }
 
-    /// A session for the one screen of a one-screen workspace, from `strip` (no tabs; the session holds it
-    /// weakly, so a test that needs its window keeps it).
-    func makeSession(_ ends: Ends, strip: TabStripView = TabStripView(model: TabStripModel(tabs: []))) -> ScreenDragSession {
+    /// A session for the one screen of a one-screen workspace, from `strip` (nil: one with no tabs; the session
+    /// holds it weakly, so a test that needs its window keeps it).
+    func makeSession(_ ends: Ends, strip: TabStripView? = nil) -> ScreenDragSession {
         let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, tabResourceID: "tab_1", title: "~")])
         let snapshot = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
         let workspace = WorkspaceModel(WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [snapshot]))
+        let strip = strip ?? TabStripView(model: TabStripModel(tabs: []), input: tap)
         let session = ScreenDragSession(services: services, screen: ScreenModel(snapshot), daemon: services.daemon,
                                         source: workspace, strip: strip, tabID: CmuxNextTabs.TabID("screen-1"),
                                         appEvents: appEvents)
@@ -84,7 +85,7 @@ struct ScreenDragSessionTests {
         let frames = PointerFrameTestRig()
         defer { frames.close() }
         services.dragFrameInput = frames.coalescers
-        let strip = TabStripView(model: TabStripModel(tabs: []))
+        let strip = TabStripView(model: TabStripModel(tabs: []), input: tap)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 40), styleMask: [.borderless],
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false

@@ -5,6 +5,7 @@ import CmuxNextLayout
 import CmuxNextPages
 import CmuxNextCompat
 import CmuxNextTabs
+import CmuxNextWakeups
 
 /// A link dragged out of a chat bubble into the layout (Lawrence 2026-10-20: "drag a link, like a
 /// PR URL, to the right side or anywhere and make a split").
@@ -34,7 +35,8 @@ final class LinkDragSession {
         /// The drag's moves on the ghost window's coalescer (feature `pointerFrameDrags`): a frame interval's first
         /// move and the frame's latest move a hit test each. Nil while it is off: every move hit-tests.
         var moves: PointerFrameConsumer?
-        var resign: MainActorObservation?
+        /// The app's resign-active notice ends the drag (``AppEvents``: one observer for the app).
+        var resign: EventSubscription?
         /// The window whose layout shows the preview now, and the plan a release there runs.
         weak var window: WindowController?
         var plan: LinkDropPlan?
@@ -59,12 +61,12 @@ final class LinkDragSession {
         drag.moves = services.dragFrameInput?.coalescer(for: drag.ghost.panel).consumer(owner: Self.movesOwner) { [weak self, weak drag] input in
             // A drag that ended before its frame gets none: its end cancels the consumer.
             guard let self, let drag, self.drag === drag else { return }
-            self.update(CGPoint(x: input.latest.screenLocation.x, y: input.latest.screenLocation.y))
+            self.update(CGPoint(x: input.latest.location.x, y: input.latest.location.y))
         }
         drag.input = services.inputTap.subscribe(class: TabDragSession.dragInput, phase: .intercept(order: .dragSession)) { [weak self] event in
             self?.handle(event) ?? .pass
         }
-        drag.resign = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
+        drag.resign = services.appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "LinkDragSession.resign") { [weak self] in
             self?.finish(commit: false)
         }
         self.drag = drag
@@ -77,8 +79,10 @@ final class LinkDragSession {
         switch event.type {
         case .leftMouseDragged:
             // Once per frame interval's first move and once at its frame, with the coalescer (Chromium's rAF-aligned
-            // input, `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`).
-            if let moves = drag?.moves { moves.post(event) } else { update(TabDragSession.screenPoint(of: event)) }
+            // input, `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`), in screen
+            // coordinates: the ghost crosses windows.
+            let point = TabDragSession.screenPoint(of: event)
+            if let moves = drag?.moves { moves.post(TabDragSession.moveRecord(at: point, time: event.timestamp)) } else { update(point) }
             return .consume
         case .leftMouseUp:
             // The release hit-tests once, at its own point: a move still waiting for its frame is older, so it is
@@ -144,6 +148,7 @@ final class LinkDragSession {
         drag.moves = nil
         drag.input?.cancel()
         drag.input = nil
+        drag.resign?.cancel()
         drag.resign = nil
         drag.ghost.close()
         let content = drag.window?.content

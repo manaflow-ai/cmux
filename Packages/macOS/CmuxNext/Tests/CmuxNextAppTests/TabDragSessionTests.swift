@@ -12,7 +12,7 @@ import Testing
 /// passes other keys and the press after a lost release on, and every end (release, Escape, a press
 /// after a lost release) leaves the tap with the intercepts it had before the drag.
 ///
-/// With feature `pointerFrameDrags` its moves go to the ghost window's PointerFrameCoalescer
+/// With feature `pointerFrameDrags` its moves go to the ghost window's FrameInputCoalescer
 /// (p04-input-030, 032): a frame interval's first move hit-tests at once, the rest once at the frame
 /// at their latest point, a frame whose moves hit-tested does not hit-test again for its scroll step,
 /// and the release hit-tests once at its own point. With the feature off every move hit-tests.
@@ -32,7 +32,7 @@ struct TabDragSessionTests {
         init(framed: Bool = true) throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            services.dragFrameInput = framed ? frames.coalescers : nil
+            services.dragSession.moveFrames = framed ? frames.coalescers : nil
             let store = services.machines.local.store
             let json = #"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#
             let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))

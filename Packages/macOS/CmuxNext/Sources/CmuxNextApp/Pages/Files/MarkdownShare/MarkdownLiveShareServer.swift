@@ -2,6 +2,8 @@ import Foundation
 import CmuxNextWakeups
 import CmuxNextCompat
 import Network
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// The local live link (plans/cmux-next/markdown-omnibar-DESIGN.md section 4.1): a small HTTP
 /// server on `127.0.0.1` that serves only the Markdown files the user shared, each under an
@@ -25,7 +27,7 @@ final class MarkdownLiveShareServer {
 
     private var listener: NWListener?
     private var port: UInt16?
-    private var ready: [CheckedContinuation<UInt16, any Error>] = []
+    private var ready: [OnceContinuation<UInt16, any Error>] = []
     private var shares: [String: Share] = [:]
     private var tokens: [String: String] = [:]
     private var connections: [ObjectIdentifier: NWConnection] = [:]
@@ -103,7 +105,7 @@ final class MarkdownLiveShareServer {
             self.listener = listener
             listener.start(queue: .main)
         }
-        return try await withCheckedThrowingContinuation { ready.append($0) }
+        return try await withOnceThrowingContinuation { (waiter: OnceContinuation<UInt16, any Error>) in ready.append(waiter) }
     }
 
     private func listenerChanged(_ state: NWListener.State) {

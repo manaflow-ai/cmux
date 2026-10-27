@@ -9,24 +9,71 @@
 # imports do not change. Published by app-ffi-release.yml and
 # pinned in Packages/macOS/CmuxNext/Package.swift.
 #
-# Usage: build-app-ffi.sh
+# Usage: build-app-ffi.sh [--linux]
+#   --linux  The same library and module maps for the Linux SwiftPM tier,
+#            built from the pinned source sha: see lib/app-ffi-linux.sh.
 # Environment:
 #   CMUX_APP_FFI_ARCHS  macOS architectures, arm64 and/or x86_64 (default: host)
 #   CMUX_APP_FFI_OUT    output directory (default: cmux-tui/target/cmux-app-ffi)
+#   CMUX_RUST_PGO=off   no -Cprofile-use. Otherwise each slice gets the one that
+#                       scripts/cmux-next/pgo/rust-pgo.sh rustflags names for its
+#                       target (cmux-app-ffi/pgo.txt, task 056); without a pinned
+#                       profile for that target it builds as before.
 set -euo pipefail
 REPAIR_URL="https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md"
 trap 'echo "error: app FFI build failed; see $REPAIR_URL" >&2' ERR
 
+linux=0
+case "${1:-}" in
+  "") ;;
+  --linux) linux=1 ;;
+  *) echo "usage: $0 [--linux]" >&2; exit 2 ;;
+esac
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 crates="$repo_root/cmux-tui/crates"
+lib_name="libcmux_app_ffi.a"
+
+# header:module, one line per C ABI header under $crates.
+header_entries() {
+  printf '%s\n' "$crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI" \
+    "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI" \
+    "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h:CCmuxPaletteRankerFFI" \
+    "$crates/cmux-app-ffi/include/cmux_motion_ffi.h:CCmuxMotionFFI"
+}
+
+# One folder per module: SwiftPM merges every binary target's Headers into
+# one include directory, and GhosttyKit owns the top-level module.modulemap.
+# $1: the headers folder; $2: lines added to each module (the Linux links).
+write_headers() {
+  local headers=$1 extra=${2:-} entry header module
+  rm -rf "$headers"
+  while IFS= read -r entry; do
+    header="${entry%%:*}"; module="${entry##*:}"
+    mkdir -p "$headers/$module"
+    cp "$header" "$headers/$module/"
+    printf 'module %s {\n    header "%s"\n%s    export *\n}\n' \
+      "$module" "$(basename "$header")" "$extra" > "$headers/$module/module.modulemap"
+  done < <(header_entries)
+}
+
+# The C ABI names the headers declare: the only globals the library keeps.
+c_abi_symbols() {
+  local entry
+  while IFS= read -r entry; do
+    grep -oE '\bcmux_[a-z0-9_]+\(' "${entry%%:*}" | tr -d '(' | sort -u
+  done < <(header_entries) | sort -u
+}
+
+if ((linux)); then
+  # shellcheck source-path=SCRIPTDIR source=lib/app-ffi-linux.sh
+  source "$repo_root/scripts/cmux-next/lib/app-ffi-linux.sh"
+  exit 0
+fi
+
 crate_dir="$crates/cmux-app-ffi"
 out_root="${CMUX_APP_FFI_OUT:-$repo_root/cmux-tui/target/cmux-app-ffi}"
 case "$out_root" in ""|"/") echo "error: CMUX_APP_FFI_OUT must name a directory" >&2; exit 2 ;; esac
-lib_name="libcmux_app_ffi.a"
-headers_in=("$crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI"
-            "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI"
-            "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h:CCmuxPaletteRankerFFI"
-            "$crates/cmux-app-ffi/include/cmux_motion_ffi.h:CCmuxMotionFFI")
 
 for tool in cargo rustup xcodebuild lipo clang libtool; do
   command -v "$tool" >/dev/null 2>&1 || { echo "error: $tool is required" >&2; exit 1; }
@@ -57,26 +104,17 @@ export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C embed-bitcode=no"
 work="$(mktemp -d "${TMPDIR:-/tmp}/cmux-app-ffi.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
 exports="$work/exports.txt"
-for entry in "${headers_in[@]}"; do
-  grep -oE '\bcmux_[a-z0-9_]+\(' "${entry%%:*}" | tr -d '(' | sort -u | sed 's/^/_/'
-done | sort -u > "$exports"
+c_abi_symbols | sed 's/^/_/' > "$exports"
 
 headers="$out_root/headers"
-rm -rf "$headers"
-for entry in "${headers_in[@]}"; do
-  header="${entry%%:*}"; module="${entry##*:}"
-  # One folder per module: SwiftPM merges every binary target's Headers into
-  # one include directory, and GhosttyKit owns the top-level module.modulemap.
-  mkdir -p "$headers/$module"
-  cp "$header" "$headers/$module/"
-  printf 'module %s {\n    header "%s"\n    export *\n}\n' "$module" "$(basename "$header")" > "$headers/$module/module.modulemap"
-done
+write_headers "$headers"
 
 mkdir -p "$out_root/slices" "$out_root/macos"
 libs=()
 for target in "${targets[@]}"; do
-  echo "==> cargo build cmux-app-ffi ($target)" >&2
-  (cd "$crate_dir" && cargo build --locked --release --target "$target")
+  pgo_flags="$("$repo_root/scripts/cmux-next/pgo/rust-pgo.sh" rustflags cmux-app-ffi --target "$target")"
+  echo "==> cargo build cmux-app-ffi ($target${pgo_flags:+, $pgo_flags})" >&2
+  (cd "$crate_dir" && RUSTFLAGS="$RUSTFLAGS${pgo_flags:+ $pgo_flags}" cargo build --locked --release --target "$target")
   arch="${target%%-*}"; [[ "$arch" == aarch64 ]] && arch=arm64
   # One prelinked object whose only globals are the C ABIs: every Rust and std
   # symbol, rust_eh_personality included, becomes local (one copy per image).

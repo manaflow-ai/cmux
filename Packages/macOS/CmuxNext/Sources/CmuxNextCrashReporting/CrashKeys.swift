@@ -33,7 +33,8 @@ public struct CrashKeys: Sendable, Equatable {
     ///
     /// - Returns: The number of bytes written.
     public func write(into buffer: UnsafeMutableRawBufferPointer) -> Int {
-        snapshot.writeRecord(into: buffer)
+        // SAFETY: writeRecord writes at most buffer.count bytes into the caller's buffer (a shorter one gets a cut line).
+        unsafe snapshot.writeRecord(into: buffer)
     }
 
     /// The keys of a line ``write(into:)`` wrote; nil when `record` is not one. Unknown names, values that are not
@@ -77,24 +78,38 @@ public struct CrashKeys: Sendable, Equatable {
 // MARK: - The crash path
 
 extension CrashReporter {
+    /// Allocates the crash path's block (``CrashKeysRecordBlock``) and publishes its address. Call once at launch,
+    /// on the main thread, before any crash handler that reads it is installed: `AppRunMarker` calls it first,
+    /// before the uncaught-exception handler, the crash deadline and the fatal-signal handlers, whether or not
+    /// its files open. Later calls do nothing.
+    public static func prepareCrashKeysBlock() {
+        CrashKeysRecordBlock.prepare()
+    }
+
+    /// Whether ``prepareCrashKeysBlock()`` has run in this process (tests).
+    package static var crashKeysBlockIsPrepared: Bool { CrashKeysRecordBlock.current != nil }
+
     /// Hands the crash path the app's crash keys (the composition root's ``CrashKeySlots``). The slots are kept
     /// for the process's life: the crash path reads them by address. Call once at launch, on the main thread,
-    /// after ``prepareCrashKeysRecord(descriptor:)``; later calls are ignored.
+    /// after ``prepareCrashKeysBlock()``; before it, and on later calls, does nothing.
     public static func attachCrashKeys(_ slots: CrashKeySlots) {
-        let block = CrashKeysRecordBlock.prepared()
-        guard block.slotsWord.load(ordering: .acquiring) == 0 else { return }
-        _ = Unmanaged.passRetained(slots) // released never: the crash path holds the address, not a reference
+        guard let block = CrashKeysRecordBlock.current, block.slotsWord.load(ordering: .acquiring) == 0 else { return }
+        // SAFETY: one +1 retain that is never released, so the slots' words stay at their address for the process's
+        // life; the crash path holds that address, not a reference.
+        _ = unsafe Unmanaged.passRetained(slots) // released never: the crash path holds the address, not a reference
         // One dry write at launch: every function and type the crash path's write uses has run once, so no
         // first-use work (a symbol bind, type metadata) is left for a signal handler.
-        _ = CrashKeySlots.writeRecord(wordsAt: slots.wordsAddress, into: block.line)
+        // SAFETY: the slots' words live for the process (retained above); block.line is the block's own
+        // maxRecordBytes-byte line, which writeRecord does not write past.
+        _ = unsafe CrashKeySlots.writeRecord(wordsAt: slots.wordsAddress, into: block.line)
         block.slotsWord.store(UInt64(slots.wordsAddress), ordering: .releasing)
     }
 
-    /// Hands the crash path this run's open, empty `run.crashkeys` file (the run marker's folder). Call once at
-    /// launch, on the main thread, before the crash handlers are installed; later calls are ignored.
+    /// Hands the crash path this run's open, empty `run.crashkeys` file (the run marker's folder): sets the
+    /// block's descriptor word only. Call once at launch, on the main thread, after ``prepareCrashKeysBlock()``;
+    /// before it, and on later calls, does nothing.
     public static func prepareCrashKeysRecord(descriptor: Int32) {
-        guard descriptor >= 0 else { return }
-        let block = CrashKeysRecordBlock.prepared()
+        guard descriptor >= 0, let block = CrashKeysRecordBlock.current else { return }
         _ = block.descriptorWord.compareExchange(expected: 0, desired: UInt64(descriptor) + 1, ordering: .acquiringAndReleasing)
     }
 
@@ -109,44 +124,67 @@ extension CrashReporter {
         // Only the first crash path writes (an abort may follow a fatal signal's handler), on whichever thread.
         let taken = block.descriptorWord.exchange(0, ordering: .acquiringAndReleasing)
         guard taken != 0 else { return }
-        let count = CrashKeySlots.writeRecord(wordsAt: slots, into: block.line)
+        // SAFETY: `slots` is the address attachCrashKeys published, of words retained for the process's life;
+        // block.line is the block's maxRecordBytes-byte line, which writeRecord does not write past.
+        let count = unsafe CrashKeySlots.writeRecord(wordsAt: slots, into: block.line)
         // concurrency-allow: async-signal-safe crash path (the process is ending), which can run no seam; one write
         // of at most 512 bytes to this run's local file.
         // blocking-allow: a fatal-signal handler can call no seam (blockingCall records and may allocate).
-        _ = Darwin.write(Int32(truncatingIfNeeded: taken - 1), block.line.baseAddress, count)
+        // SAFETY: write reads `count` bytes, at most the line's maxRecordBytes that writeRecord just filled.
+        _ = unsafe Darwin.write(Int32(truncatingIfNeeded: taken - 1), block.line.baseAddress, count)
     }
 }
 
 /// The crash path's state, in one block allocated at launch and kept for the process's life: the slots'
 /// address, this run's `run.crashkeys` descriptor (plus 1; 0 is none or already written) and the record line's
 /// buffer. Chrome keeps crash keys in static storage for the same reason: the crash path runs no allocator.
-private struct CrashKeysRecordBlock {
+// SAFETY (the block): `base` is the start of ``wordCount`` UInt64 words that prepare() allocated, bound to UInt64
+// and zeroed, and that are never freed; the two words and the line below lie inside them.
+@safe private struct CrashKeysRecordBlock {
     let base: UnsafeMutableRawPointer
 
     /// Two words, then the line (a whole number of words: ``CrashKeys/maxRecordBytes`` is 512).
     static var wordCount: Int { 2 + CrashKeys.maxRecordBytes / 8 }
 
-    var slotsWord: AtomicPointerSlot { AtomicPointerSlot(base.assumingMemoryBound(to: UInt64.self)) }
-    var descriptorWord: AtomicPointerSlot { AtomicPointerSlot(base.assumingMemoryBound(to: UInt64.self) + 1) }
-    var line: UnsafeMutableRawBufferPointer { UnsafeMutableRawBufferPointer(start: base + 16, count: CrashKeys.maxRecordBytes) }
+    // SAFETY: as above (the block): word 0, 8-byte aligned.
+    var slotsWord: AtomicPointerSlot { unsafe AtomicPointerSlot(base.assumingMemoryBound(to: UInt64.self)) }
+    // SAFETY: as above (the block): word 1.
+    var descriptorWord: AtomicPointerSlot { unsafe AtomicPointerSlot(base.assumingMemoryBound(to: UInt64.self) + 1) }
+    // SAFETY: as above (the block): the line is the maxRecordBytes bytes after the two words, the block's end.
+    var line: UnsafeMutableRawBufferPointer { unsafe UnsafeMutableRawBufferPointer(start: base + 16, count: CrashKeys.maxRecordBytes) }
 
-    /// The block, nil before launch made it. Async-signal-safe (no generic `map`).
+    /// The block, nil before launch made it. Async-signal-safe (no generic `map`): the acquiring fence after a
+    /// non-zero address pairs with ``prepare()``'s releasing fence, so the block's zeroed words are seen.
     static var current: CrashKeysRecordBlock? {
-        guard let base = UnsafeMutableRawPointer(bitPattern: crashKeysRecordBlock) else { return nil }
-        return CrashKeysRecordBlock(base: base)
+        // SAFETY: a non-zero word is the address prepare() published, of a block that is never freed (see above).
+        guard let base = unsafe UnsafeMutableRawPointer(bitPattern: crashKeysRecordBlock) else { return nil }
+        atomicFence(ordering: .acquiring)
+        // SAFETY: as above.
+        return unsafe CrashKeysRecordBlock(base: base)
     }
 
-    /// The block, made the first time (launch, main thread).
-    static func prepared() -> CrashKeysRecordBlock {
-        if let current { return current }
-        let words = UnsafeMutablePointer<UInt64>.allocate(capacity: wordCount)
-        words.initialize(repeating: 0, count: wordCount)
-        crashKeysRecordBlock = UInt(bitPattern: words)
-        return CrashKeysRecordBlock(base: UnsafeMutableRawPointer(words))
+    /// Makes the block the first time (launch, main thread): zeroes its words, then publishes its address after
+    /// a releasing fence, so a crash handler on another thread that loads the address sees the zeroes, never the
+    /// allocator's old bytes.
+    static func prepare() {
+        guard current == nil else { return }
+        // SAFETY: allocates the wordCount words of the block, then zeroes exactly those words; the block is never freed.
+        let words = unsafe UnsafeMutablePointer<UInt64>.allocate(capacity: wordCount)
+        unsafe words.initialize(repeating: 0, count: wordCount)
+        atomicFence(ordering: .releasing)
+        // SAFETY: publishes the address only, once, on the main thread at launch; readers rebuild the pointer from it
+        // (``current``). See the declaration for its threads.
+        unsafe crashKeysRecordBlock = UInt(bitPattern: words)
     }
 }
 
-// The block's address: set once at launch on the main thread, before the crash handlers that read it are
-// installed, and never changed; a constant initial value, so no lazy initialization runs in a signal handler.
-// crash-allow: written once at launch before any reader, read-only after (signal-handler state).
+// The block's address: 0 until `AppRunMarker.start()` calls `CrashReporter.prepareCrashKeysBlock()`, its first
+// step, on the main thread, before it installs the uncaught-exception handler, the crash deadline and the
+// fatal-signal handlers that read it; never changed after. A constant initial value, so no lazy initialization
+// runs in a signal handler; one aligned word, so a load sees 0 or the whole address. The store follows a releasing
+// fence and every load is followed by an acquiring one (CrashKeysRecordBlock.prepare() and .current).
+// Threads: stored on the main thread at launch; read by fatal-signal handlers on whichever thread faulted and by the
+// uncaught-exception handler. No lock: a signal handler that waits for a lock the interrupted thread holds never
+// returns, and os_unfair_lock is not async-signal-safe.
+// crash-allow: async-signal-safe global, stored once on the main thread, read by signal handlers (why no lock: above).
 nonisolated(unsafe) private var crashKeysRecordBlock: UInt = 0

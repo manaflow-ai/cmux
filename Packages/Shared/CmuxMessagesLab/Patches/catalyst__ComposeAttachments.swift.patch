@@ -35,7 +35,7 @@
      static let removeSize: CGFloat = 18          // estimate
  
      struct Tile: Equatable { var id: ID; var rect: CGRect; var image: Bool }
-@@ -66,20 +75,26 @@
+@@ -66,24 +75,31 @@
      /// Tiles (field coordinates, top-left of the field) and the strip height
      /// (what the field grows by).
      static func layout(_ atts: [Attachment], width: CGFloat, scale: CGFloat) -> (tiles: [Tile], height: CGFloat) {
@@ -54,12 +54,11 @@
 +                size = CGSize(width: max(1, w * k), height: max(1, h * k))
              }
 -            let r = CGRect(x: left, y: y, width: size.width, height: size.height).integralToScale(scale)
--            tiles.append(Tile(id: a.id, rect: r, image: isImage(a)))
--            y = r.maxY + gap
 +            size.width = min(size.width, right - left)
 +            if x > left, x + size.width > right { x = left; y += rowH + gap; rowH = 0 }
 +            let r = CGRect(x: x, y: y, width: size.width, height: size.height).integralToScale(scale)
-+            tiles.append(Tile(id: a.id, rect: r, image: isImage(a)))
+             tiles.append(Tile(id: a.id, rect: r, image: isImage(a)))
+-            y = r.maxY + gap
 +            x = r.maxX + gap
 +            rowH = max(rowH, r.height)
          }
@@ -68,8 +67,15 @@
 +        return (tiles, y + rowH + gap - top)
      }
  
-     static let nameFont = UIFont.systemFont(ofSize: 11, weight: .semibold)
-@@ -127,7 +142,7 @@
+-    static let nameFont = UIFont.systemFont(ofSize: 11, weight: .semibold)
+-    static let kindFont = UIFont.systemFont(ofSize: 10)
++    // cmux: held by HomeFonts (a `static let` of NSFont is a non-Sendable global).
++    static var nameFont: UIFont { HomeFonts.system(ofSize: 11, weight: .semibold) }
++    static var kindFont: UIFont { HomeFonts.system(ofSize: 10) }
+     /// "PDF Document · 7 KB" (the type's localized description and the size).
+     static func kindText(_ a: Attachment) -> String {
+         let kind = UTType(mimeType: a.mimeType)?.localizedDescription ?? a.mimeType
+@@ -127,7 +143,7 @@
          l.cornerCurve = .continuous
          l.masksToBounds = true
          l.contentsGravity = .resizeAspectFill
@@ -78,7 +84,7 @@
          let x = CALayer()
          x.actions = none
          x.opacity = 0
-@@ -171,23 +186,23 @@
+@@ -171,23 +187,23 @@
              for tile in files {
                  guard let a = atts.first(where: { $0.id == tile.id }) else { continue }
                  let r = tile.rect
@@ -109,3 +115,14 @@
                  TextDraw.line(Self.fit(a.fileName, Self.nameFont, tw), font: Self.nameFont, color: Fixture.incomingText, x: tx, baseline: y, in: c)
                  y += 14
                  TextDraw.line(Self.fit(Self.kindText(a), Self.kindFont, tw), font: Self.kindFont, color: Fixture.secondaryText, x: tx, baseline: y, in: c)
+@@ -262,9 +278,7 @@
+ 
+     /// The thumbnail shown for an image (tests).
+     func shownImage(_ id: ID) -> CGImage? {
+-        guard let raw = imageLayers[id]?.image.contents else { return nil }
+-        let contents = raw as AnyObject
+-        return CFGetTypeID(contents) == CGImage.typeID ? unsafeDowncast(contents, to: CGImage.self) : nil
++        imageLayers[id]?.image.bitmapContents // cmux: the one checked downcast (RowDrawing.swift)
+     }
+ }
+ 

@@ -4,42 +4,30 @@
 //! `agent-session-attach`, but marks the attachment so session mutations are
 //! refused while history and live records remain available.
 
-use std::sync::Arc;
+use serde_json::{Map, Value};
 
-use serde_json::Value;
-
-use super::{MessageWriter, Mux, PageParams, Refusal, attach, refuse};
+use super::{PageParams, Refusal, attach, refuse};
+use crate::server::FrameStage;
+use crate::server::routes::{Route, RouteLine, RouteName};
 
 pub const AGENT_SESSION_OBSERVE_CAPABILITY: &str = "agent-session-observe-v1";
+const COMMAND: &str = "agent-session-observe";
 
 /// The `cmd` this module answers (server/routes.rs): its exact name wins
 /// over the `agent-session-` prefix of the attach route.
-pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
-    &[crate::server::routes::Route {
-        names: &[crate::server::routes::RouteName::Exact("agent-session-observe")],
-        stage: crate::server::FrameStage::AgentSession,
-        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
-    }];
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::Exact(COMMAND)],
+    stage: FrameStage::AgentSession,
+    entry: handle,
+}];
 
-/// Handles the observer command.
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"agent-session-") {
-        return None;
-    }
-    let Ok(Value::Object(mut object)) = crate::line_parses::parse::<Value>(message) else {
-        return None;
-    };
-    let Some(Value::String(cmd)) = object.remove("cmd") else {
-        return None;
-    };
-    if cmd != "agent-session-observe" {
-        return None;
-    }
+/// The route's typed handler: the line's `cmd` named the observer command, so
+/// it decodes the line once and answers it. A line whose full decode fails is
+/// left to the `Command` parse (`None`).
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
+    let mut object = crate::line_parses::parse::<Map<String, Value>>(message).ok()?;
+    object.remove("cmd");
     let id = object.remove("id");
     let Ok(params) = serde_json::from_value::<PageParams>(Value::Object(object)) else {
         return Some(refuse(writer, id, Refusal::BadRequest));

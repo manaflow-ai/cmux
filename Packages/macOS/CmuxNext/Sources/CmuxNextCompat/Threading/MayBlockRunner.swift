@@ -3,19 +3,22 @@ public import Dispatch
 /// How much a person waits for one piece of blocking work: Chrome's `base::TaskPriority`
 /// (base/task/task_traits.h), for modules that cannot import CmuxNextWakeups.
 ///
-/// The same four levels and the same QoS as CmuxNextWakeups' `WorkPriority`; its ``MayBlockRunner``
-/// conformance maps them one to one.
+/// The same four levels as CmuxNextWakeups' `WorkPriority`; its ``MayBlockRunner`` conformance maps them one to
+/// one, so a lane item runs at `WorkPriority.qos`. ``qos`` here is the QoS of a ``ChildProcessLauncher`` spawn.
 public enum MayBlockPriority: Int, Sendable, Comparable, CaseIterable {
     /// Nobody waits for it (indexing, cache cleanup); QoS `.background`.
     case idle
     /// A person does not wait for it now (saves, automation); QoS `.utility`.
     case bestEffort
-    /// Its result shows on screen soon (an icon, a file a page shows); QoS `.default`.
+    /// Its result shows on screen soon (an icon, a file a page shows); a spawn at QoS `.default`.
     case userVisible
     /// A person waits for it right now (the result of a key, a click or an open); QoS `.userInitiated`.
     case userBlocking
 
-    /// The GCD quality of service a lane runs this level's work at, never `.userInteractive`.
+    /// The GCD quality of service a ``ChildProcessLauncher`` spawns children of this level at, never
+    /// `.userInteractive`. ``userVisible`` stays `.default`, as CmuxNextWakeups' `WorkPriority.processQoS`: a child's
+    /// priority follows what it shows (Chrome's `RenderProcessHostImpl::UpdateProcessPriority`), not the thread
+    /// pool's `kDefault` mapping, so a person's `!` command from an agent pane never competes with user-blocking work.
     public var qos: DispatchQoS {
         switch self {
         case .userBlocking: .userInitiated

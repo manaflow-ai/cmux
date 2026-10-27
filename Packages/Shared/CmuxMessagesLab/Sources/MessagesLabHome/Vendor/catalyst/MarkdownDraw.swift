@@ -3,6 +3,7 @@ import UIKit
 #else
 import AppKit
 #endif
+import os
 
 /// Colours of markdown elements on one bubble. Every colour derives from the
 /// bubble's own text colour (so incoming grey, outgoing blue, light and dark keep
@@ -40,21 +41,19 @@ struct MDPalette {
         #endif
     }
 
-    /// Cached per bubble side and palette generation (a theme or appearance change makes new ones).
-    private static var cache: [Int: MDPalette] = [:]
-    private static let cacheLock = NSLock()
+    /// Cached per bubble side and palette generation (a theme or appearance change makes new ones). Row
+    /// bitmaps draw on the render queues and the main thread: the lock owns the cache.
+    private static let cache = OSAllocatedUnfairLock<[Int: MDPalette]>(initialState: [:])
     static func palette(outgoing: Bool) -> MDPalette {
         let k = Fixture.paletteGeneration &* 4 &+ (Fixture.lightAppearance ? 2 : 0) &+ (outgoing ? 1 : 0)
         let text = outgoing ? Fixture.outgoingText : Fixture.incomingText
-        cacheLock.lock()
         // The text colour can change without a new generation (an elevated window): compare it.
-        if let p = cache[k], p.text.isEqual(text) { cacheLock.unlock(); return p }
-        cacheLock.unlock()
+        if let p = cache.withLock({ $0[k] }), p.text.isEqual(text) { return p }
         let p = make(outgoing: outgoing)
-        cacheLock.lock()
-        if cache.count > 8 { cache.removeAll() }
-        cache.updateValue(p, forKey: k) // dictionary write
-        cacheLock.unlock()
+        cache.withLock { cache in
+            if cache.count > 8 { cache.removeAll() }
+            cache.updateValue(p, forKey: k) // dictionary write
+        }
         return p
     }
 
@@ -128,7 +127,7 @@ enum MarkdownDraw {
     }
 
     static func roundedClip(_ ctx: CGContext, _ r: CGRect, _ radius: CGFloat) {
-        ctx.addPath(CGPath(roundedRect: r, cornerWidth: radius, cornerHeight: radius, transform: nil))
+        ctx.addPath(CGPath.roundedRect(r, cornerWidth: radius, cornerHeight: radius))
         ctx.clip()
     }
 
@@ -140,7 +139,7 @@ enum MarkdownDraw {
         let x = track.minX + (track.width - w) * (reg.maxOffset > 0 ? offset / reg.maxOffset : 0)
         let r = CGRect(x: x, y: reg.frame.maxY - 4, width: w, height: 2.5)
         ctx.setFillColor(pal.text.withAlphaComponent(0.32).cgColor)
-        ctx.addPath(CGPath(roundedRect: r, cornerWidth: 1, cornerHeight: 1, transform: nil))
+        ctx.addPath(CGPath.roundedRect(r, cornerWidth: 1, cornerHeight: 1))
         ctx.fillPath()
     }
 
@@ -156,23 +155,23 @@ enum MarkdownDraw {
             switch b.kind {
             case .codeBlock:
                 ctx.setFillColor(pal.inset.cgColor)
-                ctx.addPath(CGPath(roundedRect: b.rect, cornerWidth: 6, cornerHeight: 6, transform: nil)); ctx.fillPath()
+                ctx.addPath(CGPath.roundedRect(b.rect, cornerWidth: 6, cornerHeight: 6)); ctx.fillPath()
             case .inlineCode:
                 ctx.setFillColor(pal.inset.cgColor)
-                ctx.addPath(CGPath(roundedRect: b.rect, cornerWidth: 3.5, cornerHeight: 3.5, transform: nil)); ctx.fillPath()
+                ctx.addPath(CGPath.roundedRect(b.rect, cornerWidth: 3.5, cornerHeight: 3.5)); ctx.fillPath()
             case .tableHeader:
                 ctx.saveGState()
-                ctx.addPath(CGPath(roundedRect: CGRect(x: b.rect.minX, y: b.rect.minY, width: b.rect.width, height: b.rect.height + 6), cornerWidth: 6, cornerHeight: 6, transform: nil))
+                ctx.addPath(CGPath.roundedRect(CGRect(x: b.rect.minX, y: b.rect.minY, width: b.rect.width, height: b.rect.height + 6), cornerWidth: 6, cornerHeight: 6))
                 ctx.clip()
                 ctx.setFillColor(pal.header.cgColor); ctx.fill(b.rect)
                 ctx.restoreGState()
             case .quoteBar:
                 ctx.setFillColor(pal.bar.cgColor)
-                ctx.addPath(CGPath(roundedRect: b.rect, cornerWidth: 1.5, cornerHeight: 1.5, transform: nil)); ctx.fillPath()
+                ctx.addPath(CGPath.roundedRect(b.rect, cornerWidth: 1.5, cornerHeight: 1.5)); ctx.fillPath()
             case let .image(img):
                 // Host-provided only (MarkdownImageProvider). The context is y-down: flip locally.
                 ctx.saveGState()
-                ctx.addPath(CGPath(roundedRect: b.rect, cornerWidth: 6, cornerHeight: 6, transform: nil)); ctx.clip()
+                ctx.addPath(CGPath.roundedRect(b.rect, cornerWidth: 6, cornerHeight: 6)); ctx.clip()
                 ctx.translateBy(x: b.rect.minX, y: b.rect.maxY); ctx.scaleBy(x: 1, y: -1)
                 ctx.interpolationQuality = .high
                 ctx.draw(img, in: CGRect(origin: .zero, size: b.rect.size))
@@ -195,9 +194,9 @@ enum MarkdownDraw {
                 ctx.setFillColor(pal.text.cgColor); ctx.fill(b.rect)
             case .tableBorder:
                 ctx.setStrokeColor(pal.line.cgColor); ctx.setLineWidth(0.5)
-                ctx.addPath(CGPath(roundedRect: b.rect.insetBy(dx: 0.25, dy: 0.25), cornerWidth: 6, cornerHeight: 6, transform: nil)); ctx.strokePath()
+                ctx.addPath(CGPath.roundedRect(b.rect.insetBy(dx: 0.25, dy: 0.25), cornerWidth: 6, cornerHeight: 6)); ctx.strokePath()
             case let .checkbox(checked):
-                let path = CGPath(roundedRect: b.rect, cornerWidth: 3, cornerHeight: 3, transform: nil)
+                let path = CGPath.roundedRect(b.rect, cornerWidth: 3, cornerHeight: 3)
                 if checked {
                     ctx.setFillColor(pal.check.cgColor); ctx.addPath(path); ctx.fillPath()
                     ctx.setStrokeColor(pal.checkMark.cgColor); ctx.setLineWidth(1.6); ctx.setLineCap(.round); ctx.setLineJoin(.round)
@@ -208,7 +207,7 @@ enum MarkdownDraw {
                     ctx.strokePath()
                 } else {
                     ctx.setStrokeColor(pal.marker.cgColor); ctx.setLineWidth(1)
-                    ctx.addPath(CGPath(roundedRect: b.rect.insetBy(dx: 0.5, dy: 0.5), cornerWidth: 2.5, cornerHeight: 2.5, transform: nil)); ctx.strokePath()
+                    ctx.addPath(CGPath.roundedRect(b.rect.insetBy(dx: 0.5, dy: 0.5), cornerWidth: 2.5, cornerHeight: 2.5)); ctx.strokePath()
                 }
             default: break
             }

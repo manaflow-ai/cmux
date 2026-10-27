@@ -120,6 +120,7 @@ final class AddMachineHostView: NSView {
         backdrop = OverlaySurfaceView(material: material)
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         for view in [backdrop, wash] {
             view.frame = bounds
             view.autoresizingMask = [.width, .height]

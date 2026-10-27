@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextApps
+import CmuxNextDesign
 import CmuxNextIcons
 
 /// An app's own page (its `cmux.pane/1` implementation rendered from a scene
@@ -41,7 +42,7 @@ final class AppPanePage: InternalPageProvider {
         guard let app, let pane = app.manifest.scenePane else { return NSView() }
         let mount = apps.client.mount(app.id, implementation: pane, surface: "pane")
         mounts[key] = mount
-        return mount.makeView()
+        return VisibilityGatedHostingView(owner: "AppPanePage", hosting: mount.makeView())
     }
 
     func tabClosed(_ key: String) {

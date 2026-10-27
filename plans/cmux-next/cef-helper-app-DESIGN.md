@@ -73,8 +73,10 @@ cmux (app)                          <App>.app/Contents/MacOS/<App> Chromium Host
 - Crash: a thread blocked in `waitid(WEXITED | WNOWAIT)` reports the exit with its signal (SIGTRAP is a CHECK). The supervisor
   (prototype: `ChromiumHostSession`) clears every page's context (no stale pixels), restarts the host and reloads each
   page from the saved session: today's `cmux_shim_tab_navigation_state` / `tab_restore_navigation` (fork v7) per tab,
-  which `BrowserHistory` already saves on every commit (`S/CEFTab+RestoredHistory.swift`). The app's safe-restart rule
-  applies (`ChromiumHostRestartPolicy`): a host that ends again within 60 s stays ended; pages show "Reload".
+  which `BrowserHistory` already saves on every commit (`S/CEFTab+RestoredHistory.swift`). Chrome's GPU crash budget
+  applies (`ChromiumHostRestartPolicy`, `GpuProcessHost::RecordProcessCrash`): each 5 min forgives one crash, the 3rd
+  recent crash leaves the host ended and pages show "Reload"; quit, logout and updates spend nothing; a host that dies
+  before its `ready` cannot start (exit code and code-signature check) and is not retried.
 - The exit is read with `waitid(WNOWAIT)`: the host's pid stays a zombie until the supervisor reaps it, so a SIGKILL
   that cmux sends to a broken host (a bad frame, a flood, a full send buffer) can never reach a reused pid.
 
@@ -106,7 +108,7 @@ What crosses, and how:
 | Mouse, wheel, hover | WindowServer routes to the page window | cmux's page view (`ChromiumHostPageView`) gets the events and forwards them (`SendMouse*Event`) | no (prototype works on stock windowed CEF) |
 | Keys | `OnPreKeyEvent` calls cmux's `KeyRouter` synchronously with an `NSEvent*` (`S/CEFRuntime+Events.swift:29-41,152`) | cmux's `KeyRouter` already runs first in `CmuxApplication.sendEvent` (`A/CmuxApplication.swift:107`); keys it does not take go to the host (`SendKeyEvent`), the page's unhandled keys come back as today's `KEY_UNHANDLED` event, async | no for keys; text input below |
 | IME, dead keys, emoji, dictation | `RenderWidgetHostViewCocoa` in the page window is the `NSTextInputClient` | cmux's page view implements `NSTextInputClient`; marked text and commits go to the host (`ImeSetComposition`, `ImeCommitText`); the host pushes the composition range and caret rects after each change, so `firstRectForCharacterRange` answers locally | yes: windowed `Ime*` are `DCHECK(false)` (`fork:libcef/browser/browser_platform_delegate.cc:411-432`). PL-cef-layer: the fork's remote-presentation path (API 19, `cmux_rp_*`) already has Chrome-style IME; the host can reuse it instead of patching the windowed path |
-| Page screenshots for agents | `Page.captureScreenshot` over DevTools, answered on cmux's main thread | the host runs the capture (fork API `cmux_browser_capture`, planned by PL-cef-layer for cmux.34: `CopyFromSurface` readback, encode on Chromium's thread pool, callback off main) and sends the PNG over the control channel; cmux's main thread never waits | planned (PL-cef-layer) |
+| Page screenshots for agents | `Page.captureScreenshot` over DevTools, answered on cmux's main thread | the host runs the capture (fork export `cmux_browser_capture`: `CopyFromSurface` readback, encode on Chromium's thread pool, callback off main) and sends the PNG over the control channel (shim `cmux_shim_tab_copy_surface`, an `async` host op answered by a `CMUX_SHIM_REPLY` under the caller's reply id, p13-webui 078); cmux's main thread never waits | yes: the one export for agent screenshots and page snapshots, written by p13-webui 077 (manaflow-ai/cef `cp/p13-webui-077`, not built yet; [webui-DESIGN.md](webui-DESIGN.md)), numbered by the fork train (p13-webui 086); PL-cef-layer reuses it and adds no second capture export |
 | Focus, key and active state | page window is key; fork "active while the parent is key" | cmux's view is first responder and sends focus; the host's windows are never key | yes: `cmux_browser_set_embedder_active(id, bool)` replaces the key-window observers |
 | Cursor | Chromium's view sets it in its own window | `CefDisplayHandler::OnCursorChange` -> wire -> cmux sets the cursor over its view | no |
 | Accessibility | page window's AX tree; `CmuxApplication` maps the window (`A/CmuxApplication.swift:153`) | the host gives the page's remote AX token (`NSAccessibilityRemoteUIElement`, the app-shim mechanism); cmux's page view returns a remote element child with it | yes: export the token |
@@ -170,7 +172,7 @@ an active flag: no page window is ever key, so neither the key-state walk nor th
 change runs for a page focus. That needs the pin past API 24 (this design's host work needs 27). DevTools focus
 emulation in process is not a substitute: the page view then has no text input client, so IME breaks.
 
-## 4. Prototype (behind `browserHost.helper`, default off; the host app is in Debug builds only)
+## 4. Prototype (behind the feature `cefHelperHost`, default off; the host app is in Debug builds only)
 
 - Host: `Packages/macOS/CmuxNext/ChromiumHost/src/browser_host_main.mm` (built by `scripts/cmux-next/build-chromium-host.sh`
   as `cmux-chromium-host` against the shim build's wrapper, with a cache key of its own, so a host edit changes neither the
@@ -229,9 +231,12 @@ in the measure queue and go into perf-lead.md section 5 when they arrive.
 
 ### Default and prototype gaps (lead, 2026-10-24)
 
-The host stays off by default (`browserHost.helper`, Debug builds only; `ChromiumHostDefaultOffTests`): every
+The host stays off by default (the bench-only feature `cefHelperHost`, with Debug Settings `browserHost.helper` as
+its local override, p12-perf-process-101; `ChromiumHostDefaultOffTests`, `ChromiumHostSwitchTests`): every
 Chromium tab of every DEV, NIGHTLY and Release user runs in process. Only `debug.chromium_host` starts a host, and only
-with the toggle on. It stays so until Japanese IME (a ship blocker), find, drag and permission prompts work in the host.
+with the toggle on; `features.list` reports the toggle as `cefHelperHost` with source `local`, and benches set it
+through their tunables file (`CMUX_NEXT_DEBUG_TUNABLES_FILE`: a launched app strips an inherited `CMUX_ENABLE_FEATURES`).
+It stays so until Japanese IME (a ship blocker), find, drag and permission prompts work in the host.
 The page's focus is `cmux_browser_set_embedder_active` on a detached page (fork API 30), and DevTools focus emulation
 (`Emulation.setFocusEmulationEnabled`) only below API 30 or before the page is detached; never
 `CefBrowserHost::SetFocus`, which activates the host's window and app (cmux's bundle id). The `addChildWindow` layout

@@ -21,23 +21,40 @@ extension LayoutRootView {
     /// The auto-scroll a drag at `locationInWindow` asks for; nil outside the active columns
     /// screen's edge bands.
     public func tabDragAutoscroll(locationInWindow: NSPoint) -> TabDragAutoscroll? {
-        guard let active = model.activeScreenID, let view = screenViews[active], !view.isHidden else { return nil }
-        let local = view.convert(locationInWindow, from: nil)
-        // Only over the strip's uncovered range: a drag over a top or bottom
-        // dock drops there and never scrolls the strip.
-        let range = view.uncoveredRect
-        guard local.y >= range.minY, local.y <= range.maxY, let speed = view.edgeAutoscrollSpeed(localX: local.x) else { return nil }
-        return TabDragAutoscroll(screen: active, speed: speed)
+        guard let hit = tabDragAutoscrollScreen(at: locationInWindow), let speed = hit.view.edgeAutoscrollSpeed(localX: hit.local.x) else { return nil }
+        return TabDragAutoscroll(screen: hit.screen, speed: speed)
     }
 
     /// One frame of `autoscroll`, `dt` seconds long. Returns true when it scrolled (hit-test the
     /// drag again: content moved under the pointer). A screen no longer shown does not scroll.
     @discardableResult
     public func stepTabDragAutoscroll(_ autoscroll: TabDragAutoscroll, dt: Double) -> Bool { // perf-hot: 2ms drag-frame (every frame of a drag)
-        guard model.activeScreenID == autoscroll.screen, let view = screenViews[autoscroll.screen], !view.isHidden,
-              view.stepEdgeAutoscroll(speed: autoscroll.speed, dt: dt) else { return false }
+        guard let view = tabDragAutoscrollView(autoscroll), view.stepEdgeAutoscroll(speed: autoscroll.speed, dt: dt) else { return false }
         driver.start()
         return true
+    }
+
+    /// Whether `autoscroll` scrolls its screen now (shown, no gesture holds it, not at that end): the
+    /// drag session runs its frame clock only then (Chrome's tab drag auto-scroll timer runs only in the
+    /// edge zone, chrome/browser/ui/views/tabs/tab_drag_controller.cc `StartScrollingTimer`).
+    public func tabDragAutoscrolls(_ autoscroll: TabDragAutoscroll) -> Bool {
+        tabDragAutoscrollView(autoscroll)?.edgeAutoscrollTarget(speed: autoscroll.speed, dt: 1.0 / 60) != nil
+    }
+
+    /// The screen `autoscroll` scrolls, while it is the active one and shown.
+    private func tabDragAutoscrollView(_ autoscroll: TabDragAutoscroll) -> ScreenContentView? {
+        guard model.activeScreenID == autoscroll.screen, let view = screenViews[autoscroll.screen], !view.isHidden else { return nil }
+        return view
+    }
+
+    /// The active columns screen and the point in it, when the point is over the strip's
+    /// uncovered range: a drag over a top or bottom dock drops there and never scrolls the strip.
+    private func tabDragAutoscrollScreen(at locationInWindow: NSPoint) -> (screen: ScreenID, view: ScreenContentView, local: NSPoint)? {
+        guard let active = model.activeScreenID, let view = screenViews[active], !view.isHidden else { return nil }
+        let local = view.convert(locationInWindow, from: nil)
+        let range = view.uncoveredRect
+        guard local.y >= range.minY, local.y <= range.maxY else { return nil }
+        return (active, view, local)
     }
 }
 
@@ -64,15 +81,22 @@ extension ScreenContentView {
     /// Scrolls the strip by `speed` for `dt` seconds; false when it cannot move (a gesture holds
     /// the strip, or the strip is at its end).
     func stepEdgeAutoscroll(speed: CGFloat, dt: Double) -> Bool {
-        guard acceptsHorizontalScroll, !isUserScrolling else { return false }
-        let target = ColumnStripGeometry.clamp(scroll.target + speed * CGFloat(dt), contentWidth: geometry.contentWidth,
-                                               viewportWidth: geometry.stripWidth)
-        guard abs(target - scroll.target) > 0.01 else { return false }
+        guard let target = edgeAutoscrollTarget(speed: speed, dt: dt) else { return false }
         cpuTakesCamera()
         scroll.target = target
         scroll.snap()
         reportScrollOnSettle = true
         applyPresentation()
         return true
+    }
+
+    /// The scroll target after `dt` at `speed`; nil when a gesture holds the strip or it is already
+    /// at that end.
+    func edgeAutoscrollTarget(speed: CGFloat, dt: Double) -> CGFloat? {
+        guard acceptsHorizontalScroll, !isUserScrolling else { return nil }
+        let target = ColumnStripGeometry.clamp(scroll.target + speed * CGFloat(dt), contentWidth: geometry.contentWidth,
+                                               viewportWidth: geometry.stripWidth)
+        guard abs(target - scroll.target) > 0.01 else { return nil }
+        return target
     }
 }

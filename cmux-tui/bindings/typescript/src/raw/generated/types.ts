@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 78ae2f1f797111b944b41b9cb30dabe9d2dbcd01a0d47808dd602101a5037c55. */
+/* cmux-tui mux protocol 12, IR 0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -93,6 +93,56 @@ export type AgentCLIStoredIntent = {
   "root_key": string;
   "session": string;
 };
+
+export type AgentInventoryAuth = "signedIn" | "signedOut" | "unknown";
+
+export type AgentInventoryChannel = "npm" | "bun" | "brew" | "brewCask" | "native" | "launcher" | "standalone" | "missing";
+
+export type AgentInventoryFamily = "claude" | "codex" | "opencode" | "pi" | "chief" | "gemini" | "amp" | "copilot" | "cursor";
+
+export type AgentInventoryHarness = {
+  "auth": AgentInventoryAuth;
+  "channel": AgentInventoryChannel;
+  /** When the owner's health check saved this row, in Unix milliseconds. */
+  "checkedAt": bigint;
+  /** Recognized CLI family from the owner's saved health check; null for launchers, missing executables, conflicting evidence and families this daemon does not know. */
+  "family": (AgentInventoryFamily) | null;
+  /** Harness profile id: 1-128 bytes of `[A-Za-z0-9._-]`. */
+  "id": string;
+  /** Latest registry version from the last successful check, or null. */
+  "latest": (string) | null;
+  /** When `latest` was checked, in Unix milliseconds; null when never checked. */
+  "latestCheckedAt": (bigint) | null;
+  /** True only when `version` and `latest` are both known and `latest` is newer. */
+  "outdated": boolean;
+  /** Installed semantic version, or null when unknown. */
+  "version": (string) | null;
+};
+
+export type AgentInventoryRefreshResult = {
+  "cached": true;
+  "harnesses": Array<AgentInventoryHarness>;
+  /** Canonical public machine id (`machine_…`) of the daemon that answered. */
+  "machine": string;
+  "view": "inventory";
+};
+
+export type AgentInventoryResult = {
+  "cached": true;
+  "harnesses": Array<AgentInventoryHarness>;
+  "view": "inventory";
+};
+
+export type AgentInventoryWatchActive = {
+  /** Canonical public machine id (`machine_…`) of the daemon that answered. */
+  "machine": string;
+  /** The owner's inventory revision when the lease became active. */
+  "revision": bigint;
+  /** Opaque lease id: `inventory_watch_` and 32 lowercase hex digits. */
+  "watch_id": string;
+};
+
+export type AgentInventoryWatchResult = (AgentInventoryWatchActive) | (EmptyResult);
 
 export type AgentPresenceActivity = "thinking" | "editing" | "reading" | "running" | "browsing" | "computer_use" | "waiting";
 
@@ -374,6 +424,11 @@ export type BrowserRuntimeStopResult = {
   "stopped": true;
 };
 
+export type CancelStreamResult = {
+  "outcome": "applied" | "ended";
+  "stream": number;
+};
+
 export type CellPixelFailure = {
   "error": string;
   "surface": Id;
@@ -392,6 +447,23 @@ export type CellPixelSurface = {
   "width_px": number;
 };
 
+export type ClientHelloFeaturePending = {
+  "app": boolean;
+  "daemon": boolean;
+  "name": string;
+};
+
+export type ClientHelloFeatureReport = {
+  "applied": Array<string>;
+  "hash": string;
+  "pending": Array<ClientHelloFeaturePending>;
+};
+
+export type ClientHelloFeatures = {
+  "hash"?: string;
+  "values": Record<string, boolean>;
+};
+
 export type ClientHelloPageOperations = {
   "confirm": Array<string>;
   "gesture": Array<string>;
@@ -400,6 +472,7 @@ export type ClientHelloPageOperations = {
 
 export type ClientHelloResult = {
   "connection_id": string;
+  "features"?: ClientHelloFeatureReport;
   "install_id"?: string;
   "nonce"?: string;
   "page"?: string;
@@ -874,6 +947,7 @@ export type IdentifyResult = {
   "app": "cmux-tui";
   "build_commit"?: (string) | null;
   "build_id"?: (string) | null;
+  "bulk_frame_max"?: (number) | null;
   "capabilities"?: Array<string>;
   "cli_path"?: (string) | null;
   "crate_version"?: (string) | null;
@@ -1436,6 +1510,26 @@ export type ServerStatsJournalWriter = {
   "terminal_queued": bigint;
 };
 
+export type ServerStatsLockClass = {
+  "hold_us": ServerStatsHistogram;
+  "wait_p95_us": bigint;
+  "wait_us": ServerStatsHistogram;
+};
+
+export type ServerStatsLockClassSet = {
+  "automation": ServerStatsLockClass;
+  "automation_due_admissions": bigint;
+  "automation_yields": bigint;
+  "frontend": ServerStatsLockClass;
+  "program": ServerStatsLockClass;
+};
+
+export type ServerStatsLockClasses = {
+  "registry": ServerStatsLockClassSet;
+  "registry_connection": ServerStatsLockClassSet;
+  "state": ServerStatsLockClassSet;
+};
+
 export type ServerStatsLockHolder = {
   "held_for_us": bigint;
   "site": string;
@@ -1466,6 +1560,24 @@ export type ServerStatsLockWaits = {
   "dropped": bigint;
   "long_waits": bigint;
   "recent": Array<ServerStatsLockWait>;
+};
+
+export type ServerStatsMethodLatency = {
+  "class": string;
+  "handler_us": ServerStatsPercentiles;
+  "id": (number) | null;
+  "latency_us": ServerStatsPercentiles;
+  "lock_wait_us": ServerStatsPercentiles;
+  "method": string;
+  "trace_id": number;
+};
+
+export type ServerStatsPercentiles = {
+  "count": bigint;
+  "max": bigint;
+  "p50": bigint;
+  "p95": bigint;
+  "p99": bigint;
 };
 
 export type ServerStatsRegistryLock = {
@@ -1535,7 +1647,9 @@ export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "dispatch_queue_us"?: ServerStatsHistogram;
   "ipc"?: ServerStatsIpc;
+  "ipc_methods"?: Array<ServerStatsMethodLatency>;
   "journal_writer": (ServerStatsJournalWriter) | null;
+  "lock_classes"?: ServerStatsLockClasses;
   "registry_lock": ServerStatsRegistryLock;
   "request_latency_us"?: ServerStatsRequestLatency;
   "request_path_io"?: ServerStatsRequestPathIo;

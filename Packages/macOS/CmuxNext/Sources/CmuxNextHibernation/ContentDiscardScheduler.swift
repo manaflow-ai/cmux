@@ -32,7 +32,15 @@ package protocol ContentDiscardHost: AnyObject {
 ///
 /// A due item is prepared asynchronously (``ContentDiscardHost/prepareDiscard(_:)``); a show
 /// meanwhile cancels the preparation, and the host's own check (the content lifecycle's token)
-/// refuses a late one.
+/// refuses a late one. An item whose preparation or release fails while it stays hidden is
+/// ``DiscardRule/discardAttempted`` until it shows (``ContentDiscardPlanner/AttemptMarkers``), so the
+/// next item takes its slot.
+///
+/// The Memory Saver mode (`memory.saver`, handed over by the coordinator) scales each policy's
+/// timeout for the proactive discard (``MemorySaverMode/proactiveTimeout(_:)``); with the mode off
+/// nothing goes proactively, and critical pressure still discards on the urgent pace. A kind made
+/// with `urgentAtWarning` (overlay pages: nothing a person made lives in them) takes the urgent pace
+/// from warning pressure on.
 @MainActor
 package final class ContentDiscardScheduler {
     /// One discard per pass (p07-memory.md rule 2), the next a second later while more are due.
@@ -44,6 +52,8 @@ package final class ContentDiscardScheduler {
     package static let drawnRecheck: Double = 1
 
     package let kind: ContentKind
+    /// Whether warning pressure runs the urgent pace too, not only critical pressure.
+    package let urgentAtWarning: Bool
     package weak var host: (any ContentDiscardHost)?
     package private(set) var pressure: MemoryPressureLevel = .normal
     /// Why each kept item stays (the first reason), for `debug.discards`.
@@ -51,8 +61,12 @@ package final class ContentDiscardScheduler {
     /// Seconds from the last arming until the deadline; nil while none is armed.
     package private(set) var nextCheck: Double?
     package private(set) var discardedCount = 0
+    /// The `memory.saver` mode the proactive timeouts follow.
+    package private(set) var saverMode: MemorySaverMode = .medium
     /// An item was discarded (the memory histograms count it).
     package var onDiscard: () -> Void = {}
+    /// The hidden items whose discard was tried and did not finish since they last showed.
+    package private(set) var discardAttempts = ContentDiscardPlanner.AttemptMarkers()
 
     private let planner = ContentDiscardPlanner()
     private let deadline: DemandTimer
@@ -69,9 +83,12 @@ package final class ContentDiscardScheduler {
     ///   - kind: The kind of content it discards.
     ///   - memory: The app's memory coordinator, which hands it each pressure level; nil keeps it at
     ///     normal (``update(pressure:)``).
+    ///   - urgentAtWarning: Whether warning pressure runs the urgent pace too (overlay pages).
     ///   - clock: The one clock of hidden times and the deadline.
-    package init(kind: ContentKind, memory: (any MemoryConsumerRegistry)? = nil, clock: any Clock<Duration> = ContinuousClock()) {
+    package init(kind: ContentKind, memory: (any MemoryConsumerRegistry)? = nil, urgentAtWarning: Bool = false,
+                 clock: any Clock<Duration> = ContinuousClock()) {
         self.kind = kind
+        self.urgentAtWarning = urgentAtWarning
         deadline = DemandTimer(owner: "ContentDiscardScheduler.\(kind.rawValue)", clock: clock)
         elapsed = Self.stopwatch(clock)
         memoryRegistration = memory.map {
@@ -87,6 +104,9 @@ package final class ContentDiscardScheduler {
 
     package var hasDeadline: Bool { deadline.isScheduled }
 
+    /// Whether the pressure now runs the urgent pace.
+    private var isUrgent: Bool { pressure == .critical || (urgentAtWarning && pressure == .warning) }
+
     /// Waits until the preparations running now ended (tests).
     package func settled() async {
         for task in Array(preparing.values) { await task.value }
@@ -97,6 +117,7 @@ package final class ContentDiscardScheduler {
     package func contentDidShow(_ key: String) {
         hiddenAt[key] = nil
         exemptions[key] = nil
+        discardAttempts.clear(key)
         preparing.removeValue(forKey: key)?.cancel()
         prepared[key] = nil
         if hiddenAt.isEmpty, preparing.isEmpty { disarm() }
@@ -105,8 +126,8 @@ package final class ContentDiscardScheduler {
     /// `key` stopped showing: the deadline moves sooner when `key` is due before it.
     package func contentDidHide(_ key: String) {
         hiddenAt[key] = elapsed()
-        guard let timeout = host?.discardPolicy(of: key)?.timeout else { return }
-        arm(after: pressure == .critical ? min(timeout, Self.urgentPace.minimumHidden) : timeout, onlySooner: true)
+        guard let host, let timeout = dueAfter(key, host: host) else { return }
+        arm(after: isUrgent ? min(timeout, Self.urgentPace.minimumHidden) : timeout, onlySooner: true)
     }
 
     /// The state `key` goes with, for the host's release; nil for a discard nobody prepared (the
@@ -116,8 +137,16 @@ package final class ContentDiscardScheduler {
     /// The host discarded `key`.
     package func noteDiscarded(_ key: String) {
         hiddenAt[key] = nil
+        discardAttempts.clear(key)
         discardedCount += 1
         onDiscard()
+    }
+
+    /// The host's release of hidden `key` let nothing go (it started moving, or it is in use): it
+    /// stays until it shows.
+    package func noteDiscardFailed(_ key: String) {
+        guard hiddenAt[key] != nil else { return }
+        discardAttempts.mark(key)
     }
 
     package func update(pressure: MemoryPressureLevel) {
@@ -129,14 +158,18 @@ package final class ContentDiscardScheduler {
     /// Starts the preparation of the next due item and arms one deadline for the one after.
     package func replan() {
         guard let host else { return disarm() }
-        hiddenAt = hiddenAt.filter { host.discardPolicy(of: $0.key) != nil }
+        // Content that closed or went has nothing left to discard, and no mark.
+        for key in hiddenAt.keys where host.discardPolicy(of: key) == nil {
+            hiddenAt[key] = nil
+            discardAttempts.clear(key)
+        }
         let current = elapsed()
-        let reason: DiscardReason = pressure == .critical ? .urgent : .proactive
+        let reason: DiscardReason = isUrgent ? .urgent : .proactive
         var next: Double?
         var timed: [ContentDiscardPlanner.TimedCandidate] = []
         exemptions = [:]
         for (key, at) in hiddenAt where preparing[key] == nil {
-            guard let timeout = host.discardPolicy(of: key)?.timeout else { continue }
+            guard let timeout = dueAfter(key, host: host) else { continue }
             let hidden = (current - at) / .seconds(1)
             if host.isDrawn(key) {
                 exemptions[key] = .visible
@@ -146,14 +179,24 @@ package final class ContentDiscardScheduler {
                 exemptions[key] = kept
                 next = min(next ?? .infinity, max(timeout, Self.drawnRecheck))
             } else {
-                timed.append(ContentDiscardPlanner.TimedCandidate(ContentDiscardPlanner.Candidate(key: key, kind: kind, hiddenFor: hidden),
-                                                                  timeout: timeout))
+                var candidate = ContentDiscardPlanner.Candidate(key: key, kind: kind, hiddenFor: hidden)
+                candidate.discardAttempted = discardAttempts.contains(key)
+                timed.append(ContentDiscardPlanner.TimedCandidate(candidate, timeout: timeout))
             }
         }
         let plan = planner.plan(.fallback, for: reason, pace: reason == .urgent ? Self.urgentPace : Self.proactivePace, timed: timed)
         exemptions.merge(plan.exemptions) { first, _ in first }
         for key in plan.due { prepare(key, host: host) }
         if let wait = [next, plan.nextCheck].compactMap({ $0 }).min() { arm(after: wait, onlySooner: false) } else { disarm() }
+    }
+
+    /// Seconds hidden before `key` is due: its policy's timeout under urgent pressure (the urgent
+    /// pass), else that timeout in the Memory Saver mode; nil when it is not due at all now (it has
+    /// no policy, or the mode is off below urgent pressure).
+    private func dueAfter(_ key: String, host: any ContentDiscardHost) -> Double? {
+        guard let timeout = host.discardPolicy(of: key)?.timeout else { return nil }
+        if isUrgent { return timeout }
+        return saverMode.proactiveTimeoutScale.map { timeout * $0 }
     }
 
     /// Arms the one deadline `wait` seconds from now; with `onlySooner`, only when the armed one is later.
@@ -163,7 +206,7 @@ package final class ContentDiscardScheduler {
         deadlineAt = at
         nextCheck = wait
         // 50 ms past the due time, so the look finds the item due, not a hair short of it.
-        deadline.schedule(after: .milliseconds(Int64(wait * 1000) + 50)) { @MainActor [weak self] in
+        deadline.scheduleOnMain(after: .milliseconds(Int64(wait * 1000) + 50)) { [weak self] in
             self?.deadlineAt = nil
             self?.replan()
         }
@@ -185,6 +228,9 @@ package final class ContentDiscardScheduler {
                 prepared[key] = state
                 host.commitDiscard(key)
                 prepared[key] = nil
+            } else if host != nil, hiddenAt[key] != nil {
+                // It must stay though still hidden: the next pass gives its slot to the next item.
+                discardAttempts.mark(key)
             }
             replan()
         }
@@ -193,13 +239,22 @@ package final class ContentDiscardScheduler {
 
 // One lossy consumer of the app's memory coordinator, as browser hibernation is (Chrome's
 // urgent_page_discarding_policy.cc: lossy, not stateful): the level picks the proactive or the
-// urgent pass, and the critical limit's release slice runs one urgent pass.
-extension ContentDiscardScheduler: MemoryLevelConsumer {
+// urgent pass, the Memory Saver mode the proactive timeouts, and the critical limit's release slice
+// runs one urgent pass.
+extension ContentDiscardScheduler: MemoryLevelConsumer, MemorySaverModeConsumer {
     package static let memoryTraits = MemoryConsumerTraits(
         estimatedUsage: .large, dataAccess: .reads, retention: .lossy, recreateCost: .expensive,
         releaseCPUCost: .high, isStateful: false, supportsMemoryLimit: false)
 
     package func memoryLevelDidChange(_ level: MemoryPressureLevel) { update(pressure: level) }
+
+    /// The next look runs on the deadline, never in the turn of the change (an action's or a
+    /// settings flush's): it re-times every hidden item against the new mode.
+    package func memorySaverModeDidChange(_ mode: MemorySaverMode) {
+        guard mode != saverMode else { return }
+        saverMode = mode
+        if !hiddenAt.isEmpty { arm(after: 0, onlySooner: false) }
+    }
     package func updateMemoryLimit(_ limit: MemoryLimit) {}
 
     package func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {

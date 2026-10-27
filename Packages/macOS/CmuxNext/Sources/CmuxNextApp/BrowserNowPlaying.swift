@@ -25,7 +25,8 @@ final class BrowserNowPlaying {
     typealias Session = NowPlayingSession
 
     private weak var services: AppServices?
-    private var observation: Task<Void, Never>?
+    /// Follows the playing tabs, the music player and `labs.previewFeatures` while it follows a services.
+    private var observation: ServiceObservation<([Session], SidebarNowPlaying?, Bool)>?
     private var registered = false
     /// The tab Now Playing shows.
     private(set) var current: Session?
@@ -46,15 +47,16 @@ final class BrowserNowPlaying {
             publish()
             return
         }
-        register()
-        observation = Task { [weak self, weak services] in
-            for await (sessions, music, preview) in ObservationStream({ [weak services] in
-                services.map { (Self.sessions($0), $0.cache.pageRequests.music.nowPlaying, $0.settings?.snapshot.previewFeatures == true) }
-                    ?? ([], nil, false)
-            }) {
-                if !preview, music != nil { services?.cache.pageRequests.music.stop() }
-                self?.update(sessions, music: preview ? music : nil)
-            }
+        register(on: services.mainWork)
+        // `background`: Control Center and the lock screen are outside cmux's frames; it runs while every window is
+        // hidden, and a person's play or pause flushes before its frame by its cause.
+        observation = ServiceObservation(.background, owner: "BrowserNowPlaying.sessions", on: services.mainWork) { [weak services] in
+            services.map { (Self.sessions($0), $0.cache.pageRequests.music.nowPlaying, $0.settings?.snapshot.previewFeatures == true) }
+                ?? ([], nil, false)
+        } apply: { [weak self, weak services] value in
+            let (sessions, music, preview) = value
+            if !preview, music != nil { services?.cache.pageRequests.music.stop() }
+            self?.update(sessions, music: preview ? music : nil)
         }
     }
 
@@ -79,6 +81,7 @@ final class BrowserNowPlaying {
         case .next: .nextTrack
         case .previous: .previousTrack
         }
+        // main-hop-allow: the tab's media command is its own main-actor async call (a page script); this task only starts it
         Task { await tab.media(media) }
         return true
     }
@@ -183,6 +186,7 @@ final class BrowserNowPlaying {
             return
         }
         artwork = (url, nil)
+        // main-hop-allow: the tab's favicon fetch is main-actor async (its cookies, its proxy); the artwork applies in its resume
         Task { [weak self] in
             let image = await tab.fetchFavicon(url)
             guard let self, self.artwork?.url == url else { return }
@@ -200,8 +204,8 @@ final class BrowserNowPlaying {
     }
 
     /// The media keys and Control Center's buttons. MediaPlayer may call
-    /// the handlers off the main thread; they hop to it.
-    private func register() {
+    /// the handlers off the main thread; each press is a `visible` task on `mainWork`.
+    private func register(on mainWork: MainWorkScheduler) {
         guard !registered else { return }
         registered = true
         let commands = MPRemoteCommandCenter.shared()
@@ -213,7 +217,7 @@ final class BrowserNowPlaying {
             remote.isEnabled = false
             remote.addTarget { @Sendable [weak self] _ in
                 let owner = self
-                Task { @MainActor in owner?.perform(command) }
+                mainWork.postFromAnyThread(.visible, owner: "BrowserNowPlaying.command") { owner?.perform(command) }
                 return .success
             }
         }
