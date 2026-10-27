@@ -568,6 +568,8 @@ impl Hub {
             self.append(session, "mux", "full_access_refused", json!({}));
             return Err(e);
         }
+        #[cfg(test)]
+        super::full_access_bound::after_off_count(self);
         let current = self.opencode_ask_now(session, profile).await;
         let profile = current.as_ref().unwrap_or(profile);
         self.record_spawn_inputs(session, profile).await;

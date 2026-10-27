@@ -991,6 +991,8 @@ impl Hub {
         if super::start_mode::requests_full_access(m, &params) && !self.full_access_allowed() {
             return Err(super::start_mode::full_access_off());
         }
+        #[cfg(test)]
+        super::full_access_bound::after_off_count(self);
         // Nor does a switch out of the mode a narrower policy needs (`policy_mode.rs`).
         self.refuse_wider_mode_as(session, m, &params, granted).await?;
         let child = self.child_for(session).await?;

@@ -103,6 +103,8 @@ impl Daemon {
             .env("ACPMUX_TEST_POOL_ADOPT_REPORT_FILE", self.home.join("adopt-report"))
             // The same while a chat claims it, and then MDM's off is unset: `claim-report`.
             .env("ACPMUX_TEST_POOL_CLAIM_REPORT_FILE", self.home.join("claim-report"))
+            // MDM's off comes and goes once, right after a pooled start read it: `off-blip`.
+            .env("ACPMUX_TEST_OFF_BLIP_FILE", self.home.join("off-blip"))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -684,6 +686,25 @@ async fn prewarmed_under_an_off(tag: &str, env: &[(&str, &str)]) -> (Daemon, Rpc
         rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
     let kept = fakeb_ready(&warmed);
     (daemon, rpc, kept)
+}
+
+/// MDM forces `sessions.allowFullAccess` off (#23322, reviews 73, 75 and 77): an off that comes
+/// and goes right after a pooled start first reads it holds for that start, so a profile that
+/// pins full access is not prewarmed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pinned_prewarm_holds_an_off_that_came_and_went_as_it_began() {
+    let mut fakeb = profile("b");
+    fakeb["argv"].as_array_mut().unwrap().push(json!("--yolo"));
+    let daemon = Daemon::with_fakeb("faonce", 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    std::fs::write(home.join("off-blip"), "").unwrap();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert!(
+        !fakeb_ready(&warmed),
+        "a profile pinning full access was prewarmed though MDM's off came and went: {warmed}"
+    );
 }
 
 /// MDM forces `sessions.allowFullAccess` off (#23322, review 25): a harness whose own settings

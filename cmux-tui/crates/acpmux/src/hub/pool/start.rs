@@ -47,6 +47,8 @@ impl Hub {
         if self.refuse_pinned_full_access(profile).is_err() {
             anyhow::bail!("{} pins full access, which MDM forces off", draft.harness);
         }
+        #[cfg(debug_assertions)]
+        self.off_blip_seam();
         let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let (command_line, translator) = if claude {
             // As `ensure_child` starts a fresh Claude session.

@@ -581,6 +581,8 @@ impl Hub {
         if self.full_access_managed_off() {
             reported_off.store(true, Ordering::SeqCst);
         }
+        #[cfg(test)]
+        crate::hub::full_access_bound::after_off_count(self);
         self.pool_end_reported(id);
     }
 

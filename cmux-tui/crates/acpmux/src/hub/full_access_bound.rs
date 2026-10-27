@@ -340,9 +340,22 @@ thread_local! {
 }
 
 #[cfg(test)]
-fn after_off_count(hub: &Hub) {
+pub(super) fn after_off_count(hub: &Hub) {
     if let Some(f) = AFTER_OFF_COUNT.take() {
         f(hub);
+    }
+}
+
+impl Hub {
+    /// Test seam (debug builds): when the file `ACPMUX_TEST_OFF_BLIP_FILE` names exists, MDM's off
+    /// comes and goes once, right after a pooled start read it (reviews 73, 75 and 77 of #23322).
+    #[cfg(debug_assertions)]
+    pub(super) fn off_blip_seam(&self) {
+        let Some(file) = std::env::var_os("ACPMUX_TEST_OFF_BLIP_FILE") else { return };
+        if std::fs::remove_file(file).is_ok() {
+            self.update_start_mode_state(None, |s| s.full_access_managed = Some(false));
+            self.update_start_mode_state(None, |s| s.full_access_managed = None);
+        }
     }
 }
 
@@ -771,3 +784,7 @@ mod tests {
         assert_eq!(end, "auto_resume_skipped", "a family turn was continued after the off push");
     }
 }
+
+#[cfg(test)]
+#[path = "one_read_tests.rs"]
+mod one_read_tests;

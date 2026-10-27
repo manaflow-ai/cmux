@@ -518,6 +518,8 @@ impl Hub {
             let cfg = self.config.read().await;
             self.policy_for(session, cfg.permission_policy) == PermissionPolicy::ApproveReads
         };
+        #[cfg(test)]
+        super::full_access_bound::after_off_count(self);
         // Judged in the environment the harness runs it with: the daemon's, the allow-listed
         // login values, then the env its agent was started with (`ensure_child`). An agent this
         // daemon did not start (re-adopted after a restart) asks.
