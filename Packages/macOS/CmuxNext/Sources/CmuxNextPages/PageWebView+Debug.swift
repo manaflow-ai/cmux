@@ -207,10 +207,11 @@ extension PageWebView {
         let left = Math.max(r.left, 0), right = Math.min(r.right, window.innerWidth);
         for (let a = el.parentElement; a && a !== document.documentElement; a = a.parentElement) {
           const cs = getComputedStyle(a);
-          if (cs.overflowX === 'visible' && cs.overflowY === 'visible') { continue; }
+          const clipsX = cs.overflowX !== 'visible', clipsY = cs.overflowY !== 'visible';
+          if (!clipsX && !clipsY) { continue; }
           const c = a.getBoundingClientRect();
-          top = Math.max(top, c.top); bottom = Math.min(bottom, c.bottom);
-          left = Math.max(left, c.left); right = Math.min(right, c.right);
+          if (clipsY) { top = Math.max(top, c.top); bottom = Math.min(bottom, c.bottom); }
+          if (clipsX) { left = Math.max(left, c.left); right = Math.min(right, c.right); }
         }
         const shown = bottom > top && right > left
           && el.contains(document.elementFromPoint((left + right) / 2, (top + bottom) / 2));
