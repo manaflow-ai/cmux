@@ -893,6 +893,100 @@ fn linux_provider_authority_process_is_non_dumpable_and_scrubs_env() {
     assert!(status.success());
 }
 
+/// systemd socket activation (sd_listen_fds(3)): the startup capture takes
+/// `LISTEN_PID`, `LISTEN_FDS` and `LISTEN_FDNAMES` out of the environment
+/// before any thread starts, hands them out once, and the provider management
+/// listener on descriptor 3 still reaches `take_provider_management_listener`.
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_systemd_listen_env_is_captured_at_startup_and_reaches_the_listener() {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::process::CommandExt;
+
+    const CHILD_MARKER: &str = "CMUX_TEST_SYSTEMD_LISTEN_CHILD";
+    const LISTEN_KEYS: [&str; 3] = ["LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES"];
+    const FD_NAME: &str = "cmux-provider-authority";
+    const TEST_NAME: &str =
+        "tests::linux_systemd_listen_env_is_captured_at_startup_and_reaches_the_listener";
+
+    match std::env::var(CHILD_MARKER).as_deref() {
+        Ok("env") => {
+            // SAFETY: this child process runs this one test; libtest's other thread only waits
+            // for it and reads no environment.
+            unsafe { startup_env::take_link_token_from_env() };
+            for key in LISTEN_KEYS {
+                assert!(std::env::var_os(key).is_none(), "{key} left in the environment");
+            }
+            let first = startup_env::take_systemd_listen_env();
+            assert_eq!(first.pid.as_deref(), Some("4242"));
+            assert_eq!(first.fds.as_deref(), Some("1"));
+            assert_eq!(first.names.as_deref(), Some(FD_NAME));
+            let second = startup_env::take_systemd_listen_env();
+            assert!(second.pid.is_none() && second.fds.is_none() && second.names.is_none());
+            return;
+        }
+        Ok("listener") => {
+            let socket_path = std::env::var_os("CMUX_TEST_SYSTEMD_LISTEN_PATH").unwrap();
+            // systemd names the activated process in LISTEN_PID after fork, which a parent
+            // `Command` cannot do; this child does the same before the startup capture.
+            // SAFETY: as above, no other thread reads the environment.
+            unsafe { std::env::set_var("LISTEN_PID", std::process::id().to_string()) };
+            // SAFETY: as above.
+            unsafe { startup_env::take_link_token_from_env() };
+            for key in LISTEN_KEYS {
+                assert!(std::env::var_os(key).is_none(), "{key} left in the environment");
+            }
+            let listener = take_provider_management_listener()
+                .unwrap()
+                .expect("descriptor 3 reaches the provider management listener");
+            assert_eq!(listener.as_raw_fd(), 3);
+            assert_eq!(listener.local_addr().unwrap().as_pathname(), Some(Path::new(&socket_path)));
+            assert!(take_provider_management_listener().unwrap().is_none());
+            return;
+        }
+        _ => {}
+    }
+
+    let run_child = |mode: &str, configure: &mut dyn FnMut(&mut std::process::Command)| {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--exact", TEST_NAME, "--nocapture", "--test-threads=1"])
+            .env(CHILD_MARKER, mode)
+            .env("LISTEN_FDS", "1")
+            .env("LISTEN_FDNAMES", FD_NAME);
+        configure(&mut command);
+        let status = command.status().unwrap();
+        assert!(status.success(), "{mode} child failed: {status}");
+    };
+
+    run_child("env", &mut |command| {
+        command.env("LISTEN_PID", "4242");
+    });
+
+    let directory = tempfile::tempdir().unwrap();
+    let socket_path = directory.path().join("provider-authority.sock");
+    let listener = std::os::unix::net::UnixListener::bind(&socket_path).unwrap();
+    let listener_fd = listener.as_raw_fd();
+    run_child("listener", &mut |command| {
+        command.env("LISTEN_PID", "0").env("CMUX_TEST_SYSTEMD_LISTEN_PATH", &socket_path);
+        // SAFETY: the closure calls only dup2 and fcntl, which are async-signal-safe, on
+        // `listener_fd`, which stays open in the parent until the child has exited.
+        unsafe {
+            command.pre_exec(move || {
+                if listener_fd == 3 {
+                    if libc::fcntl(3, libc::F_SETFD, 0) < 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                } else if libc::dup2(listener_fd, 3) < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    });
+    drop(listener);
+}
+
 #[test]
 fn direct_provider_command_preserves_literal_argv_until_terminator() {
     let parsed = args(&[
