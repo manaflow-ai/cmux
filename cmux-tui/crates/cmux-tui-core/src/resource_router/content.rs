@@ -233,7 +233,7 @@ fn terminal_wait(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Valu
         .transpose()?;
     let check = || -> Result<String, ResourceError> {
         surface
-            .try_with_terminal(|terminal| terminal.viewport_text())
+            .try_with_terminal(|terminal| terminal.active_text())
             .map_err(resource_operation_error)?
             .map_err(|error| resource_operation_error(error.into()))
     };
@@ -285,7 +285,7 @@ fn terminal_copy(mux: &Arc<Mux>, request: &ParsedResourceRequest) -> Result<Valu
     let mode = required_string(&request.fields, "mode")?;
     let text = match mode {
         "screen" => surface
-            .try_with_terminal(|terminal| terminal.viewport_text())
+            .try_with_terminal(|terminal| terminal.active_text())
             .map_err(resource_operation_error)?
             .map_err(|error| resource_operation_error(error.into()))?,
         "scrollback" => surface
@@ -2544,12 +2544,12 @@ mod tests {
         assert_eq!(
             after_first.offset + 2,
             bottom.offset,
-            "the scroll moves the terminal viewport that read-screen and render attaches use"
+            "the scroll moves the terminal viewport that render attaches show"
         );
         assert_eq!(
-            surface.view_scrollbar().expect("fixture has scrollback"),
-            view,
-            "a protocol scroll does not move an in-process frontend's own view"
+            surface.view_scrollbar().expect("fixture has scrollback").offset + 2,
+            view.offset,
+            "the scroll also moves the placement's in-process frontend view"
         );
         assert_eq!(mux.with_state(|state| state.resource_revision), revision);
         assert_eq!(mux.terminal_registry_snapshot().unwrap().revision, terminal_revision);

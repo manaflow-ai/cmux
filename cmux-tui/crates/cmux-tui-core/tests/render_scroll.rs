@@ -312,11 +312,6 @@ fn command_scroll_surface_reaches_the_render_attach_as_scroll_changed_and_rows()
         "292",
         "scroll-surface delta -6",
     );
-    let screen = fixture.read_screen(11);
-    assert!(
-        screen.contains("292") && !screen.contains("300"),
-        "read-screen must show the scrolled viewport the render attach shows: {screen:?}"
-    );
 
     fixture.scroll(12, 6);
     expect_scroll_then_rows(
@@ -382,5 +377,113 @@ fn render_attach_made_while_scrolled_back_learns_the_viewport_position() {
         true,
         "302",
         "scroll-surface past the bottom",
+    );
+}
+
+/// The position a render client holds after applying `events` in order,
+/// starting from `start`.
+fn client_position(start: (u64, bool), events: &[Value]) -> (u64, bool) {
+    events.iter().filter(|value| is_scroll(value)).fold(start, |_, value| {
+        (value["offset"].as_u64().unwrap(), value["at_bottom"].as_bool().unwrap())
+    })
+}
+
+fn daemon_position(surface: &cmux_tui_core::Surface) -> (u64, bool) {
+    let scrollbar =
+        surface.with_terminal(|term| term.scrollbar()).flatten().expect("terminal has scrollback");
+    (scrollbar.offset, !scrollbar.scrolled_back())
+}
+
+/// A resize moves the viewport (at the live bottom the offset follows the row
+/// count; reflow moves a scrolled-back position). The render attach must get
+/// the new position before the full render-delta of the resized grid, so the
+/// client's offset never lags the daemon's.
+#[test]
+fn resize_announces_the_viewport_move_to_the_render_attach() {
+    let mut fixture = Fixture::new("test-render-scroll-resize");
+    let surface = fixture.surface.id;
+    let start = (fixture.bottom, true);
+
+    // At the live bottom: two fewer rows push two rows into history.
+    assert!(fixture.surface.resize(20, ROWS - 2).unwrap(), "the resize applies");
+    let mut seen = Vec::new();
+    fixture.render.drain(&mut seen, Duration::from_millis(500));
+    let moved = daemon_position(&fixture.surface);
+    assert_ne!(moved, start, "fixture: the resize moves the live bottom's offset");
+    assert_eq!(
+        client_position(start, &seen),
+        moved,
+        "after a resize at the live bottom the render attach must hold the daemon's position; \
+         got:\n  {}",
+        describe(&seen)
+    );
+    let first_scroll = seen.iter().position(is_scroll).unwrap();
+    let first_full = seen
+        .iter()
+        .position(|value| value["event"] == "render-delta" && value["full"] == true)
+        .expect("a resize sends a full render-delta");
+    assert!(
+        first_scroll < first_full,
+        "scroll-changed must come before the resized rows:\n  {}",
+        describe(&seen)
+    );
+    assert!(seen.iter().all(|value| !is_scroll(value) || value["surface"] == surface));
+
+    // Scrolled back, then a resize: whatever the reflow does to the
+    // position, the render attach ends at the daemon's.
+    fixture.scroll(10, -6);
+    let mut seen = Vec::new();
+    fixture.render.drain(&mut seen, Duration::from_millis(500));
+    let scrolled = client_position(moved, &seen);
+    assert_eq!(scrolled, daemon_position(&fixture.surface));
+    assert!(!scrolled.1, "fixture: scrolled back");
+    assert!(fixture.surface.resize(12, ROWS + 2).unwrap(), "the resize applies");
+    let mut seen = Vec::new();
+    fixture.render.drain(&mut seen, Duration::from_millis(500));
+    assert_eq!(
+        client_position(scrolled, &seen),
+        daemon_position(&fixture.surface),
+        "after a resize while scrolled back the render attach must hold the daemon's \
+         position; got:\n  {}",
+        describe(&seen)
+    );
+}
+
+/// A protocol scroll moves only what render attaches show. Automation reads
+/// keep reading the live screen: `read-screen` shows the newest rows and
+/// `wait-for` matches new output while a person is scrolled back.
+#[test]
+fn automation_reads_follow_the_live_screen_while_scrolled_back() {
+    let mut fixture = Fixture::new("test-render-scroll-automation");
+    let surface = fixture.surface.id;
+    let bottom = fixture.bottom;
+    fixture.scroll(10, -6);
+    expect_scroll_then_rows(
+        &mut fixture.render,
+        surface,
+        bottom - 6,
+        false,
+        "292",
+        "scroll-surface delta -6",
+    );
+
+    let screen = fixture.read_screen(11);
+    assert!(
+        screen.contains("300") && !screen.contains("292"),
+        "read-screen must show the live screen, not the scrolled render viewport: {screen:?}"
+    );
+
+    fixture.surface.write_bytes(b"fresh-output\n").unwrap();
+    let mut seen = Vec::new();
+    let response = fixture.command.request(
+        json!({"id": 12, "cmd": "wait-for", "surface": surface,
+               "pattern": "fresh-output", "timeout_ms": 5000}),
+        &mut seen,
+    );
+    assert_eq!(response["data"]["matched"], true, "wait-for: {response}");
+    assert_eq!(
+        daemon_position(&fixture.surface).1,
+        false,
+        "the output did not snap the scrolled-back render viewport"
     );
 }

@@ -228,6 +228,7 @@ mod ledger_maintenance;
 mod oracle;
 mod pinned_columns;
 mod power_source;
+mod viewport_scroll;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
@@ -982,18 +983,6 @@ impl Mux {
 
     pub fn active_surface(&self) -> Option<SurfaceId> {
         self.with_state(Self::active_surface_in_state)
-    }
-
-    /// Scroll the daemon's terminal viewport for a protocol command
-    /// (`scroll-surface`, `terminal.viewport.scroll`): the viewport that
-    /// `read-screen`, render attaches and input snapping use (spec/commands.md
-    /// "scroll-surface"). A move announces `scroll-changed` to every render
-    /// attach of the terminal, ordered before the frame with the moved rows,
-    /// and to every placement on the event bus. An in-process frontend's own
-    /// view ([`Surface::view_scroll_delta`]) is frontend state, like a byte
-    /// client's mirror, and a protocol command does not move it.
-    pub fn scroll_surface_viewport(&self, surface: &Surface, delta: isize) -> anyhow::Result<()> {
-        surface.scroll_delta(delta)
     }
 
     fn workspace_key_for_pane(&self, pane: PaneId) -> Option<String> {

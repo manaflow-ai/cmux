@@ -115,12 +115,12 @@ fn scroll_surface_emits_one_scroll_changed_event() {
     let scrolled = surface.try_with_terminal(|term| term.scrollbar().unwrap()).unwrap();
     assert!(
         scrolled.scrolled_back() && scrolled.offset + 5 == shared_scrollbar.offset,
-        "scroll-surface moves the terminal viewport that read-screen and render attaches use"
+        "scroll-surface moves the terminal viewport that render attaches show"
     );
     assert_eq!(
-        surface.view_scrollbar().unwrap(),
-        view_scrollbar,
-        "a protocol scroll does not move an in-process frontend's own view"
+        surface.view_scrollbar().unwrap().offset + 5,
+        view_scrollbar.offset,
+        "scroll-surface also moves the placement's in-process frontend view"
     );
 
     handle_command(
