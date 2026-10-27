@@ -1,6 +1,6 @@
 //! The process's thread registry: one row per cmux thread, with its name,
-//! declared QoS, desired-QoS slot, effective QoS, scheduler priority and
-//! native ids.
+//! declared QoS, desired-QoS slot, effective QoS, scheduler priority, native
+//! ids and the object it works for now.
 //!
 //! A thread's row lives in a thread-local of this crate and is removed when
 //! the thread deregisters (at the end of [`crate::spawn`], or by its
@@ -15,7 +15,7 @@
 //! request takes the lock.
 
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use crate::qos::{self, LiveQos, ThreadQos};
@@ -71,6 +71,8 @@ pub(crate) fn current_tid() -> Option<u64> {
 
 /// `Row::effective` before the thread's first QoS change succeeds.
 const NOT_APPLIED: u8 = u8::MAX;
+/// `Row::owner` while the thread works for no object.
+const NO_OWNER: u64 = u64::MAX;
 
 /// One registered thread.
 #[derive(Debug)]
@@ -80,6 +82,9 @@ pub(crate) struct Row {
     desired: AtomicU8,
     effective: AtomicU8,
     refused: AtomicU32,
+    /// The object the thread works for now ([`QosSlot::work_for`]), or
+    /// [`NO_OWNER`].
+    owner: AtomicU64,
     native: NativeThread,
 }
 
@@ -134,6 +139,14 @@ impl QosSlot {
     pub fn name(&self) -> &str {
         &self.0.name
     }
+
+    /// Records that the owning thread works for the object `owner` (an id
+    /// its caller chooses: a daemon connection's client id), so a snapshot
+    /// can say whose work its QoS is for, as Chromium's trace metadata
+    /// names the frame or process a thread serves. Diagnostics only.
+    pub fn work_for(&self, owner: u64) {
+        self.0.owner.store(owner, Ordering::Relaxed);
+    }
 }
 
 /// One row of [`snapshot`].
@@ -156,6 +169,9 @@ pub struct ThreadInfo {
     pub refused_changes: u32,
     /// The kernel thread id (Linux tid, macOS pthread_threadid_np).
     pub tid: Option<u64>,
+    /// The object the thread works for ([`QosSlot::work_for`]), `None` when
+    /// it was never set.
+    pub owner: Option<u64>,
 }
 
 static ROWS: Mutex<Vec<Arc<Row>>> = Mutex::new(Vec::new());
@@ -211,6 +227,7 @@ pub fn register_current(name: impl Into<String>, qos: ThreadQos) -> bool {
             desired: AtomicU8::new(qos as u8),
             effective: AtomicU8::new(NOT_APPLIED),
             refused: AtomicU32::new(0),
+            owner: AtomicU64::new(NO_OWNER),
             native: NativeThread::current(),
         });
         rows().push(Arc::clone(&row));
@@ -256,6 +273,10 @@ pub fn snapshot() -> Vec<ThreadInfo> {
             priority: qos::priority_of(&row.native),
             refused_changes: row.refused.load(Ordering::Relaxed),
             tid: row.native.tid(),
+            owner: match row.owner.load(Ordering::Relaxed) {
+                NO_OWNER => None,
+                owner => Some(owner),
+            },
         })
         .collect()
 }

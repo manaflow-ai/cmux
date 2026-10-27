@@ -7,6 +7,7 @@ import CmuxNextFeatures
 package import CmuxNextHibernation
 import CmuxNextInput
 import CmuxNextMemory
+import CmuxNextPages
 import CmuxNextResources
 import CmuxNextSettings
 package import CmuxNextTabs
@@ -130,6 +131,13 @@ extension AppServices {
             memory: memoryCoordinator)
     }
 
+    /// The page host's shared WebKit processes (p07-memory-087): at most `SubsystemBudget.webProcessPagesPerGroup`
+    /// pages per process; every page of a sharing group joins with `webKitPageProcessGroups`, else only the agent pages.
+    func makeWebProcessGroups() -> WebProcessGroups {
+        WebProcessGroups(pagesPerProcess: SubsystemBudget.forThisMac(gpuResidentAvailable: false).webProcessPagesPerGroup,
+                         groupsEverySharingPage: features.isEnabled(.webKitPageProcessGroups))
+    }
+
     /// The one list of hidden frames with `memoryHiddenFrameLRU` (p03-rendering-099): every evicted terminal's last
     /// frame, as many unlocked as this Mac's memory allows, each culled after 5 min hidden on one background deadline,
     /// all purged in the memory coordinator's release slices at a warning. Holders drop culled frames on a second
@@ -151,6 +159,14 @@ extension MemoryHistograms {
     /// ``recordDiscard(kind:)`` through ``follow(_:agentPages:)``. Any other kind has no histogram
     /// (absent, never a measured 0) until its discard path records too.
     static let hibernationKinds = [ContentKind.browser, .agentPage].map(\.rawValue)
+
+    /// The counted kinds: ``hibernationKinds``, overlay pages while a feature releases them (their planner,
+    /// ``OverlayPageDiscards``, records each), and sidebar sections while `memoryDiscardSidebarSections` does
+    /// (``SidebarSectionDiscards``).
+    static func discardKinds(overlayPages: Bool, sidebarSections: Bool = false) -> [String] {
+        hibernationKinds + (overlayPages ? [ContentKind.overlayPage.rawValue] : [])
+            + (sidebarSections ? [ContentKind.sidebarSection.rawValue] : [])
+    }
 
     /// Counts each page `hibernation` hibernates and each agent page `agentPages` releases as a
     /// discard of its kind, and records each woken page's time to be back.

@@ -60,6 +60,21 @@ While scripts/perf-lab/OWNS_MEASUREMENT exists, every subcommand prints
 The lab's own stories pass --perf-lab, which the sentinel does not stop:
   xbench.py --perf-lab run --out DIR ...
 
+The perf lab's T2 story vs-browsers (scripts/perf-lab/stories.d/vs-browsers.json, p12-perf-process task 208)
+runs `xbench.py --perf-lab run --browsers cmux-chromium,chrome --fetch chrome --app APP --tag TAG --out DIR`,
+where APP is the prebuilt bench artifact (`--app PATH` with no NAME= is the cmux bundle). A --perf-lab run
+names the measured cmux build and host before it measures (perf_import.measured_build) and then writes
+cmux-perf-result/v1 into DIR: one run per browser arm, with the arm's engine, and one metric per row,
+`xbench.<arm>.<row>` (raw samples of every round), so every series is keyed by browser. A cmux arm's <arm> is
+its name (the build's commit names what it measured); a vendor browser's is `<name>-<version>` (chrome-155.0.8059.85),
+because the vendor ships it, not cmux: an update of that browser starts new series instead of stepping a series at
+the cmux commit measured that night. Chrome is the reference arm: it runs interleaved with cmux on the same host,
+and each cmux row also gets `xbench.<browser>.<row>.vs-chrome-<version>`, the per-round ratio to that Chrome,
+which a host-wide change cancels out of. A --perf-lab run refuses to start when an arm it was asked for (the
+reference arm included) has no bundle, and it makes its template profiles in a scratch folder of its own, so
+no run starts from a profile an earlier build wrote. scripts/perf-lab/import_xbench.py imports the nightly's
+baseline/*.json under the same metric names as legacy points.
+
 Browser names: cmux-chromium, cmux-webkit, cmux-terminal, cmux-budget (all --app cmux=BUNDLE),
 chrome, helium, dia, ardia, safari (default /Applications/Safari.app).
 """
@@ -67,6 +82,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -79,6 +95,7 @@ import socket
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.parse
 import urllib.error
@@ -94,6 +111,8 @@ import procs  # noqa: E402
 # The perf lab's sentinel (p12-perf-process task 026); scripts/cmux-next/perf-cron.py's plan reads the same file.
 LAB_SENTINEL = os.path.normpath(os.path.join(HERE, "..", "perf-lab", "OWNS_MEASUREMENT"))
 LAB_REASON = "perf lab owns measurement"
+PERF_IMPORT = os.path.normpath(os.path.join(HERE, "..", "perf-lab", "perf_import.py"))
+FETCH_BROWSERS = os.path.join(HERE, "fetch_browsers.py")
 
 ROWS = [
     # id, label, unit, in the tweet's table
@@ -149,6 +168,24 @@ LABELS = {"cmux-chromium": "cmux NEXT (Chromium tab)", "cmux-webkit": "cmux NEXT
           "cmux-terminal": "cmux NEXT (terminals)", budget.NAME: budget.LABEL, "chrome": "Chrome", "helium": "Helium", "dia": "Dia",
           "ardia": "Ardia", "safari": "Safari"}
 DEFAULT_BROWSERS = "cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari"
+# The names `--app NAME=BUNDLE` takes; any other value is the cmux bundle's path (the lab's `--app PATH`).
+APP_NAMES = {"cmux", "safari"} | CHROMIUM
+
+# result-v1 of a --perf-lab run (task 208): the story id (stories.d/vs-browsers.json), the reference arm and
+# each arm's result-v1 engine.
+STORY = "vs-browsers"
+REFERENCE_ARM = "chrome"
+ENGINES = {"cmux-chromium": "chromium", "cmux-webkit": "webkit", "cmux-terminal": "none", budget.NAME: "none",
+           "chrome": "chromium", "helium": "chromium", "dia": "chromium", "ardia": "chromium", "safari": "webkit"}
+# The arms a vendor ships, not cmux; their series names carry the version (Info.plist CFBundleShortVersionString:
+# 155.0.8059.85).
+VENDORS = set(ENGINES) - CMUX
+VENDOR_VERSION = re.compile(r"[0-9]+(?:\.[0-9]+)*")
+# An xbench row unit -> (result-v1 unit, factor from the row's value to that unit). MB is procs.MB (2^20 bytes),
+# KB/s is procs' disk_kb_per_s (1024 bytes), and GPU ms/s is a percent of one GPU.
+RESULT_UNITS = {"ms": ("ms", 1.0), "mW": ("mW", 1.0), "%": ("percent", 1.0), "/s": ("per_s", 1.0),
+                "MB": ("bytes", 1048576.0), "KB/s": ("bytes_per_s", 1024.0), "ms/s": ("percent", 0.1),
+                "n": ("count", 1.0)}
 
 
 def log(message: str):
@@ -610,6 +647,188 @@ def can_launch_apps() -> bool:
     return False
 
 
+def parse_apps(items: list[str]) -> dict[str, str]:
+    """{name: bundle} of the --app values: NAME=BUNDLE for a name in APP_NAMES; any other value is the cmux
+    bundle's path (the perf lab runner appends `--app PATH`, stories.d/README.md)."""
+    apps = {}
+    for item in items:
+        name, sep, bundle = item.partition("=")
+        if sep and name in APP_NAMES:
+            apps[name] = bundle
+        else:
+            apps["cmux"] = item
+    return apps
+
+
+def fetch(names: list[str], run=subprocess.run) -> dict[str, str]:
+    """{name: bundle} of each named browser fetch_browsers.py has, as the nightly entry (scripts/measure/perf-bench.sh)
+    gets them: vendor-signed, read-only copies in the worker cache. A browser it cannot fetch (fetch_browsers.py names
+    why on stderr, or the fetch fails or times out) is left out, so its arm has no bundle: a nightly run skips it and a
+    --perf-lab run refuses to start (Run.arms)."""
+    if not names:
+        return {}
+    try:
+        done = run([sys.executable, "-I", FETCH_BROWSERS, *names], stdout=subprocess.PIPE, text=True, timeout=3600)
+    except subprocess.TimeoutExpired:
+        log(f"fetch_browsers.py {' '.join(names)}: no answer within 3600 s")
+        return {}
+    if done.returncode:
+        log(f"fetch_browsers.py {' '.join(names)}: exit status {done.returncode}")
+    apps = {}
+    for line in (done.stdout or "").splitlines():
+        name, sep, bundle = line.strip().partition("=")
+        if sep and name in names:
+            apps[name] = bundle
+    return apps
+
+
+# ---------------------------------------------------------------- perf lab result-v1
+
+
+def load_perf_import():
+    """scripts/perf-lab/perf_import.py by path, once per process (a lab bench runs under python3 -I)."""
+    if "perf_import" in sys.modules:
+        return sys.modules["perf_import"]
+    spec = importlib.util.spec_from_file_location("perf_import", PERF_IMPORT)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["perf_import"] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        del sys.modules["perf_import"]
+        raise
+    return module
+
+
+def arm_name(browser: str, versions: dict[str, str]) -> str:
+    """The name a browser arm has in its metrics: a cmux arm's own (the build's commit says what was measured), a
+    vendor browser's with its version (`chrome-155.0.8059.85`), so a vendor update starts new series and is never a
+    step at the cmux commit measured that night. Chromium's perf bots pin their reference build for the same reason
+    (tools/perf/update_reference_build.py): a reference that moves on its own breaks the comparison."""
+    return f"{browser}-{versions[browser]}" if browser in VENDORS else browser
+
+
+def result_metric(browser: str, row: str, versions: dict[str, str]) -> str:
+    """The result-v1 metric of one row of one browser arm: the arm is in the name, so it keys the series."""
+    return f"xbench.{arm_name(browser, versions)}.{row}"
+
+
+def result_unit(row: str) -> tuple[str, float]:
+    """(result-v1 unit, factor from the row's value) of a row; tab-switch and palette rows are ms, as `gate` reads them."""
+    return RESULT_UNITS[ROW_INFO[row][1] if row in ROW_INFO else "ms"]
+
+
+def vendor_versions(bundles: dict[str, str]) -> dict[str, str]:
+    """{browser: version} of the vendor arms in `bundles` ({browser: bundle}); raises SystemExit for one whose
+    Info.plist names no version, since its results could not say which build of it they measured."""
+    versions = {}
+    for browser, bundle in bundles.items():
+        if browser not in VENDORS:
+            continue
+        version = bundle_version(bundle)
+        if not VENDOR_VERSION.fullmatch(version):
+            raise SystemExit(f"xbench: {browser} ({bundle}) names no version ({version!r}); no result-v1 can name it")
+        versions[browser] = version
+    return versions
+
+
+def lab_series(samples: list[dict], browser: str, versions: dict[str, str],
+               reference: str = REFERENCE_ARM) -> list[tuple]:
+    """(metric, unit, better, samples) of every row `browser` measured, in result-v1 units, every measurement of every
+    round; `versions` holds each vendor arm's version (vendor_versions). A cmux arm also gets each row's ratio to the
+    reference arm: per round that measured the row in both arms, the round's median over the reference's. The arms
+    of a round run back to back on one host, so a change of the host moves both and leaves the ratio, as Chrome's
+    perf bots run a reference build beside tip (tools/perf/core/bot_platforms.py run_reference_build)."""
+    rounds: dict[str, dict[str, dict[int, list[float]]]] = {}
+    for sample in samples:
+        if sample.get("value") is None or sample["row"] not in ROW_INFO:
+            continue
+        rounds.setdefault(sample["browser"], {}).setdefault(sample["row"], {}).setdefault(
+            sample["round"], []).append(sample["value"])
+    own = rounds.get(browser, {})
+    ref = rounds.get(reference, {}) if browser in CMUX and browser != reference else {}
+    series = []
+    for row in sorted(own):
+        unit, factor = result_unit(row)
+        by_round = sorted(own[row].items())
+        metric = result_metric(browser, row, versions)
+        series.append((metric, unit, "lower", [v * factor for _, values in by_round for v in values]))
+        ref_row = ref.get(row, {})
+        ratios = [statistics.median(values) / statistics.median(ref_row[number]) for number, values in by_round
+                  if number in ref_row and statistics.median(ref_row[number]) > 0]
+        if ratios:
+            series.append((f"{metric}.vs-{arm_name(reference, versions)}", "ratio", "lower", ratios))
+    return series
+
+
+def features_reply(app) -> dict:
+    """The cmux app's `features.list` reply in the shape bench_launch.features_snapshot reads: bench_memory.App.call
+    gives a JSON error object as text, and a build without the method must read as method_not_found."""
+    reply = app.call("features.list", {}, label="features.list", timeout=10)
+    error = reply.get("error")
+    if isinstance(error, str):
+        try:
+            return {"error": json.loads(error)}
+        except ValueError:
+            return reply
+    return reply
+
+
+class LabRecord:
+    """What a --perf-lab run needs to write result-v1. The build and host are named before anything is measured
+    (a run that cannot be recorded never starts); the cmux app's features snapshot and the lab's full host
+    validation (BenchApp.validate_lab_host's `host-env-full-<pid>.json`, which the runner needs) are taken once, at
+    the first cmux launch. `versions` is each vendor arm's version (vendor_versions), which its metrics carry."""
+
+    def __init__(self, cmux_bundle: str | None, versions: dict[str, str], environ=None):
+        environ = os.environ if environ is None else environ
+        self.versions = dict(versions)
+        self.perf_import = load_perf_import()
+        launch = self.perf_import.bench_launch()
+        if not cmux_bundle:
+            raise SystemExit("xbench: a --perf-lab run measures a cmux build: --app PATH names none")
+        try:
+            self.build, self.host = self.perf_import.measured_build(cmux_bundle, environ.get(launch.LAB_CONFIG) or None)
+        except launch.RecordError as error:
+            raise SystemExit(f"xbench: no result-v1 can name this run: {error}") from None
+        self.session = environ.get(launch.LAB_SESSION) or "light"
+        self.vdisplay_out = environ.get(launch.LAB_VDISPLAY_OUT)
+        self.run = self.perf_import.load("perf_result").Run.start()
+        self.features = None
+        self.host_checked = False
+
+    def launched(self, browser: "CmuxBrowser", out: str):
+        """After a cmux session's app answered on its socket."""
+        launch = self.perf_import.bench_launch()
+        if self.features is None:
+            self.features = launch.features_snapshot(features_reply(browser.app))
+        if self.vdisplay_out and not self.host_checked:
+            self.host_checked = True
+            pids = sorted(browser.instance.pids())
+            report = launch.lab_host_check(self.vdisplay_out, pids)
+            with open(os.path.join(out, f"{launch.LAB_CHECK_PREFIX}{pids[0] if pids else 'none'}.json"), "w") as f:
+                json.dump(report, f, sort_keys=True)
+            if not report.get("ok"):
+                log(f"WARNING: env-invalid after launch ({', '.join(report.get('reasons') or ['no reason'])}): "
+                    "the lab rejects this run's results")
+
+    def write(self, out: str, samples: list[dict], browsers: list[str]) -> list[str]:
+        """One result-v1 file per measured arm in `out`, each its own run (one engine per run); the paths. Nothing is
+        written when a cmux arm has no features snapshot: its results could not say what they measured."""
+        measured = [b for b in browsers if lab_series(samples, b, self.versions)]
+        if any(b in CMUX for b in measured) and self.features is None:
+            raise SystemExit("xbench: the cmux app gave no features.list snapshot; no result-v1 is written")
+        perf_result = self.perf_import.load("perf_result")
+        paths = []
+        for browser in measured:
+            series = [self.perf_import.Series(*s) for s in lab_series(samples, browser, self.versions)]
+            run = perf_result.Run(id=f"{self.run.id}.{browser}", started_at=self.run.started_at)
+            paths.append(str(self.perf_import.write_series(
+                out, STORY, self.session, ENGINES[browser], series, self.build, self.host, run=run,
+                features=self.features if browser in CMUX else None)))
+        return paths
+
+
 # ---------------------------------------------------------------- run
 
 
@@ -619,15 +838,20 @@ class Run:
         self.out = os.path.abspath(args.out)
         os.makedirs(self.out, exist_ok=True)
         self.samples_path = os.path.join(self.out, "samples.jsonl")
-        self.work = args.work
-        os.makedirs(self.work, exist_ok=True)
         self.helper = Helper(args.cache)
         self.server = pages.BeaconServer()
         self.counter = 0
+        self.samples: list[dict] = []  # this run's samples (samples.jsonl may hold an earlier run's too)
+        self.lab: LabRecord | None = None  # a --perf-lab run's result-v1 record
+        os.makedirs(args.work, exist_ok=True)
+        # A --perf-lab run makes its templates and profiles in a folder of its own, which main() removes: a
+        # template that an earlier run (another build, or a failed template) left in --work is never cloned.
+        self.work = tempfile.mkdtemp(prefix="lab-", dir=args.work) if args.perf_lab else args.work
 
     def record(self, browser: str, round_no: int, row: str, value, **extra):
         sample = {"browser": browser, "round": round_no, "row": row,
                   "value": None if value is None else round(float(value), 3), "time": round(time.time()), **extra}
+        self.samples.append(sample)
         with open(self.samples_path, "a") as handle:
             handle.write(json.dumps(sample) + "\n")
         log(f"{browser} r{round_no} {row} = {sample['value']}" + (f" ({extra.get('note')})" if extra.get("note") else ""))
@@ -655,7 +879,11 @@ class Run:
             return
         log(f"{browser.name}: template profile ({self.args.template_settle:.0f} s)")
         os.makedirs(template)
-        browser.template(template, self.args.template_settle)
+        try:
+            browser.template(template, self.args.template_settle)
+        except BaseException:
+            shutil.rmtree(template, ignore_errors=True)  # a half-made template is never cloned
+            raise
 
     # -- cold launches
 
@@ -715,6 +943,8 @@ class Run:
         try:
             browser.launch(profile, self.server.url("idle", first) if browser.can_link or browser.name == "safari" else None)
             browser.ready()
+            if self.lab and isinstance(browser, CmuxBrowser):
+                self.lab.launched(browser, self.out)
             log(f"{browser.name} r{round_no}: session (load {load})")
             if isinstance(browser, ChromiumBrowser) and browser.extensions:
                 sleep(2)  # bench: the extensions' background pages start after the DevTools port
@@ -831,20 +1061,46 @@ class Run:
                                           text=True).stdout.strip()}
 
     def main(self):
+        try:
+            self.measure()
+        finally:
+            if self.work != self.args.work:
+                shutil.rmtree(self.work, ignore_errors=True)
+
+    def arms(self) -> dict[str, str]:
+        """{browser: bundle} of the --browsers arms that have a bundle, in --browsers order. A nightly run skips an arm
+        with none; a --perf-lab run refuses to start, since its story compares cmux with the reference arm."""
         a = self.args
-        apps = dict(item.split("=", 1) for item in a.app)
+        apps = parse_apps(a.app)
+        apps.update(fetch([name for name in a.fetch if name not in apps]))
         apps.setdefault("safari", "/Applications/Safari.app")
-        browsers = []
-        for name in a.browsers.split(","):
+        names = a.browsers.split(",")
+        arms, missing = {}, []
+        for name in names:
             bundle = apps.get("cmux" if name in CMUX else name)
-            if not bundle or not os.path.isdir(bundle):
+            if bundle and os.path.isdir(bundle):
+                arms[name] = bundle
+            else:
+                missing.append(name)
                 log(f"{name}: no bundle (--app {'cmux' if name in CMUX else name}=PATH), skipped")
-                continue
-            browsers.append(make_browser(name, bundle, self.helper, self.server,
-                                         a.chrome_extension if name == "chrome" else None))
+        if a.perf_lab and (missing or REFERENCE_ARM not in names):
+            reasons = [f"no bundle for {', '.join(missing)}"] if missing else []
+            if REFERENCE_ARM not in names:
+                reasons.append(f"--browsers has no reference arm {REFERENCE_ARM}")
+            raise SystemExit(f"xbench: a --perf-lab run measures every arm it names: {'; '.join(reasons)}; "
+                             "nothing measured")
+        return arms
+
+    def measure(self):
+        a = self.args
+        arms = self.arms()
+        if a.perf_lab:
+            self.lab = LabRecord(next((b for name, b in arms.items() if name in CMUX), None), vendor_versions(arms))
+        browsers = [make_browser(name, bundle, self.helper, self.server,
+                                 a.chrome_extension if name == "chrome" else None) for name, bundle in arms.items()]
         meta_path = os.path.join(self.out, "meta.json")
         meta = json.load(open(meta_path)) if os.path.exists(meta_path) else {}
-        meta.update({"machine": self.machine(), "cmux_ref": a.cmux_ref, "args": vars(a),
+        meta.update({"machine": self.machine(), "cmux_ref": a.cmux_ref, "tag": a.tag, "args": vars(a),
                      "browsers": {b.name: b.info() for b in browsers}})
         with open(meta_path, "w") as handle:
             json.dump(meta, handle, indent=1)
@@ -877,6 +1133,9 @@ class Run:
                     self.session(browser, round_no)
         finally:
             caffeinate.terminate()
+        if self.lab:
+            for path in self.lab.write(self.out, self.samples, [b.name for b in browsers]):
+                log(f"result-v1 {path}")
 
 
 # ---------------------------------------------------------------- report
@@ -1169,6 +1428,9 @@ def main(argv=None):
                      help="an unpacked extension Chrome loads (D6: the uBlock Origin cmux bundles, "
                      "scripts/cmux-next/fetch-ublock.sh; branded Chrome 137+ ignores it, so --app chrome= a "
                      "Chromium that runs MV2)")
+    run.add_argument("--fetch", action="append", default=[], choices=sorted(CHROMIUM), metavar="NAME",
+                     help="fetch this browser with fetch_browsers.py when no --app names it (the lab's Chrome arm)")
+    run.add_argument("--tag", default="", help="the perf lab runner's tag of the cmux build (kept in meta.json)")
     run.add_argument("--cmux-ref", default="")
     run.add_argument("--work", default="/private/tmp/xbench")
     run.add_argument("--cache", default=os.path.expanduser("~/Library/Caches/cmux-perf-bench"))

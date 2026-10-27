@@ -22,6 +22,7 @@ mod host_launch;
 mod host_state;
 mod input;
 mod local_output;
+mod local_reader;
 mod metadata;
 mod mouse_input;
 mod options;
@@ -93,7 +94,9 @@ use spawn::{LocalLaunch, LocalSpawn};
 pub(crate) use stream_progress::{TerminalStreamProgress, TerminalStreamSubscription};
 pub use terminal_runtime::PtyTerminalRuntime;
 pub(crate) use terminal_runtime::{ColdFreeze, ScrollbackMemory, TerminalJournalGap, ThawWake};
-use terminal_runtime::{PtyChildStartupGuard, PtyRuntime, ReaderCompletion, ReaderCompletionGuard};
+use terminal_runtime::{
+    PtyChildStartupGuard, PtyRuntime, ReaderCompletion, ReaderCompletionGuard, TerminalReader,
+};
 #[cfg(test)]
 mod test_pty;
 #[cfg(test)]
@@ -126,6 +129,7 @@ use hosted_reader::HostedReader;
 mod host_kitty_limits;
 #[cfg(any(unix, windows))]
 mod journal_reconnect;
+mod kitty_pixels;
 #[cfg(any(unix, windows))]
 mod prelaunch;
 #[cfg(any(unix, windows))]
@@ -162,7 +166,7 @@ use crate::mux::ResourceWaitWake;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
 use crate::terminal_end::TerminalEnd;
-use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status_with_reap_result};
+use crate::terminal_host_protocol::TerminalExit;
 use crate::{Mux, MuxEvent, SurfaceId};
 
 pub use crate::browser::{
@@ -920,7 +924,7 @@ impl Surface {
             .expect("hosted PTY surface owns its reader")
             .reader_thread
             .lock()
-            .unwrap() = Some(reader_thread);
+            .unwrap() = Some(TerminalReader::Thread(reader_thread));
         let kitty_registration = kitty_reservation.map_or(Ok(()), |reservation| {
             reservation.commit(&surface, snapshot.kitty_state.limits)
         });
@@ -935,6 +939,7 @@ impl Surface {
             }
             return Err(error);
         }
+        let owner = surface.as_pty().and_then(|pty| pty.mux.upgrade());
         if terminate_on_error
             && let Some(pty) = surface.as_pty()
             && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().unwrap()
@@ -944,7 +949,7 @@ impl Surface {
                 host.disconnect();
                 return Err(error.into());
             }
-            host.commit_launched_host();
+            host.commit_launched_host(owner.as_deref().and_then(Mux::host_reaper));
         }
         #[cfg(debug_assertions)]
         if let Some(delay) = surface

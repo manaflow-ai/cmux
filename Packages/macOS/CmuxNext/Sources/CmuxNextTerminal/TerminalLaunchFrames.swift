@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 public import CmuxNextWakeups
-import CmuxNextCompat
+public import CmuxNextCompat
 
 /// The terminals' last frames, saved at quit and drawn over each terminal at launch until its live
 /// content draws (launch-speed-first: "the first frame is never blank"). A terminal pane is held
@@ -12,13 +12,20 @@ import CmuxNextCompat
 /// the app's `main` before `NSApplication.run`): a pane shows its frame at once when the read has ended
 /// (``LaunchRead``: no main-actor hop), never waiting for it; one shown before then stays held clear, as with
 /// no frame, and gets its frame when the read ends if it has drawn nothing live by then.
+///
+/// The app makes one store at its composition root (``init(state:)``) and hands it to the launch, the panes
+/// and the quit. Once the launch settled the decoded frames no pane took go (``dropLaunchRead()``), rather
+/// than at the read's keep deadline: they are only ever drawn at launch.
+///
+/// Registered (``registerMemoryConsumer(with:)``), the launch read is one lossy memory consumer that reports its
+/// decoded bytes: a dropped frame cannot be made again (its terminal shows its live content instead), so only
+/// critical pressure drops the read early, at once.
 @MainActor
 public final class TerminalLaunchFrames {
     /// A larger file is not read.
     nonisolated static let maximumBytes = 16 * 1024 * 1024
     /// The most frames one launch reads (one per terminal on screen at the last quit).
     nonisolated static let maximumFiles = 64
-    private static var stores: [URL: TerminalLaunchFrames] = [:]
 
     let directory: URL?
     /// Reads the saved frames.
@@ -27,7 +34,7 @@ public final class TerminalLaunchFrames {
     private let discard: DemandTimer
     /// The launch read of the saved frames, decoded, by tab key (``prefetch(on:keep:mark:)``); nil before it
     /// starts and once its frames are dropped.
-    private var read: LaunchRead<[String: Frame]>?
+    private var read: LaunchRead<SavedFrames>?
     /// The frames handed out (each once per launch).
     private var taken: Set<String> = []
     /// Panes that asked while the read ran, by tab key: each gets its frame when the read ends.
@@ -36,12 +43,25 @@ public final class TerminalLaunchFrames {
     private var mark: @Sendable (String) -> Void = { _ in }
     /// Whether the read's results were dropped (``prefetch(on:keep:mark:)`` then starts no new read).
     private var readDropped = false
+    /// The launch settled while the read ran: its frames go once the panes that asked before it ended have theirs.
+    private var dropsWhenRead = false
+    private var memoryRegistration: MemoryConsumerRegistration?
+    /// Awaited by the prefetch task between the read's lane end and its main-actor handoff to the waiting panes
+    /// (tests hold the handoff there to settle the launch first, as a busy main thread does at launch); nil goes
+    /// on at once. Set before ``prefetch(on:keep:mark:)``.
+    var beforeHandoff: (@Sendable () async -> Void)?
 
     /// A saved frame, decoded, with its point size and scale.
     private nonisolated struct Frame: Sendable {
         let image: CGImage
         let size: NSSize
         let scale: Int
+    }
+
+    /// The launch read's frames by tab key, with their decoded bytes (counted once, on the read's lane).
+    private nonisolated struct SavedFrames: Sendable {
+        var frames: [String: Frame] = [:]
+        var bytes = 0
     }
 
     /// A pane that asked for its frame before the read ended.
@@ -54,18 +74,18 @@ public final class TerminalLaunchFrames {
     init(directory: URL?, reader: LaunchFileReader = LaunchFileReader(), clock: any Clock<Duration> = ContinuousClock()) {
         self.directory = directory
         self.reader = reader
+        // timer-class-allow: made in the app's main() before the deadline scheduler exists, on the injected clock the tests step; one drop of decoded frames per launch
         discard = DemandTimer(owner: "terminal.launch-frames.keep", clock: clock)
     }
 
-    /// The frames kept in `state`, the app's state directory (beside its sidebar snapshot); one
-    /// store per directory, so a frame taken at launch is not handed out again.
-    public static func beside(_ state: URL?) -> TerminalLaunchFrames {
-        guard let state else { return TerminalLaunchFrames(directory: nil) }
-        if let store = stores[state] { return store }
-        let store = TerminalLaunchFrames(directory: state.appending(path: "terminal-launch-frames", directoryHint: .isDirectory))
-        stores[state] = store
-        return store
+    /// The frames kept in `state`, the app's state directory (beside its sidebar snapshot); nil keeps none.
+    /// The app makes one per launch, so a frame taken at launch is not handed out again.
+    public convenience init(state: URL?) {
+        self.init(directory: state?.appending(path: Self.directoryName, directoryHint: .isDirectory))
     }
+
+    /// The folder of the saved frames in the app's state directory.
+    nonisolated static let directoryName = "terminal-launch-frames"
 
     /// Starts reading and decoding every saved frame on `work`'s files lane at once; a later call does nothing.
     ///
@@ -83,6 +103,7 @@ public final class TerminalLaunchFrames {
         guard let directory, read == nil, !readDropped else { return nil }
         self.mark = mark
         let reader = reader
+        let beforeHandoff = beforeHandoff
         let read = LaunchRead(on: work) {
             let frames = Self.readAll(in: directory, reader)
             mark("terminal.launch_frames_read")
@@ -92,16 +113,47 @@ public final class TerminalLaunchFrames {
         // A deadline: the frames no pane took by then are dropped (decoded frames are large).
         discard.scheduleOnMain(after: keep) { [weak self] in self?.dropRead() }
         // task-owner: shows the frames of the panes that asked before the read ended; ends then.
+        // main-hop-allow: made in the app's main() before the app's MainWorkScheduler exists; the one resume per launch shows the frames of the panes that asked before the read ended
         return Task { [weak self] in
             _ = await read.finished()
+            await beforeHandoff?()
             self?.showWaiting()
+            if self?.dropsWhenRead == true { self?.dropRead() }
         }
     }
 
-    /// Drops the read's results that no pane took.
+    /// The launch settled (`LaunchSettle`): the decoded frames no pane took go now, not at the keep deadline,
+    /// and no read starts later. The panes that asked before the read ended get their frames first: now when its
+    /// lane has ended (the prefetch task's main-actor handoff may not have run yet), else when it ends.
+    public func dropLaunchRead() {
+        guard let read else { return dropRead() }
+        guard read.value != nil else {
+            dropsWhenRead = true
+            return
+        }
+        showWaiting()
+        dropRead()
+    }
+
+    /// Ends once the launch read's lane has its result, apart from the main-actor handoff to the waiting panes
+    /// (tests); nil with no read.
+    var launchReadLaneEnd: (@Sendable () async -> Void)? {
+        guard let read else { return nil }
+        return { _ = await read.finished() }
+    }
+
+    /// How many decoded frames of the launch read the store holds (0 before the read ends and once dropped).
+    var launchFrameCount: Int {
+        read?.value?.frames.count ?? 0
+    }
+
+    /// Drops the read's results that no pane took, and the deadline that would drop them.
     private func dropRead() {
         read = nil
         readDropped = true
+        dropsWhenRead = false
+        waiting = [:]
+        discard.cancel()
     }
 
     /// The panes that asked before the read ended get their frames, if they still show the terminal
@@ -126,12 +178,12 @@ public final class TerminalLaunchFrames {
     @discardableResult
     public func show(_ key: String, on session: TerminalSession, in content: NSView, reveal: LaunchReveal) -> Bool {
         guard let read else { return false }
-        guard let frames = read.value else {
+        guard let saved = read.value else {
             mark("terminal.launch_frame_missed")
             waiting[key] = Waiter(session: session, content: content, reveal: reveal)
             return false
         }
-        guard let frame = frames[key], taken.insert(key).inserted else { return false }
+        guard let frame = saved.frames[key], taken.insert(key).inserted else { return false }
         // The surface's size in this pane: its own frame is a placeholder until the pane lays it out
         // (this transaction does anyway). A pane not laid out yet (zero) takes the launch snapshot's
         // size, which the frame was saved at.
@@ -162,6 +214,7 @@ public final class TerminalLaunchFrames {
         var frames: [String: NSImage] = [:]
         for (key, session) in sessions where !session.isRenderingSuspended {
             let surface = session.surfaceView
+            // visibility-walk-allow: the quit saves the frame each terminal shows on screen, the view state AppKit composites; read once per terminal at quit
             guard surface.window?.isVisible == true, !surface.isHiddenOrHasHiddenAncestor, surface.bounds.width > 0,
                   let frame = await session.snapshotInBackground(maxPixelSize: .greatestFiniteMagnitude) else { continue }
             frames[key] = NSImage(cgImage: frame, size: surface.bounds.size)
@@ -183,19 +236,20 @@ public final class TerminalLaunchFrames {
 
     /// Every saved frame in `directory`, decoded, with its point size and scale, by tab key (for each
     /// key the first scale a save may have written).
-    private nonisolated static func readAll(in directory: URL, _ reader: LaunchFileReader) -> [String: Frame] {
+    private nonisolated static func readAll(in directory: URL, _ reader: LaunchFileReader) -> SavedFrames {
         let names = Set(((try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? []).sorted().prefix(maximumFiles))
-        var frames: [String: Frame] = [:]
+        var saved = SavedFrames()
         for scale in [2, 1, 3] {
             let suffix = "@\(scale)x.jpg"
             for name in names where name.hasSuffix(suffix) {
                 let key = String(name.dropLast(suffix.count))
-                guard frames[key] == nil, isFileSafe(key),
+                guard saved.frames[key] == nil, isFileSafe(key),
                       let frame = reader.image(at: directory.appending(path: name), maximumBytes: maximumBytes) else { continue }
-                frames[key] = Frame(image: frame, size: NSSize(width: CGFloat(frame.width) / CGFloat(scale), height: CGFloat(frame.height) / CGFloat(scale)), scale: scale)
+                saved.frames[key] = Frame(image: frame, size: NSSize(width: CGFloat(frame.width) / CGFloat(scale), height: CGFloat(frame.height) / CGFloat(scale)), scale: scale)
+                saved.bytes += frame.bytesPerRow * frame.height
             }
         }
-        return frames
+        return saved
     }
 
     private nonisolated static func write(_ frames: [String: CGImage], to directory: URL) {
@@ -218,11 +272,39 @@ public final class TerminalLaunchFrames {
     }
 }
 
-extension TerminalSession {
-    /// Shows `key`'s frame from the last quit, kept in `state` (``TerminalLaunchFrames/beside(_:)``),
-    /// over this terminal in `content`, the pane content held for launch by `reveal`; whether it
-    /// showed one now.
-    public func showLaunchFrame(_ key: String, beside state: URL?, in content: NSView, reveal: LaunchReveal) -> Bool {
-        TerminalLaunchFrames.beside(state).show(key, on: self, in: content, reveal: reveal)
+/// The launch read's decoded frames as one lossy consumer (Chrome's consumer contract,
+/// base/memory_coordinator/memory_consumer.h): only the critical limit drops them, at once.
+extension TerminalLaunchFrames: MemoryConsumer {
+    /// Up to ``maximumFiles`` decoded frames of terminal size, for the launch only (1 to 50 MB); dropping them
+    /// touches only memory and loses them (the terminals show their live content instead).
+    public nonisolated static let memoryTraits = MemoryConsumerTraits(
+        estimatedUsage: .medium, dataAccess: .none, retention: .lossy, recreateCost: .notApplicable,
+        releaseCPUCost: .low, isStateful: true, supportsMemoryLimit: true)
+
+    /// The consumer's name in the memory report.
+    public nonisolated static let memoryConsumerName = "terminal-launch-frames"
+
+    /// Registers the launch read with the app's memory coordinator; a later call replaces the registration.
+    ///
+    /// - Parameter registry: The memory coordinator (injected).
+    public func registerMemoryConsumer(with registry: any MemoryConsumerRegistry) {
+        memoryRegistration?.cancel()
+        memoryRegistration = MemoryConsumerRegistration(
+            name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: self, registry: registry)
+    }
+
+    /// Nothing to lower: the read is one launch burst that only goes.
+    public func updateMemoryLimit(_ limit: MemoryLimit) {}
+
+    /// At the critical limit the read goes now, frames of panes still waiting for it included.
+    public func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
+        if slice.limit.isCritical, read != nil { dropRead() }
+        return .done
+    }
+
+    /// The launch read's decoded bytes and frames, from its counters.
+    public var memoryUsage: MemoryUsage? {
+        let saved = read?.value
+        return MemoryUsage(footprintBytes: saved?.bytes ?? 0, entries: saved?.frames.count ?? 0)
     }
 }

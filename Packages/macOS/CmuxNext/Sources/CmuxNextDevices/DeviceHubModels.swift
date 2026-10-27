@@ -171,7 +171,11 @@ public struct AuditEntry: Codable, Sendable, Equatable, Identifiable {
     public var scope: String?
     public var sessionId: String?
     public var detail: String?
+    /// Seconds, in `0...maximumDuration`; a hub value outside that (or not a number) decodes as no duration.
     public var durationS: Double?
+
+    /// About 31 years: longer than any session, and every whole second up to it is an `Int`.
+    public static let maximumDuration: Double = 1e9
 
     public init(id: String, ts: Date? = nil, event: String, viewerId: String? = nil, hostId: String? = nil, deviceId: String? = nil,
                 scope: String? = nil, sessionId: String? = nil, detail: String? = nil, durationS: Double? = nil) {
@@ -197,7 +201,8 @@ public struct AuditEntry: Codable, Sendable, Equatable, Identifiable {
         scope = c.lenient(String.self, .scope)
         sessionId = c.lenient(String.self, .sessionId)
         detail = c.lenient(String.self, .detail)
-        durationS = c.lenient(Double.self, .durationS) ?? c.lenient(Double.self, .duration_s)
+        durationS = (c.lenient(Double.self, .durationS) ?? c.lenient(Double.self, .duration_s))
+            .flatMap { (0...Self.maximumDuration).contains($0) ? $0 : nil }
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -274,10 +279,13 @@ extension KeyedDecodingContainer {
         lenient(Bool.self, key) ?? (lenient(Int.self, key).map { $0 != 0 } ?? false)
     }
 
-    /// Unix seconds, unix milliseconds (above 1e11) or an ISO 8601 string.
+    /// Unix seconds, unix milliseconds (above 1e11) or an ISO 8601 string. A number more than 1e11 seconds
+    /// from 1970 (the year 5138) either way is no date, as an ISO 8601 year past 9999 is none: every decoded
+    /// date is then a whole number of milliseconds an `Int64` holds (the audit cursor sends one back).
     func date(_ key: Key) -> Date? {
         if let number = lenient(Double.self, key) {
-            return Date(timeIntervalSince1970: number > 1e11 ? number / 1000 : number)
+            let seconds = number > 1e11 ? number / 1000 : number
+            return (-1e11...1e11).contains(seconds) ? Date(timeIntervalSince1970: seconds) : nil
         }
         guard let text = lenient(String.self, key) else { return nil }
         let formatter = ISO8601DateFormatter()

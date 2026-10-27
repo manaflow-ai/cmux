@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 @testable import CmuxNextWakeups
 import Foundation
 import Testing
@@ -5,7 +6,8 @@ import Testing
 /// The always-on cost of a lane item's stats (`// perf-hot: 100ns lane-item`), in nanoseconds: one
 /// `CLOCK_UPTIME_RAW` read, one ``LaneStats/record(_:waitNanos:runNanos:)`` (four relaxed adds), and what
 /// `LaneScheduler.runOnSlot` adds around an item's body (three clock reads and the record), each as the mean of
-/// `items` in a row. A measurement, not a gate: run it in a Release build on each macOS major and quote the line.
+/// `items` in a row. A measurement, not a gate: run it in a Release build on each macOS major and quote the line. With
+/// CMUX_PERF_RESULT_DIR it also writes each number as result-v1 (lab story swift-lane-item).
 ///
 /// ```
 /// CMUX_LANE_ITEM_BENCH=1 swift test -c release --filter LaneStatsBench
@@ -21,7 +23,7 @@ struct LaneStatsBench {
         return Double(LaneStats.uptimeNanos() - start) / Double(items)
     }
 
-    @Test func alwaysOnCostPerLaneItem() {
+    @Test func alwaysOnCostPerLaneItem() throws {
         let stats = LaneStats()
         let priorities = WorkPriority.allCases
         var sink: UInt64 = 0
@@ -39,6 +41,11 @@ struct LaneStatsBench {
         }
         print(String(format: "lane-item bench: macOS %@, %d items: clock read %.1f ns, record %.1f ns, per item (3 reads + record) %.1f ns (sink %llu)",
                      ProcessInfo.processInfo.operatingSystemVersionString, Self.items, clock, record, perItem, sink))
+        if let results = try PerfResultWriter() {
+            try results.record("swift.lane_item.clock_read_ns", unit: .ns, samples: [clock])
+            try results.record("swift.lane_item.record_ns", unit: .ns, samples: [record])
+            try results.record("swift.lane_item.per_item_ns", unit: .ns, samples: [perItem])
+        }
         #expect(stats.snapshot(lane: .cpu).contains { $0.run.count > 0 })
     }
 }

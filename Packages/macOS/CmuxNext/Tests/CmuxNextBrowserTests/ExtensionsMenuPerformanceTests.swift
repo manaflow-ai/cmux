@@ -1,12 +1,14 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextTestSupport
 import Foundation
 import Testing
 import CmuxNextWakeups
 
 /// The Extensions menu opens and hovers within a frame budget (u2229: "this extensions context
 /// menu is also extremely laggy", u2426: "menu visible within one frame"). Budgets: an open under 16 ms, a second open under 10 ms, a
-/// hover under 16 ms, with 40 extensions.
+/// hover under 16 ms, with 40 extensions. With CMUX_PERF_RESULT_DIR the open and hover times are result-v1 (lab
+/// story swift-extensions-menu).
 @MainActor @Suite(.serialized) struct ExtensionsMenuPerformanceTests {
     static let count = 40
 
@@ -103,6 +105,11 @@ import CmuxNextWakeups
             controller.show(host: tab, handler: handler, anchor: anchor)
             controller.close()
         }
+        if let results = try PerfResultWriter() {
+            try results.record("swift.extensions_menu.prepare", unit: .ms, samples: [Self.milliseconds(prepare)])
+            try results.record("swift.extensions_menu.first_open", unit: .ms, samples: [Self.milliseconds(first)])
+            try results.record("swift.extensions_menu.open", unit: .ms, samples: [Self.milliseconds(open)])
+        }
         print("TOOLBAR-PERF extensions.prepare=\(Self.milliseconds(prepare)) ms extensions.firstOpen=\(Self.milliseconds(first)) ms "
               + "extensions.open=\(Self.milliseconds(open)) ms")
         #expect(Self.milliseconds(open) < 16, "an open and close took \(Self.milliseconds(open)) ms")
@@ -147,6 +154,7 @@ import CmuxNextWakeups
             })
         }
         let slowest = hovers.max() ?? .zero
+        try PerfResultWriter()?.record("swift.extensions_menu.hover", unit: .ms, samples: hovers.map(Self.milliseconds))
         print("TOOLBAR-PERF extensions.hover.max=\(Self.milliseconds(slowest)) ms")
         #expect(Self.milliseconds(slowest) < 16, "slowest hover took \(Self.milliseconds(slowest)) ms")
         controller.close()

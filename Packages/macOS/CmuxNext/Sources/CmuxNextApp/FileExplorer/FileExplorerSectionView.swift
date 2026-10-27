@@ -26,6 +26,8 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     let table = FileExplorerTableView()
     private let scroll = NSScrollView()
     private var rows: [FileExplorerRow] = []
+    /// The scroll a section made again goes back to once its rows show (``restoreSectionState(_:)``).
+    private var pendingScroll: CGPoint?
     /// This view in the visibility tree: the tree renders only while it is on screen, and once on show.
     let visibility = ViewVisibility("fileExplorer")
     var visibilityNode: VisibilityNode { visibility.node }
@@ -158,6 +160,15 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         if let selection = model.selection, let index = rows.firstIndex(where: { $0.url == selection }) {
             table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false)
         }
+        if let origin = pendingScroll, !rows.isEmpty {
+            pendingScroll = nil
+            // sync-layout: once per section made again, so the tree has its rows' height before it scrolls back.
+            layoutSubtreeIfNeeded()
+            table.tile()
+            let clip = scroll.contentView
+            clip.scroll(to: clip.constrainBoundsRect(NSRect(origin: origin, size: clip.bounds.size)).origin)
+            scroll.reflectScrolledClipView(clip)
+        }
         prefetchOpenWith()
     }
 
@@ -245,4 +256,24 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         let index = table.selectedRow
         model.selection = index >= 0 && index < rows.count ? rows[index].url : nil
     }
+}
+
+// A Files section let go while hidden (feature `memoryDiscardSidebarSections`) comes back with its open folders,
+// selection and scroll.
+extension FileExplorerSectionView: SidebarSectionStateKeeping {
+    var sectionState: SidebarSectionState {
+        SidebarSectionState(scroll: scroll.documentVisibleRect.origin, selection: model.selection?.path,
+                            expanded: model.expandedFolders.map(\.path).sorted())
+    }
+
+    func restoreSectionState(_ state: SidebarSectionState) {
+        model.restore(expanded: Set(state.expanded), selection: state.selection)
+        pendingScroll = state.scroll
+    }
+
+    /// A row's name being typed (Rename, or a new item's first name), which the record does not keep.
+    var holdsUnsavedInput: Bool { renaming != nil }
+
+    /// Where the tree is scrolled (tests).
+    var treeScroll: CGPoint { scroll.documentVisibleRect.origin }
 }
