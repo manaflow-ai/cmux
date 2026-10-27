@@ -2470,6 +2470,7 @@ use resource_connection::{
 mod connection_frame;
 mod request_head;
 mod request_spans;
+mod request_wait;
 mod routes;
 #[cfg(test)]
 use connection_frame::write_vt_state_command_json;

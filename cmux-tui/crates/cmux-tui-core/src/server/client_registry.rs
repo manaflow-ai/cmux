@@ -6,7 +6,7 @@
 #[cfg(unix)]
 pub(super) mod machine_catalog;
 mod record;
-pub(super) use record::ClientRecord;
+pub(super) use record::{ClientRecord, ConnectionFacts};
 
 use super::CREATION_ATTEMPT_KEYS_CAPABILITY;
 use super::CREATION_RECEIPTS_CAPABILITY;
@@ -455,7 +455,7 @@ impl ClientRegistry {
                 writer,
                 origin: Default::default(),
                 person: false,
-                connection_class: Arc::default(),
+                connection_class: Arc::new(ConnectionClassCell::of_client(client)),
                 #[cfg(unix)]
                 machine_catalog: None,
                 #[cfg(test)]
