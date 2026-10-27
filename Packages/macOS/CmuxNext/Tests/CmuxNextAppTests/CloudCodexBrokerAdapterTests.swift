@@ -17,9 +17,10 @@ struct CloudCodexBrokerAdapterTests {
             CloudCodexBrokerTarget(machineID: machine, capability: {
                 .init(ownerVM: true, protocolVersion: 1, codexExternalAccessToken: true)
             }, makeDirectory: { _ in }, readFile: { await self.read(machine, $0) },
-            writeFile: { path, data, _ in await self.write(machine, path, data) },
+            writeFile: { path, data, _ in try Task.checkCancellation(); await self.write(machine, path, data) },
             commitFiles: { a, b, c, d in await self.commit(machine, a, b, c, d) },
-            removeFile: { await self.remove(machine, $0) })
+            removeFile: { try Task.checkCancellation(); await self.remove(machine, $0) },
+            isLive: { try Task.checkCancellation(); return true })
         }
     }
 
@@ -99,6 +100,31 @@ done
         try await restarted.run(machineID: "three", scope: scope, confirmed: true, presentDeviceCode: present)
         #expect(prompts == 1)
         await restarted.shutdown()
+    }
+
+    @Test func taskCancellationRevokesPreviouslyDeliveredAccessWithUncancelledTransport() async throws {
+        let (root, launch) = try fixture()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let files = Files()
+        let scope = CloudCodexBrokerScope(userID: "user", teamID: nil)
+        let gate = CloudCodexBrokerTests.Gate()
+        let adapter = CloudCodexBrokerAdapter(root: root, registry: .init(), currentScope: { scope }, launch: { launch }, target: { _, id in files.target(id) })
+        try await adapter.run(machineID: "vm", scope: scope, confirmed: true) { _ in true }
+        #expect(await files.read("vm", CloudCodexBroker.accessPath) != nil)
+        // Make the fake provider request login again while a previous grant remains delivered.
+        try FileManager.default.removeItem(at: adapter.home(for: scope).appendingPathComponent("signed-in"))
+        let pending = Task {
+            try await adapter.run(machineID: "vm", scope: scope, confirmed: true, forceRefresh: true) { _ in
+                await gate.pause(); return true
+            }
+        }
+        await gate.entered()
+        pending.cancel()
+        await gate.open()
+        await #expect(throws: (any Error).self) { try await pending.value }
+        #expect(await files.read("vm", CloudCodexBroker.accessPath) == nil)
+        #expect(adapter.pendingCleanup.isEmpty)
+        await adapter.shutdown()
     }
 
     @Test func scopeSwitchCancelsPendingPromptWithoutDelivery() async throws {
