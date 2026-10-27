@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserAutomation
 import CmuxNextBrowserHost
 import CmuxNextCompat
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
 import Foundation
@@ -20,6 +21,8 @@ final class AppBrowserHost {
     private let credentials: AppProviderCredentials
     private let tabs: AppBrowserHostTabs
     private let relay: AppDevToolsRelay
+    /// The Secure Store login guard on the host's agent code (the provider holds it weakly).
+    private let scriptGate: AppBrowserScriptGate
     private weak var services: AppServices?
     /// Lease frames to every content's agent cursor (agent-cursor.md section 3).
     private let cursorLeases: AgentCursorLeaseFanOut
@@ -61,6 +64,9 @@ final class AppBrowserHost {
         self.tabs = tabs
         self.relay = relay
         self.driver = driver
+        let scriptGate = AppBrowserScriptGate(
+            services: services, gate: BrowserAgentCodeGate(guards: services.loginGuards, engine: AppBrowserPageEngine(services: services)))
+        self.scriptGate = scriptGate
         cursorLeases = AgentCursorLeaseFanOut(models: { [weak services] in
             guard let services else { return [] }
             return AgentCursorWiring.slots(in: services)
@@ -77,6 +83,9 @@ final class AppBrowserHost {
         provider = BrowserHostProvider(
             identity: ProviderIdentity(providerID: "cmux-app:\(services.environment.launch.bundleID)", installID: installID),
             credentials: credentials, tabs: tabs, access: tabs, driver: driver, relay: relay, marking: tabs, opener: tabs)
+        provider.scriptGate = scriptGate
+        // The raw relay checks each message against the guard's filled sites: read them now.
+        Task { [guards = services.loginGuards] in await guards.prepare() }
         provider.onAgentBundle = { [driver] bundle, _ in
             // A new bundle: driven tabs install it again on their next call.
             guard driver.agentBundle != bundle else { return }
@@ -87,9 +96,11 @@ final class AppBrowserHost {
         services.cache.pageRequests.downloads.onDownload = { [weak provider] item, tab in
             Self.report(item, tab: tab, to: provider)
         }
-        services.cache.pageRequests.openers.onChildPlaced = { [weak services, weak provider] child, opener in
-            guard let services, let provider, let tab = services.locateTab(surface: child),
-                  let parent = services.locateTab(surface: opener) else { return }
+        services.cache.pageRequests.openers.onChildPlaced = { [weak services, weak provider, gate = scriptGate.gate] child, opener in
+            guard let services, let tab = services.locateTab(surface: child) else { return }
+            // A tab a page opened never gets a Secure Store fill: its opener's script reaches into it.
+            Task { await gate.openedByPage(tabID: tab.id) }
+            guard let provider, let parent = services.locateTab(surface: opener) else { return }
             provider.reportTabCreated(targetID: tab.id, openerTargetID: parent.id)
         }
         leaseObservation = provider.observeLeases { [cursorLeases, weak services] targetID, lease in

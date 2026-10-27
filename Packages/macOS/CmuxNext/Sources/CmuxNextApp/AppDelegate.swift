@@ -416,7 +416,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                        }, mirrors: services,
                                        // `browser.page.fill_login`: the person's Secure Store logins.
                                        logins: BrowserPageService.secureStoreLogins,
-                                       loginGuardsFile: BrowserPageService.loginGuardsFile(bundleIdentifier: Bundle.main.bundleIdentifier))
+                                       // The app's one login guard, shared with the browser host.
+                                       loginGuards: services.loginGuards,
+                                       // `browser.agentSecureStoreFill`, off by default.
+                                       secureStoreFillEnabled: { [weak settings] in
+                                           await MainActor.run { settings?.snapshot.browserAgentSecureStoreFill } ?? false
+                                       })
                         .install(on: router)
                     services.apps.attach(router: router)
                 }

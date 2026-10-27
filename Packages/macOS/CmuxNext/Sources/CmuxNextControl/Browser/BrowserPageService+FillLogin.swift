@@ -7,16 +7,18 @@ import Foundation
 /// password. Params: `tab`, `agent`, `submit` (then submit the form). A write verb: it takes the
 /// tab's lease like `fill`, and on `right` runs only on the agent's own or a handed-over tab.
 ///
-/// Only into an agent-profile tab, only over https, only on a site (origin) no agent script ever
-/// ran on, and agent scripts on that site are refused from then on (``BrowserLoginGuards``). The
-/// fill and submit scripts run in cmux's isolated world, so a page-world hook never sees the
-/// values.
+/// Behind `browser.agentSecureStoreFill` (off by default). Only into an agent-profile tab, only
+/// over https, only on a site (origin) no agent code ever ran on, and agent code on that site is
+/// refused from then on (``BrowserLoginGuards``). The fill and submit scripts run in cmux's
+/// isolated world, so a page-world hook never sees the values.
 ///
 /// Answers `{tab, filled, site, username_filled, password_filled, submitted}`, plus `reason` when
-/// nothing was filled: `no_saved_login` (`site` null), `not_agent_tab` (the person's profile),
-/// `not_https`, `scripted_origin` (an agent script ran on this site), `opened_by_page` (another
-/// window opened it and could reach in), `page_unavailable` (the page's origin could not be
-/// read), `no_login_field`, or `navigated` (the page moved before the fill ran). The answer never
+/// nothing was filled: `disabled` (the setting is off), `no_saved_login` (`site` null),
+/// `not_agent_tab` (the person's profile), `not_https`, `scripted_origin` (agent code ran on this
+/// site, or the tab had a raw DevTools relay), `opened_by_page` (a page opened the tab and could
+/// reach in), `guard_unreadable` / `guard_unsaved` (the guard file cannot be read or saved),
+/// `page_unavailable` (the page's origin could not be read), `no_login_field`, or `navigated`
+/// (the page moved before the fill ran). The answer never
 /// holds the username or the password; nothing here logs them, the agent cursor draws the fill as
 /// secret with no text, and a page error comes back without its message.
 extension BrowserPageService {
@@ -24,10 +26,13 @@ extension BrowserPageService {
         let engine = engine
         let logins = logins
         let guards = loginGuards
+        let enabled = secureStoreFillEnabled
         return [
             .async("browser.page.fill_login") { call in
                 let tab = try Self.tab(call)
                 let submit = call.request.params["submit"]?.boolValue == true
+                // `browser.agentSecureStoreFill`, off by default: no fill at all.
+                guard await enabled() else { return Self.loginAnswer(tab, site: nil, reason: "disabled") }
                 // The person's own profile never gets one, even named by `tab`.
                 guard Self.isAgentProfile(tab.browserProfileID) else {
                     return Self.loginAnswer(tab, site: nil, reason: "not_agent_tab")
@@ -46,9 +51,8 @@ extension BrowserPageService {
                     return Self.loginAnswer(tab, site: login.site, reason: "page_unavailable")
                 }
                 guard !page.opener else { return Self.loginAnswer(tab, site: login.site, reason: "opened_by_page") }
-                guard await guards.beginFill(profile: tab.browserProfileID, origins: origins) else {
-                    return Self.loginAnswer(tab, site: login.site, reason: "scripted_origin")
-                }
+                let admission = await guards.beginFill(tab: tab.id, profile: tab.browserProfileID, origins: origins)
+                guard admission == .admitted else { return Self.loginAnswer(tab, site: login.site, reason: admission.rawValue) }
                 let script = BrowserPageScripts.fillLogin(host: host, origin: probed, username: login.username, password: login.password)
                 let value = try await Self.runLoginScript(engine, script, tab)
                 let fields = value["value"] ?? .null
@@ -114,9 +118,8 @@ extension BrowserPageService {
 
     /// Before an agent's own script (`eval`, `wait --function`): refused with `login_filled` on a
     /// site holding a filled login (or, when the page's origin cannot be read, while this profile
-    /// holds any); else the site takes no login from then on. Answers the origin to pin the script
-    /// to (``BrowserPageScripts/originPin(_:)``), nil when it could not be read.
-    static func beginAgentScript(_ engine: any BrowserPageEngine, _ tab: Tab, _ guards: BrowserLoginGuards) async throws -> String? {
+    /// holds any); else the site takes no login from then on.
+    static func beginAgentScript(_ engine: any BrowserPageEngine, _ tab: Tab, _ guards: BrowserLoginGuards) async throws {
         let page = await pageOrigin(engine, tab)
         guard await guards.beginScript(profile: tab.browserProfileID, origins: page.origins) else {
             throw ControlError(code: "login_filled",
@@ -124,7 +127,6 @@ extension BrowserPageService {
                                                             "This site holds a filled sign-in; agent scripts cannot run on it"),
                                data: ["tab": .string(tab.id)])
         }
-        return page.origins == nil ? nil : page.probed
     }
 
     /// After an agent's own script: the site it ended on (it may have navigated) takes no login.
@@ -132,16 +134,15 @@ extension BrowserPageService {
         await guards.markScripted(profile: tab.browserProfileID, origins: pageOrigin(engine, tab).origins)
     }
 
-    /// `body`, an agent's own script given the origin it must pin to, between
-    /// ``beginAgentScript(_:_:_:)`` and ``endAgentScript(_:_:_:)``; with no guards (not an agent
-    /// script) only `body`, unpinned.
+    /// `body`, the agent's own page code (a script, a storage or cookie write), between
+    /// ``beginAgentScript(_:_:_:)`` and ``endAgentScript(_:_:_:)``; with no guards only `body`.
     static func guardedAgentScript(_ engine: any BrowserPageEngine, _ tab: Tab, _ guards: BrowserLoginGuards?,
-                                   _ body: (String?) async throws -> JSONValue) async throws -> JSONValue {
-        guard let guards else { return try await body(nil) }
-        let pin = try await beginAgentScript(engine, tab, guards)
+                                   _ body: () async throws -> JSONValue) async throws -> JSONValue {
+        guard let guards else { return try await body() }
+        try await beginAgentScript(engine, tab, guards)
         let value: JSONValue
         do {
-            value = try await body(pin)
+            value = try await body()
         } catch {
             await endAgentScript(engine, tab, guards)
             throw error

@@ -47,7 +47,14 @@ extension BrowserHostProvider {
         }
         session.deadline = deadline
         let relay = relay
+        let gate = scriptGate
         session.preparing = Task { [weak self] in
+            // The Secure Store login guard (ProviderScriptGate): no relay on a site holding a filled
+            // sign-in, and a relayed tab never gets a fill.
+            if let gate, let refusal = await gate.admitRawDevTools(targetID: targetID) {
+                self?.prepareFailed(targetID, gen, refusal)
+                return
+            }
             let ready = await relay?.prepareRelay(targetID: targetID) ?? false
             self?.prepared(targetID, gen, ready)
         }
@@ -107,6 +114,11 @@ extension BrowserHostProvider {
             return
         case .relaying:
             break
+        }
+        // Each message, in order: refused while the tab is on a site holding a filled sign-in.
+        if let refusal = scriptGate?.rawDevToolsMessage(targetID: targetID) {
+            replyError(targetID, to: message, refusal)
+            return
         }
         guard let out = session.table.outbound(message) else {
             logger.notice("browser host provider: cdp message without an integer id dropped (\(targetID, privacy: .public))")

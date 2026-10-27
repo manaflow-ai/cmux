@@ -62,6 +62,16 @@ nonisolated enum BrowserSettingsSchema {
                 keywords: ["agent", "cursor", "keystrokes", "typing", "automation", "overlay"]
             ),
             SettingDescriptor(
+                AgentSecureStoreFillSetting().configPath, section: .browser, group: agentInput,
+                title: SettingsText.keyed("settings.browser.agentSecureStoreFill", "Let Agents Sign In from the Secure Store"),
+                help: SettingsText.keyed(
+                    "settings.browser.agentSecureStoreFill.help",
+                    "When an agent's page needs a sign-in you saved in the Secure Store, cmux fills it into the agent's own tab. The agent never sees the password, and its scripts are refused on that site from then on."
+                ),
+                kind: .toggle, default: .bool(AgentSecureStoreFillSetting().fallback),
+                keywords: ["agent", "secure store", "sign in", "login", "password", "fill", "keychain"]
+            ),
+            SettingDescriptor(
                 AgentMouseSetting().motionPath, section: .browser, group: agentInput,
                 title: SettingsText.keyed("settings.browser.agentMouseMotion", "Agent Pointer Motion"),
                 help: SettingsText.keyed(

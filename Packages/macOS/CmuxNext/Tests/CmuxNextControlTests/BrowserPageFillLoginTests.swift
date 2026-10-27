@@ -22,6 +22,7 @@ import Testing
         let page: Mutex<(url: String, origin: String)>
         let opener = Mutex(false)
         let probeFails = Mutex(false)
+        let probeCount = Mutex(0)
         let fill: JSONValue
         let failure: ControlError?
 
@@ -39,6 +40,7 @@ import Testing
             case .state:
                 return ["url": .string(self.url), "title": "Sign in"]
             case .evaluateIsolated(let script) where script == BrowserPageScripts.originProbe:
+                probeCount.withLock { $0 += 1 }
                 if probeFails.withLock({ $0 }) { throw ControlError(code: "js_error", message: "no isolated world") }
                 return ["value": ["origin": .string(page.withLock { $0.origin }), "opener": .bool(opener.withLock { $0 })]]
             case .evaluateIsolated(let script):
@@ -64,6 +66,7 @@ import Testing
         }
 
         var inputs: [BrowserPageAgentInput] { announced.withLock { $0 } }
+        var probes: Int { probeCount.withLock { $0 } }
         var evaluated: [String] { isolatedScripts.withLock { $0 } }
         var agentEvaluated: [String] { agentScripts.withLock { $0 } }
     }
@@ -88,9 +91,10 @@ import Testing
 
     /// Two agent tabs (`tab_0123abcd`, `tab_other`) showing the engine's page.
     func install(_ engine: LoginEngine, _ lookups: Lookups, profile: String? = BrowserPageService.agentBrowserProfileID,
-                 guardsFile: URL? = nil) -> ControlRouter {
+                 guardsFile: URL? = nil, guards: BrowserLoginGuards? = nil, enabled: Bool = true) -> ControlRouter {
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor())
-        BrowserPageService(engine: engine, logins: lookups.logins, loginGuardsFile: guardsFile).install(on: router)
+        BrowserPageService(engine: engine, logins: lookups.logins, loginGuards: guards ?? BrowserLoginGuards(file: guardsFile),
+                           secureStoreFillEnabled: { enabled }).install(on: router)
         var snapshot = ControlSnapshot.sample()
         for (id, surface) in [("tab_0123abcd", "12"), ("tab_other", "13")] {
             var tab = ControlTabInfo(id: id, surface: surface, kind: "browser", title: "Sign in", url: engine.url)
@@ -230,10 +234,10 @@ import Testing
         engine.navigate(to: "https://www.example.com/feed")
         guard case .failure = await eval(router) else { Issue.record("eval ran on the filled site after a navigation"); return }
         #expect(engine.agentEvaluated.isEmpty, "no agent script reached the site")
-        // Another site is fine, and its script is pinned to its origin.
+        // Another site is fine.
         engine.navigate(to: "https://news.example.org/")
         _ = try await eval(router).get()
-        #expect(engine.agentEvaluated.first?.contains(BrowserPageScripts.originPin("https://news.example.org")) == true)
+        #expect(engine.agentEvaluated.count == 1)
     }
 
     @Test func aScriptedSiteGetsNoLoginInAnyTab() async throws {
@@ -267,9 +271,10 @@ import Testing
         defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
         let first = BrowserLoginGuards(file: file)
         #expect(await first.beginScript(profile: nil, origins: ["https://scripted.test"]))
-        #expect(await first.beginFill(profile: nil, origins: ["https://filled.test"]))
+        #expect(await first.beginFill(tab: "tab_a", profile: nil, origins: ["https://filled.test"]) == .admitted)
         let second = BrowserLoginGuards(file: file)
-        #expect(await !second.beginFill(profile: nil, origins: ["https://scripted.test"]), "a scripted site stays scripted")
+        #expect(await second.beginFill(tab: "tab_a", profile: nil, origins: ["https://scripted.test"]) == .scripted,
+                "a scripted site stays scripted")
         #expect(await !second.beginScript(profile: nil, origins: ["https://filled.test"]), "a filled site stays filled")
         #expect(await second.beginScript(profile: "default", origins: ["https://filled.test"]), "another profile is another store")
         // Through the service: a new app run with the same file refuses the eval.
@@ -297,6 +302,107 @@ import Testing
         let answer = try await call(install(engine, Lookups(Self.saved))).get()
         #expect(answer["reason"] == "opened_by_page")
         #expect(engine.evaluated.isEmpty)
+    }
+
+    @Test func theSettingOffFillsNothing() async throws {
+        let engine = LoginEngine(url: "https://www.example.com/login", fill: Self.filledBoth)
+        let lookups = Lookups(Self.saved)
+        let answer = try await call(install(engine, lookups, enabled: false)).get()
+        #expect(answer["filled"] == false)
+        #expect(answer["reason"] == "disabled")
+        #expect(engine.evaluated.isEmpty)
+        #expect(lookups.hosts.withLock { $0 }.isEmpty, "the store is not even read")
+    }
+
+    @Test func anUnreadableGuardFileRefusesEveryFillAndIsKept() async throws {
+        let file = Self.temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("not json".utf8).write(to: file)
+        let engine = LoginEngine(url: "https://www.example.com/login", fill: Self.filledBoth)
+        let router = install(engine, Lookups(Self.saved), guardsFile: file)
+        #expect(try await call(router).get()["reason"] == "guard_unreadable")
+        _ = try await eval(router, tab: "tab_other").get()
+        #expect(try Data(contentsOf: file) == Data("not json".utf8), "the broken file is never overwritten")
+        #expect(engine.evaluated.isEmpty)
+    }
+
+    @Test func aFailedSaveRefusesFillsOnItsSitesUntilASaveSucceeds() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("login-guards-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        // A file where the guard's folder should be: every save fails.
+        let blocker = folder.appendingPathComponent("blocked")
+        try Data().write(to: blocker)
+        let guards = BrowserLoginGuards(file: blocker.appendingPathComponent("guards.json"))
+        #expect(await guards.beginScript(profile: nil, origins: ["https://a.test"]))
+        #expect(await guards.beginFill(tab: "tab_x", profile: nil, origins: ["https://b.test"]) == .unsaved)
+        // The marks stay in memory: the scripted site still refuses a fill, the filled one a script.
+        #expect(await guards.beginFill(tab: "tab_x", profile: nil, origins: ["https://a.test"]) == .scripted)
+        #expect(await !guards.beginScript(profile: nil, origins: ["https://b.test"]))
+        // Saving works again: the next change saves, and fills are admitted again.
+        try FileManager.default.removeItem(at: blocker)
+        #expect(await guards.beginScript(profile: nil, origins: ["https://c.test"]))
+        #expect(await guards.beginFill(tab: "tab_x", profile: nil, origins: ["https://d.test"]) == .admitted)
+    }
+
+    @Test func storageAndCookieWritesAreAgentCode() async throws {
+        let engine = LoginEngine(url: "https://www.example.com/login", fill: Self.filledBoth)
+        let router = install(engine, Lookups(Self.saved))
+        // A storage write marks the site: no fill there afterwards.
+        _ = try await router.handle(ControlRequest(method: "browser.page.storage.set",
+                                                   params: ["tab": "tab_0123abcd", "key": "k", "value": "v"])).get()
+        #expect(try await call(router).get()["reason"] == "scripted_origin")
+        // On a filled site, storage and cookie writes are refused.
+        engine.navigate(to: "https://login.example.net/")
+        _ = try await call(router).get()
+        for (method, params) in [("browser.page.storage.set", ["key": "k", "value": "v"]),
+                                 ("browser.page.cookies.set", ["name": "a", "value": "1"])] as [(String, [String: JSONValue])] {
+            var params = params
+            params["tab"] = "tab_0123abcd"
+            guard case .failure(let error) = await router.handle(ControlRequest(method: method, params: params)) else {
+                Issue.record("\(method) ran on the filled site")
+                continue
+            }
+            #expect(error.code == "login_filled")
+        }
+    }
+
+    @Test func aScriptedWaitReadsTheGuardOncePerPageNotPerPoll() async throws {
+        let engine = LoginEngine(url: "https://www.example.com/login", fill: Self.filledBoth)
+        let router = install(engine, Lookups(Self.saved))
+        _ = await router.handle(ControlRequest(method: "browser.page.wait",
+                                               params: ["tab": "tab_0123abcd", "function": "false", "timeout_ms": 300]))
+        #expect(engine.probes == 2, "one guard read before the wait and one after, however many polls ran")
+    }
+
+    @Test func theBrowserHostGateGuardsItsAgentCodeAndRawRelay() async throws {
+        let engine = LoginEngine(url: "https://www.example.com/login", fill: Self.filledBoth)
+        let guards = BrowserLoginGuards(file: nil)
+        let gate = BrowserAgentCodeGate(guards: guards, engine: engine)
+        let router = install(engine, Lookups(Self.saved), guards: guards)
+        let profile = BrowserPageService.agentBrowserProfileID
+        // A host `frame.evaluate` on a site marks it, as `eval` does: no fill there.
+        #expect(await gate.admit(tabID: "tab_other", url: engine.url, profile: profile) == nil)
+        #expect(try await call(router).get()["reason"] == "scripted_origin")
+        // A filled site refuses host code, a raw relay and each raw message.
+        engine.navigate(to: "https://login.example.net/")
+        #expect(try await call(router).get()["filled"] == true)
+        #expect(await gate.admit(tabID: "tab_other", url: engine.url, profile: profile) != nil)
+        #expect(await gate.admitRaw(tabID: "tab_other", url: engine.url, profile: profile) != nil)
+        #expect(gate.rawMessage(url: "https://login.example.net/x", profile: profile) != nil)
+        #expect(gate.rawMessage(url: nil, profile: profile) != nil, "an unknown site is refused while one is filled")
+        #expect(gate.rawMessage(url: "https://elsewhere.test/", profile: profile) == nil)
+        #expect(gate.rawMessage(url: "about:blank", profile: profile) == nil)
+        // A tab that had a raw relay never gets a fill, wherever it goes.
+        engine.navigate(to: "https://fresh.example.com/")
+        #expect(await gate.admitRaw(tabID: "tab_0123abcd", url: engine.url, profile: profile) == nil)
+        engine.navigate(to: "https://other.example.com/")
+        #expect(try await call(router).get()["reason"] == "scripted_origin")
+        // A tab a page opened never gets one either.
+        await gate.openedByPage(tabID: "tab_other")
+        engine.navigate(to: "https://third.example.com/")
+        #expect(try await call(router, tab: "tab_other").get()["reason"] == "opened_by_page")
     }
 
     @Test func aSavedLoginNeverPrintsItsSecrets() {

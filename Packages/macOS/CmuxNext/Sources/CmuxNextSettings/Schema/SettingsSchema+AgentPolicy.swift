@@ -276,6 +276,8 @@ extension SettingsSchema {
         "markdown.remoteImages": .privacy,
         // Off, a person no longer sees what an agent clicks and types: an agent must not hide itself.
         "browser.showAgentCursor": .userOnly,
+        // On, an agent may have the person's saved sign-ins filled into its pages: only the person turns it on.
+        "browser.agentSecureStoreFill": .userOnly,
         // How agents move the pointer is the person's choice: an agent must not make itself faster or slower.
         "browser.agentMouse.motion": .userOnly,
         "browser.agentMouse.maxMoveMs": .userOnly,

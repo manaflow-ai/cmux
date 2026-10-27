@@ -55,6 +55,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserBuiltInAdBlocker = BuiltInAdBlockerSetting().fallback
     /// `browser.showAgentCursor`; on when unset.
     public var browserShowAgentCursor = AgentCursorSetting().fallback
+    /// `browser.agentSecureStoreFill`; off when unset.
+    public var browserAgentSecureStoreFill = AgentSecureStoreFillSetting().fallback
     /// `browser.agentMouse.*`: how an agent's pointer moves; human motion,
     /// 350 ms cap when unset.
     public var browserAgentMouse = AgentMouseSetting().fallback
@@ -308,6 +310,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(HomeChiefBubbleStyleSetting.parse(root), \.homeChiefBubbleStyle)
         snapshot.take(BuiltInAdBlockerSetting().parse(root), \.browserBuiltInAdBlocker)
         snapshot.take(AgentCursorSetting().parse(root), \.browserShowAgentCursor)
+        snapshot.take(AgentSecureStoreFillSetting().parse(root), \.browserAgentSecureStoreFill)
         snapshot.take(AgentMouseSetting().parse(root), \.browserAgentMouse)
         snapshot.takeHome(root)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)

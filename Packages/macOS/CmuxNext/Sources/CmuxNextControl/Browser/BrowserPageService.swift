@@ -18,8 +18,11 @@ public struct BrowserPageService: Sendable {
     /// The person's Secure Store logins by host, for `browser.page.fill_login`; nil (tests, hosts
     /// without a store) answers `no_saved_login`.
     let logins: BrowserPageLogins?
-    /// Which sites an agent scripted and which hold a filled login (``BrowserLoginGuards``).
+    /// Which sites an agent scripted and which hold a filled login (``BrowserLoginGuards``): the
+    /// app's one instance, shared with the browser host's gate.
     let loginGuards: BrowserLoginGuards
+    /// `browser.agentSecureStoreFill`, read per fill; off answers every fill `disabled`.
+    let secureStoreFillEnabled: @Sendable () async -> Bool
     /// `browser.agentMouse.*` as it is now, read per click.
     let agentMouse: @Sendable () async -> AgentMouseSetting.Value
     /// Test-only seam for the direct pixel-capture contract. Production leaves this false because
@@ -36,13 +39,16 @@ public struct BrowserPageService: Sendable {
     ///     `browser.page.mirror` as unavailable and mirrors no agent tab into Home.
     ///   - logins: the person's Secure Store logins by host (`browser.page.fill_login`); nil
     ///     answers every fill with `no_saved_login`.
-    ///   - loginGuardsFile: where the sites agents scripted and the sites holding a filled login
-    ///     persist (``loginGuardsFile(bundleIdentifier:)``); nil keeps them for this run only.
+    ///   - loginGuards: the app's one ``BrowserLoginGuards`` (also the browser host's); nil makes
+    ///     one for this run only.
+    ///   - secureStoreFillEnabled: `browser.agentSecureStoreFill`, read per fill; nil is off.
     public init(engine: any BrowserPageEngine, passkeys: BrowserPasskeyRequests? = nil,
                 agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil,
-                mirrors: (any BrowserTabMirrorHost)? = nil, logins: BrowserPageLogins? = nil, loginGuardsFile: URL? = nil) {
+                mirrors: (any BrowserTabMirrorHost)? = nil, logins: BrowserPageLogins? = nil,
+                loginGuards: BrowserLoginGuards? = nil, secureStoreFillEnabled: (@Sendable () async -> Bool)? = nil) {
         self.init(engine: engine, leases: BrowserTabLeases(), passkeys: passkeys, agentMouse: agentMouse,
-                  allowsUnsafeCapture: false, mirrors: mirrors, logins: logins, loginGuardsFile: loginGuardsFile)
+                  allowsUnsafeCapture: false, mirrors: mirrors, logins: logins, loginGuards: loginGuards,
+                  secureStoreFillEnabled: secureStoreFillEnabled)
     }
 
     /// `<Application Support>/<bundle id>/browser-login-guards.json`.
@@ -55,9 +61,11 @@ public struct BrowserPageService: Sendable {
 
     init(engine: any BrowserPageEngine, leases: BrowserTabLeases, passkeys: BrowserPasskeyRequests? = nil,
          agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil, allowsUnsafeCapture: Bool = false,
-         mirrors: (any BrowserTabMirrorHost)? = nil, logins: BrowserPageLogins? = nil, loginGuardsFile: URL? = nil) {
+         mirrors: (any BrowserTabMirrorHost)? = nil, logins: BrowserPageLogins? = nil,
+         loginGuards: BrowserLoginGuards? = nil, secureStoreFillEnabled: (@Sendable () async -> Bool)? = nil) {
         self.engine = engine
-        self.loginGuards = BrowserLoginGuards(file: loginGuardsFile)
+        self.loginGuards = loginGuards ?? BrowserLoginGuards(file: nil)
+        self.secureStoreFillEnabled = secureStoreFillEnabled ?? { false }
         self.leases = leases
         self.passkeys = passkeys
         self.mirrors = mirrors
@@ -99,8 +107,8 @@ public struct BrowserPageService: Sendable {
                 let tab = try Self.tab(call)
                 // The agent's own script: never on a site holding a filled login, and the site it
                 // runs on takes no login from then on (BrowserLoginGuards).
-                let value = try await Self.guardedAgentScript(engine, tab, guards) { pin in
-                    try await Self.evaluateAgentScript(engine, script, tab, pinnedTo: pin)
+                let value = try await Self.guardedAgentScript(engine, tab, guards) {
+                    try await Self.evaluateAgentScript(engine, script, tab)
                 }
                 if let thrown = value["value"]?[BrowserPageScripts.thrownKey]?.stringValue {
                     throw ControlError(code: "js_error", message: thrown)
@@ -170,19 +178,16 @@ public struct BrowserPageService: Sendable {
         }
     }
 
-    /// An agent's `eval` script: as an expression through ``BrowserPageScripts/jsonSafe(_:first:)``,
-    /// else (a parse failure: nothing ran) as statements. Either way it first throws unless the
-    /// page is still at `origin` (the one the login guard checked; nil: unpinned).
-    private static func evaluateAgentScript(_ engine: any BrowserPageEngine, _ script: String, _ tab: Tab,
-                                            pinnedTo origin: String?) async throws -> JSONValue {
-        let pin = origin.map(BrowserPageScripts.originPin) ?? ""
+    /// An agent's `eval` script: as an expression through ``BrowserPageScripts/jsonSafe(_:)``,
+    /// else (a parse failure: nothing ran) as statements.
+    private static func evaluateAgentScript(_ engine: any BrowserPageEngine, _ script: String, _ tab: Tab) async throws -> JSONValue {
         do {
             // Objects WebKit cannot return (DOMRect, Map, …) go through toJSON.
-            return try await run(engine, .evaluate(BrowserPageScripts.jsonSafe(script, first: pin)), tab)
+            return try await run(engine, .evaluate(BrowserPageScripts.jsonSafe(script)), tab)
         } catch let error as ControlError where error.code == "js_error" && error.message.contains("SyntaxError") {
             // The wrapper reports what the script throws, so this is a
             // parse failure: nothing ran. Statements, not an expression.
-            return try await run(engine, .evaluate(pin.isEmpty ? script : pin + "\n" + script), tab)
+            return try await run(engine, .evaluate(script), tab)
         }
     }
 

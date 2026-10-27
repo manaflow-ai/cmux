@@ -6,10 +6,13 @@ import Foundation
 /// to the tab's profile (its engine's store), which is the person's, so a
 /// clear stays on the tab's site and `all` is refused, as the driver's
 /// `cookies.clear` does; storage is the page's `localStorage` or
-/// `sessionStorage`.
+/// `sessionStorage`. A cookie or storage write is the agent's own page code for the login guard:
+/// refused on a site holding a filled sign-in, and the site takes no Secure Store fill afterwards
+/// (``BrowserLoginGuards``).
 extension BrowserPageService {
     func cookieAndStorageMethods() -> [ControlMethod] {
         let engine = engine
+        let guards = loginGuards
         return [
             .async("browser.page.cookies.get") { call in
                 let tab = try Self.tab(call)
@@ -23,7 +26,7 @@ extension BrowserPageService {
             .async("browser.page.cookies.set") { call in
                 let tab = try Self.tab(call)
                 let cookies = try Self.cookiesToSet(call, tab: tab)
-                _ = try await Self.run(engine, .cookies(.set(cookies)), tab)
+                _ = try await Self.guardedAgentScript(engine, tab, guards) { try await Self.run(engine, .cookies(.set(cookies)), tab) }
                 var result: [String: JSONValue] = Self.base(tab)
                 result["set"] = JSONValue(cookies.count)
                 return .object(result)
@@ -43,30 +46,35 @@ extension BrowserPageService {
                 let site = try Self.site(tab)
                 let now = Date()
                 let doomed = try await Self.cookies(engine, tab).filter { $0.isOnSite(site) && filter.cleared($0, now: now) }
-                if !doomed.isEmpty { _ = try await Self.run(engine, .cookies(.delete(doomed)), tab) }
+                if !doomed.isEmpty {
+                    _ = try await Self.guardedAgentScript(engine, tab, guards) { try await Self.run(engine, .cookies(.delete(doomed)), tab) }
+                }
                 var result: [String: JSONValue] = Self.base(tab)
                 result["cleared"] = JSONValue(doomed.count)
                 return .object(result)
             },
-            storage("get", engine: engine) { call, area in
+            storage("get", engine: engine, guards: nil) { call, area in
                 guard let raw = call.request.params["key"], raw != .null else { return .get(area, key: nil) }
                 guard let key = raw.stringValue else { throw CookieFilter.wrongType("key") }
                 return .get(area, key: key)
             },
-            storage("set", engine: engine) { call, area in
+            storage("set", engine: engine, guards: guards) { call, area in
                 .set(area, key: try Self.string(call, "key"), value: try Self.storageValue(call))
             },
-            storage("clear", engine: engine) { _, area in .clear(area) },
+            storage("clear", engine: engine, guards: guards) { _, area in .clear(area) },
         ]
     }
 
-    private func storage(_ name: String, engine: any BrowserPageEngine,
+    /// `guards`: the login guard for a write (nil for a read).
+    private func storage(_ name: String, engine: any BrowserPageEngine, guards: BrowserLoginGuards?,
                          _ make: @escaping @Sendable (ControlCall, BrowserPageScripts.StorageArea) throws -> BrowserPageScripts.StorageOperation) -> ControlMethod {
         .async("browser.page.storage.\(name)") { call in
             let tab = try Self.tab(call)
             let area = try Self.storageArea(call)
             let operation = try make(call, area)
-            let value = try await Self.run(engine, .evaluate(BrowserPageScripts.storage(operation)), tab)["value"] ?? .null
+            let value = try await Self.guardedAgentScript(engine, tab, guards) {
+                try await Self.run(engine, .evaluate(BrowserPageScripts.storage(operation)), tab)
+            }["value"] ?? .null
             if let error = value["error"]?.stringValue {
                 throw ControlError(code: "invalid_state", message: error)
             }

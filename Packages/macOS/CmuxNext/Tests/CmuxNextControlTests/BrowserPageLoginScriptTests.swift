@@ -206,20 +206,32 @@ import WebKit
         #expect(try await page.readIsolated(BrowserPageScripts.originProbe)["opener"] == false)
     }
 
-    /// F5: an agent's script is pinned to the origin the guard checked; on another origin (the
-    /// page navigated in between) it throws before running.
-    @Test func thePinnedAgentScriptThrowsOnAnotherOrigin() async throws {
-        let page = await page("<p>one</p>")
-        let moved = try await page.read(BrowserPageScripts.jsonSafe("window.ran = true", first: BrowserPageScripts.originPin("https://www.example.com")))
-        #expect(moved[BrowserPageScripts.thrownKey]?.stringValue?.contains("moved") == true)
-        #expect(try await page.read("window.ran === true") == false, "the script did not run")
-        let here = try await page.read(BrowserPageScripts.jsonSafe("40 + 2", first: BrowserPageScripts.originPin("https://\(Self.host)")))
-        #expect(here == 42)
-        // The pinned `wait --function` condition throws the same way.
-        let condition = BrowserPageScripts.WaitCondition.function("true").pinned(to: "https://www.example.com")
-        guard case .function(let expression) = condition else { Issue.record("not a function condition"); return }
-        let thrown = try await page.read("(() => { try { return \(expression); } catch (e) { return String(e); } })()")
-        #expect(thrown.stringValue?.contains("moved") == true)
+    /// A framework that replaces the filled field with a text field holding the password: the new
+    /// field is marked and emptied too.
+    @Test func aReplacedPasswordFieldIsEmptiedToo() async throws {
+        let page = await page("""
+        <form><input id="u" type="email" autocomplete="username"><input id="p" type="password"></form>
+        """)
+        _ = try await fill(page)
+        _ = try await page.read("""
+        (() => { const old = document.getElementById('p'); const n = document.createElement('input');
+          n.type = 'text'; n.id = 'p2'; n.value = old.value; old.replaceWith(n); return 1; })()
+        """)
+        #expect(try await page.value("p2") == "", "the replacement showed the password")
+        #expect(try await page.read("document.getElementById('p2').hasAttribute('\(BrowserPageScripts.secretMark)')") == true)
+        #expect(try await page.read(BrowserPageScripts.value("#p2", nil))["value"] == .null)
+    }
+
+    /// A page hidden for later (the back-forward cache's `pagehide`) or frozen keeps no filled password.
+    @Test func aHiddenOrFrozenPageKeepsNoPassword() async throws {
+        for event in ["new PageTransitionEvent('pagehide', { persisted: true })", "new Event('freeze')"] {
+            let page = await page("<form><input id=\"u\" type=\"email\"><input id=\"p\" type=\"password\"></form>")
+            _ = try await fill(page)
+            #expect(try await page.value("p") == Self.password)
+            let target = event.contains("pagehide") ? "window" : "document"
+            _ = try await page.read("(() => { \(target).dispatchEvent(\(event)); return 1; })()")
+            #expect(try await page.value("p") == "", "\(event) left the password")
+        }
     }
 
     /// F2: a "show password" toggle on a filled field empties it before anything can read it.

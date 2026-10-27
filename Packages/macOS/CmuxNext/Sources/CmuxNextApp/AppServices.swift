@@ -138,6 +138,10 @@ final class AppServices {
     let resizes = ResizeCoordinator()
     /// Browser tabs each pane also lists (`browser.page.mirror`): one live page shown in a second pane.
     let tabMirrors = TabMirrors()
+    /// The Secure Store login guard (cmux issue 25830): one instance for the control socket's page
+    /// verbs and the browser host, persisted in Application Support.
+    private(set) lazy var loginGuards = BrowserLoginGuards(
+        file: BrowserPageService.loginGuardsFile(bundleIdentifier: environment.launch.bundleID))
     private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes)  // first read in init (no IUO)
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.

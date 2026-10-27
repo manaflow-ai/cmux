@@ -49,11 +49,14 @@ password) or `oauth` (a "Sign in with ..." page).
      what it filled (`filled`, `username_filled`, `password_filled`,
      `submitted`). A two-step login fills the user name first
      (`password_filled: false`): run it again on the password page.
-     `reason: "no_saved_login"` means nothing is saved for that site yet.
+     `reason: "no_saved_login"` means nothing is saved for that site yet;
+     `disabled` means the person has not turned on Settings > Browser >
+     Let Agents Sign In from the Secure Store: say so in one line and wait.
      Never `eval` (or `wait --function`) on a site you will sign into:
      after one, the app refuses to fill it (`scripted_origin`), for good.
      Once a site's sign-in is filled, agent scripts on that site are
-     refused (`login_filled`); use snapshot, click and fill there instead.
+     refused (`login_filled`) on every path, the browser REPL and raw
+     DevTools too; use snapshot, click and fill there instead.
      It fills only your own tab.
      Then continue the task.
 - Never import cookies or sign-ins from another browser without the

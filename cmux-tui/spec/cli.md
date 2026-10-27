@@ -707,11 +707,14 @@ login the person saved in the app's Secure Store for the tab's site into the pag
 and password fields; `--submit` then submits the form. It is a write verb (on `right`, the
 agent's own tab or a handed-over one). The answer is `{filled, site, username_filled,
 password_filled, submitted}` and never contains the username or password; with no saved login
-it is `{filled: false, site: null, reason: "no_saved_login"}`. It fills only an agent-profile tab
-over https, only on a site (origin, per browser profile) no agent script (`eval`, `wait
---function`) ever ran on (else `reason: "scripted_origin"`); once a site's sign-in is filled,
-those scripts are refused on that site in every tab (error code `login_filled`). Both marks
-persist across app restarts. Never eval on a site you will sign into.
+it is `{filled: false, site: null, reason: "no_saved_login"}`. It is off until the person turns on
+`browser.agentSecureStoreFill` (else `reason: "disabled"`). It fills only an agent-profile tab
+over https that no page opened and that never had a raw DevTools relay, only on a site (origin,
+per browser profile) no agent code (`eval`, `wait --function`, storage and cookie writes, the
+browser host's `frame.evaluate` and raw DevTools) ever ran on (else `reason:
+"scripted_origin"`); once a site's sign-in is filled, that code is refused on that site in every
+tab (error code `login_filled`). Both marks persist across app restarts; an unreadable guard
+file refuses every fill (`guard_unreadable`). Never eval on a site you will sign into.
 
 Terminal and sidebar attachments stream styled render snapshots and patches.
 Browser attachments stream browser state and frames. Public attachments never

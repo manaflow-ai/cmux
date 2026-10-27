@@ -17,13 +17,6 @@ extension BrowserPageScripts {
         (() => { let o = null; try { o = String(location.origin); } catch (_) {} return { origin: o, opener: !!window.opener }; })()
         """
 
-    /// A page-world statement that throws unless the page is still at `origin`: the first line of
-    /// an agent's script, so a navigation between the guard's check and the script ends it.
-    /// `location` cannot be redefined by page script.
-    static func originPin(_ origin: String) -> String {
-        "if (location.origin !== \(literal(origin))) { throw new Error('cmux: the page moved to another site before the script ran; run it again'); }"
-    }
-
     /// The checks every login script makes first, in its own world: still `origin` (no
     /// navigation since the probe), still `host`, still https.
     private static func loginPreamble(host: String, origin: String) -> String {
@@ -87,9 +80,11 @@ extension BrowserPageScripts {
     /// Fills `username` and `password` into the login fields of a page at `origin`
     /// (``originProbe``) on `host` over https, all checked again here so a page that moved gets
     /// nothing. It runs in cmux's isolated world, so a page-world hook on the value setter never
-    /// sees the values. A filled password field keeps ``secretMark``, and an observer empties it
-    /// the moment its type stops being `password` (a "show password" toggle), so no read and no
-    /// screenshot shows it. Answers
+    /// sees the values. A filled password field keeps ``secretMark``; an observer on its document
+    /// (or shadow root) empties a marked field whenever it is not a password field (a "show
+    /// password" toggle, a value written back by a re-render) and marks a field a framework puts
+    /// in its place with the password, so no read and no screenshot shows it. A page hidden for
+    /// later (`pagehide`, the back-forward cache) or frozen keeps no filled password. Answers
     /// `{value: {username, password, reason?}, at}`: which fields it filled (booleans only, never
     /// a value) and the last field's rect, always marked secret. The values ride only in this
     /// script; nothing echoes them.
@@ -108,12 +103,43 @@ extension BrowserPageScripts {
         if (found.user) { put(found.user, \(literal(username))); }
         if (found.pass) {
           const field = found.pass;
-          put(field, \(literal(password)));
+          const secret = \(literal(password));
+          put(field, secret);
           field.setAttribute('\(secretMark)', '');
           const W = (field.ownerDocument && field.ownerDocument.defaultView) || window;
           const d = Object.getOwnPropertyDescriptor(W.HTMLInputElement.prototype, 'value');
-          const hide = () => { if (String(field.type || '').toLowerCase() !== 'password') { try { if (d && d.set) { d.set.call(field, ''); } else { field.value = ''; } } catch (_) {} } };
-          try { new MutationObserver(hide).observe(field, { attributes: true, attributeFilter: ['type'] }); } catch (_) {}
+          const empty = (el) => { try { if (el.tagName === 'INPUT' && d && d.set) { d.set.call(el, ''); } else { el.value = ''; } } catch (_) {} };
+          const isField = (el) => !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA');
+          // A marked field shows no text: emptied whenever it is not a password field. A field a
+          // framework put in its place (or wrote it into) carries the password: marked too.
+          const check = (el) => {
+            if (!isField(el)) { return; }
+            if (!el.hasAttribute('\(secretMark)')) {
+              let v = ''; try { v = el.value; } catch (_) {}
+              if (v !== secret) { return; }
+              el.setAttribute('\(secretMark)', '');
+            }
+            if (String(el.type || '').toLowerCase() !== 'password') { empty(el); }
+          };
+          const root = field.getRootNode ? field.getRootNode() : field.ownerDocument;
+          const sweep = (records) => {
+            for (const r of records) {
+              if (r.type === 'attributes') { check(r.target); continue; }
+              for (const n of r.addedNodes) {
+                if (n.nodeType !== 1) { continue; }
+                check(n);
+                if (n.querySelectorAll) { for (const el of n.querySelectorAll('input, textarea')) { check(el); } }
+              }
+            }
+          };
+          try { new MutationObserver(sweep).observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['type', 'value'] }); } catch (_) {}
+          // A page that is hidden for later (back-forward cache) or frozen keeps no filled password.
+          const clearAll = () => {
+            empty(field);
+            try { for (const el of root.querySelectorAll('[\(secretMark)]')) { empty(el); } } catch (_) {}
+          };
+          try { W.addEventListener('pagehide', clearAll, true); } catch (_) {}
+          try { field.ownerDocument.addEventListener('freeze', clearAll, true); } catch (_) {}
         }
         for (const e of cmuxLoginAll()) { try { e.removeAttribute('\(loginMark)'); } catch (_) {} }
         const last = found.pass || found.user;
@@ -153,14 +179,5 @@ extension BrowserPageScripts {
         key('keydown'); key('keypress'); key('keyup');
         return { value: false };
         """)
-    }
-}
-
-extension BrowserPageScripts.WaitCondition {
-    /// A `function` condition that throws unless the page is still at `origin`
-    /// (``BrowserPageScripts/originPin(_:)``); any other condition as it is.
-    func pinned(to origin: String?) -> Self {
-        guard let origin, case .function(let expression) = self else { return self }
-        return .function("(() => { \(BrowserPageScripts.originPin(origin)) return (\n\(expression)\n); })()")
     }
 }

@@ -51,8 +51,8 @@ enum BrowserPageScripts {
     /// (`toJSON()` when present, else a structured clone through JSON). An
     /// exception it throws comes back as `{thrownKey: message}`, so only a
     /// wrapper that failed to parse throws.
-    static func jsonSafe(_ script: String, first: String = "") -> String {
-        "(() => { try { \(first)const v = (\n\(script)\n); if (v === undefined || v === null || typeof v !== 'object') return v; "
+    static func jsonSafe(_ script: String) -> String {
+        "(() => { try { const v = (\n\(script)\n); if (v === undefined || v === null || typeof v !== 'object') return v; "
             + "if (typeof v.toJSON === 'function') return v.toJSON(); try { return JSON.parse(JSON.stringify(v)); } catch (e) { return String(v); } } "
             + "catch (e) { let m; try { m = String(e); } catch (_) { m = 'Uncaught exception'; } return { \(thrownKey): m }; } })()"
     }
