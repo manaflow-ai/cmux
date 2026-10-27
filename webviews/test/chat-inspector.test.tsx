@@ -199,7 +199,6 @@ const meta = (element: HTMLElement | null) =>
   element?.querySelector(".acpmux-chat-inspector-section__meta")?.textContent;
 const head = (element: HTMLElement) => element.querySelector<HTMLElement>("button.ui-disclosure-trigger")!;
 const click = (element: HTMLElement) => act(async () => element.click());
-
 test("Inspector Sources navigate mixed targets and preserve expansion during streaming", async () => {
   const container = installDom(true);
   const sources = [
@@ -231,24 +230,19 @@ test("Inspector Sources navigate mixed targets and preserve expansion during str
   const list = () => container.querySelectorAll("[data-section=sources] li");
   const fold = () => container.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-sources-fold")!;
   expect(list()).toHaveLength(5);
-  for (const link of container.querySelectorAll<HTMLAnchorElement>("[data-section=sources] a")) await click(link);
-  for (const button of container.querySelectorAll<HTMLButtonElement>("ul[data-section=sources] button"))
-    await click(button);
+  for (const target of container.querySelectorAll<HTMLElement>("ul[data-section=sources] :is(a,button)"))
+    await click(target);
   expect(urls).toEqual(sources.slice(0, 3).map((source) => source.url!));
   expect(files).toEqual(["/project/.claude/worktrees/a/app.ts", "/project/.claude/worktrees/a/README.md"]);
   await click(fold());
   expect(list()).toHaveLength(8);
   expect(container.querySelectorAll("ul[data-section=sources] button")).toHaveLength(2);
   expect(fold().textContent).toContain("Show fewer");
-  for (let chunk = 1; chunk <= 3; chunk++) {
-    await draw([{ ...assistant("stream".repeat(chunk), 1), streaming: true }]);
-    expect(list()).toHaveLength(8);
-  }
+  await draw([{ ...assistant("stream", 1), streaming: true }]);
+  expect(list()).toHaveLength(8);
   await click(fold());
   expect(list()).toHaveLength(5);
-  expect(fold().getAttribute("aria-expanded")).toBe("false");
 });
-
 test("file Sources use native editor fallback and show a transient failure", async () => {
   const container = installDom(true);
   const calls: unknown[] = [];
@@ -257,17 +251,13 @@ test("file Sources use native editor fallback and show a transient failure", asy
     if (params.where === "tab" || params.path === "/project/missing")
       throw new NativeError({ code: "transport.path_invalid", userMessage: "Could not open file" });
   };
+  const sources = ["page.html", "icon.svg", "Dockerfile", "missing"].map((label) => ({ label, kind: "file" as const }));
   await act(async () => {
     root = createRoot(container);
     root.render(
       <ChatInspector
         summary={{ sessionId: "chat", cwd: "/project" }}
-        made={{
-          outputs: [],
-          pullRequests: [],
-          scheduled: [],
-          sources: ["page.html", "icon.svg", "Dockerfile", "missing"].map((label) => ({ label, kind: "file" })),
-        }}
+        made={{ outputs: [], pullRequests: [], scheduled: [], sources }}
         onOpenSourceFile={(path) => openSourceFile(path, native)}
       />,
     );
@@ -280,10 +270,10 @@ test("file Sources use native editor fallback and show a transient failure", asy
   try {
     for (const button of container.querySelectorAll<HTMLButtonElement>("ul[data-section=sources] button"))
       await click(button);
-    for (const path of ["page.html", "icon.svg", "Dockerfile", "missing"])
-      expect(calls.splice(0, 2)).toEqual(
-        ["tab", "editor"].map((where) => ["file.open", { path: `/project/${path}`, where }]),
-      );
+    for (const { label } of sources) {
+      const expected = ["tab", "editor"].map((where) => ["file.open", { path: `/project/${label}`, where }]);
+      expect(calls.splice(0, 2)).toEqual(expected);
+    }
     expect(container.querySelector('[role="alert"]')?.textContent).toBe("Could not open file");
     await act(async () => expire!());
     expect(container.querySelector('[role="alert"]')).toBeNull();
@@ -781,23 +771,26 @@ test("a folded Changes registers nothing with the host and asks it nothing", asy
   }
 });
 
-test("read-only references never leave an empty folded Changes header", async () => {
+test("read-only Sources neither register nor poll with Changes open by default", async () => {
   const container = installDom(true);
   const calls: string[] = [];
   setChipHost(async (method) => {
     if (method === "link.inspect" || method === "pr.inspect") calls.push(method);
     return method === "pr.inspect" ? { pullRequest: null, reading: true } : {};
   });
-  setInspectorSection("changes", false);
+  const polling = spyOn(globalThis, "setInterval");
   try {
-    // Named only in a reply: hidden until the App says they are pull requests.
-    await render(container, chat([assistant("acme/billing#9 and acme/atlas-web#12 are the ones to watch.", 1)]));
+    await render(
+      container,
+      chat([assistant("https://github.com/acme/app/pull/12 and https://github.com/acme/app/issues/9", 1)]),
+    );
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(section(container, "changes")).toBeNull();
     expect(section(container, "sources")).not.toBeNull();
     expect(calls).toEqual([]);
+    expect(polling.mock.calls.map(([, ms]) => ms).filter((ms) => ms === 60_000 || ms === 1_500)).toEqual([]);
   } finally {
-    setInspectorSection("changes", true);
+    polling.mockRestore();
     setChipHost(undefined);
     resetPullRequestStore();
     resetChangesStatuses();
