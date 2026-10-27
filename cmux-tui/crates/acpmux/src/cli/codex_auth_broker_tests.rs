@@ -121,6 +121,7 @@ fn access_refuses_expired_shared_or_linked_credentials() {
 async fn broker_uses_codex_refresh_and_pins_account_without_leaking_errors() {
     let home = Home::new();
     let holder = prepare(&home.0).unwrap();
+    home.auth(u64::MAX);
     let codex = home.0.join("fake-codex");
     std::fs::write(&codex, r#"#!/usr/bin/env python3
 import os, sys, json, base64, time
@@ -128,13 +129,19 @@ for line in sys.stdin:
     r = json.loads(line)
     if 'id' not in r: continue
     method = r['method']
+    result = {}
+    path = os.path.join(os.environ['CODEX_HOME'], 'auth.json')
+    if method == 'account/logout' and os.path.exists(path): os.unlink(path)
+    if method == 'account/login/start':
+        assert not os.path.exists(path)
+        result = {'verificationUrl':'https://auth.openai.com/codex/device','userCode':'TEST-1234'}
     if method == 'account/read':
         assert r['params']['refreshToken'] is True
         payload = base64.urlsafe_b64encode(json.dumps({'exp':int(time.time())+3600}).encode()).decode().rstrip('=')
         path = os.path.join(os.environ['CODEX_HOME'], 'auth.json')
         with open(path, 'w', opener=lambda p,f: os.open(p,f,0o600)) as f:
             json.dump({'auth_mode':'chatgpt','tokens':{'access_token':'e30.'+payload+'.sig','account_id':'account-one','refresh_token':'rotated-private'}}, f)
-    print(json.dumps({'id':r['id'],'result':{}}), flush=True)
+    print(json.dumps({'id':r['id'],'result':result}), flush=True)
 "#).unwrap();
     std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o700)).unwrap();
     let mut owner = Owner::start(&home.0, &codex, &holder).await.unwrap();
@@ -142,6 +149,9 @@ for line in sys.stdin:
     // The child must keep the lock, or a replacement could rotate concurrently.
     drop(holder);
     assert!(prepare(&home.0).is_err());
+    let prompt = owner.request(&home.0, &json!({"method": "login"})).await.unwrap();
+    assert_eq!(prompt["userCode"], "TEST-1234");
+    assert!(!home.0.join("auth.json").exists(), "a pending new login cannot reuse an old grant");
     let request = json!({"method": "access", "force": true});
     let reply = owner.request(&home.0, &request).await.unwrap();
     assert!(!reply.to_string().contains("rotated-private"));
