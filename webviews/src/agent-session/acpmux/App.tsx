@@ -117,6 +117,7 @@ import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
 import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
+import { pageAction } from "./automation";
 import { acpWire } from "./wire";
 import { acpmuxPerf, type MountedSpan } from "./perf";
 import { followTrace } from "./followTrace";
@@ -6980,7 +6981,9 @@ function AcpmuxPane() {
       sessionId: () => directClient.current?.selectedSession,
       automation: {
         snapshot: () => automationView.current!.snapshot,
-        call: (method, params) => callNative(method, params),
+        // The chat's own actions only, once it connects: never the native host (automation.ts pageAction).
+        call: async (method, params) => (await pageAction(() => window.cmuxAcpmuxActions, method))(params ?? {}),
+        ready: async (method) => void (await pageAction(() => window.cmuxAcpmuxActions, method)),
         selectSession: (sessionId) => automationView.current?.selectSession(sessionId),
         openDiff: (rowId) => automationView.current?.openDiff(rowId),
         diff: () => automationView.current?.diff ?? { open: false, paths: [] },
