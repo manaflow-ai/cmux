@@ -20,6 +20,24 @@ def test_delivery_workflows_never_cancel_in_progress_work() -> None:
         assert not re.search(r"(?m)^\s*cancel-in-progress:\s*true\s*$", text), path
 
 
+def test_dev_daily_jobs_take_no_concurrency_group() -> None:
+    """The DEV publisher's build and signing jobs take no group at all, not even a non-cancelling one:
+    GitHub keeps one pending run per group and cancels the older pending one, so a group evicts waiting
+    DEV work.
+
+    publish alone keeps its non-cancelling group in this branch's copy: it updates the rolling release
+    with no lease, so the group serializes it (main's copy, which runs, uses an R2 lease instead). The
+    dispatcher's own top-level group is allowed: it builds and signs nothing."""
+    import yaml
+
+    document = yaml.safe_load((WORKFLOWS / "cmux-next-dev-daily.yml").read_text(encoding="utf-8"))
+    assert "concurrency" not in document, "cmux-next-dev-daily.yml has a workflow-level group"
+    grouped = sorted(name for name, job in document["jobs"].items() if "concurrency" in job and name != "publish")
+    assert not grouped, f"cmux-next-dev-daily.yml jobs with a concurrency group: {grouped}"
+    publish = document["jobs"]["publish"].get("concurrency")
+    assert publish is None or (isinstance(publish, dict) and publish.get("cancel-in-progress") is False), publish
+
+
 # Shared nightly.yml job groups that may replace a pending job. None builds or signs: each is a
 # promotion request (builds nothing; the newest request wins) or a feed writer whose replaced
 # pending job is an older run's publish, which its order check would refuse after the newer one.

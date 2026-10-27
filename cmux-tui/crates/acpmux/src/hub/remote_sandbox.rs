@@ -86,6 +86,7 @@ fn platform_profile_id(linux: bool) -> String {
 fn linux_identity_sources() -> Vec<(&'static str, &'static str)> {
     vec![
         ("bwrap.rs", include_str!("../linux_sandbox/bwrap.rs")),
+        ("bwrap/aliases.rs", include_str!("../linux_sandbox/bwrap/aliases.rs")),
         ("bwrap/home.rs", include_str!("../linux_sandbox/bwrap/home.rs")),
         ("keeper.rs", include_str!("../linux_sandbox/keeper.rs")),
         ("init.rs", include_str!("../linux_sandbox/init.rs")),
@@ -1423,6 +1424,7 @@ mod endpoint_tests {
             "lookup.rs",
             "rules.rs",
             "bwrap/home.rs",
+            "bwrap/aliases.rs",
             "supervisor/mutations.rs",
         ] {
             assert!(names.contains(&name), "missing {name} from Linux profile identity");

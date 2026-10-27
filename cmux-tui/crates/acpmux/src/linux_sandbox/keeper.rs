@@ -19,7 +19,7 @@ use super::{bwrap, proxy, rules, supervisor};
 use bwrap::Paths;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::io;
+use std::io::{self, Read};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -652,7 +652,24 @@ async fn run(options: Options) -> Result<i32> {
     let bwrap_fd = open_bwrap()?;
     let prefix =
         init_prefix(&exe, crate::daemon::daemon_prefix(), 3, options.proxy_port, options.api)?;
-    let (mut argv, bind_fds) = bwrap::plan(paths, &denies, &prefix)?;
+    // The snapshot precedes the bwrap clone. Only unsandboxed host processes
+    // can add mounts in that window, and they already have full host access.
+    // After cloning, seccomp and user namespaces block sandbox mounts; the
+    // only sandbox-triggered propagation path is automount. The plan refuses
+    // all autofs outside /proc and /dev, which bwrap replaces. Systemd's
+    // binfmt_misc automount under /proc/sys is unaffected. Mount IDs come from
+    // O_PATH + /proc/self/fdinfo in this keeper, never from deepest-path guesses.
+    let mut mountinfo = Vec::new();
+    std::fs::File::open("/proc/self/mountinfo")
+        .map_err(|e| format!("cannot read mountinfo: {e}"))?
+        .take(4 * 1024 * 1024 + 1)
+        .read_to_end(&mut mountinfo)
+        .map_err(|e| format!("cannot read mountinfo: {e}"))?;
+    if mountinfo.len() > 4 * 1024 * 1024 {
+        return Err("mountinfo exceeds 4 MiB".into());
+    }
+    let mountinfo = String::from_utf8(mountinfo).map_err(|_| "mountinfo is not UTF-8")?;
+    let (mut argv, bind_fds) = bwrap::plan(paths, &denies, &mountinfo, &prefix)?;
     let separator =
         argv.iter().position(|arg| arg == "--").ok_or("bwrap plan has no command separator")?;
     argv.splice(
