@@ -37,6 +37,23 @@ import Testing
         #expect(clip.attachments.map(\.lastPathComponent) == ["screen.mov", "poster.png"])
     }
 
+    /// manifest.json is a file: a time or point no recording can have is refused when it is read, so the summary's
+    /// whole-number conversions never see it (p10-stability-093; before, `clock` trapped on `Int(1e300)`).
+    @Test func aManifestWithATimeOrPointNoRecordingHasIsRefused() throws {
+        let fine = try JSONDecoder().decode(PhoneRecording.self, from: JSONEncoder().encode(recording()))
+        #expect(fine.events.count == 3)
+        var lateEvent = recording()
+        lateEvent.events = [PhoneRecordingEvent(at: 1e300, input: .text("x"))]
+        var farPoint = recording()
+        farPoint.events = [PhoneRecordingEvent(at: 1, input: .tap(PhonePoint(x: -1e300, y: 0)))]
+        var longRecording = recording()
+        longRecording.duration = 1e19
+        for hostile in [lateEvent, farPoint, longRecording] {
+            let data = try JSONEncoder().encode(hostile)
+            #expect(throws: DecodingError.self) { _ = try JSONDecoder().decode(PhoneRecording.self, from: data) }
+        }
+    }
+
     @Test func theLogTailKeepsOnlyTheNewestErrors() {
         let lines = (1...20).map { #"{"messageType":"Error","eventMessage":"e\#($0)","processImagePath":"/p"}"# }
         let tail = PhoneLogTail(ndjson: Data(lines.joined(separator: "\n").utf8), limit: 3)

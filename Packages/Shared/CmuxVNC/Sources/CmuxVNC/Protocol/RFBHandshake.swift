@@ -53,7 +53,7 @@ struct RFBHandshake {
                 throw RFBError.credentialsRequired
             }
             let generator = try await reader.u16()
-            let length = Int(try await reader.u16())
+            let length = try await reader.u16Int()
             guard length > 0, length <= RFBLimits.maxDHKeyBytes else { throw RFBError.protocolViolation("Apple DH key length \(length)") }
             let prime = try await reader.bytes(length)
             let serverKey = try await reader.bytes(length)
@@ -81,8 +81,8 @@ struct RFBHandshake {
         }
 
         try await transport.send([shared ? 1 : 0])
-        let width = Int(try await reader.u16())
-        let height = Int(try await reader.u16())
+        let width = try await reader.u16Int()
+        let height = try await reader.u16Int()
         try RFBLimits.checkFramebuffer(width: width, height: height)
         let format = try await reader.bytes(16)
         let name = try await reader.lengthPrefixedString(limit: 4096)
@@ -105,14 +105,14 @@ struct RFBHandshake {
             let type = try await reader.u32()
             if type == 0 { throw RFBError.authenticationFailed(try await reader.lengthPrefixedString(limit: 4096)) }
             // Compare the whole word: 258 is not type 2.
-            guard type == UInt32(RFBSecurityType.none) || type == UInt32(RFBSecurityType.vncPassword) else {
+            guard let offered = UInt8(exactly: type),
+                  offered == RFBSecurityType.none || offered == RFBSecurityType.vncPassword else {
                 throw RFBError.noSupportedSecurityType([UInt8(truncatingIfNeeded: type)])
             }
-            let offered = UInt8(type)
             if offered == RFBSecurityType.vncPassword, credentials.username != nil { throw RFBError.credentialsRequired }
             return offered
         }
-        let count = Int(try await reader.u8())
+        let count = try await reader.u8Int()
         if count == 0 { throw RFBError.authenticationFailed(try await reader.lengthPrefixedString(limit: 4096)) }
         let offered = try await reader.bytes(count)
         let chosen = try choose(from: offered)
