@@ -20,6 +20,16 @@
 #       (exact SHAs, every gitlink), both run dirs and the comparison. Exit code is oracle.py diff's.
 #       --mutant builds the head side with the patch: `diff SHA SHA --mutant PATCH` is one mutant's catch check
 #       (exit 1, divergences, means the oracle caught it).
+#   linux_run.sh walks REF [--profile P] [--features F] [--timeout SEC] [--fresh] [-- WALKS_OPTIONS...]
+#       The walks profile (p15-oracle-099): builds REF, then one queued job runs walks_scale.py run on that
+#       binary: 100,000 seeded walks of length 30 on arm old and arm new of every daemon switch
+#       (oracle.py diff --switch per chunk of 10,000, one build), and every failure minimized (ddmin)
+#       before the report. Once the report is written, the minimized walks are copied into
+#       tests/oracle/corpus/walks/ of this checkout (to commit). The last stdout line is the job's walks
+#       dir (receipt.json, index.md; or unminimized.json and exit 3, with nothing copied). The exit code is
+#       walks_scale.py's: 0 clean, 1 failures (all minimized), 2 infrastructure, 3 refused or unminimized.
+#       WALKS_OPTIONS: --switch, --seeds, --first-seed, --length, --chunk, --jobs, --minimize-all,
+#       --minimize-jobs, --keep. --timeout defaults to 86400 s.
 #   linux_run.sh status [--json] | gc [--budget-gb N]
 #
 # Each job is keyed (sha, suite, arm, profile) plus the content of this script and the oracle sources,
@@ -40,6 +50,7 @@ DEFAULT_FEATURES=oracle
 CARGO_JOBS=240
 BUILD_TIMEOUT=7200
 RUN_TIMEOUT=14400
+WALKS_TIMEOUT=86400
 
 die() {
   echo "linux_run.sh: $*" >&2
@@ -55,7 +66,7 @@ resolve_sha() {
 }
 
 in_job() {
-  [[ -n "${RUNNERD_JOB:-}" && -n "${RUNNERD_OUT:-}" ]] || die "$1 runs only inside a runnerd job (use build, run or diff)"
+  [[ -n "${RUNNERD_JOB:-}" && -n "${RUNNERD_OUT:-}" ]] || die "$1 runs only inside a runnerd job (use build, run, diff or walks)"
 }
 
 # mutant_patch PATCH: the absolute path of a daemon mutant, after patch_mutants.py validated its header and scope.
@@ -407,6 +418,74 @@ PY
   return "$status"
 }
 
+# --- walks ------------------------------------------------------------------------------
+
+cmd_walks() {
+  local ref="" profile="$DEFAULT_PROFILE" features="$DEFAULT_FEATURES" timeout="$WALKS_TIMEOUT" fresh=() pass=()
+  while (($#)); do
+    case "$1" in
+      --profile) profile="${2:?--profile needs a value}"; shift 2 ;;
+      --features) features="${2?--features needs a value}"; shift 2 ;;
+      --timeout) timeout="${2:?--timeout needs seconds}"; shift 2 ;;
+      --fresh) fresh=(--fresh); shift ;;
+      --) shift; pass=("$@"); break ;;
+      -*) die "walks: unknown option $1 (walks_scale.py options go after --)" ;;
+      *) [[ -z "$ref" ]] || die "walks: one REF"; ref="$1"; shift ;;
+    esac
+  done
+  [[ -n "$ref" ]] || die "walks needs REF"
+  [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || die "--timeout $timeout: whole seconds"
+  local arg
+  for arg in "${pass[@]}"; do
+    case "$arg" in
+      --binary | --binary=* | --sha | --sha=* | --work | --work=* | --commit-dir | --commit-dir=* | --registry | --registry=*)
+        die "$arg: set by linux_run.sh walks" ;;
+    esac
+  done
+  local sha binary
+  sha="$(resolve_sha "$ref")"
+  binary="$(cmd_build "$sha" --profile "$profile" --features "$features" | tail -n 1)"
+  [[ -x "$binary" ]] || die "build of $sha gave no binary"
+  # Seeds, length and switches are in the arguments and the registry content is a key path, so a clean
+  # result (exit 0) of the same request is reused; failures, refusals and unminimized runs run again.
+  local key_args=() extra_args=() dir code=0
+  mapfile -t key_args < <(run_key_paths)
+  for arg in "${pass[@]}"; do
+    extra_args+=(--extra "arg=$arg")
+  done
+  dir="$(runnerd submit --sha "$sha" --suite walks-scale --arm daemon-switches --profile "$profile" \
+    --timeout "$timeout" --hold "$binary" "${key_args[@]}" --extra "binary=$binary" "${extra_args[@]}" \
+    "${fresh[@]}" -- bash "$SELF" _walks "$sha" "$binary" -- "${pass[@]}" | tail -n 1)" || code=$?
+  [[ -n "$dir" && -d "$dir" ]] || die "the walks job of $sha wrote no walks dir (exit $code)"
+  # No report means a failure is not minimized: nothing goes into the corpus then.
+  if [[ -f "$dir/receipt.json" ]]; then
+    local minimized corpus="$REPO/tests/oracle/corpus/walks" case_file
+    minimized="$(dirname "$dir")/minimized/walks"
+    for case_file in "$minimized"/*.json; do
+      [[ -f "$case_file" ]] || continue
+      mkdir -p "$corpus"
+      cp "$case_file" "$corpus/"
+      echo "linux_run.sh: minimized walk $corpus/$(basename "$case_file")" >&2
+    done
+  fi
+  echo "linux_run.sh: walks report $dir (walks_scale.py exit $code)" >&2
+  echo "$dir"
+  return "$code"
+}
+
+job_walks() {
+  in_job _walks
+  local sha="$1" binary="$2"
+  shift 2
+  [[ "${1:-}" == "--" ]] && shift
+  local work="$RUNNERD_OUT/walks" code=0
+  python3 -I "$HERE/walks_scale.py" run --binary "$binary" --sha "$sha" --work "$work" \
+    --commit-dir "$RUNNERD_OUT/minimized/walks" "$@" >&2 || code=$?
+  [[ -d "$work" ]] || exit "$((code == 0 ? 1 : code))"
+  echo "$work"
+  exit "$code"
+}
+
 # --- main -------------------------------------------------------------------------------
 
 main() {
@@ -418,9 +497,11 @@ main() {
     build) cmd_build "$@" ;;
     run) cmd_run "$@" ;;
     diff) cmd_diff "$@" ;;
+    walks) cmd_walks "$@" ;;
     status | gc) runnerd "$command" "$@" ;;
     _build) job_build "$@" ;;
     _run) job_run "$@" ;;
+    _walks) job_walks "$@" ;;
     *) sed -n '2,/^#$/p' "$SELF" | sed '$d; s/^# \{0,1\}//' >&2; exit 2 ;;
   esac
 }

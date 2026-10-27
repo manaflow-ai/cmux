@@ -58,6 +58,29 @@ if args[0] == "run":
 print("diff " + " ".join(args))
 """
 
+# walks_scale.py run --binary BIN --sha SHA --work DIR --commit-dir DIR [OPTIONS]: ORACLE_TEST_WALKS picks
+# the outcome: clean (exit 0), failures (one minimized walk, exit 1), unminimized (no report, exit 3).
+STUB_WALKS = """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ["ORACLE_TEST_LOG"], "a") as handle:
+    handle.write("walks " + " ".join(args) + "\\n")
+work, commit = args[args.index("--work") + 1], args[args.index("--commit-dir") + 1]
+mode = os.environ.get("ORACLE_TEST_WALKS", "clean")
+os.makedirs(work)
+def write(path, value):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as handle:
+        json.dump(value, handle)
+if mode != "clean":
+    write(os.path.join(commit, "holder-walk-3.json"), {"id": "holder-walk-3", "suite": "walks"})
+if mode == "unminimized":
+    write(os.path.join(work, "unminimized.json"), {"failures": [{"seed": "walk-4"}]})
+    sys.exit(3)
+write(os.path.join(work, "receipt.json"), {"ok": mode == "clean", "args": args})
+sys.exit(0 if mode == "clean" else 1)
+"""
+
 
 def git(*args: str, cwd: Path) -> str:
     return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com",
@@ -83,6 +106,7 @@ class LinuxRunCase(unittest.TestCase):
         for name in ("linux_run.sh", "runnerd.py", "patch_mutants.py", "baselines.py"):
             shutil.copy(HERE / name, oracle_dir / name)
         (oracle_dir / "oracle.py").write_text(STUB_ORACLE)
+        (oracle_dir / "walks_scale.py").write_text(STUB_WALKS)
         (repo / "cmux-tui").mkdir()
         (repo / "cmux-tui" / "Cargo.toml").write_text("[workspace]\n\n[profile.oracle]\ninherits = \"release\"\n")
         lib = repo / "cmux-tui" / "crates" / "core" / "src" / "lib.rs"
@@ -161,7 +185,7 @@ class LinuxRunCase(unittest.TestCase):
 
 class QueueOnlyTests(LinuxRunCase):
     def test_job_entry_points_refuse_outside_a_job(self) -> None:
-        for command in ("_build", "_run"):
+        for command in ("_build", "_run", "_walks"):
             result = self.linux_run(command, self.base_sha)
             self.assertEqual(result.returncode, 2, command)
             self.assertIn("only inside a runnerd job", result.stderr)
@@ -365,6 +389,73 @@ class MutantTests(LinuxRunCase):
         self.assertIsNone(receipt["base"]["build"]["mutant"])
         self.assertEqual(receipt["head"]["build"]["mutant"]["id"], "daemon/index-off-by-one")
         self.assertEqual(receipt["mutant"]["id"], "daemon/index-off-by-one")
+
+
+class WalksTests(LinuxRunCase):
+    """`linux_run.sh walks` (p15-oracle-099): one build, one queued walks job, minimized walks into the corpus."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.corpus = self.repo / "tests" / "oracle" / "corpus" / "walks"
+        self.addCleanup(shutil.rmtree, self.corpus, True)
+
+    def walks_dir(self, result: subprocess.CompletedProcess) -> Path:
+        return Path(result.stdout.strip().splitlines()[-1])
+
+    def test_one_build_and_one_job_run_the_walks_on_that_binary(self) -> None:
+        result = self.linux_run("walks", self.base_sha, "--", "--seeds", "20", "--switch", "holder")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        [build] = self.logged("cargo")
+        self.assertTrue(build.startswith(self.base_sha), build)
+        [walks] = self.logged("walks")
+        args = walks.split()
+        self.assertEqual(args[0], "run")
+        self.assertEqual(args[args.index("--sha") + 1], self.base_sha)
+        binary = Path(args[args.index("--binary") + 1])
+        self.assertTrue((binary.parent / "build.json").is_file())
+        self.assertEqual(args[-4:], ["--seeds", "20", "--switch", "holder"])
+        work = self.walks_dir(result)
+        self.assertEqual(Path(args[args.index("--work") + 1]), work)
+        self.assertTrue((work / "receipt.json").is_file())
+        self.assertNotIn(str(self.repo), str(work), "the walks dir stays outside the checkout")
+        self.assertFalse(self.corpus.exists(), "a clean run adds no walk to the corpus")
+
+    def test_a_clean_run_is_reused_and_fresh_runs_again(self) -> None:
+        first = self.linux_run("walks", self.base_sha, "--", "--seeds", "5")
+        again = self.linux_run("walks", self.base_sha, "--", "--seeds", "5")
+        other = self.linux_run("walks", self.base_sha, "--", "--seeds", "6")
+        fresh = self.linux_run("walks", self.base_sha, "--fresh", "--", "--seeds", "5")
+        for result in (first, again, other, fresh):
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.walks_dir(first), self.walks_dir(again))
+        self.assertEqual(len(self.logged("walks")), 3)
+        self.assertEqual(len(self.logged("cargo")), 1)
+
+    def test_minimized_walks_are_copied_into_the_corpus_once_reported(self) -> None:
+        result = self.linux_run("walks", self.base_sha, ORACLE_TEST_WALKS="failures")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(sorted(p.name for p in self.corpus.glob("*.json")), ["holder-walk-3.json"])
+        self.assertIn(f"minimized walk {self.corpus / 'holder-walk-3.json'}", result.stderr)
+        again = self.linux_run("walks", self.base_sha, ORACLE_TEST_WALKS="failures")
+        self.assertEqual(again.returncode, 1, again.stderr)
+        self.assertEqual(len(self.logged("walks")), 2, "a run with failures is never reused")
+
+    def test_no_walk_reaches_the_corpus_without_a_report(self) -> None:
+        result = self.linux_run("walks", self.base_sha, ORACLE_TEST_WALKS="unminimized")
+        self.assertEqual(result.returncode, 3, result.stderr)
+        work = self.walks_dir(result)
+        self.assertTrue((work / "unminimized.json").is_file())
+        self.assertFalse((work / "receipt.json").exists())
+        self.assertFalse(self.corpus.exists())
+
+    def test_options_walks_sets_are_refused(self) -> None:
+        for option in ("--binary", "--sha", "--work", "--commit-dir", "--registry"):
+            result = self.linux_run("walks", self.base_sha, "--", option, "x")
+            self.assertEqual(result.returncode, 2, option)
+            self.assertIn("set by linux_run.sh walks", result.stderr)
+        for argv in (("walks",), ("walks", self.base_sha, "--timeout", "1h"), ("walks", self.base_sha, "--seeds", "1")):
+            self.assertEqual(self.linux_run(*argv).returncode, 2, argv)
+        self.assertFalse((self.work / "root").exists(), "nothing is queued for a refused request")
 
 
 class QueuedDiffArgsTests(unittest.TestCase):
