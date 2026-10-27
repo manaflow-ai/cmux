@@ -171,11 +171,11 @@ final class AppServices {
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater: UpdaterService
     /// The app's one file picker made ahead of the click (agent panes, page inputs, Home's "+"). With feature
-    /// `memoryOpenPanelOnFirstUse` (default off) it is made on the first click and released once unused, so no
-    /// panel service process runs at Home idle.
+    /// `memoryOpenPanelOnFirstUse` (default off) it is made on the first click and is an overlay page released once
+    /// unused or at memory pressure (``overlayPageDiscards``), so no panel service process runs at Home idle.
     private(set) lazy var openPanel = MadeAheadOpenPanel(policy: features.isEnabled(.memoryOpenPanelOnFirstUse)
-        ? .afterFirstUse(releaseAfter: Feature.memoryOpenPanelOnFirstUse.durationParam("releaseAfter") ?? .seconds(300),
-                         deadline: MainDeadline(owner: "openPanel.release", workClass: .background, scheduler: mainDeadlines)) : .ahead)
+        ? .afterFirstUse(overlayPageDiscards.terms(releaseAfter: Feature.memoryOpenPanelOnFirstUse.durationParam("releaseAfter") ?? .seconds(300)))
+        : .ahead)
     /// The agent page WebKit warm-up.
     private(set) lazy var agentPageWarmup = AgentPageWarmup(chromiumChat: agentChromiumChat)
     /// Whether a new agent page may show in Chromium: feature `agentChromium`, its Debug tunable `agent.chromium` (the
@@ -426,7 +426,8 @@ final class AppServices {
     /// nil unless `memoryHiddenFrameLRU`.
     private(set) lazy var hiddenFrames: HiddenFrameLRU? = makeHiddenFrameLRU()
     /// The local memory histograms `debug.memory` shows (never uploaded); discards count per instrumented `ContentKind`.
-    private(set) lazy var memoryHistograms = MemoryHistograms(pressure: memoryPressure, discardKinds: MemoryHistograms.hibernationKinds)
+    private(set) lazy var memoryHistograms = MemoryHistograms(pressure: memoryPressure, discardKinds: MemoryHistograms.discardKinds(
+        overlayPages: features.isEnabled(.memoryOverlayPagesOnFirstUse) || features.isEnabled(.memoryOpenPanelOnFirstUse)))
     /// Samples the footprints into `memoryHistograms` once an hour (startHibernationMeasurements starts it).
     private(set) lazy var memoryFootprints = MemoryFootprintEmitter(
         histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } },
@@ -462,7 +463,17 @@ final class AppServices {
     private(set) lazy var pageScriptFrame: PageScriptFrame? = features.isEnabled(.pageScriptFrames)
         ? FrameBatchQueue(owner: "pages.scripts", budgeted: .visible, on: mainWork).pageScriptFrame(causes: mainWork.causes) : nil
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
-    private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI, mainWork: mainWork)
+    private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI, mainWork: mainWork, release: overlayPageRelease)
+    /// When overlay content (the icon picker, the update card's highlights, each Extensions bubble) is made and
+    /// released: feature `memoryOverlayPagesOnFirstUse` (default off) makes none before its first open and lets it go
+    /// after it goes unused or at memory pressure (p07-memory-086); nil keeps each for good.
+    private(set) lazy var overlayPageRelease: OverlayPageReleaseTerms? = features.isEnabled(.memoryOverlayPagesOnFirstUse)
+        ? overlayPageDiscards.terms(releaseAfter: Feature.memoryOverlayPagesOnFirstUse.durationParam("releaseAfter") ?? OverlayPageRelease.defaultReleaseAfter)
+        : nil
+    /// The one discard path of overlay pages (`ContentKind.overlayPage`), made only when a feature above releases one.
+    private(set) lazy var overlayPageDiscards = OverlayPageDiscards(memory: memoryCoordinator) { [weak self] in
+        self?.memoryHistograms.recordDiscard(kind: ContentKind.overlayPage.rawValue)
+    }
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
     private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // built by its start
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
@@ -810,6 +821,7 @@ final class AppServices {
             bookmarks.attach(entry)
             onboarding.browserImportOffer.attach(entry)
             attachMachineBadgeMenu(entry)
+            if let overlayPageRelease { entry.chrome.releaseExtensionsMenuWhenUnused(overlayPageRelease) }
         }
         cache.onSuggestionEngineCreated = { [weak self] in
             guard let self else { return }

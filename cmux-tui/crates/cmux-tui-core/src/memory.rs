@@ -4,9 +4,10 @@
 //! needs it starts none. Other sources (the app's `memory.limit` push) vote
 //! through [`MemoryRegistry::voter`]; the level is the worst vote.
 //!
-//! Consumers: the standby host slot (lossless, `terminal.standby-host`) and
-//! the output store's scrollback budget (lossy, `terminal.scrollback`, which
-//! starts the source with the store).
+//! Consumers: the standby host slot (lossless, `terminal.standby-host`), the
+//! Kitty pixel maps (lossless, `terminal.kitty-pixels`, which start the
+//! source with the mux) and the output store's scrollback budget (lossy,
+//! `terminal.scrollback`, which starts the source with the store).
 
 use std::sync::{Arc, OnceLock};
 
@@ -32,6 +33,8 @@ pub(crate) struct MemorySetup {
     /// The `memoryScrollbackPressure` feature
     /// (`crate::output_store::SCROLLBACK_PRESSURE_FEATURE`).
     pub(crate) scrollback_pressure: bool,
+    /// The `memoryKittyShare` feature (`crate::mux::KITTY_SHARE_FEATURE`).
+    pub(crate) kitty_share: bool,
 }
 
 impl MemorySetup {
@@ -43,6 +46,7 @@ impl MemorySetup {
             scrollback_pressure: cmux_features::listed_in_env(
                 crate::output_store::SCROLLBACK_PRESSURE_FEATURE,
             ),
+            kitty_share: cmux_features::listed_in_env(crate::mux::KITTY_SHARE_FEATURE),
         }
     }
 }

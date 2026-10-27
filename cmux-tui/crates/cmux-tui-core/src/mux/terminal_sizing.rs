@@ -729,7 +729,17 @@ impl Mux {
     /// Deliver pending size states to subscribers and attach streams. Call
     /// only without the sizing lock held.
     pub(super) fn publish_size_states(&self) {
-        let publications = self.client_sizing.lock().unwrap().take_size_state_publications();
+        let follows_visibility = self.kitty_share_follows_visibility();
+        let (publications, visible) = {
+            let mut sizing = self.client_sizing.lock().unwrap();
+            let visible = follows_visibility.then(|| sizing.visible_terminals());
+            (sizing.take_size_state_publications(), visible)
+        };
+        // Size leases are what the person sees: the Kitty share follows them
+        // (claimed, released, expired), never a bare attach.
+        if let Some((order, visible)) = visible {
+            self.set_kitty_visible_terminals(order, visible);
+        }
         for publication in publications {
             for placement in publication.placements {
                 if self.surface(placement).is_none() {

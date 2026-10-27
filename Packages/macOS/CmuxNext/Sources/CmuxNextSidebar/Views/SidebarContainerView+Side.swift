@@ -16,6 +16,7 @@ extension SidebarContainerView {
     /// border line when it shows at rest (the resize handle centers it on the edge), else 0.
     /// Hover cards beside a row stand one device pixel past this (`sidebarColumnOnScreen`).
     var visibleEdgeOutset: CGFloat {
+        // visibility-walk-allow: the shown resize line's geometry (hover cards stand past it); a hidden handle has none
         guard !handle.isHiddenOrHasHiddenAncestor, handle.restingLineWidth > 0 else { return 0 }
         return handle.lineWidth / 2
     }
@@ -39,6 +40,7 @@ extension SidebarContainerView {
     /// window covers the band with a catcher panel above pages, as for a pane divider
     /// (`DividerMouseCatchers`).
     public var resizeBandInWindow: CGRect? {
+        // visibility-walk-allow: the resize band's hit-test rect; a hidden handle takes no mouse
         guard handle.window != nil, !handle.isHiddenOrHasHiddenAncestor, handle.bounds.width > 0 else { return nil }
         return handle.convert(handle.bounds, to: nil)
     }

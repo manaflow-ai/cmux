@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 @testable import CmuxNextPages
+import CmuxNextWakeups
 import Testing
 
 /// The first Settings open after launch (perceived speed, 2026-10-15): the pool parks its
@@ -15,7 +16,7 @@ import Testing
         let memory = PageTestMemory()
         let pool = PageHostPool(memory: memory.coordinator, activity: { 0 }, isTrackingMenu: { false })
         defer { pool.dropSpare() }
-        pool.start(isMainWindow: { $0 === window }, fallback: { _ in nil })
+        pool.start(isMainWindow: { $0 === window }, fallback: { _ in nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         pool.noteLikely()
         #expect(pool.target === window, "the pool started with a main window on screen and parked its spare nowhere")
     }
@@ -26,7 +27,7 @@ import Testing
         let memory = PageTestMemory()
         let pool = PageHostPool(memory: memory.coordinator, activity: { 0 }, isTrackingMenu: { false })
         defer { pool.dropSpare() }
-        pool.start(isMainWindow: { _ in false }, fallback: { _ in nil })
+        pool.start(isMainWindow: { _ in false }, fallback: { _ in nil }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         pool.noteLikely()
         let window = Self.shownWindow()
         defer { window.close() }

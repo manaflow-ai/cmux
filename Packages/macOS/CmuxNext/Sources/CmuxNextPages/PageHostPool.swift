@@ -50,7 +50,7 @@ public final class PageHostPool {
     /// The pool's memory consumer: warning or critical drops the spare, and none is built or parked
     /// again until normal (Chrome's spare rule, ``SpareMemoryConsumer``).
     var spareMemory: SpareMemoryConsumer?
-    var windowObservers: [any NSObjectProtocol] = []
+    var windowObservers: [MainActorObservation] = []
     public internal(set) var isLikely = false
     public internal(set) weak var target: NSWindow?
     public internal(set) var claims: [Claim] = []
