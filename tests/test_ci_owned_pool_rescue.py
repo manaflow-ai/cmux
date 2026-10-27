@@ -1351,11 +1351,14 @@ class Killed(Exception):
 
 class CancelledAPI(FakeAPI):
     """A DEV run whose cancel leaves its queued owned jobs as GitHub does (cancelled, no runner, no step) and the run
-    concluded `cancelled`, with `note` as the jobs' "canceled by" annotation (an exception: unreadable)."""
+    concluded `cancelled`, with `note` as the jobs' "canceled by" annotation (an exception: unreadable), and
+    `rescue_log` as the log of the rescue jobs that ran meanwhile."""
 
-    def __init__(self, clock, *, note=f"The run was canceled by @{CMUX_BOT}.", cancelled=False, **kwargs):
-        super().__init__(clock, dev_jobs, marker=True, workflow=DEV_WORKFLOW, **kwargs)
-        self.note = note
+    def __init__(self, clock, *, note=f"The run was canceled by @{CMUX_BOT}.", cancelled=False, rescue_log=(),
+                 extra=(), **kwargs):
+        super().__init__(clock, lambda seconds: dev_jobs(seconds) + list(extra), marker=True, workflow=DEV_WORKFLOW,
+                         **kwargs)
+        self.note, self.rescue_log = note, rescue_log
         if cancelled:
             self.cancelled_at, self.cancel_attempt = 0.0, 1
 
@@ -1365,14 +1368,15 @@ class CancelledAPI(FakeAPI):
 
     def run(self, run_id):
         found = super().run(run_id)
-        return {**found, "conclusion": "cancelled"} if self.settled() else found
+        return {**found, "conclusion": "cancelled", "id": run_id, "updated_at": stamp(self.clock.seconds)} \
+            if self.settled() else found
 
     def jobs(self, run_id, attempt):
         found = super().jobs(run_id, attempt)
         if attempt != 1 or not self.settled():
             return found
         return [{**found_job, "id": index, "status": "completed", "conclusion": "cancelled", "steps": []}
-                if found_job.get("status") == "queued" else {**found_job, "id": index, "conclusion": "success"}
+                if found_job.get("status") == "queued" else {**found_job, "id": index}
                 for index, found_job in enumerate(found, 1)]
 
     def annotations(self, job_id):
@@ -1381,29 +1385,74 @@ class CancelledAPI(FakeAPI):
             raise self.note
         return [{"annotation_level": "failure", "message": self.note}] if self.note else []
 
+    def rescue_jobs(self, earliest_end, latest_start):
+        self.calls.append("rescue-jobs")
+        return [7001]
+
+    def job_log(self, job_id):
+        self.calls.append(f"log:{job_id}")
+        return "\n".join(self.rescue_log)
+
 
 class StrandedCancel(unittest.TestCase):
-    """A rescue that stopped between its cancel and its re-run leaves the run to the next watch, which re-runs it."""
+    """A rescue that stopped between its cancel and its re-run leaves the run to the next watch, which re-runs it;
+    every other cancel is final."""
+
+    def follow(self, api, clock, log=lambda _: None):
+        target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
+        return rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep, log=log)
 
     def test_a_sweeper_killed_between_the_cancel_and_the_re_run_strands_nothing(self):
         clock = Clock()
-        api = CancelledAPI(clock)
+        killed_log = []
+        api = CancelledAPI(clock, rescue_log=killed_log)
         target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
 
         def killed(seconds):
             raise Killed()
         with self.assertRaises(Killed):
             rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
-                          log=lambda _: None, rescue_sleep=killed)
+                          log=killed_log.append, rescue_sleep=killed)
         self.assertEqual(mutations(api), ["cancel"])
+        self.assertIn(f"{rescue.RERUN_INTENT} run {RUN_ID} attempt 1", killed_log)
         clock.sleep(api.settles_after)
-        # The next sweeper adopts the run again (by its marker) and finds it cancelled by the bot, never re-run.
+        # The next sweeper adopts the run again (by its marker): cancelled by the bot, and the killed rescue's own
+        # log says it meant to re-run it.
         lines = []
-        result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
-                               log=lines.append)
-        self.assertEqual(result, "done")
+        self.assertEqual(self.follow(api, clock, lines.append), "done")
         self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
-        self.assertTrue(any("cancelled this attempt and nothing re-ran it" in line for line in lines), lines)
+        self.assertTrue(any("stopped before the re-run" in line for line in lines), lines)
+
+    def test_a_janitor_cancel_by_the_same_bot_stays_cancelled(self):
+        # The queue janitor cancels as cmux-bot too (a superseded DEV run that never started, an orphan): no rescue
+        # logged an intent for this run, or only for another run or attempt.
+        for rescue_log in ((), (f"{rescue.RERUN_INTENT} run {RUN_ID + 1} attempt 1",),
+                           (f"{rescue.RERUN_INTENT} run {RUN_ID} attempt 2",)):
+            clock = Clock()
+            api = CancelledAPI(clock, cancelled=True, rescue_log=rescue_log)
+            clock.sleep(60)
+            self.assertEqual(self.follow(api, clock), f"stopped: the run was cancelled by @{CMUX_BOT}; left cancelled")
+            self.assertEqual(mutations(api), [], rescue_log)
+
+    def test_someone_elses_cancel_is_final_even_beside_a_refusal(self):
+        refused = {**refused_job("Verify signed cmux NEXT DEV (shard 2)", labels=(LIGHT,)), "id": 99}
+        for note, said in (("The run was canceled by @leo.", "stopped: the run was cancelled by @leo; left cancelled"),
+                           (urllib.error.HTTPError("u", 403, "no checks: read", None, io.BytesIO(b"")),
+                            "stopped: the run was cancelled, and who cancelled it could not be read; left cancelled")):
+            clock = Clock()
+            api = CancelledAPI(clock, note=note, cancelled=True, extra=[refused],
+                               rescue_log=[f"{rescue.RERUN_INTENT} run {RUN_ID} attempt 1"])
+            clock.sleep(60)
+            self.assertEqual(self.follow(api, clock), said)
+            self.assertEqual(mutations(api), [], note)
+
+    def test_a_cancel_no_annotation_explains_keeps_the_old_rules(self):
+        # GitHub's own cancels (a job timeout) write no "canceled by" line: the refusal and timeout rules decide.
+        clock = Clock()
+        api = CancelledAPI(clock, note="", cancelled=True)
+        clock.sleep(60)
+        self.assertEqual(self.follow(api, clock), "stopped: the run finished")
+        self.assertNotIn("rescue-jobs", api.calls)
 
     def test_a_successor_sweeper_adopts_a_recently_cancelled_marked_run(self):
         cancelled = listed(1, path=DEV_DAILY, event="workflow_dispatch", pull_requests=[], status="completed",
@@ -1414,34 +1463,67 @@ class StrandedCancel(unittest.TestCase):
         self.assertEqual(Sweeper.sweep(Sweeper(), api)[0], [(1, 1, False)])
         self.assertIsInstance(rescue.sweep_target(cancelled, "manaflow-ai/cmux", late=False), rescue.Target)
 
-    def test_a_run_cancelled_by_anyone_else_or_unknown_stays_cancelled(self):
-        for note in ("The run was canceled by @leo.", "", None,
-                     urllib.error.HTTPError("u", 403, "no checks: read", None, io.BytesIO(b""))):
-            clock = Clock()
-            api = CancelledAPI(clock, note=note, cancelled=True)
-            clock.sleep(60)
-            target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
-            result = rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep,
-                                   log=lambda _: None)
-            self.assertEqual(result, "stopped: the run finished", note)
-            self.assertEqual(mutations(api), [], note)
-            self.assertTrue(any(call.startswith("annotations:") for call in api.calls), note)
-
-    def test_the_bot_actors_count_and_a_re_run_attempt_is_not_stranded(self):
-        for actor in (ACTIONS_BOT, CMUX_BOT):
+    def test_a_re_run_attempt_is_not_read_or_touched(self):
+        for actor in (ACTIONS_BOT, CMUX_BOT, "leo"):
             api = CancelledAPI(Clock(), note=f"The run was canceled by @{actor}.")
             jobs = [{**job("Verify signed cmux NEXT DEV", labels=[LIGHT]), "id": 9, "status": "completed",
                      "conclusion": "cancelled", "steps": []}]
-            self.assertEqual(rescue.rescue_cancelled(api, jobs, lambda _: None, lambda _: None), actor)
+            self.assertEqual(rescue.canceller(api, jobs, lambda _: None, lambda _: None), actor)
         # Someone re-ran it meanwhile: the watch of attempt 1 reads no annotation and re-runs nothing.
         clock = Clock()
         api = CancelledAPI(clock, cancelled=True, attempt_after_cancel=2)
         clock.sleep(60)
         api.run = lambda run_id: {"status": "completed", "conclusion": "cancelled", "run_attempt": 2}
-        target = rescue.Target(RUN_ID, 1, HEAD, 0, e2e=True, path=DEV_DAILY)
-        rescue.follow(api, target, seconds=30, queue_rounds="0", now=clock.now, sleep=clock.sleep, log=lambda _: None)
+        self.follow(api, clock)
         self.assertEqual(mutations(api), [])
         self.assertFalse(any(call.startswith("annotations:") for call in api.calls))
+
+    def test_the_rescue_jobs_read_are_those_alive_at_the_cancel(self):
+        api = rescue.GitHub("t", "manaflow-ai/cmux")
+        asked = []
+        runs = {"workflow_runs": [
+            {"id": 1, "conclusion": "cancelled", "run_started_at": stamp(-3600), "updated_at": stamp(-100)},
+            {"id": 2, "conclusion": "success", "run_started_at": stamp(-7200), "updated_at": stamp(-5000)},
+            {"id": 3, "conclusion": "skipped", "run_started_at": stamp(-50), "updated_at": stamp(-40)},
+            {"id": 4, "conclusion": "success", "run_started_at": stamp(60), "updated_at": stamp(90)}]}
+
+        def request(method, path, **_):
+            asked.append(path)
+            if path.startswith("/actions/workflows/"):
+                return runs
+            return {"jobs": [{"id": 11, "conclusion": "cancelled"}]}
+        api.request = request
+        self.assertEqual(api.rescue_jobs(START - dt.timedelta(seconds=1200), START), [11])
+        self.assertEqual(asked[1:], ["/actions/runs/1/jobs?per_page=20"])
+
+    def test_a_job_log_follows_its_redirect_without_the_token(self):
+        import email.message
+        sent = []
+
+        class Response(io.BytesIO):
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        class Opener:
+            def open(self, request, timeout=None):
+                sent.append((request.full_url, request.headers.get("Authorization")))
+                headers = email.message.Message()
+                headers["Location"] = "https://logs.example/job-11"
+                raise urllib.error.HTTPError(request.full_url, 302, "Found", headers, io.BytesIO(b""))
+
+        def urlopen(url, timeout=None):
+            sent.append((url, None))
+            return Response(f"{rescue.RERUN_INTENT} run 5 attempt 1\n".encode())
+        api = rescue.GitHub("t", "manaflow-ai/cmux")
+        with unittest.mock.patch.object(rescue.urllib.request, "build_opener", lambda *handlers: Opener()), \
+                unittest.mock.patch.object(rescue.urllib.request, "urlopen", urlopen):
+            self.assertIn("run 5 attempt 1", api.job_log(11))
+            api.job_log(11)  # read once
+        self.assertEqual(sent, [(f"{rescue.API}/repos/manaflow-ai/cmux/actions/jobs/11/logs", "Bearer t"),
+                                ("https://logs.example/job-11", None)])
 
 
 class BlacksmithStall(unittest.TestCase):
