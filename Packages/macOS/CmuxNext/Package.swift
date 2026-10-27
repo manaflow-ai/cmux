@@ -2106,7 +2106,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextSettingsWindow",
-            dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextActions", "CmuxNextWakeups"],
+            // CmuxSafeConcurrency: ChatRootPicker's OnceContinuation (moved from CmuxNextSettings, p15-oracle-133).
+            dependencies: ["CmuxNextSettings", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextActions", "CmuxNextWakeups",
+                           .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             resources: [
                 .process("Localizable.xcstrings"),
             ],

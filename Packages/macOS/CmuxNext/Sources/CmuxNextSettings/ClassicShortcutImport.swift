@@ -1,4 +1,3 @@
-import AppKit
 import CmuxNextActions
 public import Foundation
 
@@ -72,7 +71,7 @@ enum ClassicShortcutImport {
         }
         let descriptor = registry.descriptor(for: id)
         if !first.command, !first.control,
-           descriptor?.defaultShortcut?.modifiers.isDisjoint(with: [.command, .control]) != true {
+           descriptor?.defaultShortcut.map({ !$0.hasCommand && !$0.hasControl }) != true {
             return false
         }
         let shortcut = SettingsApplier.shortcut(for: first)

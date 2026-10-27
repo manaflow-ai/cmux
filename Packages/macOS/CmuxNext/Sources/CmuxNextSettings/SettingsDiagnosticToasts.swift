@@ -1,7 +1,7 @@
-import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
+import Foundation
 
 /// Tells the person when cmux-next.json holds a value this build refuses
 /// (`SettingsDiagnosticNotices`): a toast on the key window names the key,
@@ -12,7 +12,8 @@ import CmuxNextDesign
 /// window waits for the next window that becomes key. Fixing the refusal the
 /// toast names closes it. An agent or a hand edit that writes the file past
 /// `cmux settings set` no longer fails silently. The app turns it on with
-/// `SettingsController.start(announcingDiagnostics: true)`; Debug Settings
+/// `SettingsController.start(announcingDiagnostics:)` and the window side
+/// (`SettingsDiagnosticPresenting`); Debug Settings
 /// `settings.diagnosticToast` keeps it up until closed or turns it off.
 @MainActor
 final class SettingsDiagnosticToasts {
@@ -23,14 +24,17 @@ final class SettingsDiagnosticToasts {
     static let valueLimit = 80
 
     private let registry: ActionRegistry
+    private let presenter: any SettingsDiagnosticPresenting
     private let defaults = UserDefaults.standard
     private var notices: SettingsDiagnosticNotices
     /// Refusals the last load found that no toast has shown yet.
     private var pending: [SettingsDiagnosticNotices.Notice] = []
-    private var shown: CmuxToastHandle?
+    /// Closes the toast on screen.
+    private var dismissShown: (@MainActor () -> Void)?
 
-    init(registry: ActionRegistry) {
+    init(registry: ActionRegistry, presenter: any SettingsDiagnosticPresenting) {
         self.registry = registry
+        self.presenter = presenter
         notices = SettingsDiagnosticNotices(remembered: Set(UserDefaults.standard.stringArray(forKey: Self.rememberedKey) ?? []))
     }
 
@@ -44,18 +48,15 @@ final class SettingsDiagnosticToasts {
                 self?.load(diagnostics, file: file, managed: managed)
             }
         }
-        Task { [weak self] in // task-owner: lives with the app; retries a refusal that found no window
-            for await _ in NotificationCenter.default.notifications(named: NSWindow.didBecomeKeyNotification) {
-                self?.showPending()
-            }
-        }
+        // Retries a refusal that found no window.
+        presenter.followKeyWindows { [weak self] in self?.showPending() }
     }
 
     private func load(_ diagnostics: [SettingsDiagnostic], file: JSONValue, managed: Set<String>) {
         let update = notices.update(diagnostics, file: file, managed: managed)
         if update.cleared {
-            shown?.dismiss()
-            shown = nil
+            dismissShown?()
+            dismissShown = nil
         }
         pending = update.announce
         showPending()
@@ -64,8 +65,9 @@ final class SettingsDiagnosticToasts {
 
     private func showPending() {
         let style = SettingsDiagnosticToastStyle.tunable.value
-        guard style != .off, let first = pending.first, let window = NSApp?.keyWindow ?? NSApp?.mainWindow else { return }
-        shown = show(first, more: pending.count > 1, style: style, in: window)
+        guard style != .off, let first = pending.first,
+              let dismiss = show(first, more: pending.count > 1, style: style) else { return }
+        dismissShown = dismiss
         notices.announced(pending)
         pending = []
         save()
@@ -85,16 +87,16 @@ final class SettingsDiagnosticToasts {
         return path.hasPrefix("shortcuts.") ? .shortcuts : .file
     }
 
-    private func show(_ notice: SettingsDiagnosticNotices.Notice, more: Bool, style: SettingsDiagnosticToastStyle,
-                      in window: NSWindow) -> CmuxToastHandle {
+    /// Shows `notice`'s toast; returns what closes it, or nil when no window is open.
+    private func show(_ notice: SettingsDiagnosticNotices.Notice, more: Bool,
+                      style: SettingsDiagnosticToastStyle) -> (@MainActor () -> Void)? {
         var message = SettingsDiagnosticStrings.message(notice, valueLimit: Self.valueLimit)
         if more { message += " " + SettingsDiagnosticStrings.more }
         let destination = Self.destination(notice.path)
         let action = CmuxToast.Action(title: destination == .file ? SettingsDiagnosticStrings.openFile : SettingsDiagnosticStrings.showInSettings)
         let toast = CmuxToast(id: Self.toastID, message: message, action: action,
                               duration: style == .untilClosed ? CmuxToast.untilClosed : .seconds(12))
-        let handle = CmuxToastCenter.shared.show(toast, in: window)
-        handle.onAction = { [weak registry = self.registry] in
+        return presenter.show(toast) { [weak registry = self.registry] in
             guard let registry else { return }
             switch destination {
             case .row:
@@ -105,7 +107,6 @@ final class SettingsDiagnosticToasts {
                 _ = registry.perform("palette.openCmuxSettingsFile", invocation: ActionInvocation(origin: .user))
             }
         }
-        return handle
     }
 }
 

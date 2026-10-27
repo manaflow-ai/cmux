@@ -16,6 +16,7 @@ import CmuxNextPalette
 import CmuxNextPhoneAccess
 import CmuxNextPopups
 import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextWakeups
@@ -357,7 +358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                     context: ManagedStatusReport.Context(appVersion: version, bundleID: bundleID)) { [startup = order.startup] write in
             startup.post(.afterStartup, "Settings.writeManagedStatus", on: .sequence(statusWrites, .bestEffort), write)
         }
-        settings.start(announcingDiagnostics: true)
+        settings.start(announcingDiagnostics: SettingsDiagnosticToastPresenter(events: services.appEvents, toasts: .shared))
         AppProcessRoot.shared.hangReports?.start(settings: settings, asks: services.machineAsks, firstWindow: { [startup = order.startup] in await startup.afterFirstFrame() })
         // An attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) keeps its owner's chat settings.
         let acpmux = QuitAgents.environment(services)

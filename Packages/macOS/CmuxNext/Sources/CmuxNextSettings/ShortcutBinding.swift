@@ -1,4 +1,4 @@
-import AppKit
+import Foundation
 
 /// One keystroke from cmux.json, independent of the action registry's types
 /// so parsing can run off the main actor. `key` uses NSMenuItem
@@ -112,10 +112,10 @@ public struct ShortcutBindingFormat {
         let trimmed = rawToken.trimmingCharacters(in: .whitespaces)
         if trimmed.isEmpty { return rawToken == " " ? " " : nil }
         switch trimmed.lowercased() {
-        case "left", "arrowleft", "leftarrow", "←": return functionKey(NSLeftArrowFunctionKey)
-        case "right", "arrowright", "rightarrow", "→": return functionKey(NSRightArrowFunctionKey)
-        case "up", "arrowup", "uparrow", "↑": return functionKey(NSUpArrowFunctionKey)
-        case "down", "arrowdown", "downarrow", "↓": return functionKey(NSDownArrowFunctionKey)
+        case "left", "arrowleft", "leftarrow", "←": return functionKey(.leftArrow)
+        case "right", "arrowright", "rightarrow", "→": return functionKey(.rightArrow)
+        case "up", "arrowup", "uparrow", "↑": return functionKey(.upArrow)
+        case "down", "arrowdown", "downarrow", "↓": return functionKey(.downArrow)
         case "tab", "⇥": return "\t"
         case "return", "enter", "↩": return "\r"
         case "escape", "esc", "⎋": return "\u{1B}"
@@ -132,13 +132,13 @@ public struct ShortcutBindingFormat {
         case "plus", "equals": return "="
         case "leftbracket", "openbracket": return "["
         case "rightbracket", "closebracket": return "]"
-        case "home": return functionKey(NSHomeFunctionKey)
-        case "end": return functionKey(NSEndFunctionKey)
-        case "pageup": return functionKey(NSPageUpFunctionKey)
-        case "pagedown": return functionKey(NSPageDownFunctionKey)
+        case "home": return functionKey(.home)
+        case "end": return functionKey(.end)
+        case "pageup": return functionKey(.pageUp)
+        case "pagedown": return functionKey(.pageDown)
         case let lowered:
             if lowered.hasPrefix("f"), let number = Int(lowered.dropFirst()), (1...20).contains(number) {
-                return functionKey(NSF1FunctionKey + number - 1)
+                return functionKey(FunctionKey.f1.rawValue + number - 1)
             }
             guard lowered.count == 1 else { return nil }
             return lowered
@@ -159,14 +159,14 @@ public struct ShortcutBindingFormat {
 
     static func configToken(forKey key: String) -> String {
         switch key {
-        case functionKey(NSLeftArrowFunctionKey): return "left"
-        case functionKey(NSRightArrowFunctionKey): return "right"
-        case functionKey(NSUpArrowFunctionKey): return "up"
-        case functionKey(NSDownArrowFunctionKey): return "down"
-        case functionKey(NSHomeFunctionKey): return "home"
-        case functionKey(NSEndFunctionKey): return "end"
-        case functionKey(NSPageUpFunctionKey): return "pageup"
-        case functionKey(NSPageDownFunctionKey): return "pagedown"
+        case functionKey(.leftArrow): return "left"
+        case functionKey(.rightArrow): return "right"
+        case functionKey(.upArrow): return "up"
+        case functionKey(.downArrow): return "down"
+        case functionKey(.home): return "home"
+        case functionKey(.end): return "end"
+        case functionKey(.pageUp): return "pageup"
+        case functionKey(.pageDown): return "pagedown"
         case "\t": return "tab"
         case "\r": return "return"
         case "\u{1B}": return "escape"
@@ -175,12 +175,22 @@ public struct ShortcutBindingFormat {
         case "+": return "plus"
         default:
             if let scalar = key.unicodeScalars.first, key.unicodeScalars.count == 1,
-               (NSF1FunctionKey...NSF1FunctionKey + 19).contains(Int(scalar.value)) {
-                return "f\(Int(scalar.value) - NSF1FunctionKey + 1)"
+               (FunctionKey.f1.rawValue...FunctionKey.f1.rawValue + 19).contains(Int(scalar.value)) {
+                return "f\(Int(scalar.value) - FunctionKey.f1.rawValue + 1)"
             }
             return key
         }
     }
+
+    /// AppKit's function-key characters (`NSUpArrowFunctionKey` and the rest in NSEvent.h), the
+    /// U+F700 private-use values `NSMenuItem.keyEquivalent` and `Shortcut.key` use for keys with no character.
+    private enum FunctionKey: Int {
+        case upArrow = 0xF700, downArrow = 0xF701, leftArrow = 0xF702, rightArrow = 0xF703
+        case f1 = 0xF704
+        case home = 0xF729, end = 0xF72B, pageUp = 0xF72C, pageDown = 0xF72D
+    }
+
+    private static func functionKey(_ key: FunctionKey) -> String { functionKey(key.rawValue) }
 
     private static func functionKey(_ code: Int) -> String {
         // Function-key codes are valid private-use scalars; NUL stands in otherwise (no trap).

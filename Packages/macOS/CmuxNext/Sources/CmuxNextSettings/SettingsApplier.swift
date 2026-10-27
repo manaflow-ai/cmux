@@ -1,6 +1,6 @@
-import AppKit
 public import CmuxNextActions
 public import CmuxNextDesign
+import Foundation
 
 /// Applies a parsed cmux.json snapshot to the live objects on the main
 /// actor: `DesignSettings` (density, metric overrides and pane chrome) and the action
@@ -138,16 +138,17 @@ public final class SettingsApplier {
         let swap: [(ActionID, String)] = [("newTab.default", "n"), ("newTab", "t")]
         if snapshot.swapCmdTAndCmdN, !swap.contains(where: { applied.contains($0.0) }) {
             for (id, key) in swap {
-                setOverride(Shortcut(key, modifiers: [.command]), for: id)
+                setOverride(Shortcut(key: key, command: true), for: id)
                 applied.insert(id)
             }
         }
         // `tabs.commandDigits = tabs`: Cmd-1…9 select tabs and Ctrl-1…9 workspaces (the two trade
         // keys), unless the user bound either one above; then neither moves, as with the swap above.
-        let digits: [(ActionID, NSEvent.ModifierFlags)] = [("selectSurfaceByNumber", [.command]), ("selectWorkspaceByNumber", [.control])]
+        let digits: [(ActionID, Shortcut)] = [("selectSurfaceByNumber", Shortcut(key: "1", command: true)),
+                                              ("selectWorkspaceByNumber", Shortcut(key: "1", control: true))]
         if snapshot.commandDigits == .tabs, !digits.contains(where: { applied.contains($0.0) }) {
-            for (id, modifiers) in digits {
-                setOverride(Shortcut("1", modifiers: modifiers), for: id)
+            for (id, shortcut) in digits {
+                setOverride(shortcut, for: id)
                 applied.insert(id)
             }
         }
@@ -188,22 +189,17 @@ public final class SettingsApplier {
 
     /// The registry shortcut for a parsed stroke.
     public static func shortcut(for stroke: ShortcutStrokeSpec) -> Shortcut {
-        var modifiers: NSEvent.ModifierFlags = []
-        if stroke.command { modifiers.insert(.command) }
-        if stroke.shift { modifiers.insert(.shift) }
-        if stroke.option { modifiers.insert(.option) }
-        if stroke.control { modifiers.insert(.control) }
-        return Shortcut(stroke.key, modifiers: modifiers)
+        Shortcut(key: stroke.key, command: stroke.command, shift: stroke.shift, option: stroke.option, control: stroke.control)
     }
 
     /// The config stroke for a registry shortcut (for writing back).
     public static func stroke(for shortcut: Shortcut) -> ShortcutStrokeSpec {
         ShortcutStrokeSpec(
             key: shortcut.key,
-            command: shortcut.modifiers.contains(.command),
-            shift: shortcut.modifiers.contains(.shift),
-            option: shortcut.modifiers.contains(.option),
-            control: shortcut.modifiers.contains(.control)
+            command: shortcut.hasCommand,
+            shift: shortcut.hasShift,
+            option: shortcut.hasOption,
+            control: shortcut.hasControl
         )
     }
 
