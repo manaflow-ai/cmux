@@ -112,7 +112,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         pageBaseHold = MainDeadline(owner: "browser.pageBase", workClass: .visible, scheduler: engine.deadlines)
         let webView = WebKitWebView(frame: .zero, configuration: webViewConfiguration)
         self.webView = webView
-        container = WebKitPageContainer(page: webView)
+        container = WebKitPageContainer(page: webView, visibility: WebKitPageVisibility(followsContent: engine.hidesHiddenTabs))
         super.init()
         inspectorWatch.attach(webView: webView, container: container, events: engine.appEvents)
 
@@ -186,9 +186,6 @@ public final class WebKitTab: NSObject, BrowserTab {
             window.makeFirstResponder(nil)
         }
     }
-
-    /// WebKit draws in-view and throttles hidden views itself.
-    public func setContentVisible(_ visible: Bool) {}
 
     // MARK: Snapshot, script, find
 
@@ -329,6 +326,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         machine.apply(event)
         let audible = machine.state.media?.isAudible == true
         if audible != isAudible { isAudible = audible }
+        container.visibility.playsMedia = machine.state.media?.keepsPageShown(tabMuted: machine.state.isAudioMuted) == true
         for observer in navigationObservers.values { observer(event) }
         if machine.state.faviconURL != previousFavicon {
             faviconURLDidChange()

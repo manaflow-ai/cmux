@@ -189,9 +189,9 @@ import Testing
 
     @Test func theEventsDecodeAndNeverPrintTheRequest() {
         let secret = Self.get()
-        let event = CEFShimEvent(kind: 62, browser: 7, request: 1, a: 41, b: 0, s1: secret, s2: "")
+        let event = CEFShimEvent(kind: 64, browser: 7, request: 1, a: 41, b: 0, s1: secret, s2: "")
         #expect(event == .webAuthnPlatform(.request(browser: 7, token: 41, operation: 1, json: secret)))
-        #expect(CEFShimEvent(kind: 63, browser: 0, request: 0, a: 41, b: 0, s1: "", s2: "") == .webAuthnPlatform(.cancel(token: 41)))
+        #expect(CEFShimEvent(kind: 65, browser: 0, request: 0, a: 41, b: 0, s1: "", s2: "") == .webAuthnPlatform(.cancel(token: 41)))
         #expect(event.browserID == nil)
         let printed = String(describing: event) + String(reflecting: event) + "\(event)"
         #expect(!printed.contains("AQID"))

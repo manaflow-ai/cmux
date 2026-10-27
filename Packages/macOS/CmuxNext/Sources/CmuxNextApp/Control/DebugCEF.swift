@@ -68,6 +68,11 @@ enum DebugCEF {
             .object(["asked": .number(Double(report.asked)), "answered": .number(Double(report.answered)),
                      "waiting": .number(Double(report.waiting))])
         } ?? .null
+        // Host mode with feature chromiumHostChoosers (p01-process-228): null while cmux shows none of the host's choosers.
+        object["host_choosers"] = services.cache.cef.hostChoosers.map { report in
+            .object(["color_open": .bool(report.colorOpen), "device_choosers": .number(Double(report.deviceChoosers)),
+                     "screen_shares": .number(Double(report.screenShares)), "answers": .number(Double(report.answers))])
+        } ?? .null
         object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
         // Host mode with feature chromiumHostPasskeys (p01-process-067): counts and states only, null without the relay.
         object["host_passkeys"] = services.cache.cef.hostPasskeyCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
@@ -236,6 +241,8 @@ enum DebugCEF {
             "clip_ms": .number(stats.clipSeconds * 1_000),
             "geometry_posts": .number(Double(stats.geometryPosts)),
             "hosted_pages": .number(Double(stats.hostedPages)),
+            // Keyed by the page window's kind: "page", "devtools", "popup", "popup_window".
+            "hosted_pages_by_widget": .object(stats.hostedPagesByWidget.mapValues { JSONValue.number(Double($0)) }),
             "hosting_refused": .number(Double(stats.hostingRefused)),
             "hosting_widget_fallbacks": .number(Double(stats.hostingWidgetFallbacks)),
             "hosting_without_track_a": .number(Double(stats.hostingWithoutTrackA)),

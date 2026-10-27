@@ -235,17 +235,29 @@ typedef enum {
   // a key selected, -1 none. HIDE: the token's rows close. ANNOUNCE: s1 =
   // what VoiceOver reads.
   CMUX_SHIM_SUGGESTIONS = 60,
-  // 61 was kept for the suggestions (p01-process-061) and stays free.
+  // Host mode only (task p01-process-228): the Chromium Host's pushes of the
+  // fork API 31 color chooser, device chooser and screen-share picker
+  // handlers, which it installs while the app has set
+  // cmux_shim_set_color_chooser_handler, _set_device_chooser_handler or
+  // _set_desktop_media_handler. request = that handler's event
+  // (CMUX_SHIM_COLOR_CHOOSER_OPEN ...), a = token, b = the color (color
+  // chooser), s1 = the fork struct's fields as bytes
+  // (ChromiumHost/src/host_choosers.h). The remote shim calls the handler's
+  // fn with them; they never reach the event fn, and the in-process shim
+  // never sends them.
+  CMUX_SHIM_COLOR_CHOOSER = 61,
+  CMUX_SHIM_DEVICE_CHOOSER = 62,
+  CMUX_SHIM_DESKTOP_MEDIA = 63,
   // An iCloud Keychain request of a page, only after
   // cmux_shim_set_webauthn_platform (fork API 31): browser_id = the page;
   // request = the operation (0 create, 1 get, 2 list; the fork's
   // CMUX_WEBAUTHN_PLATFORM_*); a = the token; s1 = the request JSON of
   // include/cef_cmux.h. Answer once with cmux_shim_webauthn_platform_reply.
   // s1 holds ceremony secrets: never log or trace it.
-  CMUX_SHIM_WEBAUTHN_PLATFORM_REQUEST = 62,
+  CMUX_SHIM_WEBAUTHN_PLATFORM_REQUEST = 64,
   // Chromium no longer wants the answer to token a (the page aborted, the
   // request dialog closed, another authenticator answered): end the ceremony.
-  CMUX_SHIM_WEBAUTHN_PLATFORM_CANCEL = 63,
+  CMUX_SHIM_WEBAUTHN_PLATFORM_CANCEL = 65,
 } cmux_shim_event_kind_t;
 
 typedef enum {

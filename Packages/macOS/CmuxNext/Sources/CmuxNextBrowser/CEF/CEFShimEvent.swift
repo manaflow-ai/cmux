@@ -208,8 +208,8 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 58: self = .popupMenu(browser: browser, token: a, popup: ChromiumHostPopupMenu(json: s1))
         case 59: self = .popupMenuHidden(browser: browser, token: a)
         case 60: self = ChromiumHostSuggestionEvent(request: request, a: a, b: b, s1: s1).map { Self.pageView(browser: browser, .suggestions($0)) } ?? .unknown(kind: kind)
-        case 62: self = .webAuthnPlatform(.request(browser: browser, token: a, operation: request, json: s1))
-        case 63: self = .webAuthnPlatform(.cancel(token: a))
+        case 64: self = .webAuthnPlatform(.request(browser: browser, token: a, operation: request, json: s1))
+        case 65: self = .webAuthnPlatform(.cancel(token: a))
         default: self = .unknown(kind: kind)
         }
     }
