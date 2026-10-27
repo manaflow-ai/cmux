@@ -508,6 +508,10 @@ pub(crate) fn check_parts(
             Part::LinkPreview { image: Some(image), .. } => {
                 (&image.hash, &image.mime_type, image.byte_count, &None, &None)
             }
+            Part::Card(card) => match card.image() {
+                Some(image) => (&image.hash, &image.mime_type, image.byte_count, &None, &None),
+                None => continue,
+            },
             _ => continue,
         };
         let record = usable_record(transaction, conversation, hash, actor)?
@@ -529,6 +533,7 @@ fn referenced_hash(part: &Part) -> Option<&str> {
     match part {
         Part::Attachment { hash, .. } => Some(hash),
         Part::LinkPreview { image: Some(image), .. } => Some(&image.hash),
+        Part::Card(card) => card.image().map(|image| image.hash.as_str()),
         _ => None,
     }
 }

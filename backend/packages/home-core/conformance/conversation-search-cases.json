@@ -2514,6 +2514,230 @@
    "expect": {
     "reject": "invalid_limit"
    }
+  },
+  {
+   "name": "search: card steps, sites and choices are searched",
+   "actor": "user_alice",
+   "input": {
+    "query": "linkedin",
+    "limit": 10
+   },
+   "sources": [
+    {
+     "head": {
+      "id": "conv_CARD",
+      "title": "Chief",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_CARD0000000000000000000001",
+       "conversation": "conv_CARD",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "card",
+         "kind": "browser",
+         "surface": "browser",
+         "step": "Returning to LinkedIn",
+         "live": true,
+         "url": "https://www.linkedin.com/messaging/"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:01.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_CARD0000000000000000000002",
+       "conversation": "conv_CARD",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "card",
+         "kind": "sign_in",
+         "site": "linkedin.com"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:02.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_CARD0000000000000000000003",
+       "conversation": "conv_CARD",
+       "seq": 3,
+       "client_msg_id": "c3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "Done."
+        },
+        {
+         "type": "card",
+         "kind": "next_steps",
+         "choices": [
+          "Check LinkedIn again",
+          "Stop"
+         ]
+        }
+       ],
+       "created_at": "2026-10-02T12:00:03.000Z",
+       "reactions": []
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "hits": [
+     {
+      "conversation": "conv_CARD",
+      "title": "Chief",
+      "seq": 3,
+      "message_id": "msg_CARD0000000000000000000003",
+      "author": "agent_mux",
+      "created_at": "2026-10-02T12:00:03.000Z",
+      "snippet": "Done. Check LinkedIn again Stop"
+     },
+     {
+      "conversation": "conv_CARD",
+      "title": "Chief",
+      "seq": 2,
+      "message_id": "msg_CARD0000000000000000000002",
+      "author": "agent_mux",
+      "created_at": "2026-10-02T12:00:02.000Z",
+      "snippet": "linkedin.com"
+     },
+     {
+      "conversation": "conv_CARD",
+      "title": "Chief",
+      "seq": 1,
+      "message_id": "msg_CARD0000000000000000000001",
+      "author": "agent_mux",
+      "created_at": "2026-10-02T12:00:01.000Z",
+      "snippet": "Returning to LinkedIn"
+     }
+    ]
+   }
+  },
+  {
+   "name": "search: a card's URL is not searched",
+   "actor": "user_alice",
+   "input": {
+    "query": "messaging",
+    "limit": 10
+   },
+   "sources": [
+    {
+     "head": {
+      "id": "conv_CARD",
+      "title": "Chief",
+      "participants": [
+       {
+        "id": "user_alice",
+        "kind": "human",
+        "display_name": "alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "Chief",
+        "agent_class": "mux"
+       }
+      ],
+      "last_seq": 0,
+      "rev": 1,
+      "created_at": "2026-10-02T12:00:00.000Z",
+      "updated_at": "2026-10-02T12:00:00.000Z",
+      "read_cursors": {},
+      "agent_text_streak": 0
+     },
+     "messages": [
+      {
+       "id": "msg_CARD0000000000000000000001",
+       "conversation": "conv_CARD",
+       "seq": 1,
+       "client_msg_id": "c1",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "card",
+         "kind": "browser",
+         "surface": "browser",
+         "step": "Returning to LinkedIn",
+         "live": true,
+         "url": "https://www.linkedin.com/messaging/"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:01.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_CARD0000000000000000000002",
+       "conversation": "conv_CARD",
+       "seq": 2,
+       "client_msg_id": "c2",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "card",
+         "kind": "sign_in",
+         "site": "linkedin.com"
+        }
+       ],
+       "created_at": "2026-10-02T12:00:02.000Z",
+       "reactions": []
+      },
+      {
+       "id": "msg_CARD0000000000000000000003",
+       "conversation": "conv_CARD",
+       "seq": 3,
+       "client_msg_id": "c3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "Done."
+        },
+        {
+         "type": "card",
+         "kind": "next_steps",
+         "choices": [
+          "Check LinkedIn again",
+          "Stop"
+         ]
+        }
+       ],
+       "created_at": "2026-10-02T12:00:03.000Z",
+       "reactions": []
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "hits": []
+   }
   }
  ]
 }

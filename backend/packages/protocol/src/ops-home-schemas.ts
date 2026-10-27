@@ -89,6 +89,55 @@ const derivedImage = (identifier: string, maxBytes: number, description: string)
     byte_count: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(maxBytes))
   }).annotate({ identifier, description })
 
+const cardUrl = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2048), utf8MaxBytes(2048))
+
+/** card parts (home-core card.ts, https://github.com/manaflow-ai/cmux/issues/25830): only an agent posts one. */
+const CardBrowser = Schema.Struct({
+  type: Schema.Literal("card"),
+  kind: Schema.Literal("browser"),
+  surface: Schema.Literals(["browser", "computer"]),
+  step: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(400), maxCodePoints(200)),
+  live: Schema.optionalKey(Schema.Boolean),
+  target: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isPattern(/^(browser:right|machine:[A-Za-z0-9_-]{1,128})$/)))),
+  url: Schema.optionalKey(Schema.NullOr(cardUrl)),
+  image: Schema.optionalKey(
+    Schema.NullOr(
+      Schema.Struct({
+        hash: Sha256,
+        mime_type: Schema.Literals(["image/png", "image/jpeg", "image/webp"]),
+        byte_count: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(4_194_304)),
+        width: Schema.optionalKey(Schema.NullOr(Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(16_384)))),
+        height: Schema.optionalKey(Schema.NullOr(Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(16_384))))
+      }).annotate({
+        identifier: "HomeCardImage",
+        description: "A screenshot the agent uploaded to this conversation (intent, then PUT; image/png, image/jpeg or image/webp, at most 4 MiB); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+      })
+    )
+  )
+}).annotate({
+  identifier: "HomePartCardBrowser",
+  description: "A live browser or computer-use card. step is the current step (no control characters); live (default false) is true while the agent still drives; target is what Open opens (browser:right, or machine:<id> for a Cloud machine's desktop); the agent edits the card (message.edit) as steps change. Text fallback: \"Browser: <step>\" or \"Computer: <step>\"."
+})
+
+const CardSignIn = Schema.Struct({
+  type: Schema.Literal("card"),
+  kind: Schema.Literal("sign_in"),
+  site: Schema.String.check(Schema.isPattern(/^[a-z0-9.-]*\.[a-z0-9.-]*$/), Schema.isMaxLength(253)),
+  url: Schema.optionalKey(Schema.NullOr(cardUrl))
+}).annotate({
+  identifier: "HomePartCardSignIn",
+  description: "A Secure Store card: the agent asks the person to save a sign-in for site (a lowercase DNS name) on their Mac; the password never enters the conversation. Text fallback: \"Secure Store: sign in to <site>\"."
+})
+
+const CardNextSteps = Schema.Struct({
+  type: Schema.Literal("card"),
+  kind: Schema.Literal("next_steps"),
+  choices: Schema.Array(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(240), maxCodePoints(120))).check(Schema.isMinLength(1), Schema.isMaxLength(3))
+}).annotate({
+  identifier: "HomePartCardNextSteps",
+  description: "Suggested next steps (1 to 3 distinct choices, no control characters). Tapping one sends a person message whose text is the choice. Text fallback: each choice on its own line after \"→ \"."
+})
+
 export const Part = Schema.Union([
   Schema.Struct({ type: Schema.Literal("text"), text: Schema.String, runs: Schema.optionalKey(Schema.Array(TextRun)) }),
   Schema.Struct({
@@ -117,7 +166,10 @@ export const Part = Schema.Union([
     title: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(600), maxCodePoints(300)))),
     site: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(506), maxCodePoints(253)))),
     image: Schema.optionalKey(Schema.NullOr(derivedImage("HomeLinkPreviewImage", 512_000, "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}.")))
-  }).annotate({ description: "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters." })
+  }).annotate({ description: "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters." }),
+  CardBrowser,
+  CardSignIn,
+  CardNextSteps
 ]).annotate({ identifier: "HomePart" })
 export const Parts = Schema.Array(Part).check(Schema.isMinLength(1), Schema.isMaxLength(16))
 

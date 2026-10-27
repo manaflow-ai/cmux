@@ -15180,6 +15180,4371 @@
    }
   },
   {
+   "name": "card: a browser card with every field",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 2,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k1",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k1",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "Returning to LinkedIn Messaging",
+       "live": true,
+       "target": "browser:right",
+       "url": "https://www.linkedin.com/messaging/",
+       "image": {
+        "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "mime_type": "image/png",
+        "byte_count": 4194304,
+        "width": 1280,
+        "height": 800
+       }
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_TEST",
+     "seq": 1,
+     "client_msg_id": "h1",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "go"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 2,
+      "rev": 3,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000002",
+      "conversation": "conv_TEST",
+      "seq": 2,
+      "client_msg_id": "k1",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "card",
+        "kind": "browser",
+        "surface": "browser",
+        "step": "Returning to LinkedIn Messaging",
+        "live": true,
+        "target": "browser:right",
+        "url": "https://www.linkedin.com/messaging/",
+        "image": {
+         "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+         "mime_type": "image/png",
+         "byte_count": 4194304,
+         "width": 1280,
+         "height": 800
+        }
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000002",
+       "conversation": "conv_TEST",
+       "seq": 2,
+       "client_msg_id": "k1",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "card",
+         "kind": "browser",
+         "surface": "browser",
+         "step": "Returning to LinkedIn Messaging",
+         "live": true,
+         "target": "browser:right",
+         "url": "https://www.linkedin.com/messaging/",
+         "image": {
+          "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "mime_type": "image/png",
+          "byte_count": 4194304,
+          "width": 1280,
+          "height": 800
+         }
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "card: a computer card with a machine target, live absent is false",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 2,
+    "rev": 3,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k2",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k2",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "computer",
+       "step": "Returning to LinkedIn Messaging",
+       "target": "machine:mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+       "image": {
+        "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "mime_type": "image/webp",
+        "byte_count": 4194304,
+        "width": null
+       }
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000003",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000002",
+     "conversation": "conv_TEST",
+     "seq": 2,
+     "client_msg_id": "k1",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "Returning to LinkedIn Messaging",
+       "live": true,
+       "target": "browser:right",
+       "url": "https://www.linkedin.com/messaging/",
+       "image": {
+        "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "mime_type": "image/png",
+        "byte_count": 4194304,
+        "width": 1280,
+        "height": 800
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 3,
+      "rev": 4,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000003",
+      "conversation": "conv_TEST",
+      "seq": 3,
+      "client_msg_id": "k2",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "card",
+        "kind": "browser",
+        "surface": "computer",
+        "step": "Returning to LinkedIn Messaging",
+        "live": false,
+        "target": "machine:mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+        "image": {
+         "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+         "mime_type": "image/webp",
+         "byte_count": 4194304
+        }
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000003",
+       "conversation": "conv_TEST",
+       "seq": 3,
+       "client_msg_id": "k2",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "card",
+         "kind": "browser",
+         "surface": "computer",
+         "step": "Returning to LinkedIn Messaging",
+         "live": false,
+         "target": "machine:mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+         "image": {
+          "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "mime_type": "image/webp",
+          "byte_count": 4194304
+         }
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "card: null target, url and image are absent",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 3,
+    "rev": 4,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k3",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k3",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "Returning to LinkedIn Messaging",
+       "live": true,
+       "target": null,
+       "url": null,
+       "image": null
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000004",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000003",
+     "conversation": "conv_TEST",
+     "seq": 3,
+     "client_msg_id": "k2",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "computer",
+       "step": "Returning to LinkedIn Messaging",
+       "live": false,
+       "target": "machine:mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm",
+       "image": {
+        "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "mime_type": "image/webp",
+        "byte_count": 4194304
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 4,
+      "rev": 5,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000004",
+      "conversation": "conv_TEST",
+      "seq": 4,
+      "client_msg_id": "k3",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "card",
+        "kind": "browser",
+        "surface": "browser",
+        "step": "Returning to LinkedIn Messaging",
+        "live": true
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000004",
+       "conversation": "conv_TEST",
+       "seq": 4,
+       "client_msg_id": "k3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "card",
+         "kind": "browser",
+         "surface": "browser",
+         "step": "Returning to LinkedIn Messaging",
+         "live": true
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "card: a sign-in card",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 4,
+    "rev": 5,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k4",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k4",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "sign_in",
+       "site": "linkedin.com",
+       "url": "https://www.linkedin.com/login"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000005",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000004",
+     "conversation": "conv_TEST",
+     "seq": 4,
+     "client_msg_id": "k3",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "Returning to LinkedIn Messaging",
+       "live": true
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 5,
+      "rev": 6,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000005",
+      "conversation": "conv_TEST",
+      "seq": 5,
+      "client_msg_id": "k4",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "card",
+        "kind": "sign_in",
+        "site": "linkedin.com",
+        "url": "https://www.linkedin.com/login"
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000005",
+       "conversation": "conv_TEST",
+       "seq": 5,
+       "client_msg_id": "k4",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "card",
+         "kind": "sign_in",
+         "site": "linkedin.com",
+         "url": "https://www.linkedin.com/login"
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "card: next steps after the reply text",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k5",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k5",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "k4",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "sign_in",
+       "site": "linkedin.com",
+       "url": "https://www.linkedin.com/login"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 6,
+      "rev": 7,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 1,
+      "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000006",
+      "conversation": "conv_TEST",
+      "seq": 6,
+      "client_msg_id": "k5",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "text",
+        "text": "Sent."
+       },
+       {
+        "type": "card",
+        "kind": "next_steps",
+        "choices": [
+         "Try sending the Kernel update again",
+         "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+         "Stop"
+        ]
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000006",
+       "conversation": "conv_TEST",
+       "seq": 6,
+       "client_msg_id": "k5",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "text",
+         "text": "Sent."
+        },
+        {
+         "type": "card",
+         "kind": "next_steps",
+         "choices": [
+          "Try sending the Kernel update again",
+          "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+          "Stop"
+         ]
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "card: the Chief edits its browser card as the step changes",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 7,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k6",
+    "op": {
+     "kind": "message.edit",
+     "message_id": "msg_00000000000000000000000002",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "Opened the conversation",
+       "live": false
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": {
+     "id": "msg_00000000000000000000000002",
+     "conversation": "conv_TEST",
+     "seq": 2,
+     "client_msg_id": "k1",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "Returning to LinkedIn Messaging",
+       "live": true,
+       "target": "browser:right",
+       "url": "https://www.linkedin.com/messaging/",
+       "image": {
+        "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "mime_type": "image/png",
+        "byte_count": 4194304,
+        "width": 1280,
+        "height": 800
+       }
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 6,
+      "rev": 8,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:00.000Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 1,
+      "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+     },
+     "message": {
+      "id": "msg_00000000000000000000000002",
+      "conversation": "conv_TEST",
+      "seq": 2,
+      "client_msg_id": "k1",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "card",
+        "kind": "browser",
+        "surface": "browser",
+        "step": "Opened the conversation",
+        "live": false
+       }
+      ],
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "reactions": [],
+      "edited_at": "2026-10-01T12:00:00.000Z"
+     },
+     "change": {
+      "kind": "message-updated",
+      "message": {
+       "id": "msg_00000000000000000000000002",
+       "conversation": "conv_TEST",
+       "seq": 2,
+       "client_msg_id": "k1",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "card",
+         "kind": "browser",
+         "surface": "browser",
+         "step": "Opened the conversation",
+         "live": false
+        }
+       ],
+       "created_at": "2026-10-01T12:00:00.000Z",
+       "reactions": [],
+       "edited_at": "2026-10-01T12:00:00.000Z"
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "card: a person cannot post a card",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Yes"
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a person cannot edit a message into a card",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "user_local",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.edit",
+     "message_id": "msg_00000000000000000000000001",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Yes"
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_TEST",
+     "seq": 1,
+     "client_msg_id": "h1",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "go"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    },
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: an unknown kind",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "map",
+       "step": "x"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: no kind",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "step": "x"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: an unknown surface",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "phone",
+       "step": "Returning to LinkedIn Messaging",
+       "live": true
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: an empty step",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "",
+       "live": true
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a 201-character step",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+       "live": true
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a step with a control character",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "a\nb",
+       "live": true
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a live that is not a bool",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "Returning to LinkedIn Messaging",
+       "live": "yes"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: an unknown target",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "Returning to LinkedIn Messaging",
+       "live": true,
+       "target": "browser:left"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a machine target with a bad id",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "Returning to LinkedIn Messaging",
+       "live": true,
+       "target": "machine:a/b"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a machine id over 128 characters",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "Returning to LinkedIn Messaging",
+       "live": true,
+       "target": "machine:mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a non-http URL",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "Returning to LinkedIn Messaging",
+       "live": true,
+       "url": "file:///etc/passwd"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a GIF screenshot",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "Returning to LinkedIn Messaging",
+       "live": true,
+       "image": {
+        "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "mime_type": "image/gif",
+        "byte_count": 4194304,
+        "width": 1280,
+        "height": 800
+       }
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a screenshot over 4 MiB",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "Returning to LinkedIn Messaging",
+       "live": true,
+       "image": {
+        "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "mime_type": "image/png",
+        "byte_count": 4194305,
+        "width": 1280,
+        "height": 800
+       }
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a screenshot wider than 16384",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "Returning to LinkedIn Messaging",
+       "live": true,
+       "image": {
+        "hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "mime_type": "image/png",
+        "byte_count": 4194304,
+        "width": 16385,
+        "height": 800
+       }
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a screenshot hash that is not lowercase hex",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "Returning to LinkedIn Messaging",
+       "live": true,
+       "image": {
+        "hash": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE",
+        "mime_type": "image/png",
+        "byte_count": 4194304,
+        "width": 1280,
+        "height": 800
+       }
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a site with an upper-case letter",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "sign_in",
+       "site": "LinkedIn.com"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a site without a dot",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "sign_in",
+       "site": "localhost"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a site with a path",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "sign_in",
+       "site": "linkedin.com/login"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a site over 253 characters",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "sign_in",
+       "site": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a sign-in URL with user info",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "sign_in",
+       "site": "linkedin.com",
+       "url": "https://me@linkedin.com"
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: no choices",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": []
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: four choices",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "a",
+        "b",
+        "c",
+        "d"
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: an empty choice",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        ""
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a 121-character choice",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a choice with a control character",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "a\tb"
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: duplicate choices",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Retry",
+        "Retry"
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "card: a choice that is not a string",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 1,
+    "last_agent_text_at": "2026-10-01T12:00:00.000Z"
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "k0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "k0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        1
+       ]
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "k5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "text",
+       "text": "Sent."
+      },
+      {
+       "type": "card",
+       "kind": "next_steps",
+       "choices": [
+        "Try sending the Kernel update again",
+        "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "Stop"
+       ]
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "reject": "invalid_parts"
+   }
+  },
+  {
+   "name": "loop guard: browser card 1 is not a turn",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 1,
+    "rev": 2,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "b0",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "b0",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "step 0",
+       "live": true
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:10.000Z",
+    "new_message_id": "msg_00000000000000000000000002",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000001",
+     "conversation": "conv_TEST",
+     "seq": 1,
+     "client_msg_id": "h1",
+     "author": "user_local",
+     "parts": [
+      {
+       "type": "text",
+       "text": "go"
+      }
+     ],
+     "created_at": "2026-10-01T12:00:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 2,
+      "rev": 3,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:10.000Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000002",
+      "conversation": "conv_TEST",
+      "seq": 2,
+      "client_msg_id": "b0",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "card",
+        "kind": "browser",
+        "surface": "browser",
+        "step": "step 0",
+        "live": true
+       }
+      ],
+      "created_at": "2026-10-01T12:00:10.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000002",
+       "conversation": "conv_TEST",
+       "seq": 2,
+       "client_msg_id": "b0",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "card",
+         "kind": "browser",
+         "surface": "browser",
+         "step": "step 0",
+         "live": true
+        }
+       ],
+       "created_at": "2026-10-01T12:00:10.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "loop guard: browser card 2 is not a turn",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 2,
+    "rev": 3,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:10.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "b1",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "b1",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "step 1",
+       "live": true
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:20.000Z",
+    "new_message_id": "msg_00000000000000000000000003",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000002",
+     "conversation": "conv_TEST",
+     "seq": 2,
+     "client_msg_id": "b0",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "step 0",
+       "live": true
+      }
+     ],
+     "created_at": "2026-10-01T12:00:10.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 3,
+      "rev": 4,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:20.000Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000003",
+      "conversation": "conv_TEST",
+      "seq": 3,
+      "client_msg_id": "b1",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "card",
+        "kind": "browser",
+        "surface": "browser",
+        "step": "step 1",
+        "live": true
+       }
+      ],
+      "created_at": "2026-10-01T12:00:20.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000003",
+       "conversation": "conv_TEST",
+       "seq": 3,
+       "client_msg_id": "b1",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "card",
+         "kind": "browser",
+         "surface": "browser",
+         "step": "step 1",
+         "live": true
+        }
+       ],
+       "created_at": "2026-10-01T12:00:20.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "loop guard: browser card 3 is not a turn",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 3,
+    "rev": 4,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:20.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "b2",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "b2",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "step 2",
+       "live": true
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:30.000Z",
+    "new_message_id": "msg_00000000000000000000000004",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000003",
+     "conversation": "conv_TEST",
+     "seq": 3,
+     "client_msg_id": "b1",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "step 1",
+       "live": true
+      }
+     ],
+     "created_at": "2026-10-01T12:00:20.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 4,
+      "rev": 5,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:30.000Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000004",
+      "conversation": "conv_TEST",
+      "seq": 4,
+      "client_msg_id": "b2",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "card",
+        "kind": "browser",
+        "surface": "browser",
+        "step": "step 2",
+        "live": true
+       }
+      ],
+      "created_at": "2026-10-01T12:00:30.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000004",
+       "conversation": "conv_TEST",
+       "seq": 4,
+       "client_msg_id": "b2",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "card",
+         "kind": "browser",
+         "surface": "browser",
+         "step": "step 2",
+         "live": true
+        }
+       ],
+       "created_at": "2026-10-01T12:00:30.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "loop guard: browser card 4 is not a turn",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 4,
+    "rev": 5,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:30.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "b3",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "b3",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "step 3",
+       "live": true
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:40.000Z",
+    "new_message_id": "msg_00000000000000000000000005",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000004",
+     "conversation": "conv_TEST",
+     "seq": 4,
+     "client_msg_id": "b2",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "step 2",
+       "live": true
+      }
+     ],
+     "created_at": "2026-10-01T12:00:30.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 5,
+      "rev": 6,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:40.000Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000005",
+      "conversation": "conv_TEST",
+      "seq": 5,
+      "client_msg_id": "b3",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "card",
+        "kind": "browser",
+        "surface": "browser",
+        "step": "step 3",
+        "live": true
+       }
+      ],
+      "created_at": "2026-10-01T12:00:40.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000005",
+       "conversation": "conv_TEST",
+       "seq": 5,
+       "client_msg_id": "b3",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "card",
+         "kind": "browser",
+         "surface": "browser",
+         "step": "step 3",
+         "live": true
+        }
+       ],
+       "created_at": "2026-10-01T12:00:40.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "loop guard: browser card 5 is not a turn",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 5,
+    "rev": 6,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:40.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "b4",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "b4",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "step 4",
+       "live": true
+      }
+     ]
+    },
+    "now": "2026-10-01T12:00:50.000Z",
+    "new_message_id": "msg_00000000000000000000000006",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000005",
+     "conversation": "conv_TEST",
+     "seq": 5,
+     "client_msg_id": "b3",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "step 3",
+       "live": true
+      }
+     ],
+     "created_at": "2026-10-01T12:00:40.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 6,
+      "rev": 7,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:00:50.000Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000006",
+      "conversation": "conv_TEST",
+      "seq": 6,
+      "client_msg_id": "b4",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "card",
+        "kind": "browser",
+        "surface": "browser",
+        "step": "step 4",
+        "live": true
+       }
+      ],
+      "created_at": "2026-10-01T12:00:50.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000006",
+       "conversation": "conv_TEST",
+       "seq": 6,
+       "client_msg_id": "b4",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "card",
+         "kind": "browser",
+         "surface": "browser",
+         "step": "step 4",
+         "live": true
+        }
+       ],
+       "created_at": "2026-10-01T12:00:50.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "loop guard: browser card 6 is not a turn",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 6,
+    "rev": 7,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:00:50.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "b5",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "b5",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "step 5",
+       "live": true
+      }
+     ]
+    },
+    "now": "2026-10-01T12:01:00.000Z",
+    "new_message_id": "msg_00000000000000000000000007",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000006",
+     "conversation": "conv_TEST",
+     "seq": 6,
+     "client_msg_id": "b4",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "step 4",
+       "live": true
+      }
+     ],
+     "created_at": "2026-10-01T12:00:50.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 7,
+      "rev": 8,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:01:00.000Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000007",
+      "conversation": "conv_TEST",
+      "seq": 7,
+      "client_msg_id": "b5",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "card",
+        "kind": "browser",
+        "surface": "browser",
+        "step": "step 5",
+        "live": true
+       }
+      ],
+      "created_at": "2026-10-01T12:01:00.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000007",
+       "conversation": "conv_TEST",
+       "seq": 7,
+       "client_msg_id": "b5",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "card",
+         "kind": "browser",
+         "surface": "browser",
+         "step": "step 5",
+         "live": true
+        }
+       ],
+       "created_at": "2026-10-01T12:01:00.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "loop guard: browser card 7 is not a turn",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 7,
+    "rev": 8,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:01:00.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "b6",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "b6",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "step 6",
+       "live": true
+      }
+     ]
+    },
+    "now": "2026-10-01T12:01:10.000Z",
+    "new_message_id": "msg_00000000000000000000000008",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000007",
+     "conversation": "conv_TEST",
+     "seq": 7,
+     "client_msg_id": "b5",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "step 5",
+       "live": true
+      }
+     ],
+     "created_at": "2026-10-01T12:01:00.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 8,
+      "rev": 9,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:01:10.000Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000008",
+      "conversation": "conv_TEST",
+      "seq": 8,
+      "client_msg_id": "b6",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "card",
+        "kind": "browser",
+        "surface": "browser",
+        "step": "step 6",
+        "live": true
+       }
+      ],
+      "created_at": "2026-10-01T12:01:10.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000008",
+       "conversation": "conv_TEST",
+       "seq": 8,
+       "client_msg_id": "b6",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "card",
+         "kind": "browser",
+         "surface": "browser",
+         "step": "step 6",
+         "live": true
+        }
+       ],
+       "created_at": "2026-10-01T12:01:10.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
+   "name": "loop guard: browser card 8 is not a turn",
+   "head": {
+    "id": "conv_TEST",
+    "title": "mux",
+    "participants": [
+     {
+      "id": "user_local",
+      "kind": "human",
+      "display_name": "Alice"
+     },
+     {
+      "id": "agent_mux",
+      "kind": "agent",
+      "display_name": "mux",
+      "agent_class": "mux",
+      "acp_session": "mux"
+     }
+    ],
+    "last_seq": 8,
+    "rev": 9,
+    "created_at": "2026-10-01T12:00:00.000Z",
+    "updated_at": "2026-10-01T12:01:10.000Z",
+    "read_cursors": {
+     "user_local": 1
+    },
+    "agent_text_streak": 0
+   },
+   "request": {
+    "actor": "agent_mux",
+    "idempotency_key": "b7",
+    "op": {
+     "kind": "message.send",
+     "client_msg_id": "b7",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "step 7",
+       "live": true
+      }
+     ]
+    },
+    "now": "2026-10-01T12:01:20.000Z",
+    "new_message_id": "msg_00000000000000000000000009",
+    "target": null,
+    "reply_target": null,
+    "thread_target": null,
+    "last_message": {
+     "id": "msg_00000000000000000000000008",
+     "conversation": "conv_TEST",
+     "seq": 8,
+     "client_msg_id": "b6",
+     "author": "agent_mux",
+     "parts": [
+      {
+       "type": "card",
+       "kind": "browser",
+       "surface": "browser",
+       "step": "step 6",
+       "live": true
+      }
+     ],
+     "created_at": "2026-10-01T12:01:10.000Z",
+     "reactions": []
+    }
+   },
+   "expect": {
+    "commit": {
+     "head": {
+      "id": "conv_TEST",
+      "title": "mux",
+      "participants": [
+       {
+        "id": "user_local",
+        "kind": "human",
+        "display_name": "Alice"
+       },
+       {
+        "id": "agent_mux",
+        "kind": "agent",
+        "display_name": "mux",
+        "agent_class": "mux",
+        "acp_session": "mux"
+       }
+      ],
+      "last_seq": 9,
+      "rev": 10,
+      "created_at": "2026-10-01T12:00:00.000Z",
+      "updated_at": "2026-10-01T12:01:20.000Z",
+      "read_cursors": {
+       "user_local": 1
+      },
+      "agent_text_streak": 0
+     },
+     "message": {
+      "id": "msg_00000000000000000000000009",
+      "conversation": "conv_TEST",
+      "seq": 9,
+      "client_msg_id": "b7",
+      "author": "agent_mux",
+      "parts": [
+       {
+        "type": "card",
+        "kind": "browser",
+        "surface": "browser",
+        "step": "step 7",
+        "live": true
+       }
+      ],
+      "created_at": "2026-10-01T12:01:20.000Z",
+      "reactions": []
+     },
+     "change": {
+      "kind": "message",
+      "message": {
+       "id": "msg_00000000000000000000000009",
+       "conversation": "conv_TEST",
+       "seq": 9,
+       "client_msg_id": "b7",
+       "author": "agent_mux",
+       "parts": [
+        {
+         "type": "card",
+         "kind": "browser",
+         "surface": "browser",
+         "step": "step 7",
+         "live": true
+        }
+       ],
+       "created_at": "2026-10-01T12:01:20.000Z",
+       "reactions": []
+      }
+     }
+    }
+   }
+  },
+  {
    "name": "loop guard: agent link preview 1 of 6",
    "head": {
     "id": "conv_TEST",

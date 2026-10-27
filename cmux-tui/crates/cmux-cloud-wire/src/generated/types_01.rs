@@ -805,6 +805,26 @@ wire_enum! {
     }
 }
 
+/// A screenshot the agent uploaded to this conversation (intent, then PUT; image/png, image/jpeg or image/webp, at most 4 MiB); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeCardImage {
+    pub hash: HomeSha256,
+    pub mime_type: HomeCardImageMimeType,
+    pub byte_count: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub width: Option<Option<i64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub height: Option<Option<i64>>,
+}
+
+wire_enum! {
+    HomeCardImageMimeType {
+        ImagePng = "image/png",
+        ImageJpeg = "image/jpeg",
+        ImageWebp = "image/webp",
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomeChief {
     pub id: ChiefId,
@@ -858,44 +878,5 @@ wire_enum! {
     HomeConversationSettingsHistoryVisible {
         All = "all",
         SinceJoin = "since_join",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct HomeConversationSummary {
-    pub id: ConversationId,
-    pub owner: String,
-    pub title: String,
-    pub participants: Vec<HomeParticipant>,
-    pub last_seq: i64,
-    pub rev: i64,
-    pub created_at: Timestamp,
-    pub updated_at: Timestamp,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_message: Option<HomeMessage>,
-    pub read_cursors: BTreeMap<String, i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<ConversationKind>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub created_by: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state: Option<HomeConversationSummaryState>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub settings: Option<HomeConversationSettings>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub invites: Option<Vec<HomeInvite>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub retention_days: Option<i64>,
-    /// A large group (more than 64 members): participants is a roster of at most 16 humans plus the owner and agents; this counts every current participant, and conversation.members pages them.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub member_count: Option<i64>,
-}
-
-wire_enum! {
-    HomeConversationSummaryState {
-        Active = "active",
-        Archived = "archived",
     }
 }

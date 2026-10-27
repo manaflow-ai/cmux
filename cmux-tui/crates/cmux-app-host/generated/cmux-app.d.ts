@@ -178,6 +178,7 @@ declare namespace Cmux {
   type HistoryVisitTitleResult = { updated: number }
   type HomeAttachmentPoster = { hash: Cmux.HomeSha256; mime_type: "image/jpeg" | "image/webp"; byte_count: number }
   type HomeAttachmentPreview = { hash: Cmux.HomeSha256; mime_type: "image/jpeg" | "image/webp"; byte_count: number }
+  type HomeCardImage = { hash: Cmux.HomeSha256; mime_type: "image/png" | "image/jpeg" | "image/webp"; byte_count: number; width?: number | null; height?: number | null }
   type HomeChief = { id: Cmux.ChiefId; owner_user: string; display_name: string; is_default: boolean; brain: "cloud"; brain_place?: Cmux.ChiefBrainPlace | null; main_conversation: Cmux.ConversationId | null; harness: string | null; rev: unknown; created_at: Cmux.Timestamp; updated_at: Cmux.Timestamp; archived_at: Cmux.Timestamp | null }
   type HomeConversationCommit = { rev: number; seq?: number; message_id?: Cmux.MessageId; change: string }
   type HomeConversationSettings = { wake_policy: "auto" | "mentions" | "all"; agent_budget: { turns: number; gap_ms: number }; history_visible: "all" | "since_join" }
@@ -189,6 +190,9 @@ declare namespace Cmux {
   type HomeLinkPreviewImage = { hash: Cmux.HomeSha256; mime_type: "image/jpeg" | "image/webp"; byte_count: number }
   type HomeMessage = { id: Cmux.MessageId; conversation: Cmux.ConversationId; seq: number; client_msg_id: Cmux.ClientToken; author: Cmux.ParticipantId; parts: Array<Cmux.HomePart>; reply_to?: Cmux.HomePartRef; thread_root?: Cmux.MessageId; thread?: Cmux.HomeThreadState; created_at: Cmux.Timestamp; edited_at?: Cmux.Timestamp; retracted_at?: Cmux.Timestamp; reactions: Array<Cmux.HomeReaction> }
   type HomePart = unknown
+  type HomePartCardBrowser = { type: "card"; kind: "browser"; surface: "browser" | "computer"; step: string; live?: boolean; target?: string | null; url?: string | null; image?: Cmux.HomeCardImage | null }
+  type HomePartCardNextSteps = { type: "card"; kind: "next_steps"; choices: Array<string> }
+  type HomePartCardSignIn = { type: "card"; kind: "sign_in"; site: string; url?: string | null }
   type HomeParticipant = { id: Cmux.ParticipantId; kind: "human" | "agent" | "address"; display_name: string; agent_class?: "mux" | "agent"; acp_session?: string; owner_user?: string; role?: Cmux.HomeParticipantRole; joined_seq?: number; added_by?: string; left_at?: Cmux.Timestamp }
   type HomeParticipantInput = { id: Cmux.ParticipantId; kind: "human" | "agent"; display_name: string; agent_class?: "mux" | "agent"; owner_user?: string }
   type HomeParticipantRole = "owner" | "admin" | "member" | "read_only"

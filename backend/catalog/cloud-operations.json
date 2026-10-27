@@ -2569,6 +2569,57 @@
       },
       "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
     },
+    "HomeCardImage": {
+      "kind": "object",
+      "fields": {
+        "hash": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "HomeSha256"
+          }
+        },
+        "mime_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/png",
+              "image/jpeg",
+              "image/webp"
+            ]
+          }
+        },
+        "byte_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "width": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "height": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        }
+      },
+      "description": "A screenshot the agent uploaded to this conversation (intent, then PUT; image/png, image/jpeg or image/webp, at most 4 MiB); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+    },
     "HomeChief": {
       "kind": "object",
       "fields": {
@@ -3625,8 +3676,184 @@
               }
             }
           }
+        },
+        {
+          "kind": "ref",
+          "name": "HomePartCardBrowser"
+        },
+        {
+          "kind": "ref",
+          "name": "HomePartCardSignIn"
+        },
+        {
+          "kind": "ref",
+          "name": "HomePartCardNextSteps"
         }
       ]
+    },
+    "HomePartCardBrowser": {
+      "kind": "object",
+      "fields": {
+        "type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "card"
+            ]
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "browser"
+            ]
+          }
+        },
+        "surface": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "browser",
+              "computer"
+            ]
+          }
+        },
+        "step": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1,
+            "max_length": 400
+          }
+        },
+        "live": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "target": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string",
+              "pattern": "^(browser:right|machine:[A-Za-z0-9_-]{1,128})$"
+            }
+          }
+        },
+        "url": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            }
+          }
+        },
+        "image": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "HomeCardImage"
+            }
+          }
+        }
+      },
+      "description": "A live browser or computer-use card. step is the current step (no control characters); live (default false) is true while the agent still drives; target is what Open opens (browser:right, or machine:<id> for a Cloud machine's desktop); the agent edits the card (message.edit) as steps change. Text fallback: \"Browser: <step>\" or \"Computer: <step>\"."
+    },
+    "HomePartCardNextSteps": {
+      "kind": "object",
+      "fields": {
+        "type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "card"
+            ]
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "next_steps"
+            ]
+          }
+        },
+        "choices": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 240
+            }
+          }
+        }
+      },
+      "description": "Suggested next steps (1 to 3 distinct choices, no control characters). Tapping one sends a person message whose text is the choice. Text fallback: each choice on its own line after \"→ \"."
+    },
+    "HomePartCardSignIn": {
+      "kind": "object",
+      "fields": {
+        "type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "card"
+            ]
+          }
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "sign_in"
+            ]
+          }
+        },
+        "site": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "max_length": 253,
+            "pattern": "^[a-z0-9.-]*\\.[a-z0-9.-]*$"
+          }
+        },
+        "url": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 2048
+            }
+          }
+        }
+      },
+      "description": "A Secure Store card: the agent asks the person to save a sign-in for site (a lowercase DNS name) on their Mac; the password never enters the conversation. Text fallback: \"Secure Store: sign in to <site>\"."
     },
     "HomeParticipant": {
       "kind": "object",
@@ -23838,6 +24065,206 @@
             "additionalProperties": true,
             "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
           },
+          "HomeCardImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/png",
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 4194304
+              },
+              "width": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 16384
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "height": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 16384
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "A screenshot the agent uploaded to this conversation (intent, then PUT; image/png, image/jpeg or image/webp, at most 4 MiB); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
+          "HomePartCardBrowser": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "browser"
+                ]
+              },
+              "surface": {
+                "type": "string",
+                "enum": [
+                  "browser",
+                  "computer"
+                ]
+              },
+              "step": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400
+              },
+              "live": {
+                "type": "boolean"
+              },
+              "target": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(browser:right|machine:[A-Za-z0-9_-]{1,128})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "image": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HomeCardImage"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "surface",
+              "step"
+            ],
+            "additionalProperties": true,
+            "description": "A live browser or computer-use card. step is the current step (no control characters); live (default false) is true while the agent still drives; target is what Open opens (browser:right, or machine:<id> for a Cloud machine's desktop); the agent edits the card (message.edit) as steps change. Text fallback: \"Browser: <step>\" or \"Computer: <step>\"."
+          },
+          "HomePartCardSignIn": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "sign_in"
+                ]
+              },
+              "site": {
+                "type": "string",
+                "pattern": "^[a-z0-9.-]*\\.[a-z0-9.-]*$",
+                "maxLength": 253
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "site"
+            ],
+            "additionalProperties": true,
+            "description": "A Secure Store card: the agent asks the person to save a sign-in for site (a lowercase DNS name) on their Mac; the password never enters the conversation. Text fallback: \"Secure Store: sign in to <site>\"."
+          },
+          "HomePartCardNextSteps": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "next_steps"
+                ]
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 240
+                },
+                "minItems": 1,
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "choices"
+            ],
+            "additionalProperties": true,
+            "description": "Suggested next steps (1 to 3 distinct choices, no control characters). Tapping one sends a person message whose text is the choice. Text fallback: each choice on its own line after \"→ \"."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -24009,6 +24436,15 @@
                 ],
                 "additionalProperties": true,
                 "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
+              },
+              {
+                "$ref": "#/$defs/HomePartCardBrowser"
+              },
+              {
+                "$ref": "#/$defs/HomePartCardSignIn"
+              },
+              {
+                "$ref": "#/$defs/HomePartCardNextSteps"
               }
             ]
           },
@@ -24761,6 +25197,206 @@
             "additionalProperties": true,
             "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
           },
+          "HomeCardImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/png",
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 4194304
+              },
+              "width": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 16384
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "height": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 16384
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "A screenshot the agent uploaded to this conversation (intent, then PUT; image/png, image/jpeg or image/webp, at most 4 MiB); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
+          "HomePartCardBrowser": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "browser"
+                ]
+              },
+              "surface": {
+                "type": "string",
+                "enum": [
+                  "browser",
+                  "computer"
+                ]
+              },
+              "step": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400
+              },
+              "live": {
+                "type": "boolean"
+              },
+              "target": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(browser:right|machine:[A-Za-z0-9_-]{1,128})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "image": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HomeCardImage"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "surface",
+              "step"
+            ],
+            "additionalProperties": true,
+            "description": "A live browser or computer-use card. step is the current step (no control characters); live (default false) is true while the agent still drives; target is what Open opens (browser:right, or machine:<id> for a Cloud machine's desktop); the agent edits the card (message.edit) as steps change. Text fallback: \"Browser: <step>\" or \"Computer: <step>\"."
+          },
+          "HomePartCardSignIn": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "sign_in"
+                ]
+              },
+              "site": {
+                "type": "string",
+                "pattern": "^[a-z0-9.-]*\\.[a-z0-9.-]*$",
+                "maxLength": 253
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "site"
+            ],
+            "additionalProperties": true,
+            "description": "A Secure Store card: the agent asks the person to save a sign-in for site (a lowercase DNS name) on their Mac; the password never enters the conversation. Text fallback: \"Secure Store: sign in to <site>\"."
+          },
+          "HomePartCardNextSteps": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "next_steps"
+                ]
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 240
+                },
+                "minItems": 1,
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "choices"
+            ],
+            "additionalProperties": true,
+            "description": "Suggested next steps (1 to 3 distinct choices, no control characters). Tapping one sends a person message whose text is the choice. Text fallback: each choice on its own line after \"→ \"."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -24932,6 +25568,15 @@
                 ],
                 "additionalProperties": true,
                 "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
+              },
+              {
+                "$ref": "#/$defs/HomePartCardBrowser"
+              },
+              {
+                "$ref": "#/$defs/HomePartCardSignIn"
+              },
+              {
+                "$ref": "#/$defs/HomePartCardNextSteps"
               }
             ]
           },
@@ -26431,6 +27076,206 @@
             "additionalProperties": true,
             "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
           },
+          "HomeCardImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/png",
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 4194304
+              },
+              "width": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 16384
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "height": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 16384
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "A screenshot the agent uploaded to this conversation (intent, then PUT; image/png, image/jpeg or image/webp, at most 4 MiB); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
+          "HomePartCardBrowser": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "browser"
+                ]
+              },
+              "surface": {
+                "type": "string",
+                "enum": [
+                  "browser",
+                  "computer"
+                ]
+              },
+              "step": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400
+              },
+              "live": {
+                "type": "boolean"
+              },
+              "target": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(browser:right|machine:[A-Za-z0-9_-]{1,128})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "image": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HomeCardImage"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "surface",
+              "step"
+            ],
+            "additionalProperties": true,
+            "description": "A live browser or computer-use card. step is the current step (no control characters); live (default false) is true while the agent still drives; target is what Open opens (browser:right, or machine:<id> for a Cloud machine's desktop); the agent edits the card (message.edit) as steps change. Text fallback: \"Browser: <step>\" or \"Computer: <step>\"."
+          },
+          "HomePartCardSignIn": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "sign_in"
+                ]
+              },
+              "site": {
+                "type": "string",
+                "pattern": "^[a-z0-9.-]*\\.[a-z0-9.-]*$",
+                "maxLength": 253
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "site"
+            ],
+            "additionalProperties": true,
+            "description": "A Secure Store card: the agent asks the person to save a sign-in for site (a lowercase DNS name) on their Mac; the password never enters the conversation. Text fallback: \"Secure Store: sign in to <site>\"."
+          },
+          "HomePartCardNextSteps": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "next_steps"
+                ]
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 240
+                },
+                "minItems": 1,
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "choices"
+            ],
+            "additionalProperties": true,
+            "description": "Suggested next steps (1 to 3 distinct choices, no control characters). Tapping one sends a person message whose text is the choice. Text fallback: each choice on its own line after \"→ \"."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -26602,6 +27447,15 @@
                 ],
                 "additionalProperties": true,
                 "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
+              },
+              {
+                "$ref": "#/$defs/HomePartCardBrowser"
+              },
+              {
+                "$ref": "#/$defs/HomePartCardSignIn"
+              },
+              {
+                "$ref": "#/$defs/HomePartCardNextSteps"
               }
             ]
           },
@@ -27425,6 +28279,206 @@
             "additionalProperties": true,
             "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
           },
+          "HomeCardImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/png",
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 4194304
+              },
+              "width": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 16384
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "height": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 16384
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "A screenshot the agent uploaded to this conversation (intent, then PUT; image/png, image/jpeg or image/webp, at most 4 MiB); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
+          "HomePartCardBrowser": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "browser"
+                ]
+              },
+              "surface": {
+                "type": "string",
+                "enum": [
+                  "browser",
+                  "computer"
+                ]
+              },
+              "step": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400
+              },
+              "live": {
+                "type": "boolean"
+              },
+              "target": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(browser:right|machine:[A-Za-z0-9_-]{1,128})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "image": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HomeCardImage"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "surface",
+              "step"
+            ],
+            "additionalProperties": true,
+            "description": "A live browser or computer-use card. step is the current step (no control characters); live (default false) is true while the agent still drives; target is what Open opens (browser:right, or machine:<id> for a Cloud machine's desktop); the agent edits the card (message.edit) as steps change. Text fallback: \"Browser: <step>\" or \"Computer: <step>\"."
+          },
+          "HomePartCardSignIn": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "sign_in"
+                ]
+              },
+              "site": {
+                "type": "string",
+                "pattern": "^[a-z0-9.-]*\\.[a-z0-9.-]*$",
+                "maxLength": 253
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "site"
+            ],
+            "additionalProperties": true,
+            "description": "A Secure Store card: the agent asks the person to save a sign-in for site (a lowercase DNS name) on their Mac; the password never enters the conversation. Text fallback: \"Secure Store: sign in to <site>\"."
+          },
+          "HomePartCardNextSteps": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "next_steps"
+                ]
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 240
+                },
+                "minItems": 1,
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "choices"
+            ],
+            "additionalProperties": true,
+            "description": "Suggested next steps (1 to 3 distinct choices, no control characters). Tapping one sends a person message whose text is the choice. Text fallback: each choice on its own line after \"→ \"."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -27596,6 +28650,15 @@
                 ],
                 "additionalProperties": true,
                 "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
+              },
+              {
+                "$ref": "#/$defs/HomePartCardBrowser"
+              },
+              {
+                "$ref": "#/$defs/HomePartCardSignIn"
+              },
+              {
+                "$ref": "#/$defs/HomePartCardNextSteps"
               }
             ]
           },
@@ -28234,6 +29297,206 @@
             "additionalProperties": true,
             "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
           },
+          "HomeCardImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/png",
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 4194304
+              },
+              "width": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 16384
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "height": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 16384
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "A screenshot the agent uploaded to this conversation (intent, then PUT; image/png, image/jpeg or image/webp, at most 4 MiB); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
+          "HomePartCardBrowser": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "browser"
+                ]
+              },
+              "surface": {
+                "type": "string",
+                "enum": [
+                  "browser",
+                  "computer"
+                ]
+              },
+              "step": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400
+              },
+              "live": {
+                "type": "boolean"
+              },
+              "target": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(browser:right|machine:[A-Za-z0-9_-]{1,128})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "image": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HomeCardImage"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "surface",
+              "step"
+            ],
+            "additionalProperties": true,
+            "description": "A live browser or computer-use card. step is the current step (no control characters); live (default false) is true while the agent still drives; target is what Open opens (browser:right, or machine:<id> for a Cloud machine's desktop); the agent edits the card (message.edit) as steps change. Text fallback: \"Browser: <step>\" or \"Computer: <step>\"."
+          },
+          "HomePartCardSignIn": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "sign_in"
+                ]
+              },
+              "site": {
+                "type": "string",
+                "pattern": "^[a-z0-9.-]*\\.[a-z0-9.-]*$",
+                "maxLength": 253
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "site"
+            ],
+            "additionalProperties": true,
+            "description": "A Secure Store card: the agent asks the person to save a sign-in for site (a lowercase DNS name) on their Mac; the password never enters the conversation. Text fallback: \"Secure Store: sign in to <site>\"."
+          },
+          "HomePartCardNextSteps": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "next_steps"
+                ]
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 240
+                },
+                "minItems": 1,
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "choices"
+            ],
+            "additionalProperties": true,
+            "description": "Suggested next steps (1 to 3 distinct choices, no control characters). Tapping one sends a person message whose text is the choice. Text fallback: each choice on its own line after \"→ \"."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -28405,6 +29668,15 @@
                 ],
                 "additionalProperties": true,
                 "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
+              },
+              {
+                "$ref": "#/$defs/HomePartCardBrowser"
+              },
+              {
+                "$ref": "#/$defs/HomePartCardSignIn"
+              },
+              {
+                "$ref": "#/$defs/HomePartCardNextSteps"
               }
             ]
           },
@@ -48195,6 +49467,206 @@
             "additionalProperties": true,
             "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
           },
+          "HomeCardImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/png",
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 4194304
+              },
+              "width": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 16384
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "height": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 16384
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "A screenshot the agent uploaded to this conversation (intent, then PUT; image/png, image/jpeg or image/webp, at most 4 MiB); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
+          "HomePartCardBrowser": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "browser"
+                ]
+              },
+              "surface": {
+                "type": "string",
+                "enum": [
+                  "browser",
+                  "computer"
+                ]
+              },
+              "step": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400
+              },
+              "live": {
+                "type": "boolean"
+              },
+              "target": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(browser:right|machine:[A-Za-z0-9_-]{1,128})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "image": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HomeCardImage"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "surface",
+              "step"
+            ],
+            "additionalProperties": true,
+            "description": "A live browser or computer-use card. step is the current step (no control characters); live (default false) is true while the agent still drives; target is what Open opens (browser:right, or machine:<id> for a Cloud machine's desktop); the agent edits the card (message.edit) as steps change. Text fallback: \"Browser: <step>\" or \"Computer: <step>\"."
+          },
+          "HomePartCardSignIn": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "sign_in"
+                ]
+              },
+              "site": {
+                "type": "string",
+                "pattern": "^[a-z0-9.-]*\\.[a-z0-9.-]*$",
+                "maxLength": 253
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "site"
+            ],
+            "additionalProperties": true,
+            "description": "A Secure Store card: the agent asks the person to save a sign-in for site (a lowercase DNS name) on their Mac; the password never enters the conversation. Text fallback: \"Secure Store: sign in to <site>\"."
+          },
+          "HomePartCardNextSteps": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "next_steps"
+                ]
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 240
+                },
+                "minItems": 1,
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "choices"
+            ],
+            "additionalProperties": true,
+            "description": "Suggested next steps (1 to 3 distinct choices, no control characters). Tapping one sends a person message whose text is the choice. Text fallback: each choice on its own line after \"→ \"."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -48366,6 +49838,15 @@
                 ],
                 "additionalProperties": true,
                 "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
+              },
+              {
+                "$ref": "#/$defs/HomePartCardBrowser"
+              },
+              {
+                "$ref": "#/$defs/HomePartCardSignIn"
+              },
+              {
+                "$ref": "#/$defs/HomePartCardNextSteps"
               }
             ]
           }
@@ -48819,6 +50300,206 @@
             "additionalProperties": true,
             "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
           },
+          "HomeCardImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/png",
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 4194304
+              },
+              "width": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 16384
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "height": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 16384
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "A screenshot the agent uploaded to this conversation (intent, then PUT; image/png, image/jpeg or image/webp, at most 4 MiB); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
+          "HomePartCardBrowser": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "browser"
+                ]
+              },
+              "surface": {
+                "type": "string",
+                "enum": [
+                  "browser",
+                  "computer"
+                ]
+              },
+              "step": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400
+              },
+              "live": {
+                "type": "boolean"
+              },
+              "target": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(browser:right|machine:[A-Za-z0-9_-]{1,128})$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "image": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/HomeCardImage"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "surface",
+              "step"
+            ],
+            "additionalProperties": true,
+            "description": "A live browser or computer-use card. step is the current step (no control characters); live (default false) is true while the agent still drives; target is what Open opens (browser:right, or machine:<id> for a Cloud machine's desktop); the agent edits the card (message.edit) as steps change. Text fallback: \"Browser: <step>\" or \"Computer: <step>\"."
+          },
+          "HomePartCardSignIn": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "sign_in"
+                ]
+              },
+              "site": {
+                "type": "string",
+                "pattern": "^[a-z0-9.-]*\\.[a-z0-9.-]*$",
+                "maxLength": 253
+              },
+              "url": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "site"
+            ],
+            "additionalProperties": true,
+            "description": "A Secure Store card: the agent asks the person to save a sign-in for site (a lowercase DNS name) on their Mac; the password never enters the conversation. Text fallback: \"Secure Store: sign in to <site>\"."
+          },
+          "HomePartCardNextSteps": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "card"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "next_steps"
+                ]
+              },
+              "choices": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 240
+                },
+                "minItems": 1,
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "type",
+              "kind",
+              "choices"
+            ],
+            "additionalProperties": true,
+            "description": "Suggested next steps (1 to 3 distinct choices, no control characters). Tapping one sends a person message whose text is the choice. Text fallback: each choice on its own line after \"→ \"."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -48990,6 +50671,15 @@
                 ],
                 "additionalProperties": true,
                 "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
+              },
+              {
+                "$ref": "#/$defs/HomePartCardBrowser"
+              },
+              {
+                "$ref": "#/$defs/HomePartCardSignIn"
+              },
+              {
+                "$ref": "#/$defs/HomePartCardNextSteps"
               }
             ]
           },

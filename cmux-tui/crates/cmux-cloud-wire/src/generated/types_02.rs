@@ -4,6 +4,45 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomeConversationSummary {
+    pub id: ConversationId,
+    pub owner: String,
+    pub title: String,
+    pub participants: Vec<HomeParticipant>,
+    pub last_seq: i64,
+    pub rev: i64,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_message: Option<HomeMessage>,
+    pub read_cursors: BTreeMap<String, i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<ConversationKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<HomeConversationSummaryState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<HomeConversationSettings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invites: Option<Vec<HomeInvite>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retention_days: Option<i64>,
+    /// A large group (more than 64 members): participants is a roster of at most 16 humans plus the owner and agents; this counts every current participant, and conversation.members pages them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member_count: Option<i64>,
+}
+
+wire_enum! {
+    HomeConversationSummaryState {
+        Active = "active",
+        Archived = "archived",
+    }
+}
+
 wire_enum! {
     HomeDeliveryState {
         Queued = "queued",
@@ -168,6 +207,9 @@ pub enum HomePart {
     Work(HomePartWork),
     Attachment(HomePartAttachment),
     LinkPreview(HomePartLinkPreview),
+    HomePartCardBrowser(HomePartCardBrowser),
+    HomePartCardSignIn(HomePartCardSignIn),
+    HomePartCardNextSteps(HomePartCardNextSteps),
     /// A member this build does not know (a newer backend), kept verbatim.
     Unknown(Value),
 }
@@ -229,6 +271,48 @@ pub struct HomePartLinkPreview {
     pub site: Option<Option<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
     pub image: Option<Option<HomeLinkPreviewImage>>,
+}
+
+/// A live browser or computer-use card. step is the current step (no control characters); live (default false) is true while the agent still drives; target is what Open opens (browser:right, or machine:<id> for a Cloud machine's desktop); the agent edits the card (message.edit) as steps change. Text fallback: "Browser: <step>" or "Computer: <step>".
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomePartCardBrowser {
+    pub r#type: LitCard,
+    pub kind: LitBrowser,
+    pub surface: HomePartCardBrowserSurface,
+    pub step: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub target: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub url: Option<Option<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub image: Option<Option<HomeCardImage>>,
+}
+
+wire_enum! {
+    HomePartCardBrowserSurface {
+        Browser = "browser",
+        Computer = "computer",
+    }
+}
+
+/// Suggested next steps (1 to 3 distinct choices, no control characters). Tapping one sends a person message whose text is the choice. Text fallback: each choice on its own line after "→ ".
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomePartCardNextSteps {
+    pub r#type: LitCard,
+    pub kind: LitNextSteps,
+    pub choices: Vec<String>,
+}
+
+/// A Secure Store card: the agent asks the person to save a sign-in for site (a lowercase DNS name) on their Mac; the password never enters the conversation. Text fallback: "Secure Store: sign in to <site>".
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct HomePartCardSignIn {
+    pub r#type: LitCard,
+    pub kind: LitSignIn,
+    pub site: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub url: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -816,86 +900,3 @@ pub enum ServerNetworkState {
 
 /// A Cloud machine snapshot.
 pub type SnapshotId = String;
-
-wire_enum! {
-    /// `human`: a full shell as the person's Linux user. `agent`: the person's `<name>-agents` Linux user, limited by the certificate's force-command to `cmux team …` commands (decision D28).
-    SshCertClass {
-        Human = "human",
-        Agent = "agent",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SshPresenceProof {
-    pub install: InstallId,
-    pub nonce: String,
-    pub signature: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub app_attest: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnection {
-    pub id: SsoConnectionId,
-    pub kind: LitOidc,
-    pub state: SsoConnectionState,
-    pub domains: Vec<EmailDomain>,
-    pub oidc: SsoConnectionOidc,
-    pub secret_set: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub secret_generation: Option<i64>,
-    pub jit: SsoConnectionJit,
-    pub created_at: i64,
-    pub updated_at: i64,
-}
-
-wire_enum! {
-    SsoConnectionState {
-        Draft = "draft",
-        Active = "active",
-        Disabled = "disabled",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionOidc {
-    pub issuer: String,
-    pub client_id: String,
-    pub scopes: Vec<String>,
-    pub authorization_endpoint: Option<String>,
-    pub token_endpoint: Option<String>,
-    pub jwks_uri: Option<String>,
-}
-
-wire_enum! {
-    SsoConnectionJitDefaultRole {
-        Member = "member",
-        Admin = "admin",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SsoConnectionJit {
-    pub enabled: bool,
-    pub default_role: SsoConnectionJitDefaultRole,
-}
-
-pub type SsoConnectionId = String;
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(untagged)]
-pub enum Step {
-    Sleep(StepSleep),
-    Note(StepNote),
-    Op(StepOp),
-    Machine(StepMachine),
-    Agent(StepAgent),
-    /// A member this build does not know (a newer backend), kept verbatim.
-    Unknown(Value),
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct StepSleep {
-    pub r#type: LitSleep,
-    pub seconds: i64,
-}

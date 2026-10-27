@@ -1,3 +1,4 @@
+import { cardImageHeldBy } from "./card.ts"
 import { ATTACHMENT_LIMITS, DERIVED_IMAGE_TYPES, isSha256 } from "./attachments.ts"
 import type { AttachmentPart, LinkPreviewPart, Part } from "./types.ts"
 
@@ -65,10 +66,12 @@ export const cleanLinkPreviewPart = (part: Record<string, unknown>): LinkPreview
 
 /**
  * The attachment that part `part` holds under `hash`, for a download: an attachment part's own
- * record, or a link preview's image served as an attachment of its own record (no name of its own,
+ * record, a browser card's screenshot (card.ts), or a link preview's image served as an attachment of its own record (no name of its own,
  * no derived image). Undefined when the part holds no such hash.
  */
 export const attachmentHeldBy = (part: Part | undefined, hash: string): AttachmentPart | undefined => {
+  const cardImage = cardImageHeldBy(part, hash)
+  if (cardImage) return cardImage
   if (part?.type === "link_preview" && part.image?.hash === hash) {
     const { mime_type, byte_count } = part.image
     return { type: "attachment", hash, name: `link-preview.${mime_type === "image/webp" ? "webp" : "jpg"}`, mime_type, byte_count }

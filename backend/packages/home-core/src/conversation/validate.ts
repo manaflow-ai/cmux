@@ -1,4 +1,5 @@
 import { cleanAttachmentPart } from "./attachments.ts"
+import { cleanCardPart } from "./card.ts"
 import { cleanLinkPreviewPart } from "./link-preview.ts"
 import { validAddressId, validParticipantId } from "./ids.ts"
 import { validateQuestion } from "./question.ts"
@@ -180,6 +181,12 @@ export const validateParts = (parts: unknown, cloud = false, allowAttachments = 
     } else if (part.type === "link_preview") {
       // Local and cloud heads alike (the Rust crate takes it); a cloud owner also checks the image's record.
       const clean = cleanLinkPreviewPart(part)
+      if (!clean) return fail("invalid_parts")
+      out.push(clean)
+    } else if (part.type === "card") {
+      // Shape only; apply.ts refuses a card from anyone but an agent, and a cloud owner checks a
+      // browser card's image against its record (attachments.ts).
+      const clean = cleanCardPart(part)
       if (!clean) return fail("invalid_parts")
       out.push(clean)
     } else if (part.type === "attachment" && allowAttachments) {

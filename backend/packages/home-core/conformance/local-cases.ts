@@ -234,6 +234,59 @@ export const localCases = (c: Corpus): void => {
   c.op(links, "link preview: a title of 200 emoji (300 code points at most, not UTF-16 units)", ALICE, "l3", send("l3", [link({ title: "\u{1F600}".repeat(200), site: "\u{1F600}".repeat(200) })]), "commit")
   c.op(links, "link preview: null title, site and image are absent", ALICE, "l4", send("l4", [link({ title: null, site: null, image: null })]), "commit")
   c.op(links, "an unknown part type is refused", ALICE, "l5", send("l5", [text("x"), { type: "future_part", anything: [1, 2] } as never]), "invalid_parts")
+  // card parts (cmux-conversation card.rs, home-core card.ts): only an agent posts one; the shape
+  // rules of each kind; an unknown kind is refused. A card is not a turn (like a work card).
+  const chief = new CoreHost()
+  chief.send(ALICE, "h1", "go")
+  const shot = { hash: "e".repeat(64), mime_type: "image/png", byte_count: 4 * 1024 * 1024, width: 1280, height: 800 }
+  const browser = (over: Record<string, unknown> = {}) =>
+    ({ type: "card", kind: "browser", surface: "browser", step: "Returning to LinkedIn Messaging", live: true, ...over }) as never
+  const signIn = (over: Record<string, unknown> = {}) => ({ type: "card", kind: "sign_in", site: "linkedin.com", ...over }) as never
+  const nextSteps = (choices: unknown) => ({ type: "card", kind: "next_steps", choices }) as never
+  c.op(chief, "card: a browser card with every field", MUX, "k1", send("k1", [browser({ target: "browser:right", url: "https://www.linkedin.com/messaging/", image: shot })]), "commit")
+  c.op(chief, "card: a computer card with a machine target, live absent is false", MUX, "k2", send("k2", [browser({ surface: "computer", live: undefined, target: `machine:${"m".repeat(128)}`, image: { ...shot, mime_type: "image/webp", width: null, height: undefined } })]), "commit")
+  c.op(chief, "card: null target, url and image are absent", MUX, "k3", send("k3", [browser({ target: null, url: null, image: null })]), "commit")
+  c.op(chief, "card: a sign-in card", MUX, "k4", send("k4", [signIn({ url: "https://www.linkedin.com/login" })]), "commit")
+  c.op(chief, "card: next steps after the reply text", MUX, "k5", send("k5", [text("Sent."), nextSteps(["Try sending the Kernel update again", "é".repeat(120), "Stop"])]), "commit")
+  const edited = chief.messages[chief.messages.length - 5]!
+  c.op(chief, "card: the Chief edits its browser card as the step changes", MUX, "k6", { kind: "message.edit", message_id: edited.id, parts: [browser({ step: "Opened the conversation", live: false })] }, "commit")
+  c.op(chief, "card: a person cannot post a card", ALICE, "k0", send("k0", [nextSteps(["Yes"])]), "invalid_parts")
+  c.op(chief, "card: a person cannot edit a message into a card", ALICE, "k0", { kind: "message.edit", message_id: chief.messages[0]!.id, parts: [nextSteps(["Yes"])] }, "invalid_parts")
+  c.op(chief, "card: an unknown kind", MUX, "k0", send("k0", [{ type: "card", kind: "map", step: "x" } as never]), "invalid_parts")
+  c.op(chief, "card: no kind", MUX, "k0", send("k0", [{ type: "card", step: "x" } as never]), "invalid_parts")
+  c.op(chief, "card: an unknown surface", MUX, "k0", send("k0", [browser({ surface: "phone" })]), "invalid_parts")
+  c.op(chief, "card: an empty step", MUX, "k0", send("k0", [browser({ step: "" })]), "invalid_parts")
+  c.op(chief, "card: a 201-character step", MUX, "k0", send("k0", [browser({ step: "x".repeat(201) })]), "invalid_parts")
+  c.op(chief, "card: a step with a control character", MUX, "k0", send("k0", [browser({ step: "a\nb" })]), "invalid_parts")
+  c.op(chief, "card: a live that is not a bool", MUX, "k0", send("k0", [browser({ live: "yes" })]), "invalid_parts")
+  c.op(chief, "card: an unknown target", MUX, "k0", send("k0", [browser({ target: "browser:left" })]), "invalid_parts")
+  c.op(chief, "card: a machine target with a bad id", MUX, "k0", send("k0", [browser({ target: "machine:a/b" })]), "invalid_parts")
+  c.op(chief, "card: a machine id over 128 characters", MUX, "k0", send("k0", [browser({ target: `machine:${"m".repeat(129)}` })]), "invalid_parts")
+  c.op(chief, "card: a non-http URL", MUX, "k0", send("k0", [browser({ url: "file:///etc/passwd" })]), "invalid_parts")
+  c.op(chief, "card: a GIF screenshot", MUX, "k0", send("k0", [browser({ image: { ...shot, mime_type: "image/gif" } })]), "invalid_parts")
+  c.op(chief, "card: a screenshot over 4 MiB", MUX, "k0", send("k0", [browser({ image: { ...shot, byte_count: 4 * 1024 * 1024 + 1 } })]), "invalid_parts")
+  c.op(chief, "card: a screenshot wider than 16384", MUX, "k0", send("k0", [browser({ image: { ...shot, width: 16_385 } })]), "invalid_parts")
+  c.op(chief, "card: a screenshot hash that is not lowercase hex", MUX, "k0", send("k0", [browser({ image: { ...shot, hash: "E".repeat(64) } })]), "invalid_parts")
+  c.op(chief, "card: a site with an upper-case letter", MUX, "k0", send("k0", [signIn({ site: "LinkedIn.com" })]), "invalid_parts")
+  c.op(chief, "card: a site without a dot", MUX, "k0", send("k0", [signIn({ site: "localhost" })]), "invalid_parts")
+  c.op(chief, "card: a site with a path", MUX, "k0", send("k0", [signIn({ site: "linkedin.com/login" })]), "invalid_parts")
+  c.op(chief, "card: a site over 253 characters", MUX, "k0", send("k0", [signIn({ site: `${"a".repeat(250)}.com` })]), "invalid_parts")
+  c.op(chief, "card: a sign-in URL with user info", MUX, "k0", send("k0", [signIn({ url: "https://me@linkedin.com" })]), "invalid_parts")
+  c.op(chief, "card: no choices", MUX, "k0", send("k0", [nextSteps([])]), "invalid_parts")
+  c.op(chief, "card: four choices", MUX, "k0", send("k0", [nextSteps(["a", "b", "c", "d"])]), "invalid_parts")
+  c.op(chief, "card: an empty choice", MUX, "k0", send("k0", [nextSteps([""])]), "invalid_parts")
+  c.op(chief, "card: a 121-character choice", MUX, "k0", send("k0", [nextSteps(["x".repeat(121)])]), "invalid_parts")
+  c.op(chief, "card: a choice with a control character", MUX, "k0", send("k0", [nextSteps(["a\tb"])]), "invalid_parts")
+  c.op(chief, "card: duplicate choices", MUX, "k0", send("k0", [nextSteps(["Retry", "Retry"])]), "invalid_parts")
+  c.op(chief, "card: a choice that is not a string", MUX, "k0", send("k0", [nextSteps([1])]), "invalid_parts")
+  // A card is not a turn: card-only agent messages neither spend nor reset the loop guard.
+  const cardTurns = new CoreHost()
+  cardTurns.send(ALICE, "h1", "go")
+  for (let turn = 0; turn < MAX_AGENT_TURNS + 2; turn++) {
+    cardTurns.advance(10_000)
+    c.op(cardTurns, `loop guard: browser card ${turn + 1} is not a turn`, MUX, `b${turn}`, send(`b${turn}`, [browser({ step: `step ${turn}` })]), "commit")
+  }
+
   // A link preview is an agent turn like text: link-only messages cannot bypass the loop guard.
   const linkTurns = new CoreHost()
   linkTurns.send(ALICE, "h1", "go")

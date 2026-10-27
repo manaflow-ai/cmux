@@ -448,6 +448,15 @@ export type HomeAttachmentPreview = {
   readonly byte_count: number
 }
 
+/** A screenshot the agent uploaded to this conversation (intent, then PUT; image/png, image/jpeg or image/webp, at most 4 MiB); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}. */
+export type HomeCardImage = {
+  readonly hash: HomeSha256
+  readonly mime_type: "image/png" | "image/jpeg" | "image/webp"
+  readonly byte_count: number
+  readonly width?: number | null
+  readonly height?: number | null
+}
+
 export type HomeChief = {
   readonly id: ChiefId
   readonly owner_user: string
@@ -609,6 +618,33 @@ export type HomePart = {
   readonly title?: string | null
   readonly site?: string | null
   readonly image?: HomeLinkPreviewImage | null
+} | HomePartCardBrowser | HomePartCardSignIn | HomePartCardNextSteps
+
+/** A live browser or computer-use card. step is the current step (no control characters); live (default false) is true while the agent still drives; target is what Open opens (browser:right, or machine:<id> for a Cloud machine's desktop); the agent edits the card (message.edit) as steps change. Text fallback: "Browser: <step>" or "Computer: <step>". */
+export type HomePartCardBrowser = {
+  readonly type: "card"
+  readonly kind: "browser"
+  readonly surface: "browser" | "computer"
+  readonly step: string
+  readonly live?: boolean
+  readonly target?: string | null
+  readonly url?: string | null
+  readonly image?: HomeCardImage | null
+}
+
+/** Suggested next steps (1 to 3 distinct choices, no control characters). Tapping one sends a person message whose text is the choice. Text fallback: each choice on its own line after "→ ". */
+export type HomePartCardNextSteps = {
+  readonly type: "card"
+  readonly kind: "next_steps"
+  readonly choices: ReadonlyArray<string>
+}
+
+/** A Secure Store card: the agent asks the person to save a sign-in for site (a lowercase DNS name) on their Mac; the password never enters the conversation. Text fallback: "Secure Store: sign in to <site>". */
+export type HomePartCardSignIn = {
+  readonly type: "card"
+  readonly kind: "sign_in"
+  readonly site: string
+  readonly url?: string | null
 }
 
 export type HomeParticipant = {

@@ -260,7 +260,8 @@ export const attachmentPrefix = (conversation: string) => `home/v1/${conversatio
 export const TABLE_ATTREF = "attref"
 
 /**
- * Every record hash a part list references: attachments and link preview images (a poster or
+ * Every record hash a part list references: attachments, link preview images and browser card
+ * screenshots (a poster or
  * preview belongs to its attachment's record, not a hash of its own).
  */
 export const attachmentHashes = (parts: ReadonlyArray<Part>): Set<string> => {
@@ -268,6 +269,7 @@ export const attachmentHashes = (parts: ReadonlyArray<Part>): Set<string> => {
   for (const p of parts) {
     if (p.type === "attachment") out.add(p.hash)
     else if (p.type === "link_preview" && p.image) out.add(p.image.hash)
+    else if (p.type === "card" && p.kind === "browser" && p.image) out.add(p.image.hash)
   }
   return out
 }
@@ -286,10 +288,11 @@ export type AttachmentLookup = (hash: string, actor: string, floor: number) => A
  */
 export const checkAttachments = (parts: ReadonlyArray<Part>, lookup: AttachmentLookup, actor: string, floor: number): "unknown_attachment" | "attachment_mismatch" | null => {
   for (const p of parts) {
-    if (p.type === "link_preview" && p.image) {
-      const rec = lookup(p.image.hash, actor, floor)
+    const image = p.type === "link_preview" ? p.image : p.type === "card" && p.kind === "browser" ? p.image : undefined
+    if (image) {
+      const rec = lookup(image.hash, actor, floor)
       if (!rec) return "unknown_attachment"
-      if (rec.mime_type !== p.image.mime_type || rec.byte_count !== p.image.byte_count) return "attachment_mismatch"
+      if (rec.mime_type !== image.mime_type || rec.byte_count !== image.byte_count) return "attachment_mismatch"
       continue
     }
     if (p.type !== "attachment") continue

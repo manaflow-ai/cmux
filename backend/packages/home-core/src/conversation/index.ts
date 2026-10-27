@@ -124,6 +124,7 @@ export {
   type MetaResult,
   type QuotaResult
 } from "./attachments.ts"
+export { CARD_IMAGE_TYPES, CARD_LIMITS, cardImageHeldBy, cardText, cleanCardPart, validCardSite, validCardTarget } from "./card.ts"
 export { attachmentHeldBy, cleanLinkPreviewPart, LINK_PREVIEW_LIMITS, validLinkUrl } from "./link-preview.ts"
 export { IMPORT_OPS, MAX_IMPORT_BATCH, MAX_IMPORT_BATCH_BYTES, reduceImport } from "./import.ts"
 export { nextSweepAt, RETENTION_BATCH, SWEEP_OP } from "./sweep.ts"
