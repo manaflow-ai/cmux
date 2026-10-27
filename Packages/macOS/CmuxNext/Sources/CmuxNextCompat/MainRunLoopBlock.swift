@@ -24,14 +24,31 @@ public import Foundation
 /// let refresh = MainRunLoopBlock { [weak self] in self?.refresh() }
 /// refresh.perform()
 /// ```
+///
+/// The block's work runs in a ``MainCallbackClass`` (p04-input-080): with one from the app's
+/// main-thread scheduler it runs as a task of its class, and work that is not input or frame waits
+/// behind a person's pending input. The default, ``MainCallbackClass/immediate``, runs it in the
+/// callout with no class; it stays only until the call sites name a class (tasks 081 and 082), and
+/// new code passes one.
+///
+/// ```swift
+/// MainRunLoopBlock.perform(class: mainWork.callbackClass(.frame, owner: "menu.popUp")) { [weak self] in
+///     self?.popUp(menu)
+/// }
+/// ```
 public nonisolated struct MainRunLoopBlock: Sendable {
     private let body: @MainActor () -> Void
+    private let workClass: MainCallbackClass
 
     /// Makes a block that runs `body` on the main actor each time it is performed.
     ///
-    /// - Parameter body: The main-actor work. It runs once per ``perform(mode:)``.
-    public init(_ body: @escaping @MainActor () -> Void) {
+    /// - Parameters:
+    ///   - workClass: The class `body` runs in (default ``MainCallbackClass/immediate``: in the
+    ///     callout, with no class).
+    ///   - body: The main-actor work. It runs once per ``perform(mode:)``.
+    public init(class workClass: MainCallbackClass = .immediate, _ body: @escaping @MainActor () -> Void) {
         self.body = body
+        self.workClass = workClass
     }
 
     /// Queues the block on the main run loop and wakes the run loop, from any thread.
@@ -47,10 +64,11 @@ public nonisolated struct MainRunLoopBlock: Sendable {
         #else
         let body = body
         #endif
+        let workClass = workClass
         let main = CFRunLoopGetMain()
         CFRunLoopPerformBlock(main, mode.rawValue) {
             // main-proof: a block queued on CFRunLoopGetMain() runs only on the main thread.
-            MainActor.assumeIsolated { body() }
+            MainActor.assumeIsolated { workClass.run(body) }
         }
         CFRunLoopWakeUp(main)
     }
@@ -73,8 +91,10 @@ public nonisolated struct MainRunLoopBlock: Sendable {
     ///
     /// - Parameters:
     ///   - mode: The run loop mode to run in (default `.commonModes`).
+    ///   - workClass: The class `body` runs in (default ``MainCallbackClass/immediate``).
     ///   - body: The main-actor work.
-    public static func perform(mode: CFRunLoopMode = .commonModes, _ body: @escaping @MainActor () -> Void) {
-        MainRunLoopBlock(body).perform(mode: mode)
+    public static func perform(mode: CFRunLoopMode = .commonModes, class workClass: MainCallbackClass = .immediate,
+                               _ body: @escaping @MainActor () -> Void) {
+        MainRunLoopBlock(class: workClass, body).perform(mode: mode)
     }
 }
