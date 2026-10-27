@@ -25,7 +25,7 @@ import Testing
 
     static func projection(_ variant: Variant) -> SidebarLayoutDocument {
         let stored = SidebarLayoutDocument.defaults
-        return switch variant {
+        switch variant {
         case .base: return SidebarRows.visibleLayout(stored)
         case .hidden: return SidebarRows.visibleLayout(stored, showAppStore: false)
         case .labsOn: return SidebarRows.visibleLayout(stored, showAppStore: true)
