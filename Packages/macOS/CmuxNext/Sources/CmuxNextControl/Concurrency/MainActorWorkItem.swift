@@ -20,11 +20,6 @@ final class MainActorWorkItem: Sendable {
     /// Its main-thread priority class: ``MainWorkClass/input`` for injected input, else automation.
     let workClass: MainWorkClass
     let deadline: ContinuousClock.Instant
-    /// Main-thread time in Chromium's start after this mark moves ``deadline`` out
-    /// (`MainThreadEngineStart`); nil counts none.
-    let engineStartMark: Duration?
-    /// The error the item fails with when its deadline passed before it ran; nil when it has none.
-    let timeout: ControlError?
     let enqueuedAt: ContinuousClock.Instant
     private let body: @MainActor @Sendable () -> Void
     private let fail: @Sendable (ControlError) -> Void
@@ -47,8 +42,6 @@ final class MainActorWorkItem: Sendable {
         owner: MainTaskOwner? = nil,
         workClass: MainWorkClass = .automation,
         deadline: ContinuousClock.Instant,
-        engineStartMark: Duration? = nil,
-        timeout: ControlError? = nil,
         enqueuedAt: ContinuousClock.Instant,
         body: @escaping @MainActor @Sendable () -> Void,
         fail: @escaping @Sendable (ControlError) -> Void
@@ -58,8 +51,6 @@ final class MainActorWorkItem: Sendable {
         self.owner = owner
         self.workClass = workClass
         self.deadline = deadline
-        self.engineStartMark = engineStartMark
-        self.timeout = timeout
         self.enqueuedAt = enqueuedAt
         self.body = body
         self.fail = fail
@@ -76,15 +67,6 @@ final class MainActorWorkItem: Sendable {
             defer { state.timer = nil; state.pendingInput = nil }
             return (state.timer, state.pendingInput)
         }
-    }
-
-    /// True when the item's deadline (moved out by Chromium's start since its mark) has passed.
-    /// The deadline timer is a task that needs a turn of its own, so a drain can reach an item
-    /// whose deadline passed before that timer ran (the main actor and the task pool were both
-    /// busy): the drain checks this first, so a request that timed out never runs.
-    var isPastDeadline: Bool {
-        let due = engineStartMark.map { MainThreadEngineStart.shared.movedDeadline(deadline, countingFrom: $0) } ?? deadline
-        return ContinuousClock.now >= due
     }
 
     /// Runs the body if nothing else claimed the item. Returns false when it

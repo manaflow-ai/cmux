@@ -171,8 +171,6 @@ public final class MainActorWorkQueue: Sendable {
                 owner: owner,
                 workClass: workClass == .input ? .input : .automation,
                 deadline: deadline,
-                engineStartMark: mark,
-                timeout: timeout,
                 enqueuedAt: now,
                 body: {
                     do {
@@ -183,6 +181,15 @@ public final class MainActorWorkQueue: Sendable {
                 },
                 fail: { continuation.resume(throwing: $0) }
             )
+            // Already past its deadline (a later step of a request whose earlier step held the
+            // main actor, such as an `action.batch` transaction after a slow one): it times out
+            // here and never runs. Queued, it would race its deadline timer for the drain, and a
+            // transaction the caller was told timed out could still run.
+            if engineStart.movedDeadline(deadline, countingFrom: mark) <= .now {
+                item.expire(timeout)
+                state.withLock { $0.stats.expired += 1 }
+                return
+            }
             if let rejection = enqueue(item) {
                 item.expire(rejection)
                 return
@@ -255,23 +262,12 @@ public final class MainActorWorkQueue: Sendable {
             guard let item = takeHead(urgent) else { continue }
             let ran: Bool
             if let budget, let owner = item.owner {
-                ran = budget.run(.input, owner: owner) { runUnlessExpired(item) }
+                ran = budget.run(.input, owner: owner) { item.run() }
             } else {
-                ran = runUnlessExpired(item)
+                ran = item.run()
             }
             if ran { state.withLock { $0.stats.executed += 1 } }
         }
-    }
-
-    /// Runs `item`, or fails it with its timeout when its deadline passed before its timer
-    /// fired. Returns whether it ran.
-    @MainActor
-    func runUnlessExpired(_ item: MainActorWorkItem) -> Bool {
-        if let timeout = item.timeout, item.isPastDeadline {
-            if item.expire(timeout) { state.withLock { $0.stats.expired += 1 } }
-            return false
-        }
-        return item.run()
     }
 
     /// `urgent`'s item when it is still the head of its connection's queue; nil when a frame drain
@@ -331,9 +327,9 @@ public final class MainActorWorkQueue: Sendable {
             let didRun: Bool
             if let budget, let owner = item.owner {
                 // An injected key that waited behind its connection's requests runs as input.
-                didRun = budget.run(item.workClass, owner: owner) { runUnlessExpired(item) }
+                didRun = budget.run(item.workClass, owner: owner) { item.run() }
             } else {
-                didRun = runUnlessExpired(item)
+                didRun = item.run()
             }
             if didRun {
                 ran += 1

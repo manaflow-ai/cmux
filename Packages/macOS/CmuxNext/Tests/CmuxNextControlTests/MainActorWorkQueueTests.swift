@@ -42,6 +42,24 @@ import Testing
         #expect(queue.stats.executed == 0)
     }
 
+    /// A request already past its deadline when it reaches the queue (an `action.batch`
+    /// transaction after a slow one) times out at once and never runs, even when a frame drains
+    /// the queue before any timer could fire: its caller is answered `timeout`, so the work must
+    /// not happen after all.
+    @Test func aRequestPastItsDeadlineOnArrivalNeverRuns() async throws {
+        let frames = ManualFrameSource()
+        let queue = MainActorWorkQueue(frameSource: frames)
+        let ran = Shared(false)
+        await #expect(throws: ControlError.self) {
+            try await queue.run(method: "action.batch", deadline: .now - .milliseconds(1)) { ran.withLock { $0 = true } }
+        }
+        #expect(frames.scheduledCount == 0, "nothing was queued")
+        #expect(queue.stats.pending == 0)
+        await frames.fire()
+        #expect(!ran.withLock { $0 })
+        #expect(queue.stats.expired == 1)
+    }
+
     /// cx-asb1 tab switch timeline: a control request waited for the next
     /// display frame even on an idle queue (request to run about 6.5 ms of a
     /// 13 ms tab switch). The first request after idle runs on the next main
@@ -161,32 +179,6 @@ import Testing
             _ = RunLoop.main.run(mode: .eventTracking, before: Date(timeIntervalSinceNow: 0.01))
         }
         #expect(reply.withLock { $0 } == 42)
-    }
-
-    /// A drain that reaches an item whose deadline passed before its timer task had a turn
-    /// (the task pool was busy) fails it with its timeout instead of running it: the caller was
-    /// told `timeout`, so the work must not happen after all (an `action.batch` transaction ran
-    /// after its request answered, and a keyed retry replayed a success).
-    @MainActor @Test func aDrainNeverRunsAnItemPastItsDeadline() {
-        let queue = MainActorWorkQueue(frameSource: ManualFrameSource())
-        let ran = Shared(false)
-        let failed = Shared<ControlError?>(nil)
-        let timeout = ControlError.timeout("action.batch", after: .milliseconds(200))
-        let item = MainActorWorkItem(connection: .inProcess, method: "action.batch", deadline: .now - .milliseconds(1),
-                                     engineStartMark: MainThreadEngineStart.shared.total, timeout: timeout,
-                                     enqueuedAt: .now - .milliseconds(201),
-                                     body: { ran.withLock { $0 = true } }, fail: { error in failed.withLock { $0 = error } })
-        #expect(item.isPastDeadline)
-        #expect(!queue.runUnlessExpired(item))
-        #expect(!ran.withLock { $0 })
-        #expect(failed.withLock { $0 }?.code == "timeout")
-        #expect(queue.stats.expired == 1)
-        // An item still inside its deadline runs.
-        let onTime = MainActorWorkItem(connection: .inProcess, method: "action.batch", deadline: .now + .seconds(30),
-                                       timeout: timeout, enqueuedAt: .now,
-                                       body: { ran.withLock { $0 = true } }, fail: { _ in })
-        #expect(queue.runUnlessExpired(onTime))
-        #expect(ran.withLock { $0 })
     }
 }
 
