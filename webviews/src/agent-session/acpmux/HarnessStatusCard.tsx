@@ -139,8 +139,14 @@ export function HarnessStatusCard({
           <div className="acpmux-harness-status__eyebrow">{summary.harness ?? "Harness"}</div>
           <h2>Session status</h2>
         </div>
-        <button type="button" className="acpmux-harness-status__copy-all" onClick={() => void copyAll()}>
-          {copiedAll ? t("turn.copied") : t("status.copyAll")}
+        <button
+          type="button"
+          className="acpmux-harness-status__copy-all"
+          aria-label={copiedAll ? t("turn.copied") : t("status.copyAll")}
+          onClick={() => void copyAll()}
+        >
+          <span aria-hidden={copiedAll}>{t("status.copyAll")}</span>
+          <span aria-hidden={!copiedAll}>{t("turn.copied")}</span>
         </button>
         <button type="button" className="acpmux-harness-status__close" onClick={onDismiss} aria-label="Close status">
           ×

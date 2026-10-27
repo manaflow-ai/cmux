@@ -55,6 +55,7 @@
 }
 
 .acpmux-harness-status__copy-all {
+  display: grid;
   min-height: 24px;
   padding: 0;
   border: 0;
@@ -64,6 +65,14 @@
   font: inherit;
   font-size: var(--text-caption);
   letter-spacing: var(--text-caption--letter-spacing);
+}
+
+.acpmux-harness-status__copy-all > span {
+  grid-area: 1 / 1;
+}
+
+.acpmux-harness-status__copy-all > span[aria-hidden="true"] {
+  visibility: hidden;
 }
 
 .acpmux-harness-status__copy-all:hover,

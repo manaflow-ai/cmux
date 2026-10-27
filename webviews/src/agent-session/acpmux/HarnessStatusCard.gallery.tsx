@@ -58,7 +58,11 @@ function GalleryStatusCard({ harness, overlays }: Props) {
   const [open, setOpen] = useState(true);
   const [imageOpen, setImageOpen] = useState(false);
   return (
-    <div data-status-card-fixture className="acpmux-shell" style={{ padding: 24, height: 360 }}>
+    <div
+      data-status-card-fixture
+      className="acpmux-shell"
+      style={{ padding: 24, height: overlays ? 560 : 360, position: "relative" }}
+    >
       {open ? (
         <HarnessStatusCard
           summary={snapshot(harness)}
@@ -69,7 +73,7 @@ function GalleryStatusCard({ harness, overlays }: Props) {
         <div data-status-card-dismissed>Status card dismissed</div>
       )}
       {overlays && (
-        <>
+        <div style={{ position: "absolute", bottom: 24, left: 24, display: "flex", gap: 12 }}>
           <button type="button" onClick={() => setImageOpen(true)}>
             Open status test image
           </button>
@@ -82,7 +86,7 @@ function GalleryStatusCard({ harness, overlays }: Props) {
               onClose={() => setImageOpen(false)}
             />
           )}
-        </>
+        </div>
       )}
     </div>
   );
@@ -93,6 +97,23 @@ const copyAndEscape: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Copied" }) !== null);
   await ctx.press("Escape");
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-harness-status") === null);
+};
+
+const copyValue: Play = async (ctx) => {
+  const fields = ctx.document.querySelectorAll(".acpmux-harness-status__field");
+  if (fields.length !== 11) throw new Error(`Expected all 11 status rows, got ${fields.length}`);
+  const value = ctx.document.querySelector<HTMLElement>(
+    '[data-copy-label="Session"] .acpmux-harness-status__value-text',
+  )!;
+  const original = value.textContent;
+  await ctx.click({ selector: '[data-copy-label="Session"]' });
+  await ctx.waitFor(
+    () =>
+      ctx.document.querySelector('[data-copy-label="Session"] .acpmux-harness-status__copy-feedback')?.textContent ===
+      "Copied",
+  );
+  if (value.textContent !== original || ctx.document.defaultView?.getComputedStyle(value).userSelect !== "text")
+    throw new Error("Copy feedback replaced or made the value unselectable");
 };
 
 const overlayPriority: Play = async (ctx) => {
@@ -139,9 +160,15 @@ export default componentEntry<Props>({
       props: { harness: "claude" },
       play: copyAndEscape,
     },
+    "copy-value": {
+      note: "A copied Session value keeps its selectable text beside a quiet Copied confirmation, with all 11 status rows intact.",
+      props: { harness: "claude" },
+      play: copyValue,
+    },
     "overlay-escape-priority": {
       note: "The real image viewer and interactive Context ring card take Escape before Session status; the next press closes status.",
       props: { harness: "claude", overlays: true },
+      height: 560,
       play: overlayPriority,
     },
   },

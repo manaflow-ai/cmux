@@ -95,8 +95,12 @@ test("a value copies without replacing its selectable text, and Copy all uses la
   expect(session!.textContent).toContain("session-123");
   expect(session!.textContent).toContain("Copied");
 
-  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-harness-status__copy-all")!.click());
+  const copyAll = container.querySelector<HTMLButtonElement>(".acpmux-harness-status__copy-all")!;
+  expect(copyAll.getAttribute("aria-label")).toBe("Copy all");
+  await act(async () => copyAll.click());
   await settle();
+  expect(copyAll.getAttribute("aria-label")).toBe("Copied");
+  expect(copyAll.querySelector('[aria-hidden="false"]')?.textContent).toBe("Copied");
   expect(copied.at(-1)).toContain("Session: session-123");
   expect(copied.at(-1)).toContain("CWD: /Users/leo/cmux");
 });
