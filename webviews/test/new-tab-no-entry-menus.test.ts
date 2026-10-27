@@ -21,10 +21,8 @@ await requireBrowserLane("new-tab-no-entry-menus.test.ts", async () => {
     return;
   }
   const repo = path.resolve(import.meta.dir, "../..");
-  // The pane's sheets, then noEntry.css where its import ships it (after them) if it is not listed.
-  const NO_ENTRY_CSS = "webviews/src/agent-session/acpmux/newtab/noEntry.css";
-  const sheets = paneSheets();
-  const css = (sheets.includes(NO_ENTRY_CSS) ? sheets : [...sheets, NO_ENTRY_CSS])
+  // Exactly the sheets the pane ships, including noEntry.css through its import graph.
+  const css = paneSheets()
     .map((file) =>
       readFileSync(path.join(repo, file), "utf8")
         .split("\n")

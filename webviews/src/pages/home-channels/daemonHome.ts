@@ -506,6 +506,8 @@ export class DaemonHomeClient implements PageClient {
    * `conversation-inbox-changed`: a snapshot or a conversation change carries none, so a summary
    * from them keeps what the list said. */
   private readonly listState = new Map<string, Json>();
+  // This page's `conversation-inbox-op` calls whose event has not come back, by conversation.
+  private readonly ownInboxOps = new Map<string, number>();
   /** The owner's last `home-inbox` rows by conversation id (home-inbox-v1). */
   private readonly homeRows = new Map<string, Json>();
   /** Cloud summaries the hydration read after the inbox answered (sent on the events stream). */
@@ -989,6 +991,7 @@ export class DaemonHomeClient implements PageClient {
       next.pin_position = op.pinned === true ? (op.position ?? before?.pin_position) : undefined;
     } else next.marked_unread = op.unread === true;
     this.listState.set(conversationId, next);
+    this.ownInboxOps.set(conversationId, (this.ownInboxOps.get(conversationId) ?? 0) + 1);
     try {
       const state = await this.local.request<Json>("conversation-inbox-op", { conversation: conversationId, op });
       this.listState.set(conversationId, {
@@ -997,6 +1000,10 @@ export class DaemonHomeClient implements PageClient {
         marked_unread: state.marked_unread,
       });
     } catch (error) {
+      // A refused op sends no event.
+      const own = this.ownInboxOps.get(conversationId) ?? 0;
+      if (own > 1) this.ownInboxOps.set(conversationId, own - 1);
+      else this.ownInboxOps.delete(conversationId);
       if (this.listState.get(conversationId) === next) {
         if (before) this.listState.set(conversationId, before);
         else this.listState.delete(conversationId);
@@ -1190,12 +1197,18 @@ export class DaemonHomeClient implements PageClient {
             markedUnread: event.marked_unread === true,
           };
           if (change.pinned && typeof event.pin_position === "number") change.pinPosition = event.pin_position;
+          // This page's own pin or mark keeps the cheap path; any other is the owner saying a row left
+          // my list (a deleted Chief's), or another view's change: read the rows again.
+          const own = this.ownInboxOps.get(change.conversation) ?? 0;
+          if (own > 1) this.ownInboxOps.set(change.conversation, own - 1);
+          else this.ownInboxOps.delete(change.conversation);
           this.listState.set(change.conversation, {
             pinned: change.pinned,
             pin_position: change.pinPosition,
             marked_unread: change.markedUnread,
           });
           (batch.inbox ??= []).push(change);
+          if (own === 0 && this.homeRows.size > 0) batch.inboxStale = true;
         });
       } else if (event.event === "conversation-presence") {
         deliver((batch) =>
@@ -1255,6 +1268,8 @@ export class DaemonHomeClient implements PageClient {
         // The daemon ended the stream ("resubscribe to continue"): start it again, and refetch
         // what the lost events changed (the inbox and every open window).
         this.streamStarted.delete(socket);
+        // The events of this page's own pins and marks may be lost: the inbox is read again anyway.
+        this.ownInboxOps.clear();
         // Lost cloud events too: the cloud inbox is listed again with the inbox.
         if (fromCloud) this.cloud.reset();
         void this.startSocketStream(socket).catch(() => deliver((batch) => (batch.connection = "offline")));

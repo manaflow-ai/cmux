@@ -112,7 +112,8 @@ class NightlyTrustedRouting(unittest.TestCase):
         uses = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('runs-on', '')))
         self.assertEqual(uses, [])
         steps = sorted(name for name, job in DOC['jobs'].items() if 'CI_NIGHTLY_NEXT_BUILD_RUNNER' in str(job.get('steps', '')))
-        self.assertEqual(steps, ['pick-nightly-build-runner'])
+        # The verify jobs' owned pick (pick-nightly-sign-runner) offers the same labels as the build's.
+        self.assertEqual(steps, ['pick-nightly-build-runner', 'pick-nightly-sign-runner'])
 
     def test_ghostty_helper_takes_owned_macos_26_then_blacksmith_macos_26(self):
         # Leo: "bro WHAT THE FUCK IS THE POINT OF 15???????? WHY". The helper builds with
@@ -154,7 +155,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                         {'github.ref': 'refs/heads/other'}):
             with self.subTest(changes=changes):
                 self.assertEqual(helper(**changes), 'blacksmith-6vcpu-macos-26')
-        self.assertEqual(helper(**{'inputs.nightly_next_unsigned_run': '123'}), 'ubuntu-24.04')
+        self.assertEqual(helper(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-4vcpu-ubuntu-2404')
         self.assertEqual(helper(**{'github.repository_owner': 'someone'}), 'macos-26')
         self.assertNotIn('macos-15', WORKFLOW_FILE.read_text())
 
