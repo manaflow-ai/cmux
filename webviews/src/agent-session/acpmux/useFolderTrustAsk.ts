@@ -368,7 +368,11 @@ export function useFolderTrustAsk(
           const now = current.current;
           if (!mounted.current || !chatCwd || now.cwd !== chatCwd || now.canAnswer !== canAnswer || now.local !== local)
             return;
-          if (!answer) {
+          // Equal paths on different peers are not the same folder. Only a local answer can be
+          // projected by path; a remote/peer chat must ask its current source again instead of
+          // inheriting another host's trust decision.
+          if (!answer || !remembers) {
+            setReading(Boolean(chatCwd));
             setReads((count) => count + 1);
             return;
           }
