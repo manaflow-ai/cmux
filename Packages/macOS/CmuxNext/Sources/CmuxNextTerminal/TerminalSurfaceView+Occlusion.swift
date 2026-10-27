@@ -21,7 +21,7 @@ extension TerminalSurfaceView {
     /// opaque cmux window covers is occluded too (its ``WindowOcclusionFamily``, p03-rendering-097).
     /// A shown surface whose window stays off screen counts as away (``TerminalOffScreenRelease``).
     func updateOcclusion() {
-        guard let surface else { return }
+        guard surface != nil else { return }
         var inputs = WindowDrawPolicy.inputs(for: self, suspended: isRenderingSuspended, forced: mirrorDemand > 0)
         if let window, WindowOcclusionFamily.installed(on: window)?.isOccluded == true { inputs.windowVisible = false }
         pause = inputs.pause
@@ -35,8 +35,7 @@ extension TerminalSurfaceView {
         guard (pause == nil) != lastOcclusionVisible else { return }
         lastOcclusionVisible = pause == nil
         heldFrame.hold(volatile: pause != nil, in: frameSource)
-        // SAFETY: the view's live surface (`surface`).
-        unsafe ghostty_surface_set_occlusion(surface, pause == nil)
+        TerminalHostFramePresenter.setOcclusion(of: self, visible: pause == nil)  // shown: drawn frame in this commit
     }
 
     /// Its window stayed off screen ``WindowDrawPolicy/offScreenGPUReleaseDelay``: the paused surface

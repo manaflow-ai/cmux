@@ -408,7 +408,8 @@ final class BlockLayoutCache: Sendable {
             s.map.updateValue((v, s.tick), forKey: k) // dictionary write
             if s.map.count > BlockLayoutCache.capacity + 64 {
                 let keep = s.map.sorted { $0.value.1 > $1.value.1 }.prefix(BlockLayoutCache.capacity)
-                s.map = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
+                // cmux: keys come from `s.map`, so they are unique; no trapping init (p10-stability-096).
+                s.map = Dictionary(keep.map { ($0.key, $0.value) }, uniquingKeysWith: { first, _ in first })
             }
         }
     }
