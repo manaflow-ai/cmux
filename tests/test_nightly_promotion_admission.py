@@ -1024,6 +1024,14 @@ def test_a_train_commit_on_an_old_nightly_head_is_refused() -> None:
     assert decision["action"] == "refuse" and "was made on" in decision["reason"], decision
 
 
+def test_a_train_commit_a_later_nightly_head_contains_is_a_superseded_no_op() -> None:
+    case = train_case()
+    case["gitCommits"][TRAIN]["parents"] = [{"sha": MID}, {"sha": SHA}]
+    case["rangeStatus"] = "behind"
+    decision = run(case)["decision"]
+    assert decision["action"] == "skip" and "superseded by newer target" in decision["reason"], decision
+
+
 def test_a_train_commit_whose_tip_is_not_on_the_source_is_refused() -> None:
     # SHA is not reachable from the feat-cmux-next head MID ("behind").
     decision = run(train_case(sourceHead=MID))["decision"]
