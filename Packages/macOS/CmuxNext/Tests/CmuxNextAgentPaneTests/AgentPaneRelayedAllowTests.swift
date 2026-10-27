@@ -497,7 +497,8 @@ struct AgentPaneRelayedAllowTests {
 
         // An always-allow (unsigned: "only a one-time Allow works"), refused for another reason.
         transport.gestures.record(click: true)
-        let always = try #require(transport.reserveGesture(try #require(Self.intent(option: "always"))))
+        let alwaysIntent = try #require(Self.intent(option: "always"))
+        let always = try #require(transport.reserveGesture(alwaysIntent))
         let alwaysFrame = Self.allow(ticket: always).replacingOccurrences(of: #""optionId":"yes""#, with: #""optionId":"always""#)
         #expect(await transport.send(connection: id, frames: [alwaysFrame]) == nil)
         let first = try await Self.relayID(server, "permission_respond", after: 0)
@@ -507,7 +508,8 @@ struct AgentPaneRelayedAllowTests {
 
         // A signed one-time Allow, refused for want of enrolling this Mac.
         transport.gestures.record(click: true)
-        let yes = try #require(transport.reserveGesture(try #require(Self.intent(option: "yes"))))
+        let yesIntent = try #require(Self.intent(option: "yes"))
+        let yes = try #require(transport.reserveGesture(yesIntent))
         let signed = Self.allow(ticket: yes).replacingOccurrences(of: #""id":7"#, with: #""id":8"#)
         #expect(await transport.send(connection: id, frames: [signed]) == nil)
         let second = try await Self.relayID(server, "permission_respond", after: 1)
