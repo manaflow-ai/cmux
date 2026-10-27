@@ -134,6 +134,9 @@ public final class TerminalSession {
     /// Passed to each surface view this session makes: their GPU memory release while away.
     private let gpuResidency: (any TerminalGPUResidency)?
     private let input: TerminalInputSink
+    /// The lane the IO's reader feeds live output to (``TerminalIO/setOutputLane(_:)``): the events loop
+    /// names it, close names none.
+    private let outputLane: TerminalOutputLaneNamer
     private let echoStages: TerminalEchoStages
     /// What the events loop changed for the main actor, applied once per frame (``applyEvents()``).
     let events: TerminalEventMailbox
@@ -192,6 +195,7 @@ public final class TerminalSession {
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
         // One hop from the main thread to the IO's own queue (``TerminalInputLane``), no pool task.
+        outputLane = TerminalOutputLaneNamer(io: io)
         input = TerminalInputSink(lane: TerminalInputLane(drain: io.inputDrain()), typingSurface: TypingLatencyProbe.shared.makeSurfaceKey())
 
         frameHold = TerminalFrameHold(deadlines: deadlines ?? MainDeadlineScheduler(work: mainWork))
@@ -216,7 +220,7 @@ public final class TerminalSession {
 
         target.session = self
         eventsTask = Self.consume(io.events, from: io, with: TerminalEventRouter(
-            lane: surfaceView.lane, mailbox: events, input: input,
+            lane: surfaceView.lane, mailbox: events, input: input, outputLane: outputLane,
             replace: { [weak self] event -> TerminalOutputLane?? in
                 guard let self else { return nil }
                 return await self.replace(event)
@@ -302,6 +306,7 @@ public final class TerminalSession {
         closeCancels.forEach { $0.cancel() }
         closeCancels = []
         input.finish()
+        outputLane.close() // the IO's reader feeds no lane of this session again
         surfaceView.removeFromSuperview()
     }
 
