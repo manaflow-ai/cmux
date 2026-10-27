@@ -261,6 +261,8 @@ fn a_reply_logs_the_message_it_replies_to_when_the_log_has_no_line_for_it() {
         part_index: 0,
     });
     deliver(&mut h, reply);
+    // The reply's own line is logged when its turn starts: let the turn run.
+    h.settle_posts();
     // The parent's text, under its id and seq, logged before the reply, so the
     // next turn's delta carries it and zoom on its line shows it.
     let log = h.log();

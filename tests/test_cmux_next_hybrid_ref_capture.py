@@ -538,7 +538,13 @@ class NightlyWorkflow(unittest.TestCase):
         for step in (decide, start, finish, upload):
             self.assertTrue(step["continue-on-error"], step.get("name"))
         self.assertLessEqual(decide["timeout-minutes"], 1)
-        self.assertEqual(start["if"], "steps.hybrid-ref.outputs.capture == 'true'")
+        self.assertEqual(start["if"], "steps.hybrid-ref.outputs.capture == 'true' && steps.nightly-product.outputs.hit != 'true'")
+        # A capture run never takes a reused product: it decides before the lookup and makes it miss.
+        lookup = self.steps["nightly-product"]
+        self.assertLess(self.order.index("hybrid-ref"), self.order.index("nightly-product"))
+        self.assertTrue(lookup["env"]["SKIP_REASON"].startswith(
+            "${{ steps.hybrid-ref.outputs.capture == 'true' && 'a REF capture needs a real compile' || "))
+        self.assertIn("steps.nightly-product.outputs.hit != 'true'", self.compile["if"])
         self.assertEqual(finish["if"], "steps.hybrid-ref-start.outputs.started == 'true'")
         self.assertIn("(( $(date +%s) - STARTED > 100 * 60 ))", start["run"])
         self.assertIn("env -u GITHUB_OUTPUT nice -n 10", start["run"])
