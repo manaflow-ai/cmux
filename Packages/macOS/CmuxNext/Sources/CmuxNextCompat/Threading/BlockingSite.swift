@@ -1,4 +1,5 @@
-/// One call site that blocked the main thread, a shared pool thread or a `.cpu` lane item (``context``), as
+/// One call site that blocked the main thread, a shared pool thread or a `.cpu` lane item, or waited on a sync
+/// primitive in a lane item (``context``), as
 /// ``BlockingDetector/sites`` lists it for the `debug.blocking` control command and the Debug menu.
 public struct BlockingSite: Sendable, Equatable {
     /// What the call waited on, or ``BlockingKind/wrongLane`` for a site in ``BlockingContext/cpuLane``.

@@ -45,9 +45,11 @@ final class BrowserPageRequests: BrowserTabDelegate {
             // marked before its page exists (no rebuild on the agent's first
             // touch, no saved password filled), as its adopted pages are.
             openers.inheritsFromOpener = { [weak self] child, opener in
+                // view-observation-allow: the tab on a surface is one read of the store's surface index (R-index's target), not an observation
                 guard let services = self?.services, let tab = services.locateTab(surface: opener),
                       services.cache.agentDrivenTabs.contains(tab.id) else { return }
                 services.cache.markAgentDriven(surface: child)
+                // view-observation-allow: the tab on a surface is one read of the store's surface index (R-index's target), not an observation
                 if let key = services.locateTab(surface: child)?.id, services.cache.existingBrowser(key) != nil {
                     services.cache.markAgentDriven(key)
                 }
@@ -111,6 +113,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return pageClosedBeforeAdoption(page)
         }
         guard let services, let key = services.cache.key(of: page) ?? services.popups.openerKey(of: page),
+              // view-observation-allow: the tab lookup is one MachineTabIndex read (R-index's target), not an observation
               let (openerTab, pane) = services.locateTab(key) else {
             // The opener is gone: nowhere to show a new page.
             switch intent {
@@ -258,6 +261,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// `page` shows a New Tab page and is the last tab of its pane.
     private func isNewTabPageAtEnd(_ page: any BrowserTab) -> Bool {
         guard BrowserNewTabPage.isNewTabPage(page.state.url), let services, let key = services.cache.key(of: page),
+              // view-observation-allow: the tab lookup is one MachineTabIndex read (R-index's target), not an observation
               let (_, pane) = services.locateTab(key) else { return false }
         return pane.tabs.last?.id == key
     }
@@ -390,6 +394,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             closedBeforeAdoption.remove(at: index)
             return closeDaemonTab(on: surface)
         }
+        // view-observation-allow: the tab on a surface is one read of the store's surface index (R-index's target), not an observation
         if let tab = services.locateTab(surface: surface), services.cache.existingBrowser(tab.id) != nil {
             services.cache.replacePage(of: tab, with: page)
         } else {
@@ -431,6 +436,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
     }
 
     private func closeDaemonTab(on surface: SurfaceID) {
+        // view-observation-allow: the tab on a surface is one read of the store's surface index (R-index's target), not an observation
         if let tab = services?.locateTab(surface: surface) {
             closeTab(tab.id)
         } else {

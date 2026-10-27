@@ -2,7 +2,7 @@ import AppKit
 
 /// The tabs of one host view whose pages Chromium draws in its own Cocoa view inside it (p03-rendering-045,
 /// Track B). The fork moves a tab's `WebContentsViewCocoa` into the host view, below its other subviews
-/// (`cmux_shim_browser_attach_view`, fork API 33, p03-rendering-044), as Chrome puts a tab's view in its
+/// (`cmux_shim_browser_attach_view`, fork API 36, p03-rendering-044), as Chrome puts a tab's view in its
 /// window's content view (`content/browser/web_contents/web_contents_view_mac.mm`). Pixels, input, IME, cursor,
 /// drag and accessibility then come from Chromium's view, and the tab's page window never orders in.
 ///
@@ -151,6 +151,6 @@ final class CEFAttachedPages {
         guard enabled, apiVersion >= CEFLayerHosting.attachViewForkAPI, let attachView = shim.browserAttachView else {
             return nil
         }
-        return { browser, parent in attachView(browser, Unmanaged.passUnretained(parent).toOpaque()) == 1 }
+        return { browser, parent in attachView(browser, CEFParentView(view: parent)) == 1 }
     }
 }

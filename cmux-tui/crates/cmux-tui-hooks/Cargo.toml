@@ -13,6 +13,7 @@ workspace = true
 [dependencies]
 anyhow.workspace = true
 cmux-process.workspace = true
+cmux-threads.workspace = true
 getrandom = { workspace = true, features = ["std"] }
 libc.workspace = true
 serde_json.workspace = true

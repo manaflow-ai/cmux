@@ -676,7 +676,7 @@ struct CloudMoveTests {
         let hub = CloudTunnelHub(api: api, paths: paths, binary: cli, deviceName: "cn-move-test")
         let link = CloudMachineLink(machineID: "vm-move", api: api, hub: hub, paths: paths, binary: cli, deviceName: "cn-move-test")
         return CloudMachineSession(machine: CloudMachine(id: "vm-move", displayName: "Move VM"), link: link,
-                                   mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+                                   mainWork: MainWorkScheduler(budget: MainFrameBudget()), work: services.work)
     }
 
     /// Ends `daemon`'s connection and its daemon with its terminals, so no host outlives the test.

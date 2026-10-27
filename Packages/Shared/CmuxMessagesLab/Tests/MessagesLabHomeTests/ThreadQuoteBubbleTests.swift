@@ -46,7 +46,9 @@ import Testing
             ? CGRect(x: rightEdge - pv.box.width, y: Self.top, width: pv.box.width, height: pv.box.height)
             : CGRect(x: Fixture.leftEdge, y: Self.top, width: pv.box.width, height: pv.box.height)
         data.withUnsafeMutableBytes { buf in
-            guard let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+            // SAFETY: buf is the array's storage, w * h * 4 bytes (its count), lent for this closure; the context writes
+            // w * 4 bytes a row for h rows inside it, and is not drawn into after the closure.
+            guard let ctx = unsafe CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
                                       space: CGColorSpace(name: CGColorSpace.sRGB)!,
                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
             ctx.translateBy(x: 0, y: CGFloat(h))

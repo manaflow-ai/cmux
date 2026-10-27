@@ -43,26 +43,26 @@ extension AppBrowserPage {
         if page is DeferredBrowserTab {
             // A command starts Chromium at once (`.automation`, p08-startup-040); a crash deferral waits for the person.
             guard cache.startLaunchDeferred(key) else { return page }
-            return await installedLivePage(key, cache: cache, method: "browser.start", within: within)
+            return await installedLivePage(key, cache: cache, method: "browser.start", owner: "browser.page.start", within: within)
         }
         guard page is HibernatedBrowserTab else { return page }
         // Restarts the tab's hidden clock: it does not go back to sleep while the agent works.
         cache.hibernation?.noteAgentUse(key)
         _ = cache.hibernation?.wake(key)
-        guard let live = await installedLivePage(key, cache: cache, method: "browser.wake", within: within) else { return nil }
+        guard let live = await installedLivePage(key, cache: cache, method: "browser.wake", owner: "browser.page.wake", within: within) else { return nil }
         cache.hibernation?.noteAgentUse(key)
         return live
     }
 
     /// Tab `key`'s live page once the cache installed one, nil after `within`.
-    private static func installedLivePage(_ key: String, cache: TabContentCache, method: String,
+    private static func installedLivePage(_ key: String, cache: TabContentCache, method: String, owner: String,
                                           within: Duration) async -> (any BrowserTab)? {
         let installed = try? await ControlDeadline.shared.run(method: method, deadline: .now + within) { @MainActor in
             // Every restore and start installs a page (`pageInstalls`), which wakes this wait.
-            for await live in ObservationStream({ _ = cache.pageInstalls.revision; return isLive(cache.existingBrowser(key)?.tab) }) where live {
-                return true
+            await ControlConditionWait(on: cache.mainWork, owner: owner).until {
+                _ = cache.pageInstalls.revision
+                return isLive(cache.existingBrowser(key)?.tab)
             }
-            return false
         }
         guard installed == true, let live = cache.existingBrowser(key)?.tab, isLive(live) else { return nil }
         return live

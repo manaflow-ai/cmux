@@ -3,6 +3,10 @@ public import CmuxNextSettings
 public import Foundation
 import CmuxNextCompat
 public import CmuxNextRemoteFetch
+public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// What cmux already knows about a web page a reply links to: its site's favicon (PNG) and the
 /// page's title, from the user's own browsing. Never fetched for a chip (D4).
@@ -47,7 +51,10 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     private let quickLook = AgentPaneQuickLook()
     /// Where the image viewer keeps the copies it shows or opens (``AgentPaneImageCopies``).
     public var imageFolder = AgentPaneImageCopies.defaultFolder()
-    public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
+    public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers(queries: nil)
+    /// The app's Launch Services answers (the App sets them): the link menus' app lists and icons, a dragged file's
+    /// icon. Nil lists no app and drags with a placeholder.
+    public var workspaceQueries: WorkspaceQueries?
     /// What the host already has about a pull request (`pr.inspect`), with the age of it; it never
     /// waits on GitHub, and a stale link's refresh runs in the background at most once a minute
     /// however often it is hovered (``AgentReplyPullRequests``).
@@ -217,9 +224,9 @@ extension AgentPaneModel {
 
     private func confirmOutside(_ path: String) async -> Bool {
         guard let ask = replyLinks.confirmOutside else { return false }
-        return await withCheckedContinuation { continuation in
+        return (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             ask(path) { continuation.resume(returning: $0) }
-        }
+        }) ?? false // dropped unanswered (the pane closed): not a yes
     }
 
     /// A reply image (D5): a file inside the roots, read by the host; or an https image fetched

@@ -48,8 +48,9 @@ final class WindowKeyFamily {
     /// The key and activation notices it observes. A notice's code in `switch.app_activation` is its
     /// position + 1 (``SignpostName/switchAppActivation``): a window did become key 1, resign key 2,
     /// become main 3, resign main 4; the app did become active 5, resign active 6.
-    private static let notices = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
-                                  NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
+    // raw-observer-allow: the names startObserving() subscribes through the app's AppEvents, listed once for their codes
+    private static let notices = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, // raw-observer-allow: as above
+                                  NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification, // raw-observer-allow: as above
                                   NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification]
 
     /// Whether `code` is the app's become or resign active notice.
@@ -115,8 +116,8 @@ final class WindowKeyFamily {
         }
     }
 
-    /// Reads where the keyboard is on the next main-actor turn: a resign posts before the next
-    /// window becomes key, so the key window in between (nil) would flash the wash. `code` is the
+    /// Reads where the keyboard is once the turn's notices are in, before its commit: a resign posts
+    /// before the next window becomes key, so the key window in between (nil) would flash the wash. `code` is the
     /// notice's code (``notices``), nil for the tracker's first read, which is not a key change.
     private func keyDidMove(_ code: UInt8?) { // perf-hot: 0.5ms cmd-tab (every key or activation change, once per window per turn)
         if let code {
@@ -125,7 +126,7 @@ final class WindowKeyFamily {
         }
         guard !checkPending else { return }
         checkPending = true
-        environment.nextTurn { [weak self] in self?.check() }
+        environment.beforeCommit { [weak self] in self?.check() }
     }
 
     /// Decides whether the window looks inactive now. A check that flips it is one `switch.app_activation`

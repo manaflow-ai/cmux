@@ -55,6 +55,30 @@
         "settled"
       ],
       "note": "main tracks origin/main, one commit behind: the push fast-forwards the fixture's bare origin under the case root, its only remote"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "git.push",
+        "params": {
+          "path": "$CASE_ROOT/repos/oracle"
+        },
+        "idempotencyKey": "git-push-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

@@ -60,6 +60,7 @@ import Testing
     @Test(arguments: Resync.allCases)
     func aRevealedTerminalShowsItsContentFromTheFirstFrame(_ resync: Resync) async throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         // The runner's window may report itself occluded (an app never in front): draw anyway, as
         // automation launches do. Hidden and suspended surfaces still pause.
         let drew = WindowDrawPolicy.drawsWhenOccluded

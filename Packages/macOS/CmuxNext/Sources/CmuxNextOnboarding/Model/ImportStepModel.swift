@@ -1,3 +1,4 @@
+public import AppKit
 public import CmuxNextBrowserImport
 import Foundation
 public import Observation
@@ -44,6 +45,8 @@ public final class ImportStepModel {
 
     public private(set) var phase: Phase = .idle
     public private(set) var sources: [BrowserSource] = []
+    /// The browsers' icons, read off the main thread after detection; a row shows the browser symbol until its lands.
+    public private(set) var browserIcons: [ImportBrowser: NSImage] = [:]
     /// Browsers on this Mac whose profile folder has no grant yet (nothing in it was read).
     public private(set) var awaitingAccess: [ImportBrowser] = []
     /// The open panel is up for the browser being explained.
@@ -233,6 +236,10 @@ public final class ImportStepModel {
             // Everything is checked to start with: the common case is "bring it all".
             selectedProfiles = Set(profiles.map(\.id))
             phase = .ready
+            let shown: [(browser: ImportBrowser, app: URL?)] = sources.map { ($0.browser, $0.appURL) } + awaiting.map { ($0, nil) }
+            let icons = await services.browserIcons(shown)
+            guard !Task.isCancelled else { return }
+            browserIcons = icons
         }
     }
 

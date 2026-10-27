@@ -2,12 +2,13 @@
 // p01-process-042).
 //
 // The input ring's reader (chromium_host_input_ring.h, HostInput) hands each batch of frames
-// to the UI thread on Chromium's user-input queue (cmux_shim_post_user_input_task,
-// BrowserTaskType::kUserInput in content/public/browser/browser_task_traits.h); there the
-// frames go into the host's one ordered stream (OrderedInput, task 092), which dispatches each
-// once the control message it follows is applied and input is open; DispatchInputFrame sends it
-// to its page and its move or wheel tick is acked (kOpInputAck) then, never when the renderer
-// handled it. cmux sends at most one move and one wheel tick per page before their ack and
+// to the UI thread through the host's InputTasks (host_user_input.h, task p04-input-065):
+// Chromium's user-input queue (BrowserTaskType::kUserInput in
+// content/public/browser/browser_task_traits.h), or CefPostTask(TID_UI) on a fork without it;
+// there the frames go into the host's one ordered stream (OrderedInput, task 092), which
+// dispatches each once the control message it follows is applied and input is open;
+// browser_host_main.mm's DispatchInput sends it to its page and its move or wheel tick is
+// acked (kOpInputAck) then, never when the renderer handled it. cmux sends at most one move and one wheel tick per page before their ack and
 // coalesces the rest (ChromiumHostInputPacer in cmux), so the host never coalesces input.
 //
 // AckBatch and OrderedInput need no CEF (the ring test builds them on any machine);
@@ -27,9 +28,9 @@
 
 namespace cmux_host {
 
-// Sends `frame` (kKey, kMouse, kWheel or kEdit, chromium_host_wire.h) to the browser Chromium names
-// `chromium_browser_id`; nothing for a browser that is gone or a kind the ring does not carry.
-// UI thread.
+// Sends `frame` (kKey, kMouse or kEdit, chromium_host_wire.h) to the browser Chromium names
+// `chromium_browser_id`; nothing for a browser that is gone or another kind (wheels go through
+// browser_host_main.mm's SendWheel). UI thread.
 void DispatchInputFrame(int chromium_browser_id, const Header& frame);
 
 // The acks of one dispatched batch: one record per pointer move and wheel tick, the frames
@@ -73,7 +74,7 @@ class AckBatch {
 // ack always means "dispatched". UI thread only, like the stream.
 class OrderedInput {
  public:
-  // Sends one dispatched frame to its page (DispatchInputFrame in the host).
+  // Sends one dispatched frame to its page (DispatchInput in browser_host_main.mm).
   using Dispatch = std::function<void(const Header&)>;
   // Sends the acks of the frames dispatched by one call (the control channel).
   using SendAcks = std::function<void(control::Message)>;

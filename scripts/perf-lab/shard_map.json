@@ -5,8 +5,8 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 23860,
-            "T2": 41580
+            "T1": 25480,
+            "T2": 44580
           },
           "stories": {
             "T1": [
@@ -28,6 +28,9 @@
               "crash-survival-webkit",
               "daemon-ops",
               "drag-lag",
+              "frame_pacing.fling",
+              "frame_pacing.golden",
+              "frame_pacing.instant",
               "fullscreen-transition",
               "home-idle",
               "home-perf",
@@ -36,6 +39,8 @@
               "launch-cold",
               "launch-cold-realistic",
               "launch-connect",
+              "launch-restore-cold",
+              "launch-restore-warm",
               "launch-warm-realistic",
               "main-turn",
               "memory-hidden",
@@ -133,7 +138,8 @@
               "stalls",
               "terminal-resize-stress",
               "tui-browser-frames",
-              "typing-flood-stress"
+              "typing-flood-stress",
+              "vs-browsers"
             ]
           }
         }
@@ -148,7 +154,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 41580
+            "T2": 44580
           },
           "stories": {
             "T2": [
@@ -210,7 +216,8 @@
               "stalls",
               "terminal-resize-stress",
               "tui-browser-frames",
-              "typing-flood-stress"
+              "typing-flood-stress",
+              "vs-browsers"
             ]
           }
         }
@@ -225,7 +232,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 11950
+            "T1": 12790
           },
           "stories": {
             "T0": [
@@ -241,9 +248,12 @@
               "burst",
               "command-pan",
               "daemon-ops",
+              "frame_pacing.fling",
+              "frame_pacing.instant",
               "home-perf",
               "launch-cold-realistic",
               "launch-connect",
+              "launch-restore-cold",
               "main-turn",
               "motion",
               "new-browser-tab-webkit",
@@ -268,7 +278,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 11910
+            "T1": 12690
           },
           "stories": {
             "T0": [
@@ -285,11 +295,13 @@
               "crash-survival",
               "crash-survival-webkit",
               "drag-lag",
+              "frame_pacing.golden",
               "fullscreen-transition",
               "home-idle",
               "idle-tabs",
               "idle-tabs-webkit",
               "launch-cold",
+              "launch-restore-warm",
               "launch-warm-realistic",
               "memory-hidden",
               "memory-hidden-webkit",

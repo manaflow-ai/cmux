@@ -36,7 +36,7 @@ public struct SetTerminalKeepRequest: DaemonRequest {
         self.keep = keep
     }
 
-    enum CodingKeys: String, CodingKey { case surface, terminalID, keep }
+    enum CodingKeys: String, CodingKey { case surface, terminalID = "terminal_id", keep }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch target {

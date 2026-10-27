@@ -52,7 +52,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// Title changes reach `machine` at most 4 a second (`TitleCoalescer`), as on Chromium:
     /// a ticking title re-rendered the toolbar and rows and wrote history every frame.
     @ObservationIgnored var titleCoalescer = TitleCoalescer()
-    @ObservationIgnored let titleTimer = DemandTimer(owner: "WebKitTab.title")
+    /// The flush of a title that waited (`offerTitle`): the tab strip and history show it.
+    @ObservationIgnored let titleTimer: MainDeadline
     @ObservationIgnored private var navigationIDs: [ObjectIdentifier: BrowserNavigationID] = [:]
     @ObservationIgnored private var nextNavigation: UInt64 = 0
     /// `observeNavigationEvents` handlers (WebKitTab+Navigations.swift).
@@ -82,12 +83,23 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// The re-show that applies the last render-rate change, while it runs (WebKitEngine).
     @ObservationIgnored var rateReshow: Task<Void, Never>?
     /// Bounds how long the theme color stands in for a committed document
-    /// (`pageDidCommit`). Replaceable, so a test can give it a clock that
-    /// does not wait.
-    @ObservationIgnored var pageBaseHold = DemandTimer(owner: "browser.pageBase")
+    /// (`pageDidCommit`).
+    @ObservationIgnored let pageBaseHold: MainDeadline
+    /// WebKit draws a background behind the document (`setDrawsPageBackground`): false on a blank or
+    /// New Tab page and while a committed document has not painted.
+    @ObservationIgnored var drawsPageBackground = true
+    /// The app's main-thread scheduler (the engine's): this tab's main-thread follow-ups are classed tasks on it.
+    @ObservationIgnored let mainWork: MainWorkScheduler
+    /// The tab's node (``adoptNode(_:)``); nil (a page no pane shows: tests, fixtures) counts as visible.
+    @ObservationIgnored var visibilityNode: VisibilityNode?
     /// The daemon's resolved emulation (`WebKitTab+DeviceEmulation`) and the user agent to restore after it.
     @ObservationIgnored public internal(set) var deviceEmulation: BrowserEmulation?
     @ObservationIgnored var userAgentBeforeEmulation: String?
+    /// The site of the page its process runs (``WebKitProcessReuse``): the first URL's until a document commits, then
+    /// the committed one's. Nil with the reuse off, or for a page with no site.
+    @ObservationIgnored var processSite: WebKitProcessReuse.Site?
+    /// The tab whose process this one joined when it was made (``WebKitProcessReuse``); nil: its own process.
+    @ObservationIgnored weak var processAnchor: WebKitTab?
 
     init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine,
          openedByPage: Bool = false) {
@@ -95,11 +107,14 @@ public final class WebKitTab: NSObject, BrowserTab {
         self.profileID = configuration.profile
         self.engine = engine
         pageWaiters = PageWaiters(deadlines: engine.waitDeadlines)
+        mainWork = engine.mainWork
+        titleTimer = MainDeadline(owner: "WebKitTab.title", workClass: .visible, scheduler: engine.deadlines)
+        pageBaseHold = MainDeadline(owner: "browser.pageBase", workClass: .visible, scheduler: engine.deadlines)
         let webView = WebKitWebView(frame: .zero, configuration: webViewConfiguration)
         self.webView = webView
         container = WebKitPageContainer(page: webView)
         super.init()
-        inspectorWatch.attach(webView: webView, container: container)
+        inspectorWatch.attach(webView: webView, container: container, events: engine.appEvents)
 
         webView.owner = self
         webView.navigationDelegate = self
@@ -180,7 +195,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     public func snapshot() async throws -> CGImage {
         guard !isClosed else { throw BrowserTabError.closed }
         let image = try await webView.takeSnapshot(configuration: nil)
-        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+        // SAFETY: a nil rect pointer: AppKit uses the image's own size and writes nothing back.
+        guard let cgImage = unsafe image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
             throw BrowserTabError.snapshotUnavailable
         }
         return cgImage
@@ -273,18 +289,13 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// There is no public API for this; if WebKit removes it, the user can
     /// still use "Inspect Element" from the context menu.
     public func showDevTools() {
-        let selector = NSSelectorFromString("_inspector")
-        guard webView.responds(to: selector),
-              let inspector = webView.perform(selector)?.takeUnretainedValue() as? NSObject else { return }
-        let show = NSSelectorFromString("show")
-        if inspector.responds(to: show) {
-            inspector.perform(show)
-        }
+        WebKitInspector(webView: webView).show()
     }
 
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        visibilityNode?.cancelDeferred(key: Self.progressKey)
         removeStandIn()
         firstContentFrame.closed()
         faviconTask?.cancel()
@@ -326,13 +337,13 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     /// Applies a page title now, or keeps the latest for the end of the
     /// coalescing interval (`TitleCoalescer`, as `CEFTab.offerTitle`).
-    private func offerTitle(_ title: String?) {
+    func offerTitle(_ title: String?) {
         let now = ProcessInfo.processInfo.systemUptime
         switch titleCoalescer.offer(title, now: now) {
         case .apply(let update):
             apply(.titleChanged(update.title))
         case .later(let until):
-            titleTimer.scheduleOnMainIfIdle(after: .milliseconds(Int64(max(0, until - now) * 1000) + 1)) { [weak self] in
+            titleTimer.scheduleIfIdle(after: .milliseconds(Int64(max(0, until - now) * 1000) + 1)) { [weak self] in
                 guard let self, !self.isClosed,
                       let update = self.titleCoalescer.fire(now: ProcessInfo.processInfo.systemUptime) else { return }
                 self.apply(.titleChanged(update.title))
@@ -375,6 +386,20 @@ public final class WebKitTab: NSObject, BrowserTab {
         if let prompt { pendingPrompts.append(prompt) }
     }
 
+    /// A document committed: its site is now the one this tab's process holds (WebKit swaps the process of a
+    /// cross-site navigation), so same-site reuse matches on it.
+    func processSiteCommitted() {
+        guard let reuse = engine?.processReuse else { return }
+        processSite = reuse.site(of: webView.url)
+    }
+
+    /// Its WebContent process ended: it holds no site and no longer runs in the process it joined; its next load
+    /// starts a process of its own.
+    func processSiteEnded() {
+        processSite = nil
+        processAnchor = nil
+    }
+
     func emit(_ intent: BrowserTabIntent) {
         delegate?.browserTab(self, didRequest: intent)
     }
@@ -391,6 +416,7 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     func refreshFavicon() {
         faviconTask?.cancel()
+        // main-hop-allow: evaluate is this tab's main-actor async script call (the script runs in the web content process); the task only starts it and applies the URL it answers
         faviconTask = Task { [weak self] in
             guard let self,
                   let value = try? await self.evaluate(FaviconScript.source, world: .isolated, gesture: .cmux),
@@ -410,50 +436,11 @@ public final class WebKitTab: NSObject, BrowserTab {
         }
         guard let loader = engine?.faviconLoader else { return }
         let profile = profileID
+        // main-hop-allow: the loader is main-actor async (its fetch runs on URLSession); the task only starts it and sets the icon it answers
         Task { [weak self] in
             let image = await loader.favicon(at: url, profile: profile)
             guard let self, self.state.faviconURL == url else { return }
             self.favicon = image
         }
-    }
-
-    private func observeWebView() {
-        observations = [
-            webView.observe(\.url, options: [.new]) { @Sendable [weak self] webView, _ in
-                MainDelivery().run { self?.apply(.urlChanged(webView.url)) }
-            },
-            webView.observe(\.title, options: [.new]) { @Sendable [weak self] webView, _ in
-                MainDelivery().run { self?.offerTitle(webView.title) }
-            },
-            webView.observe(\.estimatedProgress, options: [.new]) { @Sendable [weak self] webView, _ in
-                MainDelivery().run { self?.apply(.progress(webView.estimatedProgress)) }
-            },
-            webView.observe(\.canGoBack, options: [.new]) { @Sendable [weak self] webView, _ in
-                MainDelivery().run { self?.syncHistory() }
-            },
-            webView.observe(\.canGoForward, options: [.new]) { @Sendable [weak self] webView, _ in
-                MainDelivery().run { self?.syncHistory() }
-            },
-            webView.observe(\.hasOnlySecureContent, options: [.new]) { @Sendable [weak self] webView, _ in
-                MainDelivery().run { self?.syncSecurity() }
-            },
-        ]
-    }
-
-    func syncHistory() {
-        restored.syncAvailability()
-        let list = webView.backForwardList
-        apply(.historyListed(back: list.backList.suffix(Self.historyListLimit).map(\.url.absoluteString),
-                             forward: list.forwardList.prefix(Self.historyListLimit).map(\.url.absoluteString)))
-    }
-
-    /// URLs kept on each side of the current entry (the daemon's tab record holds 20).
-    static let historyListLimit = 20
-
-    func syncSecurity() {
-        guard !isClosed, state.phase == .committed || state.phase == .finished else { return }
-        apply(.securityChanged(BrowserTabStateMachine.security(
-            for: webView.url, hasOnlySecureContent: webView.hasOnlySecureContent,
-            certificateBypassed: engine?.loadedPastCertificateWarning(self) ?? false)))
     }
 }

@@ -10,7 +10,7 @@ extension PageHostPool {
     func scheduleBuild() {
         guard shouldBuild else { return }
         activityMark = activity()
-        timer.scheduleOnMain(after: policy.idleInput) { [weak self] in
+        timer.schedule(after: policy.idleInput) { [weak self] in
             self?.idleDeadline()
         }
     }
@@ -22,53 +22,72 @@ extension PageHostPool {
         scheduleBuild()
     }
 
+    /// The build deadline's action, itself a background task: the recipe is made here, and each later step in a
+    /// background task of its own (``step(_:_:)``).
     private func idleDeadline() {
         guard shouldBuild else { return }
         guard !isTrackingMenu(), activity() == activityMark else {
             scheduleBuild()
             return
         }
-        building = true
-        Task { @MainActor [weak self] in await self?.build() }
-    }
-
-    static func nextTurn() async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            RunLoop.main.perform(inModes: [.common]) { continuation.resume() }
-        }
-    }
-
-    private func build() async {
-        defer {
-            building = false
-            if refillAfterBuild {
-                refillAfterBuild = false
-                scheduleBuild()
-            }
-        }
         guard let recipe = measure("pool.makeSpare.configure", {
             PageWebView.pooledHostRecipe(.settings, options: options)
         }) else { return }
-        await Self.nextTurn()
-        let host = measure("pool.makeSpare.create") { PageWebView(recipe: recipe) }
-        host.countsTouches = false
-        await Self.nextTurn()
-        guard isLikely, allowsSpare, spare == nil, let content = target?.contentView else {
-            host.close()
-            return
+        building = true
+        // main-hop-allow: the task runs no build work itself, it only awaits the build's background tasks; each step runs inside its task's body (step(_:_:))
+        Task { @MainActor [weak self] in await self?.build(recipe) }
+    }
+
+    /// Runs `body`, one step of a build, in the body of one background task of the pool's scheduler: it runs only
+    /// once input and visible work let background work run, and the board charges it to `owner` (Chrome posts
+    /// spare WebContents work at kBestEffort, content/browser/scheduler/browser_task_queues.h).
+    func step<T: Sendable>(_ owner: String, _ body: @escaping @MainActor () -> T) async -> T {
+        await deadlines.work.apply(.background, owner: owner) { body() }
+    }
+
+    private func build(_ recipe: PooledHostRecipe) async {
+        let host = await step("PageHostPool.build.create") { [self] in
+            let host = measure("pool.makeSpare.create") { PageWebView(recipe: recipe, deadlines: deadlines) }
+            host.countsTouches = false
+            return host
         }
-        measure("pool.makeSpare.park") { park(host, in: content) }
-        spare = host
-        await Self.nextTurn()
-        guard spare === host else { return }
-        measure("pool.makeSpare.load") { host.startLoading() }
+        let parked = await step("PageHostPool.build.park") { [self] () -> Bool in
+            guard isLikely, allowsSpare, spare == nil, let content = target?.contentView else {
+                host.close()
+                return endBuild()
+            }
+            measure("pool.makeSpare.park") { park(host, in: content) }
+            spare = host
+            return true
+        }
+        guard parked else { return }
+        let loading = await step("PageHostPool.build.load") { [self] () -> Bool in
+            guard spare === host else { return endBuild() }
+            measure("pool.makeSpare.load") { host.startLoading() }
+            return true
+        }
+        guard loading else { return }
         await host.waitUntilLoaded()
-        guard spare === host, host.loaded else {
-            if spare === host { dropSpare() }
-            return
+        await step("PageHostPool.build.ready") { [self] in
+            defer { _ = endBuild() }
+            guard spare === host, host.loaded else {
+                if spare === host { dropSpare() }
+                return
+            }
+            spareReady = true
+            onSpareReady?(host)
         }
-        spareReady = true
-        onSpareReady?(host)
+    }
+
+    /// Ends the build, and starts the next one when normal memory came back meanwhile (``refillSpare()``). Returns
+    /// false, so a step that ends the build returns it.
+    private func endBuild() -> Bool {
+        building = false
+        if refillAfterBuild {
+            refillAfterBuild = false
+            scheduleBuild()
+        }
+        return false
     }
 
     private func measure<T>(_ name: String, _ body: () -> T) -> T {

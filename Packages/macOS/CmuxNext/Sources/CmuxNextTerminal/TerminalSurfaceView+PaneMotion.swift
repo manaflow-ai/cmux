@@ -37,8 +37,10 @@ extension TerminalSurfaceView: PaneMotionTargeting {
         let pixels = convertToBacking(size)
         var columns: UInt16 = 0
         var rows: UInt16 = 0
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface); Ghostty writes one UInt16
+        // into each local, alive for the call.
         guard pixels.width >= 1, pixels.height >= 1,
-              ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows)
+              unsafe ghostty_surface_fit_grid(surface, UInt32(pixels.width), UInt32(pixels.height), &columns, &rows)
         else { return .top }
         reportFinalGrid(TerminalGridSize(columns: Int(columns), rows: Int(rows)))
         let anchor = motionAnchor(growing: growing)
@@ -52,8 +54,8 @@ extension TerminalSurfaceView: PaneMotionTargeting {
     /// program (the alternate screen keeps its top-left origin) or a cursor near the top.
     private func motionAnchor(growing: Bool) -> PaneMotionAnchor {
         guard growing, let surface else { return .top }
-        var metrics = ghostty_surface_grid_metrics_s()
-        guard ghostty_surface_grid_metrics(surface, &metrics), metrics.cursor_in_viewport, !metrics.alternate_screen,
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        guard let metrics = unsafe GhosttyTextRead.gridMetrics(surface), metrics.cursor_in_viewport, !metrics.alternate_screen,
               metrics.rows > 0 else { return .top }
         return Int(metrics.cursor_row) * 2 >= Int(metrics.rows) ? .bottom : .top
     }

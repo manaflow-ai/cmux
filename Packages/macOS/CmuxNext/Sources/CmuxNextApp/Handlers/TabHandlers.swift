@@ -168,6 +168,7 @@ enum TabHandlers {
         // tab.focus and Go to Tab focus by purpose (`focuses`); any other
         // caller only with the run's view-change permission.
         guard ActionRunScope.viewChangeAllowed() else { return }
+        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), no observation
         guard let (tab, paneModel) = ctx.services.locateTab(tabID) ?? ctx.notFound(RefusalStrings.noTab(tabID)) else { return }
         guard let (workspace, screen) = owner(of: paneModel, ctx) ?? ctx.notFound(RefusalStrings.noTab(tabID)) else { return }
         reveal(workspace: workspace, screen: screen, pane: paneModel, tab: tab, ctx: ctx)
@@ -307,6 +308,7 @@ enum TabHandlers {
         }
         // The tab menu reads Pin Tab or Unpin Tab for the right-clicked tab.
         ActionTargetTitles.set("palette.toggleTabPin", in: registry) { invocation in
+            // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per menu row, no observation
             guard let id = invocation.target?.id, let (tab, _) = ctx.services.locateTab(id) else { return nil }
             return tab.pinned ? PinStrings.unpinTab : PinStrings.pinTab
         }
@@ -316,12 +318,17 @@ enum TabHandlers {
     /// Optimistic rename; an empty name clears it on the daemon.
     static func rename(_ surface: SurfaceID, to name: String?, ctx: AppActionContext, pane: PaneController) {
         let daemon = ctx.services.activeDaemon
-        ctx.registry.track(Task {
-            let ok = await daemon.intend("rename-surface", .renameTab(surface: surface, name: name)) { connection in
+        // The intent's command is awaited off main; a rejection re-pushes the strip in the run's completion.
+        ctx.registry.trackWork(owner: "TabHandlers.rename", on: ctx.services.mainWork) {
+            await daemon.intend("rename-surface", .renameTab(surface: surface, name: name)) { connection in
                 try await connection.renameTab(surface, to: name ?? "")
             }
-            if !ok { pane.resyncStrip() }
-            return ok ? nil : "rename-surface failed (see the app log)"
-        })
+        } then: { result in
+            guard case .success(true) = result else {
+                pane.resyncStrip()
+                return "rename-surface failed (see the app log)"
+            }
+            return nil
+        }
     }
 }

@@ -133,3 +133,39 @@ async fn an_explicit_socket_is_dialed_exactly_and_checked() {
     connect(&chosen, "host_a", Service::Daemon).await.unwrap();
     server.await.unwrap();
 }
+
+/// p02-threads-207: the dial entry, its runtime workers and its blocking
+/// threads (the stdin reads) run at UserInitiated. A thread reads its own
+/// live class; another process's first thread only shows a base priority,
+/// and a dial child exits at once without a link that verifies as cmux.
+/// On Linux the class is nice 0, which a thread started at a higher nice
+/// value (a `nice cargo test`) may not take back.
+#[test]
+fn the_bridge_threads_run_at_user_initiated() {
+    use cmux_threads::{LiveQos, ThreadQos};
+    std::thread::spawn(|| {
+        let before = cmux_threads::current();
+        let runtime = bridge_runtime().unwrap();
+        let entry = cmux_threads::current();
+        let (worker, blocking) = runtime.block_on(async {
+            let worker = tokio::spawn(async { cmux_threads::current() }).await.unwrap();
+            let blocking = tokio::task::spawn_blocking(cmux_threads::current).await.unwrap();
+            (worker, blocking)
+        });
+        runtime.shutdown_timeout(STDIO_SHUTDOWN_TIMEOUT);
+        let expected = if cfg!(target_vendor = "apple") {
+            Some(LiveQos::Class(ThreadQos::UserInitiated))
+        } else if before == LiveQos::Nice(0) {
+            Some(LiveQos::Nice(0))
+        } else {
+            None
+        };
+        if let Some(expected) = expected {
+            assert_eq!(entry, expected, "dial entry");
+            assert_eq!(worker, expected, "runtime worker");
+            assert_eq!(blocking, expected, "blocking thread");
+        }
+    })
+    .join()
+    .unwrap();
+}

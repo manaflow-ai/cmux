@@ -99,6 +99,7 @@ final class ChiefPetMascotCell: NSButton {
         themedToolTip = title
         focusRingType = .default
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: Self.side),
@@ -135,12 +136,14 @@ final class ChiefPetMascotCell: NSButton {
         super.mouseDown(with: event)
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidHide() {
         super.viewDidHide()
         hover.state.pressed = false
         hover.pointer?.refresh()
     }
 
+    // visibility-walk-allow: hover is a hit test: a view hidden or shown under a still pointer gets no exit or enter, so PointerHover reads the pointer again (input state, no view work)
     override func viewDidUnhide() {
         super.viewDidUnhide()
         hover.pointer?.refresh()

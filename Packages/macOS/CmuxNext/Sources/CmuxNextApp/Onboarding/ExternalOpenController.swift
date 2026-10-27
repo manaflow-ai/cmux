@@ -60,6 +60,7 @@ final class ExternalOpenController {
         guard case .terminal(let cwd, _) = router.newTabHere(path), case let windows = services.windows else { return }
         let target = newWindow ? UUID().uuidString.lowercased() : windows.targetWindow(preferring: windows.active?.state.id)
         let logger = services.daemon.logger
+        // main-hop-allow: the task only awaits WindowManager's main-actor create (its row shows in the create's first step) and logs a failure
         Task {
             do {
                 _ = try await windows.createWorkspace(WorkspaceSpawn(opening: cwd), into: target)
@@ -115,6 +116,7 @@ final class ExternalOpenController {
         creatingWorkspace = true
         let target = windows.targetWindow(preferring: controller.state.id)
         let logger = services.daemon.logger
+        // main-hop-allow: the task only awaits WindowManager's main-actor create (its row shows in the create's first step), then lets the next opener ask again
         Task { [weak self] in
             do {
                 _ = try await windows.createWorkspace(WorkspaceSpawn(), into: target)

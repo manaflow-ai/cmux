@@ -23,6 +23,9 @@
   "requires": [
     "resource_api"
   ],
+  "switches": [
+    "terminal-holder"
+  ],
   "platforms": [
     "linux",
     "mac"
@@ -49,6 +52,36 @@
       }
     },
     {
+      "id": "fill",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.input.write",
+        "params": {
+          "text": "printf '\\033[H\\033[2J\\033[3J'; i=0; while [ $i -lt 40 ]; do i=$((i+1)); echo line-$i; done; printf '%085d' 0; printf '\\033]2;oracle-filled\\007'; exec cat\r"
+        },
+        "idempotencyKey": "terminal-history-clear-ok.fill"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "filled",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/terminals/0/title",
+        "equals": "sha256:72fa20c0e2d54635b2a3168abbaf2057b65233fb464b84087c7bd33d173eac6d",
+        "maxMs": 10000
+      },
+      "settleMaxMs": 10000
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -69,7 +102,53 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "after 40 lines and an 85-digit line, the clear keeps only the cursor's wrapped line: the scrollback holds its two rows"
+    },
+    {
+      "id": "history",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.copy",
+        "params": {
+          "mode": "scrollback"
+        }
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok",
+        "result": {
+          "mode": "scrollback",
+          "text": "00000000000000000000000000000000000000000000000000000000000000000000000000000000\n00000"
+        }
+      }
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "terminal": "$step:fx-workspace#/value/terminal_id"
+      },
+      "args": {
+        "method": "terminal.history.clear",
+        "params": {},
+        "idempotencyKey": "terminal-history-clear-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

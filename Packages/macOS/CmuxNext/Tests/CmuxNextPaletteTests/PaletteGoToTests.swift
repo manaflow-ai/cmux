@@ -88,6 +88,17 @@ struct PaletteGoToTests {
         #expect(Self.parse("README.md", base: "/Users/me/code/app")?.target == .file(URL(fileURLWithPath: "/Users/me/code/app/README.md")))
     }
 
+    @Test func theDiskProbeTellsFoldersFromFiles() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("palette-kind-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("a.txt")
+        try Data("a".utf8).write(to: file)
+        #expect(PaletteQueryTargetParser.diskKind(folder.path) == .folder)
+        #expect(PaletteQueryTargetParser.diskKind(file.path) == .file)
+        #expect(PaletteQueryTargetParser.diskKind(folder.appendingPathComponent("missing").path) == nil)
+    }
+
     // MARK: Agent text
 
     @Test func agentTextNamesThePlaceThenThePrompt() {

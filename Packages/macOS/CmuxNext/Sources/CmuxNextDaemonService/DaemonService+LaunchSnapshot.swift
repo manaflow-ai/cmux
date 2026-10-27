@@ -1,5 +1,8 @@
 import CmuxNextApps
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import CmuxNextControl
 public import CmuxNextDaemon
 public import CmuxNextTrace
@@ -11,38 +14,13 @@ import os
 // the last layout drawn before the first connection, then replaced in place;
 // and the first connect begun in `main` with the remembered daemon socket.
 extension DaemonService {
-    /// Applies the daemon's launch snapshot as a provisional tree, so the
-    /// first frame shows the last layout instead of the connecting state.
-    /// The path comes from the last handshake, else from the daemon's state
-    /// directory (`stateDirectory`, a tagged build's), so cleared defaults do
-    /// not lose the snapshot; a missing, stale or unreadable file shows
-    /// nothing. The file is small (the daemon caps it at 8 MiB) and local,
-    /// and reading it replaces waiting for the daemon, so it is read before
-    /// the first window.
-    func showLaunchSnapshot(session: String, stateDirectory: URL?) {
-        guard let path = launchSnapshotLocation.path(session: session)
-            ?? LaunchSnapshotLocation.find(session: session, in: stateDirectory) else { return }
-        let snapshot: LaunchSnapshot
-        do { snapshot = try LaunchSnapshot.load(path: path, session: session) } catch {
-            logger.error("launch snapshot skipped: \(String(describing: error), privacy: .public)")
-            return
-        }
-        store.applyProvisional(snapshot: snapshot.tree)
-        launchSnapshotWindows = snapshot.windows
-        Self.launchMark("launch_snapshot_applied")
-    }
-
-    /// Records the snapshot path the local daemon reported, for the next launch.
-    func rememberLaunchSnapshot(_ identity: DaemonIdentity) {
-        guard let session = launchSnapshotSession, identity.session == session else { return }
-        launchSnapshotLocation.record(identity.launchSnapshotPath, session: session)
-    }
-
     /// Begins the local daemon's first connect attempt off the main thread,
     /// at the top of `main`, so it overlaps AppKit's start; `start(launch:…
     /// prestart:)` takes it over. Nil when the launcher cannot be made (the
     /// later `start` reports why). `resolvedTerminalEnvironment`: as in `DaemonLauncher.forApp`. `work` is the app's
-    /// one ``BackgroundWork`` (the launcher's disk steps).
+    /// one ``BackgroundWork`` (the launcher's disk steps). Its connect milestones (`daemon.connect_started`,
+    /// `spawned`, `identified`, `snapshot_received`) go to the launch timings, once each, for the connection the
+    /// service attaches.
     public nonisolated static func prestart(work: BackgroundWork, launch: LaunchIdentity, terminalEnvironment: [String: String],
                                      resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                                      terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
@@ -58,16 +36,23 @@ extension DaemonService {
         return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey, echoesPlacementShift: echoesPlacementShift,
-            hangWatch: hangWatch))
+            hangWatch: hangWatch), marks: launchConnectMarks())
+    }
+
+    /// The launch's connect milestones, sent to the launch timings at the time each happened.
+    nonisolated static func launchConnectMarks() -> DaemonConnectMarks {
+        DaemonConnectMarks { DaemonLaunchTimings.shared.mark($0, at: $1) }
     }
 
     /// What the local daemon's supervisor needs from this app at launch: the
     /// first-party app packages shipped in the app bundle (its default apps).
     /// Also the page bundle the daemon serves on its loopback listener (`CMUX_TUI_PAGES_DIR`,
     /// cmux-tui spec/transports.md "App listener and page files").
-    /// Plus the app's diagnostic launch knobs under the daemon's names (``DaemonDiagnosticKnobs``).
+    /// Plus the app's diagnostic launch knobs under the daemon's names (``DaemonDiagnosticKnobs``),
+    /// and this app's pid: the leftover owner idle exit keeps the owner while the app runs.
     nonisolated static var firstPartyAppsEnvironment: [String: String] {
         var environment = ["CMUX_APPS_FIRST_PARTY_DIR": AppPlatformResources.firstParty.path]
+        environment["CMUX_TUI_OWNER_APP_PID"] = String(ProcessInfo.processInfo.processIdentifier)
         if let pages = pageBundleDirectory { environment["CMUX_TUI_PAGES_DIR"] = pages.path }
         environment.merge(DaemonDiagnosticKnobs(processEnvironment: ProcessInfo.processInfo.environment).daemonEnvironment) { own, _ in own }
         return environment
@@ -115,20 +100,23 @@ extension DaemonService {
     /// Records the local daemon's socket for the next launch
     /// (`DaemonSocketMemory`), so it connects without `server status`.
     func rememberSocket(_ identity: DaemonIdentity, connection: DaemonConnection) async {
-        guard let session = launchSnapshotSession, identity.session == session,
+        guard let session = launchSnapshot.session, identity.session == session,
               let path = await connection.endpoint?.socketPath else { return }
         DaemonSocketMemory().record(path, session: session)
     }
 
     /// Waits for the first connection (or for startup to give up): an event,
     /// not a retry, so terminals drawn from the snapshot attach at once.
+    /// A dropped waiter returns as startup giving up does.
     public func firstConnection() async {
-        await withCheckedContinuation { connectionWaiters.append($0) }
+        _ = try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in
+            connectionWaiters.append(waiter)
+        }
     }
 
     func resumeConnectionWaiters() {
         let waiters = connectionWaiters
         connectionWaiters.removeAll()
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 }

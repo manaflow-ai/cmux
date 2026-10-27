@@ -23,3 +23,8 @@ toml = "0.8"
 # unreleased SDK in this source tree; a standalone checkout must keep a matching
 # SDK checkout at this path or remove `path` after the SDK release.
 [workspace]
+
+[lints.clippy]
+# cmux-tui/clippy.toml disallows std thread spawns and sleep; this package has not opted in.
+disallowed_methods = "allow"
+disallowed_types = "allow"

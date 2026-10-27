@@ -22,7 +22,9 @@ enum RoomHandlers {
             let windows = context.services.windows
             let windowID = UUID().uuidString.lowercased()
             windows.state(for: windowID).enterProfile(room.id)
-            Task { await windows.createWorkspace(into: windowID, newTabPage: invocation.origin == .user) }
+            // The window's first workspace, awaited off main in the run's scopes (the CLI waits for its command).
+            let newTabPage = invocation.origin == .user
+            registry.completion(on: context.services.mainWork).start { _ = await windows.createWorkspace(into: windowID, newTabPage: newTabPage) }
         }
         bind("space.newWorkspace") { invocation in
             let room = try context.room(invocation)
@@ -30,7 +32,10 @@ enum RoomHandlers {
             let target = windows.targetWindow(preferring: windows.active?.state.id)
             var spawn = WorkspaceSpawn(profile: room.id)
             spawn.opensNewTabPage = invocation.origin == .user
-            Task { _ = try? await windows.createWorkspace(spawn, into: target) }
+            let workspace = spawn
+            // In the run's scopes: its command keys derive from the CLI's idempotency key, and a run without
+            // `focus` files the workspace without showing it.
+            registry.completion(on: context.services.mainWork).start { _ = try? await windows.createWorkspace(workspace, into: target) }
         }
         bind("space.rename") { invocation in
             let room = try context.room(invocation)
@@ -161,26 +166,28 @@ enum RoomHandlers {
         // keep working (data-model.md 5).
         let browser = active.flatMap { store.profile($0.profileID)?.browserProfileID }
         let id = ProfileID.generate()
-        let services = context.services
-        services.registry.track(Task {
-            guard let connection = services.machines.local.connection else { return ActionWorkFailure(action.rawValue, DaemonError.notConnected) }
-            do {
-                _ = try await connection.createProfile(name: name, id: id, color: color.rawValue, icon: icon, browserProfileID: browser)
-                // The reply comes before the home store mirrors the room
-                // (`personal-changed`, then a resync). Entering it earlier
-                // files the new workspace unpinned (so in `default`) and
-                // the window falls back as from a deleted room (cx-d8x5).
-                await services.machines.local.store.mirrored(profile: id, on: services.mainWork)
-                if let enter, let active, let state = services.windows.states[active.id] {
-                    enter(id, state)
-                } else {
-                    try await startNewSpace(id, from: active?.id, windows: services.windows)
-                }
-                return nil
-            } catch {
-                return ActionWorkFailure(action.rawValue, error)
+        let services = context.services, home = services.machines.local, windows = services.windows
+        let mainWork = services.mainWork, end = services.registry.completion(on: mainWork), activeID = active?.id
+        // The create and the home store's mirror are awaited off main; entering the space is one task of the run's
+        // completion on main.
+        services.registry.trackWork(owner: "RoomHandlers.create", on: mainWork) {
+            guard let connection = await home.connection else { throw DaemonError.notConnected }
+            _ = try await connection.createProfile(name: name, id: id, color: color.rawValue, icon: icon, browserProfileID: browser)
+            // The reply comes before the home store mirrors the room
+            // (`personal-changed`, then a resync). Entering it earlier
+            // files the new workspace unpinned (so in `default`) and
+            // the window falls back as from a deleted room (cx-d8x5).
+            await home.store.mirrored(profile: id, on: mainWork)
+            let entered = await end.apply(owner: "RoomHandlers.enter") { () -> Bool in
+                guard let enter, let activeID, let state = windows.states[activeID] else { return false }
+                enter(id, state)
+                return true
             }
-        })
+            if !entered { try await startNewSpace(id, from: activeID, windows: windows) }
+        } then: { result in
+            guard case .failure(let error) = result else { return nil }
+            return ActionWorkFailure(action.rawValue, error)
+        }
     }
 
     /// Gives the new, empty space `profile` its first workspace. A run that

@@ -3,7 +3,9 @@ import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextHibernation
+import enum CmuxNextLayout.LayoutTunables
 import CmuxNextPages
 import CmuxNextSignposts
 import CmuxNextTerminal
@@ -46,6 +48,18 @@ enum TabContent {
         case .page(let view): (view.content as? PageWebView)?.followAppearance(signals, node: node)
         case .browser, .placeholder, .notice, .conversation: break
         }
+    }
+
+    /// Hands the content's gated SwiftUI (``VisibilityGatedHostingView``) its tab's node: it leaves the window
+    /// while the tab is hidden and comes back in the show turn (feature `visibilityGatedHosting`, p06-scheduler-214).
+    @MainActor func followVisibility(_ node: VisibilityNode, services: AppServices) {
+        guard services.features.isEnabled(.visibilityGatedHosting) else { return }
+        let content: NSView? = switch self {
+        case .page(let view): view.content
+        case .browser(let entry): entry.tab.contentView
+        case .terminal, .agent, .placeholder, .notice, .conversation: nil
+        }
+        (content as? any VisibilityGatedContent)?.visibilityGate?.follow(node, observations: services.observations)
     }
 
     /// Whether a page's document can take typing yet (the key router's
@@ -176,7 +190,10 @@ final class BrowserEntry {
     init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil,
          mainWork: MainWorkScheduler, node: VisibilityNode?) {
         self.tab = tab
-        chrome = BrowserChromeView(tab: tab, suggestionEngine: suggestionEngine, mainWork: mainWork, node: node)
+        if let node { (tab as? any BrowserTabNodeAdopting)?.adoptNode(node) }
+        // The toolbar's motion runs on the render server only with `motion.renderServer` on (off by default).
+        chrome = BrowserChromeView(tab: tab, suggestionEngine: suggestionEngine, mainWork: mainWork, node: node,
+                                   rendersMotionOnServer: { LayoutTunables.motionRenderServer.value })
         chrome.history = history
         // Shortcuts route through the action registry (browser* actions).
         chrome.handlesDefaultShortcuts = false

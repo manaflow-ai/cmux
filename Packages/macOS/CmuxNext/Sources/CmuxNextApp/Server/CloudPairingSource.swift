@@ -1,6 +1,7 @@
 import CmuxNextCloud
 import CmuxNextHostedChief
 import CmuxNextServer
+import CmuxNextWakeups
 import Foundation
 
 /// "Add Server…" on a signed-in Mac (plans/cmux-next/server.md 6.2 steps 3-4):
@@ -19,16 +20,29 @@ final class CloudPairingSource: ServerSource {
     private let account: @MainActor () -> String?
     /// The user's Chief moved to a server (Home re-checks its Chief tab).
     private let chiefPlaced: @MainActor () -> Void
+    /// The app's main-thread scheduler: each request's end is a task on it.
+    private let mainWork: MainWorkScheduler
     private var sink: (@MainActor (ServerSourceEvent) -> Void)?
-    private var work: [String: Task<Void, Never>] = [:]
+    /// The request in flight per intent key, numbered so a stopped or replaced request's answer is dropped.
+    private var work: [String: (number: Int, task: Task<Void, Never>)] = [:]
+    private var runs = 0
+
+    /// What one request answers: the panel's events in order, whether the user's Chief moved (Home re-checks its
+    /// tab), and whether the panel reads where the Chief runs again.
+    private nonisolated struct Reply: Sendable {
+        var events: [ServerSourceEvent] = []
+        var chiefMoved = false
+        var rereadChief = false
+    }
 
     /// The App's source: this Mac's status from the bundled CLI plus cloud pairing
     /// as the signed-in user. Phase 1 pairs into the Worker's team for the
     /// session (the personal team, server.md 6.2 step 4), read from the
     /// Worker: the app's Stack team id is not a Worker team id.
-    static func app(feed: FeedService, auth: CloudAuth, chiefPlaced: @escaping @MainActor () -> Void = {}) -> CloudPairingSource {
+    static func app(feed: FeedService, auth: CloudAuth, work: BackgroundWork, mainWork: MainWorkScheduler,
+                    chiefPlaced: @escaping @MainActor () -> Void = {}) -> CloudPairingSource {
         CloudPairingSource(
-            inner: LocalServerSource.app(),
+            inner: LocalServerSource.app(mainWork: mainWork, fixer: .helper(work: work)),
             call: { [weak feed] path, body in
                 guard let feed else { throw FeedServiceError.signedOut }
                 return try await feed.call(path, body)
@@ -37,12 +51,14 @@ final class CloudPairingSource: ServerSource {
                 guard let auth, auth.isSignedIn else { return nil }
                 return auth.user?.displayName ?? auth.user?.primaryEmail ?? ""
             },
-            chiefPlaced: chiefPlaced
+            chiefPlaced: chiefPlaced,
+            mainWork: mainWork
         )
     }
 
     init(inner: any ServerSource, call: @escaping Call, account: @escaping @MainActor () -> String?,
-         chiefPlaced: @escaping @MainActor () -> Void = {}) {
+         chiefPlaced: @escaping @MainActor () -> Void = {}, mainWork: MainWorkScheduler) {
+        self.mainWork = mainWork
         self.inner = inner
         self.call = call
         self.account = account
@@ -56,12 +72,13 @@ final class CloudPairingSource: ServerSource {
     }
 
     func send(_ intent: ServerIntent) {
+        let key = intent.key
         switch intent.kind {
         case let .lookupCode(code):
-            run(intent.key) { [weak self] in await self?.lookup(PairingCode.normalize(code), key: intent.key) }
+            run(key) { [weak self] in await self?.lookup(PairingCode.normalize(code), key: key) ?? Reply() }
         case let .approveCode(code, team, name, placeChief):
-            run(intent.key) { [weak self] in
-                await self?.approve(code: PairingCode.normalize(code), team: team, name: name, placeChief: placeChief, key: intent.key)
+            run(key) { [weak self] in
+                await self?.approve(code: PairingCode.normalize(code), team: team, name: name, placeChief: placeChief, key: key) ?? Reply()
             }
         default:
             inner.send(intent)
@@ -69,37 +86,54 @@ final class CloudPairingSource: ServerSource {
     }
 
     func stop() {
-        for task in work.values { task.cancel() }
+        for entry in work.values { entry.task.cancel() }
         work = [:]
         sink = nil
         inner.stop()
     }
 
-    private func run(_ key: String, _ body: @escaping @MainActor () async -> Void) {
+    /// Runs one request off the main thread. `body` only asks and parses (the feed's calls are main-actor by their
+    /// type, `Call`); the answer is one userBlocking task, the rest of the panel's open or of the person's click.
+    private func run(_ key: String, _ body: @escaping @MainActor @Sendable () async -> Reply) {
+        runs &+= 1
+        let number = runs, mainWork = mainWork
         // task-owner: CloudPairingSource, one request per intent; cancelled by stop().
-        work[key] = Task { @MainActor [weak self] in
-            await body()
-            self?.work[key] = nil
+        let task = Task { @concurrent [weak self] in
+            let reply = await body()
+            mainWork.postFromAnyThread(.userBlocking, owner: "CloudPairingSource.reply") { [weak self] in
+                self?.answer(reply, key: key, number: number)
+            }
         }
+        work[key] = (number, task)
     }
 
-    private func lookup(_ code: String, key: String) async {
+    /// A request's main part, unless a stop or a newer request with its key overtook it: the panel gets its events,
+    /// Home hears the Chief moved, and where the Chief runs is read again.
+    private func answer(_ reply: Reply, key: String, number: Int) {
+        guard work[key]?.number == number else { return }
+        work[key] = nil
+        for event in reply.events { sink?(event) }
+        if reply.chiefMoved { chiefPlaced() }
+        if reply.rereadChief { refreshChief() }
+    }
+
+    private func lookup(_ code: String, key: String) async -> Reply {
         guard let account = account() else {
-            return settle(key, candidate: nil, reject: Self.signedOut)
+            return Self.settled(key, candidate: nil, reject: Self.signedOut)
         }
         do {
             let team = try await workerTeam(account: account)
             let reply = try await call("v1/read", ["op": "server.pair.preview", "params": ["code": code]])
             guard let candidate = Self.candidate(from: try Self.okValue(reply), team: team) else {
-                return settle(key, candidate: nil, reject: Self.text("refusal.server.pairKeyUnchecked", "The server's key could not be checked. Ask the server for a new code."))
+                return Self.settled(key, candidate: nil, reject: Self.text("refusal.server.pairKeyUnchecked", "The server's key could not be checked. Ask the server for a new code."))
             }
-            settle(key, candidate: candidate, reject: nil)
+            return Self.settled(key, candidate: candidate, reject: nil)
         } catch let FeedServiceError.owner(code: errorCode, message: message) where errorCode != "selector.not_found" {
-            settle(key, candidate: nil, reject: Self.format("refusal.server.pairFailed", "Could not add the server: %@", message))
+            return Self.settled(key, candidate: nil, reject: Self.format("refusal.server.pairFailed", "Could not add the server: %@", message))
         } catch FeedServiceError.owner {
-            settle(key, candidate: nil, reject: Self.text("refusal.server.pairNotFound", "No server is waiting with that code."))
+            return Self.settled(key, candidate: nil, reject: Self.text("refusal.server.pairNotFound", "No server is waiting with that code."))
         } catch {
-            settle(key, candidate: nil, reject: Self.reject(for: error))
+            return Self.settled(key, candidate: nil, reject: Self.reject(for: error))
         }
     }
 
@@ -130,8 +164,8 @@ final class CloudPairingSource: ServerSource {
         return ServerTeam(id: id, name: account.isEmpty ? id : account)
     }
 
-    private func approve(code: String, team: String, name: String, placeChief: Bool, key: String) async {
-        guard account() != nil else { return sink?(.settled(key: key, reject: Self.signedOut)) ?? () }
+    private func approve(code: String, team: String, name: String, placeChief: Bool, key: String) async -> Reply {
+        guard account() != nil else { return Reply(events: [.settled(key: key, reject: Self.signedOut)]) }
         let body: [String: Any] = [
             "op": "server.pair.approve",
             "params": ["code": code, "team": team, "name": name],
@@ -144,28 +178,23 @@ final class CloudPairingSource: ServerSource {
             // (`{_tag, code, message}`) has no `value.host`.
             let value = try Self.okValue(reply) as? [String: Any]
             guard let host = value?["host"] as? String else { throw FeedServiceError.badReply }
-            if placeChief {
-                // The server is added either way; a Chief that could not move says so.
-                if let reject = await self.placeChief(host: host, install: value?["install"] as? String, key: key) {
-                    return sink?(.settled(key: key, reject: reject)) ?? ()
-                }
-            }
-            sink?(.settled(key: key, reject: nil))
+            guard placeChief else { return Reply(events: [.settled(key: key, reject: nil)]) }
+            // The server is added either way; a Chief that could not move says so.
+            let reject = await self.placeChief(host: host, install: value?["install"] as? String, key: key)
+            return Reply(events: [.settled(key: key, reject: reject)], chiefMoved: reject == nil, rereadChief: true)
         } catch let FeedServiceError.owner(_, message) {
-            sink?(.settled(key: key, reject: Self.format("refusal.server.pairFailed", "Could not add the server: %@", message)))
+            return Reply(events: [.settled(key: key, reject: Self.format("refusal.server.pairFailed", "Could not add the server: %@", message))])
         } catch {
-            sink?(.settled(key: key, reject: Self.reject(for: error)))
+            return Reply(events: [.settled(key: key, reject: Self.reject(for: error))])
         }
     }
 
     /// Places the user's Chief on the server just approved (G8); a refusal
     /// text, or nil when the Chief now runs there.
     private func placeChief(host: String, install: String?, key: String) async -> String? {
-        defer { refreshChief() }
         guard let install else { return Self.chiefNotMoved("the server has no install") }
         do {
             _ = try await CloudChiefs.place(CloudChief.BrainPlace(host: host, install: install), key: key, call: call)
-            chiefPlaced()
             return nil
         } catch let FeedServiceError.owner(_, message) {
             return Self.chiefNotMoved(message)
@@ -178,10 +207,9 @@ final class CloudPairingSource: ServerSource {
     private func refreshChief() {
         guard account() != nil else { return }
         run("chief-status") { [weak self] in
-            guard let self else { return }
+            guard let self else { return Reply() }
             let status = try? await CloudChiefStatus.read(call: call)
-            guard !Task.isCancelled else { return }
-            sink?(.chief(status ?? nil))
+            return Reply(events: [.chief(status ?? nil)])
         }
     }
 
@@ -209,9 +237,9 @@ final class CloudPairingSource: ServerSource {
         return text("refusal.server.pairUnreachable", "Could not reach cmux. Check the connection and try again.")
     }
 
-    private func settle(_ key: String, candidate: PairingCandidate?, reject: String?) {
-        sink?(.candidate(candidate))
-        sink?(.settled(key: key, reject: reject))
+    /// A lookup's answer: the pending server (or none), then the intent settled.
+    private static func settled(_ key: String, candidate: PairingCandidate?, reject: String?) -> Reply {
+        Reply(events: [.candidate(candidate), .settled(key: key, reject: reject)])
     }
 
     /// The approver's facts from a `PairingPreview`; nil when the thumbprint

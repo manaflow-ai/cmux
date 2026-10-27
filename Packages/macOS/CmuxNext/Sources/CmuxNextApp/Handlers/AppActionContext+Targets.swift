@@ -222,8 +222,8 @@ extension AppActionContext {
             guard pane.stripModel.tab(id) != nil else { return refuse(RefusalStrings.noTab(id.rawValue)) }
             pane.select(id)
         }
-        // Content destroyed while its pane was off screen re-attaches now.
-        if pane.currentContent == nil { pane.showSelected() }
+        // Content destroyed while its pane was off screen, or held off screen at launch, attaches now.
+        if pane.currentContent == nil { pane.showSelectionNow() }
         guard let content = pane.currentContent else { return refuse(RefusalStrings.tabHasNoLiveContent(id.rawValue)) }
         return (pane, content)
     }

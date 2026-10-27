@@ -9,7 +9,7 @@
 /// While one is in flight (sent, not yet dispatched by the host), later ones
 /// wait in one slot: the latest move replaces the waiting move; wheel ticks add
 /// their deltas into the waiting tick of the same scroll phase, momentum phase,
-/// modifiers and precision, and a tick of another phase waits behind it. The
+/// modifiers and precision (the frame's flags), and a tick of another phase waits behind it. The
 /// host's ack (`kOpInputAck`, sent when its UI thread dispatched the frame, not
 /// when the renderer handled it) sends the next waiting one. That is Chrome's
 /// browser side: `MouseWheelEventQueue` keeps one wheel event in flight and
@@ -222,12 +222,12 @@ nonisolated struct ChromiumHostInputPacer: Sendable {
     }
 
     /// Adds `next`'s deltas into `waiting` when both are ticks of one phase:
-    /// the same scroll phase (v4), momentum phase (v5), precision (ch) and
-    /// modifiers. The newest position and time win.
+    /// the same scroll phase (v4), momentum phase (v5) and flags (modifiers and
+    /// ``ChromiumHostFrame/wheelPrecise``, p04-input-063's wire), as Blink's
+    /// `WebMouseWheelEvent::CanCoalesce`. The newest position and time win.
     static func fold(_ next: ChromiumHostFrame, into waiting: inout ChromiumHostFrame) -> Bool {
         guard next.rawKind == ChromiumHostFrame.Kind.wheel.rawValue, waiting.rawKind == next.rawKind,
-              next.v[4] == waiting.v[4], next.v[5] == waiting.v[5], next.ch == waiting.ch,
-              next.flags == waiting.flags else { return false }
+              next.v[4] == waiting.v[4], next.v[5] == waiting.v[5], next.flags == waiting.flags else { return false }
         let dx = waiting.v[2], dy = waiting.v[3]
         waiting = next
         waiting.v[2] = Int32(clamping: Int64(dx) + Int64(next.v[2]))

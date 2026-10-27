@@ -1,3 +1,4 @@
+public import AppKit
 public import Foundation
 
 /// Where the computer use step reads the helper's grants and sends the
@@ -11,6 +12,8 @@ public protocol ComputerUsePermissionSource: AnyObject {
     /// none (a dev build without a release, NIGHTLY or RC helper installed);
     /// Allow then reports computer use unavailable and offers nothing.
     var helperAppURL: URL? { get }
+    /// The helper's icon for the tile, read off the main thread; nil until it is (the tile shows cmux's own).
+    var helperAppIcon: NSImage? { get }
     /// The grants now, then each change (a grant in System Settings), until the step ends.
     func permissions() -> AsyncStream<ComputerUsePermissions>
     /// Opens the pane in System Settings.

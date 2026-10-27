@@ -21,6 +21,8 @@
 #include "chromium_host_wire.h"
 #include "cmux_cef_shim.h"
 #include "cmux_page_path.h"
+#include "host_energy_saver.h"
+#include "host_resize.h"
 #include "remote_shim_mirror.h"
 #include "remote_shim_runtime.h"
 
@@ -135,6 +137,7 @@ std::string ReplayKey(uint16_t op, const std::vector<Field>& fields) {
     case kOpSetBackgroundColor:
     case kOpSetNewTabPageUrl:
     case kOpSetPopupWindowsEnabled:
+    case kOpSetSuggestionEvents:
       return std::to_string(op);
     case kOpPageSchemeAdd:
     case kOpPageSchemeAddFirstParty:
@@ -153,8 +156,8 @@ std::string ReplayKey(uint16_t op, const std::vector<Field>& fields) {
 
 // The channel's coalescing key for a state op: one value per browser (a hosted widget's
 // geometry: per widget) that a newer call replaces, with no order against other ops
-// (geometry, zoom, hosting modes). Focus, the navigation guard and password fill are ordered
-// against later ops, so they are not state.
+// (geometry, zoom, hosting modes, page visibility). Focus, the navigation guard and password
+// fill are ordered against later ops, so they are not state.
 std::optional<uint64_t> StateKeyFor(uint16_t op, const std::vector<Field>& fields) {
   switch (op) {
     case kOpWidgetSetGeometry:
@@ -162,9 +165,11 @@ std::optional<uint64_t> StateKeyFor(uint16_t op, const std::vector<Field>& field
     case kOpTabSetTransparentBackground:
     case kOpBrowserSetResizeSync:
     case kOpBrowserSetDetachedHosting:
+    case kOpBrowserSetPageVisibility:
     case kOpSetZoomLevel:
     case kOpSetAccessibility:
     case kOpDevtoolsSetPlacement:
+    case cmux_host::kOpPageResize:  // per page view; a fenced one has a token and is never replaced
       if (fields.empty()) return std::nullopt;
       return cmux_host::control::StateKey(op, static_cast<int32_t>(fields[0].integer));
     default:
@@ -176,8 +181,9 @@ std::optional<uint64_t> StateKeyFor(uint16_t op, const std::vector<Field>& field
 // stream"): those of Chrome's RenderWidgetHostNSViewHost pipe
 // (content/common/render_widget_host_ns_view.mojom) that change where input lands or that input
 // must reach first: focus (OnFirstResponderChanged), the active page and embedder activity
-// (OnWindowIsKeyChanged), geometry (OnBoundsInWindowChanged); IME (ImeSetComposition,
-// ImeCommitText) and edit commands (ExecuteEditCommand) join as tasks 043 and 047 add their ops.
+// (OnWindowIsKeyChanged), geometry (OnBoundsInWindowChanged), IME (ImeSetComposition,
+// ImeCommitText, ImeFinishComposingText, ImeCancelComposition: p04-input-064), so a commit never
+// passes the key that made it; edit commands (ExecuteEditCommand) join as task 047 adds them.
 // Each carries its control seq and the input seq it follows; input frames name the last one.
 bool IsOrderedOp(uint16_t op) {
   switch (op) {
@@ -186,6 +192,11 @@ bool IsOrderedOp(uint16_t op) {
     case kOpBrowserSetEmbedderActive:
     case kOpTabActivate:
     case kOpDevtoolsSetPlacement:
+    case kOpBrowserImeSetComposition:
+    case kOpBrowserImeCommitText:
+    case kOpBrowserImeFinishComposing:
+    case kOpBrowserImeCancelComposition:
+    case cmux_host::kOpPageResize:
       return true;
     default:
       return false;
@@ -198,8 +209,23 @@ bool IsControlInputOp(uint16_t op) {
   return op == kOpTabSendClick;
 }
 
-// The symbol of an optional op (kOptionalExports), nullptr for a header op.
+// A copy of the send right `fence` to the host's fence inbox (host_resize.h, SendFence); false
+// when it was not sent, and always where there is no Mach (the tests on Linux).
+bool SendFenceRight(uint32_t channel, uint32_t fence, uint64_t seq) {
+#if defined(__APPLE__)
+  return cmux_host::SendFence(channel, fence, seq);
+#else
+  (void)channel;
+  (void)fence;
+  (void)seq;
+  return false;
+#endif
+}
+
+// The name the host's HELLO lists when it takes `op`: an optional op's symbol (kOptionalExports)
+// or kEnergySaverHelloName; nullptr for an op every host takes.
 const char* OptionalExportName(uint16_t op) {
+  if (op == cmux_host::kOpEnergySaver) return cmux_host::kEnergySaverHelloName;
   for (const OptionalExport& entry : kOptionalExports) {
     if (entry.op == op && op != 0) return entry.name;
   }
@@ -255,6 +281,9 @@ class Runtime {
     }
     std::erase_if(replay_, [](const Replay& entry) { return !entry.keep; });
     if (initialize_) Send(*initialize_);
+    // A host starts with the saver off and applies this once initialize returned; it waits for
+    // the HELLO, which says whether the host has the saver.
+    if (energy_saver_ && energy_saver_->enabled) Route(EnergySaverMessage(*energy_saver_), std::nullopt);
     Flush();
     return 1;
   }
@@ -321,6 +350,72 @@ class Runtime {
     ++boundary_;
     if (ctl_seq != nullptr) *ctl_seq = ctl_seq_;
     return input_seq_;
+  }
+
+  // Takes the send right to the attached host's fence inbox (0: none); the one held goes.
+  int SetFenceChannel(uint32_t port) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    ReleaseFenceChannel();
+    fence_channel_ = port;
+    if (link_ == Link::kAttached) return 1;
+    ReleaseFenceChannel();  // no host to send to: the port names a host that is gone
+    return 0;
+  }
+
+  // kOpPageResize (host_resize.h). With `fence` and a fence channel, the fence right goes to the
+  // host's inbox first and the op waits for the host's answer (last_reply_token_). A
+  // cmux_remote_page_resize_result.
+  int PageResize(uint64_t view, int32_t browser, int32_t width, int32_t height, uint32_t fence,
+                 uint32_t deadline_frames) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    last_reply_token_ = 0;
+    if (link_ != Link::kAttached || view == 0) return CMUX_REMOTE_RESIZE_NOT_SENT;
+    cmux_host::PageResize resize;
+    resize.view = view;
+    resize.browser = browser;
+    resize.width = width;
+    resize.height = height;
+    resize.deadline_frames = deadline_frames;
+    if (fence != 0 && fence_channel_ != 0 && SendFence(fence, fence_seq_ + 1)) {
+      resize.fence_seq = ++fence_seq_;
+    }
+    TlvWriter args;
+    cmux_host::WritePageResize(resize, &args);
+    if (resize.fence_seq == 0) {
+      return Post(cmux_host::kOpPageResize, 0, args) ? CMUX_REMOTE_RESIZE_UNFENCED : CMUX_REMOTE_RESIZE_NOT_SENT;
+    }
+    // Not sent: the host's book drops the fence when a later seq comes.
+    return PostForReply(cmux_host::kOpPageResize, NextToken(), args) ? CMUX_REMOTE_RESIZE_FENCED
+                                                                     : CMUX_REMOTE_RESIZE_NOT_SENT;
+  }
+
+  // cmux_shim_set_energy_saver: kept for every host of the session, posted to the attached one,
+  // which applies it only when its HELLO listed kEnergySaverHelloName (otherwise it is refused
+  // here, as an optional op the host lacks). 1 when the attached host has the saver and the op
+  // went out; 0 otherwise, as the in-process shim answers on a fork without the call. Before the
+  // HELLO the op waits for it and the answer is 0: whether the host applies it is not known yet.
+  int SetEnergySaver(int enabled, const char* exempt_scheme) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    cmux_host::EnergySaver saver;
+    saver.enabled = enabled != 0;
+    if (exempt_scheme != nullptr) saver.exempt_scheme = exempt_scheme;
+    energy_saver_ = saver;
+    // With no host attached, the next attach sends it.
+    if (link_ != Link::kAttached) return 0;
+    const bool known = hello_;
+    TlvWriter args;
+    cmux_host::WriteEnergySaver(saver, &args);
+    const bool sent = Post(cmux_host::kOpEnergySaver, 0, args);
+    return known && sent ? 1 : 0;
+  }
+
+  void SetFenceSender(cmux_remote_fence_send_fn send) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    fence_send_ = send;
+  }
+
+  bool SendFence(uint32_t fence, uint64_t seq) {
+    return fence_send_ ? fence_send_(fence_channel_, fence, seq) == 1 : SendFenceRight(fence_channel_, fence, seq);
   }
 
   bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args) {
@@ -417,6 +512,12 @@ class Runtime {
     Message message;  // token: a verdict still to ask, 0 once asked
     bool keep = true;  // false: replaced while its verdict was unasked; sent once more, then dropped
   };
+
+  static Message EnergySaverMessage(const cmux_host::EnergySaver& saver) {
+    TlvWriter args;
+    cmux_host::WriteEnergySaver(saver, &args);
+    return MakeMessage(cmux_host::kOpEnergySaver, 0, args.Take());
+  }
 
   // A post waiting for the first attach or for the host's HELLO.
   struct Queued {
@@ -561,6 +662,14 @@ class Runtime {
     mirror_.Clear();
     awaiting_.clear();
     host_exports_.clear();
+    ReleaseFenceChannel();  // the inbox was this host's
+  }
+
+  void ReleaseFenceChannel() {
+#if defined(__APPLE__)
+    if (fence_channel_ != 0) mach_port_deallocate(mach_task_self(), fence_channel_);
+#endif
+    fence_channel_ = 0;
   }
 
   void Deliver(uint64_t generation, std::vector<Message> batch) {
@@ -707,6 +816,8 @@ class Runtime {
   // Tokens sent with PostForReply and not answered yet.
   std::unordered_set<uint32_t> awaiting_;
   std::unordered_set<std::string> host_exports_;
+  // The app's last Energy Saver state (cmux_shim_set_energy_saver), for the whole session.
+  std::optional<cmux_host::EnergySaver> energy_saver_;
   std::unordered_map<uint16_t, void*> policies_;
   uint32_t token_ = 0;
   // The token of the latest PostForReply or answered PostPreinit (0: that call sent nothing).
@@ -718,6 +829,12 @@ class Runtime {
   uint32_t input_seq_ = 0;
   // Input written so far, on the ring or the control channel: the coalescing boundary.
   uint32_t boundary_ = 0;
+  // A send right to the attached host's fence inbox (task 052), 0 while none; and the last
+  // fence seq, which only grows (a new host's inbox starts empty).
+  uint32_t fence_channel_ = 0;
+  uint64_t fence_seq_ = 0;
+  // nullptr: SendFenceRight (cmux_remote_shim_set_fence_sender).
+  cmux_remote_fence_send_fn fence_send_ = nullptr;
   int32_t next_browser_id_ = kFirstMintedBrowserID;
   int32_t next_devtools_id_ = kFirstMintedDevToolsID;
   cmux_remote_shim_stats stats_ = {};
@@ -823,6 +940,19 @@ void cmux_remote_shim_set_input_ack(void* ctx, cmux_remote_input_ack_fn ack) {
   R().SetInputAck(ctx, ack);
 }
 
+int cmux_remote_shim_set_resize_fence_channel(unsigned int port) {
+  return R().SetFenceChannel(port);
+}
+
+int cmux_remote_shim_page_resize(uint64_t view_token, int browser_id, int width, int height, unsigned int fence_port,
+                                 unsigned int deadline_frames) {
+  return R().PageResize(view_token, browser_id, width, height, fence_port, deadline_frames);
+}
+
+void cmux_remote_shim_set_fence_sender(cmux_remote_fence_send_fn send) {
+  R().SetFenceSender(send);
+}
+
 uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq) {
   return R().OrderInput(ctl_seq);
 }
@@ -884,18 +1014,26 @@ CMUX_SHIM_EXPORT int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_f
   return 0;
 }
 
-// The Chromium Host applies Energy Saver over its own versioned wire message
-// (p14-energy-045); until then host mode reports it unsupported.
+// The Chromium Host applies Energy Saver: kOpEnergySaver, its own versioned op
+// (ChromiumHost/src/host_energy_saver.h, p14-energy-045).
 CMUX_SHIM_EXPORT int cmux_shim_set_energy_saver(int enabled, const char* exempt_scheme) {
-  (void)enabled;
-  (void)exempt_scheme;
-  return 0;
+  return R().SetEnergySaver(enabled, exempt_scheme);
 }
 
 // Per-tab attribution is in-process only: a tab's renderer is the Chromium Host's child, which the
 // app does not sample, so there is no pid here. Host mode is task p14-energy-124a.
 CMUX_SHIM_EXPORT int cmux_shim_renderer_pid(int browser_id) {
   (void)browser_id;
+  return 0;
+}
+
+// Memory per hidden workspace is in-process only for the same reason: the renderers are the Chromium
+// Host's children, so the app finds no pid for them and counts the sample unclear (p09-observability-061).
+CMUX_SHIM_EXPORT int cmux_shim_renderer_frames(int* browser_ids, int* client_ids, int* frame_counts, int capacity) {
+  (void)browser_ids;
+  (void)client_ids;
+  (void)frame_counts;
+  (void)capacity;
   return 0;
 }
 
@@ -915,13 +1053,28 @@ CMUX_SHIM_EXPORT int cmux_shim_password_entry_size(void) {
 }
 
 // A Mach port name is this process's: in the host it would name nothing, or another right.
-// So nothing is sent and the result is a fork's without the call; host mode's fence is a port
-// right over XPC (task 052).
+// So nothing is sent and the result is a fork's without the call; host mode's fence goes with the
+// page's resize, as a right in a Mach message (cmux_remote_shim_page_resize, task 052).
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_fence(int browser_id, unsigned int fence_port,
                                                         unsigned int deadline_frames) {
   (void)browser_id;
   (void)fence_port;
   (void)deadline_frames;
+  return 0;
+}
+
+// The host turns cursor events on itself (browser_host_main.mm): its page windows never show, so
+// every page cursor comes to cmux as CMUX_SHIM_CURSOR. There is nothing for cmux to choose.
+CMUX_SHIM_EXPORT void cmux_shim_set_cursor_events(int enabled) {
+  (void)enabled;
+}
+
+// The host's views cannot become subviews of a view in this process: host mode shows the page
+// as a hosted context in ChromiumHostPageView. So nothing is sent and the result is a fork's
+// without the call; the cross-process attach is remote_cocoa's Application form (F2).
+CMUX_SHIM_EXPORT int cmux_shim_browser_attach_view(int browser_id, void* parent_view) {
+  (void)browser_id;
+  (void)parent_view;
   return 0;
 }
 

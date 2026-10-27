@@ -6,19 +6,11 @@
 //! each terminal starts when its workspace is first shown
 //! (plans/cmux-next/classic-migration-DESIGN.md).
 
+use super::tabs_wire::ParkTabsParams as Params;
 use super::*;
 
 /// Advertises `park-tabs`. Unix owners only, as `restart-tab`.
 pub(super) const CAPABILITY: &str = "tab-park-v1";
-
-/// `park-tabs`.
-#[derive(Deserialize)]
-pub(super) struct Params {
-    /// The tabs: numeric surface ids or public `tab_...` ids. Tabs that are
-    /// not terminals, or whose shell already ended, are left as they are.
-    #[serde(alias = "tabs")]
-    surfaces: Vec<TabRef>,
-}
 
 /// Records the tabs as kept, then asks each shell to exit. Answers with the
 /// surfaces whose terminal was parked; each shows dead with

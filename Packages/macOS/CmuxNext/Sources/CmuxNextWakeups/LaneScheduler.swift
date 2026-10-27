@@ -8,9 +8,11 @@ import Dispatch
 ///
 /// A slot is a serial `DispatchQueue` that runs one item at a time at the item's QoS (`.enforceQoS`);
 /// GCD makes a thread only while a slot has work. Each item of a lane that may block (files, system) runs with
-/// its thread marked ``CmuxNextCompat/BlockingContext/lane``, so the blocking detector allows its seams; an item of
-/// the cpu lane runs marked ``CmuxNextCompat/BlockingContext/cpuLane``, where a seam records a
-/// ``CmuxNextCompat/BlockingKind/wrongLane`` site (Debug and bench-checks builds). A `perPriority` lane (files) has its own
+/// its thread marked ``CmuxNextCompat/BlockingContext/lane``, so the blocking detector allows its seams except a
+/// wait for other work (``CmuxNextCompat/BlockingKind/isSyncPrimitive``), which records a
+/// ``CmuxNextCompat/BlockingContext/laneSync`` site; an item of the cpu lane runs marked
+/// ``CmuxNextCompat/BlockingContext/cpuLane``, where a seam records a ``CmuxNextCompat/BlockingKind/wrongLane`` site
+/// (Debug and bench-checks builds). A `perPriority` lane (files) has its own
 /// slots for each ``WorkPriority`` (``FilesLaneWidths``), so a best-effort write never sits in front of a
 /// user-blocking read and one slow read does not hold the next one; each level starts its items in post order.
 /// Nothing here orders items that run at once: a ``WorkSequence`` does (Chrome's `SequencedTaskRunner`). A
@@ -697,8 +699,10 @@ final class LaneScheduler: Sendable {
         hooks.beforeBegin(start.slot)
         if start.raisable { began(slot: start.slot) }
         let started = clock()
-        // Chrome's task_tracker.cc runs a MayBlock() task with blocking allowed and any other task
-        // under ScopedDisallowBlocking: a files or system item may block, a cpu item may not.
+        // Chrome's task_tracker.cc runs a MayBlock() task with blocking allowed and any other task under
+        // ScopedDisallowBlocking, and a task without WithBaseSyncPrimitives() under
+        // ScopedDisallowBaseSyncPrimitives: a files or system item may block but not wait on a sync primitive
+        // (a lane-sync site), a cpu item may not block.
         let ended: UInt64?
         if mayBlock {
             ended = BlockingContext.runAsLane { run(start, startedAt: started) }
@@ -713,12 +717,14 @@ final class LaneScheduler: Sendable {
     }
 
     /// Runs the started job on its slot's thread at the level the slot runs it at, inside its `task.run` slice when
-    /// it was posted while the trace recorded; its end stamp, or nil when it was abandoned first.
+    /// it was posted while the trace recorded, with the flow-in of its post's `task.post` (``TaskTrace``) first in
+    /// the slice; its end stamp, or nil when it was abandoned first.
     private func run(_ start: Start, startedAt started: UInt64) -> UInt64? {
         guard let tracedPost = start.tracedPost else { return watched(start, startedAt: started) }
         let waitedMicros = (trace.nowNanos() &- tracedPost) / 1_000
         return trace.interval(.taskRun, arg0: Self.traceSite(lane: lane, priority: start.priority), arg1: waitedMicros) {
-            watched(start, startedAt: started)
+            start.job.traceArrival()
+            return watched(start, startedAt: started)
         }
     }
 

@@ -9,7 +9,8 @@ nonisolated extension LaunchMarkSink {
     static func dropInheritedDescriptor(environmentGuard: ProcessEnvironmentGuard = .process) {
         _ = shared
         environmentGuard.write("LaunchMarkSink.dropInheritedDescriptor") {
-            unsetenv(environmentKey)
+            // SAFETY: unsetenv reads the NUL-terminated copy of the name Swift makes for the call.
+            unsafe unsetenv(environmentKey)
         }
     }
 }

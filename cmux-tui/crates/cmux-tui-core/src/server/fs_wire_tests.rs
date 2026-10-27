@@ -373,14 +373,73 @@ fn fs_writer() -> (MessageWriter, Arc<BoundedOutbound>) {
     (MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None }), outbound)
 }
 
-/// One `fs.stat` line through `try_handle` (the remote frame path's fs hook);
-/// the answer's error code.
-fn fs_stat_code(mux: &Arc<Mux>, client: u64) -> Value {
+/// Hands `line` to the route its head's `cmd` names (server/routes.rs), as
+/// the connection's dispatch does; the reply.
+fn through_route(mux: &Arc<Mux>, client: u64, line: &str) -> Value {
     let (writer, outbound) = fs_writer();
-    let line = r#"{"id":1,"cmd":"fs.stat","path":"/home/cmux"}"#;
-    assert_eq!(try_handle(mux, client, line, &writer), Some(true));
-    let answer: Value = serde_json::from_str(&outbound.try_pop().expect("an answer")).unwrap();
-    answer["error_code"].clone()
+    let head = super::super::RequestHead::parse(line);
+    let route = head.cmd().and_then(super::super::routes::find).expect("an fs route");
+    let route_line = RouteLine { mux, client, message: line, writer: &writer, head: &head };
+    assert_eq!((route.entry)(&route_line), Some(true));
+    serde_json::from_str(&outbound.try_pop().expect("an answer")).unwrap()
+}
+
+/// One `fs.stat` line through its route; the answer's error code.
+fn fs_stat_code(mux: &Arc<Mux>, client: u64) -> Value {
+    through_route(mux, client, r#"{"id":1,"cmd":"fs.stat","path":"/home/cmux"}"#)["error_code"]
+        .clone()
+}
+
+/// The reply of the remote relay's frame path to `line` and the JSON parses
+/// it took.
+fn remote_frame(mux: &Arc<Mux>, client: u64, line: &str) -> (Value, u64) {
+    let (writer, outbound) = fs_writer();
+    let stats = crate::diagnostics::IpcStats::default();
+    {
+        let _scope = crate::diagnostics::JsonParseScope::enter(
+            &stats,
+            crate::diagnostics::IpcTransport::Lines,
+        );
+        super::super::remote_relay::handle_watched_frame(
+            mux,
+            client,
+            line,
+            &writer,
+            std::time::Instant::now(),
+            None,
+        );
+    }
+    let answer = serde_json::from_str(&outbound.try_pop().expect("an answer")).unwrap();
+    (answer, stats.snapshot().parses.lines.json_parses)
+}
+
+/// p05-ipc-069: the fs ops are found by their decoded `cmd`, never a
+/// substring of the line, on the local route and on the remote relay alike.
+/// An escaped op name answers as its plain spelling (the remote entry's
+/// [`FsGate`] already admits it), an op takes two parses (the head and the
+/// handler's decode), and a line that only mentions an op still reaches the
+/// relay's gate.
+#[test]
+fn the_fs_ops_are_routed_by_their_decoded_cmd_on_both_paths() {
+    let mux = test_mux();
+    let escaped = r#"{"id":4,"cmd":"fs\u002estat","path":"/home/cmux"}"#;
+    assert!(FsGate.admit(&peer(), escaped));
+    let local = mux.control_clients.register(ClientTransport::Unix, fs_writer().0);
+    let answer = through_route(&mux, local, escaped);
+    assert_eq!(answer["error_code"], "fs.unavailable", "{answer}");
+    assert_eq!(answer["id"], 4);
+
+    let remote = mux.control_clients.register(ClientTransport::Remote, fs_writer().0);
+    mux.bind_remote_peer(remote, &peer()).unwrap();
+    let (answer, parses) = remote_frame(&mux, remote, escaped);
+    assert_eq!(answer["error_code"], "fs.unavailable", "{answer}");
+    assert_eq!(answer["id"], 4);
+    assert_eq!(parses, 2, "the head and the fs handler's decode");
+
+    let mention = r#"{"id":5,"cmd":"no-such-op","path":"\"fs.stat"}"#;
+    let (answer, _) = remote_frame(&mux, remote, mention);
+    assert_eq!(answer["error_code"], "remote_denied", "{answer}");
+    assert_eq!(answer["id"], 5);
 }
 
 /// Lane 10 finding A: the fs hook checks the principal on every frame. A

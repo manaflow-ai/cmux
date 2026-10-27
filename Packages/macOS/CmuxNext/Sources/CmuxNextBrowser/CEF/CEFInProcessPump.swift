@@ -35,7 +35,9 @@ final class CEFInProcessPump {
         }
         // CEF's delayed work as absolute run times with Chromium's leeway (p14-energy-046); older forks
         // keep the ms path.
-        let absoluteRunTimes = shim.setScheduleDelayed(cefScheduleDelayedCallback) == 1
+        // SAFETY: the callback is a C function of `cmux_shim_schedule_delayed_fn`; its context is the runtime
+        // `initialize` was given, which lives for the process once started.
+        let absoluteRunTimes = unsafe shim.setScheduleDelayed(cefScheduleDelayedCallback) == 1
         logger.notice("CEF pump delayed work: \(absoluteRunTimes ? "absolute run times" : "whole milliseconds", privacy: .public)")
         pump = CEFMessagePump(work: work, timer: makeTimer(wakeUps), timeSlice: CEFPumpSchedule.timeSlice(forkAPI: forkAPI),
                               gate: gate, absoluteRunTimes: absoluteRunTimes, crashKeys: crashKeys)

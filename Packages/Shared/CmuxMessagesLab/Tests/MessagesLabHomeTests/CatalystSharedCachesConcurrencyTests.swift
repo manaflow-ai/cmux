@@ -107,7 +107,7 @@ import UniformTypeIdentifiers
 
     @Test(.enabled(if: CatalystSharedCachesConcurrencyTests.softEdgeApplies))
     @MainActor func crispCopyScopeHoldsOnlyOnTheMainThread() throws {
-        let ctx = try #require(CGContext(data: nil, width: 200, height: 100, bitsPerComponent: 8, bytesPerRow: 800,
+        let ctx = try #require(CGContext.ownedBitmap(width: 200, height: 100, bitsPerComponent: 8, bytesPerRow: 800,
                                          space: CGColorSpaceCreateDeviceRGB(),
                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         let body = CGRect(x: 20, y: 20, width: 120, height: 30)
@@ -125,7 +125,7 @@ import UniformTypeIdentifiers
             // its scope (it read main's flag before, and drew a crisp edge into the cached bitmap).
             let done = DispatchSemaphore(value: 0)
             renderQueue.async {
-                let bitmap = CGContext(data: nil, width: 200, height: 100, bitsPerComponent: 8, bytesPerRow: 800,
+                let bitmap = CGContext.ownedBitmap(width: 200, height: 100, bitsPerComponent: 8, bytesPerRow: 800,
                                        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
                 offMain.set(0, bitmap.map(softEdge) ?? false)
                 done.signal()
@@ -150,7 +150,7 @@ import UniformTypeIdentifiers
 
     @Test func decodedImagesStoredAndEvictedFromManyThreadsKeepTheByteCount() throws {
         let cache = MediaCache()
-        let ctx = try #require(CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 16,
+        let ctx = try #require(CGContext.ownedBitmap(width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 16,
                                          space: CGColorSpaceCreateDeviceRGB(),
                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         let image = try #require(ctx.makeImage())
@@ -177,7 +177,7 @@ import UniformTypeIdentifiers
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("thumb-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let ctx = try #require(CGContext(data: nil, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 256,
+        let ctx = try #require(CGContext.ownedBitmap(width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 256,
                                          space: CGColorSpaceCreateDeviceRGB(),
                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         ctx.setFillColor(red: 0.2, green: 0.4, blue: 0.8, alpha: 1)

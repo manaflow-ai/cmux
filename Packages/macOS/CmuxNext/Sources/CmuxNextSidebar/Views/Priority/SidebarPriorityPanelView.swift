@@ -27,11 +27,15 @@ final class SidebarPriorityPanelView: NSView {
     private var placement = 0
     private var opensUntil: [ObjectIdentifier: Int] = [:]
     private(set) var panel = SidebarPriorityPanel(entries: [])
-    /// Redraws the working chips' elapsed time each minute while one shows; idle otherwise.
-    private let ticker = DemandTimer(owner: "sidebar-priority-minute")
+    /// Redraws the working chips' elapsed time each minute while one shows; idle otherwise. A deadline on the app's
+    /// placer, aligned while the sidebar's node is hidden; nil until ``follow(_:visibility:)`` (no chip ticks).
+    private var ticker: MainDeadline?
+    /// The sidebar's node: a minute that comes while it is hidden redraws once, when it shows (rule 4).
+    private weak var visibility: VisibilityNode?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         header.onPress = { [weak self] in self.map { $0.onAction?(.setCollapsed(!$0.panel.collapsed)) } }
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
@@ -171,15 +175,37 @@ final class SidebarPriorityPanelView: NSView {
         })
     }
 
+    /// Ticks the working chips on `deadlines` (the app's one placer) from now on. `node` is the sidebar's: while it
+    /// is hidden the deadline aligns as hidden work, and the minute's redraw waits for it to show, as Chromium's
+    /// hidden pages run no timer work they would only draw (third_party/blink/renderer/platform/scheduler/main_thread/
+    /// page_scheduler_impl.cc, the throttled background page).
+    func follow(_ deadlines: MainDeadlineScheduler, visibility node: VisibilityNode) {
+        ticker?.cancel()
+        visibility = node
+        ticker = MainDeadline(owner: "Sidebar.priorityMinute", workClass: .visible, alignment: .whenHidden(node), scheduler: deadlines)
+        updateTicker()
+    }
+
     /// A chip says minutes: one redraw a minute while a row works, none otherwise.
     private func updateTicker() {
+        guard let ticker else { return }
         let working = !panel.collapsed && panel.entries.contains { if case .working = $0.state { true } else { false } }
-        guard working else { return ticker.cancel() }
-        ticker.scheduleOnMainIfIdle(after: .seconds(60)) { [weak self] in
-            guard let self else { return }
-            for row in self.rows.values { row.tick(now: Date()) }
-            self.updateTicker()
+        guard working else {
+            visibility?.cancelDeferred(key: Self.minuteKey)
+            return ticker.cancel()
         }
+        ticker.scheduleIfIdle(after: .seconds(60)) { [weak self] in
+            guard let self else { return }
+            guard let node = visibility else { return tickRows() }
+            node.deferUntilVisible(key: Self.minuteKey) { [weak self] in self?.tickRows() }
+        }
+    }
+
+    private static let minuteKey = "Sidebar.priorityMinute"
+
+    private func tickRows() {
+        for row in rows.values { row.tick(now: Date()) }
+        updateTicker()
     }
 
     override func layout() {

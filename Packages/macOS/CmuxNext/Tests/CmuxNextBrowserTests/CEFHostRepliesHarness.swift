@@ -25,7 +25,7 @@ import Testing
     static func hostRuntime() async throws -> (CEFRuntime, CEFHostStart) {
         let runtime = try inProcessRuntime()
         let host = CEFHostStart(supervisor: OneSpyHost(), open: { _ in
-            do { return .success(try CEFRemoteShim.make(symbol: HostRepliesSpy.symbol, expected: HostRepliesSpy.abi)) } catch { return .failure(.shim(error)) }
+            do throws(CEFShimLibrary.LoadError) { return .success(try CEFRemoteShim.make(symbol: HostRepliesSpy.symbol, expected: HostRepliesSpy.abi)) } catch { return .failure(.shim(error)) }
         })
         guard case .success = await host.attached() else { throw BrowserTabError.closed }
         runtime.hostStart = host
@@ -38,7 +38,7 @@ import Testing
     /// included. Async replies resolve in its ``CEFHostStart/replies``, as the attached host's do.
     static func attachedHost(over symbol: @escaping @Sendable (String) -> UnsafeMutableRawPointer?) async throws -> CEFHostStart {
         let host = CEFHostStart(supervisor: OneSpyHost(), open: { _ in
-            do {
+            do throws(CEFShimLibrary.LoadError) {
                 return .success(try CEFRemoteShim.make(symbol: SpyRemoteWire.symbol(over: symbol), expected: SpyRemoteWire.abi))
             } catch {
                 return .failure(.shim(error))
@@ -119,13 +119,13 @@ import Testing
 }
 
 /// A timer the queue arms and parks; the rig fires the queue itself.
-final class ReplyIdleWakeUpTimer: MainWakeUpTimer {
+nonisolated final class ReplyIdleWakeUpTimer: MainWakeUpTimer {
     func arm(at date: UInt64, tolerance: UInt64, now: UInt64) {}
     func park() {}
 }
 
 /// The rig's uptime in ns: the queue reads it from any thread, only the test's main actor moves it.
-final class ReplyTestUptime: Sendable {
+nonisolated final class ReplyTestUptime: Sendable {
     private let value = Atomic<UInt64>(0)
 
     var now: UInt64 { value.load(ordering: .relaxed) }

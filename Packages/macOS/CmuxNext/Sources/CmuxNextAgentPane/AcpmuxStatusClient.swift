@@ -1,4 +1,6 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import Foundation
 import Network
 
@@ -197,16 +199,20 @@ nonisolated enum AcpmuxStatusClient {
     }
 
     static func start(_ connection: NWConnection) async throws {
-        let gate = AgentPaneResumeOnce()
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            connection.stateUpdateHandler = { state in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
+            // The first ready, failed or cancelled state answers. Network calls this handler on the
+            // connection's queue one state at a time, so dropping it there leaves no later state to answer.
+            connection.stateUpdateHandler = { [weak connection] state in
                 switch state {
                 case .ready:
-                    gate.run { continuation.resume() }
+                    connection?.stateUpdateHandler = nil
+                    continuation.resume(returning: ())
                 case .failed(let error), .waiting(let error):
-                    gate.run { continuation.resume(throwing: Failure.unreachable("\(error)")) }
+                    connection?.stateUpdateHandler = nil
+                    continuation.resume(throwing: Failure.unreachable("\(error)"))
                 case .cancelled:
-                    gate.run { continuation.resume(throwing: CancellationError()) }
+                    connection?.stateUpdateHandler = nil
+                    continuation.resume(throwing: CancellationError())
                 default:
                     break
                 }
@@ -216,15 +222,15 @@ nonisolated enum AcpmuxStatusClient {
     }
 
     static func send(_ data: Data, on connection: NWConnection) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             connection.send(content: data, completion: .contentProcessed { error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: ()) }
             })
         }
     }
 
     static func receive(on connection: NWConnection) async throws -> Data? {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Data?, any Error>) in
             connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, _, error in
                 if let data, !data.isEmpty {
                     continuation.resume(returning: data)

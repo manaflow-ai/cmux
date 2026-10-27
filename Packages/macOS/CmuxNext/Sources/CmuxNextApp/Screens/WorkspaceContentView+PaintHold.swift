@@ -16,6 +16,7 @@ extension WorkspaceContentView: PaneFirstPaintGated {
         DrawnPages(in: self).whenRedrawn { [weak self] in
             if let window = self?.window as? ShellWindow { window.afterLayoutPass(body) } else { body() }
         }
+        // sync-layout: the hidden workspace's pages lay out at the new size now, so they draw the frame waited on.
         layoutSubtreeIfNeeded()
     }
 }

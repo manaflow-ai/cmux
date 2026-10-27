@@ -29,6 +29,7 @@
 #include <string>
 #include <vector>
 
+#include "../src/host_user_input.h"
 #include "chromium_host_input_ring_test_support.h"
 
 using cmux_host::Header;
@@ -366,6 +367,113 @@ void TestHostInputBackPressure() {
               static_cast<unsigned long long>(full));
 }
 
+// HostInput with the host's InputTasks as its Post, as browser_host_main.mm
+// starts it (task p01-process-042 with p04-input-065): batches before Start
+// run on the main run loop, after it on the chosen user-input queue and never
+// on the fallback, in order across the switch. Once the UI thread is shut down
+// its queue refuses: the batch is dropped, the gate stays shut, no later batch
+// is posted to any queue, and Stop ends the reader.
+void TestHostInputThroughInputTasks() {
+  constexpr uint32_t kBeforeStart = 3000;
+  constexpr uint32_t kAfterStart = 3000;
+  constexpr uint32_t kAtShutdown = 20;
+  Mapping mapping;
+  LocalDoorbell local("input-tasks");
+  EXPECT(local.ready);
+  if (!local.ready) return;
+  using Input = HostInput<LocalDoorbell::Doorbell>;
+  using cmux_host::InputTasks;
+  TaskThread main_loop;
+  TaskThread user_input;
+  std::mutex mutex;
+  std::condition_variable ready;
+  uint32_t delivered = 0;  // under `mutex`, as the rest of this block
+  bool ordered = true;
+  uint64_t main_posts = 0, user_input_posts = 0, fallback_posts = 0, refused = 0;
+  bool shut_down = false;
+  auto count = [&](uint64_t* posts) {
+    std::lock_guard<std::mutex> lock(mutex);
+    ++*posts;
+    ready.notify_one();
+  };
+  InputTasks tasks(
+      [&](InputTasks::Task task) {
+        {
+          std::lock_guard<std::mutex> lock(mutex);
+          if (shut_down) {
+            ++refused;
+            ready.notify_one();
+            return;  // `task` is freed unrun, as a refused CefTask is
+          }
+          ++user_input_posts;
+        }
+        user_input.Post(std::move(task));
+      },
+      [&](InputTasks::Task task) {
+        count(&fallback_posts);
+        user_input.Post(std::move(task));
+      },
+      [&](InputTasks::Task task) {
+        count(&main_posts);
+        main_loop.Post(std::move(task));
+      });
+  Input input(mapping.base, local.get());
+  std::atomic<bool> ended{false};
+  // `from...`: task 042's Deliver also takes the index to start from and returns how many it took.
+  input.Start([&tasks](std::function<void()> task) { tasks.Post(std::move(task)); },
+              [&](const Input::Frames& frames, auto... from) -> size_t {
+                const size_t first = (size_t{0} + ... + from);
+                std::lock_guard<std::mutex> lock(mutex);
+                for (size_t i = first; i < frames.size(); ++i) {
+                  ordered = ordered && frames[i].seq == delivered + 1;
+                  ++delivered;
+                }
+                ready.notify_one();
+                return frames.size() - first;
+              },
+              [&ended](Reader::End) { ended = true; });
+  Writer writer(mapping.base);
+  uint32_t seq = 0;
+  auto write = [&](uint32_t frames) {
+    for (uint32_t i = 0; i < frames; ++i) {
+      const Writer::Push push = writer.Write(Numbered(++seq));
+      EXPECT(push != Writer::Push::kFull && push != Writer::Push::kBroken);
+      if (push == Writer::Push::kWrittenRing) local.RingFromWriter();
+    }
+  };
+  auto delivered_all = [&] { return delivered == seq; };
+
+  write(kBeforeStart);
+  EXPECT(testing::WaitFor(mutex, ready, kStallLimit, delivered_all));
+  uint64_t main_posts_at_start = 0;
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    main_posts_at_start = main_posts;
+    EXPECT(main_posts > 0 && user_input_posts == 0);
+  }
+  tasks.Start();
+  write(kAfterStart);
+  EXPECT(testing::WaitFor(mutex, ready, kStallLimit, delivered_all));
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    EXPECT(ordered && delivered == kBeforeStart + kAfterStart);
+    EXPECT(user_input_posts > 0 && main_posts == main_posts_at_start && fallback_posts == 0);
+    shut_down = true;
+  }
+  write(kAtShutdown);
+  EXPECT(testing::WaitFor(mutex, ready, kStallLimit, [&] { return refused > 0; }));
+  write(kAtShutdown);  // they stay in the ring: the dropped batch keeps the gate shut
+  input.Stop();
+  const uint64_t head = Ring(mapping.base).Head().load(std::memory_order_acquire);
+  main_loop.Stop();
+  user_input.Stop();
+  std::lock_guard<std::mutex> lock(mutex);
+  EXPECT(refused == 1 && delivered == kBeforeStart + kAfterStart);
+  EXPECT(main_posts == main_posts_at_start && fallback_posts == 0);
+  EXPECT(head <= kBeforeStart + kAfterStart + kAtShutdown);
+  EXPECT(!ended);
+}
+
 void TestProcessPair() {
   constexpr uint32_t kFrames = 1000000;
   Mapping mapping;
@@ -573,6 +681,7 @@ int main() {
   TestRunEnds();
   TestHostInputReportsItsEnd();
   TestHostInputBackPressure();
+  TestHostInputThroughInputTasks();
   TestProcessPair();
   TestAckBatch();
   TestOrderedInputDispatchesAndAcksAfterItsControlMessage();

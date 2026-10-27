@@ -79,6 +79,35 @@
         "settled"
       ],
       "note": "name, color and collapsed of a group change in one commit"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "sidebar.group.update",
+        "params": {
+          "id": "itm_oracle_group",
+          "patch": {
+            "name": "renamed",
+            "color": "#336699",
+            "collapsed": true
+          }
+        },
+        "idempotencyKey": "sidebar-group-update-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

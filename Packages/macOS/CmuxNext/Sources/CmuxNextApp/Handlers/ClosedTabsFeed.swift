@@ -1,5 +1,5 @@
-import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// The app side of closed tabs. The daemon owns the closed history
@@ -14,36 +14,29 @@ final class ClosedTabsFeed {
     let changes = ClosedTabChanges()
     /// Undo toasts for the tabs the user closes (REOPEN-CLOSED).
     let undoToasts: CloseUndoToasts
-    private var observation: Task<Void, Never>?
+    /// Follows each machine's revisions; released with the feed. A service observation: Search Tabs
+    /// and the control snapshot read `changes` whether or not anything shows them.
+    private var observation: ServiceObservation<[String]>?
 
     init(services: AppServices) {
         undoToasts = CloseUndoToasts(services: services)
         let machines = services.machines
-        // task-owner: the feed (cancelled in deinit); event-driven (Observation)
-        observation = Task { [weak self] in
-            for await _ in ObservationStream({ Self.signature(of: machines.daemons) }) {
-                self?.changes.bump()
-            }
+        observation = ServiceObservation(.visible, owner: "ClosedTabsFeed.changes", on: services.mainWork) {
+            Self.signature(of: machines.daemons)
+        } apply: { [weak self] _ in
+            self?.changes.bump()
         }
-    }
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
-    nonisolated deinit {
-        observation?.cancel()
     }
 
     /// What the feed watches, O(machines): each connected machine's tab
     /// list revision (`DaemonStore.tabListRevision`, bumped once per apply
-    /// that changes its tabs, their panes or order) and closed item ids.
+    /// that changes its tabs, their panes or order) and closed list revision
+    /// (`SessionStateStore.closedRevision`, bumped once per change of its closed items).
     private static func signature(of daemons: [DaemonService]) -> [String] {
-        var parts: [String] = []
-        for daemon in daemons {
+        daemons.compactMap { daemon in
             let store = daemon.store
-            guard case .connected = store.connectionState, store.isLoaded else { continue }
-            parts.append("\(daemon.machineID):\(store.tabListRevision)")
-            parts += store.closedItems.map(\.id)
+            guard case .connected = store.connectionState, store.isLoaded else { return nil }
+            return "\(daemon.machineID):\(store.tabListRevision):\(store.session.closedRevision)"
         }
-        return parts
     }
 }

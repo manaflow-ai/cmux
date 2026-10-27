@@ -1,6 +1,8 @@
 public import AppKit
 import CmuxNextCompat
+import CmuxNextInput
 import CmuxNextRemoteLayer
+import CmuxNextWakeups
 import QuartzCore
 
 /// The one view a hosted Chromium page shows in, whichever process runs its
@@ -29,10 +31,13 @@ import QuartzCore
 /// menu actions become wire frames for ``sink``, one per event, in the
 /// event's own turn: no display-tick alignment here, the renderer aligns
 /// input to its frames, as Chrome's browser process forwards input at once;
-/// keys in ChromiumHostPageView+Keys.swift). With an owner that delivers the
-/// host's input acks (``pacesInput``, ``inputAcked(_:)``; the input ring's
-/// ``ChromiumHostInputRoute``), a move or wheel tick still leaves at once when
-/// none of its kind is in flight, and later ones wait coalesced for the ack
+/// ``ChromiumHostConnection`` coalesces only under socket back-pressure;
+/// keys in ChromiumHostPageView+Keys.swift; buttons past the third, pinch,
+/// smart zoom and Force Touch pressure in ChromiumHostPageView+Gestures.swift).
+/// With an owner that delivers the host's input acks (``pacesInput``,
+/// ``inputAcked(_:seq:)``; the input ring's ``ChromiumHostInputRoute``), a
+/// move or wheel tick still leaves at once when none of its kind is in
+/// flight, and later ones wait coalesced for the ack
 /// (``ChromiumHostInputPacer``, task p01-process-042); keys and clicks never
 /// wait, and what waited leaves ahead of them. With
 /// ``InputTarget/pageWindow`` the fork's transparent page window above takes
@@ -53,6 +58,20 @@ public final class ChromiumHostPageView: NSView {
     var onGeometry: ((ChromiumHostGeometry) -> Void)? {
         didSet { observeWindow() }
     }
+    /// Places the page on the display the view shows on (task 221, ChromiumHostPageView+Screen.swift);
+    /// true when the placement went out. Called when that display differs from the last one placed,
+    /// and again on a later change until a placement went out.
+    var onScreenInfo: ((ChromiumHostScreenInfo) -> Bool)? {
+        didSet { observeScreen() }
+    }
+    /// Reads a window's display; tests pass a stand-in.
+    var screenInfoSource: @MainActor (NSWindow) -> ChromiumHostScreenInfo? = { ChromiumHostScreenInfo.of($0) }
+    /// The display the view shows on, as last read; nil while the view is in no window or nobody takes it.
+    var screenInfo: ChromiumHostScreenInfo?
+    /// The display the page was last placed on; nil before a placement went out in this window.
+    var placedScreenInfo: ChromiumHostScreenInfo?
+    /// The window's screen and color profile notices, while someone takes the display.
+    var screenEvents: [EventSubscription] = []
     /// The view left its window (its pane closed, or it moved out of every window).
     var onLeftWindow: (() -> Void)?
     /// The view entered a window (true) or left its window (false): a hosted page is live only
@@ -74,7 +93,7 @@ public final class ChromiumHostPageView: NSView {
         get { surface.fill }
         set { surface.fill = newValue }
     }
-    /// The view over the page that fills it (the crash page, p01-process-082); nil shows the page.
+    /// A view over the page that fills it; nil shows the page (a pane's crash page is its chrome's sad tab).
     private(set) var crashOverlay: NSView?
     /// The page's last picture while no host shows it; only ``showStandIn(_:)``, ``coverWithSnapshot(_:)``
     /// (a hosted page past its hidden grace) and ``removeStandIn()`` set it.
@@ -95,6 +114,43 @@ public final class ChromiumHostPageView: NSView {
     var redispatchTarget: @MainActor (NSEvent) -> Bool = { NSApp.mainMenu?.performKeyEquivalent(with: $0) ?? false }
     /// True while ``redispatch(_:)`` runs: the page view does not take the key back.
     var isRedispatching = false
+    /// The page's cursor (host mode), shown over the page; nil shows none (in process the page window does).
+    var pageCursor: CEFPageCursor? {
+        didSet { if pageCursor != oldValue { shownCursor = pageCursor?.makeCursor(); showPageCursor() } }
+    }
+    /// ``pageCursor`` as AppKit shows it, made once per change.
+    private(set) var shownCursor: NSCursor?
+    /// Where cmux's views lie over the page (its ``CEFHostView``'s occlusion rects): no page cursor there.
+    var cursorHoles: [CGRect] = [] {
+        didSet { if cursorHoles != oldValue, shownCursor != nil { window?.invalidateCursorRects(for: self) } }
+    }
+    /// The shown page's accessibility (host mode; ChromiumHostPageView+Accessibility.swift).
+    var remoteAccessibility = ChromiumHostRemoteAccessibility()
+    /// Sends a page's accessibility request to the host and calls back with the page's token, nil
+    /// for none (host mode: the pane host); nil in process, where the page window is its own
+    /// accessibility tree.
+    var accessibilityTokenSource: ((ChromiumHostAccessibilityRequest, @escaping ([UInt8]?) -> Void) -> Void)?
+    /// AppKit's remote accessibility calls; tests pass stand-ins.
+    var accessibilityBridge = ChromiumHostAccessibilityBridge.system
+    /// Drops the remote element when its window closes: the element holds the window.
+    var accessibilityWindowClose: EventSubscription?
+    /// Drags from outside into the page (ChromiumHostPageView+Drag.swift); none until ``takeDrags(through:)``.
+    let dragDestination = ChromiumHostDragDestination()
+    /// The page's autofill, password and `<datalist>` suggestions, drawn by cmux (task 061).
+    private(set) lazy var suggestions = ChromiumHostSuggestionList(view: self)
+    /// The window's part of the page's visibility (ChromiumHostPageView+Visibility.swift): hidden
+    /// out of a window, in a minimized window or a hidden app; occluded in a covered window.
+    let windowNode: VisibilityNode
+    /// The page's visibility: the view's own hidden state under ``windowNode``.
+    let pageNode: VisibilityNode
+    /// Hears each change of ``pageVisibility``.
+    var onPageVisibility: ((ChromiumHostPageVisibility) -> Void)?
+    /// The window's state and notifications: AppKit's; tests pass their own.
+    var visibilitySource = ChromiumHostPageVisibility.Source.appKit { didSet { observeVisibility() } }
+    /// The window's minimize and occlusion notices while the view is in a window.
+    var visibilitySubscriptions: [EventSubscription] = []
+    /// Tells ``onPageVisibility`` of each flip of ``pageNode``.
+    private var pageVisibilityWatch: VisibilitySubscription?
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Where frames for the host go (``InputTarget/view`` only), synchronously
@@ -114,8 +170,23 @@ public final class ChromiumHostPageView: NSView {
     /// only): the same ordered stream as ``sink``, after the key frames sent before them
     /// (ChromiumHostPageView+TextInput.swift).
     var textInputSink: ((ChromiumHostTextInputOp) -> Void)?
+    /// The word at a page point for Look Up (ChromiumHostPageView+LookUp.swift): the point in top-left
+    /// page points, the window's backing scale, and the answer, nil for no word. Nil: AppKit's Look Up.
+    var wordLookUp: ((CGPoint, CGFloat, @escaping (ChromiumHostLookUpWord?) -> Void) -> Void)?
     /// The page's text input: the state the host pushed and the input method's marked text.
     var textInput = ChromiumHostTextInput()
+    /// Secure event input while a password field of the page has focus (ChromiumHostPageView+TextInput.swift).
+    var passwordInput = ChromiumHostPasswordInput()
+    /// Whether the page shown now is a cmux page (host mode's counterpart of ``CEFTab/pageThemeSurface``),
+    /// asked of the page's owner (``CEFPaneHost/hostedPage()``): no macOS caret accessory over its fields.
+    var showsCmuxPage: @MainActor () -> Bool = { false }
+    /// Each scroll goes here first (the pane's swipe navigation, `CEFSwipeNavigation.handleHosted`); true when it
+    /// took the scroll (a swipe tracks it), which then never reaches the page. Chrome's page view hands its
+    /// scrolls to its history swiper the same way (`-[RenderWidgetHostViewCocoa scrollWheel:]`).
+    var wheelGesture: ((NSEvent) -> Bool)?
+    /// The input seq of the last wheel frame this view sent, 0 before any: WHEEL_ACKs of a gesture's own
+    /// wheels carry later seqs (task p01-process-234).
+    private(set) var lastWheelSeq: UInt32 = 0
     private var tracking: NSTrackingArea?
     #endif
 
@@ -127,8 +198,8 @@ public final class ChromiumHostPageView: NSView {
     /// resized or changed screen; the in-process `CEFHostView` re-places its
     /// page on the same request.
     private var pageUpdates: MainActorObservation?
-    /// Where the window's page update requests arrive.
-    private let pageUpdateCenter: NotificationCenter
+    /// Where the window's page update requests and its screen notices arrive.
+    let pageUpdateCenter: NotificationCenter
 
     /// - Parameters:
     ///   - inputTarget: who takes the page's input.
@@ -142,10 +213,16 @@ public final class ChromiumHostPageView: NSView {
         self.inputTarget = inputTarget
         self.pageUpdateCenter = pageUpdateCenter
         surface = Surface(frame: NSRect(origin: .zero, size: frame.size), makeLayerHost: makeLayerHost)
+        let windowNode = VisibilityNode(root: "chromium-page.window", own: .hidden)
+        self.windowNode = windowNode
+        pageNode = VisibilityNode("chromium-page", parent: windowNode)
         super.init(frame: frame)
         wantsLayer = true
         autoresizingMask = [.width, .height]
         addSubview(surface)
+        pageVisibilityWatch = pageNode.subscribe(owner: "ChromiumHostPageView.pageVisibility") { [weak self] visibility in
+            self?.onPageVisibility?(ChromiumHostPageVisibility(visibility))
+        }
     }
 
     /// A host-mode page view: the page's input target.
@@ -177,6 +254,8 @@ public final class ChromiumHostPageView: NSView {
         #if DEBUG || CMUX_BENCH_HOOKS
         sendInput(ChromiumHostFrame(.focus, v: [focused ? 1 : 0]))
         if !focused { textInputDidResign() }
+        passwordInput.focused = focused
+        updatePasswordInput()
         #endif
     }
 
@@ -196,6 +275,7 @@ public final class ChromiumHostPageView: NSView {
         guard overlay == nil || inputTarget == .view else { return false }
         crashOverlay?.removeFromSuperview()
         crashOverlay = overlay
+        if shownCursor != nil { window?.invalidateCursorRects(for: self) }
         guard let overlay else { return true }
         overlay.frame = bounds
         overlay.autoresizingMask = [.width, .height]
@@ -209,7 +289,11 @@ public final class ChromiumHostPageView: NSView {
     /// instead of leaving it blank.
     @discardableResult
     func show(contextID id: UInt32) -> Bool {
-        surface.show(contextID: id)
+        let changed = id != surface.contextID
+        let shown = surface.show(contextID: id)
+        // Another page window or host: the page's accessibility element is of the old one.
+        if changed { resetRemoteAccessibility() }
+        return shown
     }
 
     /// `CALayerHost` is QuartzCore SPI, the class Chromium itself uses to
@@ -235,13 +319,24 @@ public final class ChromiumHostPageView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         observeWindow()
+        observeVisibility()
+        observeScreen()
+        // Another window: the page is placed again, at the view's origin in that window.
+        screenInfo = nil
+        placedScreenInfo = nil
+        // The host made the page's element for the old window's token.
+        resetRemoteAccessibility()
         onWindowChange?(window != nil)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        passwordInputWindowChanged()
+        #endif
         if window == nil {
             lastGeometry = nil
             keyDowns.removeAll()
             onLeftWindow?()
         } else {
             presentedRectDidChange()
+            screenMayHaveChanged()
         }
     }
 
@@ -250,6 +345,8 @@ public final class ChromiumHostPageView: NSView {
     public override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         presentedRectDidChange()
+        // A view below 1 x 1 point has no page display: its placement goes out once it has a size.
+        placeIfNeeded()
     }
 
     public override func setFrameOrigin(_ newOrigin: NSPoint) {
@@ -260,17 +357,23 @@ public final class ChromiumHostPageView: NSView {
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
         presentedRectDidChange()
+        screenMayHaveChanged()
     }
 
     /// Reports the page's screen rect when it differs from the last one
     /// reported; an unchanged rect costs one comparison.
     private func presentedRectDidChange() {
-        guard let onGeometry, let window, bounds.width >= 1, bounds.height >= 1 else { return }
-        let screen = window.convertToScreen(convert(bounds, to: nil))
+        guard let onGeometry, let window, let screen = presentedScreenRect else { return }
         let geometry = ChromiumHostGeometry(screenRect: screen, scale: window.backingScaleFactor)
         guard geometry != lastGeometry else { return }
         lastGeometry = geometry
         onGeometry(geometry)
+    }
+
+    /// The view's rect in screen points; nil in no window or below 1 x 1 point.
+    var presentedScreenRect: CGRect? {
+        guard let window, bounds.width >= 1, bounds.height >= 1 else { return nil }
+        return window.convertToScreen(convert(bounds, to: nil))
     }
 
     /// Follows the window's page update request only while someone takes the geometry.
@@ -281,70 +384,6 @@ public final class ChromiumHostPageView: NSView {
         }
         pageUpdates = BrowserPageUpdates.observe(of: window, center: pageUpdateCenter) { [weak self] _ in
             self?.presentedRectDidChange()
-        }
-    }
-
-    fileprivate static let noActions: [String: any CAAction] = [
-        "position": NSNull(), "bounds": NSNull(), "sublayers": NSNull(), "contents": NSNull(), "hidden": NSNull(),
-        "backgroundColor": NSNull(),
-    ]
-
-    /// The page's pixels: a layer-hosting view (its layer is set before
-    /// `wantsLayer`, so AppKit sizes the root with the view and never touches
-    /// the remote layer under it). It has no subviews, as Apple asks of a
-    /// layer-hosting view, and never takes the mouse.
-    final class Surface: NSView {
-        /// The shown context, 0 while none.
-        private(set) var contextID: UInt32 = 0
-        /// The root layer's background (``ChromiumHostPageView/backgroundFill``).
-        var fill: CGColor? {
-            didSet {
-                CATransaction.begin()
-                CATransaction.setDisableActions(true)
-                root.backgroundColor = fill
-                CATransaction.commit()
-            }
-        }
-        private let root = CALayer()
-        private var remote: CALayer?
-        private let makeLayerHost: (UInt32) -> CALayer?
-
-        init(frame: NSRect, makeLayerHost: @escaping (UInt32) -> CALayer?) {
-            self.makeLayerHost = makeLayerHost
-            super.init(frame: frame)
-            root.masksToBounds = true
-            root.actions = ChromiumHostPageView.noActions
-            layer = root
-            wantsLayer = true
-            autoresizingMask = [.width, .height]
-        }
-
-        @available(*, unavailable)
-        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-        /// Unflipped: the page's root layer has its origin at the bottom left.
-        override var isFlipped: Bool { false }
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-        override func isAccessibilityElement() -> Bool { false }
-
-        /// ``ChromiumHostPageView/show(contextID:)``.
-        func show(contextID id: UInt32) -> Bool {
-            guard id != contextID else { return true }
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            remote?.removeFromSuperlayer()
-            remote = nil
-            contextID = 0
-            if id != 0, let layerHost = makeLayerHost(id) {
-                layerHost.anchorPoint = .zero
-                layerHost.position = .zero
-                layerHost.actions = ChromiumHostPageView.noActions
-                root.addSublayer(layerHost)
-                remote = layerHost
-                contextID = id
-            }
-            CATransaction.commit()
-            return contextID == id
         }
     }
 }
@@ -375,7 +414,7 @@ extension ChromiumHostPageView {
     /// - Returns: The receipt of `frame` itself when it left now.
     @discardableResult
     func sendInput(_ frame: ChromiumHostFrame) -> ChromiumHostInputReceipt? {
-        guard inputPacer != nil else { return sink?(frame) }
+        guard inputPacer != nil else { return write(frame, paced: nil) }
         guard let release = inputPacer?.submit(frame) else { return nil }
         for ahead in release.ahead { write(ahead, paced: ChromiumHostInputPacer.paced(ahead)) }
         guard let now = release.frame else { return nil }
@@ -389,10 +428,12 @@ extension ChromiumHostPageView {
         for frame in ahead { write(frame, paced: ChromiumHostInputPacer.paced(frame)) }
     }
 
-    /// One frame the pacer released to ``sink``; a paced one the writer did not take gets no ack.
+    /// One frame to ``sink``, at once or as the pacer released it; a paced one the writer did not take
+    /// gets no ack. A wheel the writer took is the newest one sent (``lastWheelSeq``, task p01-process-234).
     @discardableResult
     private func write(_ frame: ChromiumHostFrame, paced: ChromiumHostInputPacer.Paced?) -> ChromiumHostInputReceipt? {
         let receipt = sink?(frame)
+        if let receipt, frame.kind == .wheel { lastWheelSeq = receipt.seq }
         if let paced {
             if let receipt { inputPacer?.written(paced, seq: receipt.seq) } else { inputPacer?.unsent(paced) }
         }
@@ -422,95 +463,42 @@ extension ChromiumHostPageView {
         mouse(event, phase: 1, button: 2)
     }
     public override func rightMouseUp(with event: NSEvent) { mouse(event, phase: 2, button: 2) }
-    public override func otherMouseDown(with event: NSEvent) { mouse(event, phase: 1, button: 1) }
-    public override func otherMouseUp(with event: NSEvent) { mouse(event, phase: 2, button: 1) }
+    public override func otherMouseDown(with event: NSEvent) { otherMouse(event, phase: 1) }
+    public override func otherMouseUp(with event: NSEvent) { otherMouse(event, phase: 2) }
+    public override func otherMouseDragged(with event: NSEvent) { otherMouse(event, phase: 0) }
     public override func mouseMoved(with event: NSEvent) { mouse(event, phase: 0, button: 0) }
     public override func mouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 0) }
     public override func rightMouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 2) }
     public override func mouseExited(with event: NSEvent) { mouse(event, phase: 3, button: 0) }
 
     public override func scrollWheel(with event: NSEvent) {
+        if wheelGesture?(event) == true { return }
         let point = pagePoint(event)
-        // Pixel deltas, as cefclient's off-screen view reads them.
-        let dy = event.cgEvent.map { Int32(clamping: $0.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)) } ?? 0
-        let dx = event.cgEvent.map { Int32(clamping: $0.getIntegerValueField(.scrollWheelEventPointDeltaAxis2)) } ?? 0
-        var frame = ChromiumHostFrame(.wheel, v: [point.x, point.y, dx, dy, Self.wheelPhase(event.phase), Self.wheelPhase(event.momentumPhase)],
-                                      flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp))
-        frame.ch = event.hasPreciseScrollingDeltas ? 1 : 0
-        sendInput(frame)
-    }
-
-    /// An `NSEvent.Phase` as `cmux_shim_browser_send_wheel` takes it: 0 none,
-    /// 1 may begin, 2 began, 3 changed, 4 ended, 5 cancelled. Chrome reads the
-    /// same bits (`PhaseForNSEventPhase`, ui/events/blink/web_input_event_builders_mac.mm);
-    /// a stationary tick, which the shim has no value for, is a change with no movement.
-    static func wheelPhase(_ phase: NSEvent.Phase) -> Int32 {
-        if phase.contains(.mayBegin) { return 1 }
-        if phase.contains(.began) { return 2 }
-        if phase.contains(.changed) || phase.contains(.stationary) { return 3 }
-        if phase.contains(.ended) { return 4 }
-        if phase.contains(.cancelled) { return 5 }
-        return 0
+        sendInput(ChromiumHostFrame.wheel(.init(
+            x: point.x, y: point.y, deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY),
+            precise: event.hasPreciseScrollingDeltas, phase: event.phase.rawValue, momentumPhase: event.momentumPhase.rawValue,
+            modifierFlags: UInt64(event.modifierFlags.rawValue), time: Self.nanoseconds(event.timestamp))))
     }
 
     /// A down ends an open composition first, keeping its text (``textInputMouseDown()``).
-    private func mouse(_ event: NSEvent, phase: Int32, button: Int32) {
+    func mouse(_ event: NSEvent, phase: Int32, button: Int32) {
         if phase == 1 { textInputMouseDown() }
         let point = pagePoint(event)
-        // Pressed buttons as bits: 1 left, 2 right, 4 middle (NSEvent's order, the wire's too).
-        let buttons = Int32(truncatingIfNeeded: NSEvent.pressedMouseButtons & 0x7)
+        let buttons = Self.pressedButtons()
         sendInput(ChromiumHostFrame(.mouse, v: [point.x, point.y, phase, button, Int32(phase == 0 || phase == 3 ? 0 : event.clickCount), buttons],
                                     flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp)))
     }
 
     /// The event's point in page coordinates: points from the top left.
-    private func pagePoint(_ event: NSEvent) -> (x: Int32, y: Int32) {
+    func pagePoint(_ event: NSEvent) -> (x: Int32, y: Int32) {
         let local = convert(event.locationInWindow, from: nil)
         return (Int32(local.x.rounded(.down)), Int32((bounds.height - local.y).rounded(.down)))
     }
 
-    // MARK: Edit menu
-
-    @objc public func copy(_ sender: Any?) { edit(0) }
-    @objc public func cut(_ sender: Any?) { edit(1) }
-    @objc public func paste(_ sender: Any?) { edit(2) }
-    @objc public override func selectAll(_ sender: Any?) { edit(3) }
-    @objc public func undo(_ sender: Any?) { edit(4) }
-    @objc public func redo(_ sender: Any?) { edit(5) }
-
-    private func edit(_ command: Int32) {
-        sendInput(ChromiumHostFrame(.edit, v: [command]))
-    }
-
-    /// An event time (seconds since boot) as CLOCK_UPTIME_RAW nanoseconds, the host's clock too.
+    /// An event time (seconds since boot) as CLOCK_UPTIME_RAW nanoseconds, the host's clock too: the input latency
+    /// slot's `generated` time, so the host's presentation report by this time finds the slot (p04-input-066).
     static func nanoseconds(_ seconds: TimeInterval) -> UInt64 {
-        seconds > 0 ? UInt64(seconds * 1e9) : 0
-    }
-}
-#endif
-
-/// The page view's place on screen, as the host's window takes it.
-nonisolated struct ChromiumHostGeometry: Equatable, Sendable {
-    var width: Int32
-    var height: Int32
-    /// Bottom left of the view in screen points.
-    var screenX: Int32
-    var screenY: Int32
-    var scaleMilli: Int32
-
-    init(screenRect: CGRect, scale: CGFloat) {
-        width = Int32(screenRect.width.rounded())
-        height = Int32(screenRect.height.rounded())
-        screenX = Int32(screenRect.minX.rounded())
-        screenY = Int32(screenRect.minY.rounded())
-        scaleMilli = Int32((scale * 1_000).rounded())
-    }
-}
-
-#if DEBUG || CMUX_BENCH_HOOKS
-extension ChromiumHostGeometry {
-    var frame: ChromiumHostFrame {
-        ChromiumHostFrame(.geometry, v: [width, height, screenX, screenY, scaleMilli])
+        InputLatencyTracker.eventNanos(seconds)
     }
 }
 #endif

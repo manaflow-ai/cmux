@@ -1,8 +1,7 @@
 // Ring frames to Chromium (host_input.h, task p01-process-042). The events are what cefclient's
 // off-screen view builds from an NSEvent (tests/cefclient/browser/browser_window_osr_mac.mm);
-// wheel ticks go through the fork's cmux_shim_browser_send_wheel, which keeps the scroll and
-// momentum phases a trackpad gesture needs (fork API 30), and through
-// CefBrowserHost::SendMouseWheelEvent on a fork without it. Keys go through
+// wheel ticks do not come here: browser_host_main.mm's SendWheel sends them with their phases
+// (task p04-input-063) and its WHEEL_ACK bookkeeping (task p01-process-234). Keys go through
 // cmux_shim::SendHostKeyEvent with the frame's input seq, so a chord the page leaves unhandled
 // comes back as KEY_UNHANDLED with it (task 030); Edit menu commands go to the focused frame.
 #import <AppKit/AppKit.h>
@@ -123,20 +122,6 @@ void SendMouse(CefRefPtr<CefBrowserHost> host, const Header& frame) {
   host->SendMouseClickEvent(mouse, button, phase == 2, std::max(1, frame.v[4]));
 }
 
-// kWheel: v0 x, v1 y, v2 dx, v3 dy (pixels), v4 phase, v5 momentum phase, ch 1 when precise.
-void SendWheel(int chromium_browser_id, CefRefPtr<CefBrowserHost> host, const Header& frame) {
-  const uint32_t modifiers = CefFlags(frame.flags, 0);
-  if (cmux_shim_browser_send_wheel(chromium_browser_id, frame.v[0], frame.v[1], frame.v[2], frame.v[3],
-                                   frame.ch & 1, frame.v[4], frame.v[5], static_cast<int>(modifiers))) {
-    return;
-  }
-  CefMouseEvent mouse;
-  mouse.x = frame.v[0];
-  mouse.y = frame.v[1];
-  mouse.modifiers = modifiers;
-  host->SendMouseWheelEvent(mouse, frame.v[2], frame.v[3]);
-}
-
 }  // namespace
 
 void DispatchInputFrame(int chromium_browser_id, const Header& frame) {
@@ -150,9 +135,6 @@ void DispatchInputFrame(int chromium_browser_id, const Header& frame) {
       break;
     case kMouse:
       SendMouse(host, frame);
-      break;
-    case kWheel:
-      SendWheel(chromium_browser_id, host, frame);
       break;
     case kEdit:
       SendEdit(browser, frame);

@@ -173,8 +173,10 @@ Seen seen;
 Message Hello(const char* wire) {
   TlvWriter w;
   w.Str(wire);
-  const char* exports[] = {"cmux_shim_tab_evaluate"};
-  w.StrList(exports, 1);
+  const char* exports[] = {"cmux_shim_tab_evaluate", "cmux_shim_browser_ime_set_composition",
+                           "cmux_shim_browser_ime_commit_text", "cmux_shim_browser_ime_finish_composing",
+                           "cmux_shim_browser_ime_cancel_composition"};
+  w.StrList(exports, sizeof exports / sizeof exports[0]);
   Message message;
   message.op = cmux_host::control::kOpHello;
   message.fields = w.Take();
@@ -473,6 +475,121 @@ void TestOrderingThroughTheRuntime() {
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
   ::close(host.fd);
 }
+// Every frame the fake host has within `quiet` of the last one.
+std::vector<Message> Drain(Host* host, std::chrono::milliseconds quiet = std::chrono::milliseconds(200)) {
+  std::vector<Message> out;
+  for (;;) {
+    PumpUntil([] { return false; }, std::chrono::milliseconds(20));
+    pollfd p{host->fd, POLLIN, 0};
+    if (host->buffer.empty() && ::poll(&p, 1, static_cast<int>(quiet.count())) <= 0) return out;
+    const std::vector<Message> got = host->Read(1);
+    if (got.empty()) return out;
+    out.push_back(got[0]);
+  }
+}
+
+// The saver frames among `messages`: "<version> <enabled> <scheme or <null>>".
+std::vector<std::string> SaverFrames(const std::vector<Message>& messages) {
+  std::vector<std::string> out;
+  for (const Message& m : messages) {
+    if (m.op != cmux_host::kOpEnergySaver) continue;
+    TlvReader r(m.fields);
+    const int32_t version = r.I32();
+    const int32_t enabled = r.I32();
+    const std::optional<std::string> scheme = r.Str();
+    CHECK(r.ok() && r.AtEnd() && m.token == 0);
+    out.push_back(std::to_string(version) + " " + std::to_string(enabled) + " " + scheme.value_or("<null>"));
+  }
+  return out;
+}
+
+// A host HELLO of this wire listing `exports`.
+Message HelloListing(std::vector<const char*> exports) {
+  TlvWriter w;
+  w.Str(cmux_remote::kWireID);
+  w.StrList(exports.data(), static_cast<int>(exports.size()));
+  Message message;
+  message.op = cmux_host::control::kOpHello;
+  message.fields = w.Take();
+  return message;
+}
+
+void SayHello(Host* host, std::vector<const char*> exports) {
+  const int ready = seen.ready;
+  host->Send(HelloListing(std::move(exports)));
+  CHECK(PumpUntil([&] { return seen.ready == ready + 1; }));
+}
+
+// cmux_shim_set_energy_saver in host mode (task p14-energy-045): the host's end sees kOpEnergySaver,
+// versioned, on each edge; the call answers 1 only for a host whose HELLO listed the saver; a new
+// host gets the saver once while it is on, and nothing while it is off; a host without the saver
+// gets no frame.
+void TestEnergySaver() {
+  const std::string want_on = std::to_string(cmux_host::kEnergySaverVersion) + " 1 cmux-page";
+  const std::string want_off = std::to_string(cmux_host::kEnergySaverVersion) + " 0 cmux-page";
+
+  // No host: kept for the next one, answered 0.
+  CHECK(cmux_remote_shim_attached() == 0);
+  CHECK(cmux_shim_set_energy_saver(1, "cmux-page") == 0);
+  Host first;
+  CHECK(AttachNew(&first) == 1);
+  CHECK(SaverFrames(Drain(&first)).empty());  // it waits for the HELLO, which says whether the host has it
+  SayHello(&first, {cmux_host::kEnergySaverHelloName});
+  CHECK(SaverFrames(Drain(&first)) == std::vector<std::string>({want_on}));
+  // Each edge is one frame.
+  CHECK(cmux_shim_set_energy_saver(0, "cmux-page") == 1);
+  CHECK(cmux_shim_set_energy_saver(1, nullptr) == 1);
+  CHECK(cmux_shim_set_energy_saver(0, "cmux-page") == 1);
+  CHECK(SaverFrames(Drain(&first)) ==
+        std::vector<std::string>({want_off, std::to_string(cmux_host::kEnergySaverVersion) + " 1 <null>", want_off}));
+  cmux_remote_shim_detach();
+  ::close(first.fd);
+
+  // Off: a new host starts with it off and gets no frame.
+  Host second;
+  CHECK(AttachNew(&second) == 1);
+  SayHello(&second, {cmux_host::kEnergySaverHelloName});
+  CHECK(SaverFrames(Drain(&second)).empty());
+  CHECK(cmux_shim_set_energy_saver(1, "cmux-page") == 1);
+  CHECK(SaverFrames(Drain(&second)) == std::vector<std::string>({want_on}));
+  cmux_remote_shim_detach();
+  ::close(second.fd);
+  // On: the next host gets it after its HELLO. An edge before that HELLO waits for it too, and
+  // the call cannot say whether it applies.
+  Host third;
+  CHECK(AttachNew(&third) == 1);
+  CHECK(cmux_shim_set_energy_saver(1, "cmux-page") == 0);
+  CHECK(SaverFrames(Drain(&third)).empty());
+  SayHello(&third, {cmux_host::kEnergySaverHelloName});
+  CHECK(SaverFrames(Drain(&third)) == std::vector<std::string>({want_on, want_on}));
+  cmux_remote_shim_detach();
+  ::close(third.fd);
+
+  // A host whose fork has no saver: no frame, and the call answers 0.
+  Host fourth;
+  CHECK(AttachNew(&fourth) == 1);
+  SayHello(&fourth, {});
+  CHECK(cmux_shim_set_energy_saver(0, "cmux-page") == 0);
+  CHECK(SaverFrames(Drain(&fourth)).empty());
+  cmux_remote_shim_detach();
+  ::close(fourth.fd);
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
+}
+
+// The fence rights cmux_remote_shim_page_resize sent (cmux_remote_shim_set_fence_sender): there
+// is no Mach off macOS, so the fenced path is driven through this one.
+struct FenceSend {
+  unsigned int channel;
+  unsigned int fence;
+  uint64_t seq;
+};
+std::vector<FenceSend> fence_sends;
+int fence_send_result = 1;
+int RecordFenceSend(unsigned int channel, unsigned int fence, uint64_t seq) {
+  fence_sends.push_back({channel, fence, seq});
+  return fence_send_result;
+}
+
 }  // namespace
 
 int main() {
@@ -671,6 +788,9 @@ int main() {
   // client refuses it as a fork without the call would and sends nothing, so the next frame
   // the host reads is go_back's.
   CHECK(cmux_shim_browser_set_resize_fence(browser, 0x1103u, 2) == 0);
+  // An attach names an NSView of this process: refused the same way, nothing sent.
+  int parent_view = 0;
+  CHECK(cmux_shim_browser_attach_view(browser, &parent_view) == 0);
 
   // go_back marks the navigation state pending under its token until the host's ack.
   cmux_shim_go_back(browser);
@@ -767,6 +887,85 @@ int main() {
       CHECK(got[1].op == cmux_remote::kOpReload && got[1].ctl_seq == 0 && got[1].after_input == 0);
       CHECK(got[2].op == cmux_remote::kOpTabActivate && got[2].ctl_seq == 2 && got[2].after_input == 3);
     }
+  }
+
+  // The page's IME ops are ordered too (p04-input-064): a commit is applied after the key frame
+  // written before it, never ahead of it.
+  {
+    uint32_t ctl = 0;
+    const uint8_t text[] = {0xe5, 0x65, 0x2c, 0x67};  // "日本" as UTF-16LE
+    const uint8_t clause[] = {0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0xff, 1, 0, 0, 0};
+    CHECK(cmux_remote_shim_order_input(&ctl) == 4 && ctl == 2);
+    cmux_shim_browser_ime_set_composition(browser, text, sizeof text, clause, sizeof clause, 2, 2, -1, -1);
+    cmux_shim_browser_ime_commit_text(browser, text, sizeof text, -1, -1);
+    CHECK(cmux_remote_shim_order_input(&ctl) == 5 && ctl == 4);
+    cmux_shim_browser_ime_finish_composing(browser);
+    cmux_shim_browser_ime_cancel_composition(browser);
+    const std::vector<Message> got = host.Read(4);
+    CHECK(got.size() == 4);
+    if (got.size() == 4) {
+      CHECK(got[0].op == cmux_remote::kOpBrowserImeSetComposition && got[0].ctl_seq == 3 && got[0].after_input == 4);
+      CHECK(got[0].fields.size() == 7 && got[0].fields[1].bytes == std::string("\xe5\x65\x2c\x67", 4));
+      CHECK(got[1].op == cmux_remote::kOpBrowserImeCommitText && got[1].ctl_seq == 4 && got[1].after_input == 4);
+      CHECK(got[2].op == cmux_remote::kOpBrowserImeFinishComposing && got[2].ctl_seq == 5 && got[2].after_input == 5);
+      CHECK(got[3].op == cmux_remote::kOpBrowserImeCancelComposition && got[3].ctl_seq == 6 && got[3].after_input == 5);
+    }
+  }
+
+  // A page resize (task 052) is an ordered op too. With no fence channel (and no Mach off macOS)
+  // it goes unfenced: fence seq 0, no token, nothing to answer.
+  {
+    CHECK(cmux_remote_shim_set_resize_fence_channel(0) == 1);
+    CHECK(cmux_remote_shim_page_resize(9, browser, 640, 480, 0x1103u, 1) == CMUX_REMOTE_RESIZE_UNFENCED);
+    CHECK(cmux_remote_shim_last_reply_token() == 0);
+    CHECK(cmux_remote_shim_page_resize(0, browser, 640, 480, 0, 1) == CMUX_REMOTE_RESIZE_NOT_SENT);  // no view
+    const std::vector<Message> got = host.Read(1);
+    CHECK(got.size() == 1 && got[0].op == cmux_host::kOpPageResize && got[0].token == 0 && got[0].ctl_seq == 7 &&
+          got[0].after_input == 5);
+    const std::optional<cmux_host::PageResize> resize =
+        got.empty() ? std::nullopt : cmux_host::DecodePageResize(got[0].fields);
+    CHECK(resize && resize->view == 9 && resize->browser == browser && resize->width == 640 &&
+          resize->height == 480 && resize->fence_seq == 0 && resize->deadline_frames == 1);
+  }
+
+  // With a fence channel, the fence right goes to the host's inbox first, under the next fence
+  // seq, and the op carries that seq and a token the host answers. A fence the inbox did not take
+  // sends the op unfenced and takes no seq.
+  {
+    cmux_remote_shim_set_fence_sender(&RecordFenceSend);
+    CHECK(cmux_remote_shim_set_resize_fence_channel(0x2201u) == 1);
+    CHECK(cmux_remote_shim_page_resize(9, browser, 700, 480, 0x1103u, 1) == CMUX_REMOTE_RESIZE_FENCED);
+    const uint32_t first = cmux_remote_shim_last_reply_token();
+    CHECK(first != 0);
+    CHECK(cmux_remote_shim_page_resize(9, browser, 720, 480, 0x1104u, 1) == CMUX_REMOTE_RESIZE_FENCED);
+    const uint32_t second = cmux_remote_shim_last_reply_token();
+    CHECK(second != 0 && second != first);
+    fence_send_result = 0;
+    CHECK(cmux_remote_shim_page_resize(9, browser, 740, 480, 0x1105u, 1) == CMUX_REMOTE_RESIZE_UNFENCED);
+    CHECK(cmux_remote_shim_last_reply_token() == 0);
+    fence_send_result = 1;
+    CHECK(cmux_remote_shim_page_resize(9, browser, 760, 480, 0, 1) == CMUX_REMOTE_RESIZE_UNFENCED);  // no fence
+    CHECK(cmux_remote_shim_page_resize(9, browser, 780, 480, 0x1106u, 1) == CMUX_REMOTE_RESIZE_FENCED);
+    const uint32_t third = cmux_remote_shim_last_reply_token();
+    CHECK(fence_sends.size() == 4);
+    if (fence_sends.size() == 4) {
+      CHECK(fence_sends[0].channel == 0x2201u && fence_sends[0].fence == 0x1103u && fence_sends[0].seq == 1);
+      CHECK(fence_sends[1].fence == 0x1104u && fence_sends[1].seq == 2);
+      CHECK(fence_sends[2].fence == 0x1105u && fence_sends[2].seq == 3);  // not taken
+      CHECK(fence_sends[3].fence == 0x1106u && fence_sends[3].seq == 3);  // the seq the failed one did not take
+    }
+    const std::vector<Message> got = host.Read(5);
+    CHECK(got.size() == 5);
+    const uint64_t seqs[] = {1, 2, 0, 0, 3};
+    const uint32_t tokens[] = {first, second, 0, 0, third};
+    for (size_t i = 0; i < got.size() && i < 5; ++i) {
+      const std::optional<cmux_host::PageResize> resize = cmux_host::DecodePageResize(got[i].fields);
+      CHECK(got[i].op == cmux_host::kOpPageResize && got[i].token == tokens[i] && got[i].ctl_seq != 0);
+      CHECK(resize && resize->view == 9 && resize->width == 700 + 20 * static_cast<int32_t>(i) &&
+            resize->fence_seq == seqs[i]);
+    }
+    cmux_remote_shim_set_fence_sender(nullptr);
+    CHECK(cmux_remote_shim_set_resize_fence_channel(0) == 1);
   }
 
   // A host that never reads: posts still return at once, and the geometry of a page waits
@@ -919,6 +1118,9 @@ int main() {
   seen.ended = -1;
   cmux_remote_shim_detach();
   CHECK(cmux_remote_shim_attached() == 0);
+  // With no host a fence channel would name a host that is gone, and a resize goes nowhere.
+  CHECK(cmux_remote_shim_set_resize_fence_channel(0) == 0);
+  CHECK(cmux_remote_shim_page_resize(9, 1, 640, 480, 0x1103u, 1) == CMUX_REMOTE_RESIZE_NOT_SENT);
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
   CHECK(seen.ended == -1);
   ::close(third.fd);
@@ -948,6 +1150,7 @@ int main() {
   cmux_remote_shim_set_input_ack(nullptr, nullptr);
 
   TestOrderingThroughTheRuntime();
+  TestEnergySaver();
 
   // View tokens: cmux passes the page view's token where the ABI takes a parent NSView*, and it
   // travels as is (never a pointer the client reads); NULL is 0.

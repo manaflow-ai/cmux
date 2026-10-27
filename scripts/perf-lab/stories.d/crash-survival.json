@@ -1,8 +1,8 @@
 {
   "id": "crash-survival",
   "tier": "T1",
-  "description": "Chromium crash survival (F12 chromium arm), one launch per run: SIGKILL by exact child pid of the tab's renderer, the GPU process and the network service utility, and chrome://crash and chrome://gpucrash typed in the omnibar, while a terminal beside the page is typed into. survived/cases per launch (a case it could not measure counts as not survived; .measured says how many were), the kill to the page answering again, and terminal key->frame after each kill. The in-process browser CHECK is reported expected-fail until F2. Only the cefHelperHost off arm runs: the on arm (and its host case) needs a way to turn the feature on that survives the launch, since LaunchIdentity strips the inherited CMUX_ENABLE_FEATURES; add on to --host-arms once one exists.",
-  "command": ["scripts/cmux-next/child-crash-e2e.py", "--engine", "chromium", "--host-arms", "off"],
+  "description": "Chromium crash survival (F12 chromium arm), one launch per run: SIGKILL by exact child pid of the tab's renderer, the GPU process and the network service utility, and chrome://crash and chrome://gpucrash typed in the omnibar, while a terminal beside the page is typed into. survived/cases per launch (a case it could not measure counts as not survived; .measured says how many were), the kill to the page answering again, and terminal key->frame after each kill. The in-process browser CHECK is reported expected-fail until F2. Both cefHelperHost arms run: each launch's own tunables file sets the feature's local override browserHost.helper to its arm (LaunchIdentity strips an inherited CMUX_ENABLE_FEATURES), and features.list reports it with source local, so each arm's results carry its features.",
+  "command": ["scripts/cmux-next/child-crash-e2e.py", "--engine", "chromium", "--host-arms", "off,on"],
   "session": "light",
   "engine": "chromium",
   "config": "bench",
@@ -14,9 +14,9 @@
     {"name": "crash_survival\\.chromium\\.[a-z_]+\\.key_to_frame", "unit": "ms", "better": "lower"}
   ],
   "repeats": 3,
-  "seconds": 300,
+  "seconds": 600,
   "needs": ["debug:debug.browser.page_status", "debug:debug.omnibar_type", "debug:debug.key",
-            "env:CMUX_NEXT_TYPING_PROBE"],
+            "env:CMUX_NEXT_TYPING_PROBE", "env:CMUX_NEXT_DEBUG_TUNABLES_FILE"],
   "owner": "PL-stability",
   "component": "Browser>Crash"
 }

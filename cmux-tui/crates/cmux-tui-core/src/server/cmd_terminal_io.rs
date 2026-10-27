@@ -294,34 +294,38 @@ pub(super) fn wait_for(
             "elapsed_ms": start.elapsed().as_millis() as u64,
         }));
     }
-    loop {
-        if cancelled() {
-            anyhow::bail!("cancelled while waiting for pattern");
-        }
-        let now = Instant::now();
-        if now >= deadline {
-            anyhow::bail!("timeout waiting for pattern");
-        }
-        match attach.stream.recv_interruptible(&interrupt, Some(deadline)) {
-            Ok(_) => {
-                if let Some(text) = check()? {
-                    return Ok(json!({
-                        "matched": true,
-                        "text": text,
-                        "elapsed_ms": start.elapsed().as_millis() as u64,
-                    }));
-                }
+    // The wait blocks by design: a pool worker that runs it starts a
+    // temporary one meanwhile (sequenced_pool.rs).
+    crate::request_path::will_block(|| {
+        loop {
+            if cancelled() {
+                anyhow::bail!("cancelled while waiting for pattern");
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                if Instant::now() >= deadline {
+            let now = Instant::now();
+            if now >= deadline {
+                anyhow::bail!("timeout waiting for pattern");
+            }
+            match attach.stream.recv_interruptible(&interrupt, Some(deadline)) {
+                Ok(_) => {
+                    if let Some(text) = check()? {
+                        return Ok(json!({
+                            "matched": true,
+                            "text": text,
+                            "elapsed_ms": start.elapsed().as_millis() as u64,
+                        }));
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if Instant::now() >= deadline {
+                        anyhow::bail!("timeout waiting for pattern");
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     anyhow::bail!("timeout waiting for pattern");
                 }
             }
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                anyhow::bail!("timeout waiting for pattern");
-            }
         }
-    }
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -493,9 +497,10 @@ pub(super) fn set_default_colors(
 pub(super) fn snapshot_request(
     mux: &Arc<Mux>,
     client: u64,
+    writer: &MessageWriter,
     params: SnapshotRequestParams,
 ) -> anyhow::Result<Value> {
-    terminal_snapshot::handle_request(mux, client, params)
+    terminal_snapshot::handle_request(mux, client, writer, params)
 }
 
 pub(super) fn scroll_surface(

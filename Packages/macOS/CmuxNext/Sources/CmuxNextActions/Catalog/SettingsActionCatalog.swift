@@ -196,7 +196,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 id: "help.featureFlags",
                 title: String(localized: "action.help.featureFlags", defaultValue: "Feature Flags", bundle: .module),
                 keywords: ["experiments", "beta"], category: .settings, symbol: "flag", surfaces: [.menu],
-                cliName: "settings feature-flags", mainMenu: .help
+                cliName: "settings open-feature-flags", mainMenu: .help
             ),
             ActionDescriptor(
                 id: "help.documentation",

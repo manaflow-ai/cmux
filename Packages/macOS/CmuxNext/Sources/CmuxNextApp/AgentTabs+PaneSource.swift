@@ -12,7 +12,9 @@ import Foundation
     /// with no dev origin and no `--dev`
     /// (``AcpmuxEnvironment/resolve(build:bundledBinDirectory:environment:userHome:uid:isExecutable:launchEnvironment:)``). Only the
     /// browser dev slot, with no host, still needs both (dev-slot.sh).
-    static func resolvePane(build: BuildIdentity?, environment: [String: String], showcase: Bool)
+    /// `daemonFeatures`: the app's overridden daemon features for the daemon it starts
+    /// (``AcpmuxEnvironment/daemonFeatures``).
+    static func resolvePane(build: BuildIdentity?, environment: [String: String], showcase: Bool, daemonFeatures: [String: String])
         -> (source: AgentPaneSource?, host: any AgentPaneHostProviding) {
         #if DEBUG
         let allowsRootOverride = true
@@ -45,6 +47,7 @@ import Foundation
                                       launchEnvironment: launch.terminalEnvironment).map { own in
                 var resolved = attach.map { own.attached(to: $0) } ?? own
                 resolved.childEnvironment.merge(upstreamEnvironment) { $1 }
+                resolved.daemonFeatures = daemonFeatures
                 if let chiefMuxHome { resolved.childEnvironment[AcpmuxEnvironment.chiefMuxHomeKey] = chiefMuxHome }
                 return resolved
             }

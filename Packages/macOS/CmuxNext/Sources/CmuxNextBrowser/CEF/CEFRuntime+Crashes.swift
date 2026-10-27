@@ -1,14 +1,25 @@
-import Darwin
 import Foundation
 
 /// Renderer and helper process failures: the tab-level record from CEF and
-/// the process-level record from `CEFChildProcessMonitor`.
+/// the process-level record from `CEFChildProcessMonitor`. Each abnormal end is one
+/// `cef.helper_exit` sample (``CEFHelperExitMetric``), the same in both roles: a page renderer
+/// from Chromium's termination status once per process, every other helper from the monitor.
 extension CEFRuntime {
     func recordRendererExit(_ exit: BrowserProcessExit, tab: CEFTab) {
         logger.error("renderer ended reason=\(exit.reason.rawValue, privacy: .public) code=\(exit.code ?? 0) tab=\(tab.id.rawValue, privacy: .public)")
         crashLog.append(BrowserCrashRecord(processType: "renderer", reason: exit.reason, code: exit.code,
                                            tab: tab.id, source: .engine))
     }
+
+    /// A renderer ended (RENDER_TERMINATED, any browser): its one sample comes from the first browser it hosted.
+    /// Chromium's status names launch failures, kills, OOM and integrity failures, which a wait status cannot.
+    func rendererEnded(_ exit: BrowserProcessExit, end: CEFRendererEnd) {
+        guard end != .shared, countsHelperExits else { return }
+        helperExits.record(.renderer, exit.reason)
+    }
+
+    /// Quit closes every helper; those ends are expected.
+    private var countsHelperExits: Bool { state == .ready && shutdownSequence == nil }
 
     func startChildMonitor() {
         guard childMonitor == nil else { return }
@@ -20,27 +31,12 @@ extension CEFRuntime {
     }
 
     func childExited(_ exit: CEFChildProcessMonitor.Exit) {
-        // Quit closes every helper; those ends are expected.
-        guard state == .ready, shutdownSequence == nil,
-              let reason = Self.abnormalReason(status: exit.status) else { return }
+        guard countsHelperExits, let reason = exit.abnormalReason else { return }
         let type = exit.isExtension ? "extension" : exit.processType
         logger.error("helper ended type=\(type, privacy: .public) sub=\(exit.subType ?? "-", privacy: .public) pid=\(exit.pid) reason=\(reason.rawValue, privacy: .public) status=\(exit.status)")
         crashLog.append(BrowserCrashRecord(processType: type, subType: exit.subType, pid: exit.pid, reason: reason,
                                            code: Int(exit.status), source: .process))
-    }
-
-    /// Nil for a normal end (exit 0, or SIGTERM, which Chromium sends to
-    /// helpers it no longer needs); otherwise why the helper ended.
-    nonisolated static func abnormalReason(status: Int32) -> BrowserProcessExit.Reason? {
-        let signal = status & 0x7f
-        if signal == 0 {
-            return (status >> 8) & 0xff == 0 ? nil : .abnormal
-        }
-        if signal == 0x7f { return nil }  // stopped, not ended
-        switch signal {
-        case SIGTERM: return nil
-        case SIGKILL: return .killed
-        default: return .crashed
-        }
+        let kind = CEFHelperExitMetric.ProcessType(processType: exit.processType, isExtension: exit.isExtension)
+        if kind != .renderer { helperExits.record(kind, reason) } // a page renderer counts in `rendererEnded`
     }
 }

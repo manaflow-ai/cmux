@@ -21,8 +21,9 @@
 //!   the call for raising another thread: the change is then visible to
 //!   `qos_class_self()`, the thread registry and the Linux nice value alike.
 //! - [`spawn_outside_request`]: a thread started during a request runs at
-//!   its creator's own class, not the request's (a new thread inherits its
-//!   creator's class on macOS and its nice value on Linux).
+//!   its creator's own class ([`outside_request_class`]), not the request's
+//!   (a new thread inherits its creator's class on macOS and its nice value
+//!   on Linux, so it states its class when it starts).
 //!
 //! The scopes are thread-local and nest. A boost costs one thread-local read
 //! when the thread is not lowered, and one QoS change each way when it is. A
@@ -184,34 +185,35 @@ impl std::fmt::Debug for LockBoost {
     }
 }
 
-/// Starts a thread with `builder` at its creator's own class: the class the
-/// creator declared (`cmux_threads::spawn`), or Default for a thread that
-/// declared none, never the class of a request or lock boost the creator is
-/// in. For a thread that outlives the request that starts it (a terminal's
-/// reader, a pool worker).
+/// Starts thread `name` through [`cmux_threads::spawn`] at
+/// [`outside_request_class`]. For a thread that outlives the request that
+/// starts it (a terminal's reader, a pool worker).
 pub fn spawn_outside_request<F, T>(
-    builder: std::thread::Builder,
+    name: impl Into<String>,
     f: F,
 ) -> std::io::Result<std::thread::JoinHandle<T>>
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    // Outside every request the creator already runs at its own class.
-    let own = work_qos().map(|_| own_class());
-    builder.spawn(move || {
-        if let Some(qos) = own {
-            // The creator entered its request class only because it could
-            // take it back, so this thread can change back the same way.
-            let _ = cmux_threads::set_current(qos);
-        }
-        f()
-    })
+    cmux_threads::spawn(name, outside_request_class(), f)
 }
 
-/// The calling thread's class outside every request.
+/// The class of a thread the calling thread starts now: the class the
+/// creator declared (`cmux_threads::spawn`), or Default for a thread that
+/// declared none, never the class of a request or lock boost the creator is
+/// in. The creator entered a request class only because it could take it
+/// back, so the new thread can change back the same way.
+pub fn outside_request_class() -> ThreadQos {
+    own_class()
+}
+
+/// The calling thread's class outside every request: the class it declared.
+/// Not its desired class, which a connection thread sets to the class it
+/// rests at (cmux-tui-core server/connection_qos.rs): a thread it starts
+/// serves every connection, not only that one.
 fn own_class() -> ThreadQos {
-    cmux_threads::current_slot().map_or(ThreadQos::Default, |slot| slot.desired())
+    cmux_threads::current_slot().map_or(ThreadQos::Default, |slot| slot.declared())
 }
 
 #[cfg(test)]

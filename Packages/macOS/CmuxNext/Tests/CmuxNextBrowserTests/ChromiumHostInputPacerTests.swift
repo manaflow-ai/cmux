@@ -22,12 +22,12 @@ import Testing
         ChromiumHostFrame(.key, v: [0, code])
     }
 
-    /// A wheel tick: dy pixels, scroll phase, momentum phase, precise (trackpad) by default.
-    static func wheel(dy: Int32, phase: Int32 = 3, momentum: Int32 = 0, precise: Bool = true,
+    /// A wheel tick (p04-input-063's wire): dy, scroll phase and momentum phase as `NSEvent.Phase`
+    /// bits (1 began, 4 changed, 8 ended), precise (trackpad, ``ChromiumHostFrame/wheelPrecise``) by default.
+    static func wheel(dy: Int32, phase: Int32 = 4, momentum: Int32 = 0, precise: Bool = true,
                       flags: UInt64 = 0) -> ChromiumHostFrame {
-        var frame = ChromiumHostFrame(.wheel, v: [5, 6, 0, dy, phase, momentum], flags: flags)
-        frame.ch = precise ? 1 : 0
-        return frame
+        ChromiumHostFrame(.wheel, v: [5, 6, 0, dy, phase, momentum],
+                          flags: flags | (precise ? ChromiumHostFrame.wheelPrecise : 0))
     }
 
     /// Everything `submit` releases, in send order.
@@ -38,7 +38,7 @@ import Testing
     @Test func theFirstMoveAndWheelTickLeaveAtOnce() {
         var pacer = ChromiumHostInputPacer()
         #expect(pacer.submit(Self.move(1)) == .init(frame: Self.move(1)))
-        #expect(pacer.submit(Self.wheel(dy: -3, phase: 2)) == .init(frame: Self.wheel(dy: -3, phase: 2)))
+        #expect(pacer.submit(Self.wheel(dy: -3, phase: 1)) == .init(frame: Self.wheel(dy: -3, phase: 1)))
         #expect(pacer.movesInFlight == 1 && pacer.wheelsInFlight == 1)
         #expect(pacer.stats.sent == 2)
     }
@@ -59,16 +59,16 @@ import Testing
 
     @Test func wheelTicksSumPerPhaseAndLeaveOneAtATime() {
         var pacer = ChromiumHostInputPacer()
-        #expect(pacer.submit(Self.wheel(dy: -1, phase: 2)).frame != nil)  // began
+        #expect(pacer.submit(Self.wheel(dy: -1, phase: 1)).frame != nil)  // began
         for _ in 0..<4 { #expect(Self.sent(pacer.submit(Self.wheel(dy: -2))).isEmpty) }  // changed
-        #expect(Self.sent(pacer.submit(Self.wheel(dy: 0, phase: 4))).isEmpty)  // ended
-        for _ in 0..<3 { #expect(Self.sent(pacer.submit(Self.wheel(dy: -5, phase: 0, momentum: 3))).isEmpty) }
-        #expect(Self.sent(pacer.submit(Self.wheel(dy: -1, phase: 0, momentum: 3, flags: 1 << 17))).isEmpty)  // other modifiers
+        #expect(Self.sent(pacer.submit(Self.wheel(dy: 0, phase: 8))).isEmpty)  // ended
+        for _ in 0..<3 { #expect(Self.sent(pacer.submit(Self.wheel(dy: -5, phase: 0, momentum: 4))).isEmpty) }
+        #expect(Self.sent(pacer.submit(Self.wheel(dy: -1, phase: 0, momentum: 4, flags: 1 << 17))).isEmpty)  // other modifiers
         #expect(pacer.waitingCount == 4)
         #expect(pacer.acked(.wheel) == Self.wheel(dy: -8))
-        #expect(pacer.acked(.wheel) == Self.wheel(dy: 0, phase: 4))
-        #expect(pacer.acked(.wheel) == Self.wheel(dy: -15, phase: 0, momentum: 3))
-        #expect(pacer.acked(.wheel) == Self.wheel(dy: -1, phase: 0, momentum: 3, flags: 1 << 17))
+        #expect(pacer.acked(.wheel) == Self.wheel(dy: 0, phase: 8))
+        #expect(pacer.acked(.wheel) == Self.wheel(dy: -15, phase: 0, momentum: 4))
+        #expect(pacer.acked(.wheel) == Self.wheel(dy: -1, phase: 0, momentum: 4, flags: 1 << 17))
         #expect(pacer.acked(.wheel) == nil)
         #expect(pacer.wheelsInFlight == 0)
         #expect(pacer.stats.maxWheelsInFlight == 1)
@@ -114,12 +114,12 @@ import Testing
     @Test func aFlushKeepsTheMoveAndTheWheelTicksInArrivalOrder() {
         var pacer = ChromiumHostInputPacer()
         #expect(pacer.submit(Self.move(1)).frame != nil)
-        #expect(pacer.submit(Self.wheel(dy: 1, phase: 2)).frame != nil)
+        #expect(pacer.submit(Self.wheel(dy: 1, phase: 1)).frame != nil)
         #expect(Self.sent(pacer.submit(Self.wheel(dy: 2))).isEmpty)  // waits first
         #expect(Self.sent(pacer.submit(Self.move(2))).isEmpty)  // then the move
-        #expect(Self.sent(pacer.submit(Self.wheel(dy: 3, phase: 4))).isEmpty)  // then another phase
+        #expect(Self.sent(pacer.submit(Self.wheel(dy: 3, phase: 8))).isEmpty)  // then another phase
         #expect(Self.sent(pacer.submit(Self.key(36)))
-            == [Self.wheel(dy: 2), Self.move(2), Self.wheel(dy: 3, phase: 4), Self.key(36)])
+            == [Self.wheel(dy: 2), Self.move(2), Self.wheel(dy: 3, phase: 8), Self.key(36)])
         #expect(pacer.waitingCount == 0)
     }
 
@@ -266,16 +266,6 @@ import Testing
         for x in 1...20 { page.mouseMoved(with: try Self.mouseMoved(at: CGFloat(x))) }
         #expect(sent == 20)
         #expect(page.inputPacer?.movesInFlight == 0)
-    }
-
-    @Test func wheelPhasesMapToTheShimsValues() {
-        #expect(ChromiumHostPageView.wheelPhase([]) == 0)
-        #expect(ChromiumHostPageView.wheelPhase(.mayBegin) == 1)
-        #expect(ChromiumHostPageView.wheelPhase(.began) == 2)
-        #expect(ChromiumHostPageView.wheelPhase(.changed) == 3)
-        #expect(ChromiumHostPageView.wheelPhase(.stationary) == 3)
-        #expect(ChromiumHostPageView.wheelPhase(.ended) == 4)
-        #expect(ChromiumHostPageView.wheelPhase(.cancelled) == 5)
     }
 }
 #endif

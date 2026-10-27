@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextInput
 import QuartzCore
 
 /// Small borderless icon button with the shared chrome hover and pressed
@@ -35,10 +36,8 @@ final class SidebarIconButton: NSButton {
         didSet { refusesFirstResponder = !takesKeyFocus }
     }
     private var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
-    /// Mouse events never move the keyboard focus here: a click on a card's x would otherwise
-    /// leave the focus on a button that the card then hides, and typing would go nowhere.
-    private static let mouseEvents: Set<NSEvent.EventType> = [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
-                                                               .otherMouseDown, .otherMouseUp]
+    /// The system's Full Keyboard Access setting (a test sets its own).
+    var fullKeyboardAccess: @MainActor () -> Bool = { NSApp.isFullKeyboardAccessEnabled }
     private lazy var keyRepaint = KeyWindowRepaint(self)
     /// The label point size the icon sits beside, read at layout time so density changes apply live.
     private let pointSize: () -> CGFloat
@@ -60,6 +59,7 @@ final class SidebarIconButton: NSButton {
         setAccessibilityLabel(label)
         themedToolTip = label
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // repaints on a state change or a new size (setFrameSize)
         target = self
         action = #selector(pressed)
         refusesFirstResponder = true
@@ -94,6 +94,7 @@ final class SidebarIconButton: NSButton {
     /// computer-use agent that read the error pressed again and made a second workspace.
     override func accessibilityPerformPress() -> Bool {
         guard let onPress else { return super.accessibilityPerformPress() }
+        // visibility-walk-allow: accessibility press: a hidden button refuses AXPress
         guard isEnabled, !isHiddenOrHasHiddenAncestor else { return false }
         onPress()
         return true
@@ -122,12 +123,24 @@ final class SidebarIconButton: NSButton {
         renderIcon()
     }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        // The cell's image is AppKit's, so it repaints at the new size.
+        if changed { needsDisplay = true }
+    }
+
     nonisolated override var wantsUpdateLayer: Bool { true }
 
+    /// Mouse buttons never move the keyboard focus here: a click on a card's x would otherwise
+    /// leave the focus on a button that the card then hides, and typing would go nowhere. The
+    /// event asking is the window's last dispatched one (the click or the Tab key in dispatch).
     override var acceptsFirstResponder: Bool {
         guard takesKeyFocus else { return super.acceptsFirstResponder }
-        return NSApp.isFullKeyboardAccessEnabled && isEnabled && !(NSApp.currentEvent.map { Self.mouseEvents.contains($0.type) } ?? false)
+        let clicked = (window as? InputTapHosting)?.inputTap?.lastDispatched?.eventClass == .button
+        return fullKeyboardAccess() && isEnabled && !clicked
     }
+    // visibility-walk-allow: AppKit's key-view loop asks the view itself (Full Keyboard Access); a hidden view never takes the focus
     override var canBecomeKeyView: Bool { takesKeyFocus ? acceptsFirstResponder && !isHiddenOrHasHiddenAncestor : super.canBecomeKeyView }
 
     override func becomeFirstResponder() -> Bool {
@@ -174,12 +187,14 @@ final class SidebarIconButton: NSButton {
     /// A button hidden under the pointer (the header + while the sidebar
     /// is not hovered) gets no exit event; the hover owner clears it, and it
     /// reappears with the hover the pointer gives it then.
+    // visibility-walk-allow: input state on hide: the press ends and the hover owner clears it (a hidden button gets no exit event)
     override func viewDidHide() {
         super.viewDidHide()
         changeHover { $0.pressed = false }
         hover.pointer?.refresh()
     }
 
+    // visibility-walk-allow: the hover refresh of an unhide (PointerHover hit test): the button takes the hover the pointer gives it now
     override func viewDidUnhide() {
         super.viewDidUnhide()
         hover.pointer?.refresh()

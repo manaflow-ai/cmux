@@ -24,11 +24,18 @@ public struct FrontendInstallKey: Sendable, Hashable, CustomStringConvertible, C
 
     /// A fresh key and install id (`inst_` + 20 random hex digits).
     public static func generate() -> FrontendInstallKey {
-        let key = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
-        let suffix = SymmetricKey(size: .bits128).withUnsafeBytes { Data($0) }.hex.prefix(20)
+        let key = randomBytes(32)
+        let suffix = randomBytes(16).hex.prefix(20)
         // Both values meet the checks above by construction (a random
         // 32-byte key is all zero with probability 2^-256).
         return FrontendInstallKey(checkedInstallID: "inst_\(suffix)", key: key)
+    }
+
+    /// `count` bytes from the system's cryptographically secure generator (arc4random_buf on Darwin, the
+    /// source CryptoKit's `SymmetricKey(size:)` draws from), copied without a pointer.
+    private static func randomBytes(_ count: Int) -> Data {
+        var generator = SystemRandomNumberGenerator()
+        return Data((0..<count).map { _ in generator.next() as UInt8 })
     }
 
     private init(checkedInstallID: String, key: Data) {

@@ -26,9 +26,10 @@
 // Off unix nothing starts the pump (no acpmux), and nothing is handed over.
 #![cfg_attr(not(unix), allow(dead_code))]
 
+use cmux_threads::sync::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, sync_channel};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, MutexGuard, Weak};
 use std::time::Duration;
 
 use cmux_threads::checked;
@@ -99,10 +100,10 @@ impl Mux {
             *slot = Some(wake);
         }
         let mux = Arc::downgrade(self);
-        let spawned = cmux_tui_platform::qos::spawn_outside_request(
-            std::thread::Builder::new()
-                .name("mux-agent-message-pump".into())
-                .stack_size(256 * 1024),
+        let spawned = cmux_threads::spawn_with_stack(
+            "mux-agent-message-pump",
+            cmux_tui_platform::qos::outside_request_class(),
+            256 * 1024,
             move || run(&mux, &woken),
         );
         if spawned.is_err() {

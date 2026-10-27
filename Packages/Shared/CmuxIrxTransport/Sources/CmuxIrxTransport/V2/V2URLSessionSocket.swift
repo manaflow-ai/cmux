@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 public import Foundation
 import os
 
@@ -52,7 +53,7 @@ public actor V2URLSessionSocket: V2ControlSocket {
     ) async throws {
         let completion = V2URLSessionPingCompletion()
         try await withTaskCancellationHandler(operation: {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
                 guard completion.install(continuation) else { return }
                 guard !Task.isCancelled else {
                     completion.cancel()
@@ -70,7 +71,7 @@ public actor V2URLSessionSocket: V2ControlSocket {
         deinit {}
 
         private struct State: Sendable {
-            var continuation: CheckedContinuation<Void, any Error>?
+            var continuation: OnceContinuation<Void, any Error>?
             var result: Result<Void, any Error>?
         }
 
@@ -78,7 +79,7 @@ public actor V2URLSessionSocket: V2ControlSocket {
         // an actor would add an async hop between claiming and resuming a continuation.
         private let state = OSAllocatedUnfairLock(initialState: State())
 
-        func install(_ continuation: CheckedContinuation<Void, any Error>) -> Bool {
+        func install(_ continuation: OnceContinuation<Void, any Error>) -> Bool {
             enum Action {
                 case installed
                 case completed(Result<Void, any Error>)
@@ -113,7 +114,7 @@ public actor V2URLSessionSocket: V2ControlSocket {
             claimed?.resume(with: result)
         }
 
-        private func claim(_ result: Result<Void, any Error>) -> CheckedContinuation<Void, any Error>? {
+        private func claim(_ result: Result<Void, any Error>) -> OnceContinuation<Void, any Error>? {
             state.withLock { state in
                 guard state.result == nil else { return nil }
                 state.result = result

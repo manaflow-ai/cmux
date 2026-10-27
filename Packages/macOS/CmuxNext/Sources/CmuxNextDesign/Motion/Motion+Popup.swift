@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextSignposts
 
 /// Open and close of a popup window that a control opened (cx-f6i7): the
 /// Chief pill's settings card, the group editors under a tab group chip or a
@@ -15,7 +16,9 @@ public import AppKit
 /// card showed no fade at all, so it appeared at full size in one frame and
 /// left after a ~75 ms hold. The window is opaque while the popup is up;
 /// owners still order a fresh popup front at alpha 0, which `openPopup`
-/// lifts once the card's layer starts at opacity 0, so nothing flashes.
+/// lifts right after the Core Animation commit that carries the card's
+/// first frame (opacity 0), in the same run-loop turn: nothing flashes, and
+/// the card shows in the frame of the key or click that opened it.
 @MainActor
 public extension NSWindow {
     /// The point the popup grows from, in its content view: the middle of
@@ -55,10 +58,23 @@ public extension NSWindow {
             layer.removeAnimation(forKey: "sublayerTransform")
             setPopupLayer(layer, opacity: nil, transform: CATransform3DIdentity)
         }
-        // The card's first frame (opacity 0) reaches the screen before the window turns opaque.
-        // perf-gate-ok: one commit per popup open (no flash of the full card); a theme change never opens one.
-        CATransaction.flush()
-        alphaValue = 1
+        if alphaValue < 1 { orderInAfterCommit() }
+    }
+
+    /// Turns the window opaque right after the commit that ends this run-loop turn, the one that
+    /// carries the card's first frame (opacity 0), instead of forcing that commit now. Chrome
+    /// likewise shows new content from the compositor frame that carries it, never by flushing on
+    /// the input's turn (`RenderWidgetHostImpl::DidReceiveFirstFrameAfterNavigation`,
+    /// content/browser/renderer_host/render_widget_host_impl.cc).
+    private func orderInAfterCommit() {
+        CommitBoundary().after { [weak self] _ in
+            // A close in the same turn took it off screen; its owner zeroes the alpha before the next open.
+            guard let self, isVisible else { return }
+            alphaValue = 1
+        }
+        // An open from inside the commit pass (a before-waiting callout) gets its boundary at the
+        // next wake: wake now so it never waits for unrelated input.
+        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 
     /// Shows the popup's card at its size and full opacity in this frame, ending any open or close

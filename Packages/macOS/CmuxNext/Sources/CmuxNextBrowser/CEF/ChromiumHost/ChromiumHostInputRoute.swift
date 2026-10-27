@@ -139,7 +139,7 @@ final class ChromiumHostInputRoute {
         case .written, .spilled:
             stats.written += 1
             if viewOfBrowser[browser] != id { viewOfBrowser[browser] = id }
-            if frame.kind == .wheel, frame.v[4] == 1 || frame.v[4] == 2, frame.t0 > 0 { recordFirstWheel(sinceEvent: frame.t0) }
+            if let wheel = frame.wheelFields, Self.startsGesture(wheel), frame.t0 > 0 { recordFirstWheel(sinceEvent: frame.t0) }
             return ChromiumHostInputReceipt(browser: browser, seq: ordered.seq)
         case .refused, .dropped, .broken:
             stats.unwritten += 1
@@ -155,6 +155,11 @@ final class ChromiumHostInputRoute {
         firstWheelSendMicros.append(Double(now - eventTime) / 1_000)
     }
 
+    /// A gesture's first wheel tick: scroll phase may-begin or began (NSEvent.Phase bits, p04-input-063's wire).
+    private static func startsGesture(_ wheel: ChromiumHostFrame.Wheel) -> Bool {
+        !NSEvent.Phase(rawValue: wheel.phase).isDisjoint(with: [.mayBegin, .began])
+    }
+
     private static func release(_ view: ChromiumHostPageView) {
         view.sink = nil
         view.pacesInput = false
@@ -165,8 +170,9 @@ final class ChromiumHostInputRoute {
     /// the main thread (remote_shim_runtime.h `cmux_remote_input_ack_fn`) with the route as its
     /// context, which ``CEFHostStart`` keeps alive while it is set.
     static let ackCallback: CEFRemoteShim.InputAckFn = { context, browser, kind, seq in
-        guard let context else { return }
-        let route = Unmanaged<ChromiumHostInputRoute>.fromOpaque(context).takeUnretainedValue()
+        // SAFETY: a non-NULL context is the route CEFHostStart set, unretained; CEFHostStart keeps it in
+        // `inputRoute` and clears the ack (setInputAck(context: nil)) before it lets the route go.
+        guard let route = unsafe context.map({ unsafe Unmanaged<ChromiumHostInputRoute>.fromOpaque($0).takeUnretainedValue() }) else { return }
         MainActor.assumeIsolated { // main-proof: cmux_remote_input_ack_fn runs on the main thread (remote_shim_runtime.h)
             route.acked(browser: browser, kind: kind, seq: seq)
         }

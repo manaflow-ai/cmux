@@ -27,6 +27,8 @@ final class OmniboxSuggestionPanel {
     /// so a later layout can tell whether the card must move (`follow`).
     private var placedAnchor: NSRect?
     private var placedUpward = false
+    /// The theme scope the card is rooted in (`place`).
+    private weak var rootedScope: ThemeScope?
 
     var isVisible: Bool { overlay.map { !$0.isDismissed } ?? false }
 
@@ -79,7 +81,7 @@ final class OmniboxSuggestionPanel {
                 let row = SuggestionRowView(suggestion: suggestion, faviconSource: faviconSource)
                 rowViewsMade += 1
                 row.onClick = { [weak self] flags in self?.onPick?(index, flags) }
-                row.hoverMoves = hoverMoves
+                row.frameInputHover = hoverMoves
                 rows.append(row)
                 content.card.addSubview(row)
             }
@@ -100,21 +102,31 @@ final class OmniboxSuggestionPanel {
         let rowStep = OmnibarStyle.rowHeight + OmnibarStyle.rowGap
         let cardHeight = CGFloat(rows.count) * rowStep + OmnibarStyle.cardBottomPadding
         let cardWidth = anchorRect.width + 2 * outset
-        content.setFrameSize(NSSize(width: cardWidth, height: cardHeight))
-        content.cardFrame = NSRect(x: 0, y: 0, width: cardWidth, height: cardHeight)
+        // Each typed character places the card again; what did not move asks for no layout or paint.
+        let size = NSSize(width: cardWidth, height: cardHeight)
+        if content.frame.size != size { content.setFrameSize(size) }
+        content.cardFrame = NSRect(origin: .zero, size: size)
         content.opensUpward = upward
+        content.cornerRadius = OmnibarStyle.cardCornerRadius
         // Rows from the top, inset (4 at the sides, 2 above each).
         for (index, row) in rows.enumerated() {
             let top = cardHeight - OmnibarStyle.rowGap - CGFloat(index) * rowStep
-            row.frame = NSRect(x: OmnibarStyle.rowSideInset, y: top - OmnibarStyle.rowHeight,
+            let frame = NSRect(x: OmnibarStyle.rowSideInset, y: top - OmnibarStyle.rowHeight,
                                width: cardWidth - 2 * OmnibarStyle.rowSideInset, height: OmnibarStyle.rowHeight)
+            if row.frame != frame { row.frame = frame }
             // Icon and text line up with the bar's chip and text.
             row.leadingIconCenter = outset + OmnibarStyle.chipLeading + OmnibarStyle.chipSize / 2 - OmnibarStyle.rowSideInset
             row.textLeading = outset + OmnibarStyle.chipLeading + OmnibarStyle.chipSize + OmnibarStyle.textLeading - OmnibarStyle.rowSideInset
+            row.cornerRadius = OmnibarStyle.rowCornerRadius
         }
-        content.needsLayout = true
-        // The card takes the omnibar's theme scope (its room or workspace).
-        anchor.themeScope.fullStrength.root(content)
+        // The card takes the omnibar's theme scope (its room or workspace). Rooting repaints every
+        // view under the card (`ThemeRepaint`), so only a new scope roots it; the scope repaints
+        // its roots itself when its colors change.
+        let scope = anchor.themeScope.fullStrength
+        if scope !== rootedScope {
+            rootedScope = scope
+            scope.root(content)
+        }
 
         let origin = NSRect(x: anchorRect.minX - outset, y: upward ? anchorRect.maxY : anchorRect.minY - cardHeight, width: cardWidth, height: cardHeight)
         let clip = pane.convert(pane.bounds, to: nil)
@@ -179,9 +191,11 @@ final class SuggestionCardListView: NSView {
 
 final class SuggestionCardView: NSView {
     let card = SuggestionCardListView()
-    var cardFrame: NSRect = .zero { didSet { needsLayout = true } }
+    var cardFrame: NSRect = .zero { didSet { if cardFrame != oldValue { needsLayout = true } } }
     /// Above the bar: rounded at the top, not the bottom.
-    var opensUpward = false { didSet { needsLayout = true } }
+    var opensUpward = false { didSet { if opensUpward != oldValue { needsLayout = true } } }
+    /// The bar's corner (it follows the look live), set at each placement.
+    var cornerRadius: CGFloat = 0 { didSet { if cornerRadius != oldValue { needsLayout = true } } }
     /// The rows' hover consumer (``OmniboxSuggestionPanel/hoverMoves``): the pointer leaving the card is
     /// discrete, so its pending move lands then (`ShouldFlushQueue`).
     weak var hoverMoves: PointerFrameHover?
@@ -214,15 +228,14 @@ final class SuggestionCardView: NSView {
         super.layout()
         card.frame = cardFrame
         card.layer?.maskedCorners = opensUpward ? [.layerMinXMaxYCorner, .layerMaxXMaxYCorner] : [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-        // The bar's corner (it follows the look live).
-        card.layer?.cornerRadius = OmnibarStyle.cardCornerRadius
+        card.layer?.cornerRadius = cornerRadius
         refresh()
     }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
         if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self)
         addTrackingArea(area)
         tracking = area
     }
@@ -235,6 +248,7 @@ final class SuggestionCardView: NSView {
     // input-coalesce: native (it drops the wheel; nothing runs to coalesce)
     override func scrollWheel(with event: NSEvent) {}
 
+    // visibility-walk-allow: one layer color store in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refresh()

@@ -24,6 +24,8 @@
 //! Every git run is bounded and confined by `cmux-git`: no hook, filter,
 //! fsmonitor or transport from the repository runs.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 pub mod archive;
 pub mod disk;
 mod git;

@@ -20,6 +20,8 @@ final class CEFHostStart {
     private(set) var remote: CEFRemoteShim?
     /// The host's widgets show in cmux (feature `chromiumHostWidgets`, ``CEFRuntimeSource/showsHostWidgets``).
     let showsWidgets: Bool
+    /// Drags onto a page reach it with DragTarget calls (feature `chromiumHostDragIn`, `CEFPaneHost.takeHostDrags(on:)`).
+    let takesDrags: Bool
     /// The host's widgets in cmux panels and panes, from the start on when ``showsWidgets``
     /// (`CEFRuntime.showHostWidgets(_:)`); nil otherwise.
     var widgetHost: ChromiumHostWidgetHost?
@@ -31,6 +33,20 @@ final class CEFHostStart {
     /// passed a ring; nil otherwise and after the host ended. The remote shim's input acks reach it.
     private(set) var inputRoute: ChromiumHostInputRoute?
     #endif
+    /// Page resizes hold their window's commit on a fence (feature `chromiumHostResizeFence`).
+    let fencesResizes: Bool
+    /// `<select>` popups show as cmux menus (feature `chromiumHostPopupMenus`, `CEFRuntime.showHostPopupMenus(_:)`).
+    let drawsPopupMenus: Bool
+    /// The host's `<select>` popups in cmux menus, from the start on when ``drawsPopupMenus``; nil otherwise.
+    var popupMenus: ChromiumHostPopupMenus?
+    /// The host's autofill, password and `<datalist>` suggestions show in cmux's list (feature
+    /// `chromiumHostSuggestions`, ``CEFRuntimeSource/drawsHostSuggestions``; task 061). Read at the attach.
+    var drawsSuggestions = false
+    /// Page file choosers answered by cmux's pickers (feature `chromiumHostFileDialogs`,
+    /// `CEFRuntime.fileDialogAsked`); nil leaves Chromium's own panel.
+    let files: ChromiumHostFiles?
+    /// The attached host's page resizes (`CEFRuntime.hostPageResizes()`), made on first use; a new host starts with none.
+    var pageResizes: ChromiumHostResizeFence?
     private let supervisor: any ChromiumHostSupervising
     private let open: Open
     private let helloDeadline: Duration
@@ -39,39 +55,55 @@ final class CEFHostStart {
     /// The attached host maps the ids cmux mints (``CEFAttachedHost/mapsClientIDs``); set by
     /// ``attached()`` (task 019 of plans/cmux-next/chrome-parity/p01-process.md).
     var mapsClientIDs = false
+    /// The attached host acks each trackpad wheel of a page (``CEFAttachedHost/acksWheels``): the swipe
+    /// navigation decides from those acks and probes no page (task p01-process-234).
+    private(set) var acksWheels = false
+    /// The attached host ended (``hostEnded()``) and no new one is attached yet.
+    private(set) var hostGone = false
+    /// Which host is attached: one more after each ``hostEnded()``. Work begun for one host compares it
+    /// to know that host is still the one attached, as a mojo reply callback dies with its pipe.
+    private(set) var generation = 0
 
     /// `helloDeadline`: how long, on `clock`, the host may take from the attach to its hello
     /// before the start fails (a host that hangs while it starts Chromium). Reply deadlines run on
     /// `clock` too.
-    init(supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, routesInput: Bool = false,
+    init(supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, routesInput: Bool = false, takesDrags: Bool = false,
+         fencesResizes: Bool = false, drawsPopupMenus: Bool = false, fileDialogs: (any ChromiumFileDialogAnswering)? = nil,
          open: @escaping Open = { CEFRemoteShim.open($0) },
          helloDeadline: Duration = .seconds(30), clock: any Clock<Duration> = ContinuousClock()) {
         self.supervisor = supervisor
+        files = fileDialogs.map { ChromiumHostFiles(panels: $0) }
         self.showsWidgets = showsWidgets
         self.routesInput = routesInput
+        self.takesDrags = takesDrags
+        self.fencesResizes = fencesResizes
+        self.drawsPopupMenus = drawsPopupMenus
         self.open = open
         self.helloDeadline = helloDeadline
         self.clock = clock
         replies = CEFHostReplies(clock: clock)
-        // A dead host sends no WIDGET_GONE: its panels, panes and windows go when it ends.
+        // A dead host sends no WIDGET_GONE or POPUP_MENU_HIDE: its panels, panes, windows and menu go when it ends.
         supervisor.observeHostEnds { [weak self] in
             self?.widgetHost?.hostEnded()
+            self?.popupMenus?.hostEnded()
             self?.endInputRoute()
         }
     }
 
     /// The attached host; the first caller starts the attach, later ones await it.
     func attached() async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
-        let task = self.task ?? Task { [supervisor, open, replies, helloDeadline, clock, routesInput] in
+        let startsAttach = self.task == nil
+        let task = self.task ?? Task { [supervisor, open, replies, helloDeadline, clock, fencesResizes, routesInput] in
             await CEFHostStart.attach(supervisor, open: open, replies: replies, helloDeadline: helloDeadline, clock: clock,
-                                      routesInput: routesInput)
+                                      fencesResizes: fencesResizes, routesInput: routesInput)
         }
         self.task = task
         let outcome = await task.value
-        if case .success(let host) = outcome {
-            (remote, mapsClientIDs) = (host.remote, host.mapsClientIDs)
-            startInputRoute(host)
-        }
+        guard case .success(let host) = outcome else { return outcome }
+        (remote, mapsClientIDs, acksWheels, hostGone) = (host.remote, host.mapsClientIDs, host.acksWheels, false)
+        startInputRoute(host)
+        // Once per attach, before initialize: a preinit op, which the remote shim replays to every later host.
+        if startsAttach, drawsSuggestions { host.shim.suggestions.setEvents(1) }
         return outcome
     }
 
@@ -86,18 +118,32 @@ final class CEFHostStart {
         let remote = host.remote
         let route = ChromiumHostInputRoute(ring: ring, order: { remote.orderInput() })
         inputRoute = route
-        remote.setInputAck(context: Unmanaged.passUnretained(route).toOpaque(), ack: ChromiumHostInputRoute.ackCallback)
+        // SAFETY: `inputRoute` keeps the route alive while the shim holds it unretained; endInputRoute clears the
+        // ack before it drops the route.
+        unsafe remote.setInputAck(context: Unmanaged.passUnretained(route).toOpaque(), ack: ChromiumHostInputRoute.ackCallback)
         #endif
     }
 
-    /// The host this route wrote to ended: every page leaves the route.
+    /// The host this route wrote to ended: every page leaves the route. Idempotent: the supervisor's
+    /// end report and ``hostEnded()`` both call it, whichever comes first.
     private func endInputRoute() {
         #if DEBUG || CMUX_BENCH_HOOKS
         guard let route = inputRoute else { return }
-        remote?.setInputAck(context: nil, ack: nil)
+        unsafe remote?.setInputAck(context: nil, ack: nil)
         route.hostEnded()
         inputRoute = nil
         #endif
+    }
+
+    /// The attached host ended (`CEFRuntime.hostEnded`): the remote shim releases its wire and the
+    /// attach is dropped, so the next ``attached()`` asks the supervisor again and serves the host it
+    /// starts, as a mojo `Remote` whose peer closed is rebound to a new pipe, never reused.
+    func hostEnded() {
+        endInputRoute()
+        remote?.detach()
+        files?.hostEnded()
+        (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes) = (nil, nil, false, false, true, nil)
+        generation += 1
     }
 
     /// The REPLY token of the async shim call this turn just made, now expected in ``replies``;
@@ -110,7 +156,7 @@ final class CEFHostStart {
 
     private static func attach(_ supervisor: any ChromiumHostSupervising, open: @escaping Open, replies: CEFHostReplies,
                                helloDeadline: Duration, clock: any Clock<Duration>,
-                               routesInput: Bool) async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
+                               fencesResizes: Bool, routesInput: Bool) async -> Result<CEFAttachedHost, CEFRuntime.BootError> {
         let elapsed = ContinuousClock()
         let started = elapsed.now
         let attachment: ChromiumHostAttachment
@@ -130,13 +176,21 @@ final class CEFHostStart {
         case .success(let exports): hostExports = exports
         case .failure(let error): return .failure(error)
         }
+        // The host checked its fence inbox in before its hello; the look-up is off the main thread.
+        if fencesResizes, let name = attachment.resizeFence {
+            let channel = ChromiumHostResizeFenceChannel(name: name)
+            let port = await channel.lookUp()
+            channel.hand(port, to: remote)
+        }
         do {
-            let shim = try CEFShimLibrary.resolving(remote.symbol, hostExports: hostExports)
+            // SAFETY: `remote.symbol` is dlsym on the remote dylib, never closed, whose ABI identity `make` checked.
+            let shim = try unsafe CEFShimLibrary.resolving(remote.symbol, hostExports: hostExports)
             let locale = CEFLocale.resolve(preferredLanguages: Locale.preferredLanguages,
                                            available: CEFLocale.available(lprojNames: attachment.frameworkLocales))
             var host = CEFAttachedHost(shim: shim, remote: remote, shimABI: CEFShimABI.bundledIdentity() ?? "",
                                        locale: locale, loadDuration: elapsed.now - started,
-                                       mapsClientIDs: hostExports.contains(CEFAttachedHost.clientIDsHelloName))
+                                       mapsClientIDs: hostExports.contains(CEFAttachedHost.clientIDsHelloName),
+                                       acksWheels: hostExports.contains(CEFAttachedHost.wheelAcksHelloName))
             host.inputRingFD = attachment.inputRingFD
             #if DEBUG || CMUX_BENCH_HOOKS
             if routesInput, attachment.inputRingFD >= 0, let name = attachment.inputDoorbellName {
@@ -168,6 +222,9 @@ nonisolated struct CEFAttachedHost: Sendable {
     /// (its HELLO lists ``clientIDsHelloName``; HOST/src/host_client_ids.h), so cmux may create a
     /// browser in the key's turn and name it by the minted id at once (task 019).
     var mapsClientIDs: Bool
+    /// The host sends WHEEL_ACK for each trackpad wheel of a gesture (its HELLO lists
+    /// ``wheelAcksHelloName``: its fork reports Chromium's gesture acks; HOST/src/host_wheel_ack.h).
+    var acksWheels = false
     /// The host's input ring (``ChromiumHostAttachment/inputRingFD``), -1 while it passed none.
     var inputRingFD: Int32 = -1
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -178,6 +235,8 @@ nonisolated struct CEFAttachedHost: Sendable {
 
     /// `cmux_host::mint::kClientIdsHelloName` (HOST/src/chromium_host_mint.h).
     static let clientIDsHelloName = "cmux_host_client_ids"
+    /// `cmux_host::kWheelAcksHelloName` (HOST/src/host_wheel_ack.h).
+    static let wheelAcksHelloName = "cmux_host_wheel_acks"
 }
 
 /// What `CEFRuntime` initializes Chromium with: the in-process library or the attached host.

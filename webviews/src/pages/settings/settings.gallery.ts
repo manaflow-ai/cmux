@@ -764,6 +764,72 @@ Object.assign(variants, {
       ],
     },
   }),
+  // Experimental > Feature Flags (FeatureFlagsCard, feature featureFlagsCard): NIGHTLY with a local choice
+  // pending for the next launch, and Release read-only in safe mode.
+  "feature-flags-nightly": variant("experimental", {
+    host: {
+      ...host,
+      features: {
+        channel: "nightly",
+        local_overrides: true,
+        safe_mode: null,
+        unknown_names: [],
+        features: [
+          {
+            name: "energySaver",
+            state: "on",
+            source: "local",
+            default: false,
+            kind: "labs",
+            description: "Energy Saver draws fewer frames and wakes less often on battery.",
+          },
+          {
+            name: "vsyncHub",
+            state: "off",
+            source: "default",
+            default: false,
+            kind: "perfPath",
+            description: "Each display's link on that display's vsync thread.",
+          },
+          {
+            name: "perfLabKillProbe",
+            state: "off",
+            source: "remote",
+            default: true,
+            kind: "killSwitch",
+            description: "The kill switch the perf lab turns off remotely.",
+          },
+        ],
+        next_local: { energySaver: true, vsyncHub: true },
+      },
+    },
+    steps: [wait('[data-card="feature-flags"]')],
+    note: "Feature Flags on NIGHTLY: state, source and default per feature; vsyncHub changes at the next launch.",
+  }),
+  "feature-flags-release": variant("experimental", {
+    host: {
+      ...host,
+      features: {
+        channel: "release",
+        local_overrides: false,
+        safe_mode: { level: "last-known-good" },
+        unknown_names: ["oldFeature"],
+        features: [
+          {
+            name: "perfLabKillProbe",
+            state: "off",
+            source: "remote",
+            default: true,
+            kind: "killSwitch",
+            description: "The kill switch the perf lab turns off remotely.",
+          },
+        ],
+        next_local: {},
+      },
+    },
+    steps: [wait('[data-card="feature-flags"]')],
+    note: "Feature Flags on Release: read-only, safe mode on the last known good remote flags, one unknown name.",
+  }),
   // Agents > Computer Use Setup (ComputerUseCard): off (grants unknown), every grant given, none.
   // Focusing the card's first button scrolls it into view.
   "computer-use-off": variant("agents", {
@@ -981,6 +1047,7 @@ export default settingsPageEntry({
     "page:cmux.settings",
     "pages/settings/components/AccentPicker.tsx",
     "pages/settings/components/AccountsSection.tsx",
+    "pages/settings/components/AdvancedInfo.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/AgentIntegrations.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
@@ -997,6 +1064,7 @@ export default settingsPageEntry({
     "pages/settings/components/ImportSuggestionsCard.tsx",
     "pages/settings/components/VoiceInputCard.tsx",
     "pages/settings/components/FontPicker.tsx",
+    "pages/settings/components/FeatureFlagsCard.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
     "pages/settings/components/Highlight.tsx",
@@ -1016,6 +1084,7 @@ export default settingsPageEntry({
     "pages/settings/components/SettingsApp.tsx",
     "pages/settings/components/SettingsPage.tsx",
     "pages/settings/components/ScopeOverrides.tsx",
+    "pages/settings/components/TerminalInfo.tsx",
     "pages/settings/components/ThemeFiles.tsx",
     "pages/settings/components/ThemePicker.tsx",
     "pages/settings/components/ThemePreview.tsx",

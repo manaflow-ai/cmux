@@ -1,6 +1,6 @@
 import CmuxNextAgentPane
-import CmuxNextCompat
 import CmuxNextHistory
+import CmuxNextWakeups
 import Foundation
 
 /// The New Tab page's Recently Closed section (cx-d0d.60): the newest closed
@@ -13,26 +13,26 @@ enum NewTabClosed {
     /// are looked up outside the observed read and encoded once per URL, so
     /// a favicon landing elsewhere re-runs nothing.
     static func wire(_ tabs: AgentTabStore, services: AppServices) {
-        Task { [weak tabs, weak services] in
-            var icons: [String: String] = [:]
-            var last: [AgentPaneClosedItem]?
-            for await listed in ObservationStream({ [weak services] in services.map(items) ?? [] }) where listed != last {
-                guard let tabs, let services else { return }
-                last = listed
-                let shown = listed.map { item in
-                    guard item.kind == .browser, let address = item.detail else { return item }
-                    if icons[address] == nil, let url = URL(string: address) {
-                        icons[address] = AppServices.dataURL(services.siteFavicon(url, profile: .default))
-                    }
-                    var item = item
-                    item.icon = icons[address]
-                    return item
+        var icons: [String: String] = [:]
+        // A service observation: it writes the pages' shared list and fans out to every page, none of
+        // which owns it. `visible`: the section shows on the pages; a person's close flushes before its frame.
+        tabs.pageChats.closedFeed = ServiceObservation(.visible, owner: "NewTabClosed.push", on: services.mainWork) {
+            [weak services] in services.map(items) ?? []
+        } apply: { [weak tabs, weak services] listed in
+            guard let tabs, let services else { return }
+            let shown = listed.map { item in
+                guard item.kind == .browser, let address = item.detail else { return item }
+                if icons[address] == nil, let url = URL(string: address) {
+                    icons[address] = AppServices.dataURL(services.siteFavicon(url, profile: .default))
                 }
-                // Encoded once here; every page gets the same payload (a251: one encode per page before).
-                let list = AgentPaneClosedList(shown)
-                tabs.pageChats.closed = list
-                for view in Array(tabs.views.values) + tabs.standaloneViews.allObjects { view.recentlyClosed = list }
+                var item = item
+                item.icon = icons[address]
+                return item
             }
+            // Encoded once here; every page gets the same payload (a251: one encode per page before).
+            let list = AgentPaneClosedList(shown)
+            tabs.pageChats.closed = list
+            for view in Array(tabs.views.values) + tabs.standaloneViews.allObjects { view.recentlyClosed = list }
         }
     }
 

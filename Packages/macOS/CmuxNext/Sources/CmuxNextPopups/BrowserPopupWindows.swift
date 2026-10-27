@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextBrowser
 import CmuxNextDesign
+public import CmuxNextInput
 public import CmuxNextWakeups
 
 /// The open popup windows: sized `window.open` popups (OAuth, payment) and
@@ -14,6 +15,7 @@ public import CmuxNextWakeups
 public final class BrowserPopupWindows {
     private let contextMenus: BrowserContextMenuBuilder
     private let mainWork: MainWorkScheduler
+    private let inputTap: InputEventTap?
     /// The link, image and selection rows for a right-click, by the
     /// opener's tab (`BrowserPageRequests.hitItems`).
     public var hitItems: ((BrowserContextMenuTarget, String) -> [NSMenuItem])?
@@ -22,10 +24,12 @@ public final class BrowserPopupWindows {
     /// tab's omnibar has); nil gives the popup a fresh engine.
     public var suggestionEngine: ((any BrowserTab) -> OmniboxSuggestionEngine?)?
 
-    /// `mainWork` is the app's one main-thread scheduler, for the popups' location bars.
-    public init(contextMenus: BrowserContextMenuBuilder = .shared, mainWork: MainWorkScheduler) {
+    /// `mainWork` is the app's one main-thread scheduler, for the popups' location bars; `inputTap`
+    /// the app's one input tap, which each popup window carries (``InputTapHosting``).
+    public init(contextMenus: BrowserContextMenuBuilder = .shared, mainWork: MainWorkScheduler, inputTap: InputEventTap?) {
         self.contextMenus = contextMenus
         self.mainWork = mainWork
+        self.inputTap = inputTap
     }
 
     private struct Entry {
@@ -82,7 +86,7 @@ public final class BrowserPopupWindows {
                                                      visibleFrame: visible, primaryHeight: primaryHeight,
                                                      chromeHeight: BrowserPopupWindow.chromeHeight)
         let window = BrowserPopupWindow(page: page, frame: frame, suggestionEngine: suggestionEngine?(page) ?? OmniboxSuggestionEngine(),
-                                        mainWork: mainWork)
+                                        mainWork: mainWork, inputTap: inputTap)
         let id = ObjectIdentifier(page)
         // A popup's own popups keep the cmux window of the first opener.
         let cmuxOpener = (opener as? BrowserPopupWindow).flatMap { entries[ObjectIdentifier($0.page)]?.opener } ?? opener

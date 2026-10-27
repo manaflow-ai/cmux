@@ -1,5 +1,7 @@
 import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// Reads the first newline-terminated line from a pipe on the handle's own
 /// dispatch source (never the caller's thread). Cancelling the awaiting task
@@ -14,7 +16,7 @@ nonisolated final class AgentPaneLineReader: Sendable {
 
     private nonisolated struct State {
         var buffer = Data()
-        var continuation: CheckedContinuation<String, any Error>?
+        var continuation: OnceContinuation<String, any Error>?
         var outcome: Result<String, any Error>?
     }
 
@@ -29,7 +31,7 @@ nonisolated final class AgentPaneLineReader: Sendable {
 
     func firstLine() async throws -> String {
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<String, any Error>) in
                 // Reading starts before the continuation is stored: a line or a
                 // cancel that lands in between is kept in `outcome` and resumed here.
                 // concurrency-allow: readabilityHandler runs on the handle's own dispatch queue and data is already available
@@ -62,7 +64,7 @@ nonisolated final class AgentPaneLineReader: Sendable {
     }
 
     private func finish(_ outcome: Result<String, any Error>) {
-        let continuation = state.withLock { state -> CheckedContinuation<String, any Error>? in
+        let continuation = state.withLock { state -> OnceContinuation<String, any Error>? in
             guard state.outcome == nil else { return nil }
             state.outcome = outcome
             defer { state.continuation = nil }

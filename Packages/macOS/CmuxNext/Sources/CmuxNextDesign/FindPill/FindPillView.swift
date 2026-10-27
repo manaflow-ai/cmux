@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
+import CmuxNextInput
 
 /// The one Cmd-F find pill: a Liquid Glass capsule (frosted before macOS 26, solid under Reduce
 /// Transparency) with a magnifier, a field that searches as you type, the match count, an optional
@@ -32,7 +33,7 @@ public final class FindPillView: NSView {
     /// policy beside the shared find field so terminal and browser pills get the same treatment.
     public static func shouldForwardArrowKeyDown(keyCode: UInt16, flags: NSEvent.ModifierFlags,
                                                  hasMarkedText: Bool) -> Bool {
-        guard !hasMarkedText, (123...126).contains(keyCode) else { return false }
+        guard !hasMarkedText, isArrowKeyCode(keyCode) else { return false }
         let normalizedFlags = flags
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
@@ -57,16 +58,33 @@ public final class FindPillView: NSView {
         return false
     }
 
+    /// Whether `keyCode` is an arrow key (left, right, down, up): the only keys a pill's field takes
+    /// ahead of AppKit. An integer compare, so any other key does no find pill work.
+    nonisolated public static func isArrowKeyCode(_ keyCode: UInt16) -> Bool {
+        (123...126).contains(keyCode)
+    }
+
     /// Sends an allowed arrow directly to the active field editor before AppKit offers menu
-    /// equivalents. Returns true when this pill owned the event.
+    /// equivalents. Returns true when this pill owned the event. A key that is not an arrow returns
+    /// before it reads the window's first responder.
     public static func forwardArrowKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        guard event.type == .keyDown, let responder = window?.firstResponder,
+        guard event.type == .keyDown, isArrowKeyCode(event.keyCode), let responder = window?.firstResponder,
               let client = responder as? NSTextInputClient,
               ownsFieldEditor(responder),
               shouldForwardArrowKeyDown(keyCode: event.keyCode, flags: event.modifierFlags,
                                         hasMarkedText: client.hasMarkedText()) else { return false }
         responder.keyDown(with: event)
         return true
+    }
+
+    /// ``forwardArrowKeyDown(_:in:)`` for the app's key-down, behind O(1) checks: only an arrow, and
+    /// in a window that carries the input tap (``InputTapHosting``) only while some pill's field has
+    /// the keyboard (its `findPillOpen` flag, held by each editing pill). A plain key, or an arrow
+    /// while no pill edits, asks no responder.
+    public static func forwardArrowKeyDownToEditingPill(_ event: NSEvent, in window: NSWindow?) -> Bool {
+        guard isArrowKeyCode(event.keyCode) else { return false }
+        if let tap = (window as? InputTapHosting)?.inputTap, !tap.flags.contains(.findPillOpen) { return false }
+        return forwardArrowKeyDown(event, in: window)
     }
 
     /// Called with the field's text on every edit the user makes (not when ``query`` is set).
@@ -92,6 +110,11 @@ public final class FindPillView: NSView {
     private(set) var showsNoMatches = false
     /// The pill is shown or fading in (it stays unhidden while fading out).
     public private(set) var isPresented = false
+    /// This pill's field edits now.
+    private(set) var fieldHasKeyboard = false
+    /// The input tap whose `findPillOpen` flag this pill holds while its field edits (its window's,
+    /// ``InputTapHosting``), so a key-down asks no responder whether a pill takes it.
+    private weak var heldTap: InputEventTap?
 
     /// - Parameters:
     ///   - labels: The localized placeholder and button labels; a nil ``FindPillLabels/matchCase``
@@ -140,6 +163,7 @@ public final class FindPillView: NSView {
         field.cell?.isScrollable = true
         field.font = Typography.system(.default, size: TypeScale.body)
         field.delegate = self
+        field.onEditingChange = { [weak self] editing in self?.setFieldHasKeyboard(editing) }
 
         countLabel.font = Typography.system(.monospacedDigit, size: TypeScale.detail, weight: .regular)
         countLabel.alignment = .right
@@ -222,10 +246,10 @@ public final class FindPillView: NSView {
     ///   - canStep: The chevrons work; nil keeps them enabled exactly when `text` is not empty and
     ///     something matched.
     public func showCount(_ text: String, noMatches: Bool, canStep: Bool? = nil) {
-        if countLabel.stringValue != text {
-            countLabel.stringValue = text
-            superview?.needsLayout = true // hosts frame the pill to its fitting width
-        }
+        // The label's new intrinsic width reaches the pill and a host that pins it through the
+        // constraints; a host that frames the pill to its fitting width is told by its owner
+        // (TerminalFindBarView), never by the pill.
+        if countLabel.stringValue != text { countLabel.stringValue = text }
         showsNoMatches = noMatches
         let enabled = canStep ?? (!text.isEmpty && !noMatches)
         for button in stepButtons where button.isEnabled != enabled { button.isEnabled = enabled }
@@ -262,6 +286,7 @@ public final class FindPillView: NSView {
 
     // MARK: Theme
 
+    // visibility-walk-allow: color stores (tints, text and layer colors, the buttons' inks) for a few controls; the pill lives only while its find is open, so a deferral costs more
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
@@ -270,6 +295,22 @@ public final class FindPillView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyColors()
+        // Taken out of its window (a closed tab, a moved pane) while editing: that edit is over.
+        if fieldHasKeyboard { setFieldHasKeyboard(window != nil && field.currentEditor() != nil) }
+    }
+
+    /// Holds the window's tap `findPillOpen` flag while the field edits; each window has its own
+    /// first responder, so pills in two windows hold it together.
+    private func setFieldHasKeyboard(_ editing: Bool) {
+        guard editing != fieldHasKeyboard else { return }
+        fieldHasKeyboard = editing
+        if editing {
+            heldTap = (window as? InputTapHosting)?.inputTap
+            heldTap?.holdFlag(.findPillOpen)
+        } else {
+            heldTap?.releaseFlag(.findPillOpen)
+            heldTap = nil
+        }
     }
 
     private func applyColors() {
@@ -318,6 +359,8 @@ extension FindPillView: NSTextFieldDelegate {
     }
 
     public func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        handleFieldCommand(selector, shift: NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
+        // The key the field editor is handling is the one the window's tap dispatched last.
+        let key = (window as? InputTapHosting)?.inputTap?.lastDispatched
+        return handleFieldCommand(selector, shift: key?.modifierFlags.contains(.shift) == true)
     }
 }

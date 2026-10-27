@@ -5,6 +5,7 @@ import CmuxNextBrowserTabs
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import Observation
 import WebKit
@@ -17,7 +18,8 @@ import WebKit
 /// machine drive tabs this machine's store owns. The getters read the store
 /// and the live pages, which are observable, plus `pageInstalls` (a page was
 /// created); visibility is pushed with `refreshTabs()`.
-final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, AutomationTabProvider, ProviderAgentMarking, ProviderTabOpening {
+final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, AutomationTabProvider, ProviderAgentMarking, ProviderTabOpening,
+    ProviderCaptureVoting {
     private weak var services: AppServices?
     /// Extension access depends on manifests read from disk: computed again
     /// only when the profile's extension list or the page URL changes.
@@ -125,6 +127,15 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         }
     }
 
+    // MARK: ProviderCaptureVoting
+
+    /// An agent's screenshot or screencast of an announced tab votes on the tab's node
+    /// (``TabContentCache/node(for:)``): a hidden tab renders for it and its page still reads hidden.
+    func captureVote(targetID: String, reason: String) -> VisibilityCaptureVote? {
+        guard let services, isDrivable(targetID) else { return nil }
+        return services.cache.node(for: targetID).captureVote(reason: reason, stayHidden: true)
+    }
+
     // MARK: AutomationTabProvider (WebKit driver)
 
     func automationTabs(all: Bool) -> [AutomationTab] {
@@ -180,12 +191,9 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         guard browserTabs.isAvailable(in: pane) else { throw AutomationTabError.unavailable }
         let surface = try await browserTabs.open(BrowserEngineChoice(engine: engine), in: pane,
                                                  url: url ?? "about:blank", activate: false)
-        // The create reply can come before the store shows the tab.
-        let appeared = try? await ControlDeadline.shared.run(method: "tabs.open", deadline: .now + .seconds(10)) { @MainActor in
-            for await found in ObservationStream({ services.locateTab(surface: surface) != nil }) where found { return true }
-            return false
-        }
-        guard appeared == true, let tab = services.locateTab(surface: surface) else {
+        // The create reply can come before the store shows the tab: the store's keyed wait (StoreWaiters), read
+        // again only when the store keys this surface.
+        guard let tab = await services.daemon.store.waitForTab(surface: surface, timeout: .seconds(10)) else {
             throw AutomationTabError.unavailable
         }
         return tab
@@ -267,11 +275,8 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         }
         guard closed else { return false }
         cache.release(id)
-        // The store's update can come after the close reply.
-        _ = try? await ControlDeadline.shared.run(method: "tabs.close", deadline: .now + .seconds(5)) { @MainActor [weak self] in
-            for await gone in ObservationStream({ self?.isDrivable(id) != true }) where gone { return true }
-            return false
-        }
+        // The store's update can come after the close reply: the store's keyed wait (StoreWaiters) for the id to go.
+        _ = await daemon.store.waitTabGone(id: id, timeout: .seconds(5))
         return true
     }
 

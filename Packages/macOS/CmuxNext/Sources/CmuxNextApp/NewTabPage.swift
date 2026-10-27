@@ -272,12 +272,19 @@ enum NewTabPage {
     /// (the widgets are settings, not store items: extensibility-DESIGN.md).
     static func edit(_ edit: AgentPaneNewTabEdit, services: AppServices) {
         guard let settings = services.settings else { return }
-        switch edit {
-        case .template(let template): Task { await settings.saveNewTabTemplate(template) }
-        case .remove(let widget): Task { await settings.logged("new tab widget") { try await settings.removeNewTabWidget(widget) } }
-        case .show(let widget): Task { await settings.logged("new tab widget") { try await settings.showNewTabWidget(widget) } }
-        case .order(let order): Task { await settings.logged("new tab widget order") { try await settings.setNewTabWidgetOrder(order) } }
-        case .add: try? services.settingsWindow.show(section: nil, setting: "tabs.newTabWidgets.greeting", focus: true)
+        if case .add = edit {
+            try? services.settingsWindow.show(section: nil, setting: "tabs.newTabWidgets.greeting", focus: true)
+            return
+        }
+        // main-hop-allow: each edit is SettingsController's own main-actor async write (its file write runs off main); this task only starts it
+        Task {
+            switch edit {
+            case .template(let template): await settings.saveNewTabTemplate(template)
+            case .remove(let widget): await settings.logged("new tab widget") { try await settings.removeNewTabWidget(widget) }
+            case .show(let widget): await settings.logged("new tab widget") { try await settings.showNewTabWidget(widget) }
+            case .order(let order): await settings.logged("new tab widget order") { try await settings.setNewTabWidgetOrder(order) }
+            case .add: break
+            }
         }
     }
 

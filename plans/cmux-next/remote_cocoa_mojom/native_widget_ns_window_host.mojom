@@ -1,0 +1,315 @@
+// Copyright 2018 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+module remote_cocoa.mojom;
+
+import "mojo/public/mojom/base/process_id.mojom";
+import "mojo/public/mojom/base/string16.mojom";
+import "ui/base/accelerators/mojom/accelerator.mojom";
+import "ui/base/mojom/dialog_button.mojom";
+import "ui/base/mojom/window_open_disposition.mojom";
+import "ui/display/mojom/display.mojom";
+import "ui/events/mojom/event.mojom";
+import "ui/gfx/geometry/mojom/geometry.mojom";
+import "ui/gfx/mojom/ca_layer_params.mojom";
+
+struct ValidateUserInterfaceItemResult {
+  // Whether or not the specified sender should be enabled.
+  bool enable;
+
+  // If true, then the item should be disabled if there exists no key equivalent
+  // for the item.
+  bool disable_if_has_no_key_equivalent;
+
+  // The new title to set for the item (unset if the title is not to be
+  // changed).
+  mojo_base.mojom.String16? new_title;
+
+  // Whether or not to change the hidden state for the item, and the new hidden
+  // state to set.
+  bool set_hidden_state;
+  bool new_hidden_state;
+
+  // Whether or not to change the toggled state for the item, and the new toggle
+  // state to set.
+  bool set_toggle_state;
+  bool new_toggle_state;
+};
+
+// The resulf of hit testing. Used for routing mouse event to the appropriate
+// target.
+enum HitTestResult {
+  // Hits the draggable background area. The NSWindow handles the dragging.
+  kDraggableBackground,
+  // Hits the NSView that hosts views::RootView. The event is sent to this root
+  // NSView, then the toolkit-views handles the event.
+  kRootView,
+  // Hits a subview of the root NSView. The event is sent to the subview.
+  // Usually, this is a RenderWidgetHostViewCocoa which presents a content
+  // area.
+  kSubView,
+  // Hits a subview that is currently blocked by a modal dialog.
+  kBlockedSubView,
+  // Hits other area. This includes resize handles, traffic lights, etc. The
+  // NSWindow handles the event.
+  kOther,
+};
+
+// The interface through which an NSWindow (possibly in a process separate from
+// the browser process) may interact with a NativeWidgetMac.
+interface NativeWidgetNSWindowHost {
+  // Update the views::Widget, ui::Compositor and ui::Layer's visibility.
+  OnVisibilityChanged(bool visible);
+
+  // Called when -[NSWindow isOnActiveSpace] changes.
+  OnSpaceActivationChanged(bool is_space_active);
+
+  // Called when the window's native theme changes.
+  OnWindowNativeThemeChanged();
+
+  // Resize the underlying views::View to |new_size| in response to the
+  // NSView's frame changing size. Note that this will not necessarily match
+  // the content bounds from OnWindowGeometryChanged.
+  OnViewSizeChanged(gfx.mojom.Size new_size);
+
+  // The vertical position from which sheets should be anchored, from the top
+  // of the content view.
+  [Sync]
+  GetSheetOffsetY() => (int32 offset_y);
+
+  // Indicate if full keyboard accessibility is needed and update focus if
+  // needed.
+  SetKeyboardAccessible(bool enabled);
+
+  // Indicate if the NSView for this widget is the first responder for the
+  // NSWindow for this widget.
+  OnIsFirstResponderChanged(bool is_first_responder);
+
+  // Indicate if mouse capture is active.
+  OnMouseCaptureActiveChanged(bool capture_is_active);
+
+  // Handle events. Note that whether or not the event is actually handled is
+  // not returned.
+  OnScrollEvent(ui.mojom.Event event);
+  OnMouseEvent(ui.mojom.Event event);
+  OnGestureEvent(ui.mojom.Event event);
+
+  // Synchronously dispatch a key event and return in |event_handled| whether
+  // or not the event was handled. This method is to be used only via the
+  // NativeWidgetNSWindowHostHelper interface.
+  [Sync]
+  DispatchKeyEventRemote(ui.mojom.Event event) => (bool event_handled);
+
+  // Synchronously dispatch a key event to the current menu controller (if one
+  // exists and is owned by the widget for this). Return in |event_swallowed|
+  // whether or not the event was swallowed (that is, if the menu's dispatch
+  // returned POST_DISPATCH_NONE). Return in |event_handled| whether or not the
+  // event was handled (that is, if the event in the caller's scope should be
+  // marked as handled). This method is to be used only via the
+  // NativeWidgetNSWindowHostHelper interface.
+  [Sync]
+  DispatchKeyEventToMenuControllerRemote(ui.mojom.Event event) =>
+      (bool event_swallowed, bool event_handled);
+
+  // Called when the NSEvent monitor observes an event. If `event_handled` is
+  // true, then do not continue dispatching the event.
+  // The `target_is_this_window` parameter is set to true if the event target
+  // was equal to the NSWindow this NativeWidgetNSWindowHost represents.
+  [Sync]
+  DispatchMonitorEvent(ui.mojom.Event event, bool target_is_this_window) =>
+      (bool event_handled);
+
+  // Synchronously return in  |has_menu_controller| whether or not a menu
+  // controller exists for this widget.
+  [Sync]
+  GetHasMenuController() => (bool has_menu_controller);
+
+  // Synchronously hit tests point `location_in_content` in the toolkit-views
+  // tree.
+  [Sync]
+  GetHitTestResult(gfx.mojom.Point location_in_content) =>
+      (HitTestResult hit_test_result);
+
+  // Asynchronously query the tooltip text for |location_in_content|.
+  GetTooltipTextAt(gfx.mojom.Point location_in_content) =>
+      (mojo_base.mojom.String16 new_tooltip_text);
+
+  // Synchronously query the value of IsModal for this widget and store it in
+  // |widget_is_modal|.
+  [Sync]
+  GetWidgetIsModal() => (bool widget_is_modal);
+
+  // Synchronously return in |is_textual| whether or not the focused view
+  // contains text that can be selected and copied.
+  [Sync]
+  GetIsFocusedViewTextual() => (bool is_textual);
+
+  // Called whenever the NSWindow's size or position changes.
+  OnWindowGeometryChanged(
+      gfx.mojom.Rect window_bounds_in_screen_dips,
+      gfx.mojom.Rect content_bounds_in_screen_dips);
+
+  // Called when the window is about to move.
+  OnWindowWillMove();
+
+  // Called when the window has moved.
+  OnWindowDidEndMove();
+
+  // Called when the window is about to be live resized.
+  OnWindowWillStartLiveResize();
+
+  // Called when a live resize operation on the window has ended.
+  OnWindowDidEndLiveResize();
+
+  // Called when the window begins transitioning to or from being fullscreen.
+  OnWindowFullscreenTransitionStart(
+      bool target_fullscreen_state);
+
+  // Called when the window has completed its transition to or from being
+  // fullscreen. Note that if there are multiple consecutive transitions
+  // (because a new transition was initiated before the previous one completed)
+  // then this will only be called when all transitions have competed.
+  OnWindowFullscreenTransitionComplete(bool is_fullscreen);
+
+  // Called when the window is miniaturized or deminiaturized.
+  OnWindowMiniaturizedChanged(bool miniaturized);
+
+  // Called when the window's zoomed state changes.
+  OnWindowZoomedChanged(bool zoomed);
+
+  // Called when the current display or the properties of the current display
+  // change.
+  OnWindowDisplayChanged(display.mojom.Display display);
+
+  // Called before the NSWindow is closed and destroyed.
+  OnWindowWillClose();
+
+  // Called after the NSWindow has been closed and destroyed.
+  OnWindowHasClosed();
+
+  // Called when the NSWindow becomes key or resigns from being key. Additional
+  // state required for the transition include whether or not the content NSView
+  // is the first responder for the NSWindow in |is_content_first_responder| and
+  // whether or not the NSApp's full keyboard access is enabled in
+  // |full_keyboard_access_enabled|.
+  OnWindowKeyStatusChanged(bool is_key,
+                           bool is_content_first_responder,
+                           bool full_keyboard_access_enabled);
+
+  // Called when the blob of data that represents the NSWindow's restorable
+  // state has changed.
+  OnWindowStateRestorationDataChanged(array<uint8> data);
+
+  // Called when the window's "visible on all workspaces" state has changed.
+  OnVisibleOnAllWorkspacesChanged(bool visible);
+
+  // Called when a sheet modal is shown.
+  OnSheetModalShown();
+
+  // Called when the sheet modal is closed.
+  OnSheetModalClosed();
+
+  // Called when the toolbar reveal status changes. The toolbar is visible
+  // either because there are outstanding reveal locks or the mouse is
+  // hovering over the upper border of the screen.
+  OnImmersiveFullscreenToolbarRevealChanged(bool is_revealed);
+
+  // Called when the menubar reveal status changes.
+  // `reveal_amount` ranges in [0, 1]. This is the opacity of the menubar
+  // and the browser window traffic lights.
+  OnImmersiveFullscreenMenuBarRevealChanged(double reveal_amount);
+
+  // Returns height of the menubar if the menubar autohides, otherwise 0.
+  OnAutohidingMenuBarHeightChanged(int32 menu_bar_height);
+
+  // Accept or cancel the current dialog window (depending on the value of
+  // |button|), if a current dialog exists.
+  DoDialogButtonAction(ui.mojom.DialogButton button);
+
+  // Synchronously determine if the specified button exists in the current
+  // dialog (if any), along with its label, whether or not it is enabled, and
+  // whether or not it is the default button..
+  [Sync]
+  GetDialogButtonInfo(ui.mojom.DialogButton button) => (bool button_exists,
+                      mojo_base.mojom.String16 title,
+                      bool is_button_enabled,
+                      bool is_button_default);
+
+  // Synchronously return in |buttons_exist| whether or not any buttons exist
+  // for the current dialog.
+  [Sync]
+  GetDoDialogButtonsExist() => (bool buttons_exist);
+
+  // Synchronously query if the NSWindow should display its title.
+  [Sync]
+  GetShouldShowWindowTitle() => (bool should_show_window_title);
+
+  // Synchronously query if the NSWindow can become key (activate, in views
+  // terminology).
+  [Sync]
+  GetCanWindowBecomeKey() => (bool can_window_become_key);
+
+  // Synchronously query if the NSWindow should always render as if it is
+  // the key window (is active, in views terminology).
+  [Sync]
+  GetAlwaysRenderWindowAsKey() => (bool always_render_as_key);
+
+  // Synchronously query if the NSWindow should always render as if it is
+  // the key window (is active, in views terminology).
+  [Sync]
+  OnWindowCloseRequested() => (bool can_window_close);
+
+  // Synchronously query if the NSWindow's theme frame overrides the titlebar
+  // height, and, if so, what the overridden height is.
+  [Sync]
+  GetWindowFrameTitlebarHeight() => (bool override_titlebar_height,
+                                     float titlebar_height);
+
+  // Handle "Move focus to the window toolbar" shortcut.
+  OnFocusWindowToolbar();
+
+  // Send the token for the NSWindow and NSView for this widget.
+  SetRemoteAccessibilityTokens(
+      array<uint8> window_token, array<uint8> view_token);
+
+  // Return in |element_token| the token for the root views AX node for this
+  // view and in |host_pid| the pid for the host process.
+  [Sync]
+  GetRootViewAccessibilityToken() =>
+      (mojo_base.mojom.ProcessId host_pid, array<uint8> element_token);
+
+  // Return the result for -[NSUserInterfaceValidations
+  // validateUserInterfaceItem] for a given command, along with any state for
+  // that item that should be updated.
+  [Sync]
+  ValidateUserInterfaceItem(int32 command) =>
+      (ValidateUserInterfaceItemResult result);
+
+  // Returns in |will_execute| whether or not ExecuteCommand() will execute
+  // the chrome command |command| with |window_open_disposition| and
+  // |is_before_first_responder|.
+  [Sync]
+  WillExecuteCommand(int32 command,
+                     ui.mojom.WindowOpenDisposition window_open_disposition,
+                     bool is_before_first_responder) => (bool will_execute);
+
+  // Execute the chrome command |command| with |window_open_disposition|. If
+  // |is_before_first_responder| then only call ExecuteCommand if the command
+  // is reserved and extension shortcut handling is not suspended. Returns in
+  // |was_executed| whether or not ExecuteCommand was called (regardless of what
+  // the return value for ExecuteCommand was).
+  [Sync]
+  ExecuteCommand(int32 command,
+                 ui.mojom.WindowOpenDisposition window_open_disposition,
+                 bool is_before_first_responder) => (bool was_executed);
+
+  // Give the widget's FocusManager a chance to to handle the specified
+  // accelerator. If |require_priority_handler| is true, the only send the
+  // accelerator to the FocusManager if the FocusManager has a priority handler
+  // for the specified accelerator.
+  [Sync]
+  HandleAccelerator(ui.mojom.Accelerator accelerator,
+                    bool require_priority_handler) =>
+      (bool was_handled);
+};

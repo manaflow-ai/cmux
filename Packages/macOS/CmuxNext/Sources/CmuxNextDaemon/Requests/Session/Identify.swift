@@ -152,4 +152,8 @@ public struct SetClientInfoRequest: DaemonRequest {
         self.deviceKind = deviceKind
         self.deviceName = deviceName
     }
+
+    enum CodingKeys: String, CodingKey {
+        case name, kind, capabilities, deviceKind = "device_kind", deviceName = "device_name"
+    }
 }

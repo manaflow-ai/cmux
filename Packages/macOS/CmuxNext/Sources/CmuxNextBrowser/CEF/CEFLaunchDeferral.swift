@@ -1,5 +1,8 @@
 import CmuxNextCompat
 public import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// When a tab may start Chromium during launch, by its ``BrowserTabOrigin`` (p08-startup.md section 3D).
 /// Chrome's session restore loads the visible tab first and leaves the others to its `TabLoader`
@@ -37,7 +40,8 @@ public final class CEFLaunchDeferral {
     /// the scheduler drops at quit returns too, so the start that follows fails as any start after quit does.
     public func waitForStart(of origin: BrowserTabOrigin) async {
         guard let startup, startup.completion == nil, let launchPost = Self.post(of: origin) else { return }
-        await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
+        // StartTurn answers a dropped post itself (no abandonment fault: a drop at quit is expected).
+        try? await withOnceContinuation { (resume: OnceContinuation<Void, OnceContinuationError>) in
             let turn = StartTurn(resume)
             startup.post(launchPost.priority, launchPost.name, on: .main) { turn.take() }
         }
@@ -75,16 +79,16 @@ public final class CEFLaunchDeferral {
 
 /// One wait for a launch post: answered by the post, or by its release when the scheduler drops it at quit.
 private nonisolated final class StartTurn: Sendable {
-    private let resume: CheckedContinuation<Void, Never>
+    private let resume: OnceContinuation<Void, OnceContinuationError>
     private let answered = Atomic<Bool>(false)
 
-    init(_ resume: CheckedContinuation<Void, Never>) {
+    init(_ resume: OnceContinuation<Void, OnceContinuationError>) {
         self.resume = resume
     }
 
     func take() {
         guard !answered.exchange(true, ordering: .acquiringAndReleasing) else { return }
-        resume.resume()
+        resume.resume(returning: ())
     }
 
     deinit { take() }

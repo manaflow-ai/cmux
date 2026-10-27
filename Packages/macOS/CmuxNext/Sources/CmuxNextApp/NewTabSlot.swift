@@ -71,7 +71,9 @@ enum NewTabSlot {
         return { surface in
             if let pane { NewTabSuccession.made(surface, in: pane, by: open) }
             then?(surface)
-            place(in: { home(of: target.anchor, services) }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { slot(for: target, in: $0) }
+            place(in: { home(of: target.anchor, services) }, services: services,
+                  listed: { await $0.waitForTab(surface: surface, timeout: listLimit) },
+                  find: { $0.tabs.first { $0.surface == surface } }) { slot(for: target, in: $0) }
         }
     }
 
@@ -82,14 +84,15 @@ enum NewTabSlot {
         if let pane = home(of: target.anchor, services) { begin(target, in: pane, services: services) } // shown in its slot at once
         return { key in
             then?(key)
-            place(in: { home(of: target.anchor, services) }, services: services, find: { pane in pane.tabs.first { $0.id == key || $0.snapshot.tabResourceID?.rawValue == key } }) {
+            place(in: { home(of: target.anchor, services) }, services: services, listed: { await listed(key, in: $0, limit: listLimit) },
+                  find: { pane in pane.tabs.first { $0.id == key || $0.snapshot.tabResourceID?.rawValue == key } }) {
                 slot(for: target, in: $0)
             }
         }
     }
 
     @discardableResult
-    private static func begin(_ target: Target, in pane: PaneModel, services: AppServices) -> DemandTimer? {
+    private static func begin(_ target: Target, in pane: PaneModel, services: AppServices) -> MainDeadline? {
         switch target {
         case .after(let anchor): NewTabSuccession.begin(after: anchor.id, in: pane, services: services)
         case .start: NewTabSuccession.begin(atStartOf: pane, services: services)
@@ -101,6 +104,7 @@ enum NewTabSlot {
     /// The page's left neighbour is read now, as the page closes meanwhile.
     static func placing(replacing page: String, services: AppServices,
                         then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
+        // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
         guard let located = services.locateTab(page), case let (tab, pane) = located, let index = pane.tabs.firstIndex(where: { $0 === tab }) else { return then }
         // Shown in the page's slot from its first frame, whatever the daemon reports meanwhile.
         let open = NewTabSuccession.begin(replacing: page, in: pane, services: services)
@@ -112,7 +116,8 @@ enum NewTabSlot {
         let before = index > 0 ? pane.tabs[index - 1] : nil
         return { surface in
             then(surface)
-            place(in: { [weak pane] in pane }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { others in
+            place(in: { [weak pane] in pane }, services: services, listed: { await $0.waitForTab(surface: surface, timeout: listLimit) },
+                  find: { $0.tabs.first { $0.surface == surface } }) { others in
                 guard let before else { return others.prefix { $0.pinned }.count }
                 return others.firstIndex { $0 === before }.map { $0 + 1 }
             }
@@ -126,26 +131,40 @@ enum NewTabSlot {
     }
 
     /// Moves the tab `find` returns from `pane` to the final index `index`
-    /// gives (from the pane's other tabs) once the pane lists it.
+    /// gives (from the pane's other tabs) once the pane lists it. `listed` is
+    /// the store's keyed wait for the new tab (StoreWaiters, at most ``listLimit``):
+    /// only a change of that tab's key reads it again, not every tab-list change.
     private static func place(in pane: @escaping @MainActor () -> PaneModel?, services: AppServices,
+                              listed: @escaping @MainActor (DaemonStore) async -> TabModel?,
                               find: @escaping @MainActor (PaneModel) -> TabModel?, index: @escaping @MainActor ([TabModel]) -> Int?) {
-        let locate = { @MainActor () -> (TabModel, PaneModel)? in pane().flatMap { pane in find(pane).map { ($0, pane) } } }
-        services.registry.track(Task { @MainActor in
-            let listed = Task { @MainActor () -> Bool in
-                for await found in ObservationStream({ locate() != nil }) where found { return true }
-                return false
-            }
-            let bound = DemandTimer(owner: "NewTabSlot.listed")
-            bound.scheduleOnMain(after: listLimit) {
-                listed.cancel()
-            }
-            let found = await listed.value
-            bound.cancel()
-            guard found, let located = locate(), case let (tab, pane) = located, let final = index(pane.tabs.filter { $0 !== tab }),
-                  pane.tabs.firstIndex(where: { $0 === tab }) != final else { return nil }
-            TabMoves.move(tab, to: pane, index: final, services: services)
+        guard let store = pane().map({ services.daemon(for: $0).store }) else { return }
+        let move = { @MainActor in
+            guard let home = pane(), let tab = find(home), let final = index(home.tabs.filter { $0 !== tab }),
+                  home.tabs.firstIndex(where: { $0 === tab }) != final else { return }
+            TabMoves.move(tab, to: home, index: final, services: services)
+        }
+        // main-hop-allow: the task only awaits the store's main-actor keyed wait; the move runs in its one resume
+        services.registry.track(Task {
+            guard await listed(store) != nil else { return nil }
+            move()
             return nil
         })
+    }
+
+    /// The tab `key` names, a durable tab id or a tab resource id, once `store` lists it; nil after
+    /// `limit` or on cancel. Two keyed waits (StoreWaiters); the first that finds it ends both.
+    static func listed(_ key: String, in store: DaemonStore, limit: Duration) async -> TabModel? {
+        if let tab = store.tab(idOrResource: key) { return tab }
+        return await withTaskGroup(of: TabModel?.self) { group in
+            group.addTask { await store.waitForTab(id: key, timeout: limit) }
+            group.addTask { await store.waitForTab(resource: ResourceID(rawValue: key), timeout: limit) }
+            while let next = await group.next() {
+                guard let tab = next else { continue }
+                group.cancelAll()
+                return tab
+            }
+            return nil
+        }
     }
 
     /// The final index for `target` among `others` (the pane's tabs but the new one); nil when

@@ -90,12 +90,14 @@ extension HomeNativeTranscriptView {
     /// Moves the transcript by `dx`, `dy` points in this view (a pane on a fraction of a point).
     public func debugNudge(dx: CGFloat, dy: CGFloat) {
         debugTranscriptOffset = CGPoint(x: debugTranscriptOffset.x + dx, y: debugTranscriptOffset.y + dy)
+        // sync-layout: automation: the next call of the same socket request reads the moved transcript.
         layoutSubtreeIfNeeded()
     }
     /// Narrows the transcript to `trim` points under this view's width and lays it out now, in this
     /// main-thread turn (no display frame passes between two calls in one socket request).
     public func debugTrimWidth(_ trim: CGFloat) {
         debugTranscriptWidthTrim = trim
+        // sync-layout: automation: the next call of the same socket request reads the narrowed transcript.
         layoutSubtreeIfNeeded()
     }
     /// MessagesLab's width pass counters (all panes): passes run, passes deferred to the next frame.

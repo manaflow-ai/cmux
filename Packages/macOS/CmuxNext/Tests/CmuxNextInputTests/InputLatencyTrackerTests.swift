@@ -315,6 +315,7 @@ import Testing
     @Test("A page whose host reports the presented time keeps that time and source")
     func hostFeedbackIsKept() throws {
         let harness = Harness()
+        harness.tracker.pagesReportPresentation = true
         let token = try #require(begin(harness, kind: .mousePress, target: .chromiumPage))
         harness.commit()
         let shown = harness.advance(9_000_000)

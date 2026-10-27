@@ -67,8 +67,8 @@ extension ChromiumHostPageView {
         var frame = ChromiumHostFrame(.key, v: [phase, Int32(event.keyCode), event.type == .flagsChanged ? 0 : (event.isARepeat ? 1 : 0)],
                                       flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp))
         if event.type != .flagsChanged {
-            frame.ch = event.characters?.utf16.first ?? 0
-            frame.unmod = event.charactersIgnoringModifiers?.utf16.first ?? 0
+            frame.ch = ChromiumHostTextInput.keyCharacter(event.characters)
+            frame.unmod = ChromiumHostTextInput.keyCharacter(event.charactersIgnoringModifiers)
         }
         guard phase == 0 else {
             sendInput(frame)

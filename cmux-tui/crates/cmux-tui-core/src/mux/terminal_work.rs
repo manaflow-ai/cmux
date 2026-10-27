@@ -18,9 +18,17 @@
 //! recovered (`orphan_hosts::recoverable`, cx-0tgl LC).
 //!
 //! The reaper uses the same pool to end several due terminals at once.
+//!
+//! The pool also owns the owner's one read loop ([`read_loop`]): every
+//! daemon-local PTY terminal's output is read there, not on a thread of its
+//! own.
 
 use super::*;
 
+#[cfg(unix)]
+pub(crate) mod read_loop;
+#[cfg(unix)]
+mod read_poller;
 #[cfg(any(unix, windows))]
 mod standby_host;
 
@@ -32,6 +40,17 @@ pub(crate) const MAX_TERMINAL_WORKERS: usize = 8;
 /// Jobs queued beyond the running ones. A caller whose job does not fit
 /// runs it inline, as before this pool existed.
 const MAX_QUEUED_TERMINAL_JOBS: usize = 1024;
+
+/// The workers' class: a person waits on a terminal start (a new tab,
+/// split or workspace).
+const TERMINAL_WORK_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::UserInitiated;
+
+/// How long one job may run before the release hang watch reports it:
+/// Chrome's default unit-of-work deadline (`kDefaultHangWatchTime`,
+/// base/threading/hang_watcher.cc). A job is a host launch, a reap or a
+/// creation's launch and commits; each commit's request is watched again at
+/// its own class deadline (server/request_hang_watch.rs).
+const TERMINAL_JOB_HANG_DEADLINE: Duration = cmux_hang_watch::DEFAULT_DEADLINE;
 
 type TerminalJob = Box<dyn FnOnce() + Send>;
 
@@ -46,6 +65,9 @@ struct TerminalWorkState {
 /// dropped owner never joins a worker that holds its last reference.
 pub(crate) struct TerminalWorkPool {
     state: Arc<Mutex<TerminalWorkState>>,
+    /// The read loop of the owner's daemon-local PTY terminals.
+    #[cfg(unix)]
+    reads: read_loop::TerminalReads,
     /// The host process started ahead of the next new tab (R81, cap one).
     #[cfg(any(unix, windows))]
     standby: Arc<standby_host::StandbyHostSlot>,
@@ -58,6 +80,8 @@ impl TerminalWorkPool {
     pub(crate) fn new(memory: &Arc<crate::memory::DaemonMemory>) -> Self {
         Self {
             state: Arc::default(),
+            #[cfg(unix)]
+            reads: read_loop::TerminalReads::new(),
             #[cfg(any(unix, windows))]
             standby: standby_host::StandbyHostSlot::new(memory.clone()),
         }
@@ -89,10 +113,9 @@ impl TerminalWorkPool {
             return Ok(());
         }
         let state = self.state.clone();
-        let started = cmux_tui_platform::qos::spawn_outside_request(
-            std::thread::Builder::new().name("mux-terminal-work".into()),
-            move || Self::work(&state),
-        );
+        let started = cmux_threads::spawn("mux-terminal-work", TERMINAL_WORK_QOS, move || {
+            Self::work(&state);
+        });
         if started.is_ok() {
             return Ok(());
         }
@@ -106,6 +129,10 @@ impl TerminalWorkPool {
     }
 
     fn work(state: &Mutex<TerminalWorkState>) {
+        let _hang_watch = cmux_hang_watch::register_thread(
+            cmux_hang_watch::ThreadKind::Pool,
+            "mux-terminal-work",
+        );
         loop {
             let job = {
                 let mut state = state.lock().unwrap();
@@ -119,7 +146,10 @@ impl TerminalWorkPool {
             };
             // A panicking job must not take its worker slot with it: the
             // slot count would never drop and later jobs would queue forever.
-            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(job)).is_err() {
+            let watched = cmux_hang_watch::watch(TERMINAL_JOB_HANG_DEADLINE);
+            let finished = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
+            drop(watched);
+            if finished.is_err() {
                 eprintln!("cmux-tui: a terminal work job panicked");
             }
         }
@@ -174,6 +204,12 @@ impl PrelaunchedTerminal {
 }
 
 impl Mux {
+    /// The read loop every daemon-local PTY terminal of this owner reads on.
+    #[cfg(unix)]
+    pub(crate) fn terminal_reads(&self) -> &read_loop::TerminalReads {
+        &self.terminal_work.reads
+    }
+
     /// Queue `job` on the terminal work pool. Returns it when the pool is
     /// saturated, so the caller runs it inline.
     pub(crate) fn submit_terminal_work(
@@ -452,5 +488,28 @@ mod tests {
         let peak = peak.load(Ordering::SeqCst);
         assert!(peak <= MAX_TERMINAL_WORKERS, "peak {peak} workers");
         assert!(peak > 1, "jobs did not overlap");
+    }
+
+    /// A worker registers with the process's hang watch and watches each
+    /// job: a job past its 10 s deadline (on the watch's test clock) is a
+    /// hang of the `mux-terminal-work` thread.
+    #[test]
+    fn terminal_work_job_past_its_deadline_is_a_hang_of_its_worker() {
+        const THREAD: &str = "mux-terminal-work";
+        let harness = crate::hang_watch_test_support::Harness::get();
+        let _serial = harness.serial();
+        // The pool starts its workers after the watch runs, so they register.
+        let pool = TerminalWorkPool::for_test();
+        let before = harness.hangs_of(THREAD).len();
+        let (reported, hangs) = std::sync::mpsc::channel();
+        let queued = pool.try_submit(Box::new(move || {
+            harness.advance(TERMINAL_JOB_HANG_DEADLINE + Duration::from_secs(1));
+            let _ = reported.send(harness.wait_for(THREAD, before + 1));
+        }));
+        assert!(queued.is_ok(), "the job is queued");
+        let hangs = hangs.recv().expect("the job reports its hang");
+        let hang = hangs.last().expect("a hang of the worker");
+        assert_eq!(hang.kind, cmux_hang_watch::ThreadKind::Pool);
+        assert_eq!(hang.deadline_ms, 10_000);
     }
 }

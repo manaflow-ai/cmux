@@ -32,6 +32,10 @@ public struct PutBlobRequest: DaemonRequest {
         self.mediaType = mediaType
         self.data = data.base64EncodedString()
     }
+
+    enum CodingKeys: String, CodingKey {
+        case mediaType = "media_type", data
+    }
 }
 
 /// `get-blob`: `blob` is `blob:sha256-<hex>` or an asset icon value.
