@@ -56,6 +56,11 @@ if "--suite=launch-check" in sys.argv:
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
 if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in sys.argv:
     require_gui_session("split-spring")
+# SCRATCH MEASUREMENT REF ONLY (cp/lag-measure): `--suite=newterm-typing`: key to frame in a new terminal tab and in
+# the same terminal after 5 s idle, per feature configuration (newterm-typing-bench.py).
+if "--suite=newterm-typing" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "newterm-typing-bench.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=newterm-typing"])
 # `--suite=bench-smoke`: one short run of each bench that launches through bench_launch.py (bench-launch-smoke.py).
 if "--suite=bench-smoke" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-launch-smoke.py")
