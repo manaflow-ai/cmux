@@ -295,5 +295,29 @@ class OwnedPoolSources(unittest.TestCase):
             self.skipTest("feat-cmux-next's workflows are not readable here")
         self.assertIn(".github/workflows/cmux-next-base-autofix.yml", self.owned[str(feat)])
 
+class PolicyVariables(unittest.TestCase):
+    """policy_variables() names the variables drifted_runner_variables() holds to an owned label's shape."""
+
+    def test_a_value_filter_beside_the_dispatch_names_no_owned_variable(self) -> None:
+        # feat-cmux-next bans GitHub-hosted Mac labels from LINUX_RUNNER and the
+        # MACOS_RUNNER_* variables ahead of its dispatch. That check reads the
+        # value, not an owned shape; counting it made ~100 workflows "owned".
+        source = textwrap.dedent("""
+            POOL_ORDER_VARIABLE = "CI_POOL_ORDER"
+            NO_HOSTED_MAC_VARIABLES = frozenset({"LINUX_RUNNER", "MACOS_RUNNER_26"})
+
+            def drifted_runner_variables(variables):
+                for name, value in variables.items():
+                    if name in NO_HOSTED_MAC_VARIABLES and value.startswith("macos-"):
+                        continue
+                    if name == POOL_ORDER_VARIABLE:
+                        reason = None
+                    elif name in ("CI_SIDE_LANE_RUNNER", "CI_OTHER"):
+                        reason = None
+        """)
+        self.assertEqual(sources.policy_variables(source),
+                         frozenset({"CI_POOL_ORDER", "CI_SIDE_LANE_RUNNER", "CI_OTHER"}))
+
+
 if __name__ == "__main__":
     unittest.main()
