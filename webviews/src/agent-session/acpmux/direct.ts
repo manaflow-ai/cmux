@@ -4238,14 +4238,19 @@ export class AcpmuxDirectClient {
       this.endAssistantSegment();
       const id = this.streamingActivity ?? `activity-${event.seq}`;
       const existing = this.rows.get(id);
-      this.rows.set(id, {
+      const items = appendThought(existing?.items ?? [], text, event.at);
+      this.rows.set(
         id,
-        version: (existing?.version ?? 0) + 1,
-        at: existing?.at ?? event.at,
-        kind: "activity",
-        toolCount: existing?.toolCount ?? 0,
-        items: appendThought(existing?.items ?? [], text, event.at),
-      });
+        {
+          id,
+          version: (existing?.version ?? 0) + 1,
+          at: existing?.at ?? event.at,
+          kind: "activity",
+          toolCount: existing?.toolCount ?? 0,
+          items,
+        },
+        items.length - 1,
+      );
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
       const callId = String(update.toolCallId ?? `tool-${event.seq}`);
