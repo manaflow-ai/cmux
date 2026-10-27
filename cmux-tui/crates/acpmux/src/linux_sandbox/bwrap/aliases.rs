@@ -260,6 +260,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn writable_roots_inside_aliased_mounts_are_refused() {
+        for (root, info, alternate) in [
+            (
+                "/mnt/meta/hooks",
+                "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 /home/u/repo/.git /mnt/meta rw - ext4 root rw\n",
+                "/home/u/repo/.git/hooks",
+            ),
+            (
+                "/mnt/h",
+                "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 /home/u /mnt/h rw - ext4 root rw\n",
+                "/home/u",
+            ),
+            (
+                "/home/u/repo",
+                "1 0 0:42 /@home /home rw - btrfs root rw\n2 0 0:42 / /mnt/top rw - btrfs root rw\n",
+                "/mnt/top/@home/u/repo",
+            ),
+        ] {
+            let reasons = writable_mount_aliases(&[&PathBuf::from(root)], info);
+            assert!(
+                reasons.contains(&format!("{root} is also visible at {alternate}")),
+                "{root}: {reasons:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn writable_roots_without_alternate_views_are_allowed() {
+        let root = PathBuf::from("/home/u/repo");
+        for info in [
+            "1 0 8:1 / / rw - ext4 root rw\n2 1 8:1 /home/u/repo/.git /mnt/meta rw - ext4 root rw\n",
+            "1 0 0:42 /@home /home rw - btrfs root rw\n",
+        ] {
+            let reasons = writable_mount_aliases(&[&root], info);
+            assert!(reasons.is_empty(), "{info}: {reasons:?}");
+        }
+    }
+
+    #[test]
     fn writable_mounts_require_an_unaliased_whole_filesystem() {
         let root = PathBuf::from("/work");
         let base = "1 0 8:1 / / rw - ext4 root rw\n";
