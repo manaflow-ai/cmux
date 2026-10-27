@@ -38,8 +38,8 @@ final class ComposerBar: UIView, UITextViewDelegate {
     /// What "+" offers; none hides it (a question's text is its "Other" answer).
     var attachmentKinds: AttachmentKinds = [.photos, .files] { didSet { updateMenu() } }
 
-    static let maxLines: CGFloat = 5
-    static let thumbnailSize: CGFloat = 56
+    nonisolated static let maxLines: CGFloat = 5
+    nonisolated static let thumbnailSize: CGFloat = 56
 
     init(placeholder text: String) {
         super.init(frame: CGRect(x: 0, y: 0, width: 320, height: 52))
