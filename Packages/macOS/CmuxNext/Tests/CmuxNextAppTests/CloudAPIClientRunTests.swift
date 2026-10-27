@@ -137,6 +137,19 @@ struct CloudAPIClientRunTests {
         #expect(SandboxAPI.createKeys == ["send-2", "send-2"])
     }
 
+    @Test func noRetryOnceAnotherAccountSignedIn() async throws {
+        // The server scopes the key per account: the retry under another account would start a
+        // second Run, so the outcome stays uncertain and nothing more is sent.
+        SandboxAPI.waits = 0
+        SandboxAPI.finishAfter = 0
+        SandboxAPI.dropCreates = 1
+        SandboxAPI.createKeys = []
+        await #expect(throws: CloudAPIError.timedOut("/api/runs")) {
+            _ = try await sandboxAPI().runSandbox(task: "hi", timeoutMs: 60_000, idempotencyKey: "send-3", sameAccount: { false })
+        }
+        #expect(SandboxAPI.createKeys == ["send-3"])
+    }
+
     @Test func aWaitAnswerThatIsNoSnapshotEndsAtOnce() async throws {
         SandboxAPI.waits = 0
         SandboxAPI.finishAfter = .max
