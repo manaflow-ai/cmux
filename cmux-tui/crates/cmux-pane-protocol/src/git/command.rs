@@ -82,12 +82,12 @@ async fn run_git(cwd: &Path, arguments: &[&str], limit: usize) -> Result<Output,
     })
 }
 
-fn checked_cwd(cwd: &str) -> Result<&Path, ErrorBody> {
+async fn checked_cwd(cwd: &str) -> Result<&Path, ErrorBody> {
     let path = Path::new(cwd);
     if !path.is_absolute() {
         return Err(ErrorBody::new(error::INVALID_PARAMS, "cwd must be an absolute path"));
     }
-    if !path.is_dir() {
+    if !tokio::fs::metadata(path).await.is_ok_and(|metadata| metadata.is_dir()) {
         return Err(ErrorBody::new(NOT_A_REPO, "cwd is not a directory"));
     }
     Ok(path)
@@ -105,7 +105,7 @@ fn failure(failure: Failure) -> ErrorBody {
 
 impl GitBackend for CommandGit {
     async fn status(&self, params: GitStatusParams) -> Result<GitStatus, ErrorBody> {
-        let cwd = checked_cwd(&params.cwd)?;
+        let cwd = checked_cwd(&params.cwd).await?;
         let output = run_git(
             cwd,
             &["status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"],
@@ -120,7 +120,7 @@ impl GitBackend for CommandGit {
     }
 
     async fn diff(&self, params: GitDiffParams) -> Result<GitDiff, ErrorBody> {
-        let cwd = checked_cwd(&params.cwd)?;
+        let cwd = checked_cwd(&params.cwd).await?;
         let base = match params.base.as_deref() {
             Some(base) => resolve_commit(cwd, base).await?,
             None => match resolve_commit(cwd, "HEAD").await {

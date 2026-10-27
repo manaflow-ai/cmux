@@ -275,12 +275,12 @@ public nonisolated struct EditorSettingsImport: Sendable {
 
     /// Sets a dotted key (`minimap.enabled`) in `section`, keeping the object's other members.
     static func set(_ section: inout [String: JSONValue], _ key: String, _ value: JSONValue) {
-        var parts = key.split(separator: ".").map(String.init)
-        let first = parts.removeFirst()
-        guard !parts.isEmpty else { section[first] = value; return }
-        var child = section[first]?.objectValue ?? [:]
-        set(&child, parts.joined(separator: "."), value)
-        section[first] = .object(child)
+        let parts = key.split(separator: ".")
+        guard let name = parts.first.map(String.init) else { return }  // `""` or `"."`: no member to set
+        guard parts.count > 1 else { section[name] = value; return }
+        var child = section[name]?.objectValue ?? [:]
+        set(&child, parts.dropFirst().joined(separator: "."), value)
+        section[name] = .object(child)
     }
 
     /// `base` with `overlay`'s members on top, objects merged member by member.
