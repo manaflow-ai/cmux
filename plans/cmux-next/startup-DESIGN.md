@@ -36,7 +36,9 @@ Priority:
 behind the picture) moves the live window build after the first frame, `WindowManager.restoreWhenLoaded`
 still builds the live window in the critical phase. So a `(pane)` row stays inline before the restore, in
 today's order, until 060 lands or until its readers wait for it by event (028 does this for profiles and
-the page schemes). Its owner task moves it then.
+the page schemes). Its owner task moves it then. `inline (pane)`: a `(pane)` row kept inline after 060
+landed (079), because 060 moves the live window build behind the first frame only on the saved-picture
+path, and its build slices are afterFirstFrame posts made in `restoreWhenLoaded`, ahead of any later post.
 
 Destination: `main`, or `.lane(<BlockingLane>, <WorkPriority>)` as `StartupDestination` names it. `-` for
 rows that are not posts.
@@ -55,12 +57,12 @@ The cap is 15. Costs are not measured yet: task 072 seeds them at hour 0 and tas
 | 1 | `Settings.takeLaunchRead` | `CmuxConfigFile.prepareDefaultURL`, `SettingsController.readAtLaunch`, `TerminalThemeSetting.prime` (O3) | Theme, fonts, background and managed keys come from the settings; a frame in the defaults is wrong. It precedes `ThemeBridge.start` (the Ghostty overrides before the first config load). 025 makes the read a LaunchRead from `main()`; this post only takes it. | to measure (072); today a sync file read |
 | 2 | `ThemeBridge.start` | `ThemeBridge.start(` (Q2 26) | Chrome colors derive from the Ghostty theme; first `GhosttyRuntime.shared`. | to measure (072); 026 moves the config bytes off main |
 | 3 | `AppActions.bind` | `AppActions.bind` (O11) | Keys work from the first frame (registry handlers). | test phase (030): Release launch, `debug.startup` p50/p95 of the `AppActions.bind` record |
-| 4 | `Settings.applyManagedFeaturesNow` | `SettingsController(registry:fileURL:launch:)` (O19), `settings.applyManagedFeaturesNow(` (Q2 80) | Managed (MDM) feature policy applies before any feature or page engine starts (101). The controller is made in this post: its init needs the `ActionRegistry`, which exists only after `AppServices` (O8), so it cannot be in post 1. | to measure (101) |
+| 4 | `Settings.applyManagedFeaturesNow` | `SettingsController(registry:fileURL:launch:)` (O19), `settings.applyManagedFeaturesNow(` (Q2 80), `settings.adoptLaunchRead()` (O47) | Managed (MDM) feature policy applies before any feature or page engine starts (101). The controller is made in this post: its init needs the `ActionRegistry`, which exists only after `AppServices` (O8), so it cannot be in post 1. The launch read becomes its first load in the same step (079), so the first frame is in the file's look. | to measure (101) |
 | 5 | `ManagedPolicyBridge.start` | `ManagedPolicyBridge(...).start()` (O20) | Managed URL filter and updater policy before any page engine (101). | to measure (101) |
-| 6 | `TerminalTheme.follow` | `services.terminalTheme.follow(` (Q2 77) | Applies the loaded theme, background and backdrop art at once, so the first frame is not in the defaults. | to measure (072) |
-| 7 | `Themes.start` | `services.themes.start(` (Q2 78), `themes.followChromeTheme` (O32) | Per-workspace themes, backgrounds and the app accent are the look of the restored workspaces. | to measure (072) |
+| 6 | `TerminalTheme.follow` | `services.terminalTheme.follow(` (Q2 77) | Applies the loaded theme, background and backdrop art at once, so the first frame is not in the defaults. Done (079): a critical post. | to measure (072) |
+| 7 | `Themes.start` | `services.themes.start(` (Q2 78), `themes.followChromeTheme` (O32) | Per-workspace themes, backgrounds and the app accent are the look of the restored workspaces. Done (079): one critical post for both. | to measure (072) |
 | 8 | `MainMenu.make` | `MainMenu.make` (O13) | Menu key equivalents work from the first frame; 030 keeps only the top-level items here if the menu costs > 2 ms. | budget 2 ms p95; test phase (030): Release launch `debug.startup` record, and `swift test -c release --filter LaunchMenuAndBindingsTests` fails over it |
-| 9 | `WindowActivation.activateApp` | `WindowActivation.activateApp()` (O14) | The first window shows active (key, not a dimmed title bar that flips a frame later). | to measure (072) |
+| 9 | `WindowActivation.activateApp` | `WindowActivation.activateApp()` (O14) | The first window shows active (key, not a dimmed title bar that flips a frame later). Done (079): a critical post. | to measure (072) |
 | 10 | `Daemon.start` | `services.daemon.start(` (Q2 55) | Attaches the prestarted connection; the restore and the terminals need it. 074 moves `LaunchSnapshot.load` off main. | to measure (074) |
 | 11 | `FeaturePolicyEnforcer.start` | `FeaturePolicyEnforcer(...).start()` (O15) | Disabled features are enforced before any window shows them (101: not moved). | to measure (101) |
 | 12 | `WindowManager.restoreWhenLoaded` | `services.windows.restoreWhenLoaded()` (O25) | The front window (picture after 059, live window before it). | to measure (072, 059) |
@@ -130,12 +132,12 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | # | Call | Priority | Destination | Owner | Reason |
 |---|---|---|---|---|---|
 | 1 | `AgentPageChats.wire(` | afterFirstFrame if Home or an agent page shows, else afterStartup | main | 027 | Feeds the agent page's chat list; the first frame shows the cached list (076). |
-| 2 | `AppProcessRoot.shared.hangReports?.start(` | afterStartup | main | 079 | Sends the last run's reports; nobody waits for it. |
+| 2 | `AppProcessRoot.shared.hangReports?.start(` | afterStartup | main | 079 | Sends the last run's reports; nobody waits for it. Done (079): post `HangReports.start`. Its consent hook (`HangReportsController.recordUserWrites(of:)`, the person's own writes of `diagnostics.hangReports`) stays inline as wiring, so a write before completion still records consent. |
 | 3 | `BrowserLinkClickPreference.follow(` | afterFirstFrame (pane) | main | 028 | Link-click routing in pages; no page loads before the first frame. |
-| 4 | `BrowserOmnibarPreference.follow(` | afterFirstFrame (pane) | main | 079 | Omnibar preference of browser panes. |
+| 4 | `BrowserOmnibarPreference.follow(` | inline (pane) | main | 079 | Omnibar preference of browser panes; 028 keeps the omnibar look in the launch turn too. Kept inline (079), in today's order before the restore: its readers are page and pane builds, and the pane builds are not behind the first frame on every launch. Without the saved picture (default off) or on a mismatch, the restore mounts the panes as soon as the daemon snapshot and the window state load, which can come before the first afterFirstFrame frame; with the picture, 060's build slices are afterFirstFrame posts made in `restoreWhenLoaded`, so a post made after them runs after the panes. startup-lint (104) lists it as reader-ordered inline. |
 | 5 | `ChatSettingsPush.start(` | afterFirstFrame if Home or an agent page shows, else afterStartup | main | 027 | Pushes chat settings to acpmux; no chat starts before the first frame. |
 | 6 | `ComputerUseHelperDaemon.shared.follow(` | afterStartup | main | 029 | Computer Use helper process; nothing on screen needs it. Done (029): post `ComputerUseHelper.follow` (`LaunchServicePosts.platform`). |
-| 7 | `DaemonPrompts.start(` | afterFirstFrame | main | 079 | OSC 52 clipboard prompts need a live terminal, which attaches after the first frame. |
+| 7 | `DaemonPrompts.start(` | afterFirstFrame | main | 079 | OSC 52 clipboard prompts need a live terminal, which attaches after the first frame. Done (079): post `DaemonPrompts.start`. |
 | 8 | `DebugBrowserExternal.register(` | afterFirstFrame | main | 019 | Control method group (debug methods): one afterFirstFrame post per group. |
 | 9 | `DebugCEFDevToolsLayout.register(` | afterFirstFrame | main | 019 | Control method group (debug methods). |
 | 10 | `DebugCloudMove.register(` | afterFirstFrame | main | 019 | Control method group (debug methods). |
@@ -144,15 +146,15 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 13 | `DebugTerminalLinks.register(` | afterFirstFrame | main | 019 | Control method group (debug methods). |
 | 14 | `DebugTimings.install(` | main() | main | 088 | The mark sink and the watchdog hook; installed with the watchdog at the top of `main()`. |
 | 15 | `FirstPartyPageSchemes.install(` | afterFirstFrame (pane) | main | 028 | `cmux-page://` must be registered before the first page engine; an engine start before it (an external open, 096) waits for it by event, as for profiles. |
-| 16 | `GhosttyRuntime.shared.inputSources.start(` | afterFirstFrame | main (reads on `services.work`) | 079 (assigned here) | Input-source switch keys of the terminal key path; added after `772cdfc45ac`, so no domain task owns it. |
+| 16 | `GhosttyRuntime.shared.inputSources.start(` | afterFirstFrame | main (reads on `services.work`) | 079 (assigned here) | Input-source switch keys of the terminal key path; added after `772cdfc45ac`, so no domain task owns it. Done (079): post `GhosttyInputSources.start`. |
 | 17 | `KeepAwakeService.shared.start(` | afterStartup | main | 029 | Power assertion follow; nothing on screen needs it. Done (029): post `KeepAwake.start` (`LaunchServicePosts.platform`). |
 | 18 | `NativeCaretAccessory.install(` | main() | main | 033 (assigned here) | One process-wide `NSTextView` method swap that must precede any text field; needs no services. |
 | 19 | `NewTabClosed.wire(` | afterFirstFrame if Home or an agent page shows, else afterStartup | main | 027 | New Tab feed. |
 | 20 | `NewTabPlacesFeed.wire(` | afterFirstFrame if Home or an agent page shows, else afterStartup | main | 027 | New Tab feed. |
 | 21 | `NewTabWeather.wire(` | afterFirstFrame if Home or an agent page shows, else afterStartup | main | 027 | New Tab feed (network). |
-| 22 | `PageDescriptor.registerAgentActivityRoot(` | afterFirstFrame (pane) | main | 079 | Bundle root of a first-party page; read when such a page builds. |
-| 23 | `PageDescriptor.registerDiffRoot(` | afterFirstFrame (pane) | main | 079 | Same, the diff page. |
-| 24 | `PageDescriptor.registerFilePageRoots(` | afterFirstFrame (pane) | main | 079 | Same, the file pages. |
+| 22 | `PageDescriptor.registerAgentActivityRoot(` | inline (pane) | main | 079 | Bundle root of the agent activity page; read when such a page builds. Kept inline (079), in today's order before the restore: its readers are page and pane builds, and the pane builds are not behind the first frame on every launch. Without the saved picture (default off) or on a mismatch, the restore mounts the panes as soon as the daemon snapshot and the window state load, which can come before the first afterFirstFrame frame; with the picture, 060's build slices are afterFirstFrame posts made in `restoreWhenLoaded`, so a post made after them runs after the panes. startup-lint (104) lists it as reader-ordered inline. |
+| 23 | `PageDescriptor.registerDiffRoot(` | inline (pane) | main | 079 | Bundle root of the diff page; read when such a page builds. Kept inline (079), in today's order before the restore: its readers are page and pane builds, and the pane builds are not behind the first frame on every launch. Without the saved picture (default off) or on a mismatch, the restore mounts the panes as soon as the daemon snapshot and the window state load, which can come before the first afterFirstFrame frame; with the picture, 060's build slices are afterFirstFrame posts made in `restoreWhenLoaded`, so a post made after them runs after the panes. startup-lint (104) lists it as reader-ordered inline. |
+| 24 | `PageDescriptor.registerFilePageRoots(` | inline (pane) | main | 079 | Bundle root of the file pages; read when such a page builds. Kept inline (079), in today's order before the restore: its readers are page and pane builds, and the pane builds are not behind the first frame on every launch. Without the saved picture (default off) or on a mismatch, the restore mounts the panes as soon as the daemon snapshot and the window state load, which can come before the first afterFirstFrame frame; with the picture, 060's build slices are afterFirstFrame posts made in `restoreWhenLoaded`, so a post made after them runs after the panes. startup-lint (104) lists it as reader-ordered inline. |
 | 25 | `QuitSignal.install(` | main() | main | 033 (assigned here) | SIGTERM/SIGINT/SIGHUP during launch must quit cleanly (done check 15); the relay needs only the delegate. |
 | 26 | `ThemeBridge.start(` | critical: `ThemeBridge.start` | main | 026 | See the allowlist. |
 | 27 | `UpdateFeedPosting.follow(` | afterStartup | main | 029 | Update feed posts. Done (029): post `UpdateFeedPosting.follow` (`LaunchServicePosts.platform`). |
@@ -182,14 +184,14 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 51 | `services.browserProfiles.load(` | afterFirstFrame (pane) | main, reads on `.lane(.files, .userVisible)` | 028 | Profiles; an engine start waits for `profiles.loaded` by event. |
 | 52 | `services.cache.browserTabs.preference.follow(` | afterFirstFrame (pane) | main | 028 | Engine preference follow. |
 | 53 | `services.chatsFeed?.keepCurrent(` | afterFirstFrame for visible indicator feeds, else afterStartup; its sweep `.lane(.files, .bestEffort)` | main | 097 | `ChatsFeed.started` split: 5 feeds, a sweep, an acpmux connect, a device-ID read. |
-| 54 | `services.configActions.start(` | afterFirstFrame | main | 079 | Custom actions from cmux.json for the palette and menus. |
+| 54 | `services.configActions.start(` | afterFirstFrame | main | 079 | Custom actions from cmux.json for the palette and menus. Done (079): post `ConfigActions.start`. |
 | 55 | `services.daemon.start(` | critical: `Daemon.start` | main | 074 | See the allowlist. |
-| 56 | `services.debugSettings.start(` | afterFirstFrame (pane) | main | 079 | DEV and NIGHTLY overrides; read by the window build, so (pane). |
+| 56 | `services.debugSettings.start(` | inline (pane) | main | 079 | DEV and NIGHTLY overrides (a Release launch returns at once); read by the window build (icon family, tunables). Kept inline (079), in today's order before the restore: its readers are page and pane builds, and the pane builds are not behind the first frame on every launch. Without the saved picture (default off) or on a mismatch, the restore mounts the panes as soon as the daemon snapshot and the window state load, which can come before the first afterFirstFrame frame; with the picture, 060's build slices are afterFirstFrame posts made in `restoreWhenLoaded`, so a post made after them runs after the panes. startup-lint (104) lists it as reader-ordered inline. |
 | 57 | `services.globalHotKeys.start(` | afterFirstFrame | main | 029 | System-wide keys within 1 s of launch (029 test). Done (029): post `GlobalHotKeys.start` (`LaunchServicePosts.platform`). |
 | 58 | `services.history.start(` | afterFirstFrame (pane) | main, reads on `.lane(.files, .userVisible)` | 028 | History store. |
 | 59 | `services.history.startDaemonSync(` | afterFirstFrame | main | 028 | History sync with the daemon. |
 | 60 | `services.home.start(` | afterFirstFrame if Home shows, else afterStartup | main | 027 | Home's first frame comes from its cache (076). |
-| 61 | `services.keybindingsFile.start(` | afterFirstFrame | main | 079 | User keybindings; key sweep 100 ms after the first frame (079 test). |
+| 61 | `services.keybindingsFile.start(` | afterFirstFrame | main | 079 | User keybindings from the home daemon, read when it serves them; key sweep 100 ms after the first frame (079 test). Done (079): post `KeybindingsFile.start`. |
 | 62 | `services.locationTrail.watchScope(` | afterFirstFrame | main | 028 | Location trail scope. |
 | 63 | `services.macScreenPages.activate(` | afterStartup | main | 029 | Share This Mac resumes. Done (029): post `MacScreen.activate` (`LaunchServicePosts.platform`). It used to run in the control socket's served callback; it reads no socket. |
 | 64 | `services.mobile.follow(` | afterStartup | main | 029 | Phone access listener. Done (029): post `Mobile.follow` (`LaunchServicePosts.platform`). |
@@ -203,29 +205,29 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 72 | `services.registerDeviceHubDebug(` | afterFirstFrame | main | 019 | Control method group (debug methods). |
 | 73 | `services.registerMacScreenDebug(` | afterFirstFrame | main | 019 | Control method group (debug methods). |
 | 74 | `services.remoteLocalhost.follow(` | afterStartup | main | 029 | Remote localhost forwarding settings. Gone (021): `MachineRegistry.makeRemoteLocalhost(following:)` and the `settings` `didSet` follow. |
-| 75 | `services.startChromiumRuntime(` | afterFirstFrame (pane) | main | 079 | Runtime pack check; wires the engine reason a browser pane reads. |
+| 75 | `services.startChromiumRuntime(` | inline (pane) | main | 079 | Runtime pack check; wires the engine reason a browser pane reads (and the download a restored Chromium pane asks for). Kept inline (079), in today's order before the restore: its readers are page and pane builds, and the pane builds are not behind the first frame on every launch. Without the saved picture (default off) or on a mismatch, the restore mounts the panes as soon as the daemon snapshot and the window state load, which can come before the first afterFirstFrame frame; with the picture, 060's build slices are afterFirstFrame posts made in `restoreWhenLoaded`, so a post made after them runs after the panes. startup-lint (104) lists it as reader-ordered inline. |
 | 76 | `services.startCloud(` | afterFirstFrame | main | 020 | Cloud context; no cloud connect before the first frame (027). |
-| 77 | `services.terminalTheme.follow(` | critical: `TerminalTheme.follow` | main | 079 | See the allowlist. |
-| 78 | `services.themes.start(` | critical: `Themes.start` | main | 079 | See the allowlist. |
+| 77 | `services.terminalTheme.follow(` | critical: `TerminalTheme.follow` | main | 079 | See the allowlist. Done (079). |
+| 78 | `services.themes.start(` | critical: `Themes.start` | main | 079 | See the allowlist. Done (079). |
 | 79 | `services.updater.follow(` | wiring | main | 029 | Updater settings follow (Sparkle). Stays inline (029): one observation task, no work before the first frame, and `updates.*` (schedule, ring, download policy) must apply before the `Updater.start` post. |
 | 80 | `settings.applyManagedFeaturesNow(` | critical: `Settings.applyManagedFeaturesNow` | main | 101 | See the allowlist. |
-| 81 | `settings.start(` | afterFirstFrame | main | 079 | Config file watchers and diagnostics; the launch read is already applied. |
+| 81 | `settings.start(` | afterFirstFrame | main | 079 | Config file watches and the diagnostic toasts. Done (079): post `Settings.start`. The launch read is applied before it by `settings.adoptLaunchRead()` (O47, allowlist row 4); the start reloads once off main, so an edit made since the launch read applies. |
 | 82 | `settings.writeManagedStatus(` | afterStartup | `.lane(.files, .bestEffort)` | 025 | MDM status file for osquery, Fleet, Jamf; nobody waits. |
 
 ## 4. Other launch steps the Q2 command does not match
 
 The Q2 regex misses calls on an expression (`X(...).start()`), trailing-closure calls and assignments.
 These are the remaining steps of `applicationDidFinishLaunching` and `startSettingsAndControl`, in
-source order through O41; O42 to O46 were found later and follow at the end.
+source order through O41; O42 to O47 were found later and follow at the end.
 
 | # | Step | Priority | Destination | Owner | Reason |
 |---|---|---|---|---|---|
 | O1 | `control.startWatchdog()` | main() | main | 088 | The watchdog starts as the first statement of `main()`. |
-| O2 | `Task.detached { BrowserDesignModeController.tempFiles.removeAll() }` | afterStartup | `.lane(.files, .idle)` | 079 | Design-mode files a crash left; nobody waits. |
+| O2 | `Task.detached { BrowserDesignModeController.tempFiles.removeAll() }` | afterStartup | `.lane(.files, .bestEffort)` | 079 | Design-mode files a crash left; nobody waits. Done (079): post `BrowserDesignMode.tempFiles`, behind the best-effort fence. |
 | O3 | `settingsFileURL()` (`CmuxConfigFile.prepareDefaultURL`), `SettingsController.readAtLaunch`, `TerminalThemeSetting.prime` | critical: `Settings.takeLaunchRead` | main | 025 | Becomes the settings LaunchRead from `main()`; the post takes it and primes the Ghostty overrides before `ThemeBridge.start`. |
 | O4 | `NSApp.disableRelaunchOnLogin()` (no-activate launches) | main() | main | 033 (assigned here) | Process-wide; an agent launch never comes back at login. |
 | O5 | `WindowPlacement.noActivate`, `WindowPlacement.testScreen` | wiring | - | - | Values. |
-| O6 | `LastAppCLIPointer().publish(cliPath:)` | afterStartup | `.lane(.files, .bestEffort)` | 079 | The CLI shim pointer; nobody waits. |
+| O6 | `LastAppCLIPointer().publish(cliPath:)` | afterStartup | `.lane(.files, .bestEffort)` | 079 | The CLI shim pointer; nobody waits. Done (079): post `LastAppCLIPointer.publish`. |
 | O7 | `PageWebView.openPanel`, `PageWebView.chromiumHosting` | wiring | - | 028 | Values; p13-webui 010 deletes the statics. |
 | O8 | `AppServices(...)`, `AppProcessRoot.shared.adopt(services)` | root | main | 031, 098 | The composition root; its starts and initializers are sections 5 and 6. |
 | O9 | `followsClientRates`, `loopsFollowFrameRate`, `startup.noteLaunch`, `whenFirstSnapshotApplied`, `watchUnavailable`, `presentationChanges.subscribe`, `windows.onRestored` | wiring | - | 012, 013 | The settle references become scheduler refs. |
@@ -233,7 +235,7 @@ source order through O41; O42 to O46 were found later and follow at the end.
 | O11 | `AppActions.bind(services)` | critical: `AppActions.bind` | main | 030 | See the allowlist. |
 | O12 | `HandlerCoverage.verify(services.registry)`, `registry.unboundActionIDs()` log | debug | - | 030 | Coverage checks; no Release walk. |
 | O13 | `NSApp.mainMenu = MainMenu.make(...)` | critical: `MainMenu.make` | main | 030 | See the allowlist. |
-| O14 | `WindowActivation.activateApp()` | critical: `WindowActivation.activateApp` | main | 079 | See the allowlist. |
+| O14 | `WindowActivation.activateApp()` | critical: `WindowActivation.activateApp` | main | 079 | See the allowlist. Done (079). |
 | O15 | `FeaturePolicyEnforcer(services:).start()` | critical: `FeaturePolicyEnforcer.start` | main | 101 | See the allowlist. |
 | O16 | `order.startup.post(.afterFirstFrame, "AppServices.startNonPaintServices")` (was `firstFrame.whenOpen`, 016) | afterStartup, one post per service | main | 017 | FreeTierAttest, ssh, serverReach, updater; AgentTabImport and the page host pool. |
 | O17 | `windows.onPresent`, `windows.onFirstWindow`, `palette.onPresented`, `palette.openingEventTimestamp`, `iconPicker.onOpened`, `windows.onContentDidAppear`, `NSApp.servicesProvider` | wiring | - | 012, 096 | Closures; the first-window completion calls `firstFrameCommitted()` (012). |
@@ -241,8 +243,8 @@ source order through O41; O42 to O46 were found later and follow at the end.
 | O19 | `SettingsController(registry:fileURL:launch:)` | critical: `Settings.applyManagedFeaturesNow` | main | 101 | Needs the registry, so it runs after `AppServices` (O8); made inside the post that applies the managed features (allowlist row 4). |
 | O20 | `ManagedPolicyBridge(...).start()` | critical: `ManagedPolicyBridge.start` | main | 101 | See the allowlist. |
 | O21 | `launchCleanup.schedule(on: order.startup)` | afterStartup `LaunchCleanup.downloadTempFiles` | main | 016 | Temporary download files of an earlier run. The post only queues the cleanup: `BrowserDownloadTempFiles`' record actor reads the record and deletes the files off main, in order with this run's downloads, so a lane post would add a second queue in front of it. |
-| O22 | `mouseSideButtons.start { ... }` | afterFirstFrame | main | 079 | Back and forward mouse buttons. |
-| O23 | `TerminalHooks(services:).install()` | afterFirstFrame | main | 079 | App-scoped Ghostty actions; they need a live terminal. |
+| O22 | `mouseSideButtons.start { ... }` | afterFirstFrame | main | 079 | Back and forward mouse buttons. Done (079): post `MouseSideButtons.start`. |
+| O23 | `TerminalHooks(services:).install()` | afterFirstFrame | main | 079 | App-scoped Ghostty actions; they need a live terminal. Done (079): post `TerminalHooks.install`. |
 | O24 | `GhosttyKeybindSync(...)`, `GhosttyConfigLiveReload()` | afterFirstFrame | main | 026 | Built with their starts (Q2 43, 44). |
 | O25 | `services.windows.restoreWhenLoaded()` | critical: `WindowManager.restoreWhenLoaded` | main | 059, 060 | See the allowlist. |
 | O26 | `order.startup.post(.afterFirstFrame, "AppServices.startLaterTabWarmups")` (was `firstFrame.whenOpen`, 016) | afterStartup | main | 017, 042 | Later tab warm-ups. No WebKit view before completion but the shown agent tabs', each an afterFirstFrame `AgentTabs.launchView` post after its picture, the focused pane's first; while the focused pane shows a drawing terminal, the other panes' tabs post only once the pane region is ready (`LaunchViewQueue`, 042); the agent pages' WebKit warm-up is the afterStartup post `AgentPane.webKitWarmup`. |
@@ -250,12 +252,12 @@ source order through O41; O42 to O46 were found later and follow at the end.
 | O28 | `NSAppleEventManager.shared().setEventHandler(... kAEGetURL)` | critical: `AppleEvents.getURL` | main | 029 | See the allowlist. |
 | O29 | `firstFrame.armBackstop(after: .seconds(3))` | deleted | - | 016 | Deleted with FirstFrameGate: the first window is made in the launch turn, so its commit ends the first-frame ref; the scheduler's failsafe and the `noWindow` reason replace the backstop (095). |
 | O30 | `WebUpdates.shared.prepare(...)` | main() read, then afterStartup | `.lane(.system, .bestEffort)` | 077 | Pointer read and verify as a LaunchRead before any page requests its entry; channel follow and network check after startup. |
-| O31 | `services.palettes.sources.settings = SettingsPaletteSource(...)`, `PaletteShortcutEditor(...)` | afterFirstFrame | main | 079 | Palette settings source and shortcut editor; neither builds the palette (023). |
-| O32 | `services.themes.followChromeTheme(settings)` | critical: `Themes.start` | main | 079 | The app accent and page theme; posted with `themes.start`. |
+| O31 | `services.palettes.sources.settings = SettingsPaletteSource(...)`, `PaletteShortcutEditor(...)` | afterFirstFrame | main | 079 | Palette settings source and shortcut editor; neither builds the palette (023). Done (079): one post `Palette.settingsSource`. |
+| O32 | `services.themes.followChromeTheme(settings)` | critical: `Themes.start` | main | 079 | The app accent and page theme; posted with `themes.start`. Done (079). |
 | O33 | `AgentPageChats.wirePager(...)` | afterFirstFrame if Home or an agent page shows, else afterStartup | main | 027 | Agent chat pager. |
-| O34 | `Task { feedGitHub ObservationStream }` | afterStartup | main | 079 | GitHub feed config; off by default. |
+| O34 | `Task { feedGitHub ObservationStream }` | afterStartup | main | 079 | GitHub feed config; off by default. Done (079): post `FeedGitHub.follow`, a `ServiceObservation` kept in `lifetimeFollowers` instead of a free task. |
 | O35 | `Task { didBecomeActive -> managedPreferencesMayHaveChanged }` | afterFirstFrame | main | 025 | MDM backstop at activation. |
-| O36 | `WorkspaceAutoNameWiring(services:).start(settings:)` | afterFirstFrame | main | 079 | Workspace auto-name variant persist. |
+| O36 | `WorkspaceAutoNameWiring(services:).start(settings:)` | afterFirstFrame | main | 079 | Workspace auto-name variant persist. Done (079): post `WorkspaceAutoName.start`. |
 | O37 | `services.followMacScreenSettings(settings)` | afterStartup | main | 029 | Share This Mac settings. Done (029): post `MacScreen.followSettings` (`LaunchServicePosts.platform`). |
 | O38 | `services.startDeviceHub(settings)` | afterStartup | main | 029 | Device hub. Done (029): post `DeviceHub.start` (`LaunchServicePosts.platform`). |
 | O39 | `services.startHibernation(settings:)` | wiring, then afterStartup `Hibernation.measure` | main | 029 | Tab hibernation. Done (029): the hibernation, its agent pages and the warm set budget are made inline before the restore, so a page the restore mounts hidden reports its hide (`tabDidHide`) and becomes a discard candidate; the footprint samples and the occluded-window checker post `Hibernation.measure` (`LaunchServicePosts.platform`). |
@@ -266,6 +268,7 @@ source order through O41; O42 to O46 were found later and follow at the end.
 | O44 | `services.followEnergySaver(settings)` | afterFirstFrame | main | 029 (assigned here) | The `energy.saver` setting follow; the policy reads the default until then. |
 | O45 | `services.settings = settings` (its `didSet`: `madeAgentTabs?.follow`, `browserHost?.follow`, `cloud.hostReplica.follow`) | wiring for the store; the `cloud.hostReplica.follow` moves into the Cloud start post (afterFirstFrame) | main | 020 (assigned here) | The `didSet` reads `cloud`, so today it builds `CloudService` before the first frame (Q1-1); the host replica has nothing to show before the Cloud context starts. |
 | O46 | `order.startup.finishRegistration()` | wiring | - | 012 | The last statement of `applicationDidFinishLaunching`: every launch post is registered, so the implicit registration ref ends (Chrome's `StartupObserver`, `chrome/browser/after_startup_task_utils.cc`). |
+| O47 | `settings.adoptLaunchRead()` | critical: `Settings.applyManagedFeaturesNow` | main | 079 | The launch read as the controller's first load (design settings, managed keys, the MDM status post), with no file call and no watch; it was the first step of `settings.start`, which now waits for the first frame (Q2 81). |
 
 ## 5. `AppServices.init` starts (031)
 

@@ -179,15 +179,21 @@ final class HangReportsController {
                                               daemonMetricsFold: await daemonMetrics?.tally.byName)
     }
 
-    /// Follows the setting from the first load on (``HangReportAskPolicy``): sends only with this
-    /// Mac's consent record; otherwise shows the confirm or the one-time invitation card after
-    /// `firstWindow` resolves. A managed `DisableTelemetry` turns everything off and clears what
-    /// an earlier opted-in period left (read once per launch).
-    func start(settings: SettingsController, asks: SidebarAsks, firstWindow: @escaping @MainActor () async -> Void) {
+    /// Records this Mac's consent from the person's own writes of the setting (``recordUserWrite(defaults:path:value:)``),
+    /// from the launch on: ``start(settings:asks:firstWindow:)`` runs after startup, and a write made before it still counts.
+    func recordUserWrites(of settings: SettingsController) {
         guard service != nil else { return }
         settings.userWillWrite = { [defaults] descriptor, value in
             Self.recordUserWrite(defaults: defaults, path: descriptor.path, value: value)
         }
+    }
+
+    /// Follows the setting from the first load on (``HangReportAskPolicy``): sends only with this
+    /// Mac's consent record; otherwise shows the confirm or the one-time invitation card after
+    /// `firstWindow` resolves. A managed `DisableTelemetry` turns everything off and clears what
+    /// an earlier opted-in period left (read once per launch). The consent hook is ``recordUserWrites(of:)``'s.
+    func start(settings: SettingsController, asks: SidebarAsks, firstWindow: @escaping @MainActor () async -> Void) {
+        guard service != nil else { return }
         asking = Asking(settings: settings, asks: asks, firstWindow: firstWindow)
         let managedDisables = managedDisables, work = work
         // task-owner: the controller's one follow loop (it lives with the launch): the managed check on the files lane,
