@@ -659,6 +659,8 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   `com.cmuxterm.app.next.owner-panic-forwarder` (utility), `com.cmuxterm.next.typing-probe` (utility),
   `com.cmuxterm.app.next.invariant-sink` (utility; `InvariantSink`: one block per Invariant site per launch builds
   its Sentry event, debug images by dladdr, and captures it; the failing thread only enqueues, p10-stability-099),
+  `com.cmuxterm.app.next.sentry-recorder` (utility; DEBUG and bench builds with `CMUX_NEXT_SENTRY_RECORDER` only:
+  `SentryRecorderTransport` writes one envelope file per Sentry event; the capturing thread only serializes, p09-observability-086),
   `com.cmuxterm.app.next.blocking-drain` (utility), `com.cmux.host-pressure` (utility),
   `debug.window_record` (user-initiated),
   `com.cmuxterm.app.next.hang-reports.store` (utility; the `HangReportStore` actor's executor: its small pending,
