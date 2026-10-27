@@ -198,6 +198,11 @@ rustfmt. The pre-commit hook does the same for staged files and restages them.
 Both touch only those files, so agents sharing a checkout never reformat each
 other's work. `CMUX_SKIP_FORMAT_HOOKS=1` skips both in an emergency.
 
+## macOS and iOS parity
+
+Every new feature or capability built on cmux-next macOS, however small or big, must also be
+supported on cmux-next iOS.
+
 ## Area instructions
 
 Read these before working in their scope; nested files may not load automatically:

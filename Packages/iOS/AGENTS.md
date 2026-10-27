@@ -15,3 +15,8 @@ haptics, color, typography, and system component usage. When cmux deviates
 from the HIG deliberately, say so in the PR description and name the HIG page
 you checked. If you cannot fetch the page (offline sandbox), state that in the
 PR instead of guessing.
+
+## macOS and iOS parity
+
+Every new feature or capability built on cmux-next macOS, however small or
+big, must also be supported on cmux-next iOS.
