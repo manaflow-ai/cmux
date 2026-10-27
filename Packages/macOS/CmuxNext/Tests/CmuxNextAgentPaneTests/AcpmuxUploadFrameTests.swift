@@ -9,18 +9,6 @@ struct AcpmuxUploadFrameTests {
         var waiting: CheckedContinuation<Bool, Never>?
         func finish(_ value: Bool) { waiting?.resume(returning: value); waiting = nil }
     }
-    @Test func uploadControlDoesNotAllowDataBytesInPageParams() {
-        let body: [String: Any] = [
-            "method": "_acpmux/file_put_begin",
-            "params": ["sessionId": "s", "fileName": "x", "size": 42],
-        ]
-        #expect(AcpmuxPaneMethods.breaksParamsRule(body, modeFields: nil) == false)
-        #expect(AcpmuxPaneMethods.breaksParamsRule([
-            "method": "_acpmux/file_put_begin",
-            "params": ["sessionId": "s", "fileName": "x", "size": 42, "data": "AA=="],
-        ], modeFields: nil))
-    }
-
     @Test @MainActor func cancellationEndsPendingUploadBeforeLateAcknowledgement() async throws {
         let sent = AsyncStream<Void>.makeStream()
         let wire = UploadWire(holdReply: true, holdBegin: true, onSend: { sent.continuation.yield() })

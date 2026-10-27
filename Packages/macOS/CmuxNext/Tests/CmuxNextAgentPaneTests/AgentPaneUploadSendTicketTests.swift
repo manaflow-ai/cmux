@@ -98,6 +98,11 @@ struct AgentPaneUploadSendTicketTests {
         socket.close(code: 1000, reason: "", error: nil)
     }
 
+    @Test func daemonUploadDetailsRemainTyped() {
+        let error = AgentPaneUploadError.rpcDetails(code: "upload.diskFull", message: "full", details: ["host": "h"])
+        #expect(error.failure.code == "upload.diskFull" && error.failure.details["host"] == "h")
+    }
+
     @Test func uploadStatusCoversPendingBeginAndEmitsOneTerminalState() async throws {
         let model = AgentPaneModel(host: NoHost(), sessionId: "s-1", transport: AgentPaneTransport())
         let coordinator = AgentPaneUploadCoordinator(model: model)
