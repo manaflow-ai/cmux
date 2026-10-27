@@ -1,4 +1,3 @@
-import CmuxNextCompat
 import Dispatch
 import Foundation
 
@@ -16,17 +15,16 @@ struct FolderEventSource {
         fileprivate let descriptor: Int32
 
         /// Opens `path` for events; nil when it does not open (not a folder, no permission, no descriptor left).
-        /// A file-system call: the blocking detector sees it (a path lookup can wait on the disk).
         init?(path: String) {
             #if canImport(Darwin)
             // SAFETY: open reads the NUL-terminated copy of `path` Swift makes for the call.
-            let descriptor = blockingCall(.fileIO) { unsafe open(path, O_EVTONLY | O_CLOEXEC) }
+            let descriptor = unsafe open(path, O_EVTONLY | O_CLOEXEC)
             guard descriptor >= 0 else { return nil }
             #else
             let descriptor = inotify_init1(Int32(truncatingIfNeeded: IN_NONBLOCK | IN_CLOEXEC))
             guard descriptor >= 0 else { return nil }
             // SAFETY: inotify_add_watch reads the NUL-terminated copy of `path` Swift makes for the call.
-            let watch = blockingCall(.fileIO) { unsafe inotify_add_watch(descriptor, path, Self.watchedEvents) }
+            let watch = unsafe inotify_add_watch(descriptor, path, Self.watchedEvents)
             guard watch >= 0 else {
                 _ = close(descriptor)
                 return nil
