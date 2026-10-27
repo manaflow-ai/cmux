@@ -39,14 +39,31 @@ use super::*;
 /// `sandbox`, a mode field no remote request may carry: `web_modes::MODE_FIELDS`.)
 pub const FIELD: &str = "vmBoundary";
 
+/// `_meta.acpmux.via` on a request a daemon forwards for a client of its own
+/// that is not the person's ([`owner`] false: a paired machine's credential, or
+/// a peer forwarding one). The daemon it reaches holds it as not the owner's.
+pub const VIA_DEVICE: &str = "device";
+
 /// Whether a `session/new` asks for the VM boundary: `_meta.acpmux.vmBoundary`
 /// is exactly `true`, the connection presented this launch's peer token
-/// (`server/peer_auth.rs`), and the peer asks for itself (`Control::Peer`), not
-/// for a Web client of its own (`via: web`). From anything else it means nothing.
+/// (`server/peer_auth.rs`), and the peer asks for itself ([`owner`]), not for a
+/// Web client (`via: web`) or a paired machine (`via: device`) of its own. From
+/// anything else it means nothing.
 pub fn asked(auth: crate::server::ConnAuth, control: Control, params: &Value) -> bool {
     auth == crate::server::ConnAuth::PeerToken
-        && control == Control::Peer
+        && owner(auth, control, params)
         && params.pointer("/_meta/acpmux/vmBoundary") == Some(&Value::Bool(true))
+}
+
+/// Whether a request is the person's own for the VM boundary: its connection
+/// may have the boundary forwarded ([`forwards`]), and no daemon forwarding it
+/// said it came from a paired machine (`via: device`, [`VIA_DEVICE`]). Only
+/// such a request starts, controls, forks or re-enables a session at the
+/// boundary; any other is held to the Web's rules for one
+/// ([`Hub::hold_at_vm_boundary`]).
+pub fn owner(auth: crate::server::ConnAuth, control: Control, params: &Value) -> bool {
+    forwards(auth, control)
+        && params.pointer("/_meta/acpmux/via").and_then(Value::as_str) != Some(VIA_DEVICE)
 }
 
 /// Whether this daemon, forwarding a `session/new` to a peer it holds at the VM
@@ -92,6 +109,29 @@ impl Hub {
         cfg!(target_os = "linux") && self.config.read().await.vm_host != Some(false)
     }
 
+    /// Holds a request that is not the person's own ([`owner`] false, from a
+    /// connection served as a peer: a paired machine's `client` credential, or
+    /// a peer forwarding for one) to the Web's rules (`via: web`) when it names
+    /// a session here at the VM boundary. The Web's rules give it no control of
+    /// that session, nor a fork of it (`Hub::web_control_verdict`).
+    pub fn hold_at_vm_boundary(
+        &self,
+        auth: crate::server::ConnAuth,
+        control: Control,
+        params: &mut Value,
+    ) {
+        if control != Control::Peer || owner(auth, control, params) {
+            return;
+        }
+        let at_boundary = crate::server::session_key(params)
+            .ok()
+            .and_then(|key| self.resolve(key).ok())
+            .is_some_and(|s| s.meta().vm_boundary);
+        if at_boundary {
+            super::merge_mux_meta(params, json!({"via": "web"}));
+        }
+    }
+
     /// Whether `meta`'s remote chain runs its Claude Code without the
     /// platform sandbox now (module docs).
     pub(crate) async fn vm_boundary_unsandboxed(&self, meta: &crate::store::SessionMeta) -> bool {
@@ -101,7 +141,7 @@ impl Hub {
 
 #[cfg(test)]
 mod tests {
-    use super::{asked, forwards, vm_boundary_peer_approves};
+    use super::{asked, forwards, owner, vm_boundary_peer_approves};
     use crate::hub::Control;
     use crate::server::ConnAuth;
     use serde_json::json;
@@ -146,6 +186,16 @@ mod tests {
                 assert!(!forwards(auth, control), "{auth:?} {control:?}");
             }
         }
+    }
+
+    #[test]
+    fn a_request_forwarded_for_a_paired_machine_is_never_the_owners() {
+        let device = json!({"_meta": {"acpmux": {"via": "device", "vmBoundary": true}}});
+        assert!(!owner(ConnAuth::PeerToken, Control::Peer, &device));
+        assert!(!asked(ConnAuth::PeerToken, Control::Peer, &device));
+        assert!(owner(ConnAuth::PeerToken, Control::Peer, &json!({})));
+        assert!(!owner(ConnAuth::Device, Control::Peer, &json!({})), "a paired client");
+        assert!(owner(ConnAuth::LocalApp, Control::Local, &json!({})));
     }
 
     #[test]
