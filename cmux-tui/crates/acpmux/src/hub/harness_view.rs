@@ -82,7 +82,7 @@ impl Hub {
         let mut view = self.harnesses_view().await;
         let Some(cwd) = cwd.filter(|_| !remote) else { return Ok(view) };
         let cfg = self.config.read().await.clone();
-        let rows = tokio::task::spawn_blocking(move || match cfg.folder_gate.as_ref() {
+        let rows = crate::daemon::spawn_blocking(move || match cfg.folder_gate.as_ref() {
             Some(gate) => folder_profiles::scan_for_cwd(&cfg, gate, &cwd)
                 .iter()
                 .map(folder_profile_row)

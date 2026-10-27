@@ -37,8 +37,8 @@ struct HangReportServerRules {
         case 2:
             return HangRules(keys: hangKeys, sources: ["metrickit", "watchdog"], kinds: ["hang", "stall"])
         case 3:
-            return HangRules(keys: hangKeys.union(["blocking", "task", "thread"]),
-                             sources: ["metrickit", "watchdog", "detector", "hangwatch"], kinds: ["hang", "stall", "blocking"])
+            return HangRules(keys: hangKeys.union(["blocking", "task", "thread", "daemon"]),
+                             sources: ["metrickit", "watchdog", "detector", "hangwatch", "daemon"], kinds: ["hang", "stall", "blocking"])
         default:
             return nil
         }
@@ -48,6 +48,9 @@ struct HangReportServerRules {
     static let blockingKeys: Set<String> = ["kind", "context"]
     static let blockingKinds = Set(BlockingKind.allCases.map(\.rawValue))
     static let blockingContexts = Set(BlockingContext.allCases.map(\.rawValue))
+    /// Schema 3's `hangs[].daemon` (p02-threads-233): on a daemon sample only, its family, kind and site.
+    static let daemonKeys: Set<String> = ["family", "kind", "site"]
+    static let daemonFamilies: Set<String> = ["blocking", "inversion", "hang"]
     /// Schema 3's `hangs[].task` (p06-scheduler-203): on a watchdog hang only, the owner and class.
     static let taskKeys: Set<String> = ["owner", "class"]
     /// Schema 3's `hangs[].thread` (p09-observability-068, wireSchema.ts `HangV3.thread` and `isPairedThread`): exactly
@@ -100,6 +103,20 @@ struct HangReportServerRules {
             found += extraKeys(thread, allowed: threadKeys, at: "\(path).thread")
             if !(thread["name"] is String) || !(thread["kind"] is String) { found.append("\(path).thread fields") }
         }
+        // Schema 3: a daemon sample is of kind blocking with no duration, no stack and no blocking object, and
+        // carries the daemon object, which nothing else carries.
+        if source == "daemon" {
+            if kind != "blocking" { found.append("\(path) is a daemon \(kind)") }
+            if hang["durationMs"] as? Int != 0 { found.append("\(path).durationMs of a daemon sample") }
+            if hang["blocking"] != nil { found.append("\(path).blocking on a daemon sample") }
+            if (hang["frames"] as? [Any])?.isEmpty == false { found.append("\(path).frames of a daemon sample") }
+            guard let detail = hang["daemon"] as? [String: Any] else { return found + ["\(path).daemon missing"] }
+            found += extraKeys(detail, allowed: daemonKeys, at: "\(path).daemon")
+            if !daemonFamilies.contains(detail["family"] as? String ?? "") { found.append("\(path).daemon.family") }
+            if !(detail["kind"] is String) || !(detail["site"] is String) { found.append("\(path).daemon fields") }
+            return found
+        }
+        if hang["daemon"] != nil { found.append("\(path).daemon on a \(source) sample") }
         // Schema 3: a blocking object exactly on a detector sample of kind blocking, with no duration.
         let isBlocking = source == "detector" || kind == "blocking"
         if isBlocking != (source == "detector" && kind == "blocking") { found.append("\(path) mixes detector and \(kind)") }
