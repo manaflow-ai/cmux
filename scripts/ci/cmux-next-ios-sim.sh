@@ -164,6 +164,9 @@ if [[ "$mode" == test || "$mode" == all ]]; then
     -resultBundlePath "$work/kit.xcresult" CODE_SIGNING_ALLOWED=NO -quiet) >"$work/test.log" 2>&1
   test_status=$?
   set -e
+  # The log's errors (a test target that does not compile ran no test at all) and the log itself.
+  grep -E "error:|\*\* TEST" "$work/test.log" | sort -u | head -60 || true
+  cp "$work/test.log" "$out/test.log" 2>/dev/null || true
   xcrun simctl shutdown "$test_udid" >/dev/null 2>&1 || true
   xcrun simctl delete "$test_udid" >/dev/null 2>&1 || true
   counts="$(xcrun xcresulttool get test-results summary --path "$work/kit.xcresult" --compact 2>/dev/null | python3 -c '
