@@ -1428,6 +1428,10 @@ fn stopped_while_starting() -> RpcError {
 #[path = "stop_fence_tests.rs"]
 mod stop_fence_tests;
 
+#[cfg(test)]
+#[path = "probe_off_tests.rs"]
+mod probe_off_tests;
+
 /// The agent messages of a `session/load` (or a Claude fork's prime) never reach the session's
 /// preview, so its `lastMessage` stays the chat's own newest reply, as `wait --print` reads it
 /// from the log. ACP answers a load once its history is sent, and every reader (direct, Codex

@@ -707,7 +707,7 @@ impl Hub {
         }
         self.append(session, "mux", "host_started", started);
         #[cfg(debug_assertions)]
-        adopt_report(&p);
+        self.adopt_report(&p);
         let reported = {
             let mut slot = p.tap.lock().unwrap_or_else(|e| e.into_inner());
             let mut reported = false;
@@ -943,16 +943,21 @@ pub(super) async fn end_pooled(p: Pooled) {
 /// Debug builds only: the mode in the file `ACPMUX_TEST_POOL_ADOPT_REPORT_FILE` names is held as a
 /// report of `p`'s harness that came after the take's check and before its lines go to the chat
 /// (review 71 of #23322); the chat's own reading of it never comes. Release builds have no seam.
-#[cfg(debug_assertions)]
-fn adopt_report(p: &Pooled) {
-    let Some(file) = std::env::var_os("ACPMUX_TEST_POOL_ADOPT_REPORT_FILE") else { return };
-    if let Ok(mode) = std::fs::read_to_string(file) {
-        hold_mode_report(p, mode.trim());
-    }
-}
-
+/// "<mode> unset": then the report is noted as the tap notes one and MDM's off is unset before
+/// the chat takes it (review 77).
 #[cfg(debug_assertions)]
 impl Hub {
+    fn adopt_report(&self, p: &Pooled) {
+        let Some(file) = std::env::var_os("ACPMUX_TEST_POOL_ADOPT_REPORT_FILE") else { return };
+        let Ok(text) = std::fs::read_to_string(file) else { return };
+        let mut words = text.split_whitespace();
+        hold_mode_report(p, words.next().unwrap_or_default());
+        if words.next() == Some("unset") {
+            self.pool_reported(&p.session_id, &p.reported_off);
+            self.update_start_mode_state(None, |s| s.full_access_managed = None);
+        }
+    }
+
     /// Debug builds only: the mode in the file `ACPMUX_TEST_POOL_CLAIM_REPORT_FILE` names is held as
     /// a report of `p`'s harness that came while a chat claimed it, out of both the ready and the
     /// claimed entries, as the tap reports one; then MDM's off is unset (review 76 of #23322).

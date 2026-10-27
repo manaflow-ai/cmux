@@ -790,6 +790,29 @@ async fn under_an_mdm_off_a_report_held_past_the_take_keeps_the_agent_from_the_c
     );
 }
 
+/// MDM forces `sessions.allowFullAccess` off (#23322, review 77): a report of full access held as
+/// a chat takes a pooled agent keeps the agent from the chat, though MDM's off is unset before
+/// the handoff.
+#[tokio::test(flavor = "multi_thread")]
+async fn under_an_mdm_off_a_report_at_the_handoff_keeps_the_agent_from_the_chat_after_an_unset() {
+    let env = [("FAKE_NO_MODES", "1")];
+    let (daemon, mut rpc, kept) = prewarmed_under_an_off("fahand", &env).await;
+    assert!(kept, "fakeb reports nothing before it is taken, so it is kept");
+    std::fs::write(daemon.home.join("adopt-report"), "bypassPermissions unset").unwrap();
+    let home = daemon.home.clone();
+    let created = rpc
+        .raw(
+            "session/new",
+            json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeb"}}}),
+        )
+        .await;
+    let refused = created["error"]["message"].as_str().is_some_and(|m| m.contains("full-access"));
+    assert!(
+        refused,
+        "a chat took a pooled agent that reported full access under the off: {created}"
+    );
+}
+
 /// MDM forces `sessions.allowFullAccess` off (#23322, review 76): a pooled agent that reports full
 /// access while a chat claims it, out of both the ready and the claimed entries, is not handed to
 /// the chat, though MDM's off is unset before the chat takes it.

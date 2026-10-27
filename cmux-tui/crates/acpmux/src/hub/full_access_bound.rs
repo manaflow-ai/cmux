@@ -271,7 +271,7 @@ impl Hub {
 #[cfg(test)]
 thread_local! {
     /// Test seam (review 75): runs right after a start read MDM's off.
-    static AFTER_OFF_COUNT: std::cell::Cell<Option<fn(&Hub)>> = const { std::cell::Cell::new(None) };
+    pub(super) static AFTER_OFF_COUNT: std::cell::Cell<Option<fn(&Hub)>> = const { std::cell::Cell::new(None) };
 }
 
 #[cfg(test)]
