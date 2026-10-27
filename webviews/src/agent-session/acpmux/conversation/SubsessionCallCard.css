@@ -6,6 +6,7 @@
 .cv-subsession__raw {
   margin-inline-start: 24px;
   min-width: 0;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-subsession__under {
   margin: -3px 0 4px 22.5px;
@@ -52,6 +53,7 @@
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-subsession__toggle:hover,
 .cv-subsession__toggle:focus-visible {

@@ -194,20 +194,23 @@ enum WorkspaceVerbHandlers {
         place([workspace.id], anchor: workspace, slot, in: bridge, services: services)
     }
 
-    /// Moves `ids` (rows of `anchor`'s machine section; others stay) to `slot`, which names
-    /// `anchor`'s container, as one block in sidebar order.
+    /// Moves `ids` (rows of `anchor`'s section; others stay) to `slot`, which names
+    /// `anchor`'s container, as one block in sidebar order. False when `bridge`'s
+    /// sidebar does not list `anchor`: the move would land it loose, out of its group.
     @discardableResult
     static func place(_ ids: [String], anchor workspace: WorkspaceModel, _ slot: WorkspaceSlot, in bridge: SidebarBridge,
                       services: AppServices) -> Bool {
         let sections = bridge.model.sections, anchor = SidebarWorkspaceID(workspace.id)
-        guard let machine = services.machines.daemon(forWorkspace: workspace.id)?.machineID else { return false }
-        let home = SidebarEdits.locate(anchor, in: sections)?.section
+        guard services.machines.daemon(forWorkspace: workspace.id) != nil,
+              let home = SidebarEdits.locate(anchor, in: sections)?.section else { return false }
         var moving = SidebarEdits.treeOrder(ids.map(SidebarWorkspaceID.init), in: sections).filter {
-            home != nil && SidebarEdits.locate($0, in: sections)?.section == home
+            SidebarEdits.locate($0, in: sections)?.section == home
         }
         if moving.isEmpty { moving = [anchor] }
-        guard let position = slot.position(moving: Set(moving.map(\.rawValue)), section: .machine(MachineID(machine)), in: sections)
+        guard let position = slot.position(moving: Set(moving.map(\.rawValue)), besides: workspace.id, in: sections)
         else { return false }
+        // Pinned and custom sections move only on the sidebar document; off it, a reorder there would pin the rows.
+        if sections[home].machine == nil, !SidebarDocWiring.isActive { return false }
         bridge.handle(.reorder(moving, to: position))
         return true
     }

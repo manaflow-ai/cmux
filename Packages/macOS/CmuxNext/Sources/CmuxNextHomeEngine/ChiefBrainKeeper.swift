@@ -75,6 +75,16 @@ public final class ChiefBrainKeeper {
         return starting
     }
 
+    /// A Chief chat that found nothing on the Chief home's acpmux socket asks for the host
+    /// (#25570): it starts one when none was started in this run, and says whether a host runs
+    /// or is starting. A watch that gave up (a host that kept dying) is armed again only by an
+    /// ask, never by a chat's retries, which would relaunch a crashing host every few seconds.
+    public func ensureForChat() -> Bool {
+        if starting { return true }
+        if let watch, !watch.isWatching { return false }
+        return ensure(asked: false)
+    }
+
     /// A person's message in a conversation of the default Chief is an ask
     /// (cx-4io0o, hq-6d 2026-10-15): it starts the brain when none runs, also
     /// after `cmux chief shutdown`. The rule reads the owner's committed

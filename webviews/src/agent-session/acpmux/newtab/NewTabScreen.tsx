@@ -13,6 +13,7 @@ import type { Project } from "../ProjectChooser";
 import { firstProject, isAgentHome, mostRecentProject, projectLabel } from "../sessionList";
 import { WorktreeFailure } from "../startFolder";
 import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
+import { sandboxFailureKey, type RunModeRows } from "../sandboxRun";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
 import type { ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
@@ -136,6 +137,9 @@ export type NewTabScreenActions = {
   environments?: boolean;
   /// The environment picker's New environment: the host's SSH and cmux Cloud connect flows.
   onConnect?(kind: ConnectKind): void;
+  /// The location row's machine list opened, and every few seconds while it stays open: the host
+  /// reads acpmux's machines again (`_acpmux/status`).
+  onRefreshMachines?(): void;
   /// With `environments`, New Worktree beside the folder: the host makes a worktree of `cwd` and
   /// this resolves to the folder the chat starts in (startFolder.tsx newWorktree); rejects with the
   /// host's reason.
@@ -147,6 +151,15 @@ export type NewTabScreenActions = {
   onCreate?(kind: "terminal" | "browser"): void;
   /// The Now Playing player's controls (`nowPlaying.command`); without it the page shows no player.
   onNowPlaying?(command: NowPlayingCommand): void;
+  /// With `environments`, Run as in the picker (Persistent or Sandboxed, hq#3367); while Sandboxed
+  /// is the mode, Enter hands the prompt to `onSandbox` instead of starting a chat.
+  runMode?: RunModeRows;
+  /// Answers true when the send started, false when nothing did (an empty prompt, already sent), or
+  /// a refusal code the page shows itself (attachments, an agent a sandbox can't run).
+  onSandbox?(harness: string, text: string, attachments: ComposerAttachment[]): boolean | string;
+  /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
+  /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
+  onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
 };
 
 /// The agent's model, effort and speed chip (App's composer chips), for the agent and project a
@@ -176,6 +189,10 @@ type Props = NewTabScreenActions & {
   /// true until the host's handshake answers: `startCwd` is not known yet, so the chip names the
   /// project the tab inherited (the handshake starts its chat there) rather than none.
   startPending?: boolean;
+  /// The prompt changed: `text` and what its Enter would start (the chip's agent in the chat's
+  /// folder; no target for a saved environment, no project or a shell command). The pane warms
+  /// that agent while the person types (newChatPrewarm.ts).
+  onPromptTyped?(text: string, target?: { harness?: string; cwd?: string }): void;
   /// true until this page's daemon connection has listed the chats (`listedSessions`), while no
   /// chat is known: the recent project may still come, so the folder chip holds its place.
   chatsPending?: boolean;
@@ -287,6 +304,9 @@ export function NewTabScreen(props: Props) {
   const [picked, setPicked] = useState(false);
   // Do not work in a project (Leo 2026-10-18): no project, no start folder, until a folder pick.
   const [none, setNone] = useState(false);
+  // Another machine acpmux lists, picked in the location row's machine list: the chat starts there
+  // (screenActions onAsk with its `peer`), in a folder on it once one is picked.
+  const [machine, setMachine] = useState<{ peer: string; folder?: string }>();
   const folderless = !props.cwd || props.cwd === home || isAgentHome(props.cwd);
   const startsRecent = !picked && folderless && !props.startCwd;
   const candidate = useMemo(
@@ -373,6 +393,17 @@ export function NewTabScreen(props: Props) {
   useWebSwapHold(
     text !== (location ?? "") ? "newtab.draft" : attachments.length || reading.length ? "newtab.attachments" : null,
   );
+  // The draft as it is now, for `onLeaveDraft` when the page goes.
+  const leaving = useRef({ text, attachments, typed: false, onLeaveDraft: props.onLeaveDraft });
+  leaving.current = { text, attachments, typed: text !== (location ?? ""), onLeaveDraft: props.onLeaveDraft };
+  useEffect(
+    () => () => {
+      const draft = leaving.current;
+      if ((draft.typed && draft.text.trim()) || draft.attachments.length)
+        draft.onLeaveDraft?.(draft.text, draft.attachments);
+    },
+    [],
+  );
   // The page a file drag covers with the drop overlay (composer/DropOverlay.tsx); a drop lands in the field.
   const [dropHost, setDropHost] = useState<Element | null>(null);
   useLayoutEffect(() => {
@@ -405,7 +436,7 @@ export function NewTabScreen(props: Props) {
   // WEB-SWAP: a reload also loses a pick the page keeps only in its state: shell mode, a folder or
   // no folder, a saved environment, one being edited (pages/shared/webSwap.ts).
   const editingEnvironment = saved.on && saved.editing !== undefined;
-  useWebSwapHold(shell || picked || none || environment || editingEnvironment ? "newtab.choice" : null);
+  useWebSwapHold(shell || picked || none || environment || editingEnvironment || machine ? "newtab.choice" : null);
   // A real pick names its folder; else the folder the chat really starts in (screenActions onAsk).
   const chatFolder = environment
     ? environment.kind === "local"
@@ -433,8 +464,29 @@ export function NewTabScreen(props: Props) {
     : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
-  const askChat = (agent: string, prompt: string, cwd?: string, model?: string) => {
+  /// A Sandboxed send refused here (attachments, an agent a sandbox can't run): said over the box,
+  /// and the prompt stays.
+  const [sandboxRefusal, setSandboxRefusal] = useState<string>();
+  /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
+  const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
+    if (props.runMode?.mode === "sandboxed" && props.onSandbox) {
+      const started = props.onSandbox(agent, prompt, attachments);
+      setSandboxRefusal(typeof started === "string" ? started : undefined);
+      return started === true;
+    }
     if (environment) return askInEnvironment(environment, agent, prompt, model);
+    if (machine)
+      return props.onAsk(
+        agent,
+        prompt,
+        machine.folder,
+        model,
+        undefined,
+        attachments.length ? attachments : undefined,
+        {
+          peer: machine.peer,
+        },
+      );
     if (attachments.length > 0) return props.onAsk(agent, prompt, cwd, model, none || undefined, attachments);
     return none ? props.onAsk(agent, prompt, cwd, model, true) : props.onAsk(agent, prompt, cwd, model);
   };
@@ -736,10 +788,17 @@ export function NewTabScreen(props: Props) {
     if (entry) {
       setShell(true);
       setText(entry.command);
+      props.onPromptTyped?.("");
       return;
     }
     setText(next);
     setSelected(undefined);
+    // A shell command, a saved environment (another machine's agent) or no project start no
+    // agent here to warm; an address the person ends up typing releases it once cleared.
+    props.onPromptTyped?.(
+      shell ? "" : next,
+      environment || !askFolder || !harness ? undefined : { harness, cwd: askFolder },
+    );
   };
   const submit = () => {
     // A pairing link (its room secret) is never searched, asked or opened: the host refuses it
@@ -780,12 +839,14 @@ export function NewTabScreen(props: Props) {
     if (created.current) return;
     created.current = true;
     const prompt = shell ? "" : text.trim();
-    askChat(
+    const asked = askChat(
       harness,
       prompt && !isAddress(prompt, home) && !pairingLinkRefused(prompt) ? prompt : "",
       project,
       chipModel,
     );
+    // A Sandboxed New chat that started nothing (no prompt, a refusal) leaves the page's creates open.
+    if (asked === false) created.current = false;
   };
   const send = () => {
     touch();
@@ -964,8 +1025,10 @@ export function NewTabScreen(props: Props) {
   const projectChoice = useRef(0);
   const pickProject = (cwd?: string) => {
     projectChoice.current += 1;
-    // A folder picked anywhere on the page (a widget card's project) replaces a saved environment.
+    // A folder picked anywhere on the page (a widget card's project) replaces a saved environment,
+    // and is on this Mac.
     saved.pick(undefined);
+    setMachine(undefined);
     touch();
     setPicked(true);
     setNone(cwd === undefined);
@@ -975,8 +1038,21 @@ export function NewTabScreen(props: Props) {
     // so Return sends instead of reopening the menu.
     requestAnimationFrame(() => field.current?.focus());
   };
-  const localSessions = useMemo(
-    () => snapshot.sessions.filter((session) => !session.peer && session.hostKind !== "cloud"),
+  // A machine picked in the location row: the chat starts there, and the prompt takes the keyboard
+  // back, as after a folder pick (the picker returns no focus itself).
+  const pickMachine = (next?: { peer: string; folder?: string }) => {
+    // A newer choice than any worktree still on its way (`projectChoice`).
+    projectChoice.current += 1;
+    saved.pick(undefined);
+    touch();
+    setMachine(next);
+    field.current?.focus();
+    requestAnimationFrame(() => field.current?.focus());
+  };
+  // This Mac's chats and the chats on acpmux's machines (their folders there): a Cloud chat's host
+  // that acpmux does not list is no place a chat can start from this page.
+  const startableSessions = useMemo(
+    () => snapshot.sessions.filter((session) => session.peer || session.hostKind !== "cloud"),
     [snapshot.sessions],
   );
   const [worktreeError, setWorktreeError] = useState<string>();
@@ -1081,20 +1157,31 @@ export function NewTabScreen(props: Props) {
         summary={{
           ...chipSnapshot.summary,
           sessionId: chipSnapshot.summary?.sessionId ?? "",
-          ...(askFolder ? { cwd: askFolder } : { cwd: undefined }),
+          ...(machine
+            ? { peer: machine.peer, cwd: machine.folder }
+            : askFolder
+              ? { cwd: askFolder }
+              : { cwd: undefined }),
         }}
-        // A New Tab chat starts where the page runs (screenActions onAsk sends no peer): the
-        // row lists only this machine's chats, so its Computer menu offers no other.
-        sessions={localSessions}
+        // Every machine acpmux lists (`_acpmux/status`), as the chat composer lists them: a pick
+        // starts the chat there (screenActions onAsk with its `peer`).
+        sessions={startableSessions}
+        peers={snapshot.peers ?? []}
+        {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
+        {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
+        {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
+        {...(props.onRefreshMachines ? { onRefreshMachines: props.onRefreshMachines } : {})}
+        onComputer={(computer) => pickMachine(computer === "local" ? undefined : { peer: computer })}
         {...(props.machineName ? { localName: props.machineName } : {})}
         projectChoices={props.projects ?? []}
-        onProject={(cwd) => pickProject(cwd)}
+        onProject={(cwd, peer) => (peer ? pickMachine({ peer, folder: cwd }) : pickProject(cwd))}
         onNoProject={() => pickProject(undefined)}
         noProject={none}
         {...(browseProject ? { onBrowseProject: browseProject } : {})}
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
         {...(props.environments && props.onConnect ? { onConnect: props.onConnect } : {})}
+        {...(props.environments && props.runMode ? { runMode: props.runMode } : {})}
         {...(saved.on
           ? {
               saved: {
@@ -1240,8 +1327,13 @@ export function NewTabScreen(props: Props) {
           composer location strip; newtab/screen.css). */}
       <div ref={setComposer} className="nt-composer" data-composer-look={look === "codex" ? "codex" : undefined}>
         {worktreeError && <WorktreeFailure error={worktreeError} onDismiss={() => setWorktreeError(undefined)} />}
+        {sandboxRefusal && props.runMode?.mode === "sandboxed" && (
+          <output className="acpmux-switch-notice">
+            <span role="alert">{t(sandboxFailureKey(sandboxRefusal) ?? "sandbox.error.failed")}</span>
+          </output>
+        )}
         {/* Above the box: the project strip (Cards draws it under the field). */}
-        {!pill && <div className="nt-above">{folderStrip}</div>}
+        {!pill && !split && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
           {commandsOpen && (
             <SlashMenu
@@ -1328,11 +1420,12 @@ export function NewTabScreen(props: Props) {
           />
           {!pill && !split && pickers}
         </div>
-        {/* Claude Code's split, the chat composer's (ComposerFoot.tsx): the mode, model and effort in
-            a quiet row under the box; the box keeps the prompt, the mic and Send. */}
+        {/* Claude Code's one quiet row: folder and computer lead the mode, model and effort;
+            the box keeps the prompt, the mic and Send (Leo: "one single row"). */}
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
             <ComposerFoot ref={foot}>
+              {folderStrip}
               <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
             </ComposerFoot>
           </div>
