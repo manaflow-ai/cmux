@@ -130,6 +130,7 @@ public struct CmuxNextApp {
         BackdropVideoPlayers.shared.lanes = work
         // The launch's feature values, once, before the first feature read (the daemon connect's).
         let features = AppServices.launchFeatures(environment)
+        if features.isEnabled(.terminalLaunchPrefetch) { TerminalLaunchPrefetch().start() }
         // `debug.daemon.wire`'s counters, each schema method timed; nil in a release build unless the
         // person opted in to field data.
         let wireStats = DaemonWireStats.forBuild(fieldData: features.isEnabled(.ipcMethodLatencyFieldData),

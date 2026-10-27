@@ -417,7 +417,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// (`AgentPaneLaunchTimings.Step`).
     case webuiAgentPaneStep = 78
     /// One phase of the libghostty runtime's one-time start on main (`TerminalTimings`): `ghostty_init`, the
-    /// config load, `ghostty_app_new`. Message: `phase=<name>`. Ring: instant at the phase's end; arg0 the
+    /// config load, `ghostty_app_new`, then its first surface's (`TerminalFirstSurfaceSplit`). Message: `phase=<name>`. Ring: instant at the phase's end; arg0 the
     /// phase's code (`TerminalTimings.RuntimePhase`), arg1 its duration in ns.
     case stallGhosttyRuntimePhase = 79
 

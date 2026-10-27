@@ -92,6 +92,8 @@ public final class GhosttyRuntime {
     /// The terminals' key-to-echo stages and the process's contents gate; the app installs its input
     /// latency tracker here (``TerminalEchoStages/install(_:)``, p04-input-094) before its first terminal.
     public let echoStages: TerminalEchoStages
+    /// Splits this runtime's first surface's cost into phases (p08-startup-091); later surfaces take no split.
+    let firstSurfaceSplit = TerminalFirstSurfaceSplit()
     /// Ghostty's frames into the trace ring (p09-observability-049); `trace.start`/`stop` call ``GhosttyTraceHook/refreshDemand()``.
     public let traceHook: GhosttyTraceHook
     /// The process's secure keyboard entry for its terminals (HIToolbox counts it per process); it holds the
@@ -226,7 +228,7 @@ public final class GhosttyRuntime {
     /// Test hook: when set, only this file (plus its `config-file` includes)
     /// is loaded instead of the user's default Ghostty config files, so
     /// visual checks can run a tagged build under another theme.
-    static let configOverrideKey = "CMUX_NEXT_GHOSTTY_CONFIG"
+    nonisolated static let configOverrideKey = "CMUX_NEXT_GHOSTTY_CONFIG"
 
     /// cmux's own theme (`appearance.theme` in cmux.json, a Ghostty theme
     /// name or `light:A,dark:B`), loaded after the Ghostty config files so

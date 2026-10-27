@@ -226,11 +226,15 @@ public final class TerminalSurfaceView: NSView {
         config.io_mode = mode
         // SAFETY: as above.
         unsafe SurfaceBridge.setCallbacks(in: &config, userdata: userdata)
+        // The runtime's first surface pays the font discovery and the Metal device's first use: its phases are split.
+        var split = GhosttyRuntime.shared.firstSurfaceSplit.begin()
         // SAFETY: as above; `app` is the runtime's live app (never freed).
         guard let surface = unsafe ghostty_surface_new(app, &config) else {
+            split?.ended(.surfaceNew)
             GhosttyRuntime.logger.error("ghostty_surface_new failed")
             return
         }
+        split?.ended(.surfaceNew)
         // SAFETY: the new surface, owned by this view and freed once, in deinit (`surface`'s note).
         self.surface = unsafe surface
         // The drawable follows the size this view sets (`setFrameSize`), not
@@ -250,10 +254,13 @@ public final class TerminalSurfaceView: NSView {
             TypingFrameProbe.install(on: layer, gate: contentsGate, keyFlows: bridgeObject.typingSurface)
         }
         registerForDraggedTypes([.fileURL, .URL, .string])
+        split?.ended(.surfaceSetup)
         updateContentScale()
         updateSurfaceSize(forceReport: true)
+        split?.ended(.surfaceFit)
         updateOcclusion()
         updateFocus()
+        split?.ended(.surfaceState)
     }
 
     nonisolated public override var isFlipped: Bool { false }
