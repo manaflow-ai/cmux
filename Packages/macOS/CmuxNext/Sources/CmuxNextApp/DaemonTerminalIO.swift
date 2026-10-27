@@ -14,7 +14,7 @@ import os
 ///
 /// The attachment lifecycle is one `TerminalAttachMachine` run by a
 /// `TerminalAttachDriver` (state-audit.md T1, T3-T5):
-/// - Attaches on its own connection without claiming geometry, so showing a
+/// - Attaches on its machine's connection (`TerminalAttachment.attach(on:)`) without claiming geometry, so showing a
 ///   tab never reflows the PTY. The first settled grid report after the
 ///   replay claims it while the view renders (SurfaceLedger visibility).
 /// - Input typed while attaching or reattaching is queued and sent once, in
@@ -73,11 +73,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// `hangWatch`: watches each line the attachment's reader handles (`DaemonService.hangWatch`).
     /// `screenChanged`: told after each step this view maps (output, replay, grid, link status), so the oracle's
     /// `terminals` facet waits wake (`AppServices.terminalScreenChanged`; nil in Release).
+    /// `connection`: the machine connection each attach streams on, or reaches its endpoint from (p05-ipc-098).
     init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
          createIntent: UInt64 = 0, creatingInput: CreatingTerminalInput? = nil,
          burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
          hangWatch: (any HangWatchScoping)? = nil, screenChanged: (@Sendable () -> Void)? = nil,
-         endpoint: @escaping @Sendable () async throws -> DaemonEndpoint) {
+         connection: @escaping @Sendable () async throws -> DaemonConnection) {
         self.resizes = resizes
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
         let surface = target.attachment.surface.rawValue
@@ -98,7 +99,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                 #if DEBUG
                 try await DebugSlowAttach.shared.beforeAttach(surface: String(surface))
                 #endif
-                return try await TerminalAttachment.attach(endpoint: try await endpoint(), target: attachment,
+                return try await TerminalAttachment.attach(on: try await connection(), target: attachment,
                                                     size: size, claimGeometry: false,
                                                     snapshotVersion: Self.attachSnapshotVersion,
                                                     localHistory: Self.attachLocalHistory,

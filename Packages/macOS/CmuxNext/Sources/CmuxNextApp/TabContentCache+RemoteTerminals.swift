@@ -22,7 +22,7 @@ extension TabContentCache {
             initialSize: size ?? CellSize(cols: 80, rows: 24))
         let render = ledger.isRendering(key)
         let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, policyBlocked: daemon.policyBlock.check,
-                                  hangWatch: daemon.hangWatch, endpoint: { try await daemon.endpoint() })
+                                  hangWatch: daemon.hangWatch, connection: { try await daemon.machineConnection() })
         let session = TerminalSession(io: io, ownsGeometry: true, hangWatch: daemon.hangWatch, modifiers: terminalModifiers,
                                       pointerFrames: terminalPointerFrames,
                                       mainWork: mainWork, node: node(for: key), gpuResidency: gpuResidency)
