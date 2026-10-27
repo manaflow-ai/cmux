@@ -1925,18 +1925,21 @@ jobs:
             --artifact-directory assets/chatmux-relay
 
       # The attestation is the only GitHub API write on the publish path, and it
-      # fails when other workflows have spent the installation's hourly budget
-      # ("API rate limit exceeded for installation": runs 40376958903 and
-      # 40380418761 on 2026-10-26 left their trees unpublished, and nightly-next
-      # promotion waited an hour). A failed first try waits once, bounded, for
-      # the budget (scripts/ci/gh_budget_wait.sh --reserve, as nightly.yml's
-      # daemon attestation does) and tries again; the retry must pass, so no
+      # fails when GitHub refuses it for the rate limit ("API rate limit exceeded
+      # for installation": runs 40376958903 and 40380418761 on 2026-10-26 left
+      # their trees unpublished, and nightly-next promotion waited an hour). One
+      # retry 4 s later was not enough: run 40422130372's core budget had calls
+      # left, so the refusal was GitHub's secondary limit, and the retry hit it
+      # again. So it is tried four times. Each failed try waits through
+      # scripts/ci/gh_budget_wait.sh --backoff: until the reset when /rate_limit
+      # reads a budget exhausted, else 60, 120 and 240 s for the secondary limit,
+      # at most 15 minutes in all. The last try is not continue-on-error, so no
       # binary is published without provenance.
       - name: Attest raw binary subjects
         id: attest_subjects
         continue-on-error: true
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
+        with: &attest-subjects
           subject-path: |
             assets/cmux-tui/cmux-tui-*
             assets/cmux-tui/manifest.json
@@ -1951,29 +1954,41 @@ jobs:
           # storage records are created for this R2 publication.
           push-to-registry: false
 
-      - name: Wait for the API budget before retrying the attestation
+      - name: Back off before the second attestation try
         if: steps.attest_subjects.outcome == 'failure'
-        env:
+        env: &attest-backoff-env
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/ci/gh_budget_wait.sh --reserve 200
+          GH_BUDGET_WAIT_MAX_SECONDS: "900"
+        run: bash scripts/ci/gh_budget_wait.sh --backoff 1 "the attestation"
 
-      - name: Retry the attestation of raw binary subjects
+      - name: Attest raw binary subjects (try 2)
+        id: attest_subjects_2
         if: steps.attest_subjects.outcome == 'failure'
+        continue-on-error: true
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
-        with:
-          subject-path: |
-            assets/cmux-tui/cmux-tui-*
-            assets/cmux-tui/manifest.json
-            assets/cmux-tui-windows/cmux-tui-*
-            assets/cmux-tui-windows/manifest.json
-            assets/cmux-relay/cmux-relay-*
-            assets/cmux-relay/manifest.json
-            assets/chatmux-relay/chatmux-relay-*
-            assets/chatmux-relay/cmux-tui-*
-            assets/chatmux-relay/manifest.json
-          # These are file subjects, not OCI images. No artifact-metadata
-          # storage records are created for this R2 publication.
-          push-to-registry: false
+        with: *attest-subjects
+
+      - name: Back off before the third attestation try
+        if: steps.attest_subjects_2.outcome == 'failure'
+        env: *attest-backoff-env
+        run: bash scripts/ci/gh_budget_wait.sh --backoff 2 "the attestation"
+
+      - name: Attest raw binary subjects (try 3)
+        id: attest_subjects_3
+        if: steps.attest_subjects_2.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with: *attest-subjects
+
+      - name: Back off before the last attestation try
+        if: steps.attest_subjects_3.outcome == 'failure'
+        env: *attest-backoff-env
+        run: bash scripts/ci/gh_budget_wait.sh --backoff 3 "the attestation"
+
+      - name: Attest raw binary subjects (last try)
+        if: steps.attest_subjects_3.outcome == 'failure'
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with: *attest-subjects
 
       - name: Upload to R2
         env:
