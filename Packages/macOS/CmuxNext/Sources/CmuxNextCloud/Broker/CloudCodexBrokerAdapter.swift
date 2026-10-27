@@ -28,6 +28,7 @@ import Observation
     @ObservationIgnored private var runs: [UUID: (CloudCodexBrokerScope, String, Task<Void, any Error>)] = [:]
     @ObservationIgnored private var cleanupWaiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
     @ObservationIgnored private var cleanupTimers: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var cleanupWork: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var teardownTasks: [CloudCodexBrokerScope: Task<Void, Never>] = [:]
     @ObservationIgnored private var activeScopes: Set<CloudCodexBrokerScope> = []
     @ObservationIgnored private var scopeWaiters: [CloudCodexBrokerScope: [CheckedContinuation<Void, Never>]] = [:]
@@ -174,14 +175,17 @@ import Observation
         try await withCheckedThrowingContinuation { continuation in
             cleanupWaiters[id] = continuation
             // Independent tasks do not inherit cancellation from the UI caller.
-            let work = Task {
+            cleanupWork[id] = Task {
+                defer { cleanupWork.removeValue(forKey: id) }
                 do { try await broker.revoke(target: target); finishCleanup(id, result: .success(())) }
                 catch { finishCleanup(id, result: .failure(error)) }
             }
             cleanupTimers[id] = Task {
                 // wakeup-allow: one-shot cleanup deadline, cancelled when revocation answers.
                 do { try await Task.sleep(for: .seconds(30)) } catch { return }
-                if finishCleanup(id, result: .failure(CloudCodexBrokerError.remoteDeliveryFailed)) { work.cancel() }
+                // Keep the native target lock until the remote mutation answers.
+                // Cancellation may only stop waiting, not the server-side delete.
+                finishCleanup(id, result: .failure(CloudCodexBrokerError.remoteDeliveryFailed))
             }
         }
     }
