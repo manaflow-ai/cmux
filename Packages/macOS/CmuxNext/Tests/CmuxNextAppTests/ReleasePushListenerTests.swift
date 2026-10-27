@@ -412,7 +412,7 @@ import CmuxNextWakeupsTestSupport
         #expect(s.updater.availableButton == UpdateAvailableButton(version: "2.0.0"), "the pushed build did not ask")
         #expect(downloads == 0 && s.updater.readyCard == nil, "the pushed build downloaded without an answer")
         // Update answers the found step: it downloads, and nothing installs yet.
-        s.updater.installClicked()
+        s.updater.downloadClicked()
         #expect(downloads == 1, "Update did not download the found build")
     }
 

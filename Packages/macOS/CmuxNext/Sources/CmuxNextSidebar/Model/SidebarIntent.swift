@@ -70,6 +70,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// The update card's button: install the staged update and relaunch
     /// (`SidebarModel.updateCard`).
     case installUpdate
+    /// The titlebar's Update Available button: download the found update (it then asks before
+    /// relaunching on the update card).
+    case downloadUpdate
     /// The update card's Automatic Updates switch.
     case setAutomaticUpdates(Bool)
     /// A link in the update card's popover (a pull request, the release notes).

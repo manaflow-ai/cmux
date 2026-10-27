@@ -112,7 +112,7 @@ import Testing
     func laterNeverRelaunches(identity: UpdateBuildIdentity) async throws {
         let (updater, effects) = Self.make(identity)
         updater.debugIndicatorPhase = .available(version: "2.0.0")
-        updater.installClicked()
+        updater.downloadClicked()
         updater.debugIndicatorPhase = .downloading(.starting)
         updater.debugIndicatorPhase = .ready(version: "2.0.0")
         #expect(updater.readyCard != nil)
@@ -134,7 +134,7 @@ import Testing
         let (updater, effects) = Self.make(identity, optIn: true)
         #expect(updater.downloadsFoundUpdates && updater.automaticUpdates, "\(identity.track): the opt-in does not download by itself")
         updater.debugIndicatorPhase = .available(version: "2.0.0")
-        updater.installClicked()
+        updater.downloadClicked()
         #expect(!updater.flow.installRequested, "\(identity.track): a click on a deferred download skipped the relaunch's ask")
         updater.debugIndicatorPhase = .downloading(.starting)
         updater.debugIndicatorPhase = .ready(version: "2.0.0")
@@ -143,6 +143,23 @@ import Testing
         #expect(updater.readyCard != nil, "\(identity.track): the opted-in update did not ask before the relaunch")
         updater.installClicked()
         #expect(await eventually { effects.installs == 1 }, "\(identity.track): Restart to Update did not install")
+    }
+
+    /// A repeated or late Update (pressed again while the download runs, or after it staged) never
+    /// turns into Restart to Update: the staged update still asks.
+    @Test func aRepeatedUpdateNeverAsksToRelaunch() async throws {
+        let (updater, effects) = Self.make(Self.nightly)
+        updater.debugIndicatorPhase = .available(version: "2.0.0")
+        updater.performCardAction(.update)
+        updater.debugIndicatorPhase = .downloading(.starting)
+        updater.performCardAction(.update)
+        UpdateSheetModel(service: updater).perform(.update)
+        #expect(!updater.flow.installRequested, "a second Update during the download asked to relaunch")
+        updater.debugIndicatorPhase = .ready(version: "2.0.0")
+        updater.performCardAction(.update)
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(effects.downloads == 1 && effects.installs == 0, "a repeated Update relaunched")
+        #expect(updater.readyCard != nil)
     }
 
     /// The update sheet (no sidebar showing the cards) asks the same way: its found step offers

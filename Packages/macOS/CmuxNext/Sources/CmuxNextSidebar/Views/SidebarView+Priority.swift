@@ -47,7 +47,7 @@ extension SidebarViewComponents {
 
     /// The quiet Update Available button in the titlebar row (a found update that waits for a
     /// click, `updates.downloadAutomatically` off): `label` is its tooltip and VoiceOver label,
-    /// nil hides it. A press sends ``SidebarIntent/installUpdate`` (download, then install).
+    /// nil hides it. A press sends ``SidebarIntent/downloadUpdate`` (download only; the update card asks before relaunching).
     public func showUpdateAvailable(_ label: String?) {
         if let label { updateAvailableButton.label = label }
         guard updateAvailableButton.isHidden != (label == nil) else { return }
@@ -58,7 +58,7 @@ extension SidebarViewComponents {
     func buildUpdateAvailable() {
         updateAvailableButton.isHidden = true
         updateAvailableButton.setAccessibilityIdentifier("cmux.sidebar.updateAvailable")
-        updateAvailableButton.onPress = { [weak self] in self?.model.send(.installUpdate) }
+        updateAvailableButton.onPress = { [weak self] in self?.model.send(.downloadUpdate) }
         addSubview(updateAvailableButton)
     }
 

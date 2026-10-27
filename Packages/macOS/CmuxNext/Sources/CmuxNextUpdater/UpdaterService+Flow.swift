@@ -23,7 +23,7 @@ extension UpdaterService {
 
     /// The titlebar's quiet Update Available button: a found update that waits for a click
     /// (`updates.downloadAutomatically` off, or downloads deferred on a metered network); a click
-    /// downloads it, and the staged update then asks before relaunching (``installClicked()``).
+    /// downloads it (``downloadClicked()``), and the staged update then asks before relaunching.
     /// Nil otherwise, and for a version the
     /// person closed or snoozed (``updateSnooze``), and while a check the person asked for shows
     /// it on the notice card (``card``).
@@ -37,23 +37,28 @@ extension UpdaterService {
         flow.footerPill(preferences: preferences)
     }
 
-    /// A click on an update card or button. On the Update Ready card (or the footer pill) it
-    /// installs and relaunches; `willRelaunch` records keep sessions. On the update-found step
-    /// (the notice card's Update, the titlebar's Update Available) it answers Sparkle's
-    /// update-found prompt: without the automatic-install opt-in the update downloads and then
-    /// waits on the Update Ready card, which asks before relaunching (Leo 2026-10-27: "ask before
-    /// the download + install step, and likewise for the reboot"). The same holds with the opt-in
-    /// when its download was deferred (a metered link): the opt-in skips the first ask, never the
-    /// relaunch's.
-    public func installClicked() {
+    /// The answer to the update-found step (the notice card's Update, the titlebar's Update
+    /// Available, the sheet's Update): download only. The update then waits on the Update Ready
+    /// card, which asks before relaunching (Leo 2026-10-27: "ask before the download + install
+    /// step, and likewise for the reboot"). With the opt-in too (a download deferred on a metered
+    /// link): the opt-in skips the first ask, never the relaunch's. It never asks to install, so a
+    /// repeated or late press (the download already running, or staged) does nothing.
+    public func downloadClicked() {
         syncFlowPhase()
-        if case .available = flow.phase {
-            #if DEBUG || CMUX_BENCH_HOOKS
-            UpdateHarness.mark("download_clicked")
-            #endif
-            send(.downloadRequested)
+        guard case .available = flow.phase else {
+            log.append("update-found answer ignored: nothing waits on that step (\(flow.phase))")
             return
         }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        UpdateHarness.mark("download_clicked")
+        #endif
+        send(.downloadRequested)
+    }
+
+    /// Restart to Update (the Update Ready card, the footer pill): install and relaunch, at once
+    /// or when the download finishes. `willRelaunch` records keep sessions.
+    public func installClicked() {
+        syncFlowPhase()
         #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("install_clicked")
         #endif

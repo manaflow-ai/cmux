@@ -636,7 +636,11 @@ def main():
             result["required"]["staged_without_click"] = bool(staged and staged["name"] == "phase.ready")
             result["required"]["phases"] = [r["name"] for r in marks.read() if r["pid"] == v1_pid and r["name"].startswith("phase.")]
             log("required update", json.dumps(result["required"]))
-        if staged and staged["name"] == "phase.available" and not a.required_update:
+        if not a.required_update and not a.sparkle_auto:
+            # No automatic-download opt-in here (the default): the check must stop on the
+            # update-found step. Anything else (straight to staged) skipped the first ask.
+            if not staged or staged["name"] != "phase.available":
+                raise SystemExit(f"the check did not stop on the update-found step: {staged and staged['name']}")
             result["asked"] = answer_found_step(a, sock, marks, v1_pid)
             staged = result["asked"]["staged"]
         if not staged or staged["name"] != "phase.ready":
