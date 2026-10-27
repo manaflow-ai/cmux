@@ -61,6 +61,7 @@ final class PermissionAppTile: NSView, NSDraggingSource {
     override func mouseDown(with event: NSEvent) { hover.state.pressed = true }
     override func mouseUp(with event: NSEvent) { hover.state.pressed = false }
 
+    // input-coalesce: native (the first drag event starts an AppKit dragging session, which must start from that event and then tracks the pointer itself)
     // local-monitor-allow: the drag session, which beginDraggingSession must start from this event; a drag is unbuffered until mouseUp (p06-scheduler.md section E)
     override func mouseDragged(with event: NSEvent) {
         hover.state.pressed = false

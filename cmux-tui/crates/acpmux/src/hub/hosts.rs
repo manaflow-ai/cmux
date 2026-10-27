@@ -908,7 +908,8 @@ fn response_result(msg: &Value) -> Result<Value, RpcError> {
     }
 }
 
-/// `agent_host::terminate_unadoptable` off the async runtime.
+/// `agent_host::terminate_unadoptable` off the async runtime: signal graces and `ps`, a
+/// WILL_BLOCK item, unwatched (`daemon/hang_watch.rs`).
 pub(super) async fn end_host_blocking(
     dir: std::path::PathBuf,
     session_id: String,
