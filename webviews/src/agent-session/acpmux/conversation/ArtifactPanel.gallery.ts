@@ -82,6 +82,7 @@ const writtenLive = {
       1,
       { id: "live-write", version: 1 },
     ),
+    assistant("Preparing release", 1, { id: "live-status", version: 1 }),
   ]),
   play: async (ctx: PlayContext) => {
     await open(ctx);
@@ -98,10 +99,11 @@ const writtenLive = {
           0,
           { id: "live-write", version: 2 },
         ),
+        assistant("Release ready", 0, { id: "live-status", version: 2 }),
       ]),
     );
     await ctx.waitFor(() =>
-      [...ctx.document.querySelectorAll(".cv-codeblock")].some((node) => node.textContent?.includes("Release ready")),
+      ctx.document.querySelector('[data-row-id="live-status"]')?.textContent?.includes("Release ready"),
     );
   },
 };
