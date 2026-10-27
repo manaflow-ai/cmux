@@ -24,7 +24,7 @@
   --agent-border: var(--page-separator);
   --agent-page-bg: transparent;
   --agent-danger: var(--hc-danger);
-  --cv-font: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --cv-font: var(--font-ui);
   --cv-para-after: 4px;
   --cv-column: none;
 }
@@ -66,6 +66,7 @@ body,
   font-size: var(--text-detail);
   font-weight: 600;
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* The quiet hover is for outline buttons only: a filled button keeps its fill under the pointer. */
 .hc-text-button:not(.primary, .danger):hover:not(:disabled) {
@@ -101,6 +102,7 @@ body,
   line-height: 16px;
   color: var(--page-text-2);
   background: var(--hc-fill-strong);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 /* ---------- Avatar ---------- */
 .hc-avatar {
@@ -113,9 +115,11 @@ body,
   font-weight: 600;
   color: var(--page-text);
   background: color-mix(in srgb, var(--page-text) 14%, transparent);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .hc-avatar.large {
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .hc-avatar.agent {
   border-radius: 28%;
@@ -187,6 +191,7 @@ body,
   text-align: center;
   color: var(--page-text-3);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .hc-new-line {
   display: flex;
@@ -196,6 +201,7 @@ body,
   color: var(--hc-danger);
   font-size: var(--text-caption);
   font-weight: 700;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .hc-new-line::before {
   content: "";
@@ -211,6 +217,7 @@ body,
   padding: 6px var(--hc-gutter);
   color: var(--page-text-3);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .hc-replies-line::after {
   content: "";
@@ -269,6 +276,7 @@ body,
   margin: 0;
   font-size: var(--text-caption);
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .hc-thread-replying {
   display: flex;
@@ -278,6 +286,7 @@ body,
   padding: 4px var(--hc-gutter) 0;
   font-size: var(--text-caption);
   color: var(--page-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .hc-msg-gutter {
   display: flex;
@@ -290,6 +299,7 @@ body,
   line-height: 22px;
   color: var(--page-text-3);
   white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .hc-msg:hover .hc-msg-hover-time,
 .hc-msg:focus-within .hc-msg-hover-time {
@@ -311,6 +321,7 @@ body,
 .hc-msg-edited {
   font-size: var(--text-caption);
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .hc-msg-retracted,
 .hc-msg-other {
@@ -324,6 +335,7 @@ body,
 .hc-writing {
   font-size: var(--text-caption);
   color: var(--page-text-3);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 @media (prefers-reduced-motion: no-preference) {
   .hc-writing {
@@ -406,6 +418,7 @@ body,
 }
 .hc-quick {
   font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .hc-reactions {
@@ -427,6 +440,7 @@ body,
   font: inherit;
   font-size: var(--text-detail);
   cursor: default;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .hc-reaction:hover {
   border-color: var(--hc-line-strong);
@@ -454,6 +468,7 @@ body,
   font-size: var(--text-caption);
   font-weight: 600;
   color: var(--page-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .hc-chip.work.failed .hc-chip-status {
   color: var(--hc-danger);
@@ -478,6 +493,7 @@ body,
   border-radius: 8px;
   background: var(--hc-fill);
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .hc-confirm > span {
   flex: 1;
@@ -535,6 +551,7 @@ body,
   color: var(--page-text-3);
   font-size: var(--text-caption);
   white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 .hc-send.ui-toolbar-button {
   display: inline-grid;
@@ -610,6 +627,7 @@ body,
   background: transparent;
   font-size: var(--text-heading);
   cursor: default;
+  letter-spacing: var(--text-heading--letter-spacing);
 }
 .hc-emoji-cell:hover,
 .hc-emoji-cell:focus-visible {
@@ -680,6 +698,7 @@ body,
   color: var(--page-text-2);
   font: inherit;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .hc-thread-more:hover:not(:disabled),
 .hc-thread-more:focus-visible {
@@ -722,6 +741,7 @@ body,
 .hc-gate h1 {
   font-size: var(--text-heading);
   margin: 0;
+  letter-spacing: var(--text-heading--letter-spacing);
 }
 .hc-gate label {
   display: flex;
@@ -741,6 +761,7 @@ body,
 .hc-gate-code {
   font-size: var(--text-heading);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-heading--letter-spacing);
 }
 .hc-gate-error {
   color: var(--hc-danger);

@@ -77,19 +77,8 @@ class Pick(unittest.TestCase):
                 self.assertEqual(picker.pick(variable, None, NOW)[0], SMALL)
                 self.assertNotIn(variable, picker.candidates(variable)) if variable else None
 
-    def test_every_blacksmith_label_stalled_overflows_to_hosted(self) -> None:
-        label, why = picker.pick(LARGE, snapshot({LARGE: 90, SMALL: 90}), NOW)
-        self.assertEqual(label, "macos-26")
-        self.assertIn("hosted", why)
-        # One label still moving keeps the job on Blacksmith.
-        self.assertEqual(picker.pick(LARGE, snapshot({LARGE: 90, SMALL: 3}), NOW)[0], SMALL)
-
-    def test_main_writes_hosted_when_every_label_is_stalled(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            output = Path(tmp) / "out"
-            env = {"CANDIDATE": SMALL, "SNAPSHOT_TOKEN": "t", "GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(output)}
-            self.assertEqual(picker.main(env, read=lambda t, r: snapshot({LARGE: 60, SMALL: 60}), now=NOW), 0)
-            self.assertEqual(output.read_text(), "runner=macos-26\n")
+    def test_every_label_stalled_still_names_one(self) -> None:
+        self.assertEqual(picker.pick(LARGE, snapshot({LARGE: 90, SMALL: 90}), NOW)[0], SMALL)
 
     def test_main_writes_the_output_and_never_fails(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
