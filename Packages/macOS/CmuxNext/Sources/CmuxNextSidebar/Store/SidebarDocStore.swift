@@ -118,8 +118,9 @@ public final class SidebarDocStore {
             return
         }
         loading = true
-        // The load answers the changes unanswered before it was asked for (a later one asks for another load).
-        let answering = unanswered
+        // The load answers the changes unanswered before it was asked for (a later one asks for another load), and holds
+        // the changes answered before it was asked for: a change answered while it is on the way may not be in it.
+        let answering = unanswered, held = pendingRecords.replied
         // task-owner: one sidebar.get; settles the load
         Task { [weak self] in
             defer {
@@ -141,8 +142,8 @@ public final class SidebarDocStore {
                 mirror.reject(key)
                 self.pendingRecords.remove(key)
             }
-            // The document holds every answered change now (or never will): its rows draw the loaded records.
-            self.pendingRecords.removeReplied()
+            // The document holds the changes answered before the load was asked for (or never will): their rows draw it.
+            for key in held { self.pendingRecords.remove(key) }
             self.unanswered.subtract(answering)
             self.records = records
             self.groupFolds = records.items.compactMapValues(\.body.groupCollapsed)

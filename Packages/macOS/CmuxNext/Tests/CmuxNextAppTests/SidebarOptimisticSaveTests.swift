@@ -155,7 +155,8 @@ struct SidebarDocOptimisticGroupTests {
     }
 
     static func send(_ intent: SidebarIntent, to store: SidebarDocStore) {
-        let drag = SidebarDocDrag(item: { _ in nil }, section: { _ in SidebarGroupDragRailTests.section }, begin: { _ in [:] }, drop: { _, _ in })
+        // The document names its workspace items `w_<workspace>` (`SidebarGroupDragRailTests.document`).
+        let drag = SidebarDocDrag(item: { key in if case let .workspace(id) = key { "w_\(id.rawValue)" } else { nil } }, section: { _ in SidebarGroupDragRailTests.section }, begin: { _ in [:] }, drop: { _, _ in })
         _ = store.handle(intent, model: SidebarModel(), drag: drag, pinTitle: "Pin", unpinTitle: "Unpin")
     }
 

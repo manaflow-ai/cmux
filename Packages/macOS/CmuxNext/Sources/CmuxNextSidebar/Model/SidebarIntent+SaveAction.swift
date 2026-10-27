@@ -18,6 +18,8 @@ extension SidebarIntent {
         case .setColor: ("palette.workspaceColor", nil)
         case .setPinned: ("palette.toggleWorkspacePin", nil)
         case .close: ("closeWorkspace", nil)
+        case .setIcon: ("workspace.setIcon", nil)
+        case .reorderProfile: ("space.move", nil)
         default: ("moveWorkspaceToGroup", SidebarDocStore.moveTitle)
         }
     }

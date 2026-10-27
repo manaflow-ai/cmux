@@ -50,10 +50,8 @@ nonisolated struct SidebarDocPendingRecords {
         entries[index].replied = true
     }
 
-    /// A load holds every answered change (or never will): their writes end.
-    mutating func removeReplied() {
-        entries.removeAll(where: \.replied)
-    }
+    /// The keys the daemon has answered: a load asked for from here on holds their changes (or never will).
+    var replied: Set<String> { Set(entries.filter(\.replied).map(\.key)) }
 
     /// `records` with every pending write applied, in order.
     func applied(to records: SidebarDocRecords) -> SidebarDocRecords {

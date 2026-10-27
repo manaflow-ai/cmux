@@ -222,40 +222,49 @@ final class SidebarRows {
         return (failed, { [weak self] in self?.settle(edit) })
     }
 
-    /// Sends `commands` in order for `edit`, each to its own daemon: the edit settles once every one
-    /// replied and its daemon's store holds the result (read-your-writes), or at the first failure,
-    /// which runs `failed` and sends no later command.
+    /// Sends `commands` for `edit`, each to its own daemon and each on its own (a slow or failed one never holds
+    /// back the others, which were already told their workspaces close): the edit settles once every one replied and
+    /// its daemon's store holds the result (read-your-writes), or at the first failure, which runs `failed` once.
     func send(_ edit: SidebarPendingEdits.Token?, _ commands: [(label: String, daemon: DaemonService, body: DaemonCommandBody)],
               failed onFailure: @escaping @MainActor (ActionWorkFailure) -> Void) {
         let (failed, applied) = outcome(edit, failed: onFailure)
-        // task-owner: one sidebar change's commands; settles its edit
-        Task {
-            var sent: [(DaemonService, ClientTransactionID)] = []
-            for command in commands {
-                if let failure = await command.daemon.failure(command.label, command.body) { return failed(failure) }
-                sent.append((command.daemon, .generate()))
+        guard !commands.isEmpty else {
+            applied?()
+            return
+        }
+        let replies = Replies(commands.count, failed: failed, applied: applied)
+        for command in commands {
+            // task-owner: one sidebar command; reports to the change's `Replies`
+            Task {
+                if let failure = await command.daemon.failure(command.label, command.body) { return replies.failed(failure) }
+                // Its daemon's store holds it once that daemon's events up to the reply are applied.
+                command.daemon.whenApplied(.generate(), replies.applied)
             }
-            guard let applied else { return }
-            // Settled when the last daemon's store holds its command's result; each one's barrier is the reply's.
-            guard !sent.isEmpty else { return applied() }
-            let left = Countdown(sent.count, applied)
-            for (daemon, transaction) in sent { daemon.whenApplied(transaction, left.tick) }
         }
     }
 
-    /// Runs `done` at the `count`th tick.
-    @MainActor private final class Countdown {
-        private var count: Int
-        private let done: @MainActor () -> Void
+    /// One change's replies: `failed` at the first failure, else `applied` once every command's result is held.
+    @MainActor private final class Replies {
+        private var left: Int
+        private var onFailure: (@MainActor (ActionWorkFailure) -> Void)?
+        private let onApplied: (@MainActor () -> Void)?
 
-        init(_ count: Int, _ done: @escaping @MainActor () -> Void) {
-            self.count = count
-            self.done = done
+        init(_ count: Int, failed: @escaping @MainActor (ActionWorkFailure) -> Void, applied: (@MainActor () -> Void)?) {
+            left = count
+            onFailure = failed
+            onApplied = applied
         }
 
-        func tick() {
-            count -= 1
-            if count == 0 { done() }
+        func failed(_ failure: ActionWorkFailure) {
+            let report = onFailure
+            onFailure = nil
+            report?(failure)
+        }
+
+        func applied() {
+            left -= 1
+            // A change that failed already took its edit back.
+            if left == 0, onFailure != nil { onApplied?() }
         }
     }
 
