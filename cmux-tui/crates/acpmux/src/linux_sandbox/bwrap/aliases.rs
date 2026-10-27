@@ -113,6 +113,20 @@ fn overlay_layers(options: &str) -> Result<Vec<PathBuf>, String> {
         let parts = match key {
             "lowerdir" => split_overlay_layers(value),
             "lowerdir+" | "datadir+" | "upperdir" | "workdir" => vec![value.to_owned()],
+            "redirect_dir"
+            | "index"
+            | "xino"
+            | "metacopy"
+            | "nfs_export"
+            | "uuid"
+            | "volatile"
+            | "userxattr"
+            | "verity"
+            | "default_permissions"
+            | "ro"
+            | "rw" => {
+                continue;
+            }
             key if key.ends_with("dir") || key.ends_with("dir+") => {
                 return Err(format!("unknown overlay layer option: {key}"));
             }
