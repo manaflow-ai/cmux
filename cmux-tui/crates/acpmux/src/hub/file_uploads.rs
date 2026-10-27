@@ -89,13 +89,17 @@ pub(crate) fn touch(file: &Path) -> anyhow::Result<()> {
     crate::agent_tools::write_private(&dir.join(USED), &[])
 }
 
-/// When upload folder `dir` was last used ([`touch`]), in Unix ms; 0 when never.
+/// When upload folder `dir` was last used, in Unix ms; 0 when never: marked used ([`touch`]: a
+/// prompt, a turn, a status call), or written to (its `.part`, an unfinished upload's bytes).
 fn used_at(dir: &Path) -> u64 {
-    let modified = std::fs::symlink_metadata(dir.join(USED)).and_then(|m| m.modified());
-    modified
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+    let at = |name: &str| {
+        let modified = std::fs::symlink_metadata(dir.join(name)).and_then(|m| m.modified());
+        modified
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+    };
+    at(USED).max(at(".part"))
 }
 
 /// Deletes each upload under `root` older than `max_age` at `now_ms`, and a session folder it
@@ -112,8 +116,10 @@ pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Duration) -> usize {
     let mut removed = 0;
     for session in real_dirs(root) {
         for upload in real_dirs(&session.path()) {
-            // Made and last used before the cutoff (`touch`), decided and deleted under `IN_USE`.
+            // Made and last used before the cutoff (`used_at`), decided and deleted under `IN_USE`
+            // and the upload's own lock, so no write, status, finish or cancel on it runs between.
             let _held = IN_USE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let _upload = upload.file_name().to_str().map(hold);
             let old = upload.file_name().to_str().and_then(made_at).is_some_and(|at| at < cutoff)
                 && used_at(&upload.path()) < cutoff;
             if old && std::fs::remove_dir_all(upload.path()).is_ok() {
@@ -405,6 +411,8 @@ fn status(session: &str, params: &Value) -> Result<Value, RpcError> {
     if let Ok((name, size)) = declared(session, upload)
         && let Ok(part) = std::fs::symlink_metadata(dir.join(".part"))
     {
+        // A sender asking where it stands is using it: the sweep keeps it (`used_at`).
+        let _ = touch(&dir.join(".part"));
         return Ok(json!({"uploadId": upload, "fileName": name, "size": size,
             "offset": part.len(), "finished": false}));
     }
@@ -682,9 +690,11 @@ pub async fn handle_cancel(hub: &super::Hub, params: Value) -> Result<Value, Rpc
 pub async fn handle_status(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
     let session = hub.resolve(crate::server::session_key(&params)?)?;
     let id = session.id.clone();
-    tokio::task::spawn_blocking(move || status(&id, &params))
+    let answer = tokio::task::spawn_blocking(move || status(&id, &params))
         .await
-        .map_err(|e| RpcError::internal(e.to_string()))?
+        .map_err(|e| RpcError::internal(e.to_string()))?;
+    reject_purged(&session).await?;
+    answer
 }
 
 /// A purge can race any blocking upload operation. Remove files created after the purge and
@@ -841,6 +851,10 @@ mod tests {
             std::fs::write(dir.join("f.txt"), b"x").unwrap();
         }
         touch(&used.join("f.txt")).unwrap();
+        // An old upload still being written (its `.part` just now) stays.
+        let writing = root.join("chat-a").join(named(now - 45 * day));
+        std::fs::create_dir_all(&writing).unwrap();
+        std::fs::write(writing.join(".part"), b"x").unwrap();
         // An old-named link, and a linked session folder: neither is followed.
         let outside = root.with_extension("outside");
         std::fs::create_dir_all(&outside).unwrap();
@@ -855,7 +869,7 @@ mod tests {
             std::os::unix::fs::symlink(&outside, root.join("chat-e")).unwrap();
         }
         assert_eq!(sweep(&root, now, Duration::from_millis(30 * day)), 2);
-        assert!(!old.exists() && new.exists() && used.exists());
+        assert!(!old.exists() && new.exists() && used.exists() && writing.exists());
         assert!(!root.join("chat-b").exists(), "an emptied session folder stays");
         assert!(other.exists() && v4.exists());
         assert!(outside.join("keep.txt").exists() && outside_old.exists());
