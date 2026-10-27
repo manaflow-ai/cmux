@@ -25,8 +25,9 @@ internal import ObjectiveC
 /// - Each implementation is a row: a class that defines `hitTest:` itself (an override), or, for a view that
 ///   inherits NSView's own, the view's class. A row's views are the views visited inside its calls, itself
 ///   included. Times include the recording hooks' own time for the nested visits.
-/// - A row whose p99 time or p99 views is over the ``HitTestAuditThresholds`` is costly; each costly row is one
-///   fix (a region cache or an early return).
+/// - A row's p99 time and views are read per call and per event (its calls' sums in one event); one over the
+///   ``HitTestAuditThresholds`` makes it costly. Each costly override is one fix (a region cache or an early
+///   return) in ``HitTestAuditReport/costly``; a costly row of a class that inherits NSView's own has none.
 ///
 /// Chrome's model: Blink caches its last hit test and records hits and misses only for measurement
 /// (third_party/blink/renderer/core/layout/hit_test_cache.cc, `Event.HitTestValidity`), and viz answers hit tests
@@ -236,11 +237,12 @@ public final class HitTestAudit {
     #endif
 }
 
-/// The limits a ``HitTestAuditReport/Row`` is costly past (MQ-hittest: p99 over 20 us, or over 32 views).
+/// The limits a ``HitTestAuditReport/Row`` is costly past (MQ-hittest: p99 over 20 us, or over 32 views, per call
+/// or per event).
 public nonisolated struct HitTestAuditThresholds: Sendable, Equatable, Codable {
-    /// A row is costly when its p99 time is over this.
+    /// A row is costly when its p99 time, per call or per event, is over this.
     public var p99NanosOver: UInt64
-    /// A row is costly when its p99 views per call is over this.
+    /// A row is costly when its p99 views, per call or per event, is over this.
     public var p99ViewsOver: UInt64
 
     public init(p99NanosOver: UInt64 = 20_000, p99ViewsOver: UInt64 = 32) {

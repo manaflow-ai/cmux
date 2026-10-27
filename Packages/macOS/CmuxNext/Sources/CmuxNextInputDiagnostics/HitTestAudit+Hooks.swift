@@ -79,33 +79,36 @@ extension HitTestAudit {
         let raw = UnsafeMutableRawPointer(list)
         defer { free(raw) }
         // The list holds Objective-C class objects: each entry's bits are its ``classKey(_:)``.
-        let classes = raw.assumingMemoryBound(to: UInt.self)
-        var underView: [UInt: Bool] = [root: true]
+        let classes = raw.assumingMemoryBound(to: UnsafeRawPointer.self)
+        var underView: [ObjectIdentifier: Bool] = [ObjectIdentifier(NSView.self): true]
         var found: [Definer] = []
         for position in 0..<Int(listCount) {
             if position % 1_024 == 1_023 { await Task.yield() }
-            let key = classes[position]
-            guard descends(key, memo: &underView) else { continue }
+            let key = UInt(bitPattern: classes[position])
+            let type = unsafeBitCast(classes[position], to: AnyClass.self)
+            guard key == root || descends(type, memo: &underView) else { continue }
             found += ownMethods(of: key, selector: selector)
         }
         return found
     }
 
-    /// Whether the class at `key` is `NSView` or under it, by superclass pointers only (`memo` holds the answer per
-    /// ``classKey(_:)`` already walked; it starts with NSView's).
-    nonisolated static func descends(_ key: UInt, memo: inout [UInt: Bool]) -> Bool {
-        var walked: [UInt] = []
-        var next: UInt? = key
+    /// Whether `type` lies under `NSView`, by superclass pointers only, as `RenderStats.RootIndex.root(above:)`:
+    /// `memo` holds the answer per metatype already walked (`class_getSuperclass` gives metatypes) and starts with
+    /// NSView's. It bridges no class to an object, so it sends no message to one.
+    nonisolated static func descends(_ type: AnyClass, memo: inout [ObjectIdentifier: Bool]) -> Bool {
+        var walked: [ObjectIdentifier] = []
+        var next: AnyClass? = class_getSuperclass(type)
         var result = false
         while let current = next {
-            if let known = memo[current] {
+            let id = ObjectIdentifier(current)
+            if let known = memo[id] {
                 result = known
                 break
             }
-            walked.append(current)
-            next = class_getSuperclass(unsafeBitCast(current, to: AnyClass.self)).map { classKey($0) }
+            walked.append(id)
+            next = class_getSuperclass(current)
         }
-        for walkedKey in walked { memo[walkedKey] = result }
+        for id in walked { memo[id] = result }
         return result
     }
 

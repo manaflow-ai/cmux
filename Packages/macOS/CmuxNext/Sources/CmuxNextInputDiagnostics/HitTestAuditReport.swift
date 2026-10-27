@@ -61,15 +61,20 @@ public nonisolated struct HitTestAuditReport: Sendable, Equatable, Codable {
         public var definesHitTest: Bool
         public var calls: UInt64
         public var sampled: Int
+        /// Per call.
         public var ns: Distribution
         public var views: Distribution
-        /// Why it is costly (``HitTestAuditReport/p99NanosReason``, ``HitTestAuditReport/p99ViewsReason``); empty
-        /// when it is not.
+        /// Per event that ran it: the sums over its calls in the event (a call inside another of the same row
+        /// counts in that one only), and how many calls they are.
+        public var perEvent: EventSummary
+        /// Why it is costly (``HitTestAuditReport/p99NanosReason``, ``HitTestAuditReport/p99ViewsReason``): a p99,
+        /// per call or per event, over its threshold. Empty when it is not.
         public var costly: [String]
 
         private enum CodingKeys: String, CodingKey {
             case className = "class"
             case definesHitTest = "override"
+            case perEvent = "per_event"
             case calls, sampled, ns, views, costly
         }
     }
@@ -84,7 +89,8 @@ public nonisolated struct HitTestAuditReport: Sendable, Equatable, Codable {
     public var hitTests: Summary
     /// Rows with calls: highest p99 time first, then most p99 views, then by class name, overrides first.
     public var rows: [Row]
-    /// The costly rows' class names, in row order (one MQ-hittest task each).
+    /// The costly overrides' class names, in row order (one MQ-hittest task each: a region cache or an early return).
+    /// A row of a class that inherits NSView's `hitTest:` stays out: it has no override to fix.
     public var costly: [String]
 
     private enum CodingKeys: String, CodingKey {
@@ -124,7 +130,7 @@ public nonisolated struct HitTestAuditReport: Sendable, Equatable, Codable {
             if lhs.className != rhs.className { return lhs.className < rhs.className }
             return lhs.definesHitTest && !rhs.definesHitTest
         }
-        costly = rows.filter { !$0.costly.isEmpty }.map(\.className)
+        costly = rows.filter { $0.definesHitTest && !$0.costly.isEmpty }.map(\.className)
     }
 
     /// Rows with calls, those of one name and kind (a class and its KVO subclass) as one.
@@ -142,6 +148,10 @@ public nonisolated struct HitTestAuditReport: Sendable, Equatable, Codable {
             existing.samples.nanos += row.samples.nanos
             existing.samples.views += row.samples.views
             existing.samples.hitTests += row.samples.hitTests
+            existing.eventSamples.calls &+= row.eventSamples.calls
+            existing.eventSamples.nanos += row.eventSamples.nanos
+            existing.eventSamples.views += row.eventSamples.views
+            existing.eventSamples.hitTests += row.eventSamples.hitTests
             byKey[key] = existing
         }
         return order.compactMap { byKey[$0] }
@@ -150,9 +160,16 @@ public nonisolated struct HitTestAuditReport: Sendable, Equatable, Codable {
     private static func row(_ row: HitTestAuditSnapshot.RowSamples, thresholds: HitTestAuditThresholds) -> Row {
         let ns = Distribution(row.samples.nanos)
         let views = Distribution(row.samples.views)
+        let perEvent = EventSummary(
+            count: row.eventSamples.calls,
+            sampled: row.eventSamples.nanos.count,
+            ns: Distribution(row.eventSamples.nanos),
+            views: Distribution(row.eventSamples.views),
+            hitTests: Distribution(row.eventSamples.hitTests)
+        )
         var reasons: [String] = []
-        if ns.p99 > thresholds.p99NanosOver { reasons.append(p99NanosReason) }
-        if views.p99 > thresholds.p99ViewsOver { reasons.append(p99ViewsReason) }
+        if Swift.max(ns.p99, perEvent.ns.p99) > thresholds.p99NanosOver { reasons.append(p99NanosReason) }
+        if Swift.max(views.p99, perEvent.views.p99) > thresholds.p99ViewsOver { reasons.append(p99ViewsReason) }
         return Row(
             className: row.name,
             definesHitTest: row.definesHitTest,
@@ -160,6 +177,7 @@ public nonisolated struct HitTestAuditReport: Sendable, Equatable, Codable {
             sampled: row.samples.nanos.count,
             ns: ns,
             views: views,
+            perEvent: perEvent,
             costly: reasons
         )
     }
@@ -196,6 +214,8 @@ nonisolated struct HitTestAuditSnapshot: Sendable {
         var name: String
         var definesHitTest: Bool
         var samples: Samples
+        /// Per event, the row's sums (``HitTestAuditReport/Row/perEvent``).
+        var eventSamples: Samples
     }
 
     var available: Bool

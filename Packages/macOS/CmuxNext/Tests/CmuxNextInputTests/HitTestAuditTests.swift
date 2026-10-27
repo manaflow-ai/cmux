@@ -141,18 +141,68 @@ import Testing
         #expect(overrideRows.first?.calls == 1)
     }
 
-    /// Rows over either threshold are costly, with their reasons, and listed in row order.
-    @Test func costlyRowsAreListed() async {
+    /// Rows over either threshold are costly, with their reasons; only overrides are listed, in row order. A plain
+    /// container over the override is costly too (its row is inclusive) but has no override to fix.
+    @Test func costlyListsOverridesOnly() async {
         let audit = audit(HitTestAuditThresholds(p99NanosOver: 2 * Self.step, p99ViewsOver: 3))
         #expect(await audit.install())
         audit.reset()
-        _ = rootWithLeaves().hitTest(NSPoint(x: 90, y: 90))
+        let root = RootView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        let overriding = rootWithLeaves(SuperCallingView(frame: NSRect(x: 0, y: 0, width: 100, height: 100)))
+        root.addSubview(overriding)
+        #expect(root.hitTest(NSPoint(x: 90, y: 90)) === overriding)
         let report = recorded(audit)
         await audit.uninstall()
 
-        #expect(report.costly == [HitTestAudit.name(of: RootView.self)])
-        #expect(row(report, RootView.self)?.costly == [HitTestAuditReport.p99NanosReason, HitTestAuditReport.p99ViewsReason])
+        let both = [HitTestAuditReport.p99NanosReason, HitTestAuditReport.p99ViewsReason]
+        #expect(report.costly == [HitTestAudit.name(of: SuperCallingView.self)])
+        #expect(row(report, SuperCallingView.self)?.costly == both)
+        #expect(row(report, RootView.self)?.definesHitTest == false)
+        #expect(row(report, RootView.self)?.costly == both)
         #expect(row(report, LeafView.self)?.costly == [])
+    }
+
+    /// An override's views and time add up over its calls in one event: two calls of 2 views each are 4 views in
+    /// the event, over a threshold of 3 that neither call is over. A call inside another of the same row counts in
+    /// the outer one only, and a call outside an event adds no event.
+    @Test func overrideCostPerEvent() async throws {
+        let tap = InputEventTap()
+        let audit = audit(HitTestAuditThresholds(p99NanosOver: 1_000 * Self.step, p99ViewsOver: 3), input: tap)
+        #expect(await audit.install())
+        audit.reset()
+        let event = try Self.mouseDown()
+        let view = SuperCallingView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        view.addSubview(LeafView(frame: NSRect(x: 0, y: 0, width: 10, height: 10)))
+        dispatch(event, on: tap) {
+            _ = (view as NSView).hitTest(NSPoint(x: 90, y: 90))
+            _ = (view as NSView).hitTest(NSPoint(x: 90, y: 90))
+        }
+        _ = (view as NSView).hitTest(NSPoint(x: 90, y: 90))
+        let twice = recorded(audit)
+
+        let overrideRow = try #require(row(twice, SuperCallingView.self))
+        #expect(overrideRow.calls == 3)
+        #expect(overrideRow.views.max == 2)
+        #expect(overrideRow.perEvent.count == 1)
+        #expect(overrideRow.perEvent.hitTests.max == 2)
+        #expect(overrideRow.perEvent.views.max == 4)
+        // Each call: enter, the leaf's enter and exit, exit: 3 steps.
+        #expect(overrideRow.perEvent.ns.max == 6 * Self.step)
+        #expect(overrideRow.costly == [HitTestAuditReport.p99ViewsReason])
+        #expect(twice.costly == [HitTestAudit.name(of: SuperCallingView.self)])
+
+        audit.reset()
+        let outer = SuperCallingView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        outer.addSubview(view)
+        dispatch(event, on: tap) { _ = (outer as NSView).hitTest(NSPoint(x: 90, y: 90)) }
+        let nested = recorded(audit)
+        await audit.uninstall()
+
+        let nestedRow = try #require(row(nested, SuperCallingView.self))
+        #expect(nestedRow.calls == 2)
+        #expect(nestedRow.perEvent.count == 1)
+        #expect(nestedRow.perEvent.hitTests.max == 1)
+        #expect(nestedRow.perEvent.views.max == 3)
     }
 
     /// One tap dispatch is one event: it sums its hit tests, a nested dispatch joins it, and an event with none, or
@@ -248,7 +298,11 @@ import Testing
         ])
         #expect(object["schema"] as? String == HitTestAuditReport.currentSchema)
         let rows = try #require(object["rows"] as? [[String: Any]])
-        #expect(rows.allSatisfy { Set($0.keys) == ["calls", "class", "costly", "ns", "override", "sampled", "views"] })
+        #expect(rows.allSatisfy {
+            Set($0.keys) == ["calls", "class", "costly", "ns", "override", "per_event", "sampled", "views"]
+        })
+        let perEvent = try #require(rows.first?["per_event"] as? [String: Any])
+        #expect(Set(perEvent.keys) == ["count", "hit_tests", "ns", "sampled", "views"])
         let events = try #require(object["events"] as? [String: Any])
         #expect(Set(events.keys) == ["count", "hit_tests", "ns", "sampled", "views"])
         let thresholds = try #require(object["thresholds"] as? [String: Any])
@@ -269,6 +323,17 @@ import Testing
         #expect(keys.contains(key(SuperCallingView.self)))
         #expect(!keys.contains(key(LeafView.self)))
         #expect(!keys.contains(key(NSObject.self)))
+    }
+
+    /// The scan's walk goes by metatype only and remembers each superclass it passed, under NSView or not.
+    @Test func descendsWalksMetatypes() {
+        var memo: [ObjectIdentifier: Bool] = [ObjectIdentifier(NSView.self): true]
+        #expect(HitTestAudit.descends(SuperCallingView.self, memo: &memo))
+        #expect(HitTestAudit.descends(NSButton.self, memo: &memo))
+        #expect(!HitTestAudit.descends(NSObject.self, memo: &memo))
+        #expect(!HitTestAudit.descends(NSWindow.self, memo: &memo))
+        #expect(memo[ObjectIdentifier(NSControl.self)] == true)
+        #expect(memo[ObjectIdentifier(NSResponder.self)] == false)
     }
 
     /// The app's full scan hooks NSView's own `hitTest:`, so a view that inherits it is a visit at its class's row;

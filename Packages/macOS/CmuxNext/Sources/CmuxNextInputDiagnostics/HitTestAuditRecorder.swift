@@ -22,6 +22,12 @@ final class HitTestAuditRecorder {
         var type: AnyClass?
         var definesHitTest: Bool
         var ring = HitTestAuditSampleRing(capacity: HitTestAuditRecorder.rowSampleCapacity)
+        /// Per event: the sums over the row's outermost calls in it.
+        var eventRing = HitTestAuditSampleRing(capacity: HitTestAuditRecorder.rowSampleCapacity)
+        /// Its calls in the open event so far.
+        var open = OpenEvent()
+        /// Its calls on the stack now: a call inside another of the same row is in that one's sums already.
+        var active = 0
     }
 
     /// The event in progress: its hit tests so far.
@@ -41,6 +47,8 @@ final class HitTestAuditRecorder {
     private var hitTests = HitTestAuditSampleRing(capacity: HitTestAuditRecorder.hitTestSampleCapacity)
     private var events = HitTestAuditSampleRing(capacity: HitTestAuditRecorder.eventSampleCapacity)
     private var openEvent = OpenEvent()
+    /// The rows with calls in the open event.
+    private var openRows: [Int] = []
     /// Dispatches begun and not yet ended: a nested dispatch joins the outer event.
     private var eventDepth = 0
 
@@ -68,6 +76,7 @@ final class HitTestAuditRecorder {
     func start() {
         clear()
         stack.reserveCapacity(Self.stackCapacity)
+        openRows.reserveCapacity(Self.stackCapacity)
         isRecording = true
     }
 
@@ -77,6 +86,7 @@ final class HitTestAuditRecorder {
         visits = 0
         openEvent = OpenEvent()
         eventDepth = 0
+        discardOpenRows()
     }
 
     func clear() {
@@ -86,20 +96,42 @@ final class HitTestAuditRecorder {
         eventDepth = 0
         hitTests.clear()
         events.clear()
-        for index in rows.indices { rows[index].ring.clear() }
+        discardOpenRows()
+        for index in rows.indices {
+            rows[index].ring.clear()
+            rows[index].eventRing.clear()
+        }
+    }
+
+    /// Forgets the open event's per-row sums and the calls on the stack.
+    private func discardOpenRows() {
+        openRows.removeAll(keepingCapacity: true)
+        for index in rows.indices {
+            rows[index].open = OpenEvent()
+            rows[index].active = 0
+        }
     }
 
     func eventBegan() {
         guard isRecording else { return }
+        // Rows sum only while an event is open, and its end flushes them: none is open here.
         if eventDepth == 0 { openEvent = OpenEvent() }
         eventDepth += 1
     }
 
-    /// Records the open event once its outermost dispatch ends, when it ran at least one hit test.
+    /// Records the open event once its outermost dispatch ends, when it ran at least one hit test, and each row's
+    /// sums over it.
     func eventEnded() {
         guard eventDepth > 0 else { return }
         eventDepth -= 1
-        guard eventDepth == 0, openEvent.hitTests > 0 else { return }
+        guard eventDepth == 0 else { return }
+        for row in openRows {
+            let open = rows[row].open
+            rows[row].eventRing.add(nanos: open.nanos, views: open.views, hitTests: open.hitTests)
+            rows[row].open = OpenEvent()
+        }
+        openRows.removeAll(keepingCapacity: true)
+        guard openEvent.hitTests > 0 else { return }
         events.add(nanos: openEvent.nanos, views: openEvent.views, hitTests: openEvent.hitTests)
     }
 
@@ -114,6 +146,7 @@ final class HitTestAuditRecorder {
         let visitsBefore = visits
         visits &+= 1
         let row = resolve()
+        rows[row].active += 1
         stack.append(Frame(row: row, receiver: receiver, start: now(), visitsAtEnter: visitsBefore, isSuper: false))
         return true
     }
@@ -123,7 +156,15 @@ final class HitTestAuditRecorder {
         guard let frame = stack.popLast(), !frame.isSuper else { return }
         let end = now()
         let elapsed = end >= frame.start ? end - frame.start : 0
-        rows[frame.row].ring.add(nanos: elapsed, views: visits &- frame.visitsAtEnter, hitTests: 1)
+        let views = visits &- frame.visitsAtEnter
+        rows[frame.row].ring.add(nanos: elapsed, views: views, hitTests: 1)
+        rows[frame.row].active -= 1
+        if eventDepth > 0, rows[frame.row].active == 0 {
+            if rows[frame.row].open.hitTests == 0 { openRows.append(frame.row) }
+            rows[frame.row].open.nanos &+= elapsed
+            rows[frame.row].open.views &+= views
+            rows[frame.row].open.hitTests &+= 1
+        }
         guard stack.isEmpty else { return }
         hitTests.add(nanos: elapsed, views: visits, hitTests: 1)
         if eventDepth > 0 {
@@ -145,7 +186,8 @@ final class HitTestAuditRecorder {
                 HitTestAuditSnapshot.RowSamples(
                     name: row.type.map(HitTestAudit.name(of:)) ?? "?",
                     definesHitTest: row.definesHitTest,
-                    samples: row.ring.samples()
+                    samples: row.ring.samples(),
+                    eventSamples: row.eventRing.samples()
                 )
             }
         )
