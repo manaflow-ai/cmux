@@ -120,7 +120,7 @@ public final class SettingsController {
     }
 
     /// Applies the launch's read as the first load, on the calling thread, with no file call and no
-    /// watch, so the first window draws in the file's appearance while ``start(announcingDiagnosticsOn:)``
+    /// watch, so the first window draws in the file's appearance while ``start(announcingDiagnostics:)``
     /// waits until after the first frame (p08-startup-079; Chrome applies the profile's read
     /// preferences before the first window and arms the file watchers later). Nothing without a
     /// launch read or after the first load.
@@ -133,10 +133,11 @@ public final class SettingsController {
     /// Loads the file now (the launch's read when the controller was made with one: no file call
     /// on this thread) and starts watching it; the watches are armed off this thread, then reload
     /// once. After ``adoptLaunchRead()`` it only arms the watches and reloads once off this
-    /// thread, so an edit made since the launch read applies. With `events` (the app's notices),
-    /// the app also tells the person about a value it ignores (`SettingsDiagnosticToasts`), sending
-    /// them to its Settings row only while `availability` says the page draws it; tests leave it off.
-    public func start(announcingDiagnosticsOn events: AppEvents? = nil,
+    /// thread, so an edit made since the launch read applies. `announcingDiagnostics`: the app
+    /// also tells the person about a value it ignores (`SettingsDiagnosticToasts`) through this
+    /// presenter, sending them to its Settings row only while `availability` says the page draws
+    /// it; tests leave the presenter nil.
+    public func start(announcingDiagnostics presenter: (any SettingsDiagnosticPresenting)? = nil,
                       availability: @escaping @MainActor () -> SettingsAvailability = { SettingsAvailability() }) {
         guard watcher == nil else { return }
         let watcher = ConfigFileWatcher(url: file.url) { [weak self, mainWork] in
@@ -146,9 +147,10 @@ public final class SettingsController {
         watcher.startWithoutWaiting()
         startManagedWatchers()
         if loadCount == 0 { loadNow() } else { requestReload() }
-        if let events, diagnosticToasts == nil {
+        if let presenter, diagnosticToasts == nil {
             // After the first load: the toasts' first read is the loaded file, never the empty state before it.
-            let toasts = SettingsDiagnosticToasts(registry: applier.registry, events: events, availability: availability)
+            let toasts = SettingsDiagnosticToasts(registry: applier.registry, presenter: presenter,
+                                                  availability: availability)
             diagnosticToasts = toasts
             toasts.follow(self)
         }

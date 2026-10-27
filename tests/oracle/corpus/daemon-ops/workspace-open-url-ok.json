@@ -49,6 +49,66 @@
       }
     },
     {
+      "id": "fx-browser-profile",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "browser.profile.create",
+        "params": {
+          "name": "oracle"
+        },
+        "idempotencyKey": "workspace-open-url-ok.fx-browser-profile"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "fx-app-browser",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id",
+        "screen": "$step:fx-workspace#/value/screen_id",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "browser.profile.open",
+        "params": {
+          "url": "http://127.0.0.1:9/",
+          "profile": "$step:fx-browser-profile#/value/browser_profile/id"
+        },
+        "idempotencyKey": "workspace-open-url-ok.fx-app-browser"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "focus-app-browser",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-app-browser#/value/tab_id"
+      },
+      "args": {
+        "method": "tab.focus",
+        "params": {},
+        "idempotencyKey": "workspace-open-url-ok.focus-app-browser"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -59,7 +119,7 @@
       "args": {
         "method": "workspace.open_url",
         "params": {
-          "url": "about:blank"
+          "url": "http://127.0.0.1:9/oracle"
         },
         "idempotencyKey": "workspace-open-url-ok.call"
       },
@@ -71,7 +131,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the focused pane's selected tab is the app-drawn browser, so the link reuses it and navigates its frontend record (open_url.rs rule 3); no cmux-browser provider is needed"
     },
     {
       "id": "retry",
@@ -84,7 +144,7 @@
       "args": {
         "method": "workspace.open_url",
         "params": {
-          "url": "about:blank"
+          "url": "http://127.0.0.1:9/oracle"
         },
         "idempotencyKey": "workspace-open-url-ok.call"
       },
