@@ -42,7 +42,6 @@ SCRIPT_SUFFIXES = {".py", ".sh", ".rb", ".js", ".mjs", ".ts", ".json", ".yml", "
 # "<path relative to the repository root>:<exact line>" -> why it may name a GitHub-hosted Mac.
 # No job is exempt: every job has an owned or Blacksmith route, x86_64 included (Rosetta).
 EXEMPT: dict[str, str] = {
-    ".github/workflows/plain-paste-worker.yml:  macos-15:": "a job id, not a runner label",
     ".github/workflows/test-e2e.yml:" + "      CMUX_CI_XCODE_APP: ${{ (contains(needs.runner.outputs.label, 'macos-26') || startsWith(needs.runner.outputs.label, 'glaeda-')) && vars.CMUX_CI_XCODE_APP_PR || '' }}": (
         "reads the picked label (a Blacksmith macos-26 pool) to choose Xcode; it selects no runner"
     ),
