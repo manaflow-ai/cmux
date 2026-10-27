@@ -1,0 +1,11 @@
+{
+  "sidebar": {
+    "workspaceRow": {
+      "agent": {
+        "secondLineOrder": [
+          "__not_a_choice__"
+        ]
+      }
+    }
+  }
+}

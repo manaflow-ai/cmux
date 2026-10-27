@@ -179,8 +179,11 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
             if origin == nil { table.scrollRowToVisible(row) }
         }
         guard let origin else { return }
-        scroll.contentView.scroll(to: origin)
-        scroll.reflectScrolledClipView(scroll.contentView)
+        // sync-layout: once per restore, so the results have their height before the list scrolls back.
+        layoutSubtreeIfNeeded()
+        let clip = scroll.contentView
+        clip.scroll(to: clip.constrainBoundsRect(NSRect(origin: origin, size: clip.bounds.size)).origin)
+        scroll.reflectScrolledClipView(clip)
     }
 
     private var selected: RipgrepMatch? {
@@ -225,5 +228,18 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
         let cell = tableView.makeView(withIdentifier: id, owner: nil) as? FindResultCell ?? FindResultCell(identifier: id)
         cell.show(results[row])
         return cell
+    }
+}
+
+// A Find section let go while hidden (feature `memoryDiscardSidebarSections`) searches its query again and goes
+// back to its selected result and scroll.
+extension FindSectionView: SidebarSectionStateKeeping {
+    var sectionState: SidebarSectionState {
+        SidebarSectionState(scroll: resultsScroll, query: field.stringValue, selection: cursor)
+    }
+
+    func restoreSectionState(_ state: SidebarSectionState) {
+        guard let query = state.query, !query.isEmpty else { return }
+        restore(query: query, cursor: state.selection, scroll: state.scroll)
     }
 }

@@ -8,6 +8,7 @@ import os
 import sys
 import types
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(ROOT, "scripts", "cmux-next", "bench_renderer_sharing.py")
@@ -25,6 +26,21 @@ BUNDLE = "/tmp/cmux DEV rsharing.app"
 class FakeReport:
     def __init__(self, raw):
         self.raw = raw
+
+
+class FakeApp:
+    """bench_memory.App's two calls the grown phase makes: each open creates tab_N, each close is recorded."""
+
+    def __init__(self):
+        self.opened, self.closed = [], []
+
+    def action(self, action, *, focus=False, **args):
+        self.opened.append(args["url"])
+        return {"created": [f"tab_{len(self.opened)}"]}
+
+    def run(self, action, target=None, **args):
+        self.closed.append(target)
+        return {}
 
 
 class HostSocketTests(unittest.TestCase):
@@ -216,6 +232,130 @@ class LimitTests(unittest.TestCase):
         self.assertEqual(bench.fork_api({"windows": {"fork_api": 29.0}}), 29)
         self.assertIsNone(bench.fork_api({"windows": {}}))
         self.assertIsNone(bench.fork_api(None))
+
+
+class GrownPhaseTests(unittest.TestCase):
+    """p07-memory 111: a renderer past the memory cap takes no more main frames of its site below the limit."""
+
+    def test_the_cap_switch_is_in_bytes(self):
+        self.assertEqual(bench.memory_cap_switch(256), "cmux-shared-renderer-memory-limit=268435456")
+
+    def test_the_grown_page_takes_its_heap_from_the_query(self):
+        self.assertEqual(bench.page_heap_mb("heap=320", 20), 320)
+        self.assertEqual(bench.page_heap_mb("", 20), 20)
+        self.assertEqual(bench.page_heap_mb("heap=lots", 20), 20)
+
+    def test_the_next_tab_in_another_renderer_passes(self):
+        result = bench.grown_check({10: ["tab_a"], 11: ["tab_b"]}, "tab_a", "tab_b", renderers=12, limit=64)
+        self.assertEqual(result["violations"], [])
+        self.assertFalse(result["same_renderer"])
+
+    def test_the_next_tab_in_the_grown_renderer_below_the_limit_fails(self):
+        result = bench.grown_check({10: ["tab_a", "tab_b"]}, "tab_a", "tab_b", renderers=12, limit=64)
+        self.assertTrue(result["same_renderer"])
+        self.assertEqual(len(result["violations"]), 1)
+
+    def test_at_the_limit_the_grown_phase_is_inconclusive(self):
+        # Chrome reuses a same-site renderer at the limit whatever its footprint, so a fork that ignores the cap
+        # would pass there: the run fails as inconclusive whether or not the tabs share.
+        for owners in ({10: ["tab_a", "tab_b"]}, {10: ["tab_a"], 11: ["tab_b"]}):
+            result = bench.grown_check(owners, "tab_a", "tab_b", renderers=64, limit=64)
+            self.assertFalse(result["below_limit"])
+            self.assertEqual(len(result["violations"]), 1)
+            self.assertIn("inconclusive", result["violations"][0])
+
+    def test_the_phase_checks_its_two_tabs_and_closes_them(self):
+        app = FakeApp()
+        args = bench.parse(["--app", BUNDLE, "--memory-cap-mb", "256", "--tabs", "100", "--sites", "20",
+                            "--settle-grown", "0"])
+        renderers = [{"kind": "cef-renderer"}] * 3 + [{"kind": "app"}]
+        with mock.patch.object(bench, "wait_title", return_value=1.0), \
+                mock.patch.object(bench.bm, "sample", return_value={"processes": renderers}), \
+                mock.patch.object(bench, "renderer_map", return_value={"owners": {10: ["tab_1"], 11: ["tab_2"], 12: []}}):
+            result = bench.grown_phase(app, "sock", 1, BUNDLE, 8080, args, limit=64)
+        self.assertEqual(result["violations"], [])
+        self.assertEqual(result["renderers"], 3)
+        self.assertTrue(result["below_limit"])
+        self.assertEqual(app.opened, ["http://site20.test:8080/100?heap=320", "http://site20.test:8080/101"])
+        self.assertEqual(app.closed, ["tab_1", "tab_2"])
+
+    def test_a_tab_that_shows_no_title_still_closes(self):
+        app = FakeApp()
+        args = bench.parse(["--app", BUNDLE, "--memory-cap-mb", "256", "--settle-grown", "0"])
+        with mock.patch.object(bench, "wait_title", return_value=None):
+            result = bench.grown_phase(app, "sock", 1, BUNDLE, 8080, args, limit=64)
+        self.assertEqual(len(result["violations"]), 1)
+        self.assertEqual(app.closed, ["tab_1"])
+
+    def test_a_tab_without_a_renderer_fails(self):
+        result = bench.grown_check({10: ["tab_a"]}, "tab_a", "tab_b", renderers=12, limit=64)
+        self.assertEqual(len(result["violations"]), 1)
+
+    def test_the_cap_needs_a_positive_size(self):
+        with self.assertRaises(SystemExit):
+            bench.parse(["--app", BUNDLE, "--memory-cap-mb", "0"])
+        self.assertEqual(bench.parse(["--app", BUNDLE, "--memory-cap-mb", "256"]).grow_margin_mb, 64)
+
+    def test_the_cap_is_chromium_only(self):
+        with self.assertRaises(SystemExit):
+            bench.parse(["--app", BUNDLE, "--engine", "webkit", "--memory-cap-mb", "256"])
+
+
+def opened(sites):
+    """The report's opened rows for tabs of `sites` in open order (tab ids t0, t1, ...)."""
+    return [{"tab": f"t{index}", "site": site} for index, site in enumerate(sites)]
+
+
+class WebKitSharingTests(unittest.TestCase):
+    """--engine webkit (p07-memory-088): WebKitProcessReuse shares nothing below the limit, so the count is exact."""
+
+    def test_below_the_limit_every_tab_has_its_own_process(self):
+        self.assertEqual(bench.webkit_expected_processes([0, 1, 0, 1], 64), 4)
+
+    def test_at_the_limit_tabs_join_their_site(self):
+        # 60 tabs over 10 sites with the limit forced to 6: 6 own, then sites 6..9 still need one each, then all join.
+        self.assertEqual(bench.webkit_expected_processes([i % 10 for i in range(60)], 6), 10)
+        self.assertEqual(bench.webkit_expected_processes([i % 10 for i in range(60)], 20), 20)
+
+    def test_without_sharing_one_process_per_tab(self):
+        self.assertEqual(bench.webkit_expected_processes([i % 10 for i in range(60)], 6, sharing=False), 60)
+
+    def test_the_expected_layout_passes(self):
+        rows = opened([0, 1, 0, 1, 0])  # limit 2: t0, t1 own; t2 and t4 join t0, t3 joins t1
+        result = bench.webkit_sharing({100: ["t0", "t2", "t4"], 101: ["t1", "t3"]}, rows, 2, True)
+        self.assertEqual(result["violations"], [])
+        self.assertEqual(result["shared_renderers"], 2)
+        self.assertEqual(result["max_same_site_main_frames"], 3)
+
+    def test_two_sites_in_one_process_fail(self):
+        rows = opened([0, 1, 0])
+        result = bench.webkit_sharing({100: ["t0", "t1"], 101: ["t2"]}, rows, 2, True)
+        self.assertEqual(result["mixed_site_renderers"], 1)
+        self.assertTrue(any("two sites" in v for v in result["violations"]))
+
+    def test_sharing_below_the_limit_fails(self):
+        rows = opened([0, 1, 0])
+        result = bench.webkit_sharing({100: ["t0", "t2"], 101: ["t1"]}, rows, 64, True)
+        self.assertTrue(any("expected 3" in v for v in result["violations"]))
+
+    def test_no_sharing_above_the_limit_fails_with_the_feature_on(self):
+        rows = opened([0, 1, 0])
+        result = bench.webkit_sharing({100: ["t0"], 101: ["t1"], 102: ["t2"]}, rows, 2, True)
+        self.assertTrue(any("expected 2" in v for v in result["violations"]))
+        self.assertEqual(bench.webkit_sharing({100: ["t0"], 101: ["t1"], 102: ["t2"]}, rows, 2, False)["violations"], [])
+
+    def test_the_limit_is_forced_then_the_budget_then_chromes(self):
+        report = FakeReport({"budget": {"chromium_renderer_limit": 64}})
+        self.assertEqual(bench.webkit_limit(report, 82, 6), 6)
+        self.assertEqual(bench.webkit_limit(report, 40, None), 64)
+        self.assertEqual(bench.webkit_limit(None, 40, None), 40)
+
+    def test_agent_cdp_is_chromium_only(self):
+        with self.assertRaises(SystemExit):
+            bench.parse(["--app", BUNDLE, "--engine", "webkit", "--agent-cdp"])
+        args = bench.parse(["--app", BUNDLE, "--engine", "webkit", "--renderer-limit", "6"])
+        self.assertTrue(args.webkit_sharing)
+        self.assertEqual(args.webkit_host_suffix, "localhost")
 
 
 if __name__ == "__main__":

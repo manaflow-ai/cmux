@@ -34,6 +34,7 @@ public final class WebDevOverrideWatcher {
         let file = directory.appending(path: WebDevOverride.fileName)
         self.file = file
         let watcher = ConfigFileWatcher(url: file) { [weak self] in
+            // main-hop-allow: developer builds only (WebDevOverride.isEnabled); the watcher's coalesced event lands on its utility queue, and requestRead only flags the one read loop
             Task { @MainActor in self?.requestRead() } // task-owner: one coalesced read per file event
         }
         fileWatcher = watcher
@@ -44,6 +45,7 @@ public final class WebDevOverrideWatcher {
         guard file != nil else { return }
         readRequested = true
         guard readTask == nil else { return }
+        // main-hop-allow: developer builds only; the read runs @concurrent off main, and its resume only applies the value and reloads the served pages once
         readTask = Task { [weak self] in // task-owner: the watcher's one read loop; events while it runs coalesce
             while let file = self?.takeReadRequest(), let home = self?.home {
                 let value = await Self.read(file: file, home: home)
@@ -79,6 +81,7 @@ public final class WebDevOverrideWatcher {
         manifestWatcher = nil
         guard let manifest else { return }
         let watcher = ConfigFileWatcher(url: manifest) { [weak self] in
+            // main-hop-allow: developer builds only (WebDevOverride.isEnabled); the watcher's coalesced event lands on its utility queue, and requestRead only flags the one read loop
             Task { @MainActor in self?.requestRead() } // task-owner: one coalesced read per manifest event
         }
         manifestWatcher = watcher

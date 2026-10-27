@@ -19,19 +19,20 @@ public nonisolated struct DebugInputGate: Sendable, Equatable, Codable {
     }
 
     public var heldByOrigin: HeldByOrigin
-    /// Jobs passed through while input was pending, by the rule that exempted them (`input_dispatch`,
-    /// `main_work_input`, `main_work_frame`).
+    /// Jobs passed through while input was pending, by the rule that exempted them (`in_dispatch`,
+    /// `main_work_input`, `main_work_frame`, `nested_loop`).
     public var exemptByRule: [String: UInt64]
-    /// The longest an input event waited behind main-thread jobs.
-    public var maxInputWaitBehindJobsMilliseconds: Double
-    /// Held jobs that ran more than one refresh after they were enqueued.
+    /// The longest an input event waited behind main-thread jobs; nil (key absent) while no
+    /// producer measures it.
+    public var maxInputWaitBehindJobsMilliseconds: Double?
+    /// Held jobs that ran one refresh or more after they were held.
     public var jobsDeferredOverOneFrame: UInt64
     /// Non-Swift main-thread work (GCD main blocks, run-loop sources, timers) that ran while input was
-    /// pending.
-    public var nonswiftBlocksWhileInputPending: UInt64
+    /// pending; nil (key absent) while no producer measures it.
+    public var nonswiftBlocksWhileInputPending: UInt64?
 
-    public init(heldByOrigin: HeldByOrigin, exemptByRule: [String: UInt64], maxInputWaitBehindJobsMilliseconds: Double,
-                jobsDeferredOverOneFrame: UInt64, nonswiftBlocksWhileInputPending: UInt64) {
+    public init(heldByOrigin: HeldByOrigin, exemptByRule: [String: UInt64], maxInputWaitBehindJobsMilliseconds: Double?,
+                jobsDeferredOverOneFrame: UInt64, nonswiftBlocksWhileInputPending: UInt64?) {
         self.heldByOrigin = heldByOrigin
         self.exemptByRule = exemptByRule
         self.maxInputWaitBehindJobsMilliseconds = maxInputWaitBehindJobsMilliseconds
