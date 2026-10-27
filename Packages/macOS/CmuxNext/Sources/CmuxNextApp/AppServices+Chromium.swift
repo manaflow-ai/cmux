@@ -3,6 +3,7 @@ import CmuxNextBrowser
 import CmuxNextChromiumWarmup
 import CmuxNextCompat
 import CmuxNextCrashReporting
+import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -103,8 +104,27 @@ extension AppServices {
 // The cache's Chromium engine (p08-startup-024): built at its first read, a Chromium tab or page or the warm-up
 // above, never by launch wiring, and wired as it is built.
 extension AppServices {
+    /// The one Chromium Host's supervisor when Chromium tabs run in it (`cefHelperHost` with its Debug Settings
+    /// override, and `chromiumHostTabs`; Debug builds only: ``BrowserHostTunables/backend(hostEnabled:)``); nil keeps
+    /// Chromium tabs in this process, beside the `debug.chromium_host` prototype.
+    static func chromiumHostSupervisor(work: BackgroundWork, mainWork: MainWorkScheduler,
+                                       features: FeatureList) -> (any ChromiumHostSupervising)? {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let hostSwitch = AppControl.chromiumHostSwitch(in: features, tunables: TunableStore.shared)
+        let hostTabs = hostSwitch.isEnabled && features.isEnabled(.chromiumHostTabs)
+        guard BrowserHostTunables.backend(hostEnabled: hostTabs) == .host else { return nil }
+        return ChromiumHostSupervisor(work: work, mainWork: mainWork, fencesResizes: features.isEnabled(.chromiumHostResizeFence))
+        #else
+        return nil
+        #endif
+    }
+
     /// The slot `cache` holds.
     func makeChromiumSlot() -> ChromiumEngineSlot {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // A host that ends while cmux quits reports nothing (quit ends it).
+        (chromiumRuntime.source.hostSupervisor as? ChromiumHostSupervisor)?.isQuitting = { [weak self] in self?.quit.isQuitting == true }
+        #endif
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
         // The lanes whose startup fence holds a predicted start's framework read (p08-startup-045).
         let prefetchWork = features.isEnabled(.cefPrefetchBehindFence) ? work : nil

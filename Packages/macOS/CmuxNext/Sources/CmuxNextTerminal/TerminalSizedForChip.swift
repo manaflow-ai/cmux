@@ -42,6 +42,7 @@ final class TerminalSizedForChip: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    // visibility-walk-allow: four color stores (two layer colors, the button's tint and bezel), no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyThemeColors()
