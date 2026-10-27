@@ -297,13 +297,22 @@ class Cases(unittest.TestCase):
         self.assertEqual(self.omnibar_calls(app), ["chrome://inducebrowsercrashforrealz"])
 
     def test_host_case_kills_the_host_that_runs_the_tab(self):
-        app = FakeApp({"debug.browser.page_status": {"gone": "0"}, "browser.page.eval": {"value": "alive"}})
+        # The host's end shows the crash page with Reload (p01-process-082); Reload brings the tab back.
+        page = {"gone": False}
+
+        def page_status(params):
+            if params.get("press") == "reload":
+                pressed, page["gone"] = page["gone"], False
+                return {"pressed": "1" if pressed else "0"}
+            return {"gone": "1", "gone_text": "Aw, Snap!\nChromium stopped.\nReload"} if page["gone"] else {"gone": "0"}
+        app = FakeApp({"debug.browser.page_status": page_status, "browser.page.eval": {"value": "alive"}})
         drv = self.driver(app)
         drv.host_on = True
         drv.baseline_renderers = {510}
 
         def kill(pid, sig):
             self.assertEqual((pid, sig), (520, crash.signal.SIGKILL))
+            page["gone"] = True
             drv.tables(PS.replace(" 520 ", " 530 ").replace("521   520", "531   530"))  # a new host, a new renderer
         with mock.patch.object(crash.os, "kill", side_effect=kill) as killed, \
                 mock.patch.object(crash, "alive", return_value=True):
