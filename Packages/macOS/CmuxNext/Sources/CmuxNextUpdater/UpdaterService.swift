@@ -183,9 +183,10 @@ public final class UpdaterService {
     @ObservationIgnored public var presentUpdateUI: (() -> Void)?
     /// Sparkle is about to relaunch into the update (set by the App: the quit keeps every terminal).
     @ObservationIgnored public var willRelaunch: (() -> Void)?
-    /// Quits and reopens `URL` behind once the app exits (``UpdateRelaunchBehind``); the closure
-    /// it is given runs when the app did not quit. Nil (tests) lets Sparkle relaunch.
-    @ObservationIgnored public var relaunchBehind: ((URL, @escaping @MainActor () -> Void) -> Void)?
+    /// Quits and reopens the app behind once it exits (``UpdateRelaunchBehind``): the first closure
+    /// runs just before the quit (the relaunch hooks), the second when the app did not quit. Nil
+    /// (tests, hosts without it) lets Sparkle relaunch.
+    @ObservationIgnored public var relaunchBehind: ((_ willQuit: @escaping @MainActor () -> Void, _ declined: @escaping @MainActor () -> Void) -> Void)?
     /// Reads the executable's live session and input state before Sparkle relaunches.
     @ObservationIgnored public var relaunchBlockers: () -> UpdateRelaunchBlockers = { .daemonUnavailable }
     /// How long input must be quiet before a nightly installs by itself (`updates.idleInstallQuietSeconds`).

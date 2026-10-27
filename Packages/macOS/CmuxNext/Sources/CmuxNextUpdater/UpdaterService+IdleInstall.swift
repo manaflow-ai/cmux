@@ -32,14 +32,16 @@ extension UpdaterService {
               let relaunchBehind else { return false }
         log.append("will install \(build)")
         updaterWillInstallUpdate(build: build)
-        updaterWillRelaunchApplication()
         log.append("relaunching behind: quitting for the install, then open -g")
-        relaunchBehind(Bundle.main.bundleURL) { [weak self] in self?.quitForInstallDeclined() }
+        // The relaunch hooks (the record, keep sessions) run only once the helper runs.
+        relaunchBehind({ [weak self] in self?.updaterWillRelaunchApplication() },
+                       { [weak self] in self?.quitForInstallDeclined() })
         return true
     }
 
-    /// The app did not quit for the automatic install: the update waits for a click again, and the
-    /// relaunch record goes (a later launch the user starts must not stay behind).
+    /// The app did not quit for the automatic install (the helper could not start, or the user
+    /// kept the app at a quit dialog): the update waits for a click again, and the relaunch record
+    /// goes (a later launch the user starts must not stay behind).
     func quitForInstallDeclined() {
         log.append("relaunching behind: the app did not quit; the update waits for a click")
         UpdateRelaunchFocus.write(nil, defaults: defaults)

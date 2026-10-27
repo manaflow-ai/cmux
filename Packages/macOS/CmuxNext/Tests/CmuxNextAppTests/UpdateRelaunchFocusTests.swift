@@ -107,12 +107,30 @@ import Testing
         let updater = Self.updater(defaults: defaults, front: Self.nightly)
         updater.keptRunningBuild = .kept
         updater.automaticInstallInFlight = true
-        var reopened: [URL] = []
-        updater.relaunchBehind = { app, _ in reopened.append(app) }
+        var willQuit: (@MainActor () -> Void)?
+        updater.relaunchBehind = { quit, _ in willQuit = quit }
         #expect(updater.updaterQuitsForAutomaticInstall(build: "200"))
-        #expect(reopened == [Bundle.main.bundleURL])
         #expect(updater.installingBuild == "200")
+        #expect(defaults.data(forKey: UpdateRelaunchFocus.key) == nil, "nothing is recorded before the helper runs")
+        willQuit?()
         #expect(UpdateRelaunchFocus.consume(defaults: defaults, build: "200", now: Self.start.addingTimeInterval(2))?.frontmostPID == 7045)
+    }
+
+    /// The helper could not start, or the user refused the quit: the record goes and the next launch
+    /// (one the user starts) is not held behind.
+    @Test func aDeclinedQuitClearsTheRecord() {
+        let defaults = Self.defaults()
+        let updater = Self.updater(defaults: defaults, front: Self.nightly)
+        updater.keptRunningBuild = .kept
+        updater.automaticInstallInFlight = true
+        var hooks: (willQuit: @MainActor () -> Void, declined: @MainActor () -> Void)?
+        updater.relaunchBehind = { hooks = ($0, $1) }
+        #expect(updater.updaterQuitsForAutomaticInstall(build: "200"))
+        hooks?.willQuit()
+        #expect(defaults.data(forKey: UpdateRelaunchFocus.key) != nil)
+        hooks?.declined()
+        #expect(defaults.data(forKey: UpdateRelaunchFocus.key) == nil)
+        #expect(!updater.automaticInstallInFlight)
     }
 
     @Test func aClickOrTheUserInTheAppLetsSparkleRelaunch() {
@@ -158,4 +176,3 @@ import Testing
         }
     }
 }
-

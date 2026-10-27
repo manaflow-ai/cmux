@@ -1,6 +1,5 @@
 import AppKit
 import CmuxNextCompat
-import CmuxNextWakeups
 public import Foundation
 
 /// An automatic install reopens the app without activating it. Sparkle relaunches into an
@@ -10,18 +9,7 @@ public import Foundation
 /// the app quits instead, Sparkle's prepared installer installs as it exits (with no relaunch of
 /// its own), and this helper opens the bundle in the background (`open -g`, LaunchServices'
 /// don't-switch launch), so the app never comes forward.
-public nonisolated enum UpdateRelaunchBehind {
-    /// The launchd job Sparkle submits for its installer (`<host bundle id>-sparkle-updater`,
-    /// SUInstallerLauncher): in the user's domain, or the system domain for an install that
-    /// needed authorization.
-    public static func installerJobLabel(bundleIdentifier: String) -> String {
-        "\(bundleIdentifier)-sparkle-updater"
-    }
-
-    /// How long the app may take to quit once asked. Past it the quit was refused (the user kept
-    /// the app: an unsaved-changes prompt): the helper is told to stop and the update waits again.
-    public static let quitDeadline: Duration = .seconds(30)
-
+@MainActor public final class UpdateRelaunchBehind {
     /// The helper. fd 3 is the read end of a pipe whose write end only the app holds: EOF means
     /// the app ended, a line means the quit was refused (the helper ends, opening nothing). The
     /// installer job is looked up first, while the app still runs: Sparkle's installer is then
@@ -29,7 +17,7 @@ public nonisolated enum UpdateRelaunchBehind {
     /// bundle. Once the app ended, the helper waits for that installer's exit (`caffeinate -w`,
     /// the kernel's exit event; no polling), then `open -g` starts the bundle: the installed
     /// build, or the previous one Sparkle put back when the install failed.
-    public static let script = #"""
+    public nonisolated static let script = #"""
     job() {
       p=$(/bin/launchctl list "$1" 2>/dev/null | /usr/bin/sed -n 's/^[[:space:]]*"PID" = \([0-9][0-9]*\);$/\1/p')
       [ -n "$p" ] || p=$(/bin/launchctl print "system/$1" 2>/dev/null | /usr/bin/sed -n 's/^[[:space:]]*pid = \([0-9][0-9]*\)$/\1/p')
@@ -44,43 +32,65 @@ public nonisolated enum UpdateRelaunchBehind {
     exec /usr/bin/open -g "$0"
     """#
 
-    /// The helper's argv: `sh -c SCRIPT APP JOB`.
-    public static func arguments(app: URL, installerJob: String) -> [String] {
-        ["/bin/sh", "-c", script, app.path, installerJob]
-    }
-
     /// The helper's whole environment. `open` hands its environment to the app it launches, so the
     /// helper never inherits this process's (a launch-time `CMUX_NEXT_NO_ACTIVATE`, a test socket,
     /// the shell's variables): the new build starts with what LaunchServices gives it, as
     /// Sparkle's relaunch does.
-    public static let environment = ["PATH=/usr/bin:/bin:/usr/sbin:/sbin"]
+    public nonisolated static let environment = ["PATH=/usr/bin:/bin:/usr/sbin:/sbin"]
 
-    /// Starts the helper, then quits (the relaunch hook already recorded "keep sessions");
-    /// Sparkle's installer is waiting for this exit. `declined` runs when the helper cannot start
-    /// (then the app does not quit) or the quit did not happen by ``quitDeadline`` (then the
-    /// helper is told to stop): the update is staged again.
-    @MainActor public static func afterExit(_ app: URL, declined: @escaping @MainActor () -> Void) {
-        let arguments = arguments(app: app, installerJob: installerJobLabel(bundleIdentifier: Bundle.main.bundleIdentifier ?? ""))
-        // task-owner: one spawn (off main: posix_spawn is a fork and exec), then the quit; the
-        // deadline is `quitTimer`'s, which fires once or ends with the app.
+    /// The launchd job Sparkle submits for its installer (`<host bundle id>-sparkle-updater`,
+    /// SUInstallerLauncher): in the user's domain, or the system domain for an install that
+    /// needed authorization.
+    public nonisolated static func installerJobLabel(bundleIdentifier: String) -> String {
+        "\(bundleIdentifier)-sparkle-updater"
+    }
+
+    /// The helper's argv: `sh -c SCRIPT APP JOB`.
+    public nonisolated static func arguments(app: URL, installerJob: String) -> [String] {
+        ["/bin/sh", "-c", script, app.path, installerJob]
+    }
+
+    private let arguments: [String]
+    /// The running helper, from its start until the app ends or the quit is refused.
+    private var helper: (pid: pid_t, writeEnd: Int32)?
+    private var declined: (@MainActor () -> Void)?
+
+    public init(app: URL, bundleIdentifier: String) {
+        arguments = Self.arguments(app: app, installerJob: Self.installerJobLabel(bundleIdentifier: bundleIdentifier))
+    }
+
+    /// Starts the helper, then runs `willQuit` (the relaunch hooks) and quits; Sparkle's installer
+    /// is waiting for this exit. `declined` runs instead when the helper cannot start (nothing ran,
+    /// the app keeps running), or later from ``quitRefused()``: the update is staged again.
+    public func start(willQuit: @escaping @MainActor () -> Void, declined: @escaping @MainActor () -> Void) {
+        let arguments = arguments
+        // task-owner: one spawn (off main: posix_spawn is a fork and exec), then the quit; ends there.
         Task { @MainActor in
-            let helper = await Task.detached(priority: .userInitiated) { spawn(arguments) }.value
-            guard let helper else { return declined() }
-            quitTimer.schedule(after: quitDeadline) { @MainActor in
-                // Still running: the quit was refused. The helper ends on the line; reap it off main.
-                refuse(helper.writeEnd)
-                Task.detached(priority: .utility) { _ = waitpid(helper.pid, nil, 0) }
-                declined()
+            guard let helper = await Task.detached(priority: .userInitiated, operation: { Self.spawn(arguments) }).value else {
+                return declined()
             }
+            self.helper = helper
+            self.declined = declined
+            willQuit()
             NSApplication.terminateFromRunLoop()
         }
     }
 
-    /// The quit's deadline (``quitDeadline``): stop condition, it fires once, or the app ends first.
-    @MainActor static let quitTimer = DemandTimer(owner: "UpdateRelaunchBehind.quit")
+    /// The quit was refused (the user kept the app at a quit dialog): the helper is told to stop,
+    /// opening nothing, and the update is staged again. No-op once the helper is gone.
+    public func quitRefused() {
+        guard let helper else { return }
+        self.helper = nil
+        Self.refuse(helper.writeEnd)
+        // The helper ends on the line; reap it off main.
+        Task.detached(priority: .utility) { _ = waitpid(helper.pid, nil, 0) }
+        let declined = declined
+        self.declined = nil
+        declined?()
+    }
 
     /// Tells the helper the quit was refused (it ends, opening nothing), and closes the pipe.
-    static func refuse(_ writeEnd: Int32) {
+    nonisolated static func refuse(_ writeEnd: Int32) {
         let line = Array("refused\n".utf8)
         _ = line.withUnsafeBufferPointer { write(writeEnd, $0.baseAddress, $0.count) }
         close(writeEnd)
@@ -88,7 +98,7 @@ public nonisolated enum UpdateRelaunchBehind {
 
     /// Spawns the helper with the pipe's read end as its fd 3; returns its pid and the write end
     /// (close-on-exec, no SIGPIPE), or nil when the helper could not start.
-    static func spawn(_ arguments: [String]) -> (pid: pid_t, writeEnd: Int32)? {
+    nonisolated static func spawn(_ arguments: [String]) -> (pid: pid_t, writeEnd: Int32)? {
         var ends: [Int32] = [-1, -1]
         guard pipe(&ends) == 0 else { return nil }
         let (readEnd, writeEnd) = (ends[0], ends[1])
