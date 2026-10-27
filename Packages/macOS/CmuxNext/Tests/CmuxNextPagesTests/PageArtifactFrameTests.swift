@@ -39,6 +39,8 @@ struct PageArtifactFrameTests {
                                       targetFrameURL: endpoint, sourceFrameURL: pageURL, hook: nil) == .cancel)
         #expect(PageNavigation.policy(for: srcdoc, page: page, userClicked: false, mainFrame: false,
                                       targetFrameURL: blank, sourceFrameURL: pageURL, hook: nil) == .allow)
+        #expect(PageNavigation.policy(for: srcdoc, page: page, userClicked: false, mainFrame: false,
+                                      targetFrameURL: srcdoc, sourceFrameURL: pageURL, hook: nil) == .allow)
         #expect(PageNavigation.policy(for: external, page: page, userClicked: false, mainFrame: false,
                                       targetFrameURL: srcdoc, sourceFrameURL: pageURL, hook: nil) == .cancel)
         #expect(PageNavigation.policy(for: external, page: page, userClicked: false, mainFrame: false,
