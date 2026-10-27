@@ -39,6 +39,8 @@ final class PaneToolbar {
 
     let view = PaneToolbarView()
     private let registry: () -> ActionRegistry?
+    private let paneTarget: ActionTargetRef?
+    static let creationActions: [ActionID] = ["newSurface", "openBrowser"]
     /// The strip plus's menu for this pane (what opens in it).
     private let newTabMenu: () -> NSMenu?
     /// The shown content's own rows, first in the menu (``PaneMoreMenuContributing``: the docked
@@ -52,9 +54,10 @@ final class PaneToolbar {
     var writePinned: (PaneToolbarButtonsSetting) -> Void = { _ in }
     private var observation: Task<Void, Never>?
 
-    init(registry: @escaping () -> ActionRegistry?, newTabMenu: @escaping () -> NSMenu?,
+    init(registry: @escaping () -> ActionRegistry?, newTabMenu: @escaping () -> NSMenu?, paneTarget: ActionTargetRef? = nil,
          contentMenu: @escaping () -> [NSMenuItem] = { [] }) {
         self.registry = registry
+        self.paneTarget = paneTarget
         self.newTabMenu = newTabMenu
         self.contentMenu = contentMenu
         view.moreMenu = { [weak self] in self?.moreMenu() }
@@ -75,6 +78,7 @@ final class PaneToolbar {
                       // The plus's rows, without its Chromium warmup: "…" is opened for a split as often.
                       pane.map { $0.services.registry.makeContextMenu(for: .newTab, target: ActionTargetRef(kind: .pane, id: $0.paneKey)) }
                   },
+                  paneTarget: ActionTargetRef(kind: .pane, id: pane.paneKey),
                   contentMenu: { [weak pane] in (pane?.view.content as? PaneMoreMenuContributing)?.paneMoreMenuItems() ?? [] })
         writePinned = { [weak services] next in
             guard let settings = services?.settings else { return }
@@ -146,8 +150,9 @@ final class PaneToolbar {
         // (Lawrence 2026-10-20: "i dont like the down arrow"); it is a row of "…"'s menu.
         let kinds = kind.map { paneKinds.union([$0]) } ?? paneKinds
         let reservedPins = kinds.map { kind in pinned.count(where: { Self.actions(kind).contains(ActionID(rawValue: $0)) }) }.max() ?? 0
-        view.show(shownPins().compactMap(item), more: shown, lit: zoomed && shown,
-                  reserving: kinds.isEmpty ? 0 : reservedPins + 1)
+        let creation = paneTarget == nil ? [] : Self.creationActions.compactMap(item)
+        view.show(creation + shownPins().compactMap(item), more: shown, lit: zoomed && shown,
+                  reserving: creation.count + (kinds.isEmpty ? 0 : reservedPins + 1))
     }
 
     /// The pinned actions the tab can run, in the user's order, as buttons before "…".
@@ -160,10 +165,14 @@ final class PaneToolbar {
         let lit = zoomed && id == Self.zoom
         let symbols: [ActionID: String] = ["openDiffViewer": "plusminus", "file.open": "folder", "agentPane.searchChats": "bubble.left.and.text.bubble.right"]
         return PaneToolbarItem(id: id.rawValue, title: title, symbol: lit ? "arrow.down.right.and.arrow.up.left" : symbols[id] ?? descriptor.symbol,
-                               shortcut: registry.shortcutDisplay(for: id), lit: lit)
+                               shortcut: registry.shortcutDisplay(for: id), lit: lit, alwaysVisible: Self.creationActions.contains(id))
     }
 
     private func perform(_ id: ActionID) {
+        if Self.creationActions.contains(id), let paneTarget {
+            _ = registry()?.perform(id, invocation: ActionInvocation(target: paneTarget, origin: .user))
+            return
+        }
         guard let target else { return }
         _ = registry()?.perform(id, invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: target), origin: .user))
     }
