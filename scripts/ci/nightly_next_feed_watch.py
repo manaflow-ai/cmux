@@ -343,7 +343,8 @@ def next_delivery_workflows(train: str) -> list[tuple[str, str]]:
     hold back the starvation dispatch.
     """
     flows = [("nightly-next-tick.yml", "main"), ("nightly.yml", "nightly-next"), ("nightly.yml", "main")]
-    if train == "on":
+    # GitHub compares strings case-insensitively; so does this.
+    if train.strip().lower() == "on":
         flows.insert(1, ("nightly-next-train.yml", "feat-cmux-next"))
     return flows
 

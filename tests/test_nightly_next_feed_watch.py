@@ -918,7 +918,8 @@ class TrainModeTests(unittest.TestCase):
 
     def test_only_a_train_that_is_on_holds_back_the_starvation_dispatch(self):
         train = ("nightly-next-train.yml", "feat-cmux-next")
-        self.assertIn(train, watch.next_delivery_workflows("on"))
+        for mode in ("on", "ON", "On"):
+            self.assertIn(train, watch.next_delivery_workflows(mode), mode)
         for mode in ("", "dry-run", "off", "plan"):
             flows = watch.next_delivery_workflows(mode)
             self.assertNotIn(train, flows, mode)
@@ -927,7 +928,7 @@ class TrainModeTests(unittest.TestCase):
 
     def test_the_watch_passes_the_train_switch(self):
         workflow = (self.WORKFLOWS / "nightly-next-feed-watch.yml").read_text(encoding="utf-8")
-        self.assertIn("TRAIN: ${{ vars.NIGHTLY_NEXT_TRAIN }}", workflow)
+        self.assertIn("TRAIN: ${{ vars.NIGHTLY_NEXT_TRAIN == 'on' && 'on' || 'off' }}", workflow)
         self.assertIn('--train "$TRAIN"', workflow)
         seen = []
         with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
