@@ -23,6 +23,7 @@ type Recorded = ReturnType<typeof record>[number];
 /// A daemon over a fake socket: attach answers with `history`; `push` sends live events.
 function fakeDaemon(history: Recorded[], details: Record<string, unknown> = {}) {
   let socket: any;
+  const calls: string[] = [];
   const session = {
     sessionId: CHAT,
     cwd: "/Users/dev/app",
@@ -36,7 +37,22 @@ function fakeDaemon(history: Recorded[], details: Record<string, unknown> = {}) 
   const answer = (method: string) => {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+        return {
+          protocolVersion: 1,
+          _meta: {
+            acpmux: {
+              origin: "local",
+              extensions: [],
+              operations: [
+                "_acpmux/handoff_prepare",
+                "_acpmux/handoff_get",
+                "_acpmux/handoff_draft",
+                "_acpmux/handoff_start",
+                "_acpmux/handoff_discard",
+              ],
+            },
+          },
+        };
       case "_acpmux/watch":
         return { sessions: [session] };
       case "_acpmux/attach":
@@ -52,6 +68,7 @@ function fakeDaemon(history: Recorded[], details: Record<string, unknown> = {}) 
       readyState: 1,
       send(raw: string) {
         const message = JSON.parse(raw);
+        calls.push(message.method);
         if (message.id !== undefined)
           queueMicrotask(() =>
             socket.onmessage?.({
@@ -76,7 +93,7 @@ function fakeDaemon(history: Recorded[], details: Record<string, unknown> = {}) 
       data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { session } }),
     });
   };
-  return { open, push, change };
+  return { open, push, change, calls };
 }
 
 /// Yields until `ready()` holds; fails after 2 s with what it waited for.
@@ -200,9 +217,12 @@ test("a newer summary start replaces a previous live turn before its start event
     expect(snapshot.turnStartedAtMs).toBe(START + 30_000);
     expect(client.turnRunning()).toBe(true);
     // A late summary of the earlier turn must not move the clock backwards either.
-    daemon.push(record([["mux", "turn_started", { turnId: "t2" }]], 31));
     daemon.change({ title: "earlier", turn: { turnId: "t1", startedAt: START + 1_000 } });
     await until(() => snapshot.summary?.title === "earlier", "the older summary");
+    expect(snapshot.turnStartedAtMs).toBe(START + 30_000);
+    expect(await client.continueIn("claude")).toBeUndefined();
+    expect(daemon.calls.filter((method) => method === "_acpmux/handoff_prepare")).toHaveLength(0);
+    daemon.push(record([["mux", "turn_started", { turnId: "t2" }]], 31));
     expect(snapshot.turnStartedAtMs).toBe(START + 31_000);
     // Replaying a terminal event for the old turn must not stop the newer live turn.
     daemon.push(record([["mux", "turn_result", { turnId: "t1", status: "completed" }]], 32));
