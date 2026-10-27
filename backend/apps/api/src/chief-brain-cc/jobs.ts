@@ -4,6 +4,7 @@ import type { ChiefBrainDO } from "../chief-brain/brain-do.ts"
 import { personalTeamIdFor } from "../domains/user.ts"
 import type { Env } from "../env.ts"
 import { planLink, PRICING_URL } from "../plan-checkout.ts"
+import { upstashAuto, upstashConfig } from "./jobs-upstash.ts"
 
 /**
  * A Chief's scheduled and triggered jobs (plans/cmux-next/chief-automations-DESIGN.md). Lawrence,
@@ -146,6 +147,14 @@ export const autoCall = async (b: ChiefBrainDO, conversation: string, raw: unkno
   const p = chiefJobPrincipal(cfg.agent, cfg.owner)
   const req = (raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>
   const fail = (status: number, r: { code: string; message: string }) => ({ status, json: { error: `${r.code}: ${r.message}`, code: r.code } })
+  const upstash = upstashConfig(env)
+  if (upstash) {
+    const name = str(req.name, 80)
+    const prompt = str(req.prompt, PROMPT_MAX)
+    if (req.action === "auto_create" && (!name || !prompt)) return { status: 400, json: { error: "a job needs a name and a prompt (what to do on each run)" } }
+    const create = req.action === "auto_create" ? { name: name!, prompt: prompt!, when: str(req.when, 120), tz: str(req.tz, 64) ?? "UTC" } : null
+    return upstashAuto(upstash, p, conversation, String(req.action ?? ""), req, create, (count) => planGate(env, p, cfg.owner!, count))
+  }
   if (req.action === "auto_list") return { status: 200, json: { jobs: (await ownJobs(env, p, conversation)).map(view) } }
   if (req.action === "auto_rm" || req.action === "auto_run") {
     const id = str(req.automation, 40)
@@ -164,20 +173,8 @@ export const autoCall = async (b: ChiefBrainDO, conversation: string, raw: unkno
   if (when === "webhook") triggers.unshift({ type: "webhook" })
   else if (when && when !== "manual") triggers.unshift({ type: "cron", expr: when, tz })
   // The upsell gate: on the free plan a Chief has FREE_CHIEF_JOBS jobs (over all its conversations).
-  const mine = await ownJobs(env, p, null)
-  if (mine.length >= FREE_CHIEF_JOBS && (await ownerPaid(env, cfg.owner)) === "free") {
-    const checkout = env.CLOUD_API_ORIGIN ? await planLink(env, env.CLOUD_API_ORIGIN, p.team!, UPSELL_PLAN) : null
-    return {
-      status: 402,
-      json: {
-        error: `automation.plan.required: the free plan has ${FREE_CHIEF_JOBS} scheduled job; Pro ($50/month) has more`,
-        code: "automation.plan.required",
-        plan: UPSELL_PLAN,
-        checkout: checkout ?? PRICING_URL,
-        test_mode: checkout !== null
-      }
-    }
-  }
+  const blocked = await planGate(env, p, cfg.owner, (await ownJobs(env, p, null)).length)
+  if (blocked) return blocked
   const body: Body = { type: "chief", chief: cfg.agent, conversation, prompt }
   const r = await mutate(env, p, "automation.create", { name, description: `Chief job: ${prompt.slice(0, 200)}`, triggers, body }, `chief-auto:create:${cfg.agent}:${conversation}:${crypto.randomUUID()}`)
   if (!r.ok) return fail(r.code === "trigger.invalid" || r.code === "validation.invalid" ? 400 : r.code === "automation.limit" ? 413 : 502, r)
@@ -188,6 +185,22 @@ export const autoCall = async (b: ChiefBrainDO, conversation: string, raw: unkno
     webhook = w && w.ok ? w.value : undefined
   }
   return { status: 200, json: { job: view(job), ...(webhook ? { webhook } : {}) } }
+}
+
+/** The upsell gate for a new job, given how many jobs the Chief has: a 402 with a checkout link, or null. */
+const planGate = async (env: Env, p: Principal, owner: string, count: number): Promise<Out | null> => {
+  if (count < FREE_CHIEF_JOBS || (await ownerPaid(env, owner)) !== "free") return null
+  const checkout = env.CLOUD_API_ORIGIN ? await planLink(env, env.CLOUD_API_ORIGIN, p.team!, UPSELL_PLAN) : null
+  return {
+    status: 402,
+    json: {
+      error: `automation.plan.required: the free plan has ${FREE_CHIEF_JOBS} scheduled job; Pro ($50/month) has more`,
+      code: "automation.plan.required",
+      plan: UPSELL_PLAN,
+      checkout: checkout ?? PRICING_URL,
+      test_mode: checkout !== null
+    }
+  }
 }
 
 /** `chief-auto`: the Chief's client (curl to chief-turn-runner on 127.0.0.1:4018). */

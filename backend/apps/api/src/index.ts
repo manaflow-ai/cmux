@@ -53,6 +53,7 @@ import { BILLING_LEVELS_PATH, BILLING_SYNC_PATH, handleBillingLevels, handleBill
 import { BILLING_TEAM_MODE_PATH, handleBillingTeamMode } from "./billing-team-mode.ts"
 import { CREDITS_ADMIN_PATH, handleCreditsAdmin } from "./credits-admin.ts"
 import { CREDITS_PATH, CREDITS_WEBHOOK_PATH, handleCredits, handleCreditsWebhook } from "./credits-routes.ts"
+import { handleUpstashChiefJob, UPSTASH_WORKFLOW_PATH } from "./chief-brain-cc/jobs-upstash.ts"
 import { handlePlanCheckout, PLAN_PATH } from "./plan-checkout.ts"
 import { HOME_HEALTH_CRON, runHomeHealth, sentryFetch } from "./home-health.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
@@ -264,6 +265,8 @@ export default {
     const planCheckout = url.pathname.match(PLAN_PATH)
     if (planCheckout) return handlePlanCheckout(request, env, planCheckout[1]!)
     if (url.pathname === CREDITS_WEBHOOK_PATH) return handleCreditsWebhook(request, env)
+    // Chief jobs on Upstash Workflow: QStash-signed requests only (jobs-upstash.ts).
+    if (url.pathname === UPSTASH_WORKFLOW_PATH && request.method === "POST") return handleUpstashChiefJob(request, env)
     if (url.pathname === CREDITS_ADMIN_PATH) return handleCreditsAdmin(request, env)
     if (url.pathname === "/v1/admin/cloud/abandoned/clear") return handleCloudAbandonedClear(request, env)
     if (url.pathname.startsWith("/v1/admin/team-vm/")) return handleTeamVmAdmin(request, env)

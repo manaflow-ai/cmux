@@ -19,6 +19,8 @@
     "@earendil-works/chord": "1.0.0",
     "@earendil-works/pi-ai": "1.0.0",
     "@earendil-works/pi-durable": "1.0.0",
+    "@upstash/qstash": "2.12.1",
+    "@upstash/workflow": "1.4.0",
     "agents": "0.28.1",
     "croner": "10.0.1",
     "drizzle-orm": "0.45.4",
