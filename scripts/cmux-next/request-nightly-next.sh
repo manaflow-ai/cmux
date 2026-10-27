@@ -192,9 +192,11 @@ backfill() { # <reason>
   fi
   local state count
   active=0
+  # The REST filter, not `gh run list --status`: gh's flag refuses "pending"
+  # (a run held behind its concurrency group).
   for state in queued in_progress waiting pending requested; do
-    if ! count="$(gh run list --repo "$repo" --workflow cmux-tui-artifacts.yml --branch feat-cmux-next --status "$state" \
-        --limit 1 --json status --jq length 2>/dev/null)" || [[ ! "$count" =~ ^[0-9]+$ ]]; then
+    if ! count="$(gh api "repos/$repo/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&status=$state&per_page=1" \
+        --jq .total_count 2>/dev/null)" || [[ ! "$count" =~ ^[0-9]+$ ]]; then
       echo "backfill: could not read the cmux-tui-artifacts runs; not dispatching ($1)"
       return 0
     fi

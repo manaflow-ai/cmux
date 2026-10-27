@@ -1226,9 +1226,10 @@ verify_key_command() {
   case "$rc" in
     0) echo "commit=$verified_commit" ;;
     1)
+      # A 404 from a complete transfer only; a failed curl is a read failure.
       local code
       code="$(curl -sS --proto '=https' --connect-timeout 20 --max-time 60 -o /dev/null -w '%{http_code}' \
-        "$BASE/tree/$key/cmux-tui-$TARGET.sha256?t=$(date +%s)" 2>/dev/null || true)"
+        "$BASE/tree/$key/cmux-tui-$TARGET.sha256?t=$(date +%s)" 2>/dev/null)" || code=000
       if [[ "$code" == 404 ]]; then echo "tree $key: not published" >&2; exit 1; fi
       echo "error: tree $key: could not read $BASE/tree/$key/cmux-tui-$TARGET.sha256 (HTTP ${code:-000}); a read failure, not \"not published\"" >&2
       exit 3 ;;

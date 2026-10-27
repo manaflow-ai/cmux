@@ -72,6 +72,12 @@ while [[ \$# -gt 0 ]]; do
   esac
 done
 path="\${url#https://files.cmux.com/cmux-tui/}"; path="\${path%%\?*}"
+# A -w read of a path listed in $cdn/TRUNC transfers, reports its status, then
+# fails (curl exit 18, a truncated transfer).
+if [[ "\$path" != "\$url" && -n "\$fmt" ]] && grep -qxF "\$path" "$cdn/TRUNC" 2>/dev/null; then
+  if [[ -f "$cdn/\$path" ]]; then [[ -z "\$out" ]] || cp "$cdn/\$path" "\$out"; printf 200; else printf 404; fi
+  exit 18
+fi
 if [[ "\$path" != "\$url" ]] && { grep -qxF "\$path" "$cdn/FAIL" 2>/dev/null || { [[ -n "\$fmt" ]] && grep -qxF "\$path" "$cdn/FAILW" 2>/dev/null; }; }; then
   [[ -n "\$fmt" ]] && { printf 500; exit 0; }
   exit 22
@@ -93,15 +99,24 @@ if [[ -n "\$out" ]]; then cp "$cdn/\$path" "\$out"; else cat "$cdn/\$path"; fi
 [[ -z "\$fmt" ]] || printf 200
 STUB
 # gh: records every call; the script reads no API (candidates come from git).
-# `run list` (the backfill's active-run counts, one per --status) prints
-# $TMP/gh-runs (for in_progress; 0 for the other states), or fails when that
-# file is missing (an unreadable list).
+# The backfill's active-run counts (`api .../cmux-tui-artifacts.yml/runs`, one
+# per status) print $TMP/gh-runs for in_progress and 0 for the other states, or
+# fail when that file is missing (an unreadable list) or the status is not one
+# the REST API knows. `run list` prints $TMP/gh-runs.
 cat > "$TMP/bin/gh" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$TMP/gh.log"
 if [[ "\$1 \$2" == "run list" ]]; then
   [[ -f "$TMP/gh-runs" ]] || exit 1
-  if [[ "\$*" == *"--status in_progress"* ]]; then cat "$TMP/gh-runs"; else echo 0; fi
+  cat "$TMP/gh-runs"; exit 0
+fi
+if [[ "\$1" == api && "\$2" == repos/*/actions/workflows/cmux-tui-artifacts.yml/runs\?* ]]; then
+  [[ -f "$TMP/gh-runs" ]] || exit 1
+  case "\$2" in
+    *"&status=in_progress&"*) cat "$TMP/gh-runs" ;;
+    *"&status=queued&"*|*"&status=waiting&"*|*"&status=pending&"*|*"&status=requested&"*) echo 0 ;;
+    *) echo "gh stub: unknown status in \$2" >&2; exit 1 ;;
+  esac
   exit 0
 fi
 [[ "\$1" == api ]] || exit 0
@@ -314,6 +329,14 @@ request --sha "$other" --release-compile-green
 [[ "$status" == 0 ]] && ! dispatched "$other" && grep -q "read failure" <<<"$out" \
   || fail "a source.json read failure must not promote (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 rm -f "$cdn/FAILW"
+# A source.json transfer that fails after a 200 (curl exit 18) is a read failure too.
+echo "tree/$okey/source.json" > "$cdn/TRUNC"
+request --sha "$other" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$other" && grep -q "read failure" <<<"$out" \
+  || fail "a truncated source.json read must not promote (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh daemon-tested "$okey" >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 3 ]] || fail "daemon-tested on a truncated read must exit 3, got $rc"
+rm -f "$cdn/TRUNC"
 
 # The tree-commit marker (tree-commit-marker.sh check): main's promote guard
 # requires it, so a commit whose tree is ready but which has no marker is not
@@ -489,6 +512,15 @@ echo "tree/$okey/$bin.sha256" > "$cdn/FAIL"
 rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/pin-cmux-tui.sh verify-key "$okey" >/dev/null 2>&1) || rc=$?
 [[ "$rc" == 3 ]] || fail "verify-key on a failed sha256 read must exit 3 (a read failure), got $rc"
 rm -f "$cdn/FAIL"
+# An interrupted transfer that reported 404 is not "not published".
+echo "tree/$(printf 'e%.0s' {1..40})/$bin.sha256" > "$cdn/TRUNC"
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/pin-cmux-tui.sh verify-key "$(printf 'e%.0s' {1..40})" >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 3 ]] || fail "verify-key on an interrupted 404 must exit 3, got $rc"
+# An interrupted marker transfer is a read failure, not missing.
+echo "tree-commits/$other.json" > "$cdn/TRUNC"
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh check "$other" >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 3 ]] || fail "an interrupted marker read must exit 3, got $rc"
+rm -f "$cdn/TRUNC"
 rm -f "$cdn/tree-commits/$other.json"
 rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh check "$other" >/dev/null 2>&1) || rc=$?
 [[ "$rc" == 1 ]] || fail "a missing marker is exit 1, got $rc"

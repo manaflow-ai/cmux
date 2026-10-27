@@ -39,10 +39,14 @@ base="${CMUX_TUI_PIN_BASE:-https://files.cmux.com/cmux-tui}"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/tree-commit-marker.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 
-# http_get <url> <out>: prints the HTTP status, 000 when no response came.
+# http_get <url> <out>: prints the HTTP status of a complete transfer, 000
+# when no response came or curl failed (a truncated or timed-out transfer can
+# carry a 200 or a 404 status: it is a read failure, never ready or missing).
 http_get() {
-  curl -sS --proto '=https' --connect-timeout 20 --max-time 60 --retry 2 --retry-delay 2 \
-    -o "$2" -w '%{http_code}' "$1" 2>/dev/null || true
+  local code rc=0
+  code="$(curl -sS --proto '=https' --connect-timeout 20 --max-time 60 --retry 2 --retry-delay 2 \
+    -o "$2" -w '%{http_code}' "$1" 2>/dev/null)" || rc=$?
+  if (( rc != 0 )); then echo 000; else echo "${code:-000}"; fi
 }
 
 check() { # <sha>
