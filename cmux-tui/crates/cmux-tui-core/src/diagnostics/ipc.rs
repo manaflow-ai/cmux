@@ -131,13 +131,13 @@ impl IpcStats {
 
     /// A frame of `kind` arrived; `bytes` counts its header and payload.
     pub fn frame_received(&self, kind: FrameKind, bytes: usize) {
-        self.received[usize::from(kind.wire())].add(bytes);
+        frame_slot(&self.received, kind).add(bytes);
     }
 
     /// A frame of `kind` went to the writer; `bytes` counts its header and
     /// payload.
     pub fn frame_sent(&self, kind: FrameKind, bytes: usize) {
-        self.sent[usize::from(kind.wire())].add(bytes);
+        frame_slot(&self.sent, kind).add(bytes);
         self.messages_written.fetch_add(1, Ordering::Relaxed);
     }
 
@@ -195,6 +195,15 @@ fn kind_name(slot: usize) -> Option<&'static str> {
         return Some(LINE_KIND);
     }
     u8::try_from(slot).ok().and_then(FrameKind::from_wire).map(FrameKind::name)
+}
+
+/// The counter of a frame kind: the slot of its wire value.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "INVARIANT: each FrameKind wire value is below KIND_SLOTS (ipc_tests records ALL)"
+)]
+fn frame_slot(counters: &[KindCounter; KIND_SLOTS], kind: FrameKind) -> &KindCounter {
+    &counters[usize::from(kind.wire())]
 }
 
 fn kinds_snapshot(counters: &[KindCounter; KIND_SLOTS]) -> Vec<IpcKindSnapshot> {

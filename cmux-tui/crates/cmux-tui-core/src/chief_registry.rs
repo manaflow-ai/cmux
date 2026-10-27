@@ -927,7 +927,7 @@ pub(crate) fn sniff_avatar(bytes: &[u8]) -> Option<&'static str> {
         Some("image/jpeg")
     } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
         Some("image/gif")
-    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP".as_slice()) {
         Some("image/webp")
     } else {
         None

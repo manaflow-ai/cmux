@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::conversation_store::runs::{RunRejected, valid_key};
+use crate::panic_free::JsonFields;
 
 /// `conversation-live-publish`, `conversation-live` and the
 /// `conversation-live` event on `subscribe` for a connection that echoes
@@ -132,7 +133,7 @@ impl LiveFrame {
                     "text": text,
                 });
                 if *last == Some(true) {
-                    value["final"] = json!(true);
+                    value.insert("final", json!(true));
                 }
                 value
             }
@@ -217,11 +218,11 @@ impl LiveBuffers {
         self.runs.retain(|_, run| now.saturating_duration_since(run.touched) < STALE_LIVE);
         let key = (conversation.to_owned(), frame.run().to_owned());
         if !self.runs.contains_key(&key) {
-            let mut held: Vec<_> =
-                self.runs.iter().filter(|((of, _), _)| of == conversation).collect();
-            if held.len() >= MAX_CONVERSATION_RUNS {
-                held.sort_by_key(|(_, run)| run.touched);
-                let oldest = held[0].0.clone();
+            let held = self.runs.iter().filter(|((of, _), _)| of == conversation);
+            if held.clone().count() >= MAX_CONVERSATION_RUNS
+                && let Some((oldest, _)) = held.min_by_key(|(_, run)| run.touched)
+            {
+                let oldest = oldest.clone();
                 self.runs.remove(&oldest);
             }
         }
@@ -298,18 +299,21 @@ impl LiveBuffers {
                             "text": step.text,
                         });
                         if step.ended {
-                            value["final"] = json!(true);
+                            value.insert("final", json!(true));
                         }
                         value
                     })
                     .collect();
                 let mut value = json!({"run": run, "author": live.author, "steps": steps});
                 if let Some(activity) = &live.activity {
-                    value["activity"] = json!({
-                        "line": activity.line,
-                        "since": activity.since,
-                        "at": activity.at,
-                    });
+                    value.insert(
+                        "activity",
+                        json!({
+                            "line": activity.line,
+                            "since": activity.since,
+                            "at": activity.at,
+                        }),
+                    );
                 }
                 value
             })
@@ -325,7 +329,7 @@ fn apply_to(run: &mut LiveRun, frame: &LiveFrame) -> anyhow::Result<Applied> {
                 return Err(RunRejected("step_final").into());
             }
             let ended = *last == Some(true);
-            match run.steps.iter().position(|live| live.step == *step) {
+            match run.steps.iter_mut().find(|live| live.step == *step) {
                 None => {
                     if *seq != 0 {
                         return Err(RunRejected("seq_gap").into());
@@ -342,8 +346,7 @@ fn apply_to(run: &mut LiveRun, frame: &LiveFrame) -> anyhow::Result<Applied> {
                     });
                     Ok(Applied::Frame)
                 }
-                Some(index) => {
-                    let live = &mut run.steps[index];
+                Some(live) => {
                     if live.ended {
                         return Err(RunRejected("step_final").into());
                     }

@@ -55,8 +55,9 @@ const PROVIDER_SOCKET_FILE: &str = "browser-host-provider.sock";
 /// is too long for a Unix socket.
 pub fn socket_path_for(daemon_socket: &Path) -> PathBuf {
     use sha2::{Digest, Sha256};
-    let digest = format!("{:x}", Sha256::digest(daemon_socket.as_os_str().as_encoded_bytes()));
-    let leaf = format!("bh-{}", &digest[..12]);
+    let digest = Sha256::digest(daemon_socket.as_os_str().as_encoded_bytes());
+    let short: String = digest.iter().take(6).map(|byte| format!("{byte:02x}")).collect();
+    let leaf = format!("bh-{short}");
     let beside = daemon_socket.parent().unwrap_or_else(|| Path::new("/tmp")).join(&leaf);
     #[cfg(unix)]
     if !crate::server::unix_socket_path_fits(&beside.join(PROVIDER_SOCKET_FILE)) {

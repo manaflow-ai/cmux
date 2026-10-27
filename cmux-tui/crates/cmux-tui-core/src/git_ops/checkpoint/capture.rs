@@ -549,31 +549,44 @@ fn hash_files(
     operation: &'static str,
 ) -> Result<Vec<String>, ResourceError> {
     let mut oids = Vec::with_capacity(paths.len());
-    let mut start = 0;
-    while start < paths.len() {
-        let mut end = start;
-        let mut bytes = 0;
-        while end < paths.len() && (end == start || bytes + paths[end].len() < MAX_ARGUMENT_BYTES) {
-            bytes += paths[end].len() + 1;
-            end += 1;
+    let mut batch = Vec::new();
+    let mut bytes = 0;
+    for path in paths {
+        if !batch.is_empty() && bytes + path.len() >= MAX_ARGUMENT_BYTES {
+            oids.extend(hash_batch(git, &batch, write, operation)?);
+            batch.clear();
+            bytes = 0;
         }
-        let names = paths[start..end].iter().map(|path| os(path)).collect::<Vec<_>>();
-        let mut arguments = vec![OsStr::new("hash-object"), OsStr::new("--no-filters")];
-        if write {
-            arguments.push(OsStr::new("-w"));
-        }
-        arguments.push(OsStr::new("--"));
-        arguments.extend(names.iter().map(OsString::as_os_str));
-        let output = git
-            .run(None, &arguments, &[], Bound::Deadline(HASH_DEADLINE), MAX_OUTPUT_BYTES)
-            .map_err(|failure| hash_failed(git, operation, &failure, &paths[start..end]))?;
-        let text = String::from_utf8_lossy(&output.stdout);
-        let batch = text.lines().map(str::to_string).collect::<Vec<_>>();
-        if batch.len() != end - start {
-            return Err(failed(operation, "git_failed", "git hashed a different number of files"));
-        }
-        oids.extend(batch);
-        start = end;
+        bytes += path.len() + 1;
+        batch.push(*path);
+    }
+    if !batch.is_empty() {
+        oids.extend(hash_batch(git, &batch, write, operation)?);
+    }
+    Ok(oids)
+}
+
+/// The object ids of one command line's worth of files, in order.
+fn hash_batch(
+    git: &WriteGit<'_>,
+    paths: &[&[u8]],
+    write: bool,
+    operation: &'static str,
+) -> Result<Vec<String>, ResourceError> {
+    let names = paths.iter().map(|path| os(path)).collect::<Vec<_>>();
+    let mut arguments = vec![OsStr::new("hash-object"), OsStr::new("--no-filters")];
+    if write {
+        arguments.push(OsStr::new("-w"));
+    }
+    arguments.push(OsStr::new("--"));
+    arguments.extend(names.iter().map(OsString::as_os_str));
+    let output = git
+        .run(None, &arguments, &[], Bound::Deadline(HASH_DEADLINE), MAX_OUTPUT_BYTES)
+        .map_err(|failure| hash_failed(git, operation, &failure, paths))?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let oids = text.lines().map(str::to_string).collect::<Vec<_>>();
+    if oids.len() != paths.len() {
+        return Err(failed(operation, "git_failed", "git hashed a different number of files"));
     }
     Ok(oids)
 }

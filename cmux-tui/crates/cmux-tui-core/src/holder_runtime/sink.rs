@@ -211,7 +211,7 @@ impl SinkState {
         Pending {
             confirmed: self.confirmed,
             received: self.received,
-            head: all[..head_len.min(all.len())].to_vec(),
+            head: all.iter().take(head_len).copied().collect(),
             all,
         }
     }
@@ -436,11 +436,7 @@ impl HolderSink {
         }
         // Taken, not parsed: the bytes stay queued (and in `pending`) until
         // the reader confirms them.
-        let n = buf.len().min(state.bytes.len());
-        let (head, tail) = state.bytes.as_slices();
-        let from_head = n.min(head.len());
-        buf[..from_head].copy_from_slice(&head[..from_head]);
-        buf[from_head..n].copy_from_slice(&tail[..n - from_head]);
+        let n = copy_queued(buf, &state.bytes);
         state.in_flight = n;
         let unnumbered: usize =
             state.runs.iter().take_while(|run| run.offset.is_none()).map(|run| run.len).sum();
@@ -488,7 +484,8 @@ impl TerminalSink for HolderSink {
         }
         let skip = state.received.saturating_sub(offset) as usize;
         let mut from = offset.max(state.received);
-        let mut rest = &bytes[skip.min(bytes.len())..];
+        // Bytes wholly before `received` were already taken: nothing is left.
+        let mut rest = bytes.get(skip..).unwrap_or_default();
         loop {
             let inside = state.cuts.iter().copied().find(|cut| *cut > from && *cut < end);
             let Some(cut) = inside else { break };
@@ -605,6 +602,21 @@ pub(super) struct SnapshottingReader {
     pub(super) terminal_id: String,
 }
 
+/// Copies the front of `queued` into `buf` (memcpy of its two halves); the
+/// count copied.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "INVARIANT: n <= both lengths; head and tail together hold queued.len() >= n bytes"
+)]
+fn copy_queued(buf: &mut [u8], queued: &VecDeque<u8>) -> usize {
+    let n = buf.len().min(queued.len());
+    let (head, tail) = queued.as_slices();
+    let from_head = n.min(head.len());
+    buf[..from_head].copy_from_slice(&head[..from_head]);
+    buf[from_head..n].copy_from_slice(&tail[..n - from_head]);
+    n
+}
+
 impl Read for SnapshottingReader {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if let Some(base) = self.sink.snapshot_due() {
@@ -613,7 +625,9 @@ impl Read for SnapshottingReader {
         }
         let (n, unnumbered) = self.sink.read(buf);
         if n > unnumbered {
-            crate::debug_spans::output_marks(&self.terminal_id, &buf[unnumbered..n]);
+            if let Some(numbered) = buf.get(unnumbered..n) {
+                crate::debug_spans::output_marks(&self.terminal_id, numbered);
+            }
             // The holder's output after the daemon wrote a key on the custody master is its echo.
             let flow = self.sink.input_flow.take();
             cmux_flow_trace::hop("daemon.output.holder", flow, &self.terminal_id);

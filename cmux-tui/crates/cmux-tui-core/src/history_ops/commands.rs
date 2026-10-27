@@ -11,6 +11,7 @@ use cmux_history::{HistoryEntry, HistoryKind};
 
 use super::merged::LOCAL_MACHINE;
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::state::command_history_store::{CommandDeletion, MAX_COMMAND_LIST_LIMIT};
 use crate::workspace_registry::unix_epoch_ms;
 
@@ -77,5 +78,5 @@ pub(super) fn delete(mux: &Arc<Mux>, selection: Selection) -> anyhow::Result<u64
         Selection::All => CommandDeletion::All,
     };
     let answer = mux.delete_terminal_commands(deletion)?;
-    Ok(answer["deleted"].as_u64().unwrap_or(0))
+    Ok(answer.field("deleted").as_u64().unwrap_or(0))
 }

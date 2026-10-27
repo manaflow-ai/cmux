@@ -60,8 +60,7 @@ pub(super) fn dispatch(
         ResourceOperation::GitCheckpointPin | ResourceOperation::GitCheckpointUnpin => {
             pin(mux, &store, &request)
         }
-        // crash-allow: pre-existing invariant; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
-        other => unreachable!("checkpoint does not handle {other:?}"),
+        other => Err(super::unrouted(other)),
     };
     result.map_err(scan::normalized)
 }
@@ -80,25 +79,30 @@ impl Target {
     }
 }
 
-/// Resolves the request's target and its ids. With `mint`, the first sight
-/// of a repository or worktree mints its ids; without, an unseen one is
-/// `None`.
+/// The request's repository and its layout.
+fn located(
+    mux: &Arc<Mux>,
+    request: &ParsedResourceRequest,
+    operation: &'static str,
+) -> Result<(Repository, Layout), ResourceError> {
+    let directory = super::target::directory(mux, request, operation)?;
+    let repository = super::open_repository(&directory, operation)?;
+    let layout = Layout::locate(&repository, operation)?;
+    Ok((repository, layout))
+}
+
+/// Resolves the request's target and its ids; an unseen repository or
+/// worktree is `None`.
 fn target(
     mux: &Arc<Mux>,
     store: &Store,
     request: &ParsedResourceRequest,
     operation: &'static str,
-    mint: bool,
 ) -> Result<Option<Target>, ResourceError> {
-    let directory = super::target::directory(mux, request, operation)?;
-    let repository = super::open_repository(&directory, operation)?;
-    let layout = Layout::locate(&repository, operation)?;
-    let ids = if mint {
-        store.identify(&layout.common_dir, &layout.git_dir).map(Some)
-    } else {
-        store.known(&layout.common_dir, &layout.git_dir)
-    };
-    let ids = ids.map_err(|error| io_failed(operation, &error))?;
+    let (repository, layout) = located(mux, request, operation)?;
+    let ids = store
+        .known(&layout.common_dir, &layout.git_dir)
+        .map_err(|error| io_failed(operation, &error))?;
     Ok(ids.map(|(repository_id, worktree_id)| Target {
         repository,
         layout,
@@ -107,15 +111,27 @@ fn target(
     }))
 }
 
-/// [`target`], minting ids: what every mutation resolves.
+/// [`target`], minting the ids of a repository or worktree on first sight:
+/// what every mutation and a list resolve.
 fn resolved(
     mux: &Arc<Mux>,
     store: &Store,
     request: &ParsedResourceRequest,
     operation: &'static str,
 ) -> Result<Target, ResourceError> {
-    // crash-allow: pre-existing invariant; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
-    Ok(target(mux, store, request, operation, true)?.expect("minting resolves ids"))
+    let (repository, layout) = located(mux, request, operation)?;
+    let (repository_id, worktree_id) = store
+        .identify(&layout.common_dir, &layout.git_dir)
+        .map_err(|error| io_failed(operation, &error))?;
+    Ok(Target { repository, layout, repository_id, worktree_id })
+}
+
+/// A checkpoint record as its reply value.
+fn record_value(record: &Checkpoint, operation: &'static str) -> Result<Value, ResourceError> {
+    serde_json::to_value(record).map_err(|error| {
+        let message = format!("the checkpoint record could not be encoded: {error}");
+        refused(operation, "store_failed", message, Value::Null)
+    })
 }
 
 fn writer<'a>(target: &'a Target, hooks: &'a std::path::Path) -> WriteGit<'a> {
@@ -130,9 +146,14 @@ fn fingerprint(request: &ParsedResourceRequest, target: &Target) -> Value {
     ledger::fingerprint(operation, &selectors, &fields, &target.identity())
 }
 
-pub(super) fn mutation_key(request: &ParsedResourceRequest) -> String {
-    // crash-allow: pre-existing invariant; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
-    request.envelope.idempotency_key.clone().expect("catalog-validated mutations have a key")
+/// The idempotency key the catalog requires of every git mutation.
+pub(super) fn mutation_key(request: &ParsedResourceRequest) -> Result<String, ResourceError> {
+    request.envelope.idempotency_key.clone().ok_or_else(|| {
+        ResourceError::validation_invalid(
+            Some("idempotency_key"),
+            "a git mutation requires an idempotency key",
+        )
+    })
 }
 
 fn create(
@@ -141,7 +162,7 @@ fn create(
     request: &ParsedResourceRequest,
 ) -> Result<Value, ResourceError> {
     const OPERATION: &str = "git.checkpoint.create";
-    let key = mutation_key(request);
+    let key = mutation_key(request)?;
     let arguments = parse_create(&request.fields)?;
     store.exclusive(|| {
         let target = resolved(mux, store, request, OPERATION)?;
@@ -199,8 +220,7 @@ fn finish(
 ) -> Result<Value, ResourceError> {
     const OPERATION: &str = "git.checkpoint.create";
     store.save(&pending.draft).map_err(|error| io_failed(OPERATION, &error))?;
-    // crash-allow: pre-existing invariant; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
-    let value = serde_json::to_value(&pending.draft.record).expect("records serialize");
+    let value = record_value(&pending.draft.record, OPERATION)?;
     let key = &pending.idempotency_key;
     let reply = ledger::commit(mux, key, OPERATION, &pending.fingerprint, &value, replayed, actor)?;
     // A leftover entry only costs a lookup: the ledger now answers the key.
@@ -347,7 +367,7 @@ fn pin(
 ) -> Result<Value, ResourceError> {
     let operation = request.envelope.operation.wire_name();
     let pinning = request.envelope.operation == ResourceOperation::GitCheckpointPin;
-    let key = mutation_key(request);
+    let key = mutation_key(request)?;
     let field = |name: &str| {
         request.fields.get(name).and_then(Value::as_str).unwrap_or_default().to_string()
     };
@@ -378,8 +398,7 @@ fn pin(
             stored.settle();
             store.save(&stored).map_err(|error| io_failed(operation, &error))?;
         }
-        // crash-allow: pre-existing invariant; hidden from the ratchet behind a test module until the unit-test deletion (cx-034r)
-        let value = serde_json::to_value(&stored.record).expect("records serialize");
+        let value = record_value(&stored.record, operation)?;
         ledger::commit(mux, &key, operation, &fingerprint, &value, false, &request.actor)
     })
 }

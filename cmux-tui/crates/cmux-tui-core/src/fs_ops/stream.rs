@@ -31,6 +31,8 @@ use super::ops::FsService;
 use super::sys;
 use super::write::{PendingWrite, WriteMode};
 
+use crate::panic_free::JsonFields;
+
 /// Bytes moved per read or write.
 pub const STREAM_CHUNK_BYTES: usize = 256 * 1024;
 /// Largest write stream.
@@ -98,7 +100,7 @@ pub fn answer(id: &Value, result: Result<Value, FsError>) -> Value {
                 "error_code": error.code(),
             });
             if let Some(details) = error.details() {
-                value["error_details"] = details;
+                value.insert("error_details", details);
             }
             value
         }
@@ -149,22 +151,24 @@ fn serve_read(
     let length = meta.size.saturating_sub(offset);
     let header = json!({ "size": meta.size, "length": length, "revision": meta.revision() });
     send(writer, &answer(id, Ok(header)))?;
-    let mut buffer = vec![0u8; STREAM_CHUNK_BYTES];
+    let mut buffer = Vec::with_capacity(STREAM_CHUNK_BYTES);
     let mut sent = 0u64;
     let mut short = false;
     while sent < length {
         let want = usize::try_from((length - sent).min(STREAM_CHUNK_BYTES as u64)).unwrap_or(0);
-        let read = if short { 0 } else { file.read_at(&mut buffer[..want], offset + sent)? };
+        buffer.resize(want, 0);
+        let read = if short { 0 } else { file.read_at(&mut buffer, offset + sent)? };
         if read == 0 {
             // The file shrank: keep the promised length (zeros), and the end
             // line says the bytes are not one version.
             short = true;
-            buffer[..want].fill(0);
-            writer.write_all(&buffer[..want])?;
+            buffer.fill(0);
+            writer.write_all(&buffer)?;
             sent += want as u64;
             continue;
         }
-        writer.write_all(&buffer[..read])?;
+        buffer.truncate(read);
+        writer.write_all(&buffer)?;
         sent += read as u64;
     }
     let now = Meta::of(&sys::stat_fd(file.as_fd())?);
@@ -195,18 +199,20 @@ fn serve_write(
         Err(error) => return send(writer, &answer(id, Err(error))),
     };
     send(writer, &answer(id, Ok(json!({ "ready": true }))))?;
-    let mut buffer = vec![0u8; STREAM_CHUNK_BYTES];
+    let mut buffer = Vec::with_capacity(STREAM_CHUNK_BYTES);
     let mut received = 0u64;
     while received < size {
         let want = usize::try_from((size - received).min(STREAM_CHUNK_BYTES as u64)).unwrap_or(0);
-        let read = match reader.read(&mut buffer[..want]) {
+        buffer.resize(want, 0);
+        let read = match reader.read(&mut buffer) {
             Ok(0) => return Err(io::ErrorKind::UnexpectedEof.into()),
             Ok(read) => read,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
             // `pending` drops here and unlinks the temporary file.
             Err(error) => return Err(error),
         };
-        if let Err(error) = pending.write(&buffer[..read]) {
+        buffer.truncate(read);
+        if let Err(error) = pending.write(&buffer) {
             return send(writer, &answer(id, Err(error)));
         }
         received += read as u64;

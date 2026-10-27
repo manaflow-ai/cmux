@@ -163,7 +163,7 @@ fn read_message(mut reader: impl Read) -> io::Result<SensitiveBytes> {
         match reader.read(&mut *byte) {
             Ok(0) => return Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
             Ok(1) => {
-                let value = byte[0];
+                let [value] = *byte;
                 byte.zeroize();
                 if value == b'\n' {
                     break;
@@ -176,7 +176,12 @@ fn read_message(mut reader: impl Read) -> io::Result<SensitiveBytes> {
                     ));
                 }
             }
-            Ok(_) => unreachable!("a one-byte read cannot return more than one byte"),
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "a one-byte read returned more than one byte",
+                ));
+            }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) => return Err(error),
         }
@@ -320,6 +325,10 @@ pub fn install(
         code: "unmanaged".into(),
         message: "running mux is not managed through the provider socket".into(),
     })?;
+    let authority = std::str::from_utf8(authority.expose()).map_err(|_| ClientError::Rejected {
+        code: "invalid_authority".into(),
+        message: "provider authority is not UTF-8".into(),
+    })?;
     let response = exchange(
         socket,
         &InstallRequest {
@@ -328,8 +337,7 @@ pub fn install(
             mux_generation,
             expected_authority_generation: status.authority_generation,
             authority_generation,
-            authority: std::str::from_utf8(authority.expose())
-                .expect("validated provider authority is UTF-8"),
+            authority,
         },
     )?;
     response_status(response)

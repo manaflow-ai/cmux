@@ -1,6 +1,10 @@
 //! The catalog scope a resource kind or public id kind names, for selector
 //! and not-found error details.
 
+#[allow(
+    clippy::panic,
+    reason = "INVARIANT: kinds come from code, never a request; the catalog's closed scope enum fails the same"
+)]
 pub(super) fn canonical_resource_scope(kind: &str) -> &'static str {
     match kind.trim_end_matches('s') {
         "machine" | "MachinePublicId" => "machine",

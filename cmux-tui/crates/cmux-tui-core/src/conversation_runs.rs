@@ -20,6 +20,8 @@ use serde_json::{Map, Value, json};
 
 use super::{ConversationStore, attachments, load_head, rejected, to_i64};
 
+use crate::panic_free::JsonFields;
+
 /// Kept in the schema batch: `CREATE TABLE IF NOT EXISTS` needs no version
 /// bump, and an older daemon ignores the tables.
 pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS conversation_run (
@@ -395,7 +397,7 @@ fn attachment_parts(step: &StepInput) -> anyhow::Result<Vec<Part>> {
         .iter()
         .map(|fields| {
             let mut value = Value::Object(fields.clone());
-            value["type"] = json!("attachment");
+            value.insert("type", json!("attachment"));
             let part: Part = serde_json::from_value(value).map_err(|_| refused("invalid_run"))?;
             invalid(matches!(part, Part::Attachment { .. }) && valid_attachment_part(&part))?;
             Ok(part)
@@ -431,7 +433,7 @@ impl ConversationStore {
         let mut bytes = 0;
         for (index, step) in steps.iter().enumerate() {
             validate_step(step)?;
-            invalid(!steps[..index].iter().any(|other| other.id == step.id))?;
+            invalid(!steps.iter().take(index).any(|other| other.id == step.id))?;
             bytes += serde_json::to_string(step)?.len();
         }
         invalid(bytes <= MAX_APPEND_BYTES)?;
@@ -507,9 +509,9 @@ impl ConversationStore {
             };
             run.rev += 1;
             let mut value = serde_json::to_value(step)?;
-            value["seq"] = json!(seq);
-            value["at"] = json!(at);
-            value["rev"] = json!(run.rev);
+            value.insert("seq", json!(seq));
+            value.insert("at", json!(at));
+            value.insert("rev", json!(run.rev));
             transaction.execute(
                 "INSERT INTO conversation_run_step(conversation, run, step, seq, rev, step_json)
                  VALUES(?1, ?2, ?3, ?4, ?5, ?6)

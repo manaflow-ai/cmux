@@ -741,14 +741,14 @@
    "cast_possible_truncation": 1
   },
   "cmux-tui-core": {
-   "unwrap_used": 1039,
-   "expect_used": 173,
-   "panic": 2,
-   "unreachable": 24,
+   "unwrap_used": 1026,
+   "expect_used": 146,
+   "panic": 0,
+   "unreachable": 22,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 1047,
-   "string_slice": 52,
+   "indexing_slicing": 859,
+   "string_slice": 33,
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 830,
    "cast_possible_truncation": 89

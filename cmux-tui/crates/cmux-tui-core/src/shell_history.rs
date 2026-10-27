@@ -168,11 +168,7 @@ pub(crate) fn clean_command(text: &str) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
-    let mut end = trimmed.len().min(MAX_COMMAND_BYTES);
-    while !trimmed.is_char_boundary(end) {
-        end -= 1;
-    }
-    Some(trimmed[..end].trim_end().to_owned())
+    Some(crate::panic_free::utf8_prefix(trimmed, MAX_COMMAND_BYTES).trim_end().to_owned())
 }
 
 /// [`CommandScreen`] over a live terminal.

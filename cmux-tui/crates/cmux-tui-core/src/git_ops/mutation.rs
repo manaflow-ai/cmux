@@ -9,6 +9,7 @@
 //! and the worktree's own git directory, so a key never follows a path to
 //! another repository.
 
+use crate::panic_free::{JsonFields, utf8_prefix, utf8_suffix};
 use cmux_threads::checked::fs as files;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -103,7 +104,7 @@ impl Target {
 }
 
 /// The key a catalog-validated mutation carries.
-pub(super) fn key(request: &ParsedResourceRequest) -> String {
+pub(super) fn key(request: &ParsedResourceRequest) -> Result<String, ResourceError> {
     super::checkpoint::mutation_key(request)
 }
 
@@ -152,15 +153,8 @@ pub(super) fn output_extra(output: &str) -> Value {
         return json!({"output": output});
     }
     let half = (MAX_STDERR_BYTES - MARKER.len()) / 2;
-    let mut head = half;
-    while !output.is_char_boundary(head) {
-        head -= 1;
-    }
-    let mut tail = output.len() - half;
-    while !output.is_char_boundary(tail) {
-        tail += 1;
-    }
-    json!({"output": format!("{}{MARKER}{}", &output[..head], &output[tail..])})
+    let (head, tail) = (utf8_prefix(output, half), utf8_suffix(output, half));
+    json!({"output": format!("{head}{MARKER}{tail}")})
 }
 
 /// Rewrites a shared git refusal that carries its reason in `extra.code`
@@ -172,7 +166,7 @@ pub(super) fn normalized(error: ResourceError) -> ResourceError {
     }
     let details = &error.details;
     let (Some(code), Some(operation)) =
-        (details["extra"]["code"].as_str(), details["operation"].as_str())
+        (details.field("extra").field("code").as_str(), details.field("operation").as_str())
     else {
         return error;
     };

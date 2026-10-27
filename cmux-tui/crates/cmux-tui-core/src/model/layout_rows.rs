@@ -57,6 +57,11 @@ fn unfold(root: &Node, ids: &[SplitId]) -> (Node, Vec<(SplitId, Node)>) {
 }
 
 /// Folds row trees into the compat chain; ratios follow the heights.
+#[allow(
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    reason = "INVARIANT: every caller folds a column's rows (at least one) with one tree per row"
+)]
 fn fold(rows: &[LayoutRow], trees: Vec<Node>) -> Node {
     let mut trees = trees.into_iter();
     let mut root = trees.next().expect("a column has at least one row");
@@ -82,7 +87,7 @@ impl LayoutColumn {
         if self.rows.len() < 2 {
             return Vec::new();
         }
-        let ids = self.rows[1..].iter().map(|row| row.id).collect::<Vec<_>>();
+        let ids = self.rows.iter().skip(1).map(|row| row.id).collect::<Vec<_>>();
         let (base, found) = unfold(&self.root, &ids);
         debug_assert_eq!(found.len() + 1, self.rows.len(), "column rows are not normalized");
         std::iter::once(base)
@@ -103,33 +108,42 @@ impl LayoutColumn {
         if self.rows.is_empty() {
             return;
         }
-        let ids = self.rows[1..].iter().map(|row| row.id).collect::<Vec<_>>();
+        let ids = self.rows.iter().skip(1).map(|row| row.id).collect::<Vec<_>>();
         let (base, found) = unfold(&self.root, &ids);
         let positions = found
             .iter()
             .map(|(id, _)| self.rows.iter().position(|row| row.id == *id).unwrap_or(0))
             .collect::<Vec<_>>();
-        if found.is_empty() || !positions.windows(2).all(|pair| pair[0] < pair[1]) {
-            // One row left, or a chain no path builds: the tree stays as it
-            // is and the column has one implicit row.
+        let Some(&first_position) = positions.first() else {
+            // One row left: the tree stays as it is and the column has one
+            // implicit row.
             self.rows.clear();
             return;
-        }
-        // The base is one of the rows above the first chain split found.
-        // Only the collapse of row 2's split leaves two candidates.
+        };
+        let found_rows = positions.iter().map(|position| self.rows.get(*position).cloned());
+        let found_rows = found_rows.collect::<Option<Vec<_>>>();
+        let (true, Some(found_rows)) = (positions.is_sorted_by(|a, b| a < b), found_rows) else {
+            // A chain no path builds: the same as one row left.
+            self.rows.clear();
+            return;
+        };
+        // The base is one of the rows above the first chain split found
+        // (else the first row). Only the collapse of row 2's split leaves two
+        // candidates.
         let base_panes = base.pane_ids_vec();
-        let candidates = &self.rows[..positions[0]];
+        let mut candidates = self.rows.iter().take(first_position);
         let base_row = candidates
-            .iter()
             .find(|row| row.members.iter().any(|pane| base_panes.contains(pane)))
-            .unwrap_or(&candidates[0])
-            .clone();
+            .or(self.rows.first())
+            .cloned();
+        let Some(base_row) = base_row else {
+            self.rows.clear();
+            return;
+        };
         let mut rows = vec![base_row];
+        rows.extend(found_rows);
         let mut trees = vec![base];
-        for ((_, tree), position) in found.into_iter().zip(positions) {
-            rows.push(self.rows[position].clone());
-            trees.push(tree);
-        }
+        trees.extend(found.into_iter().map(|(_, tree)| tree));
         for (row, tree) in rows.iter_mut().zip(&trees) {
             row.members = tree.pane_ids_vec();
         }
@@ -233,6 +247,6 @@ impl Screen {
 
     /// A screen in columns mode with one column, which then has 2+ rows.
     pub(crate) fn has_lone_row_column(&self) -> bool {
-        self.layout_columns.len() == 1 && self.layout_columns[0].rows.len() >= 2
+        matches!(self.layout_columns.as_slice(), [column] if column.rows.len() >= 2)
     }
 }

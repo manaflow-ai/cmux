@@ -36,6 +36,7 @@ use cmux_git::{OpenError, Repository, parse, refs, run, write_run};
 use serde_json::{Value, json};
 
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::resource::{ResourceError, ResourceOperation};
 use crate::resource_router::ParsedResourceRequest;
 use crate::work_reply::Unanswered;
@@ -127,6 +128,13 @@ fn unanswered(operation: ResourceOperation, why: Unanswered) -> ResourceError {
     ResourceError::operation_failed(operation.wire_name(), reason, json!({"code": code}))
 }
 
+/// The error of an operation the router sent here that git_ops does not
+/// serve (a routing table bug, answered rather than trapped).
+fn unrouted(operation: ResourceOperation) -> ResourceError {
+    let reason = "internal error: the git service does not serve this operation";
+    ResourceError::operation_failed(operation.wire_name(), reason, json!({"code": "internal"}))
+}
+
 /// Operations that change a repository or the checkpoint store.
 fn writes(operation: ResourceOperation) -> bool {
     !matches!(
@@ -164,7 +172,7 @@ pub(crate) fn dispatch(
         ResourceOperation::GitBranches => "git.branches",
         ResourceOperation::GitFilesSearch => "git.files.search",
         ResourceOperation::GitFilesList => "git.files.list",
-        other => unreachable!("git_ops does not handle {other:?}"),
+        other => return Err(unrouted(other)),
     };
     let directory = target::directory(mux, &request, operation)?;
     let repository = open_repository(&directory, operation)?;
@@ -208,19 +216,19 @@ fn status(repository: &Repository) -> Result<Value, ResourceError> {
         "behind":clamp(headers.behind),
     });
     if let Some(branch) = headers.branch {
-        value["branch"] = json!(branch);
+        value.insert("branch", json!(branch));
     }
     if let Some(head) = headers.head {
-        value["head"] = json!(head);
+        value.insert("head", json!(head));
     }
     if let Some(upstream) = headers.upstream {
-        value["upstream"] = json!(upstream);
+        value.insert("upstream", json!(upstream));
     }
     if let Some((_, base)) = repository.base_branch() {
-        value["base"] = json!(base);
+        value.insert("base", json!(base));
     }
     if let Some(main) = repository.main_checkout() {
-        value["worktree"] = json!({"main_root": main.to_string_lossy()});
+        value.insert("worktree", json!({"main_root": main.to_string_lossy()}));
     }
     Ok(value)
 }
@@ -250,7 +258,7 @@ fn branches(
         "suggested_bases":suggested,
     });
     if let Some(current) = listing.current {
-        value["current"] = json!(current);
+        value.insert("current", json!(current));
     }
     Ok(value)
 }
@@ -264,20 +272,20 @@ fn branch_json(branch: &refs::BranchRef) -> Value {
         "current":branch.current,
     });
     if let Some(upstream) = &branch.upstream {
-        value["upstream"] = json!(upstream);
+        value.insert("upstream", json!(upstream));
     }
     if branch.upstream_gone {
-        value["upstream_gone"] = json!(true);
+        value.insert("upstream_gone", json!(true));
     }
     if let Some(ahead) = branch.ahead {
-        value["ahead"] = json!(ahead);
+        value.insert("ahead", json!(ahead));
     }
     if let Some(behind) = branch.behind {
-        value["behind"] = json!(behind);
+        value.insert("behind", json!(behind));
     }
     if let Some(committed_at) = branch.committed_at.and_then(|seconds| u32::try_from(seconds).ok())
     {
-        value["committed_at"] = json!(committed_at);
+        value.insert("committed_at", json!(committed_at));
     }
     value
 }

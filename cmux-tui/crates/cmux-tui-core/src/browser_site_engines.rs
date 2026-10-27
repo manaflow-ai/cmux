@@ -73,8 +73,8 @@ fn engine_tag(engine: &str) -> Option<&'static str> {
 /// with no host.
 fn normalize(pattern: &str) -> Option<String> {
     let mut text = pattern.trim().to_lowercase();
-    if let Some(index) = text.find("://") {
-        text = text[index + 3..].to_string();
+    if let Some((_, rest)) = text.split_once("://") {
+        text = rest.to_string();
     }
     if let Some(rest) = text.strip_prefix("*.") {
         text = rest.to_string();
@@ -88,9 +88,9 @@ fn normalize(pattern: &str) -> Option<String> {
 
 /// The host and the path prefix (`/gp/video`) of a normalized pattern.
 fn split(pattern: &str) -> (&str, Option<&str>) {
-    match pattern.find('/') {
-        Some(index) if &pattern[index..] != "/" => (&pattern[..index], Some(&pattern[index..])),
-        Some(index) => (&pattern[..index], None),
+    match pattern.split_once('/') {
+        Some((host, "")) => (host, None),
+        Some((host, _)) => (host, pattern.strip_prefix(host)),
         None => (pattern, None),
     }
 }

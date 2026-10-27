@@ -34,6 +34,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::model::State;
+use crate::panic_free::JsonFields;
 use crate::{Mux, ResourceSelectors};
 
 /// Switch name to arm (`old` or `new`).
@@ -264,7 +265,8 @@ pub(crate) fn oracle_restore_preview(
 /// (`journal_checkpoint::RestoreReducer::finish`).
 fn restore_preview(mut reduced: Value) -> anyhow::Result<RestorePreview> {
     let decimal = |key: &str| -> anyhow::Result<u64> {
-        reduced[key]
+        reduced
+            .field(key)
             .as_str()
             .and_then(|text| text.parse().ok())
             .ok_or_else(|| anyhow::anyhow!("restore preview {key} is not a decimal string"))
@@ -272,7 +274,7 @@ fn restore_preview(mut reduced: Value) -> anyhow::Result<RestorePreview> {
     let checkpoint_sequence = decimal("checkpoint_source_sequence")?;
     let head_sequence = decimal("head_sequence")?;
     let unsupported_count = decimal("unsupported_required_record_count")?;
-    let state_changes_not_reduced = match &reduced["state"]["journal_replay"] {
+    let state_changes_not_reduced = match reduced.field("state").field("journal_replay") {
         Value::Object(replay) => match replay.get("state_changes_not_reduced") {
             None => 0,
             Some(count) => count.as_str().and_then(|text| text.parse().ok()).ok_or_else(|| {
@@ -281,7 +283,11 @@ fn restore_preview(mut reduced: Value) -> anyhow::Result<RestorePreview> {
         },
         _ => 0,
     };
-    let Value::Object(mut snapshot) = reduced["state"]["session_snapshot"].take() else {
+    let Some(Value::Object(mut snapshot)) = reduced
+        .get_mut("state")
+        .and_then(|state| state.get_mut("session_snapshot"))
+        .map(Value::take)
+    else {
         anyhow::bail!("restore preview state has no session_snapshot object");
     };
     let session = RESTORE_SECTIONS
@@ -289,10 +295,13 @@ fn restore_preview(mut reduced: Value) -> anyhow::Result<RestorePreview> {
         .filter(|(_, section)| *section == RestoreSection::Compared)
         .filter_map(|(name, _)| snapshot.remove(*name).map(|value| (*name, value)))
         .collect();
-    let Value::String(checkpoint_id) = reduced["checkpoint_id"].take() else {
+    let Some(Value::String(checkpoint_id)) = reduced.get_mut("checkpoint_id").map(Value::take)
+    else {
         anyhow::bail!("restore preview checkpoint_id is not a string");
     };
-    let Value::Array(unsupported) = reduced["unsupported_required_records"].take() else {
+    let Some(Value::Array(unsupported)) =
+        reduced.get_mut("unsupported_required_records").map(Value::take)
+    else {
         anyhow::bail!("restore preview unsupported_required_records is not an array");
     };
     Ok(RestorePreview {

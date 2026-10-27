@@ -95,6 +95,10 @@ pub(crate) fn write_output<'a>(
     }
 }
 
+#[allow(
+    clippy::indexing_slicing,
+    reason = "INVARIANT: written <= at < from <= data.len(); at and from bound a MARK found in data"
+)]
 fn write_marked<'a>(term: &mut Terminal, data: &'a [u8], running: &mut bool) -> Cow<'a, [u8]> {
     let mut parsed: Option<Vec<u8>> = None;
     let mut written = 0;

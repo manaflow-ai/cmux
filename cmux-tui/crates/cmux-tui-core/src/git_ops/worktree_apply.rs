@@ -29,6 +29,7 @@ use super::run::run_git;
 use super::user_run::{UserGit, deadline};
 use super::{MAX_SMALL_OUTPUT_BYTES, Repository};
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 
@@ -57,7 +58,7 @@ pub(super) fn dispatch(
 ) -> Result<Value, ResourceError> {
     // git runs to completion here, on a work item (`answer`).
     crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
-    let key = key(request);
+    let key = key(request)?;
     let target = Target::resolve(mux, request, OPERATION)?;
     let fingerprint = target.fingerprint(request);
     target.exclusive(OPERATION, || {
@@ -76,7 +77,7 @@ pub(super) fn dispatch(
         };
         let result = apply(&attempt, resumed);
         // A run stopped by the deadline may have applied: its retry looks.
-        if !result.as_ref().is_err_and(|error| error.details["reason"] == "timed_out") {
+        if !result.as_ref().is_err_and(|error| error.details.field("reason") == "timed_out") {
             let _ = files::remove_file(&attempt.patch);
             let _ = files::remove_file(&attempt.names);
             journal.finish();

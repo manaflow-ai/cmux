@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 
+use crate::panic_free::JsonFields;
 use crate::resource::PanePublicId;
 use crate::workspace_registry::{
     RegistryLayoutNode, RegistryPane, RegistryScreen, RegistryTab, RegistryViewport,
@@ -105,16 +106,19 @@ fn public_viewport_node(
             });
             // `dock-columns-v1`: omitted while the column scrolls.
             if let Some(dock) = column.dock {
-                value["dock"] = serde_json::to_value(dock)?;
+                value.insert("dock", serde_json::to_value(dock)?);
             }
             // `rows-v1`: omitted for a column with one row. Row 2..n's
             // `row_id` is its compat chain split in `root`.
             if column.rows.len() >= 2 {
-                value["rows"] = column
-                    .rows
-                    .iter()
-                    .map(|row| json!({"row_id": row.id, "height": row.height}))
-                    .collect();
+                value.insert(
+                    "rows",
+                    column
+                        .rows
+                        .iter()
+                        .map(|row| json!({"row_id": row.id, "height": row.height}))
+                        .collect(),
+                );
             }
             Ok(value)
         })
@@ -143,7 +147,7 @@ fn public_layout_node(
                 "tab_ids": tabs.iter().map(|tab| &tab.public_id).collect::<Vec<_>>(),
             });
             if let Some(active_tab) = &pane_record.active_tab {
-                leaf["active_tab_id"] = json!(active_tab);
+                leaf.insert("active_tab_id", json!(active_tab));
             }
             Ok(leaf)
         }

@@ -9,6 +9,8 @@
 
 use serde_json::{Value, json};
 
+use crate::panic_free::JsonFields;
+
 /// Rendered text one delivery hands an agent at once; later messages wait
 /// for the next one. Codex keeps 2,500 tokens of hook output by default.
 pub const MAX_BATCH_BYTES: usize = 8 * 1024;
@@ -19,7 +21,7 @@ pub fn batch(oldest_first: Vec<Value>) -> Vec<Value> {
     let mut batch = Vec::new();
     let mut bytes = 0;
     for message in oldest_first {
-        let size = message["body"].as_str().map_or(0, str::len) + 512;
+        let size = message.field("body").as_str().map_or(0, str::len) + 512;
         if !batch.is_empty() && bytes + size > MAX_BATCH_BYTES {
             break;
         }
@@ -81,10 +83,10 @@ pub fn provenance(message: &Value, recipient: &str) -> Option<Value> {
         "threadId": field("thread_id")?,
     });
     if let Some(name) = field("sender_name").filter(|name| name.chars().count() <= 64) {
-        provenance["fromName"] = json!(name);
+        provenance.insert("fromName", json!(name));
     }
     if let Some(parent) = field("in_reply_to") {
-        provenance["replyTo"] = json!(parent);
+        provenance.insert("replyTo", json!(parent));
     }
     Some(provenance)
 }

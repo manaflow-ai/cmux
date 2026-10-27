@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
@@ -928,8 +930,8 @@ fn add_agent_topology(
     };
     let fallback_agent_name =
         child_event.then(|| normalized.get("agent_name").and_then(Value::as_str)).flatten();
-    let (node_id, identity_quality) = match node_identity {
-        Some((identity_kind, identity, quality)) => {
+    let (node_id, identity_quality) = match (node_identity, fallback_agent_name) {
+        (Some((identity_kind, identity, quality)), _) => {
             let is_root = (identity_kind == scope_kind && identity == scope_identity.as_str())
                 || (identity_kind == "agent"
                     && native_root_agent_id.as_deref() == Some(identity)
@@ -941,9 +943,8 @@ fn add_agent_topology(
             };
             (node_id, quality.to_string())
         }
-        None if !child_event => (root_node_id.clone(), "session_root".into()),
-        None if fallback_agent_name.is_some() => {
-            let name = fallback_agent_name.expect("presence checked");
+        (None, _) if !child_event => (root_node_id.clone(), "session_root".into()),
+        (None, Some(name)) => {
             let turn = normalized.get("turn_id").and_then(Value::as_str).unwrap_or("");
             let tool = normalized.get("tool_use_id").and_then(Value::as_str).unwrap_or("");
             if turn.is_empty() && tool.is_empty() {
@@ -953,7 +954,7 @@ fn add_agent_topology(
             let identity = format!("name:{name}\0turn:{turn}\0tool:{tool}");
             (stable_agent_node_id(&tree_id, "name_fallback", &identity), "name_fallback".into())
         }
-        None => {
+        (None, None) => {
             normalized.insert("agent_relation".into(), Value::String("unknown".into()));
             return;
         }
@@ -1006,10 +1007,9 @@ fn stable_topology_id(prefix: &str, components: &[&str]) -> String {
     let mut id = String::with_capacity(prefix.len() + 1 + 32);
     id.push_str(prefix);
     id.push('_');
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    for byte in digest[..16].iter().copied() {
-        id.push(char::from(HEX[usize::from(byte >> 4)]));
-        id.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    for byte in digest.iter().take(16) {
+        // Writing into a String cannot fail.
+        let _ = write!(id, "{byte:02x}");
     }
     id
 }
@@ -1034,11 +1034,7 @@ fn truncate_utf8(value: &str, max_bytes: usize) -> String {
     if value.len() <= max_bytes {
         return value.into();
     }
-    let mut boundary = max_bytes;
-    while !value.is_char_boundary(boundary) {
-        boundary -= 1;
-    }
-    value[..boundary].into()
+    crate::panic_free::utf8_prefix(value, max_bytes).into()
 }
 
 pub(crate) fn semantic_key(value: &str) -> String {

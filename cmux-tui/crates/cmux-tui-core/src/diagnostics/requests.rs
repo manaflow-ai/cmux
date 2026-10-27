@@ -44,7 +44,10 @@ impl RequestStats {
     /// One request of class `class` (an index into [`REQUEST_CLASSES`]; a
     /// larger one counts as `other`) was answered `latency` after it arrived.
     pub fn record_latency(&self, class: usize, latency: Duration) {
-        self.latency_us[class.min(REQUEST_CLASSES.len() - 1)].record_duration(latency);
+        let histogram = self.latency_us.get(class).or(self.latency_us.last());
+        if let Some(histogram) = histogram {
+            histogram.record_duration(latency);
+        }
     }
 
     /// The per-method histograms.
@@ -64,7 +67,7 @@ impl RequestStats {
 
     pub fn snapshot(&self) -> RequestStatsSnapshot {
         let [topology, terminal_io, create, query, browser, agent, cloud, other] =
-            std::array::from_fn(|class| self.latency_us[class].snapshot());
+            self.latency_us.each_ref().map(LogLinearHistogram::snapshot);
         RequestStatsSnapshot {
             request_latency_us: RequestLatencySnapshot {
                 topology,

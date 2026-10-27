@@ -45,6 +45,10 @@ struct NamespaceEntry {
     mutation: Vec<String>,
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: the checked-in spec/page-router.json parses; every page router test reads it"
+)]
 fn table() -> &'static Table {
     static TABLE: OnceLock<Table> = OnceLock::new();
     TABLE.get_or_init(|| {
@@ -72,7 +76,7 @@ pub(crate) enum PageGrant {
 /// A page id: 1 to 64 characters of `[a-z0-9-]`, starting with a letter.
 pub(crate) fn valid_page_id(id: &str) -> bool {
     (1..=64).contains(&id.len())
-        && id.as_bytes()[0].is_ascii_lowercase()
+        && id.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
         && id.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
 }
 

@@ -83,6 +83,10 @@ mod held {
     static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
     #[track_caller]
+    #[allow(
+        clippy::panic,
+        reason = "INVARIANT: the debug and test lock-order DCHECK; release builds compile it out"
+    )]
     pub(super) fn check(rank: LockRank, name: &'static str) {
         let violation = HELD.with(|held| {
             held.borrow()
