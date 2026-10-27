@@ -78,8 +78,10 @@ libtool -static -no_warning_for_no_symbols -o "$OUT_DIR/libcef_dll_wrapper.a" "$
 # Chromium's unsafe-buffers rule (docs/unsafe_buffers.md) on the shim's own
 # code, as an error: its queue is empty, every remaining site is an
 # UNSAFE_BUFFERS() with a SAFETY comment (CEFShim/src/unsafe_buffers.h). Not on
-# the wrapper, which is CEF's code.
-shim_flags=(-Wunsafe-buffer-usage -Werror=unsafe-buffer-usage)
+# CEF's code: the wrapper builds without it, and the shim sees CEF's headers on
+# a system path (-isystem; clang then drops common's -I of the same directory),
+# as Chromium exempts third_party/ in build/config/unsafe_buffers_paths.txt.
+shim_flags=(-isystem "$CEF_DIR" -Wunsafe-buffer-usage -Werror=unsafe-buffer-usage)
 for src in "$SHIM_DIR"/src/*.mm; do
   "$CXX" "${common[@]}" "${shim_flags[@]}" -I"$SHIM_DIR" -I"$SHIM_HEADER_DIR" -DCMUX_CEF_SHIM_ABI_ID="\"$ABI_ID\"" -c "$src" -o "$OUT_DIR/obj/shim/$(basename "$src").o"
 done
