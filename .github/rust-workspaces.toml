@@ -34,6 +34,10 @@ root = "cmux-tui/fuzz"
 skip = "nightly cargo-fuzz targets; run by scripts/cmux-next/rust-fuzz.sh in the stability lab, not CI"
 
 [[workspace]]
+root = "cmux-tui/verify/loom-ring"
+skip = "loom model; needs RUSTFLAGS='--cfg loom' (without it the test is #![cfg(loom)] and empty); run by hand per its Cargo.toml"
+
+[[workspace]]
 root = "Native/DiffSidecar"
 covered_by = ".github/workflows/ci-web.yml"
 
