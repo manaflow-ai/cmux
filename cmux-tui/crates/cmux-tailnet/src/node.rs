@@ -1,10 +1,11 @@
 //! One tsnet node per process (the host binary, later the cmux daemon).
 
 use std::ffi::{CStr, CString};
-use std::os::fd::{FromRawFd, RawFd};
+use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::raw::c_char;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use crate::localapi::LocalApi;
@@ -49,6 +50,7 @@ pub struct Node {
     /// libtailscale keeps one unguarded "last error" per handle: every call
     /// that can set it runs with its errmsg read under this lock.
     calls: Mutex<()>,
+    closed: AtomicBool,
 }
 
 unsafe impl Send for Node {}
@@ -58,7 +60,12 @@ impl Node {
     pub fn new(config: &NodeConfig) -> Result<Self> {
         create_private_dir(&config.state_dir)?;
         let sd = unsafe { ffi::tailscale_new() };
-        let node = Self { sd, local: OnceLock::new(), calls: Mutex::new(()) };
+        let node = Self {
+            sd,
+            local: OnceLock::new(),
+            calls: Mutex::new(()),
+            closed: AtomicBool::new(false),
+        };
         let dir = cstring(config.state_dir.to_string_lossy().as_ref())?;
         node.call(|| unsafe { ffi::tailscale_set_dir(sd, dir.as_ptr()) })?;
         let hostname = cstring(&config.hostname)?;
@@ -99,6 +106,30 @@ impl Node {
     /// iterator; run it on its own thread.
     pub fn watch(&self) -> Result<Watch> {
         self.local_api()?.watch()
+    }
+
+    /// Signs out and removes the saved login, without deleting unrelated state.
+    pub fn logout(&self) -> Result<()> {
+        self.local_api()?.logout()
+    }
+
+    /// Requests a new sign-in URL, delivered on the IPN state stream.
+    pub fn login_interactive(&self) -> Result<()> {
+        self.local_api()?.login_interactive()
+    }
+
+    /// Closes the node once, waking its state stream and network listeners.
+    /// Like other Node operations, run this on a background thread.
+    pub fn close(&self) -> Result<()> {
+        let _guard = self.calls.lock().unwrap_or_else(|e| e.into_inner());
+        if self.closed.swap(true, Ordering::AcqRel) {
+            return Ok(());
+        }
+        if unsafe { ffi::tailscale_close(self.sd) } == 0 {
+            Ok(())
+        } else {
+            Err(Error("could not close tailnet node".into()))
+        }
     }
 
     /// Who is at a tailnet IP (or IP:port), from the node's control plane.
@@ -148,6 +179,9 @@ impl Node {
     }
 
     fn local_api(&self) -> Result<&LocalApi> {
+        if self.closed.load(Ordering::Acquire) {
+            return Err(Error("node closed".into()));
+        }
         self.local
             .get_or_init(|| {
                 let mut addr = vec![0 as c_char; 128];
@@ -166,7 +200,7 @@ impl Node {
                 let addr = unsafe { CStr::from_ptr(addr.as_ptr()) }.to_string_lossy().into_owned();
                 let local =
                     unsafe { CStr::from_ptr(local.as_ptr()) }.to_string_lossy().into_owned();
-                Ok(LocalApi::new(&addr, &local))
+                LocalApi::new(&addr, &local).map_err(|e| e.0)
             })
             .as_ref()
             .map_err(|message| Error(message.clone()))
@@ -175,6 +209,9 @@ impl Node {
     /// Runs one libtailscale call and reads its error under the call lock.
     fn call(&self, f: impl FnOnce() -> i32) -> Result<()> {
         let _serialized = self.calls.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if self.closed.load(Ordering::Acquire) {
+            return Err(Error("node closed".into()));
+        }
         let code = f();
         match code {
             0 => Ok(()),
@@ -195,7 +232,7 @@ impl Node {
 
 impl Drop for Node {
     fn drop(&mut self) {
-        unsafe { ffi::tailscale_close(self.sd) };
+        let _ = self.close();
     }
 }
 
@@ -225,6 +262,53 @@ impl Listener {
     }
 }
 
+impl AsRawFd for Listener {
+    fn as_raw_fd(&self) -> RawFd {
+        self.fd
+    }
+}
+
+impl Listener {
+    /// Nonblocking readiness check for libtailscale's fixed-size accept record.
+    /// A single owner must consume the listener; incomplete records stay queued.
+    pub fn try_accept(&mut self) -> std::io::Result<Option<(UnixStream, String)>> {
+        let mut record = [0_u8; 64];
+        let n = unsafe {
+            libc::recv(
+                self.fd,
+                record.as_mut_ptr().cast(),
+                record.len(),
+                libc::MSG_PEEK | libc::MSG_DONTWAIT,
+            )
+        };
+        if n < 0 {
+            let error = std::io::Error::last_os_error();
+            return if error.kind() == std::io::ErrorKind::WouldBlock {
+                Ok(None)
+            } else {
+                Err(error)
+            };
+        }
+        if n == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "tailnet listener closed",
+            ));
+        }
+        if n < record.len() as isize {
+            let mut poll = libc::pollfd { fd: self.fd, events: libc::POLLIN, revents: 0 };
+            if unsafe { libc::poll(&mut poll, 1, 0) } > 0 && poll.revents & libc::POLLHUP != 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "incomplete tailnet accept record",
+                ));
+            }
+            return Ok(None);
+        }
+        self.accept().map(Some).map_err(|e| std::io::Error::other(e.0))
+    }
+}
+
 impl Drop for Listener {
     fn drop(&mut self) {
         unsafe { libc::close(self.fd) };
@@ -243,4 +327,22 @@ fn create_private_dir(path: &std::path::Path) -> Result<()> {
         .create(path)
         .and_then(|()| std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)))
         .map_err(|error| Error(format!("state dir {}: {error}", path.display())))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::os::fd::IntoRawFd;
+
+    #[test]
+    fn accept_readiness_does_not_block_and_detects_truncated_close() {
+        let (reader, mut writer) = UnixStream::pair().unwrap();
+        let mut listener = Listener { fd: reader.into_raw_fd() };
+        assert!(listener.try_accept().unwrap().is_none());
+        writer.write_all(b"partial").unwrap();
+        assert!(listener.try_accept().unwrap().is_none());
+        drop(writer);
+        assert_eq!(listener.try_accept().unwrap_err().kind(), std::io::ErrorKind::UnexpectedEof);
+    }
 }
