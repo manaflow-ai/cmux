@@ -91,6 +91,8 @@ public final class CmuxDialogButtonView: NSButton {
     public override func mouseEntered(with event: NSEvent) { isHovering = true }
     public override func mouseExited(with event: NSEvent) { isHovering = false }
 
+    // visibility-walk-allow: one restyle of the button's own colors and title, O(1) per button and no layout of
+    // its own; AppKit draws only buttons on screen, and moving into a window restyles it again
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refresh()

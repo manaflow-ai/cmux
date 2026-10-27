@@ -9,7 +9,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, Weak};
 
 use cmux_config::{Change, ConfigStore, ManagedReader, Op, Outcome, Refusal, State, Watcher};
+use cmux_threads::work::{Lane, Priority};
 
+use super::mux_work::Sequence;
 use super::terminal_sizing::host_policy::{
     HostSizePolicy, host_policy_from_state, touches_host_policy,
 };
@@ -163,17 +165,45 @@ fn open_owner(mux: &Arc<Mux>, paths: SettingsPaths) -> SettingsOwner {
 fn start_watcher(mux: Weak<Mux>, store: &Arc<Mutex<ConfigStore>>) -> Option<Watcher> {
     let files = store.lock().ok()?.watch_paths();
     let store = Arc::clone(store);
+    let reloads = Arc::new(Sequence::default());
     Watcher::start(files, move || {
-        let Some(mux) = mux.upgrade() else { return };
-        let mut store = store.lock().unwrap_or_else(|poison| poison.into_inner());
-        let change: Vec<Change> = store.reload().into_iter().collect();
-        let host_policy = host_policy_after(&store, &change);
-        adopt_energy_setting(&mux, &store, &change);
-        emit_changes(&mux, change);
-        drop(store);
-        if let Some((policy, revision)) = host_policy {
-            mux.adopt_host_size_policy(policy, revision);
-        }
+        let store = Arc::clone(&store);
+        post_reload(&mux, &reloads, move |mux| {
+            let mut store = store.lock().unwrap_or_else(|poison| poison.into_inner());
+            let change: Vec<Change> = store.reload().into_iter().collect();
+            let host_policy = host_policy_after(&store, &change);
+            adopt_energy_setting(mux, &store, &change);
+            emit_changes(mux, change);
+            drop(store);
+            if let Some((policy, revision)) = host_policy {
+                mux.adopt_host_size_policy(policy, revision);
+            }
+        });
     })
     .ok()
 }
+
+/// Runs a watch hint's `reload` on the Files lane at user-visible, one at a
+/// time in hint order. The `cmux-config-watch` thread is utility, and a lock
+/// a request waits for (the store's, then `client_sizing` for a host policy
+/// change) must not be held at utility: std's mutex does not donate priority
+/// on Linux (cmux-threads lock_boost.rs). Chromium's file watchers post
+/// their callback to a sequence the same way (base/files/file_path_watcher.h).
+pub(super) fn post_reload(
+    mux: &Weak<Mux>,
+    reloads: &Arc<Sequence>,
+    reload: impl FnOnce(&Arc<Mux>) + Send + 'static,
+) {
+    let Some(owner) = mux.upgrade() else { return };
+    // A refused post (shutdown) drops the reload.
+    let _ =
+        owner.post_mux_work_sequenced(reloads, Priority::UserVisible, Lane::Files, move |mux| {
+            if let Some(mux) = mux.upgrade() {
+                reload(&mux);
+            }
+        });
+}
+
+#[cfg(test)]
+#[path = "settings_tests.rs"]
+mod tests;

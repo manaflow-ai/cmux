@@ -4,6 +4,7 @@
 #
 #   publish-cef-r2.sh <tag> [--repo manaflow-ai/cef] [--dir <assets dir>]
 #                     [--manifest <cef-manifest.json>]
+#   publish-cef-r2.sh --verify-manifest <cef-manifest.json>
 #
 # Each asset goes to the content-addressed key cef/<sha256>/<asset name>.
 # Uploads are write-once (If-None-Match: *); an existing key is only
@@ -19,6 +20,13 @@
 # binary_distrib output); without it the assets are fetched with
 # `gh release download` and checked against the release's SHA256SUMS.
 #
+# --verify-manifest uploads nothing: it checks that the manifest is a whole
+# release pin (cef_release_pin.py check: both arches, both debug assets, the
+# content-addressed keys of their sha256) and reads every pinned object back
+# from the manifest's r2_bucket, its sha256 checked. The read-only credentials
+# are enough. A release pin is: cef_release_pin.py pin <tag>, then this script
+# with <tag> --manifest, then with --verify-manifest.
+#
 # Credentials (environment first, then CMUX_CEF_R2_ENV_FILE, default
 # ~/.secrets/cmux-cef.env; values are never printed):
 #   CMUX_CEF_R2_ACCOUNT_ID
@@ -27,20 +35,25 @@
 #   CMUX_CEF_R2_BUCKET (default cmux-cef), CMUX_CEF_R2_ENDPOINT (optional)
 set -euo pipefail
 
-usage() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-2}"; }
+usage() { sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit "${1:-2}"; }
 
-tag=""; repo="manaflow-ai/cef"; dir=""; manifest=""
+tag=""; repo="manaflow-ai/cef"; dir=""; manifest=""; verify=""
 while (( $# )); do
   case "$1" in
     --repo) repo="$2"; shift 2 ;;
     --dir) dir="$2"; shift 2 ;;
     --manifest) manifest="$2"; shift 2 ;;
+    --verify-manifest) verify="$2"; shift 2 ;;
     -h|--help) usage 0 ;;
     -*) echo "unknown option $1" >&2; usage ;;
     *) [[ -z "$tag" ]] || usage; tag="$1"; shift ;;
   esac
 done
-[[ -n "$tag" || -n "$dir" ]] || usage
+if [[ -n "$verify" ]]; then
+  [[ -z "$tag$dir$manifest" ]] || usage
+else
+  [[ -n "$tag" || -n "$dir" ]] || usage
+fi
 
 names=(CMUX_CEF_R2_ACCOUNT_ID CMUX_CEF_R2_WRITE_ACCESS_KEY_ID CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY
   CMUX_CEF_R2_ACCESS_KEY_ID CMUX_CEF_R2_SECRET_ACCESS_KEY CMUX_CEF_R2_BUCKET CMUX_CEF_R2_ENDPOINT)
@@ -54,9 +67,13 @@ if [[ -r "$env_file" ]]; then
     printf -v "$name" '%s' "$value"
   done < "$env_file"
 fi
-for name in CMUX_CEF_R2_WRITE_ACCESS_KEY_ID CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY; do
-  [[ -n "${!name:-}" ]] || { echo "error: $name is not set (environment or $env_file)" >&2; exit 1; }
-done
+if [[ -n "$verify" && -n "${CMUX_CEF_R2_ACCESS_KEY_ID:-}" && -n "${CMUX_CEF_R2_SECRET_ACCESS_KEY:-}" ]]; then
+  : # reads only: the read-only pair is enough
+else
+  for name in CMUX_CEF_R2_WRITE_ACCESS_KEY_ID CMUX_CEF_R2_WRITE_SECRET_ACCESS_KEY; do
+    [[ -n "${!name:-}" ]] || { echo "error: $name is not set (environment or $env_file)" >&2; exit 1; }
+  done
+fi
 bucket="${CMUX_CEF_R2_BUCKET:-cmux-cef}"
 endpoint="${CMUX_CEF_R2_ENDPOINT:-}"
 if [[ -z "$endpoint" ]]; then
@@ -83,6 +100,30 @@ s3() {
       --max-time 3600 --aws-sigv4 "aws:amz:auto:s3" -H "x-amz-content-sha256: UNSIGNED-PAYLOAD" \
       -w '%{http_code}' "$@"
 }
+
+# read_back <key> <sha256>: downloads the object again and checks its sha256.
+read_back() {
+  local status actual
+  status="$(s3 read -o "$work/check" "$endpoint/$bucket/$1")" || status=000
+  [[ "$status" == 200 ]] || { echo "error: read-back of $1 failed (HTTP $status)" >&2; return 1; }
+  actual="$(shasum -a 256 "$work/check" | awk '{print $1}')"
+  rm -f "$work/check"
+  [[ "$actual" == "$2" ]] || { echo "error: $1 read back as $actual" >&2; return 1; }
+  echo "==> verified $1" >&2
+}
+
+if [[ -n "$verify" ]]; then
+  pin_tool="$(dirname "$0")/cef_release_pin.py"
+  keys="$(/usr/bin/python3 "$pin_tool" check --manifest "$verify" --keys)" || exit 1
+  bucket="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["r2_bucket"])' "$verify")"
+  failed=0
+  while read -r name sha key; do
+    read_back "$key" "$sha" || failed=1
+  done <<<"$keys"
+  (( failed == 0 )) || { echo "error: $verify pins objects R2 does not hold with their sha256" >&2; exit 1; }
+  echo "==> $verify: every pinned object is in R2 $bucket with its sha256" >&2
+  exit 0
+fi
 
 if [[ -z "$dir" ]]; then
   dir="$work/assets"
@@ -112,12 +153,7 @@ for path in "${assets[@]}"; do
     412) echo "==> $key already exists; verifying it" >&2 ;;
     *) echo "error: upload of $key failed (HTTP $status)" >&2; exit 1 ;;
   esac
-  status="$(s3 read -o "$work/check" "$url")" || status=000
-  [[ "$status" == 200 ]] || { echo "error: read-back of $key failed (HTTP $status)" >&2; exit 1; }
-  actual="$(shasum -a 256 "$work/check" | awk '{print $1}')"
-  rm -f "$work/check"
-  [[ "$actual" == "$sha" ]] || { echo "error: $key read back as $actual" >&2; exit 1; }
-  echo "==> verified $key" >&2
+  read_back "$key" "$sha" || exit 1
   keys+=("$name $sha $key")
 done
 
