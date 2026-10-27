@@ -47,11 +47,21 @@ impl Hub {
             .into_iter()
             .filter(|s| requested.is_empty() || requested.iter().any(|id| id == &s.id))
             .collect();
+        // Capture every requested generation before any one session can block startup. A Stop
+        // while an earlier session loads must fence the later session's first attempt too.
+        let requested_stops: std::collections::BTreeMap<_, _> = candidates
+            .iter()
+            .map(|session| (session.id.clone(), session.stops.load(Ordering::SeqCst)))
+            .collect();
         let mut seen_cwds = std::collections::HashSet::new();
         let mut warmed = Vec::new();
         let mut failed = Vec::new();
         for session in candidates {
-            let stops = session.stops.load(Ordering::SeqCst);
+            // An explicit Stop before the census is an intentional skip; do not reopen it.
+            if session.status() == SessionStatus::Closed || session.closing.load(Ordering::SeqCst) {
+                continue;
+            }
+            let stops = *requested_stops.get(&session.id).unwrap_or(&session.stops.load(Ordering::SeqCst));
             if expected_stops.get(&session.id).is_some_and(|expected| *expected != stops) {
                 continue;
             }
