@@ -189,6 +189,31 @@ async fn adoption_reads_parse_only_the_records_they_fold() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+#[tokio::test]
+async fn a_withdrawal_after_the_recovery_snapshot_is_not_lost() {
+    let mut log = Log { records: Vec::new(), host_seq: 0 };
+    log.push("mux", "host_started", json!({"incarnation": "inc"}), false);
+    log.ask(7, false);
+    let (hub, root) = hub_with(1, &log).await;
+    let session = hub.resolve("chat0").unwrap();
+    let work = hub.recovery_work(&session, "inc", log.host_seq);
+    assert_eq!(work.requests.len(), 1);
+    // The snapshot is complete, but the recovered handler has not run yet.
+    hub.withdraw_permission(&session, Some("inc"), &json!(7));
+    let key = super::super::permission_groups::AgentRequestKey::new(Some("inc"), &json!(7));
+    assert!(
+        session
+            .permissions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .cancelled_requests
+            .contains(&key),
+        "the cancellation vanished before recovery admitted it"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Everything `open_work` recovers, in a fixed order.
 fn work_fields(w: &OpenWork) -> String {
     let permissions: std::collections::BTreeMap<_, _> = w.permissions.iter().collect();
@@ -283,6 +308,9 @@ async fn a_line_cut_short_never_moves_the_resume_point() {
     append(format!(
         r#"{{"seq":{seq},"at":1,"dir":"in","kind":"response","msg":{{"id":7,"jsonrpc":"2.0","result":{{"a":0,"hostSeq":999999}}"#
     ));
+    append(format!(
+        r#"{{"seq":{seq},"at":1,"dir":"mux","kind":"permission_withdrawn","msg":{{"incarnation":"inc","hostSeq":999999}}"#
+    ));
     for after in [whole, whole + 1] {
         assert_eq!(hub.last_host_seq(&session, "inc"), after);
         assert_eq!(hub.last_host_seq_parsed(&session, "inc"), after);
@@ -308,29 +336,36 @@ async fn a_line_cut_short_never_moves_the_resume_point() {
 /// older record carried that host's sequence. Both adoption reads must retain the real cursor.
 #[tokio::test]
 async fn a_deferred_withdrawal_never_moves_either_adoption_cursor() {
-    let mut log = Log { records: Vec::new(), host_seq: 0 };
-    log.push("mux", "host_started", json!({"incarnation": "inc"}), false);
-    log.ask(7, false);
-    let real_cursor = log.host_seq;
-    log.push(
-        "mux",
-        "permission_withdrawn",
-        json!({"agentRequestId": 7, "incarnation": "old"}),
-        false,
-    );
-    if let Some(marker) = log.records.last_mut() {
-        marker.host_seq = Some(900);
+    for incarnation in ["old", "inc"] {
+        let mut log = Log { records: Vec::new(), host_seq: 0 };
+        log.push("mux", "host_started", json!({"incarnation": "inc"}), false);
+        log.ask(7, false);
+        let real_cursor = if incarnation == "inc" { 900 } else { log.host_seq };
+        log.push(
+            "mux",
+            "permission_withdrawn",
+            json!({"agentRequestId": 7, "incarnation": incarnation}),
+            false,
+        );
+        if let Some(marker) = log.records.last_mut() {
+            marker.host_seq = Some(900);
+        }
+        // A crash may precede the raw copy; a stale copy may follow a replacement.
+        if incarnation == "old" {
+            log.push("in", method::CANCEL_REQUEST, json!({"params": {"requestId": 7}}), false);
+        }
+        let (hub, root) = hub_with(1, &log).await;
+        let session = hub.resolve("chat0").unwrap();
+        assert_eq!(hub.last_host_seq(&session, "inc"), real_cursor);
+        assert_eq!(hub.last_host_seq_parsed(&session, "inc"), real_cursor);
+        let all = hub.open_work_reading(&session, "inc", |_, _, _| true);
+        let heads = hub.open_work(&session, "inc");
+        assert_eq!(heads.last_host_seq, real_cursor);
+        assert_eq!(work_fields(&heads), work_fields(&all));
+        let expected = (incarnation == "inc").then(|| json!({"outcome": "cancelled"}));
+        assert_eq!(heads.permissions["7"].2, expected);
+        assert!(heads.withdrawn.is_empty());
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&root);
     }
-    let (hub, root) = hub_with(1, &log).await;
-    let session = hub.resolve("chat0").unwrap();
-    assert_eq!(hub.last_host_seq(&session, "inc"), real_cursor);
-    assert_eq!(hub.last_host_seq_parsed(&session, "inc"), real_cursor);
-    let all = hub.open_work_reading(&session, "inc", |_, _, _| true);
-    let heads = hub.open_work(&session, "inc");
-    assert_eq!(heads.last_host_seq, real_cursor);
-    assert_eq!(work_fields(&heads), work_fields(&all));
-    assert_eq!(heads.permissions["7"].2, None);
-    assert!(heads.withdrawn.is_empty());
-    hub.shutdown_all().await;
-    let _ = std::fs::remove_dir_all(&root);
 }

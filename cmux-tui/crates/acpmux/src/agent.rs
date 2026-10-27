@@ -1594,10 +1594,8 @@ impl ChildAgent {
                         if method == crate::rpc::method::CANCEL_REQUEST
                             && params.as_ref().and_then(|p| p.get("requestId")).is_some()
                 );
-                // Persist a hosted cancellation before logging the raw wire
-                // entry. Otherwise a crash after the raw entry is logged but
-                // before the derived marker would advance the resume cursor
-                // past the only copy of the cancellation.
+                // The incarnation-bearing marker is this entry's durable
+                // checkpoint. Store it before acknowledging the cancellation.
                 if needs_durable_cancel {
                     let Message::Notification { method, params } = &m else { return false };
                     let (done, persisted) = oneshot::channel();
@@ -1619,8 +1617,10 @@ impl ChildAgent {
                         return false;
                     }
                 }
-                // Dropped as the direct reader drops it; the entry counts as handled.
-                match self.tap_live(&m, || (self.tap)(Direction::In, &m, Some(h))) {
+                // The incarnation-bearing durable marker owns a cancellation's
+                // checkpoint. Its delayed raw copy must never advance a new host.
+                let raw_seq = (!needs_durable_cancel).then_some(h);
+                match self.tap_live(&m, || (self.tap)(Direction::In, &m, raw_seq)) {
                     None => return true,
                     Some(false) => return false,
                     Some(true) => {}
@@ -1756,6 +1756,49 @@ pub(crate) fn spawn_error(what: &str, e: std::io::Error) -> anyhow::Error {
 #[cfg(all(test, unix))]
 mod spawn_error_tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_durable_withdrawal_never_logs_an_unscoped_raw_cursor() -> anyhow::Result<()> {
+        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["python3", "-c", "import sys; sys.stdin.read()"]
+        }))?;
+        let cursors = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded = cursors.clone();
+        let tap: Tap = Arc::new(move |_, _, seq| {
+            recorded.lock().unwrap_or_else(|e| e.into_inner()).push(seq);
+            true
+        });
+        let (tx, mut rx) = mpsc::channel(8);
+        let agent =
+            ChildAgent::spawn("old", &profile, &std::env::temp_dir(), tx.clone(), tap).await?;
+        let cancel = Message::notification(
+            crate::rpc::method::CANCEL_REQUEST,
+            serde_json::json!({"requestId": 7}),
+        );
+        let pending =
+            agent.on_host_entry(900, crate::agent_host::Entry::In { msg: cancel.to_value() }, &tx);
+        let persist = async {
+            if let Some(Inbound::Notification { persisted: Some(done), host_seq, .. }) =
+                rx.recv().await
+            {
+                assert_eq!(host_seq, Some(900), "the durable marker owns the checkpoint");
+                assert!(cursors.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
+                let _ = done.send(true);
+            }
+        };
+        let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            tokio::join!(pending, persist).0
+        })
+        .await;
+        agent.kill().await;
+        assert!(result?, "the cancellation was not stored");
+        assert_eq!(
+            *cursors.lock().unwrap_or_else(|e| e.into_inner()),
+            vec![None],
+            "raw cancellation has no incarnation fence"
+        );
+        Ok(())
+    }
 
     #[tokio::test]
     async fn direct_children_give_withdrawals_distinct_request_owners() -> anyhow::Result<()> {

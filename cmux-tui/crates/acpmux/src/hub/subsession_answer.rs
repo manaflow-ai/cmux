@@ -295,9 +295,27 @@ mod tests {
         hub.withdraw_permission(&session, None, &json!(1007));
         let outcome = rx.await.unwrap_or(Value::Null);
         assert_eq!(outcome, json!({"outcome": "cancelled"}));
-        let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
-        assert!(!state.pending.contains_key(&mine));
-        assert!(state.pending.contains_key(&other));
+        {
+            let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            assert!(!state.pending.contains_key(&mine));
+            assert!(state.pending.contains_key(&other));
+        }
+        let error = hub
+            .respond_permission(
+                &session,
+                &mine,
+                Some("go".into()),
+                None,
+                None,
+                Answerer::default(),
+                Control::Local,
+            )
+            .await
+            .expect_err("the withdrawal won before this answer");
+        assert_eq!(
+            error.data,
+            Some(json!({"answeredBy": null, "outcome": {"outcome": "cancelled"}}))
+        );
     }
 
     /// A cancellation can be read before the spawned permission handler gets
@@ -328,85 +346,45 @@ mod tests {
         assert!(session.permissions.lock().unwrap_or_else(|e| e.into_inner()).pending.is_empty());
     }
 
-    #[tokio::test]
-    async fn a_withdrawal_immediately_reports_its_settled_outcome() {
-        let (hub, session, _conn) = hub_with_session().await;
-        let (id, _rx) = pending(&session, false);
-        {
-            let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
-            if let Some(entry) = state.pending.get_mut(&id) {
-                entry.agent_request = Some(json!(7));
-            }
-        }
-        hub.withdraw_permission(&session, None, &json!(7));
-        let error = hub
-            .respond_permission(
-                &session,
-                &id,
-                Some("go".to_owned()),
-                None,
-                None,
-                Answerer::default(),
-                Control::Local,
-            )
-            .await
-            .expect_err("the withdrawal won before this answer");
-        assert_eq!(
-            error.data,
-            Some(json!({"answeredBy": null, "outcome": {"outcome": "cancelled"}})),
-        );
-    }
-
-    /// The withdrawal record is replayed for the same host incarnation, so a
-    /// daemon restart cannot re-show the card.
+    /// Both a registered card and a withdrawal before registration survive recovery.
     #[tokio::test]
     async fn an_agent_withdrawal_survives_host_recovery() {
-        let (hub, session, _conn) = hub_with_session().await;
-        hub.append(&session, "mux", "host_started", json!({"incarnation": "inc-1"}));
-        hub.append(
-            &session,
-            "in",
-            method::SESSION_REQUEST_PERMISSION,
-            json!({"id": 1009, "method": method::SESSION_REQUEST_PERMISSION, "params": {}}),
-        );
-        hub.append(
-            &session,
-            "mux",
-            "permission_request",
-            json!({"permissionId": "p-1", "agentRequestId": 1009, "request": {}}),
-        );
-        hub.append(
-            &session,
-            "mux",
-            "permission_withdrawn",
-            json!({"agentRequestId": 1009, "incarnation": "inc-1"}),
-        );
-        let work = hub.open_work(&session, "inc-1");
-        let decision = work.permissions.get("1009").and_then(|entry| entry.2.clone());
-        assert_eq!(decision, Some(json!({"outcome": "cancelled"})));
-        assert!(work.cancelled_permissions.contains("1009"));
+        for registered in [false, true] {
+            let (hub, session, _conn) = hub_with_session().await;
+            saved_request(&hub, &session, "inc", 1009);
+            if registered {
+                hub.append(
+                    &session,
+                    "mux",
+                    "permission_request",
+                    json!({"permissionId": "p-1", "agentRequestId": 1009, "request": {}}),
+                );
+            }
+            hub.append(
+                &session,
+                "mux",
+                "permission_withdrawn",
+                json!({"agentRequestId": 1009, "incarnation": "inc"}),
+            );
+            let work = hub.open_work(&session, "inc");
+            if registered {
+                let decision = work.permissions.get("1009").and_then(|entry| entry.2.clone());
+                assert_eq!(decision, Some(json!({"outcome": "cancelled"})));
+                assert!(work.cancelled_permissions.contains("1009"));
+            } else {
+                assert!(work.withdrawn.contains("1009"));
+            }
+        }
     }
 
-    /// A withdrawal logged before the permission record still suppresses the
-    /// request when the adopted host replays its unfinished work.
-    #[tokio::test]
-    async fn an_early_withdrawal_survives_host_recovery() {
-        let (hub, session, _conn) = hub_with_session().await;
-        hub.append(&session, "mux", "host_started", json!({"incarnation": "inc-early"}));
+    fn saved_request(hub: &Hub, session: &Session, incarnation: &str, id: i64) {
+        hub.append(session, "mux", "host_started", json!({"incarnation": incarnation}));
         hub.append(
-            &session,
+            session,
             "in",
             method::SESSION_REQUEST_PERMISSION,
-            json!({"id": 1010, "method": method::SESSION_REQUEST_PERMISSION, "params": {}}),
+            json!({"id": id, "method": method::SESSION_REQUEST_PERMISSION, "params": {}}),
         );
-        hub.append(
-            &session,
-            "mux",
-            "permission_withdrawn",
-            json!({"agentRequestId": 1010, "incarnation": "inc-early"}),
-        );
-        let work = hub.open_work(&session, "inc-early");
-        assert!(work.withdrawn.contains("1010"));
     }
 
     /// A deferred cancel from an older host must not cancel a reused request id
@@ -414,13 +392,7 @@ mod tests {
     #[tokio::test]
     async fn a_withdrawal_from_an_older_host_does_not_cross_incarnations() {
         let (hub, session, _conn) = hub_with_session().await;
-        hub.append(&session, "mux", "host_started", json!({"incarnation": "new-host"}));
-        hub.append(
-            &session,
-            "in",
-            method::SESSION_REQUEST_PERMISSION,
-            json!({"id": 1011, "method": method::SESSION_REQUEST_PERMISSION, "params": {}}),
-        );
+        saved_request(&hub, &session, "new-host", 1011);
         hub.append(
             &session,
             "mux",
@@ -437,23 +409,6 @@ mod tests {
         let decision = work.permissions.get("1011").and_then(|entry| entry.2.clone());
         assert_eq!(decision, None);
         assert!(work.withdrawn.is_empty());
-    }
-
-    /// A deferred cancel is a controller record, not a host entry; it must
-    /// never advance the replacement host's resume cursor.
-    #[tokio::test]
-    async fn a_deferred_withdrawal_does_not_advance_the_resume_cursor() {
-        let (hub, session, _conn) = hub_with_session().await;
-        hub.append(&session, "mux", "host_started", json!({"incarnation": "new-host"}));
-        hub.append_with_host_seq(
-            &session,
-            "mux",
-            "permission_withdrawn",
-            json!({"agentRequestId": 1012, "incarnation": "old-host"}),
-            Some(900),
-        );
-        let work = hub.open_work(&session, "new-host");
-        assert_eq!(work.last_host_seq, 0);
     }
 
     /// The rule under the prompt's lock, without the request check before it:

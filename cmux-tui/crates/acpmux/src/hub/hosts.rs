@@ -352,15 +352,30 @@ impl Hub {
             json!({"incarnation": incarnation, "hostBuild": adopted.host_build, "resumedAfter": resume_after}),
         );
         self.set_status(session, SessionStatus::Ready);
-        let mut work = self.open_work(session, &incarnation);
-        // Requests after the resume point were replayed into the live
-        // inbound loop and are handled there; only earlier ones were the
-        // previous daemon's to answer.
-        work.requests.retain(|(_, _, _, h)| h.is_none_or(|h| h <= resume_after));
+        let work = self.recovery_work(session, &incarnation, resume_after);
         self.recover_work(session, &child, &incarnation, work).await;
         self.restart_unproven(session, proven);
         self.save_meta(session);
         Ok(())
+    }
+
+    fn recovery_work(&self, session: &Session, incarnation: &str, resume_after: u64) -> OpenWork {
+        // A withdrawal either precedes this snapshot in the log or waits
+        // on this lock until its recovered request has been admitted.
+        let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+        let mut work = self.open_work(session, incarnation);
+        // Requests after the resume point were replayed into the live
+        // inbound loop and are handled there; only earlier ones were the
+        // previous daemon's to answer.
+        work.requests.retain(|(_, _, _, h)| h.is_none_or(|h| h <= resume_after));
+        for (id, kind, _, _) in &work.requests {
+            if kind == method::SESSION_REQUEST_PERMISSION {
+                state
+                    .active_requests
+                    .insert(super::permission_groups::AgentRequestKey::new(Some(incarnation), id));
+            }
+        }
+        work
     }
 
     fn remote_host_env_current(&self, session: &Session, incarnation: &str) -> bool {
@@ -384,7 +399,7 @@ impl Hub {
         // And the `seq` of the record that holds it.
         let (mut last, mut at) = (0, 0);
         let mut current = false;
-        // Only a host start is parsed: every other record counts by the `hostSeq` of its head.
+        // Only starts and deferred withdrawals need their incarnation parsed.
         let _ = self.store.scan_heads(&session.id, &mut |head| {
             if head.dir == "mux" && head.kind == "host_started" {
                 if let Some(e) = head.record() {
@@ -394,7 +409,8 @@ impl Hub {
                     }
                 }
             } else if current
-                && head.kind != "permission_withdrawn"
+                && (head.kind != "permission_withdrawn"
+                    || head.record().is_some_and(|e| host_seq_matches(&e, incarnation)))
                 && let Some(h) = head.host_seq.filter(|&h| h > last)
             {
                 (last, at) = (h, head.seq);
@@ -418,7 +434,7 @@ impl Hub {
                     last = 0;
                 }
             } else if current
-                && e.kind != "permission_withdrawn"
+                && host_seq_matches(&e, incarnation)
                 && let Some(h) = e.host_seq
             {
                 last = last.max(h);
@@ -716,7 +732,7 @@ impl Hub {
                 _ => {}
             }
             if current
-                && e.kind != "permission_withdrawn"
+                && host_seq_matches(&e, incarnation)
                 && let Some(h) = e.host_seq.filter(|&h| h > work.last_host_seq)
             {
                 work.last_host_seq = h;
@@ -867,11 +883,6 @@ impl Hub {
         // now for an unsandboxed agent): its permissions are cancelled too,
         // never answered from the log or shown again.
         let floored = Self::web_turn(session) && self.remote_floor_breach(session).is_some();
-        for (id, kind, _, _) in &work.requests {
-            if kind == method::SESSION_REQUEST_PERMISSION {
-                self.register_agent_request(session, id, Some(incarnation));
-            }
-        }
         // Every request that starts its own task is counted before the
         // answers below are sent, so no group of them is shown while one
         // still waits for its spawn (`AskInFlight`).
@@ -1320,6 +1331,13 @@ const OPEN_WORK_MUX_KINDS: [&str; 10] = [
     "turn_result",
     "remote_floor_cancel",
 ];
+
+/// A deferred withdrawal may be logged after its host was replaced. Its
+/// checkpoint belongs only to the incarnation named in the durable marker.
+fn host_seq_matches(e: &crate::store::EventRecord, incarnation: &str) -> bool {
+    e.kind != "permission_withdrawn"
+        || e.msg.get("incarnation").and_then(Value::as_str) == Some(incarnation)
+}
 
 /// Whether `open_work` must parse a record to fold it, judged from its head and the scan so far:
 /// whether the adopted incarnation is current and the log's last turn is open (`turn_open`; an

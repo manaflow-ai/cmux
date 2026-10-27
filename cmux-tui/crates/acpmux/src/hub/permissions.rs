@@ -26,6 +26,7 @@ impl Hub {
                     params,
                     agent,
                     host_incarnation,
+                    host_seq,
                     persisted,
                     ..
                 } => {
@@ -67,7 +68,7 @@ impl Hub {
                                     "agentRequestId": id,
                                     "incarnation": host_incarnation.clone(),
                                 }),
-                                None,
+                                host_seq,
                             )
                             .1;
                         if let Some(done) = persisted {
