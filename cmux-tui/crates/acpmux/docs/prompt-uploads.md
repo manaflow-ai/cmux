@@ -109,9 +109,26 @@ page never pushes them, and no byte travels on the page binding.
   begin reply's timing.
 - The final prompt redeems the ticket exactly once, in native, before native sends it to the
   daemon.
-- A retry keeps the token. The page keeps the Blob until the prompt is accepted or the person
-  removes the attachment.
+- A token names one upload attempt and gets exactly one terminal `uploads.state`. The page keeps
+  the Blob until the prompt is accepted or the person removes the attachment.
 - The prompt names the file by its `uploadId` (section 5).
+
+### Retrying a failed attachment
+
+- The page registers a **new** random token for the same Blob in `__cmuxUploadBlobs`, and calls
+  `uploads.begin` again with the same `promptId` and the same still-live ticket.
+- Only failed attachments are retried. A finished attachment's token and `uploadId` are reused.
+- Native refuses `uploads.begin` for any token it has already seen, active or terminal. The page
+  never reuses a token.
+- A failed token stays failed: `uploads.status` on it keeps answering `"failed"`, and a late push
+  for it never affects the new attempt.
+- The prompt names only each attachment's current finished `uploadId`, never a failed
+  attempt's.
+- If a failed attempt has an `uploadId`, native calls `file_put_cancel` on it unless the daemon
+  already ended it; otherwise the age sweep reaps it. A failed attempt is never resumed into the
+  new token.
+- The page may drop the old token's Blob-map entry once the new one is registered.
+- There is no same-token retry, and no attempt generation in the carriers.
 
 ### Upload states (page and native)
 
@@ -132,8 +149,8 @@ page never pushes them, and no byte travels on the page binding.
   asks this instead of guessing.
 - **The prompt:** the page sends the final prompt only after every token for that `promptId` has
   reached `"finished"`. If any token is `"failed"`, the prompt stays queued with its attachments
-  and shows the error; it is never sent with that reference. A retry re-runs only the failed
-  tokens and keeps the same `promptId` and ticket.
+  and shows the error; it is never sent with that reference. A retry re-uploads only the failed
+  attachments, each under a new token, and keeps the same `promptId` and ticket.
 - **Cancel:** `uploads.cancel {token}`. Native calls `file_put_cancel`, then pushes
   `uploads.state` `"cancelled"`.
 - **Before `file_put_begin` is acknowledged:**
