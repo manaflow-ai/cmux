@@ -298,6 +298,7 @@ impl Hub {
             Vec::new(),
             session.inbound_tx.clone(),
             tap,
+            &self.supervisor,
         )
         .await?;
         let (child, adopted) = match attached {
@@ -1043,6 +1044,7 @@ impl Hub {
             Vec::new(),
             session.inbound_tx.clone(),
             tap,
+            &self.supervisor,
         )
         .await;
         match attached {

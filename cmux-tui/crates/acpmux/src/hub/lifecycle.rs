@@ -613,6 +613,7 @@ impl Hub {
                     Some((plan.program, plan.args)),
                     Some(tr),
                     Some((&session.id, &meta.name)),
+                    &self.supervisor,
                 )
                 .await
                 .map_err(|e| {
@@ -631,6 +632,7 @@ impl Hub {
                 None,
                 None,
                 Some((&session.id, &meta.name)),
+                &self.supervisor,
             )
             .await
             .map_err(|e| {
@@ -1045,7 +1047,7 @@ impl Hub {
             .unwrap_or_else(|_| std::env::temp_dir());
         let mut resolved = profile.clone();
         resolved.argv = self.resolved_launcher_argv(resolved.argv);
-        let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;
+        let child = ChildAgent::spawn(name, &resolved, &cwd, tx, tap, &self.supervisor).await?;
         // Drain anything the agent sends so its writer never blocks.
         let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
         let result = tokio::time::timeout(std::time::Duration::from_secs(50), async {

@@ -96,7 +96,7 @@ pub async fn spawn_within(
     }
     // The host is not this process's child for long: reap it in the
     // background so it never lingers as a zombie of the controller.
-    tokio::spawn(async move {
+    crate::supervised::spawn_scoped(async move {
         let _ = child.wait().await;
     });
     let reply = bootstrap??;
@@ -223,7 +223,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
     let (detach_tx, detach_rx) = oneshot::channel();
     let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let queries: Queries = Arc::default();
-    tokio::spawn(async move {
+    crate::supervised::spawn_scoped(async move {
         while let Some((frame, written)) = rx.recv().await {
             if write_frame(&mut wr, &frame).await.is_err() {
                 break;
@@ -238,7 +238,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
     {
         let closed = closed.clone();
         let queries = queries.clone();
-        tokio::spawn(async move {
+        crate::supervised::spawn_scoped(async move {
             let mut detach_tx = Some(detach_tx);
             loop {
                 match read_frame::<_, HostFrame>(&mut rd).await {

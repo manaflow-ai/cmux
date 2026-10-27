@@ -248,15 +248,13 @@ pub(super) async fn start_daemon(
 ) -> Result<String> {
     let reader = spawn_detached(home, prefix)?;
     let (tx, rx) = tokio::sync::oneshot::channel();
-    std::thread::Builder::new()
-        .name("acpmux-daemon-ready".into())
-        .spawn(move || {
-            use std::io::BufRead;
-            let mut line = String::new();
-            let _ = std::io::BufReader::new(reader).read_line(&mut line);
-            let _ = tx.send(line);
-        })
-        .context("wait for acpmux daemon")?;
+    crate::supervised::scoped_thread("acpmux-daemon-ready", move || {
+        use std::io::BufRead;
+        let mut line = String::new();
+        let _ = std::io::BufReader::new(reader).read_line(&mut line);
+        let _ = tx.send(line);
+    })
+    .context("wait for acpmux daemon")?;
     let deadline = tokio::time::Instant::now() + budget;
     match tokio::time::timeout_at(deadline, rx).await {
         Ok(line) => {

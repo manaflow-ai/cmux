@@ -235,7 +235,7 @@ impl Agents {
         let backlog: Vec<Value> =
             attached.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
         let agents = self.clone();
-        tokio::spawn(async move {
+        crate::supervised::spawn_scoped(async move {
             let mut text = TextBuffer::default();
             for ev in backlog {
                 forward(&sid, &ev, &mut text, &sink).await;
@@ -305,7 +305,7 @@ impl Agents {
             "prompt": [{ "type": "text", "text": text }],
             "_meta": { "acpmux": { "promptId": prompt_id, "steer": false, "resend": false } }
         });
-        tokio::spawn(async move {
+        crate::supervised::spawn_scoped(async move {
             // The answer comes at the end of the turn; the stream already carried it.
             let _ = client.request(method::SESSION_PROMPT, params).await;
         });
@@ -365,7 +365,9 @@ impl Agents {
         let ask = self.ask.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
         let Ok(client) = self.client(session) else { return };
         let session = session.to_owned();
-        tokio::spawn(async move {
+        let refusal = json!({ "sessionId": session, "permissionId": permission });
+        let refuser = client.clone();
+        let route = async move {
             let allowed = match (&ask, proven, &allow_option) {
                 (Some(ask), true, Some(_)) => ask(summary).await,
                 _ => false,
@@ -381,6 +383,10 @@ impl Agents {
             if client.request(method::MUX_PERMISSION_RESPOND, params).await.is_err() {
                 let _ = client.request(method::MUX_PERMISSION_RESPOND, base).await;
             }
+        };
+        // A panic before the answer refuses the call, as a failed answer does.
+        crate::supervised::spawn_request(route, async move {
+            let _ = refuser.request(method::MUX_PERMISSION_RESPOND, refusal).await;
         });
     }
 

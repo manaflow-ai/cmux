@@ -312,13 +312,18 @@ async fn handle(msg: Value, options: &Arc<Options>, state: &Arc<Mutex<State>>, t
                 cwd
             };
             let (options, state, tx) = (options.clone(), state.clone(), tx.clone());
-            tokio::spawn(async move {
+            let (failed_tx, failed_id) = (tx.clone(), id.clone());
+            let prompt = async move {
                 let outcome = run_prompt(&options, &sid, &cwd, &blocks, cancel_rx, &tx).await;
                 state.lock().await.running.remove(&sid);
                 match outcome {
                     Ok(stop) => reply(&tx, &id, json!({"stopReason": stop})),
                     Err(e) => error(&tx, &id, -32603, e),
                 }
+            };
+            // A panic ends this prompt with an internal error, not the agent.
+            crate::supervised::spawn_request(prompt, async move {
+                error(&failed_tx, &failed_id, -32603, "the prompt failed".to_owned());
             });
         }
         ("session/cancel", _) => {
@@ -377,7 +382,7 @@ async fn run_prompt(
         if !text.ends_with('\n') {
             text.push('\n');
         }
-        tokio::spawn(async move {
+        crate::supervised::spawn_scoped(async move {
             let _ = stdin.write_all(text.as_bytes()).await;
             let _ = stdin.shutdown().await;
         });
@@ -408,7 +413,7 @@ async fn run_prompt(
         None => {
             let stdout = child.stdout.take().expect("piped stdout");
             let (line_tx, line_rx) = mpsc::unbounded_channel();
-            tokio::spawn(async move {
+            crate::supervised::spawn_scoped(async move {
                 let mut lines = BufReader::new(stdout).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     if line_tx.send(line).is_err() {
@@ -423,7 +428,7 @@ async fn run_prompt(
     // waited for while the output is read.
     let (kill_tx, kill_rx) = oneshot::channel::<()>();
     let (exit_tx, mut exit_rx) = oneshot::channel();
-    tokio::spawn(async move {
+    crate::supervised::spawn_scoped(async move {
         tokio::select! {
             _ = kill_rx => {
                 let _ = child.kill().await;
@@ -538,7 +543,8 @@ fn attach_tty(_cmd: &mut tokio::process::Command) -> std::io::Result<std::fs::Fi
 fn read_lines(file: std::fs::File) -> mpsc::UnboundedReceiver<String> {
     use std::io::BufRead;
     let (tx, rx) = mpsc::unbounded_channel();
-    std::thread::spawn(move || {
+    // A thread that cannot start leaves `rx` closed: the caller reads end of file.
+    let _ = crate::supervised::scoped_thread("acpmux-cli-agent-lines", move || {
         let mut reader = std::io::BufReader::new(file);
         let mut buf = Vec::new();
         loop {
