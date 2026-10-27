@@ -620,6 +620,13 @@
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WindowDrawPolicy.swift:102", "kind": "via shippingDrawKey", "cond": "", "release": true}
       ]
     },
+    "CMUX_NEXT_BENCH_WEBKIT_RENDERER_LIMIT": {
+      "class": "benchOnly",
+      "note": "Bench-forced WebKit renderer limit; read only under DEBUG || CMUX_BENCH_HOOKS, in development bundles, as CMUX_NEXT_BENCH_CEF_SWITCHES is.",
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/WebKit/WebKitProcessReuse.swift:69", "kind": "use", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
+      ]
+    },
     "CMUX_NEXT_BROWSER_IMPORT_HOME": {
       "class": "devGated",
       "note": "Import fixture home; ImportEnvironment.fixturesAllowed is DEBUG only.",
@@ -904,6 +911,14 @@
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/GhosttyRuntime.swift:190", "kind": "constant", "cond": "", "release": true}
       ]
     },
+    "CMUX_NEXT_GLOBAL_JOB_CENSUS": {
+      "class": "benchOnly",
+      "auto": true,
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/GlobalJobCensus.swift:49", "kind": "constant", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false},
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/GlobalJobCensus.swift:143", "kind": "via environmentKey", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
+      ]
+    },
     "CMUX_NEXT_HANG_REPORTS_URL": {
       "class": "devGated",
       "note": "Hang report endpoint; read only with the dev-channel opt-in.",
@@ -974,6 +989,14 @@
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/LaunchMarkSink.swift:12", "kind": "via environmentKey", "cond": "", "release": true},
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/LaunchMarkSink.swift:18", "kind": "constant", "cond": "", "release": true},
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/LaunchMarkSink.swift:23", "kind": "via environmentKey", "cond": "", "release": true}
+      ]
+    },
+    "CMUX_NEXT_MAIN_JOB_CENSUS": {
+      "class": "benchOnly",
+      "auto": true,
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/MainJobCensus.swift:35", "kind": "constant", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false},
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextLaunch/MainJobCensus.swift:76", "kind": "via environmentKey", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
       ]
     },
     "CMUX_NEXT_MAIN_TASK_DIAGNOSTICS": {

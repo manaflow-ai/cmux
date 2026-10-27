@@ -321,8 +321,10 @@ extension HiddenPageHibernationTests.Rig {
         try "<!doctype html><title>\(name)</title><p>\(name)</p>".write(to: url, atomically: true, encoding: .utf8)
         page.load(url)
         try await until("\(name) loads") {
-            page.state.documentGeneration != generation
-                && (try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page, gesture: .agent)) == .string(name)
+            // `&&` takes its right side as a synchronous autoclosure, so the page is read before the test.
+            guard page.state.documentGeneration != generation else { return false }
+            let title = try? await page.evaluate("document.readyState === 'complete' && document.title", world: .page, gesture: .agent)
+            return title == .string(name)
         }
     }
 }

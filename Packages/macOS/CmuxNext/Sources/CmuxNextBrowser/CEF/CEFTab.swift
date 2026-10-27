@@ -6,13 +6,12 @@ public import Foundation
 public import Observation
 import CmuxNextWakeups
 
-/// A Chromium tab (CEF fork, Chrome style). In process its page is a child window that
-/// tracks `contentView` (`.childWindow` presentation); in host mode it is the pane's
-/// `ChromiumHostPageView` inside `contentView` (`.inView`). The Chromium browser
-/// is created the first time the tab is shown, so hidden background tabs
+/// A Chromium tab (CEF fork, Chrome style). In process its page is a child window that tracks `contentView`
+/// (`.childWindow` presentation); in host mode it is the pane's `ChromiumHostPageView` inside `contentView`
+/// (`.inView`). The Chromium browser is created the first time the tab is shown, so hidden background tabs
 /// cost nothing until selected.
 @Observable
-public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCovering, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering {
+public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCovering, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering, BrowserCrashPageHosting {
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind = .cef
     public let profileID: BrowserProfileID
@@ -82,13 +81,14 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
             if phaseChanged || machine.state.processExit != oldValue.state.processExit, runtime.hostStart == nil { onRenderersMayChange?() }
         }
     }
-    /// Runs when the renderers that serve this page may have changed: its load phase changed (a navigation
-    /// can move it to another renderer) or its renderer ended (``publishRenderers(as:into:while:)``,
-    /// p14-energy-124). In process only: with the Chromium Host on, those shim calls are replies over the
-    /// wire, and attribution there is p14-energy-124a.
+    /// Runs when the renderers that serve this page may have changed: its load phase changed (a navigation can
+    /// move it to another renderer) or its renderer ended (``publishRenderers(as:into:while:)``, p14-energy-124).
+    /// In process only: with the Chromium Host on, those shim calls are wire replies (p14-energy-124a).
     @ObservationIgnored var onRenderersMayChange: (() -> Void)?
     /// Runs each time a frame of this page outside its main frame's renderer crashes (`BrowserSubframeCrashReporting`).
     @ObservationIgnored public var onSubframeCrash: (@MainActor () -> Void)?
+    /// Shows the crash page in the turn this page's process or its host ended (``BrowserCrashPageHosting``).
+    @ObservationIgnored weak var crashPagePresenter: (any BrowserCrashPagePresenter)?
     /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept
     /// apart so its observers wake on the flip only, not on each load tick or title.
     public internal(set) var isAudible = false

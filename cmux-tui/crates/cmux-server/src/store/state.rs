@@ -24,7 +24,7 @@ struct Record {
 
 /// Reads the last applied manifest; a missing file means none.
 pub fn load_applied(path: &Path) -> Result<Option<Applied>> {
-    let bytes = match std::fs::read(path) {
+    let bytes = match cmux_blocking::fs::read(path) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(Error::io(path.display(), e)),
@@ -72,7 +72,7 @@ impl StoreLock {
     /// from `cmux_server_core::access` (`/opt/cmux` stays root 0755 in
     /// system mode). A missing root is created with the default mode only.
     pub fn acquire(root: &Path) -> Result<StoreLock> {
-        std::fs::create_dir_all(root).ctx(root.display())?;
+        cmux_blocking::fs::create_dir_all(root).ctx(root.display())?;
         StoreLock::acquire_existing(root)
     }
 
@@ -80,16 +80,15 @@ impl StoreLock {
     /// (rollback, switch, GC): a missing root is "nothing is installed"
     /// and is not created.
     pub fn acquire_existing(root: &Path) -> Result<StoreLock> {
-        if !root.is_dir() {
+        if !cmux_blocking::fs::metadata(root).is_ok_and(|m| m.is_dir()) {
             return Err(Error::not_found(format!("nothing is installed at {}", root.display())));
         }
         let path = root.join(".lock");
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&path)
-            .ctx(path.display())?;
+        let file = cmux_threads::checked::fs::open_with(
+            OpenOptions::new().create(true).truncate(false).write(true),
+            &path,
+        )
+        .ctx(path.display())?;
         match file.try_lock() {
             Ok(()) => Ok(StoreLock { _file: file }),
             Err(TryLockError::WouldBlock) => Err(Error::unreachable(format!(

@@ -1,0 +1,21 @@
+{
+  "id": "daemon-terminal-perf",
+  "tier": "linux",
+  "description": "Terminal memory and throughput on a release cmux-tui built at the commit (cmux-tui/scripts/bench-terminal-perf.py): memory and threads per role at 1, 10 and 100 idle terminals, memory per 10,000 scrollback lines, the rate one terminal parses a 64 MB cat, and CPU of 10 hidden terminals printing 200 lines/s.",
+  "command": ["cmux-tui/scripts/bench-terminal-perf.py", "--build"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "daemon\\.terminal_perf\\.idle\\.[0-9]+\\.(daemon|hosts)\\.memory_each", "unit": "bytes", "better": "lower"},
+    {"name": "daemon\\.terminal_perf\\.idle\\.[0-9]+\\.(daemon|hosts)\\.threads", "unit": "count", "better": "lower"},
+    {"name": "daemon\\.terminal_perf\\.scrollback\\.(daemon|hosts)", "unit": "bytes", "better": "lower"},
+    {"name": "daemon\\.terminal_perf\\.throughput", "unit": "bytes_per_s", "better": "higher"},
+    {"name": "daemon\\.terminal_perf\\.busy\\.(daemon|hosts)\\.cpu", "unit": "percent", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 240,
+  "needs": ["file:cmux-tui/scripts/daemon_bench_lab.py"],
+  "owner": "PL-daemon",
+  "component": "Daemon>Terminals"
+}

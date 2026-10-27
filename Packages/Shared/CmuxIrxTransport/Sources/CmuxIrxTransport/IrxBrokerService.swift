@@ -576,10 +576,11 @@ public actor IrxBrokerService {
         let cachedSnapshot = credentialCache.load().flatMap { snapshot in
             snapshot.endpointIDHex == identity.endpointIDHex ? snapshot : nil
         }
+        // A cache that lists one relay twice keeps the pass that expires last, as the merge below does.
         var mergedByRelay = Dictionary(
-            uniqueKeysWithValues: (cachedSnapshot?.credentials ?? []).map {
+            (cachedSnapshot?.credentials ?? []).map {
                 ($0.relayURL, $0)
-            })
+            }, uniquingKeysWith: { $0.expiresAt >= $1.expiresAt ? $0 : $1 })
         var accepted: [IrxRelayCredential] = []
         let now = Date()
         for credential in pushed {
