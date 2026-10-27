@@ -165,8 +165,8 @@ pub const FENCE_CUT: &str =
     "an MDM push turned full access off before this message reached the agent, so it was not sent";
 
 /// One message's way to its agent: queued, being written, written (its agent's own stdin has
-/// it), cut while queued (never written after), or failed (its transport closed). A hosted
-/// agent takes no fenced message yet: it is cut, never sent unfenced. A family message or
+/// it: for a hosted agent, once its request is answered, as its host says nothing sooner), cut
+/// while queued (never written after), or failed (its transport closed). A family message or
 /// answer is held to it (`hub/full_access_bound.rs` `hold_until_written`).
 #[derive(Clone)]
 pub struct Fence(Arc<FenceState>);
@@ -176,6 +176,9 @@ struct FenceState {
     /// The agent whose writer takes it (`ChildAgent::write_fenced`): the one a cut ends while
     /// it writes it (`Fence::cut_or_end`).
     writer: std::sync::OnceLock<Writer>,
+    /// A hosted writer's end that outlived its bound (`Fence::cut_or_end`), awaited again by the
+    /// next try, never started twice.
+    ending: std::sync::Mutex<Option<tokio::task::JoinHandle<bool>>>,
 }
 
 /// Who writes a fenced message, by an identity a cut can prove before it ends it (review 82 of
@@ -188,6 +191,8 @@ enum Writer {
         pid: Option<u32>,
         stop: Option<WriterStop>,
     },
+    /// A hosted agent: its host, proven by its start nonce's live lock.
+    Hosted(crate::agent_host::HostRecord),
 }
 
 impl std::fmt::Debug for Fence {
@@ -199,7 +204,8 @@ impl std::fmt::Debug for Fence {
 impl Default for Fence {
     fn default() -> Self {
         let step = tokio::sync::watch::channel(Self::QUEUED).0;
-        Self(Arc::new(FenceState { step, writer: std::sync::OnceLock::new() }))
+        let (writer, ending) = (std::sync::OnceLock::new(), std::sync::Mutex::new(None));
+        Self(Arc::new(FenceState { step, writer, ending }))
     }
 }
 
@@ -246,7 +252,8 @@ impl Fence {
 
     /// Resolves once it is written, cut or failed. A holder keeps its own `Fence`, so this
     /// never resolves only because a carrier let go of it (review 82 of #23322): every carrier
-    /// settles it (a writer that stops cuts what it still queues).
+    /// settles it (a writer that stops cuts what it still queues; a host's end fails what it
+    /// had, `link::settle_receipts_of`).
     pub fn settled(&self) -> impl Future<Output = ()> + use<> {
         let mut rx = self.0.step.subscribe();
         async move {
@@ -281,7 +288,8 @@ impl Fence {
     /// [`Self::cut`], and while its writer has it, that agent ends first, within about
     /// `budget` per step and never through a chat's agent slot (review 81 of #23322): a direct
     /// child's writer stops, then its group is signalled only while its leader is unreaped under
-    /// its slot's lock (review 87). True once
+    /// its slot's lock; a hosted one by its host's start nonce and live lock
+    /// (`terminate_unadoptable`), one try at a time, each bounded (review 87). True once
     /// the message can not reach the agent after this; false when that is not proven in time,
     /// and the caller, which must not let go before it is proven, tries again.
     pub async fn cut_or_end(&self, budget: std::time::Duration) -> bool {
@@ -293,6 +301,19 @@ impl Fence {
                 let ended = end_direct(child, *pid, stop.as_ref(), budget).await;
                 if ended {
                     self.failed();
+                }
+                ended
+            }
+            Some(Writer::Hosted(record)) => {
+                let running = self.0.ending.lock().unwrap_or_else(|e| e.into_inner()).take();
+                let mut ending = running.unwrap_or_else(|| end_hosted(record.clone()));
+                let Ok(ended) = tokio::time::timeout(budget * 4, &mut ending).await else {
+                    *self.0.ending.lock().unwrap_or_else(|e| e.into_inner()) = Some(ending);
+                    return false;
+                };
+                let ended = ended.unwrap_or(false);
+                if ended {
+                    crate::agent_host::link::settle_receipts_of(&record.incarnation);
                 }
                 ended
             }
@@ -341,6 +362,26 @@ async fn end_direct(
     let _ = pid;
     let _ = child.start_kill();
     tokio::time::timeout(budget, child.wait()).await.is_ok()
+}
+
+/// Ends the host behind `record` (`Fence::cut_or_end`) by its start nonce: proven by its live
+/// lock (`terminate_unadoptable`), with its harness. Its caller bounds the wait.
+fn end_hosted(record: crate::agent_host::HostRecord) -> tokio::task::JoinHandle<bool> {
+    tokio::task::spawn_blocking(move || {
+        for dir in crate::agent_host::live_lock_dirs(&record) {
+            if crate::agent_host::live_lock_exists(&dir, &record.session_id, &record.start_nonce) {
+                return crate::agent_host::terminate_unadoptable(
+                    &dir,
+                    &record.session_id,
+                    Some(&record.start_nonce),
+                    Some(record.host_pid),
+                )
+                .unwrap_or(false);
+            }
+        }
+        // No live lock: the host ended and its lock went with it.
+        true
+    })
 }
 
 /// A direct agent's stdin writer, which a cut stops (`Fence::cut_or_end`): `ended` turns true
@@ -1003,11 +1044,14 @@ impl ChildAgent {
 
     /// [`Self::write`], `fence` held to it: one line (or frame) each, so a cut drops it whole.
     async fn write_fenced(&self, msg: &Message, fence: Option<&Fence>) -> Result<()> {
-        if let Some(f) = fence.filter(|_| self.hosted.is_none()) {
-            let _ = f.0.writer.set(Writer::Direct {
-                child: Arc::downgrade(&self.child),
-                pid: self.pid,
-                stop: self.writer_stop.get().cloned(),
+        if let Some(f) = fence {
+            let _ = f.0.writer.set(match &self.hosted {
+                Some(h) => Writer::Hosted(h.link().record.clone()),
+                None => Writer::Direct {
+                    child: Arc::downgrade(&self.child),
+                    pid: self.pid,
+                    stop: self.writer_stop.get().cloned(),
+                },
             });
         }
         // Not handed to a writer (an error, or dropped while it waits for room): it is never
@@ -1023,13 +1067,7 @@ impl ChildAgent {
     async fn hand_on(&self, msg: &Message, fence: Option<&Fence>) -> Result<()> {
         if let Some(h) = &self.hosted {
             // The host writes it and logs it back as an `out` entry.
-            if fence.is_some() {
-                return Err(anyhow!(
-                    "agent {}: a hosted agent takes no fenced message yet",
-                    self.name
-                ));
-            }
-            return h.link().line(msg.to_value()).await;
+            return h.link().line_fenced(msg.to_value(), fence.cloned()).await;
         }
         // A translator's state moves on with what it translates (Claude's permission asks, the
         // app-server's approvals), so a message it takes is as good as taken: never cut while
@@ -1189,17 +1227,10 @@ impl ChildAgent {
             unhanded.0 = None;
             on_written();
             let answer = rx.await;
-            // An agent on a host that gives no receipt answered it with a result, so it read it:
-            // written (review 83 of #23322). An error proves nothing: this side's own "closed",
-            // and what a translator makes up once its harness's output ended (the Codex bridge),
-            // are errors too (review 87). A direct agent's own writer, and a later host's
-            // receipt, say when it is written.
-            if self.hosted.is_some()
-                && matches!(&answer, Ok(Ok(_)))
-                && let Some(f) = fence
-            {
-                f.written();
-            }
+            // No answer proves its line was written: an error may be this side's own "closed" or
+            // made up by a translator once its harness's output ended, and a translator answers
+            // prompts it gave up on too (Claude's `cancelled`). A direct agent's writer, a host's
+            // receipt or its end settle it (review 87 of #23322).
             answer.unwrap_or_else(|_| Err(RpcError::internal("agent response channel dropped")))
         };
         let cut = async {
