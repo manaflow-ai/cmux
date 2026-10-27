@@ -61,6 +61,18 @@ extension AppControl {
             },
             // The startup trace (CMUX_TRACE_STARTUP): write what it holds now, its file and counts.
             DebugTimings.startupTraceMethod,
+            // The tasks that started on the cooperative pool until startup completed (startup-queue.py globaljobs,
+            // p08-startup-082): copied and symbolized off main.
+            .mainActor("debug.startup.global_jobs") { [weak services] _ in
+                guard let census = services?.environment.globalJobCensus else { return .value(["global_job_census": ["armed": false]]) }
+                return .followUp {
+                    let symbolicator = StackSymbolicator(map: nil) // Debug and bench executables keep their names: no map read
+                    let report = GlobalJobCensusReport(census.snapshot()) { addresses in
+                        symbolicator.frames(for: addresses).map { .init(image: $0.image, symbol: $0.symbol, imageOffset: $0.imageOffset) }
+                    }
+                    return try JSONValue(foundation: report.foundationObject()) ?? .null
+                }
+            },
             // Each tab switch's own time: intent to shown, and to the next frame (perf-gate.py).
             .mainActor("debug.tab_switch") { call in .value(DebugTabSwitch.timer.handle(call.params, key: "switches")) },
             // Each pane focus move's own time: intent to settled, and to the next frame (perf-gate.py pane_focus).

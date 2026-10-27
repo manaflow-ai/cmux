@@ -23,7 +23,7 @@ import Testing
 
         let received = await io.waitForKeys(sent.count)
         #expect(received.map(\.text) == sent)
-        #expect(received.allSatisfy(\.onIOQueue), "a record was handled off the IO's drain queue")
+        #expect(received.allSatisfy { $0.onIOQueue }, "a record was handled off the IO's drain queue")
     }
 
     /// The session's part of the echo lane's order (p04-input-083): it names no lane before the first content,
