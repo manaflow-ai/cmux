@@ -921,9 +921,10 @@ impl Hub {
         again: ReAsk,
     ) {
         let (hub, s, c) = (self.clone(), session.clone(), child.clone());
-        // task-owner: ends once the answer settles (every carrier settles it).
+        // task-owner: ends once its writer takes the answer or it is cut: only a queued one can
+        // be (review 88 of #23322).
         tokio::spawn(async move {
-            fence.settled().await;
+            fence.taken().await;
             // A writer that stopped cuts what it still had: its agent is gone and asks nothing.
             if fence.is_cut() && c.is_alive().await {
                 let (id, permission_id, request, asked) = again;

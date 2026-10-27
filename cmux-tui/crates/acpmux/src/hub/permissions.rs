@@ -272,21 +272,36 @@ impl Hub {
     }
 
     /// Answers the agent's request `id` with `result`, under the fence of the ancestor's answer
-    /// it carries (`ANSWER_FENCE`). True when an off push cut that answer while it was queued:
-    /// it never reaches the agent, which still waits, so the caller asks again, under the bound
-    /// now (review 84 of #23322).
-    async fn respond_answer(child: &ChildAgent, id: Id, result: Result<Value, RpcError>) -> bool {
+    /// it carries (`ANSWER_FENCE`), and returns once it is handed on. An answer an off push cut
+    /// while it was queued never reaches the agent, which still waits: the request is handled
+    /// again (`again`: its method, params, permission epoch and turn), so it is asked under the
+    /// bound now, or cancelled when a stop or a new turn came since (reviews 84 and 88 of #23322).
+    async fn respond_answer(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+        id: Id,
+        result: Result<Value, RpcError>,
+        again: (String, Option<Value>, u64, Option<String>),
+    ) {
         let fence = ANSWER_FENCE.try_with(|f| f.borrow_mut().0.take()).ok().flatten();
-        let _ = child.respond_fenced(id, result, fence.as_ref()).await;
-        let Some(fence) = fence else { return false };
-        fence.settled().await;
-        // A writer that stopped cuts what it still had: its agent is gone and asks nothing.
-        fence.is_cut() && child.is_alive().await
+        let _ = child.respond_fenced(id.clone(), result, fence.as_ref()).await;
+        let Some(fence) = fence else { return };
+        let (hub, s, c) = (self.clone(), session.clone(), child.clone());
+        // task-owner: ends once its writer takes the answer or it is cut: only a queued one can be.
+        tokio::spawn(async move {
+            fence.taken().await;
+            // A writer that stopped cuts what it still had: its agent is gone and asks nothing.
+            if fence.is_cut() && c.is_alive().await {
+                let (m, params, epoch, turn_id) = again;
+                hub.on_agent_request(s, id, m, params, epoch, turn_id, None).await;
+            }
+        });
     }
 
     /// [`Self::on_agent_request_in`], where an ancestor's answer finds the fence of its write
-    /// (`ANSWER_FENCE`).
-    pub(super) async fn on_agent_request(
+    /// (`ANSWER_FENCE`). Boxed: a cut answer's request is handled again from inside it.
+    pub(super) fn on_agent_request(
         self: Arc<Self>,
         session: Arc<Session>,
         id: Id,
@@ -295,9 +310,11 @@ impl Hub {
         epoch: u64,
         turn_id: Option<String>,
         ask: Option<super::permission_groups::AskInFlight>,
-    ) {
-        let request = self.on_agent_request_in(session, id, m, params, epoch, turn_id, ask);
-        ANSWER_FENCE.scope(Default::default(), request).await;
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        Box::pin(async move {
+            let request = self.on_agent_request_in(session, id, m, params, epoch, turn_id, ask);
+            ANSWER_FENCE.scope(Default::default(), request).await;
+        })
     }
 
     async fn on_agent_request_in(
@@ -317,47 +334,34 @@ impl Hub {
         };
         // Grok's x.ai extension requests: a question or a plan approval,
         // asked through the same permission path (xai.rs).
+        let again = (m.clone(), params.clone(), epoch, turn_id.clone());
         if let Some(kind) = super::xai::request_kind(&m) {
-            let params = params.unwrap_or(Value::Null);
-            loop {
-                let result = self
-                    .handle_xai_request(&session, kind, params.clone(), epoch, turn_id.clone())
-                    .await;
-                if !Self::respond_answer(&child, id.clone(), result).await {
-                    return;
-                }
-            }
+            let result = self
+                .handle_xai_request(&session, kind, params.unwrap_or(Value::Null), epoch, turn_id)
+                .await;
+            self.respond_answer(&session, &child, id, result, again).await;
+            return;
         }
         // Cursor's cursor/ requests: a question or a plan approval (cursor_ext.rs).
         if let Some(kind) = super::cursor_ext::request_kind(&m) {
-            let params = params.unwrap_or(Value::Null);
-            loop {
-                let result = self
-                    .handle_cursor_request(&session, kind, params.clone(), epoch, turn_id.clone())
-                    .await;
-                if !Self::respond_answer(&child, id.clone(), result).await {
-                    return;
-                }
-            }
+            let result = self
+                .handle_cursor_request(
+                    &session,
+                    kind,
+                    params.unwrap_or(Value::Null),
+                    epoch,
+                    turn_id,
+                )
+                .await;
+            self.respond_answer(&session, &child, id, result, again).await;
+            return;
         }
         if m == method::SESSION_REQUEST_PERMISSION {
             let params = params.unwrap_or(Value::Null);
-            let mut ask = ask;
-            loop {
-                let result = self
-                    .handle_permission_for(
-                        &session,
-                        params.clone(),
-                        epoch,
-                        turn_id.clone(),
-                        Some(&id),
-                        ask.take(),
-                    )
-                    .await;
-                if !Self::respond_answer(&child, id.clone(), Ok(result)).await {
-                    return;
-                }
-            }
+            let result =
+                self.handle_permission_for(&session, params, epoch, turn_id, Some(&id), ask).await;
+            self.respond_answer(&session, &child, id, Ok(result), again).await;
+            return;
         }
         // ACP file-system methods: the harness delegates reads and writes to
         // the client. Writes go through the permission policy like any edit
