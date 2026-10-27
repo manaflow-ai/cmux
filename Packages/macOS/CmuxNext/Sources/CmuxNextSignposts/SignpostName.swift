@@ -470,8 +470,9 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
 
     // MARK: ghostty lock wait (emitter: CmuxNextTerminal `GhosttyLockWaitSignpost`, task p04-input-078)
 
-    /// One input entry point's wait of 50 us or more for Ghostty's terminal lock (key, text, preedit, a manual
-    /// surface's input write), reported by ghostty-next after the wait (`ghostty_surface_set_lock_wait_callback`).
+    /// One input entry point's wait of 50 us or more for Ghostty's terminal lock (key, modifier change, IME point,
+    /// text, preedit, a manual surface's input write), reported by ghostty-next after the wait
+    /// (`ghostty_surface_set_lock_wait_callback`).
     /// Debug and bench builds whose GhosttyNextKit has the report (`GHOSTTY_LOCK_WAIT`). Message:
     /// `wait_us=<wait>`. Ring: instant; arg0 the wait in ns.
     case ghosttyLockWait = 87

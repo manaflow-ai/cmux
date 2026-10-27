@@ -15,16 +15,15 @@ nonisolated struct GhosttyLockWaitSignpost {
     /// Where the events go.
     let signposter: Signposter
 
-    /// - Parameter signposter: Where the events go (a ghostty-category handle: `OSSignposter` is an immutable handle
-    ///   the log system caches per category, so a report builds one and keeps no state).
-    init(signposter: Signposter = Signposter(category: .ghostty)) {
+    /// - Parameter signposter: Where the events go (a ghostty-category handle; the app's is ``Signposter/ghostty``).
+    init(signposter: Signposter = .ghostty) {
         self.signposter = signposter
     }
 
-    /// Records one wait of `nanos`.
+    /// Records one wait of `nanos`. It runs inside the key handler that waited, so it builds no handle and no
+    /// `String` (p04-input.md rule 5): the log system formats the integer only when something reads it.
     func record(nanos: UInt64) {
-        guard signposter.isEnabled else { return }
-        signposter.event(.ghosttyLockWait, "wait_us=\(nanos / 1_000)", arg0: nanos)
+        signposter.ghosttyLockWait(nanos: nanos)
     }
 
     /// Reports `surface`'s waits from now on. Call once, right after `ghostty_surface_new`, before the surface gets
@@ -40,5 +39,5 @@ nonisolated struct GhosttyLockWaitSignpost {
 
 /// `ghostty_surface_lock_wait_cb`: any thread that waited (the main thread for input), after the lock is released.
 nonisolated func ghosttyLockWait(_ userdata: UnsafeMutableRawPointer?, _ nanos: UInt64) {
-    GhosttyLockWaitSignpost().record(nanos: nanos)
+    Signposter.ghostty.ghosttyLockWait(nanos: nanos)
 }

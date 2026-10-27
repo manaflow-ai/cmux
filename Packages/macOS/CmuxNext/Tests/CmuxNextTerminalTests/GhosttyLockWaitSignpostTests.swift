@@ -44,11 +44,13 @@ struct GhosttyLockWaitSignpostTests {
         #expect(runtime.stubRecordCount.load(ordering: .relaxed) == 0)
     }
 
-    @Test("ghostty.lock_wait is in the ghostty category with ring id 87")
+    @Test("ghostty.lock_wait is in the ghostty category with ring id 87, emitted on the shared ghostty handle")
     func catalogEntry() {
         #expect(SignpostName.ghosttyLockWait.rawValue == 87)
         #expect(SignpostName.ghosttyLockWait.traceCategory == .ghostty)
         #expect(SignpostName.ghosttyLockWait.description == "ghostty.lock_wait")
         #expect(!SignpostName.ghosttyLockWait.opensThreadSlice)
+        #expect(Signposter.ghostty.category == .ghostty)
+        #expect(GhosttyLockWaitSignpost().signposter.category == .ghostty)
     }
 }

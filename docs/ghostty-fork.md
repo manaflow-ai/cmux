@@ -2481,12 +2481,15 @@ SHA.
 This section is about the `ghostty-next` fork (`manaflow-ai/ghostty-next`), which cmux-next embeds as
 GhosttyNextKit.
 
-- Branch: `cp/p04-input-078` on `manaflow-ai/ghostty-next`, commit `a06d1bdef`, on fork `main`
-  `9ce9b7d08`. cmux task p04-input-078 (plans/cmux-next/chrome-parity/p04-input.md).
+- Branch: `cp/p04-input-078` on `manaflow-ai/ghostty-next`, commits `a06d1bdef` and `89b8a98a8`, on
+  fork `main` `9ce9b7d08`. cmux task p04-input-078 (plans/cmux-next/chrome-parity/p04-input.md).
 - What:
-  - Input entry points (key encoding options, KAM, the link refresh on a modifier change, preedit, a
-    manual surface's input write) take the terminal lock through `renderer.State.lockInput`, which counts
-    them in the atomic `input_waiting`. `Termio.processOutputLocked` parses each chunk in 4 KiB sub-slices
+  - Input entry points take the terminal lock through `renderer.State.lockInput`, which counts them in
+    the atomic `input_waiting`. The `lockInput` list: `Surface.encodeKeyOpts` (key encoding options),
+    the KAM check and the link refresh in `Surface.keyCallback`, `Surface.modsChanged` (a modifier
+    press or release, and the first key after a modifier change), `Surface.imePoint` (each IME
+    composition keystroke), `Surface.preeditCallback` and a manual surface's input write
+    (`Termio.queueWriteManual`). `Termio.processOutputLocked` parses each chunk in 4 KiB sub-slices
     and, while an input waits, releases the lock until it had its turn (`yieldToInputLocked`, the
     `handoff_gen` futex that `lockDemand` uses for the renderer). A key waits for at most one 4 KiB slice,
     never a 64 KiB chunk. This is Blink's parser yield
@@ -2507,15 +2510,24 @@ GhosttyNextKit.
   `GHOSTTY_LOCK_WAIT` (`ghosttyNextKitHasLockWait` in Packages/macOS/CmuxNext/Package.swift, false now):
   the pin bump that brings the export turns it on. The gitlink and the GhosttyNextKit pin do not move in
   the task commit; the bump is a separate commit.
-- Coverage: `manual: input mirrors follow the selection and the viewport` and `manual: a key waits for
-  one 4 KiB slice of dense SGR output, not a 64 KiB chunk` (src/termio/Termio.zig). The second parses
-  8 MiB of full-screen dense SGR repaints in 64 KiB chunks while a second thread locks for input every
-  100 us. The test executable is Debug (build.zig): there a 64 KiB chunk parses in about 12.5 ms and the
-  input wait p99 is about 1.5 ms (one slice). Built ReleaseFast for a local check (not committed): chunk
-  0.56 ms, wait p99 75-81 us, under the 0.5 ms budget, which the test asserts outside Debug.
-- Files touched (conflict surface): `src/renderer/State.zig`, `src/termio/Termio.zig`,
+- Coverage: `manual: input mirrors follow the selection and the viewport` (src/termio/Termio.zig) and
+  the `key: ` tests (src/Surface.zig), which run the real key path on a Surface with a manual-backend
+  Termio (`TestKeySurface`):
+  - `key: a press with output holding the terminal lock does not wait and posts its side effects`:
+    another thread holds the lock; a plain press returns while it is still held and queues one termio
+    `.typed` with `clear_selection` and `scroll_bottom`.
+  - `key: a press with the lock free brings the viewport down itself`.
+  - `key: the key path waits for one 4 KiB slice of dense SGR output, not a 64 KiB chunk`: 8 MiB of
+    full-screen dense SGR repaints are parsed in 64 KiB chunks while a second thread runs a press every
+    100 us (`modsChanged` with alternating Shift, `encodeKeyOpts`, `typedSideEffects`) and times the
+    whole path. It asserts p99 < a quarter of a chunk's parse, and p99 < 0.5 ms when the test build is
+    optimized. The unit test executable is Debug by default; `-Dtest-optimize` (build.zig) sets its mode.
+    Run the budget with `zig build test -Dtest-optimize=ReleaseFast -Dtest-filter="key: "`.
+- `apprt.none.App.performAction` returns false, so core code that notifies the apprt compiles in the
+  test executable's runtime.
+- Files touched (conflict surface): `build.zig`, `src/renderer/State.zig`, `src/termio/Termio.zig`,
   `src/termio/Thread.zig`, `src/termio/message.zig`, `src/termio/stream_handler.zig`, `src/Surface.zig`,
-  `src/apprt/surface.zig`, `src/apprt/embedded.zig`, `include/ghostty.h`, `NEXT.md`.
+  `src/apprt/surface.zig`, `src/apprt/embedded.zig`, `src/apprt/none.zig`, `include/ghostty.h`, `NEXT.md`.
 - Conflict notes: a new input entry point that takes the terminal lock uses `lockInput`/`unlockInput`,
   not `mutex.lock`. A new change that can give the active screen a selection or move its viewport off the
   active area calls `Termio.publishInputMirrorsLocked` before it releases the lock. Do not parse a whole
