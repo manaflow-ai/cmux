@@ -23,7 +23,6 @@ final class HomeStarterChips: NSView {
             let button = NSButton(title: prompt, target: self, action: #selector(sendPrompt(_:)))
             button.isBordered = false
             button.wantsLayer = true
-            button.toolTip = prompt
             button.setAccessibilityLabel(prompt)
             button.isEnabled = isEnabled
             button.cell?.lineBreakMode = .byTruncatingTail
