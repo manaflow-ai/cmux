@@ -325,24 +325,25 @@ nonisolated enum AcpmuxPaneMethods {
     /// Where a frame carries the ticket of a gesture reserved at its pick (`params._meta.cmuxGesture`).
     public static let gestureTicketKey = "cmuxGesture"
 
-    /// A session/prompt with every `_meta` inside its prompt blocks removed, at any depth (a block's
-    /// own, a nested resource's, annotations'); nil when there is none (the frame goes unchanged).
-    /// The request's own `params._meta` stays. Adapters read no block `_meta` today; a future one
-    /// could, and the relay cannot check what it would do with it.
+    /// Strip untrusted block metadata at every depth, retaining only a top-level upload reference.
+    /// The daemon validates that the finished upload belongs to this chat. Request params._meta
+    /// stays; nil means the frame is unchanged.
     static func strippingPromptMeta(_ object: [String: Any]?) -> [String: Any]? {
         guard var object, object["method"] as? String == "session/prompt", var params = object["params"] as? [String: Any],
               let prompt = params["prompt"] as? [Any] else { return nil }
         var stripped = false
-        func strip(_ value: Any) -> Any {
+        func strip(_ value: Any, acceptsUpload: Bool = false) -> Any {
             if var dictionary = value as? [String: Any] {
+                let upload = acceptsUpload ? promptUploadMeta(dictionary) : nil
                 if dictionary.removeValue(forKey: "_meta") != nil { stripped = true }
                 for (key, child) in dictionary where child is [String: Any] || child is [Any] { dictionary[key] = strip(child) }
+                if let upload { dictionary["_meta"] = upload }
                 return dictionary
             }
-            if let list = value as? [Any] { return list.map(strip) }
+            if let list = value as? [Any] { return list.map { strip($0) } }
             return value
         }
-        let blocks = prompt.map(strip)
+        let blocks = prompt.map { strip($0, acceptsUpload: true) }
         guard stripped else { return nil }
         params["prompt"] = blocks
         object["params"] = params

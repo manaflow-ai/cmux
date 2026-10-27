@@ -67,7 +67,9 @@ struct AgentPanePromptUploadMetaTests {
         for field in ["data", "blob", "resource"] {
             var value = block(); value[field] = "bytes"; values.append(value)
         }
-        var empty = block(); empty["_meta"] = ["acpmux": ["upload": ["uploadId": "", "fileName": "original.pem"]]]; values.append(empty)
+        for (id, name) in [("", "original.pem"), ("not-an-id", "original.pem"), (uploadId, "")] {
+            var value = block(); value["_meta"] = ["acpmux": ["upload": ["uploadId": id, "fileName": name]]]; values.append(value)
+        }
         var owned = block(); owned["_meta"] = ["acpmux": ["upload": ["uploadId": uploadId, "fileName": "original.pem", "owned": true]]]; values.append(owned)
         let output = try relayed(values)
         let params = try #require(output["params"] as? [String: Any])
