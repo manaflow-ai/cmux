@@ -1571,6 +1571,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 // InvariantSink: the process's Invariant reports go to Sentry (p10-stability-099).
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 .product(name: "CmuxSentryReporting", package: "CmuxSentryTelemetry"),
+                // SentryScrubber: the previous run's blackbox.txt is scrubbed like the event (p09-observability-079).
+                .product(name: "CmuxSentryScrubbing", package: "CmuxSentryTelemetry"),
                 .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
                 "CmuxNextTrace",
                 "CmuxNextWakeups",
@@ -1585,6 +1587,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCrashReporting",
                 // InvariantSinkTests binds the blocking detector's scoped table.
                 "CmuxNextCompat",
+                // PreviousRunCrashEvidenceTests writes a previous run's black box and crash-key page.
+                "CmuxNextTrace",
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
                 .product(name: "Sentry-Dynamic", package: "sentry-cocoa"),
                 .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),

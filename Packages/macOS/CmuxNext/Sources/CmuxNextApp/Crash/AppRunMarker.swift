@@ -104,6 +104,9 @@ final class AppRunMarker {
     /// How the previous run ended when it did not quit as asked (stability.unclean_exit, task 109); nil after a
     /// normal or requested quit, or on a first launch.
     let previousExit: HistogramID.UncleanExit?
+    /// The previous run as its marker left it, whatever its end; nil on a first launch. Its crash event, sent at
+    /// this launch, gets its crash keys and black box (`AppCrashReporting`, p09-observability-079).
+    let previousRun: PreviousRun?
     private var signalFile: URL { directory.appending(path: "run.signal") }
     private var exceptionFile: URL { directory.appending(path: "run.exception") }
     private var crashKeysFile: URL { directory.appending(path: "run.crashkeys") }
@@ -120,18 +123,28 @@ final class AppRunMarker {
 
     /// Reads the previous run's marker in `directory`, then marks this run
     /// live and installs the fatal signal handlers. `bootSession` is this
-    /// boot's id, stored in the marker (tests pass their own).
-    init(directory root: URL, now: Date = Date(), bootSession: String? = AppRunMarker.currentBootSession()) {
+    /// boot's id and `processStart` this process's kernel start, stored in the
+    /// marker (tests pass their own).
+    init(directory root: URL, now: Date = Date(), bootSession: String? = AppRunMarker.currentBootSession(),
+         processStart: UInt64? = AppRunMarker.currentProcessStart()) {
         self.directory = root
         file = RunMarkerFile(url: root.appending(path: "run.json"), signalURL: root.appending(path: "run.signal"))
         let previous = Self.readPrevious(marker: root.appending(path: "run.json"), signal: root.appending(path: "run.signal"),
                                          exception: root.appending(path: "run.exception"))
+        previousRun = previous
         previousExit = previous?.uncleanExit(bootSession: bootSession)
         let recovered = previous?.forRecovery(bootSession: bootSession)
         recovery = LaunchRecovery.decide(previous: recovered)
         marker = PreviousRun(pid: getpid(), launched: now, recovery: LaunchRecovery.watchesForLoop(previous: recovered),
-                             survived: false, signal: nil, bootSession: bootSession)
+                             survived: false, signal: nil, bootSession: bootSession, processStart: processStart)
         start()
+    }
+
+    /// This process's kernel start in Unix microseconds (one `proc_pidinfo`), the value its black box and
+    /// crash-key page headers carry; nil when the kernel does not give it.
+    nonisolated static func currentProcessStart() -> UInt64? {
+        let start = TraceRingCleanup.processStartUnixMicros(pid: getpid())
+        return start == 0 ? nil : start
     }
 
     /// This boot's id, `kern.bootsessionuuid` as 32 hex digits; nil when the kernel does not give it.
