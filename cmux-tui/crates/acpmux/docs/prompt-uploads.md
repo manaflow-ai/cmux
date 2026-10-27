@@ -23,7 +23,7 @@ binding, and calls this API over its daemon connection.
 | `file_put_begin` / `_chunk` (base64, at most 512 KiB a chunk) / `_finish` / `_cancel`, no size cap | landed, #25730 |
 | upload-ref blocks in `session/prompt` (section 5), what the agent gets (section 6), dedupe (section 7) | landed, #25730 |
 | `promptUploads` feature flag | landed, #25730 |
-| `_acpmux/file_put_status`, finish `sha256`, the `upload.*` error reasons, `upload.diskFull` | #25793, flag `uploadResume` |
+| `_acpmux/file_put_status`, finish `sha256` and its `{path, size, uploadId}` answer, the `upload.*` error reasons, `upload.diskFull` | #25793, flag `uploadResume` |
 | binary data frames `_acpmux/file_put_data` on the app's WebSocket, peer chats included | #25803, flag `uploadFrames` |
 | `acpmux send --attach` and `send_message` send any size and number by reference (no 8 MiB / 10 MiB / 16-file refusal), begin `forPrompt` | #25840 |
 
@@ -104,13 +104,56 @@ page never pushes them, and no byte travels on the page binding.
   ```
 
   Native refuses the call unless the ticket is live and reserved for this `promptId` and
-  `sessionId`. It answers `{uploadId}` once `file_put_begin` returns it, then pushes progress
-  `{token, uploadId, offset, size}` to the page as data is acknowledged.
+  `sessionId`. `uploads.begin` answers `{uploadId}` as soon as `file_put_begin` returns, not
+  after finish, so a page can show progress and cancel a large file. Nothing is keyed on the
+  begin reply's timing.
 - The final prompt redeems the ticket exactly once, in native, before native sends it to the
   daemon.
 - A retry keeps the token. The page keeps the Blob until the prompt is accepted or the person
   removes the attachment.
 - The prompt names the file by its `uploadId` (section 5).
+
+### Upload states (page and native)
+
+- **Progress, information only:**
+  `{"op":"uploads.progress","params":{token, uploadId, offset, size}}`. It is never terminal,
+  including when `offset == size`.
+- **Terminal state, the only source of truth:**
+  `{"op":"uploads.state","params":{token, uploadId, state:"finished"|"failed"|"cancelled", size, error?:{code, message, host?, path?}}}`.
+  Native pushes exactly one per token, and only after the daemon has answered
+  `file_put_finish` (or after the failure or the cancel).
+  - `"finished"`: `file_put_finish` answered success, so the upload is a finished upload of this
+    chat and a reference to it resolves.
+  - `"failed"`: carries the daemon's error. The only size failure is a full disk, with host and
+    path (`upload.diskFull`, section 4).
+  - `"cancelled"`: the person removed it, or `uploads.cancel` was called.
+- **Status query**, for page reloads and races: `uploads.status {token}` answers the same params
+  as `uploads.state`, with state `"uploading"` while it is not terminal. A page that lost a push
+  asks this instead of guessing.
+- **The prompt:** the page sends the final prompt only after every token for that `promptId` has
+  reached `"finished"`. If any token is `"failed"`, the prompt stays queued with its attachments
+  and shows the error; it is never sent with that reference. A retry re-runs only the failed
+  tokens and keeps the same `promptId` and ticket.
+- **Cancel:** `uploads.cancel {token}`. Native calls `file_put_cancel`, then pushes
+  `uploads.state` `"cancelled"`.
+- **Before `file_put_begin` is acknowledged:**
+  - `uploads.status` and `uploads.state` carry `{token, size, state:"uploading"}` with no
+    `uploadId` field at all: absent, not null and not `""`.
+  - `uploadId` appears the moment the daemon assigns it, and never changes after that.
+  - A failure or cancel before the begin ack is `{token, size, state:"failed"|"cancelled", error?}`
+    with no `uploadId`. Native must not call `file_put_cancel` without an id.
+  - After a cancel or failure before the ack, native keeps a cleanup-only handler for a late ack:
+    the daemon may already have created the upload while its ack was delayed. If the ack later
+    brings an `uploadId`, native calls `file_put_cancel` on it and does not change the page's
+    already-terminal state. The page contract is unchanged.
+  - `state:"finished"` always carries a non-empty, daemon-issued `uploadId`. A finished state
+    without one is a native bug, and the page treats it as `"failed"` (code `upload.noId`).
+  - The page never makes up an id or keys anything on one; it keys on `token`.
+- **Carriers:** the state push is `cmux.agent.host.events {kind:"uploads.state", value:<params>}`.
+  The calls are `cmux.agent.uploads.status` and `cmux.agent.uploads.cancel`.
+- What native gets from the daemon for `"finished"`: `file_put_finish` answers
+  `{path, size, uploadId}`. `size` is the finished file's byte count (with `uploadResume`;
+  section 3).
 
 ### Native
 
@@ -211,7 +254,9 @@ Send data with `file_put_chunk` (section 1), or with `file_put_data` once `uploa
 
 ### Finish
 
-`_acpmux/file_put_finish {sessionId, uploadId, fileName, size}` returns `{path}`.
+`_acpmux/file_put_finish {sessionId, uploadId, fileName, size}` returns `{path}`; with
+`uploadResume`, `{path, size, uploadId}`, where `size` is the finished file's byte count. A
+repeated finish answers the same.
 
 - Allowed only once all `size` bytes have arrived.
 - With `uploadResume`, an optional `sha256` (lowercase hex) is checked, and a mismatch is
@@ -227,6 +272,13 @@ Send data with `file_put_chunk` (section 1), or with `file_put_data` once `uploa
 
 - Finished uploads stay until the chat is deleted or the age sweep removes them
   (`uploadsMaxAgeDays`, default 30).
+- An upload begun and never finished or cancelled (its sender's connection dropped, or a late
+  begin ack nobody cancelled) is reaped by the same sweep. It deletes the upload's whole folder,
+  `.part` and `.meta` included, once both the upload and its last use are older than
+  `uploadsMaxAgeDays`. A write to its `.part` or a status call counts as use. So no part file
+  is left orphaned past the age cap, and one still being written or resumed is never taken.
+  Deleting the chat removes them at once. (`uploadsMaxAgeDays: 0` turns the sweep off, and then
+  every upload stays until its chat is deleted.)
 - Sending a prompt does not consume them, so a retried send never uploads again.
 
 ## 4. Errors
