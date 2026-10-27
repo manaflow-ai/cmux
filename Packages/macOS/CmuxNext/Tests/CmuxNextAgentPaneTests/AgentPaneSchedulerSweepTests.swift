@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextWakeups
 import Foundation
