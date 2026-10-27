@@ -151,6 +151,12 @@ async fn forward_inner(
                 return Err(crate::prompt_uploads::peer_unsupported(&peer));
             }
         }
+        // An older peer would answer status as unknown and finish without checking `sha256`.
+        let checked =
+            m == method::MUX_FILE_PUT_FINISH && params.get("sha256").is_some_and(|h| !h.is_null());
+        if (checked || m == method::MUX_FILE_PUT_STATUS) && !peer.supports_upload_resume() {
+            return Err(crate::hub::file_uploads::peer_unsupported(&peer));
+        }
         if m == method::MUX_FILE_PUT_CHUNK {
             crate::hub::file_uploads::check_chunk(params)?;
             if !peer.supports_file_put() {

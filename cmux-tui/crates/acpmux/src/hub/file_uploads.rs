@@ -337,6 +337,16 @@ fn unknown(upload: &str) -> RpcError {
         .with_data(json!({"reason": "upload.unknown"}))
 }
 
+/// One upload's calls (append, status, finish, cancel) run one at a time: a write and its
+/// cut-back, a finish's check and rename, never interleave with another call on the same upload.
+/// Striped by upload id, so the set is fixed and needs no cleanup.
+fn hold(upload: &str) -> std::sync::MutexGuard<'static, ()> {
+    static LOCKS: [std::sync::Mutex<()>; 64] = [const { std::sync::Mutex::new(()) }; 64];
+    let stripe =
+        upload.bytes().fold(0usize, |h, b| h.wrapping_mul(31).wrapping_add(usize::from(b)));
+    LOCKS[stripe % LOCKS.len()].lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// The declared `{fileName, size}` of unfinished upload `upload`.
 fn declared(session: &str, upload: &str) -> Result<(String, u64), RpcError> {
     let meta = meta_path(session, upload).ok_or_else(|| unknown(upload))?;
@@ -351,6 +361,7 @@ fn declared(session: &str, upload: &str) -> Result<(String, u64), RpcError> {
 /// Appends `bytes` at `offset`, which must be the upload's current end, and answers the new end
 /// once the bytes are on disk. Blocking: run it off the runtime.
 fn append(session: &str, upload: &str, offset: u64, bytes: &[u8]) -> Result<Value, RpcError> {
+    let _held = hold(upload);
     let (_, size) = declared(session, upload)?;
     let path = part_path(session, upload).ok_or_else(|| unknown(upload))?;
     let mut file = crate::config::private_state_rw(&path).map_err(|_| unknown(upload))?;
@@ -383,13 +394,17 @@ fn status(session: &str, params: &Value) -> Result<Value, RpcError> {
         .get("uploadId")
         .and_then(Value::as_str)
         .ok_or_else(|| RpcError::invalid_params("uploadId is required"))?;
+    let _held = hold(upload);
     let dir = part_path(session, upload)
         .and_then(|p| p.parent().map(Path::to_path_buf))
         .ok_or_else(|| unknown(upload))?;
-    if let Ok((name, size)) = declared(session, upload) {
-        let offset = std::fs::symlink_metadata(dir.join(".part")).map_or(0, |m| m.len());
+    // Unfinished: its `.part`. A finish that renamed it and stopped before removing `.meta`
+    // (a crash) left the finished file, which the scan below finds.
+    if let Ok((name, size)) = declared(session, upload)
+        && let Ok(part) = std::fs::symlink_metadata(dir.join(".part"))
+    {
         return Ok(json!({"uploadId": upload, "fileName": name, "size": size,
-            "offset": offset, "finished": false}));
+            "offset": part.len(), "finished": false}));
     }
     // A finished upload's folder holds its one file (`finish`).
     for entry in std::fs::read_dir(&dir).map_err(|_| unknown(upload))?.flatten() {
@@ -507,23 +522,31 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
         }
         Some(_) => return Err(RpcError::invalid_params("sha256 is 64 lowercase hex digits")),
     };
+    let _held = hold(upload);
     let part = part_path(session, upload).ok_or_else(|| unknown(upload))?;
     let meta = meta_path(session, upload).ok_or_else(|| unknown(upload))?;
     let dir = part.parent().ok_or_else(|| RpcError::internal("upload has no folder"))?;
     let path = dir.join(name);
+    let done = || std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file() && m.len() == size);
     let declared = match declared(session, upload) {
         Ok(declared) => declared,
         // Finished already: a finish whose answer was lost is answered again.
         Err(e) => {
-            let done =
-                std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file() && m.len() == size);
-            return if done { Ok(json!({"path": path.to_string_lossy()})) } else { Err(e) };
+            return if done() { Ok(json!({"path": path.to_string_lossy()})) } else { Err(e) };
         }
     };
     if declared.0 != name || declared.1 != size {
         return Err(RpcError::invalid_params("upload metadata does not match"));
     }
-    let current = std::fs::metadata(&part).map_err(|_| unknown(upload))?.len();
+    let current = match std::fs::metadata(&part) {
+        Ok(m) => m.len(),
+        // Renamed by a finish that stopped before removing `.meta` (a crash): finished.
+        Err(_) if done() => {
+            let _ = std::fs::remove_file(&meta);
+            return Ok(json!({"path": path.to_string_lossy()}));
+        }
+        Err(_) => return Err(unknown(upload)),
+    };
     if current != size {
         return Err(RpcError::invalid_params(format!(
             "upload has {current} bytes, expected {size}"
@@ -540,8 +563,7 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
                 .with_data(json!({"reason": "upload.corrupt", "sha256": got})));
         }
     }
-    std::fs::rename(&part, &path)
-        .map_err(|e| RpcError::internal(format!("cannot finish upload: {e}")))?;
+    std::fs::rename(&part, &path).map_err(|e| failed("cannot finish upload", &path, &e, None))?;
     let _ = std::fs::remove_file(meta);
     Ok(json!({"path": path.to_string_lossy()}))
 }
@@ -672,6 +694,7 @@ pub fn cancel(id: &str, params: &Value) -> Result<Value, RpcError> {
         .and_then(Value::as_str)
         .and_then(upload_id)
         .ok_or_else(|| RpcError::invalid_params("uploadId is required"))?;
+    let _held = hold(&upload);
     if let Some(part) = part_path(id, &upload) {
         let _ = std::fs::remove_file(part);
     }
