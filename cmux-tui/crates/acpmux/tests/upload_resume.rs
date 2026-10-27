@@ -133,8 +133,13 @@ async fn an_upload_resumes_from_its_status_and_its_finish_is_checked() {
     let path = done["result"]["path"].as_str().unwrap_or_else(|| panic!("{done}")).to_owned();
     assert_eq!(sha(&std::fs::read(&path).unwrap()), sha(&file));
     // A finish whose answer was lost is answered again, and status says it is done.
-    let again = c.call(method::MUX_FILE_PUT_FINISH, finish).await;
+    let again = c.call(method::MUX_FILE_PUT_FINISH, finish.clone()).await;
     assert_eq!(again["result"]["path"], json!(path), "{again}");
+    // A repeated finish with another sha256 is checked against the finished file's bytes.
+    let mut wrong = finish;
+    wrong["sha256"] = json!(sha(b"other"));
+    let wrong = c.call(method::MUX_FILE_PUT_FINISH, wrong).await;
+    assert_eq!(reason(&wrong), "upload.corrupt", "{wrong}");
     let at = c.status(&session, &upload).await;
     assert_eq!(at["result"]["finished"], true, "{at}");
     assert_eq!(at["result"]["path"], json!(path), "{at}");
@@ -181,7 +186,12 @@ async fn calls_on_one_upload_never_interleave_and_a_cut_short_finish_recovers() 
     let file = vec![5u8; CHUNK];
     let upload = id_of(&c.begin(&session, "race.bin", file.len() as u64).await);
     let mut clients: Vec<Client> = (0..8).map(|_| Client::new(&hub, Origin::Local)).collect();
-    let writes = clients.iter_mut().map(|c| c.chunk(&session, &upload, 0, &file));
+    // Half name it in upper case: one upload, one lock, whatever the spelling.
+    let upper = upload.to_uppercase();
+    let writes = clients.iter_mut().enumerate().map(|(n, c)| {
+        let id = if n % 2 == 0 { &upload } else { &upper };
+        c.chunk(&session, id, 0, &file)
+    });
     let answers = futures_util::future::join_all(writes).await;
     let landed = answers.iter().filter(|a| a.get("error").is_none()).count();
     assert_eq!(landed, 1, "{answers:?}");

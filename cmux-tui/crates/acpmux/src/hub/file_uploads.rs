@@ -342,8 +342,10 @@ fn unknown(upload: &str) -> RpcError {
 /// Striped by upload id, so the set is fixed and needs no cleanup.
 fn hold(upload: &str) -> std::sync::MutexGuard<'static, ()> {
     static LOCKS: [std::sync::Mutex<()>; 64] = [const { std::sync::Mutex::new(()) }; 64];
+    // By the id as its folder is named (`upload_id`), so every spelling of one id shares a lock.
+    let canonical = upload_id(upload).unwrap_or_else(|| upload.to_owned());
     let stripe =
-        upload.bytes().fold(0usize, |h, b| h.wrapping_mul(31).wrapping_add(usize::from(b)));
+        canonical.bytes().fold(0usize, |h, b| h.wrapping_mul(31).wrapping_add(usize::from(b)));
     LOCKS[stripe % LOCKS.len()].lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
@@ -528,12 +530,22 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
     let dir = part.parent().ok_or_else(|| RpcError::internal("upload has no folder"))?;
     let path = dir.join(name);
     let done = || std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_file() && m.len() == size);
+    // Finished already: a finish whose answer was lost is answered again, its `sha256` checked
+    // against the file's bytes.
+    let again = || -> Result<Value, RpcError> {
+        if let Some(want) = want {
+            let got =
+                sha256_of(&path).map_err(|e| failed("cannot read upload", &path, &e, None))?;
+            if got != want {
+                return Err(RpcError::invalid_params("the upload's sha256 does not match")
+                    .with_data(json!({"reason": "upload.corrupt", "sha256": got})));
+            }
+        }
+        Ok(json!({"path": path.to_string_lossy()}))
+    };
     let declared = match declared(session, upload) {
         Ok(declared) => declared,
-        // Finished already: a finish whose answer was lost is answered again.
-        Err(e) => {
-            return if done() { Ok(json!({"path": path.to_string_lossy()})) } else { Err(e) };
-        }
+        Err(e) => return if done() { again() } else { Err(e) },
     };
     if declared.0 != name || declared.1 != size {
         return Err(RpcError::invalid_params("upload metadata does not match"));
@@ -542,8 +554,9 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
         Ok(m) => m.len(),
         // Renamed by a finish that stopped before removing `.meta` (a crash): finished.
         Err(_) if done() => {
+            let answer = again()?;
             let _ = std::fs::remove_file(&meta);
-            return Ok(json!({"path": path.to_string_lossy()}));
+            return Ok(answer);
         }
         Err(_) => return Err(unknown(upload)),
     };
