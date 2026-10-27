@@ -46,7 +46,7 @@ struct Fake {
     computer_use: Option<Value>,
     /// The card's answer to `permissions.request`; `granted` when unset.
     setup_outcome: Option<Value>,
-    /// `{method, params}` of each request the app caller got.
+    /// `{method, params, thread}` of each request the app caller got.
     app_calls: std::sync::Arc<std::sync::Mutex<Vec<Value>>>,
     sent: RefCell<Vec<Value>>,
 }
@@ -150,7 +150,8 @@ impl Backend for Fake {
         let outcome = self.setup_outcome.clone().unwrap_or_else(|| json!({"outcome": "granted"}));
         let calls = self.app_calls.clone();
         Some(std::sync::Arc::new(move |method: &str, params: Value, _timeout: Duration| {
-            calls.lock().unwrap().push(json!({"method": method, "params": params}));
+            calls.lock().unwrap().push(json!({"method": method, "params": params,
+                "thread": format!("{:?}", std::thread::current().id())}));
             match method {
                 "computer_use.status" => Ok(status.clone()),
                 "permissions.request" => Ok(outcome.clone()),

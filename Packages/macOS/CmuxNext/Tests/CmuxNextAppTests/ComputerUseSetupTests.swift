@@ -173,17 +173,19 @@ struct ComputerUseSetupTests {
                                      notifications: NotificationCenter(), distributed: NotificationCenter(), clock: RetryClock())
         setup.start()
         await wait(setup, for: .ready)
+        // Accessibility sends no request: it would raise macOS's alert over the drag panel.
+        setup.open(.accessibility)
         setup.open(.screenRecording)
         for await count in ObservationStream({ requests.count }) where count == 1 { break }
         #expect(await requests.panes == [.screenRecording])
-        #expect(opened.count == 1)
+        #expect(opened.count == 2)
 
         // Off: no helper runs, so only System Settings opens.
         box.value = ComputerUseSetup.Inputs(disabledByPolicy: false, enabled: false, helper: .off)
         await wait(setup, for: .off)
         setup.open(.accessibility)
         #expect(await requests.panes == [.screenRecording])
-        #expect(opened.count == 2)
+        #expect(opened.count == 3)
     }
 
     /// The helper exited and the daemon started another (macOS "Quit & Reopen"
@@ -243,6 +245,16 @@ struct ComputerUseSetupTests {
             pending?.resume(returning: read)
             pending = nil
         }
+    }
+
+    /// With Accessibility off, the helper's capture request also raised macOS's Accessibility
+    /// alert: Allow on Screenshots then only opens System Settings.
+    @Test func screenshotsAllowAsksTheHelperOnlyOnceAccessibilityIsOn() {
+        #expect(!ComputerUseSetup.asksHelper(.screenRecording, accessibility: false, phase: .ready, driver: .legacy))
+        #expect(ComputerUseSetup.asksHelper(.screenRecording, accessibility: true, phase: .ready, driver: .legacy))
+        #expect(!ComputerUseSetup.asksHelper(.accessibility, accessibility: true, phase: .ready, driver: .legacy))
+        #expect(!ComputerUseSetup.asksHelper(.screenRecording, accessibility: true, phase: .off, driver: .legacy))
+        #expect(!ComputerUseSetup.asksHelper(.screenRecording, accessibility: true, phase: .ready, driver: .upstream))
     }
 
     actor GrantRequestsStore {

@@ -279,9 +279,39 @@ fn a_ready_setup_runs_the_call_without_a_card() {
     assert_eq!(result["content"][0]["text"], "saw {}", "{result}");
     assert!(card_requests(&calls).is_empty());
     assert!(calls.lock().unwrap().iter().any(|c| c["method"] == "computer_use.status"));
-    // The read runs with the call, never on the server's dispatch thread.
-    let sent = server.backend.sent.borrow().clone();
-    assert!(!sent.iter().any(|sent| sent["method"] == "computer_use.status"), "{sent:?}");
+}
+
+/// In the stdio server (`run`), the setup read and the card wait run on the
+/// call's own thread, never on the dispatch thread that reads stdin: a card
+/// that waits for the person must not hold up the other tools.
+#[test]
+fn the_setup_read_runs_off_the_dispatch_thread() {
+    let fake = Fake {
+        computer_use: Some(setup_status(false)),
+        setup_outcome: Some(json!({"outcome": "granted"})),
+        ..Fake::default()
+    };
+    let calls = fake.app_calls.clone();
+    let mut server = computer_use_server(fake);
+    let input = format!(
+        "{}\n",
+        json!({"jsonrpc": "2.0", "id": "cu", "method": "tools/call",
+               "params": {"name": "cua_look", "arguments": {}}}),
+    );
+    let buffer = SharedBuffer::default();
+    assert_eq!(server.run(input.as_bytes(), &watch::Output::new(buffer.clone())), 0);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !buffer.text().contains("\"cu\"") && Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert!(buffer.text().contains("saw {}"), "{}", buffer.text());
+    let dispatch = format!("{:?}", std::thread::current().id());
+    let calls = calls.lock().unwrap().clone();
+    let methods: Vec<_> = calls.iter().map(|c| c["method"].clone()).collect();
+    assert_eq!(methods, ["computer_use.status", "permissions.request"], "{calls:?}");
+    for app_call in &calls {
+        assert_ne!(app_call["thread"], dispatch.as_str(), "ran on the dispatch thread: {app_call}");
+    }
 }
 
 /// Deny and an unfinished setup end the call with what to do next; the
@@ -325,6 +355,28 @@ fn a_script_waits_for_setup_and_goes_on() {
     // The script's own limit bounds the wait.
     let timeout = card_requests(&calls)[0]["timeout_seconds"].as_u64().unwrap();
     assert!(timeout <= 300, "{timeout}");
+}
+
+/// The card waits only for the time the script has left, not its whole
+/// limit: a script that already ran 2 s of its 120 s offers at most 117 s
+/// (whole seconds), so the call ends before the script's limit does.
+#[test]
+fn a_script_waits_only_for_its_time_left() {
+    let fake = Fake {
+        computer_use: Some(setup_status(false)),
+        setup_outcome: Some(json!({"outcome": "granted"})),
+        ..Fake::with_actions()
+    };
+    let calls = fake.app_calls.clone();
+    let mut server = code_mode_server(fake);
+    server.script_limits.total = Duration::from_secs(120);
+    server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-cua"))];
+    let script = "const end = Date.now() + 2100; while (Date.now() < end) {} \
+                  return await cmux.cua_look({x: 3});";
+    let ran = call(&mut server, "cmux_exec", json!({ "script": script }));
+    assert_eq!(ran["isError"], false, "{ran}");
+    let timeout = card_requests(&calls)[0]["timeout_seconds"].as_u64().unwrap();
+    assert!((100..=117).contains(&timeout), "{timeout}");
 }
 
 /// Another chat server's tools never read the setup.
