@@ -1645,6 +1645,10 @@ impl ChildAgent {
             let mut entries = link.entries.lock().await;
             while let Some((h, entry)) = entries.recv().await {
                 let is_exit = matches!(entry, crate::agent_host::Entry::Exit { .. });
+                #[cfg(debug_assertions)]
+                let ack_fails = ack_fails_once(&entry);
+                #[cfg(not(debug_assertions))]
+                let ack_fails = false;
                 if !reader.on_host_entry(h, entry, &hosted.inbound).await {
                     // Not stored: never acknowledge it or anything after it.
                     // Open requests stay open; the next request reattaches.
@@ -1664,7 +1668,7 @@ impl ChildAgent {
                     }
                     continue;
                 }
-                if link.ack(h).await.is_err() {
+                if ack_fails || link.ack(h).await.is_err() {
                     break;
                 }
             }
@@ -1858,6 +1862,21 @@ async fn end_still_running(procs: Vec<crate::agent_host::tree::Started>) {
     let _ =
         tokio::task::spawn_blocking(move || crate::agent_host::tree::kill_still_running(&procs))
             .await;
+}
+
+/// Debug builds only: `ACPMUX_TEST_ACK_FAILS_ONCE=TEXT` fails the acknowledgement of the first
+/// host entry whose text holds TEXT, once per process, as a link whose writer stopped first does:
+/// the reader stops while the socket still looks open. Release builds have no seam.
+#[cfg(debug_assertions)]
+fn ack_fails_once(entry: &crate::agent_host::Entry) -> bool {
+    use crate::agent_host::Entry;
+    static FIRED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    let Ok(text) = std::env::var("ACPMUX_TEST_ACK_FAILS_ONCE") else { return false };
+    let msg = match entry {
+        Entry::Tap { msg, .. } | Entry::In { msg } => msg.to_string(),
+        _ => return false,
+    };
+    msg.contains(&text) && !FIRED.swap(true, Ordering::SeqCst)
 }
 
 /// The error of an agent (or its agent host) that did not start; `what` says which, e.g.
