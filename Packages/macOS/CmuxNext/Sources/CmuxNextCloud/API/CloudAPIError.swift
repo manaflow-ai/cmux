@@ -45,6 +45,7 @@ public enum CloudAPIError: Error, Sendable, Equatable, CustomStringConvertible {
         case .noBackend, .transport: "unavailable"
         case .timedOut: "timeout"
         case .http(let status, let code, _, _, _): code ?? "http_\(status)"
+        case .planRequired: "plan_required"
         case .decoding: "bad_response"
         }
     }
