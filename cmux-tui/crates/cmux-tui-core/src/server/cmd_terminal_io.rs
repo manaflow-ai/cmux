@@ -545,3 +545,7 @@ fn parse_hex_color(value: &str) -> anyhow::Result<Rgb> {
 #[cfg(test)]
 #[path = "pty_input_order_tests.rs"]
 mod pty_input_order_tests;
+
+#[cfg(all(test, unix))]
+#[path = "cmd_terminal_io_wire_tests.rs"]
+mod wire_tests;
