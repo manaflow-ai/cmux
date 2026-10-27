@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextFeatures
+import CmuxNextHibernation
 import CmuxNextMemory
 import CmuxNextSettings
 import os
@@ -35,7 +36,12 @@ enum HibernationHandlers {
         })
         registry.bind("wakeTab", invoke: { invocation in
             guard let (_, id) = context.tab(invocation), let hibernation = context.services.cache.hibernation else { return }
-            if !hibernation.wake(id.rawValue) { context.refuseQuietly(RefusalStrings.wakeNotHibernated) }
+            // Only a person's run skips the wake admission; the CLI's, MCP's or a script's takes a slot.
+            switch hibernation.wake(id.rawValue, origin: invocation.origin) {
+            case .notHibernated: context.refuseQuietly(RefusalStrings.wakeNotHibernated)
+            case .deferred: context.refuse(BrowserPageStrings.wakeDeferred)
+            case .started, .queued: break
+            }
         })
     }
 

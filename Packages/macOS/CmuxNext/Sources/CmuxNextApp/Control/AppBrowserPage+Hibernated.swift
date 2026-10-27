@@ -63,7 +63,7 @@ extension AppBrowserPage {
             // Every restore and start installs a page (`pageInstalls`), which wakes this wait.
             await ControlConditionWait(on: cache.mainWork, owner: owner).until {
                 _ = cache.pageInstalls.revision
-                return isLive(cache.existingBrowser(key)?.tab) || cache.hibernation?.admission.deferral(of: key) != nil
+                return isLive(cache.existingBrowser(key)?.tab) || cache.hibernation?.deferral(of: key) != nil
             }
         }
         guard installed == true, let live = cache.existingBrowser(key)?.tab, isLive(live) else { return nil }
@@ -82,7 +82,7 @@ extension AppBrowserPage {
     /// Why tab `key`'s page did not wake: `deferred` with the ``WakeAdmission/Deferral`` when the admission
     /// held its wake back (memory pressure, low free memory), else ``wakeFailed``.
     static func wakeError(_ key: String, cache: TabContentCache) -> ControlError {
-        guard let deferral = cache.hibernation?.admission.deferral(of: key) else { return wakeFailed }
+        guard let deferral = cache.hibernation?.deferral(of: key) else { return wakeFailed }
         return ControlError(code: "deferred", message: BrowserPageStrings.wakeDeferred, data: ["reason": .string(deferral.rawValue)])
     }
 }

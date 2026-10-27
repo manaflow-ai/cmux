@@ -331,7 +331,7 @@ final class BrowserHibernation {
         if level == .critical, ranksUrgentDiscards { holdPacedDiscards() } else { urgentHoldEnds = nil }
         pressure = level
         logger.info("memory pressure \(level.rawValue, privacy: .public)")
-        admitted(admission.pressureDidChange(level))
+        admitted(admission.pressureDidChange(level) { self.cache?.lifecycle.phase($0) == .hibernated })
         updateFollowers()
         refreshNeighbors(replans: false)
         guard replans else { return }

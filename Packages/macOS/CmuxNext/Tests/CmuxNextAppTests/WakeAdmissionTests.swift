@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
 import CmuxNextCompat
@@ -63,7 +64,7 @@ import Testing
         #expect(admission.request("a", by: .automation, pressure: .normal) == .started)
         #expect(admission.request("b", by: .automation, pressure: .normal) == .queued)
         #expect(admission.request("c", by: .prewarm, pressure: .normal) == .queued)
-        let pump = admission.pressureDidChange(.warning)
+        let pump = admission.pressureDidChange(.warning) { _ in true }
         #expect(pump.starts.isEmpty)
         #expect(pump.deferred == ["b": .memoryPressure, "c": .memoryPressure])
         #expect(admission.waiting.isEmpty)
@@ -117,8 +118,32 @@ import Testing
         #expect(admission.request("a", by: .automation, pressure: .normal) == .started)
         #expect(admission.deferral(of: "a") == nil)
         _ = admission.request("b", by: .automation, pressure: .warning)
-        admission.forget("b")
+        admission.leftHibernation("b")
         #expect(admission.deferral(of: "b") == nil, "a closed tab keeps no deferral")
+    }
+
+    @Test func aTabThatLeftHibernationKeepsNoDeferralOrPlace() {
+        let admission = Self.admission(cores: 2)
+        _ = admission.request("a", by: .automation, pressure: .warning)
+        #expect(admission.deferral(of: "a") == .memoryPressure)
+        admission.leftHibernation("a")
+        #expect(admission.deferral(of: "a") == nil, "a deferral outlived the tab's hibernation")
+
+        #expect(admission.request("b", by: .automation, pressure: .normal) == .started)
+        #expect(admission.request("c", by: .automation, pressure: .normal) == .queued)
+        admission.leftHibernation("c")
+        #expect(admission.waiting.isEmpty, "a tab a person woke kept its place in the queue")
+    }
+
+    @Test func atWarningAWaitingTabAPersonAlreadyWokeIsNotDeferred() {
+        let admission = Self.admission(cores: 2)
+        #expect(admission.request("a", by: .automation, pressure: .normal) == .started)
+        #expect(admission.request("shown", by: .automation, pressure: .normal) == .queued)
+        #expect(admission.request("asleep", by: .automation, pressure: .normal) == .queued)
+        let pump = admission.pressureDidChange(.warning) { $0 != "shown" }
+        #expect(pump.deferred == ["asleep": .memoryPressure])
+        #expect(admission.deferral(of: "shown") == nil, "a tab the person is restoring got a deferral")
+        #expect(admission.waiting.isEmpty)
     }
 
     // MARK: The person
@@ -183,7 +208,7 @@ import Testing
         #expect(rig.hibernation.wake(agent, by: .automation) == .started)
         #expect(rig.hibernation.wake(queued, by: .automation) == .queued)
         #expect(rig.isHibernated(queued), "a queued wake restored its page")
-        #expect(rig.hibernation.wake(shown), "the person's Wake Tab was refused")
+        #expect(rig.hibernation.wake(shown, origin: .user) != .notHibernated, "the person's Wake Tab was refused")
         #expect(!rig.isHibernated(shown) || rig.services.cache.phase(of: shown) == .restoring, "the person's wake waited for a slot")
 
         rig.hibernation.pressureDidChange(.warning)
@@ -196,6 +221,93 @@ import Testing
         #expect(AppBrowserPage.wakeError(agent, cache: rig.services.cache).code == "unavailable")
         // The agent's restore keeps its slot until its load ends, then frees it.
         try await rig.until("the agent's wake freed its slot") { rig.hibernation.admission.restoring.isEmpty }
+    }
+
+    /// A person's show restores a tab with no admission request (`ContentLifecycle` `.show`): an agent's call
+    /// on a tab whose wake was deferred, made while that restore runs or after it, is never answered `deferred`.
+    @Test func anAgentCallOnATabThePersonShowsAfterADeferralIsNotDeferred() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        let restoring = try await Self.hibernated(rig, "restoring")
+        let shown = try await Self.hibernated(rig, "shown")
+        let cache = rig.services.cache
+        rig.hibernation.pressureDidChange(.normal)
+        rig.hibernation.admission = WakeAdmission(isEnabled: true, cores: 2, freeBytes: { Self.plenty })
+        rig.hibernation.pressureDidChange(.warning)
+        #expect(rig.hibernation.wake(restoring, by: .automation) == .deferred(.memoryPressure))
+        #expect(rig.hibernation.wake(shown, by: .automation) == .deferred(.memoryPressure))
+
+        // A restore in flight, as a Chromium page's is: the placeholder stays installed until the page lands.
+        let effects = cache.lifecycle.send(.wake(restoring))
+        try #require(cache.phase(of: restoring) == .restoring && rig.isHibernated(restoring))
+        #expect(rig.hibernation.deferral(of: restoring) == nil, "a restoring tab reads as deferred")
+        #expect(AppBrowserPage.wakeError(restoring, cache: cache).code == "unavailable")
+        let placeholder = try #require(cache.browsers[restoring]?.tab)
+        let call = Task { @MainActor in
+            await AppBrowserPage.awakePage(restoring, page: placeholder, cache: cache, within: .seconds(10))
+        }
+        for _ in 0 ..< 16 { await Task.yield() }
+        #expect(rig.hibernation.admission.deferral(of: restoring) == nil, "the agent's call left the stale deferral")
+        cache.applyLifecycle(effects)
+        let live = await call.value
+        #expect(live.map { !($0 is HibernatedBrowserTab) } == true, "the agent's call during the restore got no live page")
+
+        // The person's show itself.
+        cache.present(shown, by: rig.pane, presence: .visible)
+        #expect(!rig.isHibernated(shown), "the person's show did not restore the page at warning pressure")
+        #expect(rig.hibernation.admission.deferral(of: shown) == nil, "the shown tab kept its deferral")
+        #expect(AppBrowserPage.wakeError(shown, cache: cache).code == "unavailable")
+    }
+
+    /// Wake Tab from the CLI, MCP or a script is an agent's wake: it takes a slot and is deferred at warning.
+    /// Only the person's run (origin `.user`) skips the admission.
+    @Test func aWakeTabRunFromTheCLIIsAdmittedAsAnAgentsWake() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        let cli = try await Self.hibernated(rig, "cli")
+        let mcp = try await Self.hibernated(rig, "mcp")
+        let person = try await Self.hibernated(rig, "person")
+        rig.hibernation.pressureDidChange(.normal)
+        rig.hibernation.admission = WakeAdmission(isEnabled: true, cores: 2, freeBytes: { Self.plenty })
+        // The one slot is taken by a restore that does not end in this test.
+        #expect(rig.hibernation.admission.request("busy", by: .automation, pressure: .normal) == .started)
+
+        #expect(rig.hibernation.wake(cli, origin: .cli) == .queued, "a CLI Wake Tab skipped the full admission")
+        #expect(rig.isHibernated(cli))
+        #expect(rig.hibernation.wake(person, origin: .user) == .started, "the person's Wake Tab waited for a slot")
+        rig.hibernation.pressureDidChange(.warning)
+        #expect(rig.hibernation.deferral(of: cli) == .memoryPressure)
+        #expect(rig.hibernation.wake(mcp, origin: .mcp) == .deferred(.memoryPressure), "an MCP Wake Tab started at warning pressure")
+        #expect(rig.isHibernated(cli) && rig.isHibernated(mcp))
+    }
+
+    /// A DevTools attach waits for its page's install; a queued wake dropped at warning installs none, so the
+    /// wait ends at the drop, and a capture of that page answers `screenshot.deferred` with the deferral.
+    @Test func aDevToolsWaitOnAQueuedWakeEndsWhenTheWakeIsDropped() async throws {
+        let rig = try HiddenPageHibernationTests.Rig()
+        defer { rig.close() }
+        let queued = try await Self.hibernated(rig, "queued")
+        let cache = rig.services.cache, hibernation = rig.hibernation
+        hibernation.pressureDidChange(.normal)
+        hibernation.admission = WakeAdmission(isEnabled: true, cores: 2, freeBytes: { Self.plenty })
+        #expect(hibernation.admission.request("busy", by: .automation, pressure: .normal) == .started)
+        #expect(hibernation.wake(queued, by: .automation) == .queued)
+        #expect(ScreenshotHandlers.wakeFailure(queued, cache: cache).code == ScreenshotHandlers.unavailableCode)
+
+        let wait = Task { @MainActor in
+            await AppDevToolsRelay.nextPageInstall(of: cache.pageInstalls, on: rig.services.mainWork) {
+                hibernation.deferral(of: queued) != nil
+            }
+        }
+        for _ in 0 ..< 16 { await Task.yield() }
+        hibernation.pressureDidChange(.warning)
+        await wait.value
+        #expect(rig.isHibernated(queued))
+        #expect(hibernation.deferral(of: queued) == .memoryPressure)
+
+        let failure = ScreenshotHandlers.wakeFailure(queued, cache: cache)
+        #expect(failure.code == ScreenshotHandlers.deferredCode)
+        #expect(failure.details == ["deferral": "memoryPressure"])
     }
 
     private static func hibernated(_ rig: HiddenPageHibernationTests.Rig, _ name: String) async throws -> String {

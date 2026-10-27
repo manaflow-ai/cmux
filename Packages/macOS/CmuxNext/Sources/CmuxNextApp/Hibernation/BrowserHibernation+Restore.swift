@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
@@ -22,16 +23,22 @@ extension BrowserHibernation {
         self.wake(key, by: .automation)
     }
 
-    /// The user's Wake Tab action (restores in the background).
-    func wake(_ key: String) -> Bool {
-        wake(key, by: .person) != .notHibernated
+    /// The Wake Tab action (restores in the background): a person's run (`origin` `.user`) restores now; a
+    /// run from the CLI, MCP, a script, a page or another client is an agent's wake, admitted by ``admission``.
+    func wake(_ key: String, origin: ActionOrigin) -> WakeAdmission.Outcome {
+        wake(key, by: origin == .user ? .person : .automation)
     }
 
     /// Asks to wake hibernated tab `key` for `requester`: a person's wake restores now; an agent's,
     /// a script's or a prewarm's restores when ``admission`` lets it.
     @discardableResult
     func wake(_ key: String, by requester: WakeAdmission.Requester) -> WakeAdmission.Outcome {
-        guard let cache, cache.lifecycle.phase(key) == .hibernated else { return .notHibernated }
+        guard let cache else { return .notHibernated }
+        guard cache.lifecycle.phase(key) == .hibernated else {
+            // It woke another way (a person's show) or closed: a deferral no longer holds it back.
+            admission.leftHibernation(key)
+            return .notHibernated
+        }
         let outcome = admission.request(key, by: requester, pressure: pressure)
         switch outcome {
         case .started: cache.applyLifecycle(cache.lifecycle.send(.wake(key)))
@@ -65,13 +72,23 @@ extension BrowserHibernation {
 
     /// Tab `key` closed: its admission slot, place and deferral go.
     func forgetWake(_ key: String) {
-        admission.forget(key)
+        admission.leftHibernation(key)
         restoreEnded(key)
+    }
+
+    /// Why tab `key`'s last wake nobody asked for did not start, while the tab is still hibernated; nil once
+    /// it restores or is live by any path (a person's show restores it with no admission request).
+    func deferral(of key: String) -> WakeAdmission.Deferral? {
+        // The deferral is read first, so a wait on this condition observes its change.
+        guard let deferral = admission.deferral(of: key), cache?.lifecycle.phase(key) == .hibernated else { return nil }
+        return deferral
     }
 
     /// The `restore` effect: recreates the engine page from the saved
     /// history; the lifecycle shows it if it is still selected when it lands.
     func restore(_ key: String, token: ContentLifecycle<String>.Token) {
+        // Every path out of hibernation comes here; a person's show sends no admission request.
+        admission.leftHibernation(key)
         guard let cache, let placeholder = cache.browsers[key]?.tab as? HibernatedBrowserTab else {
             cache?.applyLifecycle(cache?.lifecycle.send(.mountFailed(key, token)) ?? [])
             restoreEnded(key)

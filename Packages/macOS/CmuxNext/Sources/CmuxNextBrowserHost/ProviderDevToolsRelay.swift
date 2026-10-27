@@ -15,6 +15,13 @@ public protocol ProviderDevToolsRelay: AnyObject {
     func startRelay(targetID: String, onMessage: @escaping (String) -> Void, onEnd: @escaping () -> Void) -> Bool
     func send(targetID: String, message: String) -> CEFDevToolsRawSend
     func stopRelay(targetID: String)
+    /// Why the last ``prepareRelay(targetID:)`` of `targetID` returned false, when the relay knows a reason
+    /// the agent can act on (its page's wake was deferred under memory pressure); nil for the generic failure.
+    func prepareFailure(targetID: String) -> String?
+}
+
+extension ProviderDevToolsRelay {
+    public func prepareFailure(targetID: String) -> String? { nil }
 }
 
 /// Runs before the first agent action on a tab (lease start, `cdp.attach`,

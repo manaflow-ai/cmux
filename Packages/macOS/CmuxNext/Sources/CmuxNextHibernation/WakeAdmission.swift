@@ -47,7 +47,8 @@ package final class WakeAdmission {
         case started
         /// It waits for a slot: it starts when a restore ends, or is dropped with a deferral.
         case queued
-        /// It did not start and will not (``deferral(of:)`` keeps the reason until the next request).
+        /// It did not start and will not (``deferral(of:)`` keeps the reason until the next request or until
+        /// the tab leaves hibernation).
         case deferred(Deferral)
         /// The page was not hibernated: nothing to wake.
         case notHibernated
@@ -84,8 +85,8 @@ package final class WakeAdmission {
     @ObservationIgnored package private(set) var restoring: Set<String> = []
     /// Unrequested wakes waiting for a slot, oldest first.
     @ObservationIgnored package private(set) var waiting: [Waiting] = []
-    /// The last deferral of each tab, until its next request or its close. Observed: an agent's wait on a
-    /// queued wake ends when the wake is dropped.
+    /// The last deferral of each tab, until its next request, its wake by another path or its close. Observed:
+    /// an agent's wait on a queued wake ends when the wake is dropped.
     private var deferrals: [String: Deferral] = [:]
 
     /// - Parameters:
@@ -138,14 +139,20 @@ package final class WakeAdmission {
         waiting.removeAll { $0.key == key && $0.requester == .prewarm }
     }
 
-    /// Tab `key` closed: its deferral goes (its slot and place end through ``finished(_:pressure:isHibernated:)``).
-    package func forget(_ key: String) {
+    /// Tab `key` left hibernation by any path (a person's show restores it without a request) or closed: its
+    /// deferral and its place in the queue go, since a deferral only holds back a hibernated tab. Its slot ends
+    /// through ``finished(_:pressure:isHibernated:)``.
+    package func leftHibernation(_ key: String) {
         if deferrals[key] != nil { deferrals[key] = nil }
+        waiting.removeAll { $0.key == key }
     }
 
-    /// Memory pressure changed: above normal, every waiting wake is dropped.
-    package func pressureDidChange(_ pressure: MemoryPressureLevel) -> Pump {
-        pressure == .normal ? Pump() : dropWaiting(.memoryPressure)
+    /// Memory pressure changed: above normal, every waiting wake of a tab still hibernated is dropped; one that
+    /// woke another way meanwhile (a person showed it) leaves the queue with no deferral.
+    package func pressureDidChange(_ pressure: MemoryPressureLevel, isHibernated: (String) -> Bool) -> Pump {
+        guard pressure != .normal else { return Pump() }
+        waiting.removeAll { !isHibernated($0.key) }
+        return dropWaiting(.memoryPressure)
     }
 
     private func pump(pressure: MemoryPressureLevel, isHibernated: (String) -> Bool) -> Pump {
