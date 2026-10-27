@@ -20,12 +20,10 @@ activity, deployment approvals) and checks the decision the workflow acts on:
 - G4: the approval must come from someone who did not land the surface
   change (push actor, PR author or merger, commit author) and did not start
   the run; a missing push actor fails closed.
-- Newest request wins (decideNewest): a request steps aside for a live waiter
-  whose commit contains its own, decides a newer waiter's commit instead of its
-  own older one, and cancels nothing when it cannot read the other requests.
-  A newer request GitHub evicted from the promote queue in the last day is
-  decided like a dead waiter; a person's cancel, an older or ungreen commit
-  and a dry run are not.
+- Newest request wins (decideNewest): a newer request GitHub evicted from the
+  promote queue in the last day is decided before this request's own commit;
+  a person's cancel, an older or ungreen commit and a dry run are not. The
+  retired release-surface-ack waiters are never read.
 """
 
 from __future__ import annotations
@@ -51,12 +49,13 @@ HARNESS = r"""
 // environment variable (E2BIG).
 const scenario = JSON.parse((await import('node:fs')).readFileSync(process.env.SCENARIO_FILE, 'utf8'));
 const guard = await import(process.env.GUARD);
-const calls = { runs: 0, jobs: 0, activityPages: 0, moves: 0, comparePages: 0, trees: 0, commitReads: 0, commitInFlight: 0, commitMaxInFlight: 0 };
+const calls = { dispatchStatuses: [], runs: 0, jobs: 0, activityPages: 0, moves: 0, comparePages: 0, trees: 0, commitReads: 0, commitInFlight: 0, commitMaxInFlight: 0 };
 const pullsListCommits = Symbol('listCommits');
 const notices = [];
 const actions = {
   // Only decideNewest() lists runs without paginating: the promotion requests on main.
   listWorkflowRuns: async (params) => {
+    calls.dispatchStatuses.push(params.status);
     if (scenario.dispatchThrows) throw Object.assign(new Error('Service Unavailable'), { status: 503 });
     return { data: { workflow_runs: (scenario.dispatchRuns || []).filter((run) => run.status === params.status) } };
   },
@@ -118,6 +117,7 @@ const github = {
       // files capped as GitHub caps them.
       compareCommitsWithBasehead: async ({ basehead, per_page = 250, page = 1 }) => {
         const [base, head] = basehead.split('...');
+        if ((scenario.compareThrows || []).includes(basehead)) throw Object.assign(new Error('Bad Gateway'), { status: 502 });
         // G1 asks sha...feat-cmux-next; the scenario states that answer.
         if (base === scenario.sha && head === scenario.sourceHead && base !== head) {
           return { data: { status: scenario.onSource[base] || 'diverged' } };
@@ -740,100 +740,6 @@ def test_a_commit_list_the_api_cannot_cover_is_refused() -> None:
     assert out["decision"]["action"] == "refuse", out["decision"]
 
 
-def with_waiter(waiter_sha: str, waiter_current: str, green: bool = True, status: str = "waiting") -> dict:
-    """SHA is requested while run 900 waits for the approval of waiter_sha.
-
-    NEWER is the feat-cmux-next tip one commit after SHA; MID is older than SHA.
-    """
-    case = scenario(newest=True, sourceHead=NEWER, onSource={SHA: "ahead"},
-                    runs=[gate_run(), gate_run(id=8, head_sha=NEWER)],
-                    jobs={7: GREEN, 8: GREEN if green else [],
-                          900: [{"name": f"nightly-next promotion {waiter_sha} from {waiter_current}", "status": status}]},
-                    dispatchRuns=[{"id": 900, "status": "waiting" if status == "waiting" else "in_progress"}])
-    case["commits"].insert(0, commit(NEWER, [SHA], ["Sources/Newer.swift"]))
-    if not green:
-        case["requireReleaseCompile"] = True
-    return case
-
-
-def test_a_live_waiter_for_a_newer_commit_keeps_waiting() -> None:
-    out = run(with_waiter(NEWER, CURRENT))
-    assert out["decision"]["action"] == "superseded", out["decision"]
-    assert out["decision"]["sha"] == NEWER
-    assert out["newest"]["requested"] == SHA and not out["newest"]["scanFailed"]
-
-
-def test_a_live_waiter_for_the_same_commit_keeps_waiting() -> None:
-    out = run(with_waiter(SHA, CURRENT))
-    assert out["decision"]["action"] == "superseded", out["decision"]
-    assert out["decision"]["sha"] == SHA
-
-
-def test_a_request_never_decides_less_than_a_dead_waiter() -> None:
-    # The waiter was decided against an older nightly-next, so its approval
-    # would be refused; this request decides the waiter's newer commit.
-    out = run(with_waiter(NEWER, "9" * 40))
-    assert out["decision"]["action"] == "promote", out["decision"]
-    assert out["decision"]["sha"] == NEWER
-    assert out["newest"]["requested"] == SHA and not out["newest"]["scanFailed"]
-
-
-def test_a_newer_request_replaces_an_older_waiter() -> None:
-    out = run(with_waiter(MID, CURRENT))
-    assert out["decision"]["action"] == "promote", out["decision"]
-    assert out["decision"]["sha"] == SHA
-
-
-def test_a_refused_waiter_commit_falls_back_to_the_request() -> None:
-    out = run(with_waiter(NEWER, "9" * 40, green=False))
-    assert out["decision"]["action"] == "promote", out["decision"]
-    assert out["decision"]["sha"] == SHA
-
-
-def test_an_approved_live_waiter_is_not_cancelled() -> None:
-    out = run(with_waiter(MID, CURRENT, status="in_progress"))
-    assert out["decision"]["action"] == "superseded", out["decision"]
-    assert out["decision"]["sha"] == MID
-
-
-def test_a_refused_newest_waiter_falls_back_to_the_next_newest() -> None:
-    # Run 900 waits for NEWER (no green compile any more), run 901 for SHA2
-    # between SHA and NEWER; both were decided against an older nightly-next.
-    sha2 = "e" * 40
-    case = with_waiter(NEWER, "9" * 40, green=False)
-    case["commits"][0]["parents"] = [{"sha": sha2}]
-    case["commits"].insert(1, commit(sha2, [SHA], ["Sources/Two.swift"]))
-    case["runs"].append(gate_run(id=9, head_sha=sha2))
-    case["jobs"]["9"] = GREEN
-    case["jobs"]["901"] = [{"name": f"nightly-next promotion {sha2} from {'9' * 40}", "status": "waiting"}]
-    case["dispatchRuns"].append({"id": 901, "status": "waiting"})
-    out = run(case)
-    assert out["decision"]["action"] == "promote", out["decision"]
-    assert out["decision"]["sha"] == sha2
-
-
-def test_an_uncomparable_waiter_is_skipped_not_a_scan_failure() -> None:
-    gone = "7" * 40
-    case = with_waiter(gone, "9" * 40)
-    out = run(case)
-    assert not out["newest"]["scanFailed"], out
-    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA
-
-
-def test_a_finished_waiter_does_not_count() -> None:
-    out = run(with_waiter(NEWER, CURRENT, status="completed"))
-    assert out["decision"]["action"] == "promote", out["decision"]
-    assert out["decision"]["sha"] == SHA
-
-
-def test_an_unreadable_queue_decides_the_request_and_cancels_nothing() -> None:
-    case = with_waiter(NEWER, CURRENT)
-    case["dispatchThrows"] = True
-    out = run(case)
-    assert out["newest"]["scanFailed"] is True
-    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA
-
-
 EVICTED = "Canceling since a higher priority waiting request for nightly-next-promote exists"
 
 
@@ -861,6 +767,94 @@ def test_a_newer_request_evicted_from_the_queue_is_decided() -> None:
     assert out["decision"]["action"] == "promote", out["decision"]
     assert out["decision"]["sha"] == NEWER
     assert out["newest"]["requested"] == SHA and not out["newest"]["scanFailed"]
+    # One scan, of cancelled requests only: the retired release-surface-ack
+    # waiters (waiting, queued or in-progress runs) are never listed.
+    assert out["calls"]["dispatchStatuses"] == ["cancelled"], out["calls"]
+
+
+def test_a_waiting_ack_job_is_not_read() -> None:
+    # Run 900 still waits on a release-surface-ack job for NEWER (the
+    # 2026-10-16 runs on main that never timed out); nothing reads it.
+    case = with_evicted(MID)
+    case["jobs"]["900"] = [{"name": f"nightly-next promotion {NEWER} from {CURRENT}", "status": "waiting"}]
+    case["dispatchRuns"].append({"id": 900, "status": "waiting"})
+    out = run(case)
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+    assert out["calls"]["dispatchStatuses"] == ["cancelled"], out["calls"]
+
+
+def two_evicted() -> tuple[dict, str]:
+    """Run 950 asked for NEWER and run 951 for SHA2, between SHA and NEWER; both were evicted."""
+    sha2 = "e" * 40
+    case = with_evicted(NEWER)
+    case["commits"][0]["parents"] = [{"sha": sha2}]
+    case["commits"].insert(1, commit(sha2, [SHA], ["Sources/Two.swift"]))
+    case["runs"].append(gate_run(id=9, head_sha=sha2))
+    case["jobs"]["9"] = GREEN
+    case["jobs"]["951"] = [{"id": 9510, "name": "promote-nightly-next", "status": "completed", "conclusion": "cancelled"}]
+    case["annotations"]["9510"] = [{"annotation_level": "failure", "message": EVICTED}]
+    case["dispatchRuns"].append(dict(case["dispatchRuns"][0], id=951, display_title=f"Promote nightly-next to {sha2}"))
+    return case, sha2
+
+
+def test_a_refused_newest_evicted_request_falls_back_to_the_next_newest() -> None:
+    # feat-cmux-next is at SHA2 again (NEWER was dropped), so G1 refuses NEWER.
+    case, sha2 = two_evicted()
+    case["sourceHead"] = sha2
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["decision"]["sha"] == sha2
+    assert any(notice.startswith(f"{NEWER} is refused") for notice in out["notices"]), out["notices"]
+
+
+def test_an_evicted_request_that_cannot_be_ordered_is_a_scan_failure() -> None:
+    case, sha2 = two_evicted()
+    case["compareThrows"] = [f"{NEWER}...{sha2}"]
+    out = run(case)
+    assert out["newest"]["scanFailed"] is True, out
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+
+
+def diverged_evicted() -> dict:
+    """NEWER branches off MID, so neither SHA nor NEWER contains the other; feat-cmux-next's tip merges both."""
+    tip = "f" * 40
+    case = with_evicted(NEWER)
+    case["commits"][0]["parents"] = [{"sha": MID}]
+    case["commits"].insert(0, commit(tip, [NEWER, SHA], []))
+    case["sourceHead"] = tip
+    return case
+
+
+def test_a_diverged_evicted_request_is_decided_when_the_request_is_refused() -> None:
+    # nightly-next is not an ancestor of SHA, so SHA is refused; NEWER is promoted.
+    case = diverged_evicted()
+    case["rangeStatus"] = "diverged"
+    out = run(case)
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == NEWER, out["decision"]
+    assert out["newest"]["requested"] == SHA and not out["newest"]["scanFailed"]
+    assert any("which diverges from it" in notice for notice in out["notices"]), out["notices"]
+
+
+def test_a_diverged_evicted_request_waits_while_the_request_is_admitted() -> None:
+    out = run(diverged_evicted())
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+    assert out["notices"] == [], out["notices"]
+
+
+def test_an_uncomparable_evicted_request_is_skipped_not_a_scan_failure() -> None:
+    out = run(with_evicted("7" * 40))
+    assert not out["newest"]["scanFailed"], out
+    assert any("cannot be compared" in notice for notice in out["notices"]), out["notices"]
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA
+
+
+def test_an_unreadable_eviction_list_decides_the_request_alone() -> None:
+    case = with_evicted(NEWER)
+    case["dispatchThrows"] = True
+    out = run(case)
+    assert not out["newest"]["scanFailed"], out
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA
+    assert any("cancelled in the promote queue" in notice for notice in out["notices"]), out["notices"]
 
 
 def test_an_older_evicted_request_does_not_replace_the_request() -> None:
@@ -951,8 +945,6 @@ def test_only_the_wait_for_the_approval_is_cancellable() -> None:
     assert "'release-surface-ack'" in wait["environment"] and "action == 'needs-ack'" in wait["environment"]
     assert wait["permissions"] == {}
     assert "secrets." not in json.dumps(wait)
-    # guard.pendingPromotions() parses this name.
-    assert wait["name"] == "nightly-next promotion ${{ needs.promote-nightly-next.outputs.sha }} from ${{ needs.promote-nightly-next.outputs.current || 'none' }}"
     # The writers are never in a cancelling group.
     assert move["concurrency"]["cancel-in-progress"] is False and "github.run_id" in move["concurrency"]["group"]
     assert decide_job["concurrency"] == {"group": "nightly-next-promote", "cancel-in-progress": False}
@@ -1091,8 +1083,8 @@ def test_by_default_g1_still_refuses_a_commit_off_feat_cmux_next() -> None:
     assert "is not on feat-cmux-next" in out["decision"]["reason"]
 
 
-def test_by_default_a_newer_waiter_without_a_compile_is_decided() -> None:
-    case = with_waiter(NEWER, "9" * 40)
+def test_by_default_a_newer_evicted_request_without_a_compile_is_decided() -> None:
+    case = with_evicted(NEWER)
     case["jobs"]["8"] = []
     out = run(case)
     assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == NEWER, out["decision"]
