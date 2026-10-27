@@ -94,6 +94,9 @@ pub struct NewRequest {
     /// The new session is a sub-session (`hub/subsessions.rs`): its parent,
     /// short name and depth, checked against the parent's limits by the caller.
     pub subsession: Option<crate::store::SubsessionLink>,
+    /// The session's place under the session that started it (`hub/lineage.rs`),
+    /// already checked by the caller; None for a root.
+    pub lineage: Option<crate::store::Lineage>,
     /// Claude Code built-in tools this chat never gets
     /// (`_meta.acpmux.disallowedTools`, checked by the caller): kept in its
     /// meta as `tool:<name>` rows that are off, so every start of its Claude
