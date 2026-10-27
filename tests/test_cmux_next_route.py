@@ -221,9 +221,9 @@ class GraphGenerator(unittest.TestCase):
 
 
 class MacReleaseInputs(unittest.TestCase):
-    """mac_release: what the Mac Release compile (the package through xcodebuild) sees and the Linux SwiftPM check does not."""
+    """mac_release: what the Mac Release compile (the package through xcodebuild) sees and the fleet SwiftPM compile check does not."""
 
-    def test_package_sources_stay_on_linux(self):
+    def test_package_sources_stay_on_the_compile_check(self):
         for changed in ([f"{PACKAGE}/Sources/CmuxNextApp/WorkspaceSpawn.swift"],
                         [f"{PACKAGE}/Sources/CmuxNextApp/Resources/Localizable.xcstrings"],
                         # The Xcode app target is not in this compile (the scheme compile builds it).
