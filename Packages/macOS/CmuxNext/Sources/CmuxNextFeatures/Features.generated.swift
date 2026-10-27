@@ -163,12 +163,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for startup complete (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.
+    /// A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for the reveal (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.
     public static let cefPrefetchBehindFence = Feature(
         index: 9,
         name: "cefPrefetchBehindFence",
         owner: "Performance Lead",
-        description: "A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for startup complete (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.",
+        description: "A predicted Chromium start reads the 367 MiB framework as an idle lane job that waits for the reveal (the best-effort fence), then maps it; a tab or a user feature that asks for Chromium reads the rest at user-blocking priority at once.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
@@ -657,12 +657,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// The GitHub feed poll and the web-updates check book no next run while no cmux window shows, and run once when a window shows again if one came due. Daemon heartbeats ask nothing while no window shows (a bridged daemon after 60 s of silence) and ask once when a window shows or the app activates.
+    /// The GitHub feed poll books no run while no feed surface shows, the web-updates check none while no window shows; each runs once on show if due. Daemon heartbeats ask nothing while no window shows (a bridged daemon after 60 s of silence) and ask once on window show or app activation.
     public static let hiddenPollPause = Feature(
         index: 38,
         name: "hiddenPollPause",
         owner: "Performance Lead",
-        description: "The GitHub feed poll and the web-updates check book no next run while no cmux window shows, and run once when a window shows again if one came due. Daemon heartbeats ask nothing while no window shows (a bridged daemon after 60 s of silence) and ask once when a window shows or the app activates.",
+        description: "The GitHub feed poll books no run while no feed surface shows, the web-updates check none while no window shows; each runs once on show if due. Daemon heartbeats ask nothing while no window shows (a bridged daemon after 60 s of silence) and ask once on window show or app activation.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
@@ -1709,12 +1709,12 @@ nonisolated extension Feature {
         replaces: ["motion.pane.holdContent"]
     )
 
-    /// Resize edges (pane dividers, column and row edges, both sidebars, the DevTools divider), canvas pane drags and pans and the strip scrollbar thumb move on a display frame's first drag event and once more at the frame, to the latest point; every drag event still counts toward the release velocity.
+    /// Resize edges, dividers, canvas pane drags and pans and the strip scrollbar thumb move, and tab, workspace, pane-swap, link and screen-tab drags hit-test, on a frame's first drag event and once more at the frame, at the latest point; every drag event still counts toward the release velocity.
     public static let pointerFrameDrags = Feature(
         index: 98,
         name: "pointerFrameDrags",
         owner: "PL-motion-cef",
-        description: "Resize edges (pane dividers, column and row edges, both sidebars, the DevTools divider), canvas pane drags and pans and the strip scrollbar thumb move on a display frame's first drag event and once more at the frame, to the latest point; every drag event still counts toward the release velocity.",
+        description: "Resize edges, dividers, canvas pane drags and pans and the strip scrollbar thumb move, and tab, workspace, pane-swap, link and screen-tab drags hit-test, on a frame's first drag event and once more at the frame, at the latest point; every drag event still counts toward the release velocity.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

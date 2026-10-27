@@ -1,4 +1,5 @@
 import AppKit
+public import CmuxNextSignposts
 public import CmuxNextWakeups
 public import Foundation
 public import WebKit
@@ -74,6 +75,8 @@ public final class WebKitEngine: BrowserEngine {
     /// The organization's URL blocklist and allowlist (Chrome's `URLBlocklist`
     /// and `URLAllowlist` policies); the App sets it from the managed policy.
     public var urlFilter: BrowserURLFilter = .none
+    /// Where its tabs' content-process ends go as stability events (p09-observability-108); the App sets its reporting one.
+    public var rendererStability = RendererStability()
     #if DEBUG || CMUX_BENCH_HOOKS
     /// DEV and bench builds: reports when each new tab's page painted after an input, so its latency slot gets a
     /// presented time (p04-input-099). The App sets it once, before the first tab.
