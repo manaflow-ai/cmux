@@ -386,10 +386,16 @@ pub fn repair(doc: &mut Doc) -> bool {
     for (index, item) in items.iter().enumerate() {
         lists.entry((item.section.clone(), item.parent.clone())).or_default().push(index);
     }
+    // The indexes come from enumerating `items`, so every lookup finds its item.
     for indexes in lists.values() {
-        if indexes.iter().any(|&index| !order_key::is_valid(&items[index].order)) {
+        let invalid = indexes
+            .iter()
+            .any(|&index| items.get(index).is_some_and(|item| !order_key::is_valid(&item.order)));
+        if invalid {
             for (&index, key) in indexes.iter().zip(order_key::spread(indexes.len())) {
-                items[index].order = key;
+                if let Some(item) = items.get_mut(index) {
+                    item.order = key;
+                }
             }
         }
     }

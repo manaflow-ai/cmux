@@ -16,20 +16,23 @@ impl LayoutState {
         let tabs = self.panes.get_mut(&pane).ok_or(Reject::UnknownPane(pane))?;
         tabs.retain(|candidate| *candidate != tab);
         if tabs.is_empty() {
-            self.remove_pane(pane, events);
+            self.remove_pane(pane, events)?;
         }
         Ok(())
     }
 
-    pub(crate) fn remove_pane(&mut self, pane: PaneId, events: &mut Vec<LayoutEvent>) {
+    pub(crate) fn remove_pane(
+        &mut self,
+        pane: PaneId,
+        events: &mut Vec<LayoutEvent>,
+    ) -> Result<(), Reject> {
         self.panes.remove(&pane);
         events.push(LayoutEvent::PaneRemoved { pane });
-        let Some(slot) = self.slot(pane) else { return };
-        let workspace = &mut self.workspaces[slot.workspace];
-        let screen = &mut workspace.screens[slot.screen];
-        let column = &mut screen.columns[slot.column];
-        column.note_removed(slot.pane, events);
-        column.panes.remove(slot.pane);
+        let Some(slot) = self.slot(pane) else { return Ok(()) };
+        let screen = self.screen_at_mut(slot)?;
+        let column = screen.columns.get_mut(slot.column).ok_or(slot.stale())?;
+        column.note_removed(slot.position, events);
+        column.panes.remove(slot.position);
         if column.panes.is_empty() {
             let column = screen.columns.remove(slot.column);
             if screen.columns_active {
@@ -37,9 +40,11 @@ impl LayoutState {
             }
         }
         if screen.columns.is_empty() {
+            let workspace = self.workspaces.get_mut(slot.workspace).ok_or(slot.stale())?;
             let screen = workspace.screens.remove(slot.screen);
             events.push(LayoutEvent::ScreenRemoved { screen: screen.id });
         }
+        Ok(())
     }
 
     /// Put `tab` at insertion `index` of `pane`.
