@@ -10,6 +10,8 @@ export type AutoEnvironmentSession = {
 export type AutoEnvironmentChoice = {
   environment: Environment;
   reason: "machine" | "project" | "prompt" | "local";
+  /** A folder known to exist on the selected remote machine, when one is known. */
+  cwd?: string;
 };
 
 const REMOTE_WORDS = /\b(?:cloud|remote|server|vm|deploy|build|ci|linux)\b/i;
@@ -39,14 +41,18 @@ export function chooseAutoEnvironment({
 
   const normalizedProject = normalizePath(project);
   if (normalizedProject) {
-    const projectMachine = sessions
+    const projectSession = sessions
       .map((session) => {
         const id = session.peer ?? (session.hostKind === "cloud" ? session.host : undefined);
-        return id && normalizePath(session.cwd) === normalizedProject ? id : undefined;
+        return id && normalizePath(session.cwd) === normalizedProject ? session : undefined;
       })
-      .find((id) => id && remotes.some((environment) => environment.id === id));
+      .find((session) => {
+        const id = session?.peer ?? (session?.hostKind === "cloud" ? session.host : undefined);
+        return id !== undefined && remotes.some((environment) => environment.id === id);
+      });
+    const projectMachine = projectSession?.peer ?? (projectSession?.hostKind === "cloud" ? projectSession.host : undefined);
     const environment = projectMachine ? remotes.find((candidate) => candidate.id === projectMachine) : undefined;
-    if (environment) return { environment, reason: "project" };
+    if (environment) return { environment, reason: "project", cwd: projectSession?.cwd };
   }
 
   if (REMOTE_WORDS.test(words)) {

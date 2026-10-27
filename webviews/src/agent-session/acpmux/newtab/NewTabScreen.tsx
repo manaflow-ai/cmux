@@ -445,25 +445,25 @@ export function NewTabScreen(props: Props) {
   const envFolder = none
     ? undefined
     : (askFolder ?? (props.cwd && !folderless && !homeOrAbove(props.cwd) ? props.cwd : undefined));
-  const autoEnvironments = useMemo<Environment[]>(
-    () => [
+  const autoEnvironments = useMemo<Environment[]>(() => {
+    const peers = snapshot.peers ?? [];
+    return [
       { id: "local", label: props.machineName ?? t("composer.thisMac"), kind: "local" },
       ...knownMachines(
-        snapshot.peers ?? [],
+        peers,
         snapshot.sessions,
         snapshot.peerKinds ?? {},
         [],
         snapshot.peerConnected ?? {},
         snapshot.peerStates ?? {},
-      ),
-    ],
-    [props.machineName, snapshot.peers, snapshot.sessions, snapshot.peerKinds, snapshot.peerConnected, snapshot.peerStates, t],
-  );
+      ).filter((environment) => environment.kind === "local" || peers.includes(environment.id)),
+    ];
+  }, [props.machineName, snapshot.peers, snapshot.sessions, snapshot.peerKinds, snapshot.peerConnected, snapshot.peerStates, t]);
   // A prompt's chat, in no project when that was the pick.
   // The images and files pasted or dropped on the page go with the first prompt.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string) => {
     if (environment) return askInEnvironment(environment, agent, prompt, model);
-    if (autoEnvironment) {
+    if (props.environments && autoEnvironment) {
       const choice = chooseAutoEnvironment({
         prompt,
         project,
@@ -472,7 +472,7 @@ export function NewTabScreen(props: Props) {
       });
       const extra = attachments.length ? attachments : undefined;
       if (choice.environment.kind !== "local")
-        return props.onAsk(agent, prompt, project, model, undefined, extra, { peer: choice.environment.id });
+        return props.onAsk(agent, prompt, choice.cwd, model, undefined, extra, { peer: choice.environment.id });
     }
     if (machine)
       return props.onAsk(

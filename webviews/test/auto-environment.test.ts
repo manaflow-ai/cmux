@@ -23,8 +23,18 @@ describe("new chat Auto environment", () => {
         project: "/home/dev/model",
         environments,
         sessions: [{ cwd: "/home/dev/model", peer: "gpu-box" }],
-      }).environment.id,
-    ).toBe("gpu-box");
+      }),
+    ).toMatchObject({ environment: { id: "gpu-box" }, cwd: "/home/dev/model" });
+  });
+
+  test("does not forward a local project path to a prompt-selected remote", () => {
+    const choice = chooseAutoEnvironment({
+      prompt: "Start a cloud build",
+      project: "/Users/alice/src/app",
+      environments,
+    });
+    expect(choice.environment.id).toBe("cloud-1");
+    expect(choice.cwd).toBeUndefined();
   });
 
   test("recognizes a cloud request when a cloud machine is ready", () => {
