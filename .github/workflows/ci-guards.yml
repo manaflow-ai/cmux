@@ -1651,6 +1651,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: ./tests/test_notarize_computer_use_helper.sh
 
+      - name: Validate the release signer scripts
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_release_signer_scripts.py
+
       - name: Validate release asset guard
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: node scripts/release_asset_guard.test.js

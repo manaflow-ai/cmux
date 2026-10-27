@@ -28,6 +28,7 @@
     {"glob": "**/bun.lock", "why": "lockfile"},
     {"glob": "**/package-lock.json", "why": "lockfile"},
     {"glob": "**/Cargo.lock", "why": "lockfile"},
+    {"glob": "scripts/ci/release-signer/*.patch", "why": "vendored patch to a pinned upstream crate, byte for byte the one main uses"},
     {"glob": "**/Package.resolved", "why": "lockfile"},
     {"glob": "**/go.sum", "why": "lockfile"},
     {"glob": "**/*.xcstrings", "why": "localization catalog"},
