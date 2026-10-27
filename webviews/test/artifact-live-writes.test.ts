@@ -39,6 +39,20 @@ test("written previews consume an older concurrent tool completion even when Rea
   expect(source.read(rows.sorted()).artifact.code).toBe("<p>Second</p>");
 });
 
+test("dropping an earlier hidden tool cannot promote its shifted completed write over a newer row", () => {
+  const rows = new OrderedRows();
+  const removed = write("<p>Removed</p>", "completed", path, "removed");
+  const shifted = write("<p>Old</p>", "completed", path, "shifted");
+  put(rows, row("group", 1, [removed, shifted]), 1);
+  const source = open(rows);
+  put(rows, row("newer", 1, [write("<p>Newer</p>", "completed", path, "newer")]), 2);
+  expect(source.read(rows.sorted()).artifact.code).toBe("<p>Newer</p>");
+  // dropToolItem removes `removed` and reuses `shifted` at index zero without a changed-item hint.
+  put(rows, row("group", 2, [shifted]), 3);
+  expect(source.read(rows.sorted()).artifact.code).toBe("<p>Newer</p>");
+  source.dispose();
+});
+
 test("coalesced tools preserve event order and ignore unrelated, failed and stale writes", () => {
   const rows = new OrderedRows();
   put(rows, row("first", 1, [write("<p>First</p>")]), 1);
