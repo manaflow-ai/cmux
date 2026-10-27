@@ -71,6 +71,8 @@ type State = {
   ready: boolean;
   /// The last first-page read failed (the daemon did not answer): the list says so and offers Try again.
   failed: boolean;
+  /// The cursor page that last failed. The loader stays in place, so it must expose its own retry.
+  failedCursor?: string;
   /// The query `rows` answer; a failed read for another query drops them rather than show them under it.
   rowsQuery: string;
   design: AllChatsDesign;
@@ -159,7 +161,7 @@ function listEntries(rows: AllChatsRow[], view: "chats" | "projects", folded: Re
 /// at once, so no page of the old query is asked for again); a reply for an older query is
 /// dropped (latest wins). `load` may change identity on every parent render: the list keeps the
 /// latest one in a ref, so a parent render never restarts the list.
-function useChatPages(load: LoadChatsPage) {
+export function useChatPages(load: LoadChatsPage) {
   const [state, setState] = useState<State>(initialState);
   // Rows from the settled first page: the mount reads only a change pushed since (see below).
   const [seeded] = useState(() => state.loaded);
@@ -179,7 +181,11 @@ function useChatPages(load: LoadChatsPage) {
     if (inFlight.current === marker) return;
     inFlight.current = marker;
     const atPush = devicePushCount();
-    setState((s) => (cursor ? { ...s, loading: true } : { ...s, query, nextCursor: undefined, loading: true }));
+    setState((s) =>
+      cursor
+        ? { ...s, loading: true, failedCursor: undefined }
+        : { ...s, query, nextCursor: undefined, loading: true, failedCursor: undefined },
+    );
     void latestLoad
       .current({ ...(query ? { query } : {}), ...(cursor ? { cursor } : {}), limit: PAGE })
       .catch(() => undefined)
@@ -187,14 +193,14 @@ function useChatPages(load: LoadChatsPage) {
         if (ticket !== generation.current) return;
         if (inFlight.current === marker) inFlight.current = undefined;
         setState((s) => {
-          // A failed page keeps the cursor, so the loader row asks again when it comes back into view.
+          // A failed page keeps the cursor. The loader may still be in view, so the row exposes Retry.
           if (!page)
             return {
               ...s,
               loading: false,
               loaded: true,
               ...(cursor
-                ? { nextCursor: cursor }
+                ? { nextCursor: cursor, failedCursor: cursor }
                 : { failed: true, rows: s.rowsQuery === query ? s.rows : [], nextCursor: undefined }),
             };
           const fresh = rowsOf(page);
@@ -221,6 +227,7 @@ function useChatPages(load: LoadChatsPage) {
             loaded: true,
             ready: page.ready !== false,
             failed: false,
+            failedCursor: undefined,
             rowsQuery: query,
             design: design(page.design) ?? s.design,
           };
@@ -447,8 +454,25 @@ export function AllChatsList({
   );
   const renderRow = (index: number, style: React.CSSProperties) => {
     const entry = entries[index];
-    if (!entry)
+    if (!entry) {
+      const failedPage = nextCursor !== undefined && state.failedCursor === nextCursor;
+      if (failedPage) {
+        return (
+          <output key={`more-${nextCursor}`} className="nt-all-item nt-chats-failed" style={style}>
+            {nt("chatsLoadFailed")}
+            <button
+              type="button"
+              className="nt-chats-retry"
+              disabled={state.loading}
+              onClick={() => fetchPage(state.query, nextCursor)}
+            >
+              {t("picker.tryAgain")}
+            </button>
+          </output>
+        );
+      }
       return <div key={`more-${nextCursor}`} ref={loadMore} className="nt-all-item is-loader" style={style} />;
+    }
     if (entry.kind === "project") {
       const { project, open } = entry;
       const label = project.label ?? nt("noProject");
