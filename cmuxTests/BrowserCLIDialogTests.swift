@@ -71,9 +71,19 @@ struct BrowserCLIDialogTests {
             let clicked = try await request("browser.click", click)
             #expect(clicked["ok"] as? Bool == true, "\(clicked)")
             let result = try #require(clicked["result"] as? [String: Any])
+            #expect(result["attempts"] as? Int == 1)
             let dialog = try #require(result["dialog"] as? [String: Any])
-            #expect(dialog["kind"] as? String == "javascript_confirm")
+            #expect(dialog["type"] as? String == "confirm")
             #expect(dialog["message"] as? String == "ok?")
+            #expect(panel.pendingJavaScriptDialogs.count == 1)
+
+            // The dialog blocks every later element action until it is answered.
+            let blocked = try await request("browser.click", click)
+            #expect(blocked["ok"] as? Bool == false, "\(blocked)")
+            let error = try #require(blocked["error"] as? [String: Any])
+            #expect(error["code"] as? String == "dialog_pending")
+            let data = try #require(error["data"] as? [String: Any])
+            #expect((data["dialog"] as? [String: Any])?["type"] as? String == "confirm")
             #expect(panel.pendingJavaScriptDialogs.count == 1)
 
             let accepted = try await request("browser.dialog.accept", params)
