@@ -325,11 +325,18 @@ pub(crate) fn merge(sources: &Sources, network: NetworkStatus, nodes: &[NetworkN
             text(p, "name").is_some_and(|n| n.eq_ignore_ascii_case(&host))
                 || url_host(&url).is_some_and(|h| h == host)
         });
+        let by_device = devices.iter().any(|d| {
+            d.name.eq_ignore_ascii_case(&host)
+                || d.reach.as_ref().is_some_and(|r| {
+                    r.address.eq_ignore_ascii_case(&host) || r.ips.iter().any(|ip| *ip == host)
+                })
+        });
         by_peer
+            || by_device
             || nodes.iter().any(|n| n.answers_to(&host))
             || NOT_COMPUTERS.contains(&host.as_str())
     };
-    // An alias whose HostName is a peer, a tailnet node or a forge is that machine.
+    // An alias whose HostName is a device, a peer, a tailnet node or a forge is that machine.
     let mut ssh: Vec<Available> = sources
         .ssh_hosts
         .iter()

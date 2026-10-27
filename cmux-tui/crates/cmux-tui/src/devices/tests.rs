@@ -257,6 +257,9 @@ fn ssh_config_hosts_follow_the_network_computers_without_repeats() {
         host("build-box", None),
         host("old-air", None),
         host("alpha", Some("alpha.internal")),
+        // Already a device (a paired one, by any case).
+        host("Leo-MBP", None),
+        host("sandbox", Some("127.0.0.1")),
         // Aliases of a forge, a peer's address and a tailnet node.
         host("gh", Some("github.com")),
         host("vm", Some("10.0.4.2")),
@@ -272,7 +275,7 @@ fn ssh_config_hosts_follow_the_network_computers_without_repeats() {
             ("alpha", model::Found::SshConfig),
             ("Zeta", model::Found::SshConfig),
         ],
-        "a peer's name or host, a tailnet node (online or not) and a git forge are not offered again"
+        "a device, a peer's name or host, a tailnet node (online or not) and a git forge are not offered again"
     );
     let alpha = &listing.available[1];
     assert_eq!((alpha.address.as_str(), alpha.os.as_str(), alpha.mine), ("alpha", "", true));
