@@ -178,8 +178,12 @@ class WorkflowTests(unittest.TestCase):
             self.assertIn("needs.resolve-nightly-ghostty-cli-helper.outputs.hit != 'true'", step["if"])
         lookup = jobs["resolve-nightly-ghostty-cli-helper"]
         self.assertEqual(lookup["if"], helper["if"])
-        find = next(s for s in lookup["steps"] if s.get("id") == "reuse")
-        self.assertTrue(find["continue-on-error"])
+        # Every step that can fail is a miss, and a hit needs this run's own artifact.
+        for step in lookup["steps"]:
+            if "Record" not in step["name"]:
+                self.assertTrue(step.get("continue-on-error"), step["name"])
+                self.assertIn("timeout-minutes", step, step["name"])
+        self.assertEqual(lookup["outputs"]["hit"], "${{ steps.upload.outcome == 'success' && 'true' || 'false' }}")
 
 
 if __name__ == "__main__":
