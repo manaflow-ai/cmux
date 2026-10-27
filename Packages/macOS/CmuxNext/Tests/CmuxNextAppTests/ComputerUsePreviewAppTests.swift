@@ -178,7 +178,24 @@ struct ComputerUsePreviewAppTests {
         clock.advance(by: .seconds(1))
         #expect(try #require(await host.next { $0 == nil }) == nil)
         #expect(preview.autoHides.isEmpty)
-        #expect(preview.board.entries["s"]?.dismissed == true, "hidden by the close's path, so it stays hidden")
+        #expect(preview.board.entries["s"]?.autoHidden == true)
+        #expect(preview.board.entries["s"]?.dismissed == false, "only the person's close keeps a session hidden")
+    }
+
+    /// The driver keeps a session open between turns: a hidden card's session that acts again on a
+    /// later turn shows its card again (before, the hide was the close's path and it stayed hidden).
+    @Test(.timeLimit(.minutes(1)))
+    func aLaterActOfTheSameSessionShowsTheHiddenCardAgain() async throws {
+        let clock = ManualClock()
+        let (host, preview) = try await Self.running(on: clock)
+        preview.apply(.sessions([Self.session(live: false)]))
+        _ = try #require(await host.next { $0?.done == true })
+        try await clock.waitForSleeper()
+        clock.advance(by: ComputerUseLivePreview.autoHideDelay)
+        #expect(try #require(await host.next { $0 == nil }) == nil)
+        preview.apply(.sessions([Self.session(acts: 2)]))
+        _ = try #require(await host.next { $0?.done == false })
+        #expect(preview.board.entries["s"]?.autoHidden == false)
     }
 
     @Test(.timeLimit(.minutes(1)))

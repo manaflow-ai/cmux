@@ -15,4 +15,12 @@ public nonisolated struct SharedMemoryWord {
         let word = UnsafeMutableRawPointer(mutating: address).assumingMemoryBound(to: UInt64.AtomicRepresentation.self)
         return UnsafeAtomic<UInt64>(at: word).load(ordering: .acquiring)
     }
+
+    /// The seqlock check after plain reads of the data the word guards: an acquire fence first, so
+    /// none of those reads can move after this load (an acquire load alone orders only what follows it).
+    public func loadAfterReads() -> UInt64 {
+        atomicMemoryFence(ordering: .acquiring)
+        let word = UnsafeMutableRawPointer(mutating: address).assumingMemoryBound(to: UInt64.AtomicRepresentation.self)
+        return UnsafeAtomic<UInt64>(at: word).load(ordering: .relaxed)
+    }
 }

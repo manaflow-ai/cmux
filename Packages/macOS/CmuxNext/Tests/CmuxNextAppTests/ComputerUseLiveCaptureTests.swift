@@ -101,10 +101,10 @@ struct ComputerUseLiveCaptureTests {
         }
         #expect(rig.capture.requests == 4, "one start and one read per tick")
         #expect(rig.frames.maximumInFlight == 1)
-        // An action's frame waits while the window streams: the stream is newer.
+        // An action's frame newer than the stream's still loads: a stream that stalls (a window
+        // minimized or on another Space sends nothing) never freezes the card while the agent acts.
         rig.preview.apply(.newestFrame(session: "s", frame: "b9", at: Date()))
         #expect(rig.capture.streamedSession == "s")
-        #expect(rig.preview.board.nextLoad(live: "s") == nil)
         #expect(rig.preview.board.nextLoad()?.frame.id == "b9")
     }
 

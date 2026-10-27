@@ -49,7 +49,7 @@ public nonisolated protocol ComputerUseSurfaceCapturing: Sendable {
 /// - Fallback: a start the helper refuses, or a stream that fails, marks the window refused (until
 ///   the helper restarts); the card keeps the frames the helper records per action, which load as
 ///   before. A stream that stays still (a window that does not change)
-///   sends no frames, so a newer action's frame still shows.
+///   sends no frames, so a newer action's frame still shows (``ComputerUsePreviewBoard/nextLoad()``).
 @MainActor
 public final class ComputerUseLiveCapture {
     /// What to stream: a running session's window and the chat whose card shows it.
@@ -124,7 +124,7 @@ public final class ComputerUseLiveCapture {
 
     /// Whether a stream runs (tests).
     var isStreaming: Bool { stream != nil }
-    /// The session whose window streams now: its per-action frames wait (they are older).
+    /// The session whose window streams now (tests).
     var streamedSession: String? { stream == nil ? nil : target?.session }
     /// Whether the next frame's deadline is pending (tests).
     var isPaced: Bool { timer.isScheduled }

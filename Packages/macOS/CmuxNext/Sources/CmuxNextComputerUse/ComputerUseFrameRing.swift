@@ -113,7 +113,7 @@ nonisolated final class ComputerUseFrameRing: Sendable {
         guard version.loadAcquiring() == sequence &* 2 else { return nil }
         let image = scaled(base + Self.headerBytes + slot * bytesPerRow * height, longSide: longSide)
         // A slot the helper started again while it was scaled is dropped (seqlock).
-        guard version.loadAcquiring() == sequence &* 2 else { return nil }
+        guard version.loadAfterReads() == sequence &* 2 else { return nil }
         return image.map { (sequence, $0) }
     }
 

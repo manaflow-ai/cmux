@@ -215,7 +215,7 @@ public final class ComputerUseLivePreview {
 
     /// Starts the next frame load when none runs; a newer frame waits for the one in flight.
     private func loadNext() {
-        guard loading == nil, let next = board.nextLoad(live: capture.streamedSession), let source else { return }
+        guard loading == nil, let next = board.nextLoad(), let source else { return }
         let frame = next.frame
         // task-owner: one frame load at a time; ends with the source's answer (the socket's deadline).
         let task = Task { [weak self] in
@@ -279,12 +279,13 @@ public final class ComputerUseLivePreview {
         timer.schedule(after: Self.autoHideDelay) { @MainActor [weak self] in self?.autoHide(chat) }
     }
 
-    /// Chat `chat`'s card stayed done for ``autoHideDelay``: closed as the person's close does, so
-    /// its sessions stay hidden and a newer session in the chat shows again.
+    /// Chat `chat`'s card stayed done for ``autoHideDelay``: it hides. Unlike the person's close, a
+    /// newer action of the same session (the driver keeps it open between turns) shows it again.
     private func autoHide(_ chat: String) {
         hides[chat] = nil
         guard let card = board.card(for: chat), card.done else { return }
-        respond(session: card.session, click: .close)
+        for id in board.autoHide(chat: chat) { source?.follow(session: id, false) }
+        push()
     }
 
     private func respond(session: String, click: ComputerUsePreviewClick) {

@@ -78,6 +78,8 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
         var window: ComputerUsePreviewWindow?
         /// The person closed the card.
         var dismissed = false
+        /// The card hid itself after it stayed done (``autoHide(chat:)``): a newer action shows it again.
+        var autoHidden = false
         /// The source's list no longer has the session.
         var gone = false
         /// The chat's turn is over: the agent stopped using the app, though the driver may keep
@@ -90,6 +92,8 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
         /// The session itself ended.
         var ended: Bool { gone || !session.live }
         var done: Bool { ended || turnEnded }
+        /// Closed by the person or hidden after its turn: no card, no frames, no stream.
+        var hidden: Bool { dismissed || autoHidden }
     }
 
     /// The most sessions kept: the oldest ended ones go first.
@@ -119,9 +123,12 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
                 let ended = entry.session.live && !session.live
                 entry.session = session
                 entry.gone = false
-                if acted { entry.turnEnded = false }
+                if acted {
+                    entry.turnEnded = false
+                    entry.autoHidden = false
+                }
                 entries[session.id] = entry
-                if !entry.dismissed, acted || ended { read.insert(session.id) }
+                if !entry.hidden, acted || ended { read.insert(session.id) }
             } else if session.live {
                 entries[session.id] = Entry(session: session)
                 read.insert(session.id)
@@ -172,7 +179,7 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
 
     /// The chats that show a card or will once a frame loads.
     var routedChats: Set<String> {
-        Set(entries.values.compactMap { $0.dismissed ? nil : $0.chat })
+        Set(entries.values.compactMap { $0.hidden ? nil : $0.chat })
     }
 
     /// A frame finished loading for `session`. One captured before the frame it has is dropped: an
@@ -187,7 +194,7 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
     func liveTarget(canSee: (String) -> Bool) -> ComputerUseLiveCapture.Target? {
         guard enabled else { return nil }
         let running = entries.values.compactMap { entry -> (Entry, String, ComputerUsePreviewWindow)? in
-            guard !entry.dismissed, !entry.done, let chat = entry.chat, let window = entry.window else { return nil }
+            guard !entry.hidden, !entry.done, let chat = entry.chat, let window = entry.window else { return nil }
             return (entry, chat, window)
         }
         guard let pick = running.filter({ canSee($0.1) }).max(by: {
@@ -199,7 +206,7 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
     /// The chats a live stream could show in: running, not closed, with a known window. Whether the
     /// person can see them is followed only while this is not empty.
     var liveChats: Set<String> {
-        Set(entries.values.compactMap { $0.dismissed || $0.done || $0.window == nil ? nil : $0.chat })
+        Set(entries.values.compactMap { $0.hidden || $0.done || $0.window == nil ? nil : $0.chat })
     }
 
     /// Frame `frame` of `session` could not load (gone, or the source failed): it is not asked
@@ -221,12 +228,21 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
         return closed
     }
 
+    /// Chat `chat`'s card stayed done: every session that feeds it hides until it acts again.
+    /// Returns those sessions.
+    @discardableResult
+    mutating func autoHide(chat: String) -> Set<String> {
+        let feeding = Set(entries.values.filter { $0.chat == chat && !$0.hidden }.map(\.session.id))
+        for id in feeding { entries[id]?.autoHidden = true }
+        return feeding
+    }
+
     /// The card chat `chat` shows, fed by every session routed there: the newest frame by capture
     /// time, with that frame's session and app; done only once all of them are. Only once a frame
     /// has loaded. `apps` holds the apps looked up so far (``appKeys``).
     func card(for chat: String, apps: [ComputerUsePreviewApp.Key: ComputerUsePreviewApp] = [:]) -> ComputerUsePreviewCard? {
         guard enabled else { return nil }
-        let feeding = entries.values.filter { $0.chat == chat && !$0.dismissed }
+        let feeding = entries.values.filter { $0.chat == chat && !$0.hidden }
         guard let entry = feeding.max(by: { Self.earlier($0.frame, than: $1.frame, $0.session.id, $1.session.id) }),
               let frame = entry.frame else { return nil }
         let session = entry.session
@@ -240,16 +256,17 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
 
     /// The next frame to load: the newest by capture time that a card can show, so newer than the
     /// frame its chat's card has (a session's older frame named late never loads). One load at a
-    /// time, so the newest always wins. A session streamed live (`live`) loads none: its stream is newer.
-    func nextLoad(live: String? = nil) -> (session: String, frame: FrameRef)? {
+    /// time, so the newest always wins. A session streamed live loads its action frames too: while the
+    /// stream runs they are older than its frames and do not load, and when it stalls they still show.
+    func nextLoad() -> (session: String, frame: FrameRef)? {
         guard enabled else { return nil }
         var shown: [String: Date] = [:]
-        for entry in entries.values where !entry.dismissed {
+        for entry in entries.values where !entry.hidden {
             guard let chat = entry.chat, let frame = entry.frame else { continue }
             shown[chat] = max(shown[chat] ?? .distantPast, frame.at)
         }
         let waiting = entries.values.compactMap { entry -> (session: String, frame: FrameRef)? in
-            guard !entry.dismissed, entry.session.id != live, let chat = entry.chat, let wanted = entry.wanted, wanted.id != entry.frame?.id,
+            guard !entry.hidden, let chat = entry.chat, let wanted = entry.wanted, wanted.id != entry.frame?.id,
                   shown[chat].map({ wanted.at > $0 }) ?? true else { return nil }
             return (entry.session.id, wanted)
         }
@@ -258,7 +275,7 @@ nonisolated struct ComputerUsePreviewBoard: Sendable {
 
     /// The sessions whose frames the board follows: live and not closed.
     var followed: Set<String> {
-        Set(entries.values.filter { !$0.done && !$0.dismissed }.map(\.session.id))
+        Set(entries.values.filter { !$0.done && !$0.hidden }.map(\.session.id))
     }
 
     /// The apps the kept sessions use, to look up for their names and icons.
