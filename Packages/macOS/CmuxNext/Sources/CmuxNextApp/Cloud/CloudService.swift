@@ -458,7 +458,7 @@ final class CloudService {
     private func dropAllMachines() {
         // A list in flight belongs to the machines dropped here.
         listGeneration += 1
-        for creation in creations.all { creations.remove(creation) }
+        for creation in creations.all { creations.end(creation) }
         for session in machines.cloud { machines.remove(session.machineID)?.disconnect() }
         machines.cloudLimits = nil
         hasLoadedMachines = false
