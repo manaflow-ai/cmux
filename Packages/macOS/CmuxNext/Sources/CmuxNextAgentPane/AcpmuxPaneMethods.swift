@@ -104,6 +104,9 @@ nonisolated enum AcpmuxPaneMethods {
         // Inspector's Connectors): acpmux sends Claude Code's mcp_reconnect for a server the chat
         // already lists, on its running process; it starts nothing and refuses other harnesses.
         "_acpmux/mcp/reconnect",
+        // Retry a saved remote peer link after a turn reports a tailnet failure. This daemon-scoped
+        // action names only the peer, never a chat or prompt (direct.ts reconnectPeer).
+        "_acpmux/peer_reconnect",
         // The forum's current rules for the rules card above the composer (direct.ts forumRules,
         // RulesNotice.tsx; acpmux server/forum.rs, hq#2570). Read only and without params: the
         // rules every agent on this Mac is told already. Posting, acking and retiring stay off the pane.
