@@ -1786,6 +1786,8 @@ pre.cv-math-source {
 }
 /* The folded label uses the same row height as tools; full thought text keeps its padding. */
 .cv-thought.is-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   padding-block: 0;
 }

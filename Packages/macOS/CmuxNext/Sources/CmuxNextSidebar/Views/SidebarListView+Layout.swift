@@ -262,7 +262,7 @@ extension SidebarListViewComponents {
             }
         }
         // Only an external drop's new-workspace slot has an underlay (R77: a row drag reorders in place).
-        let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
+        let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: indentWidth, height: layout.gapHeight) } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: animate || adopting)
         let history = chatHistory.place(layout, state: SidebarChatHistory.shared.state, metrics: model.minimal ? metrics.minimal : metrics,

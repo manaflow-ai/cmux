@@ -83,6 +83,8 @@ const hexPort = (port: number): string => port.toString(16).toUpperCase().padSta
 const FILE_PIN_CHECKS = [
   ["cmux-bashrc", "/etc/cmux/bashrc"],
   ["agent-config.sh", "/etc/cmux/agent-config.sh"],
+  ["agent-auth.sh", "/etc/cmux/agent-auth.sh"],
+  ["claude-onboarding.py", "/etc/cmux/claude-onboarding.py"],
   ["seed-history", "/etc/cmux/seed-history"],
   ["cmux-devbox-boot", "/usr/local/bin/cmux-devbox-boot"],
   ["chrome-managed-policy.json", "/etc/opt/chrome/policies/managed/cmux.json"],
@@ -154,6 +156,7 @@ const CHECKS: readonly string[] = [
   // Trust everywhere: the managed HOME entries for codex, the claude first-run
   // seed for root, and the sandbox env every login shell exports.
   `python3 -c 'import tomllib; d = tomllib.load(open("/etc/codex/managed_config.toml", "rb")); assert d["projects"]["/root"]["trust_level"] == "trusted"; assert d["projects"]["${DEVBOX_DESKTOP_HOME}"]["trust_level"] == "trusted"' && bash -lc 'test "$CLAUDE_CODE_SANDBOXED:$IS_SANDBOX:$DISABLE_AUTOUPDATER" = 1:1:1' && python3 -c "import json; j = json.load(open('/root/.claude.json')); assert j['hasCompletedOnboarding'] is True and j['bypassPermissionsModeAccepted'] is True and j['projects']['/']['hasTrustDialogAccepted'] is True and isinstance(j['customApiKeyResponses']['approved'], list) and '-vm-edge-placeholder' in j['customApiKeyResponses']['approved']" && echo agent-trust-ok`,
+  `python3 -c 'import json, pathlib; homes = ["/root", "${DEVBOX_WORK_HOME}"]; configs = [pathlib.Path(h) / ".config/cmux/claude-team/.claude.json" for h in homes]; rows = [json.loads(p.read_text()) for p in configs]; assert all(j.get("hasCompletedOnboarding") is True and j.get("theme") == "dark" and j.get("projects", {}).get("/", {}).get("hasTrustDialogAccepted") is True and "-vm-edge-placeholder" in j.get("customApiKeyResponses", {}).get("approved", []) for j in rows), rows; assert all(p.stat().st_mode & 0o777 == 0o600 for p in configs)' && echo claude-team-onboarding-ok`,
   "whoami; nproc; free -m | sed -n 2p; df -h / | tail -1",
 ];
 

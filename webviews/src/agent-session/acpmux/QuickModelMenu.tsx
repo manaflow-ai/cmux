@@ -125,7 +125,7 @@ export type QuickFamilies = {
   forkReady?: boolean;
 };
 
-/// How many rows a list shows at once (keys 1 to 9 pick a tab's rows).
+/// Keys 1 to 9 pick a tab's first rows; this does not limit the visible model list.
 const FILTER_ROWS = 9;
 const EFFORT_SLIDER_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
 
@@ -279,7 +279,7 @@ export function QuickModelMenu({
   // What the list draws: the search's matches, else the tab's top models.
   const rows: QuickModel[] =
     query && search
-      ? search.find(query).slice(0, FILTER_ROWS)
+      ? search.find(query)
       : !families
         ? models.map((model) => ({ ...model, family: "" }))
         : (shown?.models ?? []);
@@ -634,6 +634,7 @@ export function QuickModelMenu({
       {!query && !forkTab && (!inlineMore || (onChatTab && account)) && <MenuSeparator />}
       {!query && !inlineMore && families && ((shown?.more.length ?? 0) > 0 || families.onAddHarness) && (
         <Submenu
+          align="start"
           className="acpmux-quick-item acpmux-quick-sub"
           popupClassName="acpmux-quick-menu acpmux-quick-more"
           label={<span className="acpmux-menu-label">{t("picker.moreModels")}</span>}

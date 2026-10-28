@@ -15,7 +15,7 @@ import os
 ///
 /// Closes never ask for themselves (Lawrence 2026-10-07: they run at once
 /// and an undo toast offers them back; bulk closes, `WorkspaceBulkClose`).
-/// Closing a workspace (after the press, WorkspaceCloseFlow), a group's workspaces or a space asks only while one of its terminals runs a
+/// Closing a workspace (its handler asks, WorkspaceCloseFlow), a group's workspaces or a space asks only while one of its terminals runs a
 /// foreground program (`process-info`) and `app.warnBeforeClosingTab` is
 /// on; a tab group follows the tab close rule (`TabCloseGuard`); those
 /// questions have "Don't ask again". Forget Machine has an undo toast and
@@ -30,15 +30,15 @@ enum DestructiveConfirmation {
         var button: String
         /// The toggle "Don't ask again" turns off; nil shows no check box.
         var suppresses: [String]? = nil
-        /// Return presses the button. False for a question that comes after the press
-        /// (WorkspaceCloseFlow): typing on in the next workspace must not confirm it.
+        /// Return presses the button. False for a question that comes up a daemon read after the
+        /// press (WorkspaceCloseFlow): typing on in the terminal must not confirm it.
         var returnConfirms = true
     }
 
     static func install(_ services: AppServices) {
         services.registry.confirmationPresenter = { id, invocation, proceed in
-            // Close Workspace runs at the press and asks afterwards, so its row leaves before any
-            // process-info round trip (WorkspaceCloseFlow).
+            // Close Workspace asks in its handler: its row stays put while the terminals answer and
+            // while the question is up, and leaves at the press when nothing can ask (WorkspaceCloseFlow).
             if id == "closeWorkspace" {
                 var run = invocation.confirmed()
                 run.asksIfRunning = true
