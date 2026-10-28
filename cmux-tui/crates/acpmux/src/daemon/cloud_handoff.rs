@@ -14,24 +14,24 @@
 //! reports nothing and reads nothing.
 //!
 //! Turns: the owner opens each turn of a hand-off (`POST
-//! /v1/handoffs/:id/turns`) before it sends the prompt, so a turn that
-//! begins here reports on the hand-off's current turn. It tries the last
-//! turn the store named (1 at first). A `handoff.stale` or
-//! `handoff.turn_out_of_order` refusal names the current turn; the begin
-//! takes that turn only while nothing has reported on it (`starting`) and
-//! the owner opened it before this turn began here (within [`SKEW_MS`] of
-//! clock difference), so a begin that waited in the queue never takes a
-//! turn opened after it. Later reports of a turn stay on the turn its begin
-//! took, so a late report never lands on a newer turn. A begin the store
-//! refuses otherwise (no hand-off for the session, its turn already ended,
-//! or the hand-off closed) leaves the turn unreported; a closed hand-off
-//! gets no more reports. A closed session reports nothing until it reopens.
+//! /v1/handoffs/:id/turns`) and then sends the turn's prompt with a prompt id
+//! that names it, `handoff-<turn>-<unique>` (`_meta.acpmux.promptId`, which
+//! acpmux carries on the turn's records). A turn that begins here reports on
+//! exactly the turn its prompt names, and every later report of it stays on
+//! that turn, so a report never lands on another turn however long it waited
+//! in the queue. A prompt that names no turn (one the owner did not open a turn
+//! for) is not reported. A turn the store refuses (no hand-off for the
+//! session, an older or not-yet-opened turn, its turn already ended, or the
+//! hand-off closed) reports nothing more; a closed hand-off gets no more
+//! reports. A closed session reports nothing until it reopens.
 //!
 //! The hub's events are only read and queued here; one worker sends the
 //! reports in order, one at a time, so a slow API never holds the event
-//! stream. The queue drops a needs-you or running step past
-//! [`QUEUE_SOFT_CAP`] waiting steps, never a turn's begin or end or a
-//! session's close or reopen.
+//! stream. The queue holds at most [`QUEUE_CAP`] steps. Past
+//! [`QUEUE_SOFT_CAP`] waiting steps a needs-you or running step is dropped;
+//! past [`QUEUE_CAP`] any step is, and the worker then stops following every
+//! turn it was reporting (it may have missed one's end), so no report goes on
+//! a turn it lost track of.
 
 use crate::hub::Hub;
 use serde_json::{Map, Value, json};
@@ -39,7 +39,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
@@ -49,7 +49,12 @@ const SOCKET: &str = "/run/cmux-vm-agent/agent.sock";
 const SOCKET_ENV: &str = "ACPMUX_CLOUD_AGENT_SOCKET";
 /// Waiting steps past which a needs-you or running step is dropped.
 const QUEUE_SOFT_CAP: usize = 4096;
-/// Sessions followed at most; past it a session with no turn being reported is forgotten.
+/// Waiting steps at most: past it any step is dropped.
+const QUEUE_CAP: usize = 16_384;
+/// The prompt id of a hand-off turn's prompt starts with this, then the turn and `-`.
+pub(super) const PROMPT_PREFIX: &str = "handoff-";
+/// Sessions followed at most; past it a session with no turn being reported is forgotten, and a
+/// new session is not followed while every followed one is reporting a turn.
 const MAX_TRACKS: usize = 4096;
 /// Closed sessions remembered at most (the oldest is forgotten first).
 const MAX_CLOSED: usize = 4096;
@@ -63,9 +68,6 @@ const RETRY_AFTER: [Duration; 2] = [Duration::from_secs(2), Duration::from_secs(
 /// An agent that took the line and never answered (one from before hand-off reports reads the
 /// line and says nothing) is not asked again for this long: its sessions' steps are skipped.
 const SILENT_FOR: Duration = Duration::from_secs(15 * 60);
-/// How far this machine's clock may be behind the API's when a begin is matched to the turn
-/// the owner opened.
-pub(super) const SKEW_MS: u64 = 2_000;
 /// A finished turn's summary: the start of its last reply.
 const DONE_CHARS: usize = 600;
 /// A failed turn's summary, and what a permission or question asks.
@@ -77,8 +79,8 @@ const INPUT_CHARS: usize = 16_384;
 /// What one of a session's records means for its hand-off.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Step {
-    /// A turn began, at this machine's time `at` (ms).
-    Began { at: u64 },
+    /// A turn began: the hand-off turn its prompt names, if it names one.
+    Began(Option<u64>),
     /// A permission or question waits for the person: what it asks, when known.
     Asks(Option<String>),
     /// The session runs again (after an ask was answered).
@@ -110,9 +112,9 @@ pub(super) enum End {
 
 /// The step a record is, or `None` for every record a hand-off does not follow. A completed
 /// turn's reply is read by the caller (`handoff_loop`), when the turn ends.
-pub(super) fn step_of(kind: &str, msg: &Value, at: u64) -> Option<Step> {
+pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
     match kind {
-        "turn_started" => Some(Step::Began { at }),
+        "turn_started" => Some(Step::Began(named_turn(msg["promptId"].as_str()))),
         "permission_request" => Some(Step::Asks(ask_text(&msg["request"]))),
         "reopened" => Some(Step::Reopened),
         "status" => match msg["status"].as_str()? {
@@ -131,6 +133,17 @@ pub(super) fn step_of(kind: &str, msg: &Value, at: u64) -> Option<Step> {
         })),
         _ => None,
     }
+}
+
+/// The hand-off turn a prompt id names (`handoff-<turn>-<unique>`, or `handoff-<turn>`), from 1.
+/// An auto-resumed attempt (`<id>~resume-<n>`) names its first attempt's turn.
+pub(super) fn named_turn(prompt_id: Option<&str>) -> Option<u64> {
+    let rest = prompt_id?.strip_prefix(PROMPT_PREFIX)?;
+    let digits = rest.split(['-', '~']).next()?;
+    if digits.is_empty() || digits.len() > 15 || digits.starts_with('0') {
+        return None;
+    }
+    digits.parse().ok()
 }
 
 /// What a permission request asks, masked and cut: an agent's question, or the tool it asks for.
@@ -199,24 +212,12 @@ pub(super) trait Io {
     fn send(&self, line: String) -> impl Future<Output = Reply> + Send;
 }
 
-/// The hand-off's current turn, as a refusal names it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Current {
-    turn: u64,
-    /// When the owner opened it (API time, ms), while nothing has reported on it.
-    starting_since: Option<u64>,
-}
-
 /// How the store answered one report.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Outcome {
-    Accepted(u64),
-    /// An older turn: the store's current turn.
-    Stale(Current),
-    /// A turn not begun: the store's current turn.
-    Early(Current),
-    /// The turn already ended; the store's current turn.
-    Finished(u64),
+    Accepted,
+    /// Not this turn (older or newer than the hand-off's, or already ended).
+    Refused,
     Closed,
     /// No hand-off for this session.
     NotFound,
@@ -231,28 +232,19 @@ fn outcome(reply: &Reply) -> (Outcome, bool) {
         Reply::Failed => return (Outcome::Unsent, true),
         Reply::Silent => return (Outcome::Unsent, false),
     };
-    let turn = reply.pointer("/handoff/turn").and_then(Value::as_u64);
     if reply["ok"] == true {
-        return (turn.map_or(Outcome::Unsent, Outcome::Accepted), false);
+        return (Outcome::Accepted, false);
     }
-    let current = turn.map(|turn| Current {
-        turn,
-        starting_since: (reply.pointer("/handoff/status").and_then(Value::as_str)
-            == Some("starting"))
-        .then(|| reply.pointer("/handoff/statusAt").and_then(Value::as_str))
-        .flatten()
-        .and_then(crate::server::machine_health::rfc3339_ms),
-    });
     let code = reply.pointer("/error/code").and_then(Value::as_str).unwrap_or("");
     let status = reply["status"].as_u64().unwrap_or(0);
-    match (code, current) {
-        ("handoff.stale", Some(c)) => (Outcome::Stale(c), false),
-        ("handoff.turn_out_of_order", Some(c)) => (Outcome::Early(c), false),
-        ("handoff.turn_finished", Some(c)) => (Outcome::Finished(c.turn), false),
-        ("handoff.closed", _) => (Outcome::Closed, false),
-        ("handoff.not_found", _) => (Outcome::NotFound, false),
+    match code {
+        "handoff.stale" | "handoff.turn_out_of_order" | "handoff.turn_finished" => {
+            (Outcome::Refused, false)
+        }
+        "handoff.closed" => (Outcome::Closed, false),
+        "handoff.not_found" => (Outcome::NotFound, false),
         // The agent busy or stopping, the API unreachable or failing: worth another try.
-        ("busy" | "vm.agent_stopping" | "handoff.unreachable", _) => (Outcome::Unsent, true),
+        "busy" | "vm.agent_stopping" | "handoff.unreachable" => (Outcome::Unsent, true),
         _ => (Outcome::Unsent, status >= 500 || status == 429),
     }
 }
@@ -260,8 +252,6 @@ fn outcome(reply: &Reply) -> (Outcome, bool) {
 /// One session's place in its hand-off.
 #[derive(Debug, Default)]
 struct Track {
-    /// The hand-off's turn as last learned (0: not yet, so a begin tries turn 1).
-    turn: u64,
     now: Now,
     /// The hand-off is closed: nothing more is reported.
     closed: bool,
@@ -272,7 +262,8 @@ enum Now {
     /// No turn running here, or one this hand-off does not follow.
     #[default]
     Quiet,
-    /// A turn reported on hand-off turn `turn`; `last` is the status the store has from it.
+    /// A turn reported on hand-off turn `turn`; `last` is the status the store has from it
+    /// (`None`: its begin was not answered).
     Reporting { turn: u64, last: Option<&'static str> },
 }
 
@@ -304,7 +295,9 @@ impl<I: Io> Reporter<I> {
         }
         match step {
             Step::Reopened => {
-                self.closed.remove(session);
+                if self.closed.remove(session) {
+                    self.closed_order.retain(|s| s != session);
+                }
                 return;
             }
             Step::Closed => return self.close(session).await,
@@ -321,6 +314,10 @@ impl<I: Io> Reporter<I> {
         }
         if !self.tracks.contains_key(session) {
             self.make_room();
+            if self.tracks.len() >= MAX_TRACKS {
+                tracing::warn!(session, "hand-off reports: too many sessions, one not followed");
+                return;
+            }
         }
         let track = self.tracks.entry(session.to_owned()).or_default();
         if track.closed {
@@ -328,7 +325,7 @@ impl<I: Io> Reporter<I> {
         }
         let now = track.now;
         match (step, now) {
-            (Step::Began { at }, _) => self.begin(session, at).await,
+            (Step::Began(turn), _) => self.begin(session, turn).await,
             (Step::Asks(what), Now::Reporting { turn, last })
                 if last != Some("needs-you") || what.is_some() =>
             {
@@ -393,25 +390,26 @@ impl<I: Io> Reporter<I> {
         }
     }
 
-    /// A turn began at `at` (this machine's ms): reported on the hand-off's current turn.
-    async fn begin(&mut self, session: &str, at: u64) {
-        let tried = self.tracks.get(session).map_or(1, |t| t.turn.max(1));
-        let mut target = tried;
-        let mut answer = self.report(session, tried, "running", None).await;
-        if let Outcome::Stale(current) | Outcome::Early(current) = answer
-            && current.turn != tried
-            && current.starting_since.is_some_and(|since| at.saturating_add(SKEW_MS) >= since)
-        {
-            target = current.turn;
-            answer = self.report(session, target, "running", None).await;
-        }
+    /// A turn began: reported on the turn its prompt names, or not at all.
+    async fn begin(&mut self, session: &str, turn: Option<u64>) {
+        let answer = match turn {
+            Some(turn) => Some((turn, self.report(session, turn, "running", None).await)),
+            None => None,
+        };
         let Some(track) = self.tracks.get_mut(session) else { return };
         track.now = match answer {
-            Outcome::Accepted(turn) => Now::Reporting { turn, last: Some("running") },
-            // The store did not answer: the turn's later reports go to the turn it was sent on.
-            Outcome::Unsent => Now::Reporting { turn: target, last: None },
+            Some((turn, Outcome::Accepted)) => Now::Reporting { turn, last: Some("running") },
+            // The store did not answer: the turn's later reports still go to its turn.
+            Some((turn, Outcome::Unsent)) => Now::Reporting { turn, last: None },
             _ => Now::Quiet,
         };
+    }
+
+    /// Stops following every turn (the queue dropped steps, so one's end may be lost).
+    pub(super) fn forget_turns(&mut self) {
+        for track in self.tracks.values_mut() {
+            track.now = Now::Quiet;
+        }
     }
 
     /// A later report of a reported turn: on that turn only.
@@ -425,14 +423,14 @@ impl<I: Io> Reporter<I> {
         let answer = self.report(session, turn, status, note).await;
         let Some(track) = self.tracks.get_mut(session) else { return };
         match answer {
-            Outcome::Accepted(_) => track.now = Now::Reporting { turn, last: Some(status) },
+            Outcome::Accepted => track.now = Now::Reporting { turn, last: Some(status) },
             Outcome::Unsent => {}
             _ => track.now = Now::Quiet,
         }
     }
 
-    /// Sends one report (again after a failure worth retrying) and learns the store's turn
-    /// and whether the hand-off closed from its answer.
+    /// Sends one report (again after a failure worth retrying) and learns from its answer
+    /// whether the hand-off closed or does not exist.
     async fn report(
         &mut self,
         session: &str,
@@ -464,8 +462,7 @@ impl<I: Io> Reporter<I> {
             }
         }
         match answer {
-            Outcome::Accepted(t) | Outcome::Finished(t) => self.learn(session, t),
-            Outcome::Stale(c) | Outcome::Early(c) => self.learn(session, c.turn),
+            Outcome::Accepted | Outcome::Refused => {}
             Outcome::Closed => {
                 if let Some(track) = self.tracks.get_mut(session) {
                     track.closed = true;
@@ -479,12 +476,6 @@ impl<I: Io> Reporter<I> {
             Outcome::Unsent => tracing::warn!(session, turn, status, "hand-off report not sent"),
         }
         answer
-    }
-
-    fn learn(&mut self, session: &str, turn: u64) {
-        if let Some(track) = self.tracks.get_mut(session) {
-            track.turn = turn;
-        }
     }
 }
 
@@ -519,13 +510,15 @@ impl Io for AgentSocket {
 /// hand-offs while the Cloud agent's socket is there.
 pub(super) async fn handoff_loop(hub: Arc<Hub>) {
     let path = std::env::var_os(SOCKET_ENV).map_or_else(|| PathBuf::from(SOCKET), PathBuf::from);
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<(String, Step)>();
-    let waiting = Arc::new(AtomicUsize::new(0));
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, Step)>(QUEUE_CAP);
+    let overflowed = Arc::new(AtomicBool::new(false));
     let mut reporter = Reporter::new(AgentSocket { path: path.clone() });
-    let taken = waiting.clone();
+    let lost = overflowed.clone();
     tokio::spawn(async move {
         while let Some((session, step)) = rx.recv().await {
-            taken.fetch_sub(1, Ordering::SeqCst);
+            if lost.swap(false, Ordering::SeqCst) {
+                reporter.forget_turns();
+            }
             reporter.step(&session, step).await;
         }
     });
@@ -535,6 +528,7 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
             Ok(ev) => ev,
             Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                 tracing::warn!(missed = n, "hand-off reports: the event stream lagged");
+                overflowed.store(true, Ordering::SeqCst);
                 continue;
             }
             Err(_) => break,
@@ -542,7 +536,7 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
         if ev.remote.is_some() || ev.record.dir != "mux" {
             continue;
         }
-        let Some(mut step) = step_of(&ev.record.kind, &ev.record.msg, ev.record.at) else {
+        let Some(mut step) = step_of(&ev.record.kind, &ev.record.msg) else {
             continue;
         };
         // Off a Cloud machine only a session's close and reopen are kept (a few bytes each).
@@ -557,13 +551,17 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
             *reply =
                 tokio::task::spawn_blocking(read).await.ok().flatten().map(|r| cut(&r, DONE_CHARS));
         }
-        if !step.lifecycle() && waiting.load(Ordering::SeqCst) >= QUEUE_SOFT_CAP {
-            tracing::warn!(session = %ev.session_id, "hand-off reports: queue full, a step dropped");
+        if !step.lifecycle() && tx.capacity() <= QUEUE_CAP - QUEUE_SOFT_CAP {
+            tracing::warn!(session = %ev.session_id, "hand-off reports: queue long, a step dropped");
             continue;
         }
-        waiting.fetch_add(1, Ordering::SeqCst);
-        if tx.send((ev.session_id.clone(), step)).is_err() {
-            break;
+        match tx.try_send((ev.session_id.clone(), step)) {
+            Ok(()) => {}
+            Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                tracing::warn!(session = %ev.session_id, "hand-off reports: queue full, a step dropped");
+                overflowed.store(true, Ordering::SeqCst);
+            }
+            Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => break,
         }
     }
 }
