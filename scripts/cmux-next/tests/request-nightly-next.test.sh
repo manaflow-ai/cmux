@@ -519,6 +519,17 @@ python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["commit"]=
 grep -q "1 written" <<<"$wout" || fail "--tip must write each commit once (HEAD was already marked):" "$wout"
 rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --tip "$(printf 'f%.0s' {1..40})" >/dev/null 2>&1) || rc=$?
 [[ "$rc" == 2 ]] || fail "a --tip that names no commit is a usage error (exit 2), got $rc"
+# A tip commit whose tree key definition (key script or input list) differs from
+# this checkout's is not keyed here, even when this checkout's key would match.
+git_q -C "$src" checkout -q -b keydef "$app"
+echo "# a key definition change" >> "$src/scripts/cmux-next/cmux-tui-tree-inputs.txt"
+git_q -C "$src" add -A; git_q -C "$src" commit -m "key definition"
+keydef=$(git -C "$src" rev-parse HEAD)
+git_q -C "$src" checkout -q --detach "$head"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 2 --tip "$keydef" 2>&1) \
+  || fail "the writer with a cross-definition --tip failed:" "$wout"
+[[ ! -f "$cdn/tree-commits/$keydef.json" ]] || fail "a tip commit with another key definition must not be marked here:" "$wout"
+grep -q "key definition differs" <<<"$wout" || fail "the writer must say why it skipped the tip commit:" "$wout"
 git_q -C "$src" checkout -q --detach "$other"
 # check: 200 naming the commit, 404, and anything else (another commit, a 500) a read failure (3).
 printf '{"commit": "%s", "key": "%s", "publishedBy": "%s", "markedBy": "https://u"}\n' "$head" "$okey" "$other" > "$cdn/tree-commits/$other.json"

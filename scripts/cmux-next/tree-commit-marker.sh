@@ -118,6 +118,15 @@ tree_ready() { # <key>
   echo "publishedBy=${out#commit=}"
 }
 
+# key_definition <rev>: the blobs that define the tree key at <rev> (the key
+# script and its input list), one line; fails when either is missing.
+key_definition() {
+  local script inputs
+  script="$(git -C "$repo_root" rev-parse --verify -q "$1:scripts/ci/cmux_tui_tree_key.py")" || return 1
+  inputs="$(git -C "$repo_root" rev-parse --verify -q "$1:scripts/cmux-next/cmux-tui-tree-inputs.txt")" || return 1
+  echo "$script $inputs"
+}
+
 write_markers() {
   local window=40 tip="" rev key ready published code rrc marked=0 skipped=0
   # One readiness check per distinct key: $tmp/keys/<key> holds "ready <publisher>" or "no".
@@ -136,7 +145,28 @@ write_markers() {
   fi
   [[ -n "${R2_ENDPOINT:-}" ]] || { echo "error: R2_ENDPOINT is required to write markers" >&2; exit 2; }
   local run_url="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/actions/runs/${GITHUB_RUN_ID:-local}"
+  # The commits to walk: HEAD's window, then the tip's, each once. Listed up
+  # front so a failed rev-list fails the run instead of ending the walk early.
+  git -C "$repo_root" rev-list --first-parent -n "$window" HEAD > "$tmp/head-revs" \
+    || { echo "error: could not list HEAD's first-parent history" >&2; exit 1; }
+  cp "$tmp/head-revs" "$tmp/revs"
+  : > "$tmp/tip-revs"
+  if [[ -n "$tip" ]]; then
+    git -C "$repo_root" rev-list --first-parent -n "$window" "$tip" > "$tmp/tip-revs" \
+      || { echo "error: could not list the tip's first-parent history" >&2; exit 1; }
+    grep -vxF -f "$tmp/head-revs" "$tmp/tip-revs" >> "$tmp/revs" || true
+  fi
+  # A tip commit is keyed with this checkout's key script and input list, so it
+  # is marked only when its own copies are the same (a tip that changed the key
+  # definition is left to its own run, or the backfill, which keys it right).
+  local key_def
+  key_def="$(key_definition HEAD)" || { echo "error: could not read this checkout's tree key definition" >&2; exit 1; }
   while read -r rev; do
+    if grep -qxF "$rev" "$tmp/tip-revs" && ! grep -qxF "$rev" "$tmp/head-revs" \
+        && [[ "$(key_definition "$rev" 2>/dev/null)" != "$key_def" ]]; then
+      echo "commit ${rev:0:12}: its tree key definition differs from this run's; not marked here"
+      skipped=$((skipped + 1)); continue
+    fi
     key="$(python3 "$repo_root/scripts/ci/cmux_tui_tree_key.py" --version v2 "$rev" 2>/dev/null)" || {
       echo "commit ${rev:0:12}: no tree key; not marked"; skipped=$((skipped + 1)); continue; }
     if [[ ! -f "$tmp/keys/$key" ]]; then
@@ -179,11 +209,7 @@ PY
       echo "error: could not write the tree-commit marker of $rev" >&2
       exit 1
     fi
-  done < <(
-    # HEAD's window, then the tip's, each commit once.
-    { git -C "$repo_root" rev-list --first-parent -n "$window" HEAD
-      [[ -z "$tip" ]] || git -C "$repo_root" rev-list --first-parent -n "$window" "$tip"
-    } | awk '!seen[$0]++')
+  done < "$tmp/revs"
   echo "tree-commit markers: $marked written, $skipped commits not ready or unreadable, window $window"
 }
 
