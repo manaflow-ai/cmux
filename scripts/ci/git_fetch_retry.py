@@ -325,7 +325,9 @@ def run(command: Sequence[str], *, tries: int, timeout: float, repo: Path,
     for attempt in range(1, tries + 1):
         started = clock()
         if is_submodule_update(command):
-            drop_dangling_submodules(repo, log)
+            # an update of named paths (`-- PATH...`) drops only under those paths
+            only = command[command.index("--") + 1:] if "--" in command else []
+            drop_dangling_submodules(repo, log, only=only)
         modules_before = module_dirs(repo)
         status = runner(command, timeout)
         if status == 0:
