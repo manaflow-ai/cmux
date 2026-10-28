@@ -9,7 +9,7 @@
 // The item is the shared shape (plans/cmux-next/needs-you.md): the header's pinned list draws it,
 // the Feed keys the same prompt `acpmux:<permissionId>` (its dedupe key), and an agent points at an
 // item with `cmux://needs-you/<permissionId>` (links.ts) instead of restating it.
-import type { AcpmuxAgentPair, AcpmuxPermission, AcpmuxRow } from "../model";
+import type { AcpmuxAgentPair, AcpmuxPermission, AcpmuxRow, QueuedPrompt } from "../model";
 import { questionSummary, type AgentQuestion } from "../question/model";
 import type { AcpmuxSessionEntry } from "../sessionList";
 
@@ -49,6 +49,8 @@ export type NeedsYouItem = {
   /// acpmux holds; `ask` is that agent's name.
   peer?: string;
   held?: number;
+  /// A guest's held prompt (`awaitingOwner`), which Review opens on its card; `ask` is its text.
+  promptId?: string;
   question?: AgentQuestion;
 };
 
@@ -58,8 +60,9 @@ export type WatchedAsk = { sessionId: string; permission: AcpmuxPermission; at: 
 export type NeedsYouInput = {
   sessions: readonly AcpmuxSessionEntry[];
   asks: readonly WatchedAsk[];
-  /// The open chat and its rows: its agent pair holds are read from them.
-  open?: { sessionId?: string; rows: readonly AcpmuxRow[] };
+  /// The open chat and its rows: its agent pair holds are read from them, and its guests' held
+  /// prompts from its queue, answered here only where acpmux serves Approve (`queueApproval`).
+  open?: { sessionId?: string; rows: readonly AcpmuxRow[]; queue?: readonly QueuedPrompt[]; queueApproval?: boolean };
 };
 
 /// The Feed's key for a prompt (CmuxNextApp AcpmuxPermissionFeedBridge `dedupe_key`).
@@ -101,6 +104,22 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
         answers: [{ id: "resume", label: "resume", tone: "allow" }],
         peer: pair.peer,
         held: pair.held.length,
+      });
+    }
+    // A guest's prompt waits for the owner as a permission ask does (design/chat-multiplayer.md).
+    for (const entry of input.open.queueApproval ? (input.open.queue ?? []) : []) {
+      if (!entry.awaitingOwner) continue;
+      asked.add(input.open.sessionId);
+      items.push({
+        id: `guest:${input.open.sessionId}:${entry.id}`,
+        kind: "held",
+        sessionId: input.open.sessionId,
+        ask: entry.prompt,
+        who: who(session, input.open.sessionId, byId),
+        // Never approved from here: a preview is not what the owner approves. Review goes to the
+        // held card, which shows the whole message and has Approve (QueuedMessageCard.tsx).
+        answers: [{ id: "review", label: "review", tone: "choice" }],
+        promptId: entry.id,
       });
     }
   }
