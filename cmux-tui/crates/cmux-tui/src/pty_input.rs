@@ -8,7 +8,7 @@
 //! every accepted mouse press reserves its release capacity.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -339,13 +339,13 @@ struct InFlightInput {
 #[derive(Default)]
 struct SharedQueue {
     state: Mutex<QueueState>,
-    changed: Condvar,
+    changed: cmux_threads::sync::Condvar,
     /// Watches each local input write at 100 ms (the owner mux's request
     /// watchdog); `None` with no local mux.
     hangs: Option<EchoWatch>,
     /// Wakes `mux-session-mutation` (its own: `changed.notify_one` is for
     /// the worker).
-    session_mutation_ready: Condvar,
+    session_mutation_ready: cmux_threads::sync::Condvar,
     #[cfg(test)]
     after_operation_before_cleanup: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     #[cfg(test)]
@@ -491,7 +491,7 @@ impl PtyInputDispatcher {
                 let _ = worker.join();
             }
             if let Some(session_mutations) = self.session_mutations.take() {
-                let _ = session_mutations.join();
+                let _ = crate::blocking::thread::join(session_mutations);
             }
         }
         drained
@@ -933,7 +933,9 @@ fn worker(queue: Arc<SharedQueue>, on_failure: Arc<dyn Fn(PtyOperationFailure) +
                 {
                     return;
                 }
-                state = queue.changed.wait(state).unwrap();
+                // The worker's own next event: an idle wait, never a blocking
+                // call on this echo thread.
+                state = queue.changed.idle().wait(state).unwrap();
             }
         };
 

@@ -202,6 +202,9 @@ final class CEFRuntime {
     /// The lanes whose startup fence holds a preload's framework read (feature `cefPrefetchBehindFence`); a start
     /// promotes it. Nil: the preload reads and maps at once, at utility.
     var prefetchWork: BackgroundWork?
+    var rendererHangFollowsVisibility = false  // feature chromiumHangFollowsVisibility (CEFRendererHang); false: every hang prompts
+    /// Where a shown tab reads its window's state and hears it change for the hang rules (``CEFTab/showsForRendererHang``).
+    var rendererHangWindows = ChromiumHostPageVisibility.Source.appKit
     /// Maps the in-process shim and framework through ``prefetch`` (``CEFLibraryLoader``; a test's counter).
     lazy var loadInProcess: @Sendable (CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError> = { [loader = CEFLibraryLoader(prefetch: self.prefetch)] in
         loader.load($0)
