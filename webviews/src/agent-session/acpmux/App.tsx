@@ -4999,6 +4999,7 @@ function AcpmuxPane() {
   const trayPlacement = useSubagentTrayPlacement();
   const doneLines = useRef<DoneLineCache>(new Map());
   const childDoneLines = useRef<DoneLineCache>(new Map());
+  const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   const freshAgents = useMemo(
     () => [...subagentsIn(snapshot.rows, snapshot.subagentViews).values()],
     [snapshot.rows, snapshot.subagentViews],
@@ -5009,9 +5010,14 @@ function AcpmuxPane() {
     [workflowLabsEnabled, workflowAdapter, freshAgents, shownSessionId],
   );
   const workflowRequest = useMemo(() => workflowPaneRequest(subagentView), [subagentView]);
-  const selectedWorkflowAgent = workflows
-    .findLast((workflow) => workflow.runId === workflowRequest?.runId)
-    ?.agents.find((agent) => agent.agentId === workflowRequest?.agentId);
+  const selectedWorkflowAgent = useMemo(
+    () =>
+      [...workflows]
+        .reverse()
+        .find((workflow) => workflow.runId === workflowRequest?.runId)
+        ?.agents.find((agent) => agent.agentId === workflowRequest?.agentId),
+    [workflows, workflowRequest],
+  );
   const readWorkflowAgent = useCallback(
     (request: WorkflowDetailRequest & { before?: number; after?: number }) =>
       directClient.current?.readWorkflowAgent(request) ?? Promise.reject(new Error("Not connected")),
@@ -5024,6 +5030,7 @@ function AcpmuxPane() {
     selectedWorkflowAgent,
     chatName,
     readWorkflowAgent,
+    snapshot.connection,
   );
   const childRows = useMemo(() => {
     if (workflowTranscript.rows) return workflowTranscript.rows;
@@ -5253,7 +5260,6 @@ function AcpmuxPane() {
   );
   // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
   // popover under the header button so it never covers the composer controls.
-  const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
   // Leo, 2026-10-21: "no layout shift then a fast fade in, instant if cached". A switch in place
   // (chat.select: the page's list, a branch, a fork) to a chat read cold fades its transcript in;
   // one drawn from a kept tail (direct.ts drawKeptTail) shows on the frame it lands. The first chat

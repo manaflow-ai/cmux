@@ -155,3 +155,64 @@ test("failed and non-advancing reads stop until a new progress event or explicit
   expect(reader.failed).toBe(true);
   expect(calls).toBe(2);
 });
+
+test("the hook refreshes only the selected agent, survives StrictMode, and drops switched reads", async () => {
+  const { JSDOM, VirtualConsole } = await import("jsdom");
+  const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost/", virtualConsole: new VirtualConsole() });
+  const scope = globalThis as Record<string, unknown>;
+  const globals = {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    HTMLElement: dom.window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+  const saved = Object.keys(globals).map((key) => [key, scope[key]] as const);
+  Object.assign(scope, globals);
+  const { act, createElement, StrictMode } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { useWorkflowTranscript } = await import("../src/agent-session/acpmux/summary/useWorkflowTranscript");
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const pending = deferred<unknown>();
+  let calls = 0;
+  const read = async () => (++calls <= 2 ? page(0, 1, 1, [text(`read ${calls}`)]) : pending.promise);
+  // Keep the component type stable across renders: changing a parent snapshot does not remount it.
+  let progress = 1;
+  let id = workflowPaneId(request);
+  function Probe() {
+    const result = useWorkflowTranscript(
+      id,
+      "chat",
+      true,
+      { id: "ui-key", name: "Review", state: "running", lastProgressAt: progress },
+      "Parent",
+      read,
+      "connected",
+    );
+    return createElement("div", null, result.rows?.map((row) => row.text).join("|"));
+  }
+  const show = () => root.render(createElement(StrictMode, null, createElement(Probe)));
+  try {
+    await act(async () => show());
+    expect(calls).toBe(1);
+    await act(async () => show());
+    expect(calls).toBe(1);
+    progress = 2;
+    await act(async () => show());
+    expect(calls).toBe(2);
+    expect(dom.window.document.body.textContent).toContain("read 2");
+    progress = 3;
+    await act(async () => show());
+    id = workflowPaneId({ ...request, sessionId: "other" });
+    await act(async () => show());
+    await act(async () => pending.resolve(page(0, 1, 1, [text("wrong chat")])));
+    expect(dom.window.document.body.textContent).not.toContain("wrong chat");
+  } finally {
+    await act(async () => root.unmount());
+    for (const [key, value] of saved) {
+      if (value === undefined) delete scope[key];
+      else scope[key] = value;
+    }
+    dom.window.close();
+  }
+});

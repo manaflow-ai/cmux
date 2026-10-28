@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { SUBAGENT_OF } from "../subagents/subagentRows";
@@ -13,28 +13,32 @@ export function useWorkflowTranscript(
   agent: WorkflowAgent | undefined,
   chat: string,
   read: TranscriptRead,
+  connection: string,
 ) {
   const t = useT();
-  const [, redraw] = useReducer((n: number) => n + 1, 0);
+  const [revision, redraw] = useReducer((n: number) => n + 1, 0);
   const readRef = useRef(read);
   readRef.current = read;
   const request = useMemo(() => workflowPaneRequest(id), [id]);
-  const reader = useMemo(
-    () =>
-      enabled && request?.sessionId === sessionId
-        ? new WorkflowTranscript(request, (params) => readRef.current(params), redraw)
-        : undefined,
-    [request, sessionId, enabled],
-  );
-  useEffect(() => () => reader?.dispose(), [reader]);
+  const [active, setActive] = useState<WorkflowTranscript>();
+  useEffect(() => {
+    if (!enabled || !request || request.sessionId !== sessionId) {
+      setActive(undefined);
+      return;
+    }
+    const next = new WorkflowTranscript(request, (params) => readRef.current(params), redraw);
+    setActive(next);
+    return () => next.dispose();
+  }, [request, sessionId, enabled]);
+  const reader = active?.request === request ? active : undefined;
   useEffect(() => {
     void reader?.refresh();
-  }, [reader, agent?.lastProgressAt, agent?.state, agent?.doing, agent?.tokens, agent?.lastMessage]);
+  }, [reader, agent?.lastProgressAt, agent?.state, agent?.doing, agent?.tokens, agent?.lastMessage, connection]);
   const rows = useMemo((): AcpmuxRow[] | undefined => {
-    if (!reader || !id) return undefined;
+    if (!enabled || !request || request.sessionId !== sessionId || !id) return undefined;
     const pill: AcpmuxRow = {
       id: `${id}:of`,
-      version: 1,
+      version: revision,
       at: 0,
       kind: SUBAGENT_OF,
       text: chat,
@@ -49,21 +53,21 @@ export function useWorkflowTranscript(
         },
       ],
     };
-    const notice = reader.failed
+    const notice = reader?.failed
       ? t("workflow.detailUnavailable")
-      : reader.loading && !reader.rows.length
+      : (!reader || reader.loading) && !reader?.rows.length
         ? t("replay.loading")
-        : reader.truncated
+        : reader?.truncated
           ? t("inspector.olderDropped")
           : undefined;
     return [
       pill,
-      ...reader.rows,
+      ...(reader?.rows ?? []),
       ...(notice
         ? [
             {
               id: `${id}:notice`,
-              version: reader.failed ? 2 : 1,
+              version: reader?.failed ? 2 : 1,
               at: 0,
               kind: "notice",
               text: notice,
@@ -71,7 +75,7 @@ export function useWorkflowTranscript(
           ]
         : []),
     ];
-  }, [reader, id, chat, agent, request, t, reader?.rows, reader?.loading, reader?.failed]);
+  }, [reader, id, chat, agent, request, t, revision, enabled, sessionId]);
   return {
     rows,
     canLoadOlder: reader?.canLoadOlder ?? false,
