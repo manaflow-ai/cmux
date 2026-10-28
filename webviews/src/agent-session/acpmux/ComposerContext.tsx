@@ -52,6 +52,7 @@ export const CONTEXT_LABELS = {
   folderSearch: "composer.folderSearch",
   cloud: "composer.cloud",
   connectSSH: "composer.connectSSH",
+  addComputer: "composer.addComputer",
   newCloudMachine: "composer.newCloudMachine",
   newChatHere: "composer.newChatHere",
   noProject: "composer.noProject",
@@ -99,6 +100,7 @@ export function ComposerContext({
   onNewChat,
   onBrowseFolder,
   onConnect,
+  connectOnlyWhenEmpty = false,
   onOffload,
   offloads = NO_OFFLOADS,
   saved,
@@ -141,6 +143,8 @@ export function ComposerContext({
   /// A new chat's Computer menu ends with SSH… and New Cloud Machine, which open the host's
   /// connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
   onConnect?(kind: ConnectKind): void;
+  /// New Tab without Labs exposes setup only until another computer is listed.
+  connectOnlyWhenEmpty?: boolean;
   /// A started chat's one move, in the environment picker: Move to Cloud for a chat on this Mac,
   /// Bring Back Local for one a move put on a Cloud machine (the tab menu's same actions), as
   /// `offloads` lists them. None when the host passes none (the floating chat).
@@ -293,7 +297,10 @@ export function ComposerContext({
   };
   // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
   const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
-  const computerDisabled = readOnly && !offload && (started || !onConnect);
+  // A first computer is discoverable without Labs, including from a started local chat.
+  // Existing machines and the preview picker keep their own connection choices.
+  const onboardingConnect = !environments && !computers.some((computer) => computer.id !== "local") ? onConnect : undefined;
+  const computerDisabled = readOnly && !offload && (started || !onConnect) && !onboardingConnect;
   // Preview (`labs.previewFeatures`): the computer control is the environment picker.
   const environmentsShown = environments && !computerDisabled;
   const savedRows = environmentsShown && !readOnly ? saved : undefined;
@@ -436,12 +443,17 @@ export function ComposerContext({
               disabled={computerDisabled}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
               extras={
-                !started && onConnect
+                onboardingConnect
                   ? [
-                      { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
-                      { id: "cloud", label: t(CONTEXT_LABELS.newCloudMachine), onSelect: () => onConnect("cloud") },
+                      { id: "addMachine", label: t(CONTEXT_LABELS.addComputer), onSelect: () => onboardingConnect?.("addMachine") },
+                      { id: "cloud", label: t(CONTEXT_LABELS.newCloudMachine), onSelect: () => onboardingConnect?.("cloud") },
                     ]
-                  : undefined
+                  : !started && onConnect && !connectOnlyWhenEmpty
+                    ? [
+                        { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
+                        { id: "cloud", label: t(CONTEXT_LABELS.newCloudMachine), onSelect: () => onConnect("cloud") },
+                      ]
+                    : undefined
               }
               onPick={pickComputer}
             />

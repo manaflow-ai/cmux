@@ -235,6 +235,47 @@ test("previews off: the row keeps its plain Computer menu", async () => {
   expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
 });
 
+// A fresh home must offer setup without enabling the environments preview. The same
+// plain Computer menu is usable from an existing local chat; its machine stays fixed.
+for (const started of [false, true]) {
+  test(`previews off: ${started ? "a local chat" : "a new chat"} with no other computers offers setup`, async () => {
+    const calls = await mount(false, {
+      started,
+      sessions: [],
+      peers: [],
+      cloudMachines: [],
+      summary: { sessionId: started ? "local-chat" : "", harness: "claude", hostKind: "local" },
+    });
+    await openPicker();
+    const actions = () => [...doc().querySelectorAll<HTMLButtonElement>(".acpmux-location-choose")];
+    expect(actions().map((button) => button.textContent)).toEqual([
+      t("composer.addComputer"),
+      t("composer.newCloudMachine"),
+    ]);
+    await act(async () => actions()[0]!.click());
+    expect(calls).toEqual([["connect", "addMachine"]]);
+    await openPicker();
+    await act(async () => actions()[1]!.click());
+    expect(calls).toEqual([["connect", "addMachine"], ["connect", "cloud"]]);
+    expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
+  });
+}
+
+test("previews off: New Tab does not add setup beside existing computers", async () => {
+  await mount(false, { connectOnlyWhenEmpty: true });
+  await openPicker();
+  expect(doc().querySelector(".acpmux-location-choose")).toBeNull();
+});
+
+test("previews off: an existing remote computer keeps the current connection footer", async () => {
+  await mount(false);
+  await openPicker();
+  expect([...doc().querySelectorAll(".acpmux-location-choose")].map((button) => button.textContent)).toEqual([
+    t("composer.connectSSH"),
+    t("composer.newCloudMachine"),
+  ]);
+});
+
 test("previews on: one list in This Mac, My machines and Cloud and VMs sections, numbered ⌥⌘1–9, defaulting to this computer", async () => {
   await mount(true);
   expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: cosmic-gray`);

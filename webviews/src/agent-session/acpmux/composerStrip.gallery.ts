@@ -100,6 +100,12 @@ export default agentPaneEntry({
       ready: { newSession: true },
       snapshot: fresh(true, { cwd: "/Users/you/src/atlas-web-checkout", branch: "main" }),
     },
+    "computer-first-setup": {
+      note: "A new chat on a fresh home: the plain Computer menu offers setup without Labs.",
+      ready: { newSession: true, machineName: "Studio Mac" },
+      snapshot: fresh(true, { hostKind: "local" }),
+      native: { "cloudMachine.list": { signedIn: false, loaded: true, machines: [] } },
+    },
     "no-project": {
       note: "A new chat with no folder yet: Choose folder in the strip, which keeps its height.",
       ready: { newSession: true },

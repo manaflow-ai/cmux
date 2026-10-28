@@ -1177,7 +1177,7 @@ export function NewTabScreen(props: Props) {
         {...(browseProject ? { onBrowseProject: browseProject } : {})}
         {...(props.environments ? { environments: true } : {})}
         {...(newWorktreeHere ? { onNewWorktree: newWorktreeHere } : {})}
-        {...(props.environments && props.onConnect ? { onConnect: props.onConnect } : {})}
+        {...(props.onConnect ? { onConnect: props.onConnect, connectOnlyWhenEmpty: !props.environments } : {})}
         {...(props.environments && props.runMode ? { runMode: props.runMode } : {})}
         {...(saved.on
           ? {
