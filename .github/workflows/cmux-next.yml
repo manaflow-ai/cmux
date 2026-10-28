@@ -4497,10 +4497,10 @@ jobs:
   # requests immediately; the Mac job below requests only when it had no
   # verdict. Main's promote job refuses a head whose push run has no successful
   # Release compile, so each request waits for its own gate and for nothing else.
-  # Every green head is promoted, with no debounce: nightly.yml's concurrency
-  # group lets the running nightly-next build finish and replaces only the
-  # pending one, so the feed rolls forward to the newest green head without
-  # dropping the last one. Only main's job, in the `release` environment,
+  # Since 2026-10-28 this request only reports: request-nightly-next.sh dispatches
+  # the promotion only from main's 30-minute nightly-next-tick.yml
+  # (NIGHTLY_NEXT_PROMOTE=1), so a burst of landings starts one nightly build,
+  # not one each (six ran at once). Only main's job, in the `release` environment,
   # holds the release App key and checks this push run's Release compile; this
   # job only needs actions: write to request it.
   # The request also waits for this commit's cmux-tui tree: the nightly builds
