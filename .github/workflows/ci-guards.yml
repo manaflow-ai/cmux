@@ -1729,6 +1729,7 @@ jobs:
           python3 tests/test_release_signer_nightly.py
           python3 tests/test_dev_app_linux.py
           python3 tests/test_nightly_signer_jobs.py
+          python3 tests/test_signer_parity_compare.py
 
       - name: Validate the release app signer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}

@@ -24,6 +24,24 @@ and every symlink target is payload, and one differing byte fails the compare
 The signature report lists, for every Mach-O slice, which CodeDirectory fields
 and signature blobs differ between A and B, and for every CodeResources which
 entries differ; those differences are reported, not failed.
+
+STRICT MODE (--strict) fails on every difference except the signing time:
+  - the CMS SignedData must have the same certificates, signer identifier,
+    digest and signature algorithms, and signed attributes; only signingTime
+    (1.2.840.113549.1.9.5) may differ. The messageDigest and CodeDirectory-hash
+    attributes are compared with each side's own CodeDirectory digests named,
+    so they may differ only where the CodeDirectories may. Each side's
+    signature must verify against its own leaf certificate (openssl cms
+    -verify -noverify, over its CodeDirectory); without openssl it fails;
+  - the only unsigned attribute allowed is one timestamp token
+    (1.2.840.113549.1.9.16.2.14), on both sides or neither; its contents may differ;
+  - the same content framed differently (BER versus DER) fails, reported as
+    framing only;
+  - every other signature blob must be byte-identical, except a
+    CodeDirectory's CodeResources hash slot, and a CodeResources entry may
+    differ only by the hash of a nested item (a Mach-O, a CodeResources) that
+    itself passes strict mode; then those hashes compare as equal.
+The report ends with `strict parity: PASS` or `strict parity: FAIL (<n> differences)`.
 """
 from __future__ import annotations
 
@@ -380,13 +398,8 @@ def describe(root: str, rel: str, path: str, input_root: str | None = None) -> d
     return record
 
 
-def code_resources_diff(a: str, b: str) -> list:
-    with open(a, "rb") as fa, open(b, "rb") as fb:
-        ra, rb = fa.read(), fb.read()
-    try:
-        pa, pb = plistlib.loads(ra), plistlib.loads(rb)
-    except Exception:  # not a plist: only its bytes can be compared
-        return [] if ra == rb else ["not a property list; bytes differ"]
+def code_resources_diff_values(pa, pb) -> list:
+    """code_resources_diff() over two parsed property lists."""
     if not isinstance(pa, dict) or not isinstance(pb, dict):
         return [] if pa == pb else ["differs"]
     out = []
@@ -397,16 +410,460 @@ def code_resources_diff(a: str, b: str) -> list:
         if not isinstance(sa, dict) or not isinstance(sb, dict):
             out.append(f"{section}: differs")
             continue
-        for key in sorted(set(sa) | set(sb)):
-            if sa.get(key) == sb.get(key):
-                continue
+        for key in sorted(k for k in set(sa) | set(sb) if sa.get(k) != sb.get(k)):
             va, vb = sa.get(key), sb.get(key)
             if isinstance(va, dict) and isinstance(vb, dict):
-                fields = sorted(k for k in set(va) | set(vb) if va.get(k) != vb.get(k))
-                out.append(f"{section}/{key}: {', '.join(fields)}")
+                out.append(f"{section}/{key}: {', '.join(sorted(k for k in set(va) | set(vb) if va.get(k) != vb.get(k)))}")
             else:
                 out.append(f"{section}/{key}: {'only A' if vb is None else 'only B' if va is None else 'differs'}")
     return out
+
+
+def code_resources_diff(a: str, b: str) -> list:
+    with open(a, "rb") as fa, open(b, "rb") as fb:
+        ra, rb = fa.read(), fb.read()
+    try:
+        pa, pb = plistlib.loads(ra), plistlib.loads(rb)
+    except Exception:  # not a plist: only its bytes can be compared
+        return [] if ra == rb else ["not a property list; bytes differ"]
+    return code_resources_diff_values(pa, pb)
+
+
+# --strict: every difference fails except the signing time.
+
+SIGNING_TIME = "1.2.840.113549.1.9.5"
+TIMESTAMP_TOKEN = "1.2.840.113549.1.9.16.2.14"
+APPLE_CDHASHES_PLIST = "1.2.840.113635.100.9.1"
+RSA_PKCS1 = {"1.2.840.113549.1.1.1", "1.2.840.113549.1.1.5", "1.2.840.113549.1.1.11",
+             "1.2.840.113549.1.1.12", "1.2.840.113549.1.1.13"}  # deterministic signatures
+STRING_TAGS = {3, 4, 12, 19, 20, 22, 23, 24, 26, 30}  # universal string types BER may chunk
+FRAMING = "framing only (the same content in a different BER/DER encoding): "
+
+
+class Node:
+    """One BER/DER TLV: class, constructed bit, tag number, content and children,
+    the encoding issues DER forbids in its own header, and its path in the tree."""
+
+    def __init__(self, cls, constructed, number, path):
+        self.cls, self.constructed, self.number, self.path = cls, constructed, number, path
+        self.children, self.value, self.issues = [], b"", []
+
+    def name(self):
+        if self.cls == 0:
+            return {1: "BOOLEAN", 2: "INTEGER", 3: "BIT STRING", 4: "OCTET STRING", 5: "NULL", 6: "OID",
+                    16: "SEQUENCE", 17: "SET", 23: "UTCTime", 24: "GeneralizedTime"}.get(self.number, f"U{self.number}")
+        return ("[%d]" if self.cls == 2 else "%s%%d" % "?AC?"[self.cls]) % self.number
+
+
+def read_tlv(data: bytes, pos: int = 0, path: str = "", depth: int = 0):
+    """(Node, next position) for the TLV at pos. Accepts BER (indefinite lengths,
+    long-form lengths, chunked strings) and notes each non-DER form as an issue."""
+    if depth > 64 or pos + 2 > len(data):
+        raise ValueError("malformed DER: truncated")
+    first = data[pos]
+    pos += 1
+    number = first & 0x1F
+    if number == 0x1F:
+        number = 0
+        while True:
+            if pos >= len(data):
+                raise ValueError("malformed DER: truncated tag")
+            number = (number << 7) | (data[pos] & 0x7F)
+            pos += 1
+            if not data[pos - 1] & 0x80:
+                break
+    node = Node(first >> 6, bool(first & 0x20), number, path)
+    node.path = f"{path}/{node.name()}" if path else node.name()
+    length_byte = data[pos]
+    pos += 1
+    if length_byte == 0x80:
+        if not node.constructed:
+            raise ValueError("malformed DER: indefinite length on a primitive")
+        node.issues.append("indefinite length")
+        while data[pos:pos + 2] != b"\0\0":
+            child, pos = read_tlv(data, pos, f"{node.path}#{len(node.children)}", depth + 1)
+            node.children.append(child)
+            if pos + 2 > len(data):
+                raise ValueError("malformed DER: unterminated indefinite length")
+        end = pos + 2
+    else:
+        length = length_byte
+        if length_byte & 0x80:
+            count = length_byte & 0x7F
+            raw = data[pos:pos + count]
+            if len(raw) != count or count > 8:
+                raise ValueError("malformed DER: bad length")
+            length = int.from_bytes(raw, "big")
+            pos += count
+            if raw[:1] == b"\0" or length < 0x80:
+                node.issues.append("non-minimal length")
+        end = pos + length
+        if end > len(data):
+            raise ValueError("malformed DER: content runs past the end")
+        if node.constructed:
+            while pos < end:
+                child, pos = read_tlv(data[:end], pos, f"{node.path}#{len(node.children)}", depth + 1)
+                node.children.append(child)
+        else:
+            node.value = data[pos:end]
+    if node.constructed and node.cls == 0 and node.number in STRING_TAGS:
+        node.issues.append("constructed (chunked) string")
+        node.value = b"".join(c.value for c in node.children)
+        node.constructed, node.children = False, []
+    return node, end
+
+
+def der(node: Node) -> bytes:
+    """The node re-encoded as DER (definite minimal lengths, strings unchunked):
+    two nodes with equal der() have the same content however they were framed."""
+    body = b"".join(der(c) for c in node.children) if node.constructed else node.value
+    if node.number < 0x1F:
+        head = bytes([(node.cls << 6) | (0x20 if node.constructed else 0) | node.number])
+    else:
+        digits, n = [], node.number
+        while True:
+            digits.insert(0, (n & 0x7F) | (0x80 if digits else 0))
+            n >>= 7
+            if not n:
+                break
+        head = bytes([(node.cls << 6) | (0x20 if node.constructed else 0) | 0x1F] + digits)
+    n = len(body)
+    length = bytes([n]) if n < 0x80 else bytes([0x80 | ((n.bit_length() + 7) // 8)]) + n.to_bytes((n.bit_length() + 7) // 8, "big")
+    return head + length + body
+
+
+def oid(node: Node) -> str:
+    if node.cls != 0 or node.number != 6 or not node.value:
+        raise ValueError("malformed CMS: expected an OBJECT IDENTIFIER")
+    arcs, n = [], 0
+    for byte in node.value:
+        n = (n << 7) | (byte & 0x7F)
+        if not byte & 0x80:
+            arcs.append(n)
+            n = 0
+    first = min(arcs[0] // 40, 2)
+    return ".".join(str(a) for a in [first, arcs[0] - 40 * first] + arcs[1:])
+
+
+def framing_issues(node: Node, skip=()) -> list:
+    if any(node.path.startswith(s) for s in skip):
+        return []
+    out = [f"{node.path}: {issue}" for issue in node.issues]
+    if node.cls == 0 and node.number == 17 or node.path.endswith("signedAttrs"):
+        encoded = [der(c) for c in node.children]
+        if encoded != sorted(encoded):
+            out.append(f"{node.path}: SET OF elements not in DER order")
+    for child in node.children:
+        out += framing_issues(child, skip)
+    return out
+
+
+def parse_cms(data: bytes) -> dict:
+    """The parts of a CMS SignedData a code signature uses; ValueError when it is not one."""
+    root, end = read_tlv(data)
+    trailing = data[end:]
+    if oid(root.children[0]) != "1.2.840.113549.1.7.2" or len(root.children) < 2:
+        raise ValueError("malformed CMS: not SignedData")
+    sd = root.children[1].children[0].children
+    out = {"root": root, "trailing": trailing, "version": sd[0], "digestAlgorithms": sd[1], "encap": sd[2],
+           "certificates": [], "crls": None, "signers": []}
+    rest = sd[3:]
+    if rest and rest[0].cls == 2 and rest[0].number == 0:
+        out["certificates"] = rest.pop(0).children
+    if rest and rest[0].cls == 2 and rest[0].number == 1:
+        out["crls"] = rest.pop(0)
+    if len(rest) != 1:
+        raise ValueError("malformed CMS: expected one signerInfos SET")
+    for info in rest[0].children:
+        fields = list(info.children)
+        signer = {"node": info, "version": fields.pop(0), "sid": fields.pop(0), "digestAlgorithm": fields.pop(0),
+                  "signed": None, "unsigned": None}
+        if fields and fields[0].cls == 2 and fields[0].number == 0:
+            signer["signed"] = fields.pop(0)
+            signer["signed"].path += " signedAttrs"
+        signer["signatureAlgorithm"], signer["signature"] = fields.pop(0), fields.pop(0)
+        if fields and fields[0].cls == 2 and fields[0].number == 1:
+            signer["unsigned"] = fields.pop(0)
+        if fields:
+            raise ValueError("malformed CMS: unexpected SignerInfo fields")
+        out["signers"].append(signer)
+    return out
+
+
+def attributes(node) -> list:
+    """[(oid, values node)] of a signed or unsigned attribute set."""
+    return [(oid(a.children[0]), a.children[1]) for a in (node.children if node else [])]
+
+
+def hash_names(blob: bytes, label: str) -> dict:
+    """Every digest a signature may record of blob (full and truncated to 20 bytes), named by label."""
+    out = {}
+    for alg in ("sha1", "sha256", "sha384", "sha512"):
+        digest = hashlib.new(alg, blob).digest()
+        out[digest] = f"<{alg} of {label}>"
+        out.setdefault(digest[:20], f"<{alg}[:20] of {label}>")
+    return out
+
+
+def named(value, names: dict):
+    """value (bytes, or a plist of bytes) with each digest in names replaced by its name."""
+    if isinstance(value, bytes):
+        for digest in sorted(names, key=len, reverse=True):
+            name = names[digest]
+            value = value.replace(digest, name if isinstance(name, bytes) else name.encode())
+        return value
+    if isinstance(value, dict):
+        return {k: named(v, names) for k, v in value.items()}
+    if isinstance(value, list):
+        return [named(v, names) for v in value]
+    return value
+
+
+def attribute_value(attr_oid: str, values: Node, names: dict):
+    """An attribute's content with its own CodeDirectories' digests named, so two
+    signatures whose CodeDirectories differ only in allowed ways compare equal."""
+    if attr_oid == APPLE_CDHASHES_PLIST and values.children:
+        try:
+            return named(plistlib.loads(values.children[0].value), names)
+        except Exception:
+            pass
+    return named(der(values), names)
+
+
+def openssl_verify(cms: bytes, content: bytes):
+    """None when the CMS signature verifies against its own leaf certificate over
+    content (its messageDigest included), else the reason."""
+    import shutil
+    import subprocess
+    import tempfile
+    tool = shutil.which("openssl")
+    if not tool:
+        return "openssl is not available, so the signature cannot be verified (strict mode fails closed)"
+    with tempfile.TemporaryDirectory() as tmp:
+        sig, data = os.path.join(tmp, "sig.der"), os.path.join(tmp, "content")
+        with open(sig, "wb") as h:
+            h.write(cms)
+        with open(data, "wb") as h:
+            h.write(content)
+        proc = subprocess.run([tool, "cms", "-verify", "-noverify", "-binary", "-inform", "DER", "-in", sig,
+                               "-content", data, "-out", os.devnull], capture_output=True, text=True)
+    return None if proc.returncode == 0 else "does not verify: " + (proc.stderr.strip().splitlines() or ["?"])[-1]
+
+
+def strict_cms(ca: bytes, cb: bytes, cds_a: dict, cds_b: dict, labels=("A", "B")) -> list:
+    """Differences between two CMS signatures other than the signing time. cds_*
+    are each side's CodeDirectories by slot: their digests in the signed
+    attributes are compared by name, and slot 0 is the signed content."""
+    if ca == cb:
+        return []
+    out = []
+    try:
+        pa, pb = parse_cms(ca), parse_cms(cb)
+    except (ValueError, IndexError) as error:
+        return [f"CMS: cannot parse ({error})"]
+    for key in ("version", "digestAlgorithms", "encap"):
+        if der(pa[key]) != der(pb[key]):
+            out.append(f"CMS: SignedData {key} differs")
+    certs_a, certs_b = [der(c) for c in pa["certificates"]], [der(c) for c in pb["certificates"]]
+    if certs_a != certs_b:
+        out.append(FRAMING + "CMS: the same certificates in a different order" if sorted(certs_a) == sorted(certs_b)
+                   else f"CMS: certificates differ ({len(certs_a)} / {len(certs_b)})")
+    if (pa["crls"] and der(pa["crls"])) != (pb["crls"] and der(pb["crls"])):
+        out.append("CMS: crls differ")
+    if len(pa["signers"]) != len(pb["signers"]):
+        return out + [f"CMS: {len(pa['signers'])} / {len(pb['signers'])} signers"]
+    names_a = {k: v for slot, cd in cds_a.items() for k, v in hash_names(cd, f"CodeDirectory {slot:#x}").items()}
+    names_b = {k: v for slot, cd in cds_b.items() for k, v in hash_names(cd, f"CodeDirectory {slot:#x}").items()}
+    skip = ([], [])
+    for i, (sa, sb) in enumerate(zip(pa["signers"], pb["signers"])):
+        where = f"CMS signer {i}"
+        for key in ("version", "sid", "digestAlgorithm", "signatureAlgorithm"):
+            if der(sa[key]) != der(sb[key]):
+                out.append(f"{where}: {key} differs")
+        attrs_a, attrs_b = attributes(sa["signed"]), attributes(sb["signed"])
+        ids_a, ids_b = [o for o, _ in attrs_a], [o for o, _ in attrs_b]
+        if sorted(ids_a) != sorted(ids_b) or len(set(ids_a)) != len(ids_a):
+            out.append(f"{where}: signed attributes differ ({', '.join(ids_a)} / {', '.join(ids_b)})")
+        else:
+            va, vb = dict(attrs_a), dict(attrs_b)
+            for attr in ids_a:
+                if attr == SIGNING_TIME:
+                    continue
+                if attribute_value(attr, va[attr], names_a) != attribute_value(attr, vb[attr], names_b):
+                    out.append(f"{where}: signed attribute {attr} differs")
+        unsigned_a, unsigned_b = attributes(sa["unsigned"]), attributes(sb["unsigned"])
+        for side, attrs in zip(labels, (unsigned_a, unsigned_b)):
+            extra = [o for o, _ in attrs if o != TIMESTAMP_TOKEN]
+            if extra or len(attrs) > 1:
+                out.append(f"{where}: {side} has unsigned attributes other than one timestamp token "
+                           f"({', '.join(o for o, _ in attrs)})")
+        if bool(unsigned_a) != bool(unsigned_b):
+            out.append(f"{where}: a timestamp token only in {labels[0] if unsigned_a else labels[1]}")
+        for side_skip, attrs in zip(skip, (unsigned_a, unsigned_b)):
+            side_skip += [v.path for o, v in attrs if o == TIMESTAMP_TOKEN]
+        same_signed = (sa["signed"] and der(sa["signed"])) == (sb["signed"] and der(sb["signed"]))
+        if same_signed and oid(sa["signatureAlgorithm"].children[0]) in RSA_PKCS1 \
+                and sa["signature"].value != sb["signature"].value:
+            out.append(f"{where}: the signature differs although the signed attributes are identical")
+    for side, cms, cds in zip(labels, (ca, cb), (cds_a, cds_b)):
+        reason = openssl_verify(cms, cds.get(0, b""))
+        if reason:
+            out.append(f"CMS ({side}): {reason}")
+    fa = framing_issues(pa["root"], skip[0]) + (["trailing bytes after the CMS"] if pa["trailing"] else [])
+    fb = framing_issues(pb["root"], skip[1]) + (["trailing bytes after the CMS"] if pb["trailing"] else [])
+    for issue in sorted(set(fa) ^ set(fb)):
+        out.append(FRAMING + f"CMS ({labels[0] if issue in fa else labels[1]} only): {issue}")
+    return out
+
+
+def blob_offsets(macho: bytes) -> dict:
+    """{blob type: offset in the slice} of each blob in the signature superblob."""
+    sig = code_signature_command(macho)
+    count = struct.unpack(">I", macho[sig[0] + 8:sig[0] + 12])[0]
+    entries = (struct.unpack(">II", macho[sig[0] + 12 + 8 * i:sig[0] + 20 + 8 * i]) for i in range(count))
+    return {typ: sig[0] + off for typ, off in entries}
+
+
+def cd_slots(cd: bytes):
+    """(offset, size) of the CodeResources special slot in a CodeDirectory, or None."""
+    _, _, _, _, hash_off, _, n_special, _, _, hash_size = struct.unpack(">IIIIIIIIIB", cd[:37])
+    return (hash_off - 3 * hash_size, hash_size) if n_special >= 3 else None
+
+
+def strict_slice(a: bytes, b: bytes, labels=("A", "B")):
+    """(differences, [(slot value A, slot value B)]) between two signings of one slice.
+    The second list is the CodeResources hash slots that differ: allowed only when
+    those CodeResources are themselves equal but for signing time."""
+    if a == b:
+        return [], []
+    sa, sb = code_signature_command(a), code_signature_command(b)
+    if sa != sb or len(a) != len(b):
+        return ["signature reservation (LC_CODE_SIGNATURE offset or size) or slice length differs"], []
+    ba, bb = blobs(a), blobs(b)
+    if list(ba) != list(bb):
+        return [f"signature blobs differ ({', '.join(map(hex, ba))} / {', '.join(map(hex, bb))})"], []
+    out, slots = [], []
+    masked_a, masked_b = bytearray(a), bytearray(b)
+    for typ in ba:
+        name = BLOB.get(typ, hex(typ))
+        if typ == 0x10000:
+            continue
+        xa, xb = bytearray(ba[typ]), bytearray(bb[typ])
+        is_cd = typ == 0 or 0x1000 <= typ < 0x2000
+        slot = cd_slots(ba[typ]) if is_cd else None
+        if slot and len(xa) == len(xb):
+            va, vb = bytes(xa[slot[0]:slot[0] + slot[1]]), bytes(xb[slot[0]:slot[0] + slot[1]])
+            if va != vb:
+                slots.append((va, vb))
+                xa[slot[0]:slot[0] + slot[1]] = xb[slot[0]:slot[0] + slot[1]] = bytes(slot[1])
+                for masked, body in ((masked_a, a), (masked_b, b)):
+                    where = blob_offsets(body)[typ] + slot[0]
+                    masked[where:where + slot[1]] = bytes(slot[1])
+        if xa != xb:
+            if is_cd:
+                fa, fb = code_directory(bytes(xa)), code_directory(bytes(xb))
+                fields = [k for k in sorted(set(fa) | set(fb)) if fa.get(k) != fb.get(k) and k != "CDHash (sha256)"]
+                out.append(f"{name}: {', '.join(fields) or 'bytes'} differ")
+            else:
+                out.append(f"{name}: differs")
+    cms_a, cms_b = ba.get(0x10000, b"")[8:], bb.get(0x10000, b"")[8:]
+    if not out and outside_cms(bytes(masked_a), bytes(masked_b)):
+        out.append("bytes outside the signature blobs differ (superblob layout or padding)")
+    cds_a = {t: v for t, v in ba.items() if t == 0 or 0x1000 <= t < 0x2000}
+    cds_b = {t: v for t, v in bb.items() if t == 0 or 0x1000 <= t < 0x2000}
+    out += strict_cms(cms_a, cms_b, cds_a, cds_b, labels)
+    return out, slots
+
+
+def strict_compare(a_root, b_root, machos: dict, labels, failures: list) -> tuple:
+    """Strict verdicts: (report lines, number of differences). machos holds the
+    Mach-O files whose payload is equal, as (slices A, slices B, bytes A, bytes B).
+    A Mach-O or CodeResources passes once its only differences are the signing
+    time and hashes of items that passed; that repeats until nothing changes."""
+    known = ({}, {})  # digest -> name, per side, of every item that passed
+    lines, verdicts, pending, raw = [], {}, {}, {}
+    for rel, (pa, pb, da, db) in sorted(machos.items()):
+        raw[rel] = (da, db)
+        diffs, slots = [], []
+        for (arch, x), (_, y) in zip(pa, pb):
+            try:
+                d, s = strict_slice(x, y, labels)
+            except (ValueError, IndexError, KeyError, AttributeError, struct.error) as error:
+                d, s = [f"cannot parse the signature ({error})"], []
+            diffs += [f"[{arch}] {m}" for m in d]
+            slots += s
+        if diffs:
+            verdicts[rel] = diffs
+        else:
+            pending[rel] = ("macho", slots, (da, db), (pa, pb))
+
+    def resources(root):
+        return {os.path.relpath(os.path.join(d, f), root) for d, _, fs in os.walk(root) for f in fs
+                if f == "CodeResources" and os.path.basename(d) == "_CodeSignature"}
+    ra, rb = resources(a_root), resources(b_root)
+    for rel in sorted(ra ^ rb):
+        raw[rel] = (None, b"")
+        verdicts[rel] = [f"only in {labels[0] if rel in ra else labels[1]}"]
+    manifests = {rel for rel in walk(a_root) if is_ssh_manifest(rel) and os.path.isfile(os.path.join(b_root, rel))}
+    for rel in sorted(ra & rb) + sorted(manifests):
+        with open(os.path.join(a_root, rel), "rb") as ha, open(os.path.join(b_root, rel), "rb") as hb:
+            raw[rel] = (ha.read(), hb.read())
+            pending[rel] = ("resources" if rel in ra else "manifest", [], raw[rel], None)
+
+    def check(rel):
+        kind, slots, (xa, xb), _ = pending[rel]
+        if kind == "macho":
+            bad = [s for s in slots if not (known[0].get(s[0]) and known[0].get(s[0]) == known[1].get(s[1]))]
+            return [f"CodeResources hash slot differs, and not only by the signing time ({len(bad)} slots)"] if bad else []
+        if xa == xb:
+            return []
+        if kind == "manifest":  # its sha256 checksums of signed Mach-O files, in hex
+            na, nb = (named(x, {d.hex().encode(): n.encode() for d, n in k.items() if len(d) == 32})
+                      for x, k in ((xa, known[0]), (xb, known[1])))
+            return [] if na == nb else ["differs, and not only by checksums of files that differ only by signing time"]
+        try:
+            pa, pb = plistlib.loads(xa), plistlib.loads(xb)
+        except Exception:
+            return ["not a property list; bytes differ"]
+        na, nb = named(pa, known[0]), named(pb, known[1])
+        if na == nb:
+            return []
+        diffs = code_resources_diff_values(na, nb)
+        return [f"{d} (a hash not explained by a nested item that differs only by signing time)" for d in diffs]
+
+    changed = True
+    while changed:
+        changed = False
+        for rel in list(pending):
+            diffs = check(rel)
+            verdicts[rel] = diffs
+            if diffs:
+                continue
+            kind, _, (xa, xb), parts = pending.pop(rel)
+            changed = True
+            for side, data, sl in ((0, xa, parts[0] if parts else []), (1, xb, parts[1] if parts else [])):
+                known[side].update(hash_names(data, rel))
+                for arch, body in sl:
+                    for typ, blob in blobs(body).items():
+                        if typ == 0 or 0x1000 <= typ < 0x2000:
+                            known[side].update(hash_names(blob, f"{rel} [{arch}] CodeDirectory {typ:#x}"))
+    count = len(failures)
+    identical = 0
+    for rel in sorted(verdicts):
+        if not verdicts[rel]:
+            same = raw[rel][0] == raw[rel][1]
+            identical += same
+            if not same:
+                lines.append(f"  PASS {rel}: differs only by the signing time")
+            continue
+        count += len(verdicts[rel])
+        framing = all(d.split("] ", 1)[-1].startswith(FRAMING) for d in verdicts[rel])
+        lines.append(f"  FAIL {rel}{' (framing only)' if framing else ''}:")
+        lines += [f"         {d}" for d in verdicts[rel]]
+    lines.insert(0, f"Strict compare {labels[0]} vs {labels[1]}: {len(verdicts)} signed files, CodeResources and manifests, {identical} byte-identical; "
+                    f"{len(failures)} payload differences")
+    lines.append("strict parity: PASS" if not count else f"strict parity: FAIL ({count} differences)")
+    return lines, count, verdicts
 
 
 def main() -> int:
@@ -416,12 +873,14 @@ def main() -> int:
     parser.add_argument("out")
     parser.add_argument("--labels", default="A,B")
     parser.add_argument("--report")
+    parser.add_argument("--strict", action="store_true", help="also fail on every signature difference "
+                        "except the signing time (see STRICT MODE above)")
     parser.add_argument("--input", help="the unsigned app both were signed from: bytes past a new signature "
                         "superblob are accepted only when they are this input's bytes at the same offset")
     args = parser.parse_args()
     la, lb = args.labels.split(",", 1)
     ta, tb = walk(args.a), walk(args.b)
-    failures, records, signatures, resources = [], [], {}, {}
+    failures, records, signatures, resources, machos = [], [], {}, {}, {}
     counts = {"paths": 0, "macho": 0, "equal": 0, "slices": 0, "identical_slices": 0, "only_cms_differs": 0}
     for rel in sorted(set(ta) | set(tb)):
         counts["paths"] += 1
@@ -447,6 +906,9 @@ def main() -> int:
             counts["equal"] += 1
         if pa is not None and pb is not None and not diff and ra.get("signed") and rb.get("signed"):
             counts["macho"] += 1
+            if args.strict:
+                with open(ta[rel], "rb") as fa, open(tb[rel], "rb") as fb:
+                    machos[rel] = (pa, pb, fa.read(), fb.read())
             sig = {arch: signature_diff(x, y) for (arch, x), (_, y) in zip(pa, pb)}
             counts["slices"] += len(sig)
             counts["identical_slices"] += sum(1 for d in sig.values() if not d)
@@ -470,6 +932,9 @@ def main() -> int:
             resources[rel] = diff
     result = {"labels": [la, lb], "counts": counts, "payload_failures": failures,
               "signature_differences": signatures, "code_resources_differences": resources, "records": records}
+    if args.strict:
+        strict_lines, strict_count, verdicts = strict_compare(args.a, args.b, machos, (la, lb), failures)
+        result["strict"] = {"differences": strict_count, "verdicts": verdicts}
     with open(args.out, "w", encoding="utf-8") as handle:
         json.dump(result, handle, indent=1, sort_keys=True)
     lines = [f"Payload compare {la} vs {lb}: {counts['paths']} paths outside _CodeSignature, "
@@ -497,12 +962,14 @@ def main() -> int:
     lines.append(f"CodeResources with differing entries: {len(resources)}")
     for rel, diff in sorted(resources.items()):
         lines.append(f"  {rel}: {len(diff)} entries, e.g. {diff[0]}")
+    if args.strict:
+        lines += strict_lines
     text = "\n".join(lines)
     print(text)
     if args.report:
         with open(args.report, "w", encoding="utf-8") as handle:
             handle.write(text + "\n")
-    return 1 if failures else 0
+    return 1 if failures or (args.strict and strict_count) else 0
 
 
 if __name__ == "__main__":
