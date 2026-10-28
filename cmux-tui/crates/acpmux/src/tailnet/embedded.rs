@@ -460,19 +460,22 @@ impl Controller {
         #[cfg(test)]
         let factory = self.node_factory.lock().unwrap_or_else(PoisonError::into_inner).take();
         let node = match tokio::task::spawn_blocking(move || {
-            #[cfg(test)]
-            if let Some(factory) = factory {
-                return factory();
-            }
             if stopping.load(Ordering::Acquire) {
                 return Err("tailnet service is stopping".to_owned());
             }
             crate::config::private_state_dir(&state_dir).map_err(|e| e.to_string())?;
-            let enabled = state_dir.join("enabled");
+            // An explicit Start records intent, not network success. Keep
+            // the marker if node construction or startup fails so a daemon
+            // relaunch can retry. Logout clears it under these same gates.
+            crate::config::write_atomic(&state_dir.join("enabled"), b"1\n")
+                .map_err(|e| e.to_string())?;
+            #[cfg(test)]
+            if let Some(factory) = factory {
+                return factory();
+            }
             let config = NodeConfig::new(state_dir, hostname);
             let node = Node::new(&config).map_err(|error| error.0)?;
             node.start().map_err(|error| error.0)?;
-            crate::config::write_atomic(&enabled, b"1\n").map_err(|e| e.to_string())?;
             if stopping.load(Ordering::Acquire) {
                 let _ = node.close();
                 return Err("tailnet service is stopping".to_owned());
@@ -1149,6 +1152,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn failed_explicit_start_keeps_opt_in_for_relaunch_retry() {
+        let temporary = tempfile::tempdir().unwrap();
+        let path = temporary.path().join("tailnet");
+        let marker = path.join("enabled");
+        let controller = Controller::new(&path, "test");
+        let enabled = marker.clone();
+        *controller.node_factory.lock().unwrap() = Some(Box::new(move || {
+            assert!(saved_opt_in(&enabled).unwrap(), "intent precedes node startup");
+            Err("transient startup failure".into())
+        }));
+        assert_eq!(controller.start().await.unwrap_err(), "transient startup failure");
+        assert_eq!(controller.snapshot().state, "error");
+        assert!(controller.state_node().is_none());
+        assert!(saved_opt_in(&marker).unwrap());
+        controller.shutdown().await.unwrap();
+
+        // A new daemon controller must attempt startup based on persisted
+        // intent, even though the first process never had a running node.
+        let relaunched = Controller::new(&path, "test");
+        let retried = Arc::new(AtomicBool::new(false));
+        let attempt = retried.clone();
+        *relaunched.node_factory.lock().unwrap() = Some(Box::new(move || {
+            attempt.store(true, Ordering::Release);
+            Err("retry attempted".into())
+        }));
+        assert_eq!(relaunched.resume().await.unwrap_err(), "retry attempted");
+        assert!(retried.load(Ordering::Acquire));
+        assert!(saved_opt_in(&marker).unwrap());
+        relaunched.logout().await.unwrap();
+        assert!(!saved_opt_in(&marker).unwrap());
+        relaunched.resume().await.unwrap();
+        assert!(relaunched.state_node().is_none());
+    }
+
+    #[tokio::test]
     async fn logout_table_never_starts_a_stopped_or_shutting_down_node() {
         for (name, saved, shutdown) in [
             ("untouched", false, 0),
@@ -1304,7 +1342,6 @@ mod tests {
         let node = tokio::task::spawn_blocking(move || Arc::new(Node::new(&config).unwrap()))
             .await
             .unwrap();
-        std::fs::create_dir(temporary.path().join("enabled")).unwrap();
         let controller = Controller::new(temporary.path(), "test");
         let (creating, created) = tokio::sync::oneshot::channel();
         let (publish, unpublished) = std::sync::mpsc::channel();
@@ -1355,7 +1392,7 @@ mod tests {
         );
         release.send(()).unwrap();
         assert!(start.await.unwrap().is_err());
-        assert!(logout.await.unwrap().is_err());
+        logout.await.unwrap().unwrap();
         assert!(retry.await.unwrap().is_err());
         assert!(replacement_created.load(Ordering::Acquire));
         tokio::task::spawn_blocking(move || {
