@@ -97,6 +97,10 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
     const page = await stage("expanded");
     try {
       const body = page.locator(".cv-tool-output__markdown");
+      await body.evaluate(async () => {
+        await document.fonts.ready;
+        await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+      });
       expect(await body.evaluate((node) => node.scrollTop)).toBe(0);
       await body.evaluate(async (node) => {
         node.scrollTop = 100;
