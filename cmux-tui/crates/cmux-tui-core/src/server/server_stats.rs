@@ -415,10 +415,13 @@ const DIAGNOSTIC_SITES_THREAD: &str = "mux-diag-sites";
 pub(crate) fn forward_diagnostic_sites(mux: &Arc<Mux>) {
     let Some(feed) = blocking::take_first_sites() else { return };
     let mux = Arc::downgrade(mux);
-    let started =
-        cmux_threads::spawn(DIAGNOSTIC_SITES_THREAD, cmux_threads::ThreadQos::Utility, move || {
-            forward_first_sites(&feed, &mux);
-        });
+    let started = crate::supervised::spawn_at(
+        DIAGNOSTIC_SITES_THREAD,
+        cmux_threads::ThreadQos::Utility,
+        crate::supervised::Fatal,
+        crate::supervised::ShutdownBehavior::Continue,
+        move || forward_first_sites(&feed, &mux),
+    );
     if let Err(error) = started {
         eprintln!("cmux-tui: cannot start {DIAGNOSTIC_SITES_THREAD}: {error}");
     }

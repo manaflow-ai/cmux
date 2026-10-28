@@ -92,7 +92,7 @@ final class SidebarBridge {
         container.sidebarView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         groupFlow.wireEditor()
         SidebarWorkspacePins.wire(self)
-        container.sidebarView.resourceSource = services.resources
+        container.sidebarView.setResourceSource(services.resources, deadlines: services.mainDeadlines)
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.inputTap = services.inputTap
         // Energy Saver's leaf follows the app's one energy policy (p14-energy-026).

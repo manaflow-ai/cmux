@@ -1,7 +1,7 @@
 // The paths, defaults, ranges and choices are generated from
 // schemas/settings/source/color-transition.json (Schema/SettingsSchema+ColorTransition.generated.swift);
 // this file only parses.
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `appearance.colorTransition.*` in cmux.json (cx-3rf4z): how theme and color changes animate.
 /// Absent keys take their defaults; a bad value takes its default plus a diagnostic.

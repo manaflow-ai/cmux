@@ -89,7 +89,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// (``CEFTab/followVisibility(of:capture:)``). A post in host mode, so no caller reads its answer. Nil on a
     /// shim without the export (task p06-scheduler-212).
     let tabSetVisibility: (@convention(c) (Int32, Int32, Int32) -> Int32)?
-    /// Fork API 39: `cmux_shim_tab_page_push(browser, text)`, a string to the receiver a cmux-page document
+    /// Fork API 43: `cmux_shim_tab_page_push(browser, text)`, a string to the receiver a cmux-page document
     /// registered (the page push channel, ``CEFPagePush``). A post in host mode, so no caller reads its
     /// answer. Nil on a shim without the export (task p13-webui-079).
     let tabPagePush: ((Int32, String) -> Int32)?

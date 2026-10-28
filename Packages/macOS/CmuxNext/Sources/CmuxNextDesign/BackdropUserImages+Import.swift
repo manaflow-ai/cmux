@@ -5,6 +5,7 @@ import CmuxNextCompat
 import class CmuxSafeConcurrency.OnceContinuation
 import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import UniformTypeIdentifiers
+public import CmuxNextAppearance
 
 /// Bringing a background in (cx-t2x.8, backgrounds plan phase 3): a file is checked before it is
 /// copied, so the folder never lists a picture that will not decode or a movie macOS cannot play,
