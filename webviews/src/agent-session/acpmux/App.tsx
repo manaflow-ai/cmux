@@ -6555,6 +6555,7 @@ function AcpmuxPane() {
       snapshot.sessionId,
       snapshot.rows.length,
       snapshot.connection === "connected",
+      freshView,
     ),
     recheck: recheckCloudChat,
   });

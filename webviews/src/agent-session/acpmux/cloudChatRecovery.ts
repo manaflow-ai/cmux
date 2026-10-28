@@ -47,6 +47,7 @@ export function cloudChatRecoveryActive(
   session: string | undefined,
   rowCount: number,
   connected: boolean,
+  freshView = false,
 ): boolean {
-  return unavailable || (!!session && rowCount === 0 && !connected);
+  return unavailable || (!freshView && !!session && rowCount === 0 && !connected);
 }

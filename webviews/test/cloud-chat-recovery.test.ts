@@ -19,6 +19,7 @@ describe("cloud chat recovery", () => {
   test("transport loss preserves a cached transcript, but an empty native chat can recover", () => {
     expect(cloudChatRecoveryActive(false, "chat", 5, false)).toBe(false);
     expect(cloudChatRecoveryActive(false, "chat", 0, false)).toBe(true);
+    expect(cloudChatRecoveryActive(false, "chat", 0, false, true)).toBe(false);
     expect(cloudChatRecoveryActive(false, "chat", 0, true)).toBe(false);
     expect(cloudChatRecoveryActive(false, undefined, 0, false)).toBe(false);
     expect(cloudChatRecoveryActive(true, "chat", 5, true)).toBe(true);
