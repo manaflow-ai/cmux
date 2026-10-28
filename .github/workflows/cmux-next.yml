@@ -3292,7 +3292,7 @@ jobs:
           (( left <= CMUX_NEXT_TEST_HANG_SECONDS )) || left=$CMUX_NEXT_TEST_HANG_SECONDS
           if CMUX_NEXT_TEST_HANG_SECONDS="$left" ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} \
               ${priority_skip[@]+"${priority_skip[@]}"} --skip CmuxNextControlTests --skip BranchStateResourcesTests --skip CloudBringBackTests \
-              --skip CommitBoundaryAppKitTests; then
+              --skip CommitBoundaryAppKitTests --skip RemoteVideoPageTests; then
             :
           else
             broad_status=$?
@@ -3347,6 +3347,22 @@ jobs:
         env:
           CMUX_NEXT_TEST_HANG_SECONDS: "300"
         run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter CommitBoundaryAppKitTests
+
+      # The WebKit video page tests make real WebKit downloads, and WebKit
+      # decides a download's destination on the main thread inside a kernel
+      # call (WebKitDownloads.download(_:decideDestinationUsing:) ->
+      # SandboxExtension::createHandle -> __mac_syscall) that held it for 70 to
+      # 300+ s on CI minis. In the shared process every main-actor test beside
+      # it stalled or failed on timing, and the stuck watchdog killed the run
+      # with thousands of tests unfinished (#26809's run 40660100939). So they
+      # run in their own process; a hang there is this step's red.
+      - name: Run the WebKit video page tests in their own process
+        if: ${{ (!cancelled() && steps.build-tests.outcome == 'success' && (env.SWIFT_TARGETS == 'all' || contains(env.SWIFT_TARGETS, 'CmuxNextBrowserTests'))) && steps.reuse.outputs.hit != 'true' }}
+        timeout-minutes: 15
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          CMUX_NEXT_TEST_HANG_SECONDS: "600"
+        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter RemoteVideoPageTests
 
       # Each isolated step below runs when its suites' target is selected and
       # the build succeeded, even after a failed test step, so one red step
