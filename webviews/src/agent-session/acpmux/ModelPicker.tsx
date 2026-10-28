@@ -877,10 +877,6 @@ export function ModelPicker(props: ModelPickerProps) {
       if (fork?.ready) fork.to(target);
     } else onHarness?.(target);
   };
-  const forkTo = (id: string) => {
-    const owner = allHarnesses.find((entry) => entry.id === id);
-    if (owner && fork?.ready) fork.to(owner.acpmuxHarness ?? owner.id);
-  };
   const addHarness = () => {
     close();
     onAddAgent?.();
@@ -1134,7 +1130,7 @@ export function ModelPicker(props: ModelPickerProps) {
                       onPick: pickQuickToPrompt,
                       ...(onAddAgent ? { onAddHarness: onAddAgent } : {}),
                       ...(harnessFixed ? {} : onHarness ? { onLaunch: pickProfile } : {}),
-                      ...(harnessFixed && fork ? { onLaunch: pickProfile, onFork: forkTo, forkReady: fork.ready } : {}),
+                      ...(harnessFixed && fork ? { onLaunch: pickProfile, onFork: pickProfile, forkReady: fork.ready } : {}),
                     },
                   }
                 : {}),

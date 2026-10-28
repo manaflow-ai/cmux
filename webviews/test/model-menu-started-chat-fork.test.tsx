@@ -262,20 +262,32 @@ test("launch configurations are named rail entries and never a Profile submenu",
   expect(forked[0]).toMatch(/^claude-/);
 });
 
-test("a started chat exposes launch profiles as fork-only tabs", async () => {
-  const catalog = [
-    { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
-    { id: "claude-work", name: "Claude (work)", family: "claude-work", models: [{ id: "opus", name: "Opus" }] },
-  ] as Snapshot["catalog"];
-  const { forked } = await mount(1, { ready: true }, "claude", catalog);
-  await open();
-  await showTab("Claude (work)");
-  expect(menu()!.querySelectorAll('.acpmux-quick-item[role="menuitemradio"]')).toHaveLength(0);
-  expect(itemsOf(menu()!).map(labelOf)).toContain("Fork to Claude (work)");
-  await act(async () => itemsOf(menu()!).find((item) => labelOf(item) === "Fork to Claude (work)")!.click());
-  await settle();
-  expect(forked).toEqual(["claude-work"]);
-});
+for (const [id, name, family] of [
+  ["claude-work", "Claude (work)", "claude-work"],
+  ["claude-sr", "Claude (sr)", "claude"],
+])
+  test(`a started chat can keyboard-fork to the launch profile ${id}`, async () => {
+    const catalog = [
+      { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
+      { id: id!, name: name!, family: family!, models: [{ id: "opus", name: "Opus" }] },
+    ] as Snapshot["catalog"];
+    const { forked, switched } = await mount(1, { ready: true }, "claude", catalog);
+    await open();
+    for (let remaining = railTabs().length; remaining > 0; remaining--) {
+      if (railTabs().find((tab) => tab.getAttribute("aria-pressed") === "true")?.getAttribute("aria-label") === name)
+        break;
+      await act(async () => menu()!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+      await settle();
+    }
+    expect(railTabs().find((tab) => tab.getAttribute("aria-pressed") === "true")?.getAttribute("aria-label")).toBe(name);
+    expect(forked).toEqual([]);
+    expect(menu()!.querySelectorAll('.acpmux-quick-item[role="menuitemradio"]')).toHaveLength(0);
+    expect(itemsOf(menu()!).map(labelOf)).toContain(`Fork to ${name}`);
+    await act(async () => itemsOf(menu()!).find((item) => labelOf(item) === `Fork to ${name}`)!.click());
+    await settle();
+    expect(forked).toEqual([id!]);
+    expect(switched).toEqual([]);
+  });
 
 test("while the chat can't fork (a turn running), Fork to is disabled and does nothing", async () => {
   const { forked } = await mount(1, { ready: false });
@@ -383,7 +395,7 @@ test("a configured suffix collision keeps every launch profile readable", async 
   await mount(0, undefined, "claude", catalog);
   await open();
   const labels = railTabs().map((tab) => tab.getAttribute("aria-label"));
-  expect(labels).toEqual(expect.arrayContaining(["Work", "Work (personal)", "Work (work) (travel)"]));
+  expect(labels).toEqual(expect.arrayContaining(["Work (work)", "Work (personal)", "Work (work) (travel)"]));
 });
 
 test("familyProfiles lists every global profile of the running profile's family", async () => {
