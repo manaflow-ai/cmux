@@ -1290,7 +1290,7 @@ export function ModelPicker(props: ModelPickerProps) {
             </ScrollArea>
           )}
           <div className="acpmux-mp-content flex min-w-0 flex-1 flex-col">
-            <div className="acpmux-mp-search flex h-9 flex-none items-center gap-2 border-b-[0.5px] border-edge pr-1.5 pl-3 text-muted focus-within:text-fg">
+            <div className="acpmux-mp-search flex h-[var(--ui-row-height,28px)] flex-none items-center gap-2 border-b-[0.5px] border-edge px-2 text-muted focus-within:text-fg">
               <SearchIcon size={15} />
               <PickerComboboxInput
                 ref={search}

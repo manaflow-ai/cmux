@@ -188,6 +188,7 @@ test("search rows use the same height and inset tokens as their menu items", asy
   const quickCss = await Bun.file(new URL("./modelPicker.css", import.meta.url)).text();
   const sharedCss = await Bun.file(new URL("./styles.css", import.meta.url)).text();
   const uiCss = await Bun.file(new URL("../../ui/ui.css", import.meta.url)).text();
+  const modelPicker = await Bun.file(new URL("./ModelPicker.tsx", import.meta.url)).text();
 
   expect(quickCss).toMatch(
     /\.acpmux-quick-search \{[\s\S]*?height: var\(--ui-row-height\);[\s\S]*?padding-inline: var\(--ui-row-padding-inline\);/,
@@ -204,4 +205,7 @@ test("search rows use the same height and inset tokens as their menu items", asy
   expect(sharedCss).toContain("height: var(--ui-row-height)");
   expect(sharedCss).toContain("padding-inline: var(--ui-row-padding-inline)");
   expect(uiCss).toMatch(/\.ui-menu-search \{[\s\S]*?height: var\(--ui-row-height\);/);
+  expect(modelPicker).toContain("h-[var(--ui-row-height,28px)]");
+  expect(modelPicker).toContain("border-edge px-2");
+  expect(modelPicker).not.toContain("acpmux-mp-search flex h-9");
 });
