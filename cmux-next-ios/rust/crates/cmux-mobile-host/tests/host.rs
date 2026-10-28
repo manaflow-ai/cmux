@@ -207,7 +207,6 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
         pairing: None,
         agent_tab_host: Some("install:mac-test".into()),
         uploads_dir: uploads.path().to_path_buf(),
-        upload_max_bytes: 1024 * 1024,
         browser: cmux_mobile_host::browser::BrowserConfig::new(
             Some(fake_rb_host::launcher(Arc::clone(&browser_launches))),
             4,
@@ -540,15 +539,12 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     let path = std::path::PathBuf::from(reply["path"].as_str().unwrap());
     let root = std::fs::canonicalize(&fixture.root).unwrap();
     assert!(path.starts_with(root.join(".cmux/attachments")), "{path:?}");
-    // A folder that is no tab's and outside the roots, or too large: refused.
+    // A folder that is no tab's and outside the roots: refused.
     let mut outside = link
         .open("upload", serde_json::json!({"name": "x", "size": 1, "cwd": fixture.outside.to_str().unwrap()}))
         .await
         .unwrap();
     assert_eq!(drain(&mut outside).await.1, "forbidden");
-    let mut large =
-        link.open("upload", serde_json::json!({"name": "x", "size": 2 * 1024 * 1024})).await.unwrap();
-    assert_eq!(drain(&mut large).await.1, "too_large");
     // browser: hostd sends the hello, the phone reads the host's carrier.
     let tab = format!("s{}", kind as u8);
     let mut first =
