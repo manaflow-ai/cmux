@@ -4,11 +4,13 @@ import { AcpmuxDirectClient, type AcpmuxHostConfig } from "../src/agent-session/
 
 // The fake daemon creates a session from the real client's session/new and returns that
 // session through attach. Assert the selected chat's state, not the seed or catalog schema.
-async function start(seed: Partial<AcpmuxHostConfig>) {
+async function start(seed: Partial<AcpmuxHostConfig>, options: { failStarts?: number } = {}) {
   let socket: any;
   let session: any;
   let snapshot: any;
   let starts = 0;
+  let failures = options.failStarts ?? 0;
+  const created: any[] = [];
   const answer = (method: string, params: any) => {
     switch (method) {
       case "initialize":
@@ -17,8 +19,21 @@ async function start(seed: Partial<AcpmuxHostConfig>) {
         return { sessions: session ? [session] : [] };
       case "session/new": {
         starts++;
+        if (failures > 0) {
+          failures--;
+          return { __error: { code: -32001, message: "fixture start failed" } };
+        }
         const { harness, model, peer } = params._meta.acpmux;
-        session = { sessionId: "seeded-chat", harness, model, peer, cwd: params.cwd, status: "ready", turnCount: 0 };
+        session = {
+          sessionId: `seeded-chat-${starts}`,
+          harness,
+          model,
+          peer,
+          cwd: params.cwd,
+          status: "ready",
+          turnCount: 0,
+        };
+        created.push({ ...session });
         return { sessionId: session.sessionId };
       }
       case "_acpmux/attach":
@@ -31,16 +46,26 @@ async function start(seed: Partial<AcpmuxHostConfig>) {
   };
   const client = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", newSession: true, ...seed },
-    (value) => { snapshot = value; },
+    (value) => {
+      snapshot = value;
+    },
     undefined,
     () => {
       socket = {
         readyState: 1,
         send(raw: string) {
           const message = JSON.parse(raw);
-          if (message.id !== undefined) queueMicrotask(() => socket.onmessage?.({
-            data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }),
-          }));
+          if (message.id !== undefined)
+            queueMicrotask(() => {
+              const value = answer(message.method, message.params);
+              socket.onmessage?.({
+                data: JSON.stringify(
+                  value?.__error
+                    ? { jsonrpc: "2.0", id: message.id, error: value.__error }
+                    : { jsonrpc: "2.0", id: message.id, result: value },
+                ),
+              });
+            });
         },
         close() {},
       };
@@ -48,7 +73,7 @@ async function start(seed: Partial<AcpmuxHostConfig>) {
       return socket as WebSocket;
     },
   );
-  return { client, snapshot: () => snapshot, starts: () => starts };
+  return { client, snapshot: () => snapshot, starts: () => starts, created: () => created.slice() };
 }
 
 test("explicit harness and model survive first-send creation at the requested cwd", async () => {
@@ -57,7 +82,9 @@ test("explicit harness and model survive first-send creation at the requested cw
     expect(run.starts()).toBe(0);
     await run.client.ensureSession();
     expect(run.snapshot().summary).toMatchObject({ cwd: "/tmp", harness: "fake", model: "fixture-model" });
-  } finally { run.client.close(); }
+  } finally {
+    run.client.close();
+  }
 });
 
 test("a model-only seed remains sessionless until send and keeps the requested folder", async () => {
@@ -68,15 +95,65 @@ test("a model-only seed remains sessionless until send and keeps the requested f
     expect(run.snapshot().summary).toMatchObject({ cwd: "/tmp", model: "fixture-model" });
     await run.client.ensureSession();
     expect(run.starts()).toBe(1);
-  } finally { run.client.close(); }
+  } finally {
+    run.client.close();
+  }
 });
 
 test("peer creation records the remote folder and all explicit startup picks", async () => {
   const run = await start({ cwd: "/local/unused" });
   try {
     await run.client.create("fake", "/remote/project", "dev-box", false, "fixture-model");
-    expect(run.snapshot().summary).toMatchObject({ cwd: "/remote/project", peer: "dev-box", harness: "fake", model: "fixture-model" });
+    expect(run.snapshot().summary).toMatchObject({
+      cwd: "/remote/project",
+      peer: "dev-box",
+      harness: "fake",
+      model: "fixture-model",
+    });
     await run.client.ensureSession();
     expect(run.starts()).toBe(1);
-  } finally { run.client.close(); }
+  } finally {
+    run.client.close();
+  }
+});
+
+test("successful seeded creation consumes harness and model defaults", async () => {
+  const run = await start({ cwd: "/tmp", harness: "fake", model: "fixture-model" });
+  try {
+    await run.client.create();
+    await run.client.create("other", "/tmp/other");
+    expect(run.created()).toMatchObject([
+      { harness: "fake", model: "fixture-model", cwd: "/tmp" },
+      { harness: "other", cwd: "/tmp/other" },
+    ]);
+    expect(run.created()[1]?.model).toBeUndefined();
+  } finally {
+    run.client.close();
+  }
+});
+
+test("a failed create retains startup defaults for its retry", async () => {
+  const run = await start({ cwd: "/tmp", harness: "fake", model: "fixture-model" }, { failStarts: 1 });
+  try {
+    await expect(run.client.create()).rejects.toThrow("fixture start failed");
+    await run.client.create();
+    expect(run.created()).toMatchObject([{ harness: "fake", model: "fixture-model", cwd: "/tmp" }]);
+  } finally {
+    run.client.close();
+  }
+});
+
+test("direct startSession success clears startup defaults after explicit creation", async () => {
+  const run = await start({ cwd: "/tmp", harness: "fake", model: "fixture-model" });
+  try {
+    await run.client.startSession("fake", "/tmp", undefined, undefined, false, "fixture-model");
+    await run.client.create("other", "/tmp/other");
+    expect(run.created()).toMatchObject([
+      { harness: "fake", model: "fixture-model", cwd: "/tmp" },
+      { harness: "other", cwd: "/tmp/other" },
+    ]);
+    expect(run.created()[1]?.model).toBeUndefined();
+  } finally {
+    run.client.close();
+  }
 });
