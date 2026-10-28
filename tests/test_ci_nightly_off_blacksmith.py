@@ -129,7 +129,8 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         self.assertEqual(jobs["prepare-nightly-variant-primary"]["runs-on"],
                          "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + owned
                          + "'blacksmith-4vcpu-ubuntu-2404' }}")
-        self.assertEqual(jobs["prepare-nightly-variant-fallback"]["runs-on"], "${{ " + owned + "'ubuntu-24.04' }}")
+        self.assertEqual(jobs["prepare-nightly-variant-fallback"]["runs-on"],
+                         "${{ " + owned + "'blacksmith-8vcpu-ubuntu-2404' }}")
         moved_out = ("install-cmux-tui-client.sh", "strip-release-bundle.sh", "write-cmux-tui-version.sh",
                      "check-daemon-capabilities.sh", "test_bundled_ghostty_theme_picker_helper.sh",
                      "verify-diff-sidecar-artifact.sh", "select-ci-xcode.sh", "ditto ", "otool", "codesign")
@@ -189,7 +190,8 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
         A feat-cmux-next push asks main to promote nightly-next from
         cmux-next.yml and cmux-tui-artifacts.yml (`request-nightly-next`). On
         Blacksmith those requests queued behind its pool like the nightly's own
-        jobs, so no nightly started. They must run on GitHub-hosted Linux.
+        jobs, so no nightly started. They take LINUX_RUNNER, which the overflow
+        switch moves off a stalled Blacksmith label, never a single host.
         """
         for name in ("cmux-next.yml", "cmux-tui-artifacts.yml"):
             text = (WORKFLOWS / name).read_text(encoding="utf-8")

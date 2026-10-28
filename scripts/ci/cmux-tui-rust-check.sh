@@ -787,7 +787,8 @@ if [[ "$mode" == screen ]]; then
   step "screen go" ensure_screen_go
   step "screen clippy" cargo clippy --locked --workspace --all-targets -- -D warnings
   step "screen test" cargo test --locked --workspace ${no_fail_fast[@]+"${no_fail_fast[@]}"} ${filter:+"$filter"}
-  step "screen release build" cargo build --locked --release -p cmux-screen-host -p cmux-tailnet
+  step "screen release build" cargo build --locked --release -p cmux-screen-host
+  step "tailnet release build" cargo build --locked --release --manifest-path "$root/cmux-tui/Cargo.toml" -p cmux-tailnet
   finish
 fi
 copy_testhost() {

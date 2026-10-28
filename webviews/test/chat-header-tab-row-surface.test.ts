@@ -45,6 +45,20 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     }
   });
 
+  test("a separate header fits its tools without an empty vertical band", async () => {
+    const page = await pane.open({ width: 900, height: 640 });
+    try {
+      const header = page.locator("header.acpmux-header");
+      const box = (await header.boundingBox())!;
+      const tools = (await page.locator(".acpmux-header-tools").boundingBox())!;
+      expect(box.height).toBe(28);
+      expect(tools.height).toBe(24);
+      expect(tools.y - box.y).toBe(2);
+    } finally {
+      await page.close();
+    }
+  });
+
   test("the shipped tab-row shell leaves the native strip transparent", async () => {
     const page = await browser.newPage({ viewport: { width: 240, height: 100 } });
     // This is the stylesheet that build-agent-pane-web.sh inlines into the shipped agent pane.

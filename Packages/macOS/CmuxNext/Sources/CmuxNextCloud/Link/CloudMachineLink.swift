@@ -130,6 +130,10 @@ public actor CloudMachineLink {
     /// (with the Cloud API asked again), so an owner answer never carries over to another link.
     public var ownerLink: Int? { callerOwnsVM ? linkID : nil }
 
+    /// The running link process's pid while ``callerOwnsVM``, else nil: Move to Cloud sends the
+    /// owner word with it (`--to-pid`), so only a connection this process serves carries it.
+    public var ownerPID: Int32? { callerOwnsVM ? child?.pid : nil }
+
     /// PID of the running link process, for diagnostics.
     public var pid: Int32? { child?.pid }
 

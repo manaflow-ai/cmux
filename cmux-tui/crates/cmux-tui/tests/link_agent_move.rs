@@ -232,13 +232,24 @@ struct Target {
     landed: HashMap<String, String>,
     forgotten: HashSet<String>,
     received_cwd: Option<String>,
+    /// Serves `agent-transfer-vm-kind-v1` (else an older daemon).
+    takes_vm_kind: bool,
+    /// The `vm_kind` of each receive and finish, in order.
+    vm_kinds: Vec<Value>,
 }
 
 impl Target {
     fn handle(&mut self, request: &Value, down: &AtomicBool) -> Reply {
         let cmd = request["cmd"].as_str().unwrap_or_default();
         let receive_id = request["receive_id"].as_str().unwrap_or_default().to_string();
+        if cmd == "agent-transfer-receive" || cmd == "agent-transfer-finish" {
+            self.vm_kinds.push(request["vm_kind"].clone());
+        }
         match cmd {
+            "identify" if self.takes_vm_kind => Reply::Data(json!({"capabilities":
+                ["agent-transfer-v1", "agent-transfer-vm-kind-v1"]})),
+            // An older daemon; it shows no sign of being a Cloud VM (a guest can hide any).
+            "identify" => Reply::Data(json!({"capabilities": ["agent-transfer-v1"]})),
             "agent-transfer-receive" => self.receive(request),
             "agent-transfer-write" => self.write(&receive_id, request),
             "agent-transfer-finish" => self.finish(&receive_id, down),
@@ -415,6 +426,11 @@ impl World {
 
     /// Runs the move; its exit code and its one JSON line.
     fn run_move(&self) -> (i32, Value) {
+        self.run_move_with(&[])
+    }
+
+    /// `run_move` with `extra` flags.
+    fn run_move_with(&self, extra: &[&str]) -> (i32, Value) {
         let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
             .args(["link", "agent", "move", "--from-socket"])
             .arg(&self.from)
@@ -422,6 +438,7 @@ impl World {
             .arg(&self.to)
             .args(["--cwd", &self.cwd, "--state-dir"])
             .arg(&self.state)
+            .args(extra)
             .output()
             .unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -592,6 +609,68 @@ mod agent_move {
         let source = world.source.lock().unwrap();
         assert_eq!(source.aborted, ["xfer_1"]);
         assert_eq!(source.committed.as_deref(), Some("xfer_2"));
+    }
+
+    /// `--vm-kind`: the caller says the target is a Cloud machine, and the
+    /// Cloud API's answer goes to a target that takes it, on the receive and
+    /// the finish. An older target would trust its own record, so any kind but
+    /// `owner` is refused there before the chat freezes, whatever it
+    /// advertises, and `owner` moves without the param it would refuse.
+    /// Without the flag the caller says it is not a Cloud machine (a Mac).
+    #[test]
+    fn the_cloud_apis_kind_reaches_the_target_or_an_older_one_is_refused() {
+        let world = World::new(Target { takes_vm_kind: true, ..Target::default() });
+        let (code, answer) = world.run_move_with(&["--vm-kind", "owner"]);
+        assert_eq!(code, 0, "{answer}");
+        let target = world.target.lock().unwrap();
+        assert_eq!(target.vm_kinds, [json!("owner"), json!("owner")]);
+
+        for kind in ["team", "none"] {
+            let older = World::new(Target::default());
+            let (code, answer) = older.run_move_with(&["--vm-kind", kind]);
+            assert_eq!(code, 1, "{kind}");
+            assert_eq!(answer["error_code"], json!("agent_session.host_unverified"), "{answer}");
+            assert_eq!(answer["side"], json!("target"), "{answer}");
+            assert_eq!(older.count("source:agent-transfer-begin"), 0, "the chat froze");
+            assert_eq!(older.count("target:agent-transfer-receive"), 0);
+        }
+        let older = World::new(Target::default());
+        let (code, answer) = older.run_move_with(&["--vm-kind", "owner"]);
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(older.target.lock().unwrap().vm_kinds, [Value::Null, Value::Null]);
+
+        let mac = World::new(Target::default());
+        let (code, answer) = mac.run_move();
+        assert_eq!(code, 0, "a target the caller says is a Mac needs no kind: {answer}");
+        assert_eq!(mac.target.lock().unwrap().vm_kinds, [Value::Null, Value::Null]);
+    }
+
+    /// `--to-pid`: the owner word belongs to the link process the caller read
+    /// it from. When another process listens on the socket by the time the
+    /// pump connects for the receive (the link was replaced while the source
+    /// froze the chat), nothing is sent and the chat stays on this Mac; the
+    /// same process moves it.
+    #[test]
+    fn the_owner_word_reaches_only_the_link_process_it_came_from() {
+        let world = World::new(Target { takes_vm_kind: true, ..Target::default() });
+        let replaced = (std::process::id() + 1).to_string();
+        let (code, answer) = world.run_move_with(&["--vm-kind", "owner", "--to-pid", &replaced]);
+        assert_eq!(code, 1, "{answer}");
+        assert_eq!(answer["error_code"], json!("agent_session.host_unverified"), "{answer}");
+        assert_eq!(answer["side"], json!("target"), "{answer}");
+        assert_eq!(world.count("target:agent-transfer-receive"), 0);
+        assert!(world.target.lock().unwrap().vm_kinds.is_empty());
+        {
+            let source = world.source.lock().unwrap();
+            assert!(source.committed.is_none());
+            assert_eq!(source.aborted, ["xfer_1"], "the chat stays on this Mac");
+        }
+
+        let world = World::new(Target { takes_vm_kind: true, ..Target::default() });
+        let same = std::process::id().to_string();
+        let (code, answer) = world.run_move_with(&["--vm-kind", "owner", "--to-pid", &same]);
+        assert_eq!(code, 0, "{answer}");
+        assert_eq!(world.target.lock().unwrap().vm_kinds, [json!("owner"), json!("owner")]);
     }
 
     #[test]
