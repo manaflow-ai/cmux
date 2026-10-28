@@ -3,10 +3,12 @@
 //! chunks, and only the number of uploads is limited, never their size.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::image_paste_file::ImagePasteFile;
+use crate::image_paste_file::{ImagePasteFile, WallClock};
+use crate::image_paste_storage::ImagePasteStorage;
 use base64::Engine;
 
 pub const CAPABILITY: &str = "terminal-image-paste-v1";
@@ -16,6 +18,10 @@ pub(crate) const IMAGE_TTL: Duration = Duration::from_secs(600);
 /// How long an upload may go without an accepted chunk before it expires.
 /// Each chunk restarts it, so a large image on a slow link still finishes.
 const UPLOAD_TTL: Duration = Duration::from_secs(120);
+/// The most often a chunk rewrites the durable receipt's expiry. Well below
+/// the receipt's 600 s margin over the in-memory upload deadline, so a sweep
+/// in any daemon sharing the storage never finds a live upload expired.
+const RECEIPT_REFRESH: Duration = Duration::from_secs(30);
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct ImagePasteOwner {
@@ -55,6 +61,11 @@ struct Shared {
 
 pub struct ImagePasteStore {
     shared: Arc<Shared>,
+    /// The clock receipts are written in; recovery sweeps compare with it.
+    clock: WallClock,
+    /// The temporary directory holding the per-UID storage, when not the
+    /// system one.
+    temporary: Option<PathBuf>,
 }
 
 impl Default for ImagePasteStore {
@@ -65,7 +76,11 @@ impl Default for ImagePasteStore {
 
 impl ImagePasteStore {
     fn with_recovery(recovery: Option<crate::image_paste_recovery::ImagePasteRecovery>) -> Self {
-        let store = Self { shared: Arc::new(Shared::default()) };
+        let store = Self {
+            shared: Arc::new(Shared::default()),
+            clock: WallClock::default(),
+            temporary: None,
+        };
         {
             let mut state = store.shared.state.lock().unwrap();
             state.recovery = recovery;
@@ -75,6 +90,16 @@ impl ImagePasteStore {
                 let _ = store.start_worker(&mut state);
             }
         }
+        store
+    }
+
+    /// A daemon whose storage lives below `temporary`, read with `clock`, and
+    /// which runs no recovery sweep of its own.
+    #[cfg(test)]
+    fn with_storage(temporary: &std::path::Path, clock: WallClock) -> Self {
+        let mut store = Self::with_recovery(None);
+        store.clock = clock;
+        store.temporary = Some(temporary.to_owned());
         store
     }
 
@@ -150,7 +175,14 @@ impl ImagePasteStore {
                 && client_count < 8,
             "image-capacity-limit"
         );
-        let file = ImagePasteFile::create(extension)
+        let storage = match &self.temporary {
+            Some(temporary) => ImagePasteStorage::at(temporary),
+            None => ImagePasteStorage::open(),
+        };
+        // Two minutes to upload plus ten minutes for the agent to read.
+        let expires = self.clock.now() + (UPLOAD_TTL + IMAGE_TTL).as_secs();
+        let file = storage
+            .and_then(|storage| ImagePasteFile::create_in(&storage, extension, expires))
             .map_err(|_| anyhow::anyhow!("image-storage-unavailable"))?;
         self.start_worker(&mut state)?;
         state.uploads.insert(

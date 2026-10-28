@@ -5,7 +5,7 @@ use std::fs::ReadDir;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use crate::image_paste_file::ImagePasteFile;
+use crate::image_paste_file::{ImagePasteFile, WallClock};
 use crate::image_paste_storage::ImagePasteStorage;
 
 #[derive(Default)]
@@ -13,11 +13,18 @@ pub(crate) struct ImagePasteRecovery {
     storage: Option<ImagePasteStorage>,
     entries: Option<ReadDir>,
     scanning_count: usize,
+    clock: WallClock,
     pub retained_count: usize,
     pub ready: bool,
 }
 
 impl ImagePasteRecovery {
+    /// A sweeper over `storage`, as another daemon sharing it would run one.
+    #[cfg(test)]
+    pub(crate) fn with_storage(storage: ImagePasteStorage, clock: WallClock) -> Self {
+        Self { storage: Some(storage), clock, ..Default::default() }
+    }
+
     pub(crate) fn scan(&mut self, active: &HashSet<PathBuf>) -> Duration {
         if self.entries.is_none() {
             self.scanning_count = 0;
@@ -44,7 +51,8 @@ impl ImagePasteRecovery {
                     {
                         continue;
                     }
-                    if let Some((deadline, file)) = ImagePasteFile::recover_one(entry.path())
+                    if let Some((deadline, file)) =
+                        ImagePasteFile::recover_one(entry.path(), self.clock.now())
                         && (deadline > Instant::now() || !file.remove_owned())
                     {
                         self.scanning_count = self.scanning_count.saturating_add(1);
@@ -82,7 +90,7 @@ mod tests {
         let namespace = storage.root().to_owned();
         // Explicitly keep the files to model process death; write no user data.
         let create_expired = |storage: &ImagePasteStorage| {
-            let file = ImagePasteFile::create_in(storage, "png").unwrap();
+            let file = ImagePasteFile::create_in(storage, "png", 720).unwrap();
             let directory = file.directory().to_owned();
             let receipt_path = directory.join(".receipt");
             let mut receipt: serde_json::Value =
@@ -90,7 +98,7 @@ mod tests {
             receipt["expires"] = serde_json::json!(0);
             fs::write(&receipt_path, serde_json::to_vec(&receipt).unwrap()).unwrap();
             // Read-only recovery handles do not remove anything when dropped.
-            let (_, recovered) = ImagePasteFile::recover_one(directory).unwrap();
+            let (_, recovered) = ImagePasteFile::recover_one(directory, 0).unwrap();
             file.abandon_for_test();
             drop(recovered);
         };

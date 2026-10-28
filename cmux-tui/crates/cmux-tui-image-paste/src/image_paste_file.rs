@@ -6,7 +6,37 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+/// Wall-clock seconds since the Unix epoch, the unit a receipt records its
+/// expiry in. Every daemon sharing the per-UID storage compares receipts with
+/// the same clock; tests drive a manual one so twelve-minute windows run
+/// without sleeping.
+#[derive(Clone, Default)]
+pub(crate) struct WallClock(Option<Arc<AtomicU64>>);
+
+impl WallClock {
+    pub(crate) fn now(&self) -> u64 {
+        match &self.0 {
+            Some(manual) => manual.load(Ordering::SeqCst),
+            None => SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn manual(start: u64) -> Self {
+        Self(Some(Arc::new(AtomicU64::new(start))))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn advance(&self, seconds: u64) {
+        if let Some(manual) = &self.0 {
+            manual.fetch_add(seconds, Ordering::SeqCst);
+        }
+    }
+}
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct Receipt {
@@ -38,13 +68,21 @@ pub(crate) struct ImagePasteFile {
 }
 
 impl ImagePasteFile {
+    #[cfg(test)]
     pub(crate) fn create(extension: &str) -> std::io::Result<Self> {
-        Self::create_in(&crate::image_paste_storage::ImagePasteStorage::open()?, extension)
+        Self::create_in(
+            &crate::image_paste_storage::ImagePasteStorage::open()?,
+            extension,
+            WallClock::default().now() + 720,
+        )
     }
 
+    /// Creates the private file and its durable receipt, which lets a
+    /// recovery sweep in any daemon remove the file after `expires`.
     pub(crate) fn create_in(
         storage: &crate::image_paste_storage::ImagePasteStorage,
         extension: &str,
+        expires: u64,
     ) -> std::io::Result<Self> {
         if !["png", "jpg", "gif", "webp"].contains(&extension) {
             return Err(std::io::Error::new(
@@ -122,9 +160,7 @@ impl ImagePasteFile {
                 file_device: file_metadata.dev(),
                 file_inode: file_metadata.ino(),
                 name: owned.name.to_str().unwrap().to_owned(),
-                // Two minutes to upload plus ten minutes for the agent to read.
-                expires: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
-                    + 720,
+                expires,
             };
             serde_json::to_writer(&mut owned.receipt, &metadata)?;
             owned.receipt.sync_all()?;
@@ -211,7 +247,7 @@ impl ImagePasteFile {
 }
 
 impl ImagePasteFile {
-    pub(crate) fn recover_one(directory: PathBuf) -> Option<(Instant, Self)> {
+    pub(crate) fn recover_one(directory: PathBuf, now: u64) -> Option<(Instant, Self)> {
         let directory_handle = fs::OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
@@ -262,7 +298,6 @@ impl ImagePasteFile {
                     ))
                 .then_some((name, file))
             })?;
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
         let remaining = record.expires.saturating_sub(now).min(720);
         let deadline = Instant::now() + Duration::from_secs(remaining);
         Some((deadline, Self { directory, directory_handle, name, file, receipt, cleanup: false }))

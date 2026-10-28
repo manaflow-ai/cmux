@@ -268,3 +268,154 @@ fn cloud_image_paste_already_removed_file_does_not_hold_storage_forever() {
     assert!(store.shared.state.lock().unwrap().uploads.is_empty());
     assert!(!path.parent().unwrap().exists());
 }
+
+/// A private temporary directory holding one per-UID image storage, shared by
+/// the daemons of a test the way every daemon of a user shares the real one.
+struct SharedStorage {
+    temporary: std::path::PathBuf,
+}
+
+impl SharedStorage {
+    fn new() -> Self {
+        use std::os::unix::fs::DirBuilderExt;
+        let mut random = [0u8; 16];
+        getrandom::fill(&mut random).unwrap();
+        let suffix: String = random.iter().map(|b| format!("{b:02x}")).collect();
+        let temporary = std::env::temp_dir().join(format!("image-shared-test-{suffix}"));
+        fs::DirBuilder::new().mode(0o700).create(&temporary).unwrap();
+        Self { temporary }
+    }
+
+    /// Another daemon's recovery sweeper over the same storage and clock.
+    fn sweeper(&self, clock: &WallClock) -> crate::image_paste_recovery::ImagePasteRecovery {
+        let storage = ImagePasteStorage::at(&self.temporary).unwrap();
+        crate::image_paste_recovery::ImagePasteRecovery::with_storage(storage, clock.clone())
+    }
+
+    /// Runs a full recovery pass, as another daemon's worker would.
+    fn sweep(&self, clock: &WallClock) {
+        let mut sweeper = self.sweeper(clock);
+        assert_eq!(sweeper.scan(&HashSet::new()), Duration::from_secs(30));
+        assert!(sweeper.ready);
+    }
+}
+
+impl Drop for SharedStorage {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.temporary);
+    }
+}
+
+fn receipt(path: &std::path::Path) -> (u64, u64) {
+    use std::os::unix::fs::MetadataExt;
+    let receipt = path.parent().unwrap().join(".receipt");
+    let value: serde_json::Value = serde_json::from_slice(&fs::read(&receipt).unwrap()).unwrap();
+    (value["expires"].as_u64().unwrap(), fs::metadata(&receipt).unwrap().ino())
+}
+
+fn chunk(store: &ImagePasteStore, offset: usize, bytes: &[u8]) {
+    store
+        .append(&owner(), ID, offset, &base64::engine::general_purpose::STANDARD.encode(bytes))
+        .unwrap();
+}
+
+/// Daemon A's upload keeps sending chunks for fifteen minutes, past the 720 s
+/// its receipt was created with. Daemon B shares the per-UID storage and runs
+/// its recovery sweep; it must leave the live upload alone, and A's commit
+/// then pastes the whole image.
+#[test]
+fn cloud_image_paste_another_daemons_sweep_keeps_a_long_running_upload() {
+    let shared = SharedStorage::new();
+    let clock = WallClock::manual(1_000_000);
+    let daemon_a = ImagePasteStore::with_storage(&shared.temporary, clock.clone());
+    let image = [PNG, &[0x5a; 15]].concat();
+    daemon_a.begin(owner(), ID, "image/png", image.len()).unwrap();
+    let path = daemon_a.shared.state.lock().unwrap().uploads[&(1, ID.into())].file.path().unwrap();
+    // One byte a minute: slow, but never 120 s without an accepted chunk.
+    for (offset, byte) in image.iter().enumerate() {
+        clock.advance(60);
+        chunk(&daemon_a, offset, std::slice::from_ref(byte));
+        shared.sweep(&clock);
+        assert!(
+            path.exists(),
+            "daemon B removed A's live upload {}s after begin",
+            60 * (offset + 1)
+        );
+    }
+    let mut pasted = String::new();
+    daemon_a
+        .commit(&owner(), ID, |text| {
+            pasted = text.into();
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(pasted, format!("'{}'", path.display()));
+    assert_eq!(fs::read(&path).unwrap(), image);
+}
+
+/// After a long transfer commits and its daemon crashes, a recovery sweep
+/// keeps the image for the ten minutes of reading measured from the commit,
+/// not from upload creation, and removes it once they pass.
+#[test]
+fn cloud_image_paste_recovery_keeps_a_committed_image_for_retention_after_commit() {
+    let shared = SharedStorage::new();
+    let clock = WallClock::manual(1_000_000);
+    let daemon_a = ImagePasteStore::with_storage(&shared.temporary, clock.clone());
+    let image = [PNG, &[0x5a; 15]].concat();
+    daemon_a.begin(owner(), ID, "image/png", image.len()).unwrap();
+    let path = daemon_a.shared.state.lock().unwrap().uploads[&(1, ID.into())].file.path().unwrap();
+    for (offset, byte) in image.iter().enumerate() {
+        clock.advance(60);
+        chunk(&daemon_a, offset, std::slice::from_ref(byte));
+    }
+    daemon_a.commit(&owner(), ID, |_| Ok(())).unwrap();
+    // Model a crash: the daemon's descriptors close but nothing is unlinked.
+    let upload = daemon_a.shared.state.lock().unwrap().uploads.remove(&(1, ID.into())).unwrap();
+    upload.file.abandon_for_test();
+    drop(daemon_a);
+    clock.advance(IMAGE_TTL.as_secs() - 1);
+    shared.sweep(&clock);
+    assert!(path.exists(), "recovery removed a committed image before its retention ended");
+    assert_eq!(fs::read(&path).unwrap(), image);
+    clock.advance(2);
+    shared.sweep(&clock);
+    assert!(!path.exists(), "recovery kept a committed image past its retention");
+    assert!(!path.parent().unwrap().exists());
+}
+
+/// A fast upload rewrites its receipt at most once per RECEIPT_REFRESH of the
+/// clock, not once per chunk: many chunks inside one window leave the receipt
+/// file (its inode) and expiry untouched, and the first chunk after the
+/// window moves the expiry to that chunk's time plus the full twelve minutes.
+#[test]
+fn cloud_image_paste_receipt_refresh_is_throttled() {
+    let shared = SharedStorage::new();
+    let clock = WallClock::manual(1_000_000);
+    let daemon_a = ImagePasteStore::with_storage(&shared.temporary, clock.clone());
+    daemon_a.begin(owner(), ID, "image/png", LARGE).unwrap();
+    let path = daemon_a.shared.state.lock().unwrap().uploads[&(1, ID.into())].file.path().unwrap();
+    let created = receipt(&path);
+    assert_eq!(created.0, 1_000_000 + 720);
+    let refresh = RECEIPT_REFRESH.as_secs();
+    let mut offset = 0;
+    for _ in 0..64 {
+        chunk(&daemon_a, offset, PNG);
+        offset += PNG.len();
+    }
+    clock.advance(refresh - 1);
+    chunk(&daemon_a, offset, PNG);
+    offset += PNG.len();
+    assert_eq!(receipt(&path), created, "a chunk inside the refresh window rewrote the receipt");
+    clock.advance(1);
+    chunk(&daemon_a, offset, PNG);
+    offset += PNG.len();
+    let refreshed = receipt(&path);
+    assert_eq!(refreshed.0, 1_000_000 + refresh + 720);
+    for _ in 0..64 {
+        chunk(&daemon_a, offset, PNG);
+        offset += PNG.len();
+    }
+    assert_eq!(receipt(&path), refreshed, "chunks inside the next window rewrote the receipt");
+    daemon_a.cancel(&owner(), ID).unwrap();
+    assert!(!path.parent().unwrap().exists());
+}
