@@ -55,8 +55,7 @@ type Row = {
 await requireBrowserLane("composer-footer-plain.test.ts", async () => {
   /** Runs in the page: the footer's chips and every control's box. */
   function measure(): Row {
-    // The plain look moves the chips to the quiet row under the box (ComposerFoot.tsx); the other
-    // look keeps them in the box's row.
+    // The chips stay in the quiet row under the box in either look (ComposerFoot.tsx).
     const bar =
       document.querySelector<HTMLElement>(".acpmux-composer-foot") ??
       document.querySelector<HTMLElement>(".acpmux-composer-bar")!;
@@ -196,14 +195,13 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
     return problems;
   };
 
-  // The fit follows the row the look draws: turned off after the composer shows (the Debug toggle
-  // flipped live), the box's own row still steps down as the pane narrows (composerRowFit.ts).
-  test("off after mount, the box's row still fits as the pane narrows", async () => {
+  // The fit follows the footer in either look, including when the plain styling is off.
+  test("off after mount, the footer still fits as the pane narrows", async () => {
     const page = await open(760, "light");
     await plain(page, false);
     const fit = () =>
       page.evaluate(() => {
-        const bar = document.querySelector<HTMLElement>(".acpmux-composer-box .acpmux-composer-bar")!;
+        const bar = document.querySelector<HTMLElement>(".acpmux-composer-foot")!;
         return [...bar.attributes]
           .filter(({ name }) => name.startsWith("data-fit-"))
           .map(({ name, value }) => `${name}=${value}`)

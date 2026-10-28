@@ -569,16 +569,11 @@ export function NewTabScreen(props: Props) {
   const { plainFooter, spellChecking } = useComposerSettings();
   // The quiet row's labels step down with the composer's width, as the chat's (composerRowFit.ts).
   const foot = useRef<HTMLDivElement>(null);
-  // Claude Code's split (Leo 2026-10-19, "the claude code style composer on the first dot ... the
-  // existing composer on the second one"): with the plain footer on, every template but Default
-  // (the page's second dot) draws the chat composer's split, the mode, model and effort in a quiet
-  // row under the box. Default keeps the chips in the box, as before the split.
-  // Codex's look (the page's second dot, composerLook.ts) keeps them in the box's row too.
+  // The model picker uses one footer position in every New Tab template and composer look.
   const look = useComposerLook();
-  // Either look draws the chat composer's box (Cards too, its strip Codex's tray); only the plain
-  // footer off keeps Cards' pill.
-  const chatBox = plainFooter && props.chips !== undefined && template !== "default";
-  const split = chatBox && look === "claude";
+  const split = props.chips !== undefined;
+  // Folder/computer keep their look-specific placement: Claude's one row, Codex's tray.
+  const locationInFooter = plainFooter && look === "claude" && template !== "default";
   useRowFit(foot, split);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
@@ -1113,7 +1108,7 @@ export function NewTabScreen(props: Props) {
   const chooser = useRef<HTMLInputElement>(null);
   /// The Cards template (u2851): the field is a pill of its own and the chips sit under it. The
   /// split draws the chat composer's box instead.
-  const pill = template === "cards" && !chatBox;
+  const pill = template === "cards" && !split;
 
   const attachmentPicker = (
     <>
@@ -1334,7 +1329,7 @@ export function NewTabScreen(props: Props) {
           </output>
         )}
         {/* Above the box: the project strip (Cards draws it under the field). */}
-        {!pill && !split && <div className="nt-above">{folderStrip}</div>}
+        {!pill && !locationInFooter && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="ui-glass ui-glass-floats nt-box">
           {commandsOpen && (
             <SlashMenu
@@ -1425,8 +1420,8 @@ export function NewTabScreen(props: Props) {
             the box keeps the prompt, the mic and Send (Leo: "one single row"). */}
         {split && Chips && (
           <div className="nt-foot" onPointerDownCapture={touch}>
-            <ComposerFoot ref={foot}>
-              {folderStrip}
+            <ComposerFoot ref={foot} plain={plainFooter}>
+              {locationInFooter && folderStrip}
               <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />
             </ComposerFoot>
           </div>

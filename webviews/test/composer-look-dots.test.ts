@@ -6,8 +6,8 @@
 // - The New Tab page shows three dots under it (Leo 2026-10-23: "1 CLAUDE MINIMAL / 2 CLAUDE MINIMAL
 //   + NEW TAB/TERMINAL/WHATEVER / 3 CODEX MINIMAL"; newtab/tabDots.ts): Claude Minimal checked by
 //   default; the second adds the quick action pills under Claude's composer; the third gives the
-//   composer Codex's look (data-composer-look="codex"): the model sits in the box's own row, no
-//   quiet row under it, and no pills. Arrow keys move across the three. The pick is remembered
+//   composer Codex's look (data-composer-look="codex"): the model stays in the shared footer,
+//   and no pills. Arrow keys move across the three. The pick is remembered
 //   across a reload.
 // - On another page style (Classic) the dots switch the look only: the page keeps its style, whose
 //   own dot (Minimal among them) stays marked, and draws the look; Cards draws Codex's tray.
@@ -176,12 +176,13 @@ await requireBrowserLane("composer-look-dots.test.ts", async () => {
     expect(await page.$(".nt-style:not(.nt-look-dots) input[value=minimal]")).not.toBeNull();
 
     // The saved look holds when Classic opens again, and on Cards: the strip is Codex's tray over
-    // the box, the model in the box's row, not Cards' pill.
+    // the box, the model in the footer, not Cards' pill.
     await page.reload();
     await ready(page);
     await page.waitForSelector('.acpmux-newtab[data-composer-look="codex"]');
     await open(page, "agent-pane.new-tab", "template-cards");
-    await page.waitForSelector('.nt-composer[data-composer-look="codex"] > .nt-above');
+    await page.waitForSelector('.nt-composer[data-composer-look="codex"] .acpmux-composer-foot .acpmux-model');
+    expect(await page.$(".nt-composer .nt-above")).not.toBeNull();
     expect(await page.$(".nt-composer .nt-toolbar")).toBeNull();
     expect(await page.$(".nt-composer .nt-box .acpmux-model")).toBeNull();
     expect(await page.$(".nt-composer .acpmux-composer-foot .acpmux-model")).not.toBeNull();

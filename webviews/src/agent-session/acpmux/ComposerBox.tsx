@@ -121,8 +121,7 @@ export function ComposerBox({
   bottom,
 }: ComposerBoxProps) {
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css): the
-  // chips as plain text. With Claude's look (composerLook.ts, the default) they sit in the quiet row
-  // under the box; Codex's keeps them in the box's own row.
+  // chips stay in the quiet row under the box in either look (composerLook.ts).
   const { plainFooter } = useComposerSettings();
   const quietRow = useQuietRow();
   // The controls row swaps whole units as it narrows (composerRowFit.ts).
@@ -216,9 +215,8 @@ export function ComposerBox({
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
-          {/* Claude Code's split (Leo 2026-10-19), the plain footer's default: the box keeps +, the
-              prompt, the mic and Send or Stop; the mode, model and effort sit in a quiet row under
-              it (ComposerFoot below). The other look, and Codex's, keep them all in this row. */}
+          {/* The box keeps +, prompt, mic and Send or Stop; the model and the other chips keep their
+              shared anchor in ComposerFoot below for either look. */}
           <div
             ref={quietRow ? undefined : bar}
             className={quietRow ? "acpmux-composer-bar acpmux-composer-inner" : "acpmux-composer-bar"}
@@ -245,7 +243,7 @@ export function ComposerBox({
       </div>
       {quietRow && (
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
-          <ComposerFoot ref={bar}>
+          <ComposerFoot ref={bar} plain={plainFooter}>
             {shownChips}
             {ring}
           </ComposerFoot>
