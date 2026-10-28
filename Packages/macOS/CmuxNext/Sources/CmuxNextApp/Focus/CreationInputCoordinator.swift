@@ -127,11 +127,7 @@ final class CreationInputCoordinator {
         // (first-keys-proof item 2).
         if buffer.isResolved {
             flush(in: shell)
-            guard let next = buffers[shell.windowNumber] else {
-                // As any key after a hold: a person's keyboard claim still keeps it from the window (the Chief's box).
-                droppedLastKey = kind == .content && keepsFromWindow(event, in: shell)
-                return droppedLastKey
-            }
+            guard let next = buffers[shell.windowNumber] else { return false }
             guard next === buffer else {
                 next.capture(event) // a held key run again started another creation: this one waits for it, in order
                 return true
