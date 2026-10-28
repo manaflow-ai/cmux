@@ -136,8 +136,10 @@ struct AcpmuxPendingQuestionsTests {
         #expect(first.generation != second.generation)
         #expect(first.requestDigest != second.requestDigest)
         // The native snapshot retains full options/previews, not a later page-supplied body.
-        #expect(first.requestJSON == AcpmuxSecretKey.canonicalJSON(firstRequest["request"] as Any))
-        #expect(second.requestJSON == AcpmuxSecretKey.canonicalJSON(secondRequest["request"] as Any))
+        let firstBody = try #require(firstRequest["request"])
+        let secondBody = try #require(secondRequest["request"])
+        #expect(first.requestJSON == AcpmuxSecretKey.canonicalJSON(firstBody))
+        #expect(second.requestJSON == AcpmuxSecretKey.canonicalJSON(secondBody))
         let decoded = try #require(try JSONSerialization.jsonObject(with: Data(second.requestJSON.utf8)) as? [String: Any])
         #expect(AcpmuxSecretKey.canonicalDigest(decoded) == second.requestDigest)
     }

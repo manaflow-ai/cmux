@@ -13,6 +13,10 @@ public nonisolated final class AcpmuxPendingQuestions: Sendable {
         public let decisionNonce: String
         public let personInstance: String
         public let requestDigest: String
+        /// Full immutable daemon request, including normalized items/options and original
+        /// AskUserQuestion previews. Native reply validation reads this snapshot, never history
+        /// or page-supplied request content. This value is not exposed through a page bridge.
+        public let requestJSON: String
         public let allowOnce: Set<String>
         public let answerKeys: Set<String>
     }
@@ -39,6 +43,8 @@ public nonisolated final class AcpmuxPendingQuestions: Sendable {
     // Keep tombstones until a complete snapshot covers them. At the bound, stop granting new
     // membership until another snapshot; evicting a tombstone must never revive old history.
     static let limit = 256
+    /// A keyboard witness refuses a larger request; the existing click path remains available.
+    static let maximumRequestBytes = 1_048_576
     private let state = Mutex(State())
 
     public init() {}
@@ -235,13 +241,15 @@ public nonisolated final class AcpmuxPendingQuestions: Sendable {
               let keys = AcpmuxPermissionOptions.questionKeys(request), !keys.isEmpty, keys.count <= 128,
               keys.allSatisfy({ $0.utf8.count <= AcpmuxPaneMethods.maximumAnswerBytes }),
               let options = request["options"] as? [[String: Any]], !options.isEmpty, options.count <= limit,
+              let requestJSON = AcpmuxSecretKey.canonicalJSON(request), requestJSON.utf8.count <= maximumRequestBytes,
               let digest = AcpmuxSecretKey.canonicalDigest(request) else { return nil }
         let ids = options.compactMap { identifier($0["optionId"]) }
         guard ids.count == options.count, Set(ids).count == ids.count else { return nil }
         let allow = Set(options.compactMap { $0["kind"] as? String == "allow_once" ? $0["optionId"] as? String : nil })
         guard !allow.isEmpty else { return nil }
         return Question(connection: connection, sessionId: session, permissionId: permission, generation: UUID(),
-                        decisionNonce: nonce, personInstance: instance, requestDigest: digest, allowOnce: allow, answerKeys: keys)
+                        decisionNonce: nonce, personInstance: instance, requestDigest: digest, requestJSON: requestJSON,
+                        allowOnce: allow, answerKeys: keys)
     }
 
     private static func sameRequest(_ lhs: Question, _ rhs: Question) -> Bool {
