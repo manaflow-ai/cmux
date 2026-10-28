@@ -128,18 +128,12 @@ impl Mux {
                     == TerminalHostLiveness::Dead
                 {
                     super::deferred_end::end_hold_for_test();
-                    // The end's commit waits on the registry and state locks
-                    // that other ends hold: outside the lane's limits, so the
-                    // ends never fill the System lane.
-                    let ended = cmux_threads::work::will_block(|| {
-                        mux.mark_terminal_ended(
-                            &terminal_id,
-                            "terminal-host-proven-dead",
-                            "host-process-ended-before-adoption",
-                            &options,
-                        )
-                    });
-                    if let Err(error) = ended {
+                    if let Err(error) = mux.mark_terminal_ended(
+                        &terminal_id,
+                        "terminal-host-proven-dead",
+                        "host-process-ended-before-adoption",
+                        &options,
+                    ) {
                         eprintln!(
                             "cmux-tui: could not reconcile exited terminal \
                              {terminal_id}: {error:#}"

@@ -109,9 +109,8 @@ impl Mux {
                     end_hold_for_test();
                     // Outside the lane's limits, as the dead-host end
                     // (terminal_adoption_retry.rs).
-                    let ended = cmux_threads::work::will_block(|| {
-                        mux.mark_terminal_ended(&end.terminal_id, OPERATION, REASON, &options)
-                    });
+                    let ended =
+                        mux.mark_terminal_ended(&end.terminal_id, OPERATION, REASON, &options);
                     match ended {
                         Ok(()) => Retry::Done,
                         Err(error) => {
