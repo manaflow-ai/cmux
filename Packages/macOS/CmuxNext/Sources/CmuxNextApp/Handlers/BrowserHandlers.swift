@@ -181,15 +181,17 @@ enum BrowserHandlers {
         guard case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else { return .done }
         let intent = pane.workspace?.beginFocusIntent()
         let address = url?.absoluteString ?? context.services.newTabAddress(for: choice)
+        // The pane's daemon handle, named in the press's turn (a stand-in's is client-only, #26695): the tab and the
+        // split both go to the daemon's pane that takes it over.
+        let target = daemon.store.paneTarget(handle)
         // action-wait-allow: no provisional browser split exists yet (a tab opened in the source pane, then moved by the daemon's split); its failure is now reported.
         return .waiting(.daemonEcho) {
             do {
-                let surface = try await browserTabs.open(choice, in: model, url: address, profile: profile)
-                // The pane's daemon handle (a stand-in's is client-only, #26695).
-                guard let target = await daemon.store.daemonPane(confirming: handle) else {
+                guard let split = await daemon.store.daemonPane(confirming: target), let shown = daemon.store.pane(split) else {
                     throw ActionFailure(message: RefusalStrings.noPaneID(String(handle.rawValue)))
                 }
-                try await connection.split(target, direction: direction, movingTab: surface)
+                let surface = try await browserTabs.open(choice, in: shown, url: address, profile: profile)
+                try await connection.split(split, direction: direction, movingTab: surface)
                 // The new pane takes focus (its address bar the keyboard
                 // for a new-tab page). The daemon may report the tab in the
                 // source pane before the move: land only in the new pane.

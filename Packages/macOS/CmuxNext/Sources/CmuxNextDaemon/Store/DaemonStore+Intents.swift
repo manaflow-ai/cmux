@@ -160,9 +160,6 @@ extension DaemonStore {
         standInTargets = standInTargets.filter { targets.contains($0.key) }
     }
 
-    /// The record of a pane the daemon reports: the provisional pane's own model when a pending
-    /// split shows it under the same public id, updated in place, so its observers keep their
-    /// object and see only the fields that changed (perf I3); else a new model.
     /// The daemon pane a command about `handle` must name: `handle` itself for a daemon pane, the
     /// daemon's pane that took a pending create's stand-in over (same public id), or nil while the
     /// stand-in is not confirmed yet (a create pressed on a create still in flight waits for it).
@@ -170,6 +167,9 @@ extension DaemonStore {
         ProvisionalSplit.daemonHandle(showing: handle, in: self)
     }
 
+    /// The record of a pane the daemon reports: the provisional pane's own model when a pending
+    /// split shows it under the same public id, updated in place, so its observers keep their
+    /// object and see only the fields that changed (perf I3); else a new model.
     func confirmedPane(_ snapshot: PaneSnapshot) -> PaneModel {
         guard let model = provisionalPanes.removeValue(forKey: PaneModel.identity(snapshot)) else { return PaneModel(snapshot) }
         model.update(snapshot)

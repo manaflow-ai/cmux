@@ -136,13 +136,14 @@ extension PaneController {
         if text == nil, page == nil, command.isOptimistic(on: daemon) {
             return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window, then: then)
         }
+        let named = daemon.store.paneTarget(handle) // a stand-in, named before any await (#26695)
         services.registry.track(Task { [services] in
             var landed = false
             defer { services.keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
             do {
                 var start = cwd
                 if let agent, let agentCwd = await agent.workingContext()?.cwd, WorkingURL.isDirectory(agentCwd) { start = agentCwd }
-                let target = try await PaneSplitCommand.target(handle, on: daemon) // a stand-in's daemon pane (#26695)
+                let target = try await PaneSplitCommand.target(named, on: daemon)
                 let created = try await connection.newTab(in: target, options: SpawnOptions(cwd: start, size: size, workspace: workspace, keep: keep)); BenchSpans.mark("daemon.newTab.returned")
                 if let text { try await connection.send(created.surface, text: text) }
                 if let page {

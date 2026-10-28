@@ -310,9 +310,9 @@ final class BrowserTabService {
                       profile: String?, notice: String?, activate: Bool, after: SurfaceID?) async throws -> SurfaceID {
         guard BrowserAvailability(enabled: browserEnabled()).allows(url) else { throw ActionFailure(message: MiscHandlerStrings.browserOff) }
         // A pane an earlier create still shows provisionally: its tab goes to the daemon's pane once it took
-        // the stand-in over; the stand-in's client-only handle would be refused (#26695).
-        let pane = try await PaneSplitCommand.target(pane, on: daemon)
-        let surface = try await create(daemon, pane, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine, profile, activate, after)
+        // the stand-in over; the stand-in's client-only handle would be refused (#26695). Named before any await.
+        let target = try await PaneSplitCommand.target(daemon.store.paneTarget(pane), on: daemon)
+        let surface = try await create(daemon, target, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine, profile, activate, after)
         let key = key(daemon, surface)
         if offTheRecord { incognitoURLs[key] = url }
         // The tab's page may exist already (the store echoed the tab before

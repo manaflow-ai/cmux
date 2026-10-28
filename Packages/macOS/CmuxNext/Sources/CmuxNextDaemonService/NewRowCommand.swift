@@ -33,7 +33,8 @@ public struct NewRowCommand: Sendable {
         let pane = pane, height = height, sent = options
         let intent = Intent.splitPane(pane: pane, direction: .down, ratio: 0.5, provisional: provisional)
         // The target at send time (see ``NewColumnCommand``): a stand-in has become the daemon's pane.
-        let target: @MainActor @Sendable () async throws -> PaneID = { try await PaneSplitCommand.target(pane, on: daemon) }
+        let named = daemon.store.paneTarget(pane)
+        let target: @MainActor @Sendable () async throws -> PaneID = { try await PaneSplitCommand.target(named, on: daemon) }
         let send = daemon.intendNow("new-row", intent, transaction: transaction) { connection in
             try await RowCommands(connection).newRow(below: try await target(), height: height, options: sent)
         }

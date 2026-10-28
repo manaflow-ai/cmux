@@ -273,6 +273,41 @@ struct InstantCreateIntentTests {
         #expect(store.mirrorViolations.isEmpty)
     }
 
+    /// A second Cmd-D on the pane a first one still shows (#26695): the command must name the daemon's
+    /// pane, never the stand-in's handle, which the daemon refuses (`unknown pane`); the refusal took
+    /// the second split back and the pane vanished. The target is named in the press's turn and
+    /// resolves once an event batch (the usual path, under `applyDepth`) brings the daemon's pane.
+    @Test func createOnAPendingSplitNamesTheDaemonsPaneOnceItsBatchLands() async throws {
+        let store = Self.store()
+        let first = ProvisionalPane()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: first), transaction: .generate())
+        let target = store.paneTarget(first.handle)
+        let resolved = Task { await store.daemonPane(confirming: target) }
+        await Task.yield()
+        let daemon = PaneID(rawValue: 9)
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .paneAdded(PaneDelta(
+            workspace: WorkspaceHandle(rawValue: 1), screen: ScreenID(rawValue: 2), pane: daemon, index: 1,
+            entity: PaneSnapshot(id: daemon, resourceID: ResourceID(rawValue: first.paneID),
+                                 tabs: [TabSnapshot(surface: SurfaceID(rawValue: 7))]),
+            clientTransactionID: nil)))])
+        #expect(await resolved.value == daemon, "the create names the daemon's pane, not the stand-in")
+        #expect(await store.daemonPane(confirming: store.paneTarget(Self.pane)) == Self.pane, "a daemon pane is sent as is")
+    }
+
+    /// The stand-in's own split refused: a create aimed at it gets no pane (and fails like a refusal),
+    /// never a wait that does not end.
+    @Test func createOnARefusedSplitGetsNoPane() async throws {
+        let store = Self.store()
+        let first = ProvisionalPane()
+        let transaction = ClientTransactionID.generate()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: first), transaction: transaction)
+        let target = store.paneTarget(first.handle)
+        let resolved = Task { await store.daemonPane(confirming: target) }
+        await Task.yield()
+        store.rejectIntent(transaction)
+        #expect(await resolved.value == nil)
+    }
+
     /// A conversation tab's split (`conversation-tab-split-v1`): the daemon's `pane-added`, carrying
     /// the split's transaction, names the split's tab before the `layout-changed` that places the
     /// pane. In between the screen stays split, the daemon's pane where the provisional one was
