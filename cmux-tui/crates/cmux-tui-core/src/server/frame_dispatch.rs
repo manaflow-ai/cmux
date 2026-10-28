@@ -33,6 +33,24 @@
 //! daemon handoff is pending, a REQUEST gets its line's refusal as its ERROR
 //! frame (server/pending_handoff.rs).
 //!
+//! An INPUT frame (p05-ipc-078) is the raw bytes of a `send` on a stream:
+//! its header names the stream and the key press's flow id, its payload is
+//! the bytes. It is never parsed and never answered. It runs on the stream's
+//! sequence, after the stream's earlier items, and writes its surface's
+//! terminal the way `send` does, under the connection's cause. A failure is
+//! the stream's event `input-failed{stream, reason, bytes}`; while the
+//! terminal stays ended, later INPUT on the same open of the stream fails
+//! with no second event, and a write that reaches a terminal again (a
+//! respawned one) or a new open of the stream reports the next end again.
+//! INPUT obeys a line's gates: after a shutdown or a committed handoff it
+//! closes the connection, during a pending handoff it is refused with
+//! `daemon_handoff`, and from a remote-relay client it is a bad message
+//! (the relay denies by default). This is Chrome's
+//! `WidgetInputHandler`: input is a one-way message on the widget's own
+//! associated pipe, ordered with the widget's other messages, with no reply
+//! (chromium third_party/blink/public/mojom/input/input_handler.mojom,
+//! `DispatchNonBlockingEvent`).
+//!
 //! Only `Command` methods answer on frames yet. A feature route or a v2
 //! operation replies on its own writer, so a frame naming one gets the ERROR
 //! [`METHOD_NOT_FRAMED`]; the routes move to the method table in
@@ -59,11 +77,16 @@ use serde_json::json;
 
 use crate::diagnostics::{IpcTransport, JsonParseScope};
 
+use super::cmd_terminal_io::InputFailure;
+use super::creating_input::{CREATING_INPUT_STREAMS_CAPABILITY, CREATING_STREAM_OPENERS};
 use super::line_connection::{
     ConnectionBadMessage, FrameConnection, FrameLane, IPC_FRAMES_CAPABILITY,
 };
 use super::pending_streams::{ClientStreams, RequestLane, StreamEndpoint, post_request};
-use super::{Command, ConnectionCancellation, MessageWriter, Mux, handle_connection_frame_at};
+use super::{
+    ClientTransport, Command, ConnectionCancellation, MessageWriter, Mux,
+    handle_connection_frame_at,
+};
 
 /// The `error_code` of the ERROR reply to a method that answers only lines.
 pub(super) const METHOD_NOT_FRAMED: &str = "method_not_framed";
@@ -180,6 +203,8 @@ pub(super) enum CallRefusal {
     CancelMismatch { request_id: u32, method_id: u16 },
     /// A CANCEL with a payload.
     CancelPayload { request_id: u32 },
+    /// An INPUT frame from a remote-relay client, which writes no terminal.
+    RemoteInput { stream: u16 },
 }
 
 impl CallRefusal {
@@ -196,6 +221,7 @@ impl CallRefusal {
             CallRefusal::DuplicateRequest { .. } => "duplicate_request",
             CallRefusal::CancelMismatch { .. } => "cancel_mismatch",
             CallRefusal::CancelPayload { .. } => "cancel_payload",
+            CallRefusal::RemoteInput { .. } => "remote_input",
         }
     }
 }
@@ -236,6 +262,9 @@ impl fmt::Display for CallRefusal {
             ),
             CallRefusal::CancelPayload { request_id } => {
                 write!(f, "cancel of request {request_id} has a payload")
+            }
+            CallRefusal::RemoteInput { stream } => {
+                write!(f, "INPUT on stream {stream} from a remote-relay client")
             }
         }
     }
@@ -295,9 +324,7 @@ impl FrameLane for RequestFrames {
                 .cancel(&header, call, frame.payload().is_empty())
                 .map(|()| true)
                 .map_err(ConnectionBadMessage::Call),
-            (FrameKind::Input, None) if header.stream() != 0 => {
-                self.streams.input(frame).map(|()| true)
-            }
+            (FrameKind::Input, None) if header.stream() != 0 => self.input(frame, connection),
             (kind, _) => Err(ConnectionBadMessage::UnroutedKind { kind }),
         }
     }
@@ -327,7 +354,18 @@ impl RequestFrames {
             ConnectionBadMessage::Wire(BadMessage::InvalidUtf8 { valid_up_to: error.valid_up_to() })
         })?;
         let stream = header.stream();
-        let lane = self.streams.request_lane(stream, method).map_err(ConnectionBadMessage::Call)?;
+        // A terminal create on a stream opens it only with the grant; it is
+        // asked for no other request.
+        let creating_streams = stream != 0
+            && CREATING_STREAM_OPENERS.contains(&method.name)
+            && connection
+                .mux
+                .control_clients
+                .supports_capability(connection.client, CREATING_INPUT_STREAMS_CAPABILITY);
+        let lane = self
+            .streams
+            .request_lane(stream, method, creating_streams)
+            .map_err(ConnectionBadMessage::Call)?;
         self.admit(call.request_id).map_err(ConnectionBadMessage::Call)?;
         // An admitted REQUEST is one framed request of `server-stats` `ipc`:
         // the body parses below and on its line's path count toward it.
@@ -336,9 +374,20 @@ impl RequestFrames {
             let call = Arc::new(FrameCall::new(stream, call));
             return Ok(send_not_framed(&connection.writer.replying_to(call), method));
         }
-        names_method(body, method).map_err(ConnectionBadMessage::Call)?;
+        let head = names_method(body, method).map_err(ConnectionBadMessage::Call)?;
+        // The terminal a create on its stream mints, read in the same pass.
+        let creating = match lane {
+            RequestLane::Open if creating_streams => match head.created_terminal() {
+                Some(terminal_id) => Some(terminal_id),
+                None => {
+                    let call = Arc::new(FrameCall::new(stream, call));
+                    return Ok(send_needs_terminal_id(&connection.writer.replying_to(call)));
+                }
+            },
+            _ => None,
+        };
         let opens = matches!(lane, RequestLane::Open)
-            .then(|| self.streams.announce(stream, method, connection));
+            .then(|| self.streams.announce(stream, creating, connection));
         let frame_call = Arc::new(FrameCall::opening(stream, call, opens));
         let writer = connection.writer.replying_to(frame_call.clone());
         self.in_flight.insert(call.request_id, frame_call.clone());
@@ -358,6 +407,32 @@ impl RequestFrames {
                 connection.arrived,
             )),
         }
+    }
+
+    /// Queues an INPUT frame's bytes on its stream, behind the line's gates.
+    /// Nothing parses them and nothing answers them; a failure is the
+    /// stream's `input-failed`. `Ok(false)` closes the connection, as a
+    /// line's handler does after a shutdown or a committed handoff.
+    fn input(
+        &mut self,
+        frame: Frame,
+        connection: &FrameConnection<'_>,
+    ) -> Result<bool, ConnectionBadMessage> {
+        let mux = connection.mux;
+        // The gates of `handle_connection_frame_at`, in its order: no input
+        // runs after the shutdown acknowledgement.
+        if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
+            return Ok(false);
+        }
+        let stream = frame.header().stream();
+        let (remote, cause) = mux.frame_client(connection.client);
+        if matches!(connection.transport, ClientTransport::Remote) || remote {
+            return Err(ConnectionBadMessage::Call(CallRefusal::RemoteInput { stream }));
+        }
+        // Refused without being written, as a line is while the handoff can
+        // still fail; the connection stays open.
+        let refused = mux.daemon_handoff_in_progress().then_some(InputFailure::DaemonHandoff);
+        self.streams.input(frame, cause, refused).map(|()| true)
     }
 
     fn cancel(
@@ -464,7 +539,8 @@ fn request_flags(method: &MethodAttrs, flags: CallFlags) -> Result<(), CallRefus
     Ok(())
 }
 
-/// The members of a body that name its method.
+/// The members of a body that name its method, and the terminal id a
+/// terminal create mints (`terminal_id`), read in the same pass.
 #[derive(Deserialize)]
 struct BodyHead<'a> {
     #[serde(default, borrow)]
@@ -472,6 +548,19 @@ struct BodyHead<'a> {
     /// Present (even `null`): the line path would read it as a v2 envelope.
     #[serde(default, deserialize_with = "member_present")]
     protocol: bool,
+    /// Any JSON: its handler, not the reader, refuses a wrong type.
+    #[serde(default)]
+    terminal_id: Option<serde_json::Value>,
+}
+
+impl BodyHead<'_> {
+    /// The minted terminal id, normalized as the create's handler reads it
+    /// (`Command::created_terminal_id`); none when absent or not 32 hex
+    /// digits.
+    fn created_terminal(&self) -> Option<Arc<str>> {
+        let id = self.terminal_id.as_ref()?.as_str()?;
+        crate::terminal_host::TerminalId::from_hex(id).map(|id| Arc::from(id.to_hex()))
+    }
 }
 
 fn member_present<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D::Error> {
@@ -480,11 +569,22 @@ fn member_present<'de, D: Deserializer<'de>>(deserializer: D) -> Result<bool, D:
 
 /// The body must be the v12 line of the header's method, so the handler that
 /// runs is the one the header was checked for.
-fn names_method(body: &str, method: &MethodAttrs) -> Result<(), CallRefusal> {
+fn names_method<'a>(body: &'a str, method: &MethodAttrs) -> Result<BodyHead<'a>, CallRefusal> {
     match crate::line_parses::parse::<BodyHead<'_>>(body) {
-        Ok(BodyHead { cmd: Some(cmd), protocol: false }) if cmd == method.name => Ok(()),
+        Ok(head) if !head.protocol && head.cmd.as_deref() == Some(method.name) => Ok(head),
         _ => Err(CallRefusal::MethodMismatch { method_id: method.id.raw() }),
     }
+}
+
+/// A terminal create on a stream that names no terminal id to bind the
+/// stream to: answered, not run.
+fn send_needs_terminal_id(writer: &MessageWriter) -> bool {
+    let reply = json!({
+        "ok": false,
+        "error": "a create on a stream names the terminal_id it mints (32 hex digits)",
+        "error_code": "stream_needs_terminal_id",
+    });
+    writer.send_reply(&reply).is_ok()
 }
 
 /// An opener naming a stream that is still live: the client reused its id
@@ -510,3 +610,7 @@ fn send_not_framed(writer: &MessageWriter, method: &MethodAttrs) -> bool {
 #[cfg(all(test, unix))]
 #[path = "frame_dispatch_tests.rs"]
 pub(super) mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "input_frames_tests.rs"]
+mod input_frames_tests;

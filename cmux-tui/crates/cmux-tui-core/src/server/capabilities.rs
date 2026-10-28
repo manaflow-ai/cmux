@@ -130,12 +130,20 @@ pub(super) enum IpcCapability {
     AttachFrames,
     /// The per-terminal shared-memory output ring (RING, RING_ADVANCE, RING_ACK).
     OutputRing,
+    /// A terminal create's REQUEST frame on stream S opens S as its new
+    /// terminal's input stream (p05-ipc-153, server/pending_streams.rs).
+    CreatingInputStreams,
 }
 
 impl IpcCapability {
     /// Every one, each after the ones it [`requires`](Self::requires).
-    pub(super) const ALL: [Self; 4] =
-        [Self::Frames, Self::AttachStreams, Self::AttachFrames, Self::OutputRing];
+    pub(super) const ALL: [Self; 5] = [
+        Self::Frames,
+        Self::AttachStreams,
+        Self::AttachFrames,
+        Self::OutputRing,
+        Self::CreatingInputStreams,
+    ];
 
     pub(super) const fn name(self) -> &'static str {
         match self {
@@ -143,6 +151,7 @@ impl IpcCapability {
             Self::AttachStreams => "attach-streams-v1",
             Self::AttachFrames => "attach-frames-v1",
             Self::OutputRing => "terminal-output-ring-v1",
+            Self::CreatingInputStreams => "creating-input-streams-v1",
         }
     }
 
@@ -154,12 +163,13 @@ impl IpcCapability {
         1 << self as u8
     }
 
-    /// What must be granted with it: frames on a stream need both, and the
-    /// ring announces its spans with frames on the attach stream.
+    /// What must be granted with it: frames on a stream need both, the ring
+    /// announces its spans with frames on the attach stream, and a create's
+    /// input stream is a frame stream the view's attach takes over.
     const fn requires(self) -> &'static [Self] {
         match self {
             Self::Frames | Self::AttachStreams => &[],
-            Self::AttachFrames => &[Self::Frames, Self::AttachStreams],
+            Self::AttachFrames | Self::CreatingInputStreams => &[Self::Frames, Self::AttachStreams],
             Self::OutputRing => &[Self::AttachFrames],
         }
     }
@@ -183,17 +193,22 @@ impl IpcCapability {
     }
 
     /// What `identify` advertises: each bound capability `peer` may be
-    /// granted. `current_revision` is false once the client declared another
-    /// revision than this daemon's.
+    /// granted, with what it [`requires`](Self::requires) (a capability
+    /// whose requirement is not offered could never be granted).
+    /// `current_revision` is false once the client declared another revision
+    /// than this daemon's.
     pub(super) fn offered(
         peer: IpcPeer,
         current_revision: bool,
         transports: &IpcTransports,
     ) -> Vec<Self> {
+        let offers = |capability: Self| {
+            transports.bound(capability) && capability.allowed(peer, current_revision)
+        };
         Self::ALL
             .into_iter()
             .filter(|capability| {
-                transports.bound(*capability) && capability.allowed(peer, current_revision)
+                offers(*capability) && capability.requires().iter().all(|r| offers(*r))
             })
             .collect()
     }
@@ -204,12 +219,14 @@ impl IpcCapability {
 /// once its implementation is bound. The task that lands a transport adds its
 /// capability to [`Self::BOUND`]: the frame reader (p05-ipc-061) `Frames`,
 /// streams and `cancel-stream` (p05-ipc-074) `AttachStreams`, attach frames
-/// `AttachFrames`, the ring (p05-ipc-111) `OutputRing`.
+/// `AttachFrames`, the ring (p05-ipc-111) `OutputRing`, a create's input
+/// stream (p05-ipc-153) `CreatingInputStreams`, offered only once `Frames` is.
 pub(super) struct IpcTransports(AtomicU8);
 
 impl IpcTransports {
     /// The capabilities whose transport this build serves.
-    const BOUND: [IpcCapability; 1] = [IpcCapability::AttachStreams];
+    const BOUND: [IpcCapability; 2] =
+        [IpcCapability::AttachStreams, IpcCapability::CreatingInputStreams];
 
     pub(super) fn bound(&self, capability: IpcCapability) -> bool {
         self.0.load(Ordering::Acquire) & capability.bit() != 0
@@ -363,6 +380,7 @@ fn always_identified() -> Vec<&'static str> {
     capabilities.push(activity::CAPABILITY);
     capabilities.push(energy_op::CAPABILITY);
     capabilities.push(energy_op::RULE_CAPABILITY);
+    capabilities.push(memory_limit::CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
     #[cfg(unix)]

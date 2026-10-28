@@ -189,9 +189,9 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// right after: one thread hop from the main thread to `write(2)`, as Chromium posts input once to the IO
     /// thread that owns the IPC channel (ipc/ipc_channel_proxy.cc, `ChannelProxy::Send`).
     ///
-    /// While the terminal is still being created its bytes go by id, one awaited send at a time; the lane holds
-    /// every later record meanwhile, and a chunk the daemon refused goes by the attachment on `queue` before the
-    /// lane resumes, so no record passes it.
+    /// While the terminal is still being created its bytes go by id: on the create's stream in the lane's turn,
+    /// else one awaited send at a time, the lane holding every later record, and a chunk that goes by the
+    /// attachment goes on `queue` before the lane resumes, so no record passes it.
     static func inputDrain<Link: TerminalAttachLink>(on queue: DispatchQueue, driver: TerminalAttachDriver<Link>,
                                                      creating: (any CreatingTerminalInputSending)?) -> TerminalInputDrain {
         TerminalInputDrain(queue: queue) { record, resume in
@@ -199,6 +199,10 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
             case .bytes(let data):
                 guard let creating, !creating.sendsByAttachment else {
                     driver.input(data)
+                    return .next
+                }
+                if let sentByID = creating.writeWithoutWaiting(data) {
+                    if !sentByID { driver.input(data) }
                     return .next
                 }
                 // The drain's closure is nonisolated: the send never touches the main thread.

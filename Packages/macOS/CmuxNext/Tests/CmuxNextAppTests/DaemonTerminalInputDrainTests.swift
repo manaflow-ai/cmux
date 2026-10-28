@@ -48,6 +48,63 @@ import Testing
         let inputs = log.linkCalls.filter { $0.hasPrefix("input") || $0.hasPrefix("snapshot") }
         #expect(inputs == ["input b", "snapshot gap", "input c"])
     }
+
+    /// p05-ipc-153: a chunk the create's input stream takes goes in the lane's turn, with no await and no
+    /// hold; once input goes by the attachment, the next chunk reaches the link in order after it.
+    @MainActor @Test func aChunkOnTheCreatesStreamGoesWithoutHoldingTheLane() async {
+        let log = RouteLog()
+        let link = RouteLink(log: log)
+        // qos-allow: a test queue standing for the attach input queue, which runs at this class
+        let queue = DispatchQueue(label: "com.cmuxterm.next.test.attach-input-stream", qos: .userInteractive)
+        let driver = TerminalAttachDriver<RouteLink>(initialSize: CellSize(cols: 80, rows: 24), opener: { _ in link },
+                                                     observer: { event, _ in log.observed(event, onQueue: queue.label) })
+        defer { driver.close() }
+        driver.resize(CellSize(cols: 100, rows: 30))
+        driver.start()
+        link.feed.yield(.replay(TerminalReplay(cols: 80, rows: 24, data: Data())))
+        await log.waitForLink("claim 100x30")
+
+        let creating = StreamCreatingInput(takes: 2)
+        let lane = TerminalInputLane(drain: DaemonTerminalIO.inputDrain(on: queue, driver: driver, creating: creating))
+        for key in ["a", "b", "c"] { lane.push(.bytes(Data(key.utf8))) }
+        await log.waitForLink("input c")
+
+        #expect(creating.inline == ["a", "b", "c"])
+        #expect(creating.awaited == 0, "no chunk awaited a send")
+        #expect(log.driverEvents == ["input c"])
+        #expect(log.offQueue.isEmpty, "driver calls ran off the input queue: \(log.offQueue)")
+    }
+}
+
+/// A create's input stream that takes the first `takes` chunks in the caller's turn, then sends the rest by the
+/// attachment; it is never awaited.
+private nonisolated final class StreamCreatingInput: CreatingTerminalInputSending {
+    private nonisolated struct State {
+        var inline: [String] = []
+        var awaited = 0
+    }
+
+    private let takes: Int
+    // A lock: the route calls from its queue.
+    private let state = Mutex(State())
+
+    init(takes: Int) { self.takes = takes }
+
+    var inline: [String] { state.withLock { $0.inline } }
+    var awaited: Int { state.withLock { $0.awaited } }
+    var sendsByAttachment: Bool { state.withLock { $0.inline.count > takes } }
+
+    func write(_ data: Data) async -> Bool {
+        state.withLock { $0.awaited += 1 }
+        return false
+    }
+
+    func writeWithoutWaiting(_ data: Data) -> Bool? {
+        state.withLock { state in
+            state.inline.append(String(decoding: data, as: UTF8.self))
+            return state.inline.count <= takes
+        }
+    }
 }
 
 /// What the driver reduced (its observer) and what it sent on the link, in order.

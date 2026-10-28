@@ -35,6 +35,9 @@ struct QueuedInput {
     client: u64,
     bytes: Vec<u8>,
     paste: bool,
+    /// The key press these bytes carry (0: none): their write names it, so
+    /// the echo of a key queued while the terminal started carries it too.
+    flow: u64,
     notice: UnclaimedNotice,
 }
 
@@ -122,13 +125,16 @@ impl Mux {
     }
 
     /// Write input to the terminal with host id `terminal_id`: queued while it is being created
-    /// or its queue is being written, written at once when it is live.
+    /// or its queue is being written, written at once when it is live. `flow` (0: none) is the
+    /// key press the bytes carry; a paste carries none.
+    #[allow(clippy::too_many_arguments)] // the input, its sender and its key press
     pub(crate) fn write_terminal_input(
         self: &Arc<Self>,
         terminal_id: &str,
         client: u64,
         bytes: &[u8],
         paste: bool,
+        flow: u64,
         notice: UnclaimedNotice,
     ) -> anyhow::Result<TerminalInputTarget> {
         {
@@ -139,7 +145,13 @@ impl Mux {
                     return Err(InputOverflow { queued: creating.bytes }.into());
                 }
                 creating.bytes += bytes.len();
-                creating.queued.push(QueuedInput { client, bytes: bytes.to_vec(), paste, notice });
+                creating.queued.push(QueuedInput {
+                    client,
+                    bytes: bytes.to_vec(),
+                    paste,
+                    flow,
+                    notice,
+                });
                 if !creating.expiry_started && !creating.flushing {
                     creating.expiry_started = true;
                     self.start_creating_input_expiry(terminal_id, creating.generation);
@@ -154,7 +166,9 @@ impl Mux {
         if paste {
             surface.write_paste(bytes)?;
         } else {
-            surface.write_bytes(bytes)?;
+            cmux_flow_trace::hop("daemon.send.write", flow, surface.flow_terminal_id());
+            surface.write_bytes_flow(bytes, flow)?;
+            cmux_flow_trace::hop("daemon.send.written", flow, surface.flow_terminal_id());
         }
         self.note_terminal_input(surface.id, client);
         Ok(TerminalInputTarget::Written)
@@ -179,7 +193,7 @@ impl Mux {
         if terminals.is_empty() {
             return;
         }
-        let Some(identity) = surface.terminal_host_identity() else { return };
+        let Some(identity) = self.resource_terminal_host_identity(surface) else { return };
         let deadline = Instant::now() + CREATING_INPUT_EXPIRY;
         while let Some(creating) = terminals.get(&identity.terminal_id) {
             let now = Instant::now();
@@ -246,7 +260,7 @@ impl Mux {
                 let written = if input.paste {
                     surface.write_paste(&input.bytes)
                 } else {
-                    surface.write_bytes(&input.bytes)
+                    surface.write_bytes_flow(&input.bytes, input.flow)
                 };
                 if let Err(error) = written {
                     // The terminal took the earlier bytes; the rest, and all queued since, go
@@ -298,12 +312,28 @@ impl Mux {
         }
     }
 
-    /// The live terminal surface whose host id is `terminal_id`.
+    /// The live terminal surface whose host id is `terminal_id`: a hosted terminal's, or an
+    /// in-process terminal's, whose identity the mux holds (`resource_terminal_host_identity`).
+    /// The identity map is read before the state lock is taken, never under it.
     fn live_surface_for_terminal(&self, terminal_id: &str) -> Option<Arc<Surface>> {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(surface) = state.indexed_catalog_terminal(terminal_id)
-            && state.surfaces.contains_key(&surface.id)
         {
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(surface) = state.indexed_catalog_terminal(terminal_id)
+                && state.surfaces.contains_key(&surface.id)
+            {
+                return Some(surface.clone());
+            }
+        }
+        let in_process = self
+            .reserved_in_process_terminals
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .find_map(|(surface, identity)| {
+                (identity.terminal_id == terminal_id).then_some(*surface)
+            });
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(surface) = in_process.and_then(|surface| state.surfaces.get(&surface)) {
             return Some(surface.clone());
         }
         state

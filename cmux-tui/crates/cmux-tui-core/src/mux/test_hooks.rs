@@ -46,6 +46,17 @@ impl Mux {
             hook.map(|hook| Arc::new(move |_unlocked: bool| hook()) as _);
     }
 
+    /// Runs with each test-runtime terminal a reserved create spawns, before
+    /// it is published: a test installs its PTY capture there, before any
+    /// input queued for the terminal is written.
+    #[cfg(test)]
+    pub(crate) fn set_terminal_spawned_hook_for_test(
+        &self,
+        hook: Option<TerminalSpawnBeforeCellPixelReconcileHook>,
+    ) {
+        *self.terminal_spawn_before_cell_pixel_reconcile.lock().unwrap() = hook;
+    }
+
     #[cfg(test)]
     pub(super) fn last_resource_mutation_metrics(&self) -> ResourceMutationMetrics {
         self.resource_mutation_metrics

@@ -19,6 +19,7 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 | Browser attach v6 | `attach-surface` command on a browser | `browser-state`, `frame`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
 | Control input notice | No command; sent to a connection whose queued input for a creating terminal was not written | `terminal-input-unclaimed` |
+| Stream input notice | No command; sent on the attach stream whose INPUT frame did not reach its terminal | `input-failed` |
 | Attach stream with `attach-streams-v1` | `attach-surface` with `stream` | the events of its mode, each with `stream`, then `stream-end` |
 | Native owner inventory watch | Trusted Unix `agent-inventory-watch` with `agent-inventory-watch-v1` | `agent-inventory-changed`, `agent-inventory-watch-ended` |
 
@@ -84,6 +85,7 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `config-reload-requested` | subscribe | session | protocol 6 |
 | `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
 | `terminal-input-unclaimed` | control | `terminal_id` | `terminal-input-while-creating-v1`; only to the connection that queued the bytes |
+| `input-failed` | attach (`stream`) | `stream` | protocol 12; capability `ipc-frames-v2`; only on the stream the INPUT frame named |
 | `terminal-clipboard-read` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the one frontend subscribed to the terminal |
 | `terminal-clipboard-read-cancelled` | control (targeted) | `request_id` | protocol 12 additive; capability `terminal-clipboard-read-v1`; only to the frontend that got the read |
 | `window-title-requested` | subscribe | session | protocol 6 |
@@ -1369,7 +1371,9 @@ object{event:"terminal-input-unclaimed",terminal_id:string,bytes_base64:Base64,r
 Meaning: Input that a connection queued for a terminal still being created (`send` with `terminal_id`,
 [commands.md](commands.md#send)) was not written, because the creation failed (`failed`), its connection
 closed first (`cancelled`), it did not end within 10 seconds of the first queued byte (`expired`), or the
-terminal refused a write of the queue (`write-failed`; the bytes before it were written). `bytes_base64` holds
+terminal refused a write of the queue (`write-failed`; the bytes before it were written). INPUT on a create's
+input stream ([Attach streams](#attach-streams)) also comes back as `overflow` (the queue held 65,536 bytes) or
+`terminal-ended`, with every later INPUT of that stream. `bytes_base64` holds
 this connection's bytes that were not written, in the order they were queued. A frame whose write timed out
 may have reached the terminal in part, so after `write-failed` the first bytes can repeat input it got. It is sent on the control queue of the connection that queued them, also without a
 subscription. The client should give the bytes to the terminal that has focus.
@@ -1378,6 +1382,40 @@ Example:
 
 ```json
 {"event":"terminal-input-unclaimed","terminal_id":"51000000000040008000000000000001","bytes_base64":"bHMNCg==","reason":"failed"}
+```
+
+### input-failed
+
+| Field | Value |
+| --- | --- |
+| event | `input-failed` |
+| status | implemented stream event |
+| since | protocol 12, capability `ipc-frames-v2` |
+
+Payload:
+
+```text
+object{event:"input-failed",stream:uint16,reason:"terminal_ended"|"not_a_terminal"|"write_failed"|"daemon_handoff"|"overflow"|"attach_failed",bytes:uint64}
+```
+
+Meaning: The bytes of an INPUT frame (p05-ipc-078, [transports.md](transports.md)) did not reach the
+terminal of the attach stream the frame named. INPUT frames have no reply; this event is how a client
+learns its input was lost. `stream` is the stream the frame named and `bytes` the length of its payload.
+`terminal_ended`: the surface closed or its terminal ended (also while a lost host respawns under the same
+surface id). `not_a_terminal`: the stream views a browser surface. After either, later INPUT that fails
+the same way sends no second event, until a write reaches a terminal again (the respawned one) or the
+stream id is opened again; every later frame is still tried. `write_failed`: the terminal refused the
+write (its host did not come back, or the write timed out); a later frame is tried again.
+`daemon_handoff`: a daemon handoff is pending, so the daemon refused the bytes without writing them, as
+it refuses a line meanwhile; a later frame is tried again. `overflow` and `attach_failed`: the stream
+ended before its `attach-surface` was answered (it held its pending cap and got one more item, or its
+opener failed); `bytes` counts every INPUT byte it queued, in one event right before its `stream-end`
+with the same reason. It is sent as the next item of that stream.
+
+Example:
+
+```json
+{"event":"input-failed","stream":7,"reason":"terminal_ended","bytes":3}
 ```
 
 ### terminal-clipboard-read
@@ -1829,23 +1867,40 @@ message of the endpoint (chromium
   is no `stream-end` then.
 - Without `stream`, `attach-surface` behaves as before: no tag, the
   `overflow` event, no `stream-end`.
-- Input while creating (p05-ipc-153, with `ipc-frames-v2` and
-  `terminal-input-while-creating-v1`): a `split`, `new-tab`, `new-pane` or
-  `new-pane-right` sent as a REQUEST frame on stream S with a minted
-  `terminal_id` opens S as that terminal's input stream. When the daemon
-  takes the create, before its host starts and before its reply, S binds to
-  the id: INPUT frames on S (also those sent right behind the create) join
-  the terminal's creating queue in order, with no reply, and are written
-  once it is live, as `send {terminal_id}` is. A queue the create gives back
-  comes as `terminal-input-unclaimed`; INPUT the daemon cannot queue or
-  write is `input-failed` (`overflow`, `terminal_ended`, `write_failed`).
-  The create's reply never ends S. A failed create ends S with
-  `stream-end{attach_failed}` before its error; a create with no
-  `terminal_id` ends S the same way before its reply. While the terminal is
-  creating or live, S stays in use: another create on S is
-  `stream_in_use`, and `attach-surface {stream: S}` takes S over only for a
-  surface of that terminal (anything else fails, and ends S). The view's
-  items then run after every item sent on S before it.
+- Input while creating (p05-ipc-153): capability
+  `creating-input-streams-v1`, a framed IPC grant that needs
+  `ipc-frames-v2` and `attach-streams-v1`
+  ([transports.md](transports.md#framed-ipc-grants)). On a connection
+  without it, a create on a stream other than 0 is a `not_stream_scoped` bad
+  message, as before. With it, a `split`, `new-tab`, `new-pane` or
+  `new-pane-right` sent as a REQUEST frame on stream S opens S as the input
+  stream of the `terminal_id` it mints; one that names no valid
+  `terminal_id` is answered `stream_needs_terminal_id` and does not run.
+  When the daemon takes the create, before its host starts and before its
+  reply, S binds to the id: INPUT frames on S (also those sent right behind
+  the create) join the terminal's creating queue in order, with no reply,
+  and are written once it is live, as `send {terminal_id}` is. Each frame's
+  flow id names its key press, as `send`'s `flow` does, so the echo of a key
+  typed while the terminal starts names that press. Before the daemon takes
+  the create, S holds at most 65,536 bytes of INPUT, the creating queue's
+  bound.
+- INPUT on S that the daemon cannot queue or write is never dropped: that
+  INPUT and every later INPUT of S come back in order as
+  `terminal-input-unclaimed` (reason `overflow`, `terminal-ended`,
+  `write-failed` or `failed`), and S ends with `stream-end` (`overflow`,
+  `detached` or `attach_failed`), so no key after a refused one reaches the
+  terminal. The give-back names the terminal, never the stream, so it may
+  follow the stream's `stream-end`: nothing that names S does. A queue the
+  create gives back comes the same way. The create's reply never ends S. A
+  failed create ends S with `stream-end{attach_failed}` before its error.
+- While the terminal is creating or live, S stays in use: another create
+  on S is `stream_in_use`, and `attach-surface {stream: S}` on the same
+  connection takes S over, only for a surface of that terminal (anything
+  else fails, and ends that attach's stream). The view's items then run
+  after every item sent on S before it. A view that attaches on another
+  connection is not ordered against S: before its first key, the client
+  sends a stream request on S (`send {terminal_id}` with no bytes), whose
+  answer comes after every INPUT sent on S before it.
 
 ### size-state
 

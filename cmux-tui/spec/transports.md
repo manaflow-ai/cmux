@@ -210,6 +210,21 @@ the connection with `bad_message` and the reason (`bad_magic`, `unknown_kind`,
 `frames_not_negotiated`, `line_too_long`, `invalid_utf8`, `truncated`).
 Nothing after the bad byte is interpreted.
 
+An INPUT frame (p05-ipc-078) is the raw bytes of a `send` to the surface of
+the attach stream it names, with no JSON and no base64. Its aux is the key
+press's flow id (0: none), which joins the daemon's flow hops to the echo, as
+`send`'s `flow` does. It runs on its stream's sequence after that stream's
+earlier items, is never parsed and is never answered. When its bytes do not
+reach the terminal, the stream gets the event `input-failed{stream, reason,
+bytes}` ([events.md](events.md#input-failed)); while the terminal stays ended,
+later INPUT on the same open of the stream sends no second event. INPUT obeys
+a line's gates: after a shutdown acknowledgement or a committed handoff it
+closes the connection, and during a pending handoff it is refused with
+`daemon_handoff`. INPUT sent right behind its stream's `attach-surface` waits
+for that reply ([events.md](events.md#attach-streams)). An INPUT frame on a
+stream the connection never announced is a bad message (`unknown_stream`),
+and so is one from a remote-relay client (`remote_input`).
+
 #### Bulk payloads: SNAPSHOT, SNAPSHOT_MORE, REPLAY
 
 A snapshot viewer's `snapshot` events (READY, local-history READY, history and
@@ -448,10 +463,11 @@ vNext adds client-generated `stream_id` to `subscribe` and `attach-surface`, ech
 ## Framed IPC grants
 
 Status: `attach-streams-v1` is in the daemon (p05-ipc-074,
-[events.md](events.md#attach-streams)); the other three are a grant rule
+[events.md](events.md#attach-streams)); `creating-input-streams-v1` is in the daemon too (p05-ipc-153) and is
+offered only with `ipc-frames-v2`; the other three are a grant rule
 only. The daemon advertises and grants a capability only after its
 transport is in the daemon, so `identify` lists only `attach-streams-v1` of
-the four and `set-client-info` grants only it. A request that names a
+the five and `set-client-info` grants only it. A request that names a
 `stream` on a connection without the grant is refused with
 `streams_not_granted`. The task that adds a transport also turns on its
 capability: p05-ipc-061 for `ipc-frames-v2` and the ring task for
@@ -466,6 +482,7 @@ is bound.
 | `attach-streams-v1` | Client-minted streams on one connection. Their items stay JSON lines. | none |
 | `attach-frames-v1` | Attach output as `OUTPUT`, `GRID`, `SNAPSHOT` and `REPLAY` frames on a stream | `ipc-frames-v2`, `attach-streams-v1` |
 | `terminal-output-ring-v1` | The per-terminal shared-memory output ring (`RING`, `RING_ADVANCE`, `RING_ACK`) | `attach-frames-v1` |
+| `creating-input-streams-v1` | A terminal create's REQUEST frame on stream S opens S as the new terminal's input stream ([events.md](events.md#attach-streams), p05-ipc-153). Its transport is in the daemon; it is offered only with `ipc-frames-v2`. | `ipc-frames-v2`, `attach-streams-v1` |
 
 `identify` lists each capability that is in the daemon and that the
 connection can be granted in its current state. After the client declares an
@@ -478,7 +495,7 @@ it does for any other capability, and the reply stays `{}`.
 
 | Connection | Grants |
 | --- | --- |
-| Direct local peer on the Unix socket, with `api_revision` equal to the daemon's (declared in `set-client-info`) | all four |
+| Direct local peer on the Unix socket, with `api_revision` equal to the daemon's (declared in `set-client-info`) | all five |
 | Direct local peer at any other revision, or with no declared revision | `attach-streams-v1` |
 | Bridge that the daemon identifies at accept | `attach-streams-v1` |
 | Unverified Unix peer | `attach-streams-v1` |

@@ -274,7 +274,7 @@ fn ipc_grant_needs_what_each_capability_requires() {
 
 #[test]
 fn ipc_grant_rule_table() {
-    use IpcCapability::{AttachFrames, AttachStreams, Frames, OutputRing};
+    use IpcCapability::{AttachFrames, AttachStreams, CreatingInputStreams, Frames, OutputRing};
     let bound = IpcTransports::default();
     bound.bind_all_for_test();
     for peer in [IpcPeer::WebSocket, IpcPeer::RemoteEntry, IpcPeer::PageRelay] {
@@ -282,15 +282,19 @@ fn ipc_grant_rule_table() {
     }
     assert_eq!(
         IpcCapability::offered(IpcPeer::Local, true, &bound),
-        [Frames, AttachStreams, AttachFrames, OutputRing]
+        [Frames, AttachStreams, AttachFrames, OutputRing, CreatingInputStreams]
     );
     assert_eq!(IpcCapability::offered(IpcPeer::Local, false, &bound), [AttachStreams]);
     assert_eq!(IpcCapability::offered(IpcPeer::Bridged, true, &bound), [AttachStreams]);
     assert_eq!(IpcCapability::offered(IpcPeer::Unverified, true, &bound), [AttachStreams]);
+    // A create's input stream is bound, but never offered before the frames
+    // it needs are.
     assert_eq!(
         IpcCapability::offered(IpcPeer::Local, true, &IpcTransports::default()),
         [AttachStreams]
     );
+    assert!(!CreatingInputStreams.allowed(IpcPeer::Local, false));
+    assert!(!CreatingInputStreams.allowed(IpcPeer::Bridged, true));
     assert!(AttachStreams.allowed(IpcPeer::Local, false));
     assert!(!Frames.allowed(IpcPeer::Local, false));
     assert!(!OutputRing.allowed(IpcPeer::Bridged, true));

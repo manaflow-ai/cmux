@@ -241,8 +241,7 @@ pub(super) fn attach_surface(
     if let Some(stream) = writer.frame_call().and_then(|call| call.opens()) {
         if let Some(terminal_id) = stream.took_over_terminal() {
             anyhow::ensure!(
-                surface
-                    .terminal_host_identity()
+                mux.resource_terminal_host_identity(&surface)
                     .is_some_and(|host| host.terminal_id == terminal_id),
                 "stream_in_use: stream {} carries terminal {terminal_id}'s input",
                 stream.id()
