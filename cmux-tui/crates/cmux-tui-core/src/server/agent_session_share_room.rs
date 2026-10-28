@@ -233,10 +233,9 @@ async fn call(
 async fn put(room: &Room, share_id: &str, token: &str, body: &Value) -> Put {
     let url = format!("{}/v1/chat-shares/{share_id}", room.url);
     let reply = call(reqwest::Method::PUT, &url, token, Some(body), room.timing.request).await;
-    let link = |u: &str| url::Url::parse(u).is_ok_and(|u| matches!(u.scheme(), "https" | "http"));
     match reply {
         Some((200..=299, body)) => match (body["host_token"].as_str(), body["url_base"].as_str()) {
-            (Some(token), Some(base)) if !token.is_empty() && link(base) => {
+            (Some(token), Some(base)) if !token.is_empty() && valid_url_base(room, base) => {
                 Put::Done { host_token: token.into(), url_base: base.into() }
             }
             _ => Put::Unreachable,
@@ -245,6 +244,39 @@ async fn put(room: &Room, share_id: &str, token: &str, body: &Value) -> Put {
         Some((401, _)) => Put::Refused("share.needs_sign_in"),
         Some((400..=499, _)) => Put::Refused("share.room_refused"),
         _ => Put::Unreachable,
+    }
+}
+
+/// Accept only a guest URL served by this configured room. The room API derives `url_base` from
+/// the request origin, so a different origin indicates a bad or compromised response. HTTP is
+/// allowed only for loopback rooms used by local development and tests; configured remote rooms
+/// are HTTPS-only through [`origin`].
+fn valid_url_base(room: &Room, raw: &str) -> bool {
+    let Ok(candidate) = url::Url::parse(raw) else { return false };
+    if !candidate.username().is_empty()
+        || candidate.password().is_some()
+        || candidate.fragment().is_some()
+    {
+        return false;
+    }
+    let Ok(configured) = url::Url::parse(&room.url) else { return false };
+    if candidate.origin().ascii_serialization() != configured.origin().ascii_serialization() {
+        return false;
+    }
+    match candidate.host() {
+        Some(url::Host::Domain(domain)) => {
+            candidate.scheme() == "https"
+                || (domain.eq_ignore_ascii_case("localhost") && candidate.scheme() == "http")
+        }
+        Some(url::Host::Ipv4(address)) => {
+            candidate.scheme() == "https"
+                || (address.is_loopback() && candidate.scheme() == "http")
+        }
+        Some(url::Host::Ipv6(address)) => {
+            candidate.scheme() == "https"
+                || (address.is_loopback() && candidate.scheme() == "http")
+        }
+        None => false,
     }
 }
 
@@ -339,6 +371,7 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
     runtime.spawn(async move {
         let op = json!({"op": "delete"});
         let mut wait = timing.backoff_min;
+        let mut attempted = false;
         loop {
             let target = {
                 let Some(mux) = weak.upgrade() else { return };
@@ -347,6 +380,12 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
                     unsaved = !retire(&mux, &id, url, token);
                 }
                 let Some(v) = view(&mux, &id) else { return };
+                if attempted && shares(&mux).now() >= v.expires_at {
+                    if v.delete {
+                        done(&mux, &id, &op);
+                    }
+                    return;
+                }
                 if !v.delete && !unsaved {
                     return;
                 }
@@ -368,8 +407,14 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
             };
             let url = format!("{}/v1/chat-shares/{id}", target.0);
             let reply = call(reqwest::Method::DELETE, &url, &target.1, None, timing.request).await;
+            attempted = true;
             if reply.is_some_and(|(status, _)| matches!(status, 200..=299 | 404 | 410)) {
                 return weak.upgrade().map_or((), |mux| done(&mux, &id, &op));
+            }
+            if let Some(mux) = weak.upgrade() {
+                if view(&mux, &id).is_some_and(|v| shares(&mux).now() >= v.expires_at) {
+                    return done(&mux, &id, &op);
+                }
             }
             tokio::time::sleep(wait).await;
             wait = (wait * 2).min(timing.backoff_max);
