@@ -35,15 +35,6 @@ pub(super) fn server_stats(
     if !mux.control_clients.is_unix(client) {
         anyhow::bail!("server stats requires a trusted local connection");
     }
-    // The memory section names surfaces and terminals and their sizes: like `memory-report`, a local socket with a
-    // bound `cmux link` peer (remote) never gets it; the other sections still answer.
-    let include = if mux.is_remote_client(client) {
-        include.map(|names| {
-            names.into_iter().filter(|name| name != server_stats::MEMORY).collect::<Vec<_>>()
-        })
-    } else {
-        include
-    };
     Ok(serde_json::to_value(server_stats::server_stats(mux, include.as_deref()))?)
 }
 

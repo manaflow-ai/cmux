@@ -682,19 +682,3 @@ fn server_stats_include_reports_memory_owners() {
     let _ = outbound(&after, "graphic_cache_entries");
     let _ = outbound(&after, "graphic_cache_bytes");
 }
-
-/// A local socket with a bound `cmux link` peer is remote: like `memory-report`, it never gets the memory section
-/// (surface and terminal ids and their sizes), while the other sections still answer.
-#[test]
-fn server_stats_memory_section_is_not_given_to_a_remote_client() {
-    let mux = Mux::new_for_test("server-stats-memory-remote", crate::SurfaceOptions::default());
-    let client = mux.control_clients.register(ClientTransport::Unix, writer());
-    let _workspace = mux.new_workspace(None, Some((80, 24))).unwrap();
-    let local = stats(&mux, client, json!({"cmd":"server-stats","include":["memory"]}));
-    assert!(local.get("memory").is_some(), "a local owner gets the section: {local}");
-    mux.control_clients.mark_remote_device(client);
-    let remote = stats(&mux, client, json!({"cmd":"server-stats","include":["memory"]}));
-    assert!(remote.get("memory").is_none(), "a remote client got the memory section: {remote}");
-    assert!(remote.get("registry_lock").is_some(), "the other sections still answer: {remote}");
-    mux.shutdown();
-}
