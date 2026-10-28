@@ -726,6 +726,32 @@ struct CoderouterAccountStoreTests {
         #expect(store.isCurrentAddTask(store.beginAddTask()))
     }
 
+    @Test("A team scope transition cancels the running setup operation")
+    func teamScopeTransitionCancelsRunningAdd() async {
+        let store = CoderouterAccountStore()
+        let (started, start) = AsyncStream<Void>.makeStream()
+        let (suspended, release) = AsyncStream<Void>.makeStream()
+        let (finished, finish) = AsyncStream<Void>.makeStream()
+        defer { start.finish(); release.finish(); finish.finish() }
+        var sawCancellation = false
+        var couldLaunch = true
+
+        store.startAddTask { generation in
+            start.yield()
+            for await _ in suspended { break }
+            sawCancellation = Task.isCancelled
+            couldLaunch = store.isCurrentAddTask(generation)
+            finish.yield()
+        }
+        for await _ in started { break }
+
+        store.resetForTeamScopeChange()
+        for await _ in finished { break }
+
+        #expect(sawCancellation)
+        #expect(!couldLaunch)
+    }
+
     @Test("Remounted machine panels reuse the CodeRouter state owner")
     func remountedPanelsKeepStore() {
         let store = CoderouterAccountStore()

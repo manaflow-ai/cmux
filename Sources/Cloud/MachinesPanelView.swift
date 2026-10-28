@@ -684,6 +684,8 @@ struct MachinesPanelView: View {
             guard coderouterStore.isCurrentAddTask(addGeneration) else { return }
             let sessionDirectory: URL
             do {
+                await CoderouterAppCLISession.sweepAllStaleSessionsOffMainActor(base: session.baseDirectory)
+                try Task.checkCancellation()
                 let credentials = try await session.credentials.credentials(expectedAccountID: scope.identityID)
                 // A refresh can replace or withdraw the destination while the
                 // session resolves; never launch setup for a stale one.
@@ -700,8 +702,6 @@ struct MachinesPanelView: View {
                     requestCoderouterRefresh()
                     return
                 }
-                await CoderouterAppCLISession.sweepAllStaleSessionsOffMainActor(base: session.baseDirectory)
-                try Task.checkCancellation()
                 sessionDirectory = try session.makeSessionDirectory(
                     kind: CoderouterAppCLISession.addSession,
                     credentials: credentials,
