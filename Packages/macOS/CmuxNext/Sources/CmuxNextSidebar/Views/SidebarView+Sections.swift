@@ -238,11 +238,10 @@ extension SidebarViewComponents {
         return cards.isHidden ? 0 : cards.fittingSize.height
     }
 
-    /// A space switch (R99): after a swipe the real list takes the page's
-    /// place; else the old page slides out toward the side away from the new
-    /// space's dot (a new space at the end comes in from the trailing edge).
+    /// A space switch (R99): the old page slides out toward the side away from the new space's dot
+    /// (a new space at the end comes in from the trailing edge); after a swipe, from where the
+    /// fingers left the pages (`SidebarSpacePaging.slide`).
     func switchSpace(from old: ProfileKey?, to new: ProfileKey?, profiles: [SidebarProfile], oldSections: [SidebarSection] = []) {
-        if spacePaging.modelDidSwitch(to: new) { return list.reload(animated: false) }
         let oldIndex = profiles.firstIndex { $0.id == old }, newIndex = profiles.firstIndex { $0.id == new }
         guard let oldIndex, let newIndex, oldIndex != newIndex else { return list.reload(animated: false) }
         spacePaging.prepareSlide(oldSections: oldSections)

@@ -16,8 +16,9 @@ import QuartzCore
     private var profiles: [ProfileKey] = []
     private(set) var neighbor: (index: Int, view: NSView, list: SidebarListView)?
     private var samples: [(time: TimeInterval, dx: CGFloat)] = []
-    /// The space a release switched to, until the model shows it.
-    private(set) var pendingTarget: ProfileKey?
+    /// A released swipe whose switch has not shown yet: the switch's slide goes on from where the
+    /// pages are instead of from rest (``slide(direction:)``).
+    private var released: ProfileKey?
     private var snapshot: NSView?
     var snapshotView: NSView? { snapshot }
     /// The last page, kept off screen for the next switch or swipe: its list keeps its row views
@@ -66,8 +67,10 @@ import QuartzCore
 
     private func start() {
         finishSlide()
+        // A swipe that springs back, or whose switch has not shown yet, is ended by the next one.
+        if neighbor != nil || released != nil { released = nil; endPaging() }
         profiles = host.model.profiles.map(\.id)
-        guard profiles.count > 1, pendingTarget == nil, let active = host.model.activeProfileID,
+        guard profiles.count > 1, let active = host.model.activeProfileID,
               let index = profiles.firstIndex(of: active) else { return }
         pager = SpacePager(index: index, count: profiles.count)
         samples = []
@@ -85,42 +88,37 @@ import QuartzCore
         place(offset: pager.offset, animated: nil)
     }
 
+    /// The fingers leave. A swipe that goes switches the space in this turn (audit B9: it used to
+    /// wait for the settle spring, about 250 ms, and drop every wheel step and swipe meanwhile): the
+    /// real list shows the new space and the switch's slide (``slide(direction:)``) goes on from where
+    /// the fingers left the pages, so nothing jumps and the next step counts at once. One that
+    /// springs back settles, then the paging ends.
     private func release() {
         guard let pager else { return }
         let span = (samples.last?.time ?? 0) - (samples.first?.time ?? 0)
         let velocity = span > 0 ? samples.dropFirst().reduce(0) { $0 + $1.dx } / span : 0
         let target = pager.target(velocity: velocity, width: width)
         self.pager = nil
-        let goes = target != pager.index
-        let end: CGFloat = goes ? (target > pager.index ? 1 : -1) : 0
-        if goes { pendingTarget = profiles[target] }
-        place(offset: end, animated: .settle) { [weak self] in
-            guard let self else { return }
-            if goes, let target = self.pendingTarget {
-                self.host.model.send(.switchProfile(target))
-            } else {
+        guard target != pager.index else {
+            place(offset: 0, animated: .settle) { [weak self] in
+                guard let self, self.pager == nil, self.snapshot == nil else { return }
                 self.endPaging()
             }
+            return
         }
-    }
-
-    /// The model shows the space a release switched to: the real list takes
-    /// the page's place at once (no reload animation, no second slide).
-    func modelDidSwitch(to profile: ProfileKey?) -> Bool {
-        guard let pendingTarget else { return false }
-        // A direct selection can supersede an in-flight swipe before its
-        // original switch callback arrives. Drop the old lock and transition
-        // state so later swipes and wheel paging remain available.
-        guard pendingTarget == profile else {
-            endPaging()
-            return false
+        // The switch's slide (in this turn when the model applies it at once) takes the pages over from here.
+        let side: CGFloat = target > pager.index ? 1 : -1, key = profiles[target]
+        released = key
+        // Until then the pages settle toward the new space; a switch that never shows ends the paging there.
+        place(offset: side, animated: .settle) { [weak self] in
+            guard let self, self.released == key else { return }
+            self.released = nil
+            self.endPaging()
         }
-        endPaging()
-        return true
+        host.model.send(.switchProfile(profiles[target]))
     }
 
     private func endPaging() {
-        pendingTarget = nil
         if let view = neighbor?.view { retire(view) }
         neighbor = nil
         translate(page, 0, animated: nil)
@@ -152,6 +150,12 @@ import QuartzCore
     }
 
     private static let slideKey = "spacePaging.translation"
+
+    /// Where `view`'s page shows on screen now (its presentation's shift).
+    private static func shownX(_ view: NSView) -> CGFloat {
+        guard let layer = view.layer else { return 0 }
+        return ((layer.presentation() ?? layer).value(forKeyPath: "transform.translation.x") as? NSNumber).map { CGFloat($0.doubleValue) } ?? 0
+    }
 
     /// Moves a page to `x`, with `spring` from its current on-screen offset
     /// (or `from`). The spring holds its end value until the page moves
@@ -190,7 +194,9 @@ import QuartzCore
     /// like a switch by dot. Past the first or last space nothing moves
     /// (POLISH: no bouncy transforms).
     func page(by step: Int) {
-        guard pager == nil, pendingTarget == nil, step != 0 else { return }
+        guard pager == nil, step != 0 else { return }
+        // A swipe still springing back, or whose switch has not shown yet, ends first: the step's slide starts from rest.
+        if neighbor != nil || released != nil { released = nil; endPaging() }
         _ = host.model.stepProfile(by: step)
     }
 
@@ -200,7 +206,7 @@ import QuartzCore
     /// real row views, so text and badges show as they were.
     func prepareSlide(oldSections: [SidebarSection]) {
         finishSlide()
-        guard pendingTarget == nil, pager == nil else { return }
+        guard pager == nil else { return }
         snapshot = makePage(oldSections, offset: host.scrollView.contentView.bounds.minY)
     }
 
@@ -262,11 +268,23 @@ import QuartzCore
         page.wantsLayer = true
         CATransaction.begin()
         CATransaction.setCompletionBlock { MainActor.assumeIsolated { [weak self] in self?.finishSlide() } } // main-proof: CATransaction.h: the completion block is called on the main thread
+        // After a swipe the real list shows the neighbor page's rows: it takes that page's place, and the old rows
+        // (the snapshot) the list's, each from where it is on screen now.
+        let swiped = released.map { _ in (old: Self.shownX(page), new: neighbor.map { Self.shownX($0.view) } ?? CGFloat(direction) * width) }
+        released = nil
+        if let view = neighbor?.view { retire(view) }
+        neighbor = nil
         if Motion.sidebar.animatesMovement {
             let d = CGFloat(direction) * width
-            translate(snapshot, -d, animated: .screen, from: 0)
-            translate(page, 0, animated: .screen, from: d)
+            if let swiped {
+                translate(snapshot, -d, animated: .settle, from: swiped.old)
+                translate(page, 0, animated: .settle, from: swiped.new)
+            } else {
+                translate(snapshot, -d, animated: .screen, from: 0)
+                translate(page, 0, animated: .screen, from: d)
+            }
         } else if let layer = snapshot.layer {
+            translate(page, 0, animated: nil)
             Motion.sidebar.set(layer, "opacity", to: Float(0), fade: .crossfade, from: Float(1))
         }
         CATransaction.commit()
@@ -281,7 +299,7 @@ import QuartzCore
         }
         retire(snapshot)
         self.snapshot = nil
-        if pager == nil, pendingTarget == nil {
+        if pager == nil {
             translate(page, 0, animated: nil)
             host.clipsToBounds = false
         }

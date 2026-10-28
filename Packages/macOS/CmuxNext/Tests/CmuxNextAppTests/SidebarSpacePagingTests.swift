@@ -3,7 +3,7 @@ import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
 
-/// A direct profile selection superseding a swipe must release the swipe lock.
+/// Space paging by swipe, wheel and dot: every step the person makes counts, in the step's own turn.
 @MainActor
 struct SidebarSpacePagingTests {
     private func sidebar() -> (SidebarModel, SidebarView) {
@@ -52,13 +52,10 @@ struct SidebarSpacePagingTests {
 
         sidebar.spacePaging.scroll(.began, deltaX: -180, time: 0)
         sidebar.spacePaging.scroll(.ended, deltaX: 0, time: 0.1)
-        #expect(sidebar.spacePaging.pendingTarget == ProfileKey("space1"))
+        #expect(model.activeProfileID == ProfileKey("space1"))
 
-        // The settle's completion (the swipe's own switch) waits on Core Animation, so the
-        // direct selection lands first, as a click on a dot mid-settle does in the app.
+        // A click on a dot while the swipe's slide still runs, as in the app.
         model.apply(.switchProfile(ProfileKey("space2")))
-        #expect(!sidebar.spacePaging.modelDidSwitch(to: ProfileKey("space2")))
-        #expect(sidebar.spacePaging.pendingTarget == nil)
 
         // The lock is gone: the wheel pages again, from the space the selection chose.
         sidebar.spacePaging.page(by: -1)
