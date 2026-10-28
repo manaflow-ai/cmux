@@ -60,8 +60,8 @@ final class TabContentCache {
     let gpuResidency: (any TerminalGPUResidency)?
     /// Every terminal session it makes shows its cursor on the render server (feature `terminalCursorLayer`).
     let terminalExternalCursor: Bool
-    /// The warm set's capacity at normal pressure (`SubsystemBudget.warmTerminalSurfaces`: larger with
-    /// ``gpuResidency``); `WarmSetRelease` scales it under pressure.
+    /// The warm set's capacity at normal pressure (`SubsystemBudget.warmTerminalSurfaces` for surfaces whose GPU
+    /// memory goes while hidden: Ghostty frees it at occlusion); `WarmSetRelease` scales it under pressure.
     let normalWarmCapacity: Int
     var onRelease: ((String) -> Void)?
     var hibernation: BrowserHibernation? // hibernates hidden browser pages (time, memory pressure) and restores them
@@ -235,7 +235,9 @@ final class TabContentCache {
         self.streamFocus = streamFocus
         self.gpuResidency = gpuResidency
         self.terminalExternalCursor = terminalExternalCursor
-        normalWarmCapacity = SubsystemBudget.forThisMac(gpuResidentAvailable: gpuResidency != nil).warmTerminalSurfaces
+        // Ghostty releases a paused (occluded) surface's swap chain itself (c4e16970a), so hidden
+        // surfaces hold no drawables with or without ``gpuResidency``: one owner of that release.
+        normalWarmCapacity = SubsystemBudget.forThisMac(gpuResidentAvailable: true).warmTerminalSurfaces
         goneTabs = GoneTabWatch(mainWork: mainWork)
         webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, energy: mainWork.energy, waitDeadlines: chromium.waitDeadlines,
                               deadlines: deadlines, appEvents: appEvents, processReuse: webKitProcessReuse)

@@ -6,6 +6,12 @@ import GhosttyNextKit
 /// (`ghostty_surface_set_gpu_resident`, ghostty-next, p07-memory.md task 036). The terminal state and
 /// the shared glyph atlas stay; a surface made resident again draws its next frame as before.
 ///
+/// One owner: Ghostty's renderer already frees the swap chain of every occluded surface
+/// (`releaseGpuResources` on `setVisible(false)`, ghostty-org/ghostty c4e16970a, Ghostty 1.4), and
+/// cmux occludes every paused surface. A pin that turns `GHOSTTY_GPU_RESIDENT` on must therefore
+/// release only what Ghostty keeps (the renderer thread, the shaders), never the swap chain a second
+/// time; the warm set is already sized for released surfaces (`TabContentCache.normalWarmCapacity`).
+///
 /// The App passes one to each ``TerminalSession`` (``GhosttyGPUResidency`` in the app, a recorder in
 /// tests); nil keeps every surface resident.
 @MainActor

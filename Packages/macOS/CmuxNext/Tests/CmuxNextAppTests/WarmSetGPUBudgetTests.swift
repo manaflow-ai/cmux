@@ -47,7 +47,7 @@ import Testing
     @Test func theSlicedReleaseScalesTheCachesNormalCapacity() {
         for residency in [nil, RecordingResidency()] as [RecordingResidency?] {
             let cache = Self.cache(gpuResidency: residency)
-            let normal = SubsystemBudget.forThisMac(gpuResidentAvailable: residency != nil).warmTerminalSurfaces
+            let normal = SubsystemBudget.forThisMac(gpuResidentAvailable: true).warmTerminalSurfaces
             #expect(cache.normalWarmCapacity == normal)
             #expect(cache.ledger.capacity == normal)
             #expect(cache.warmBudget.terminalCapacity == normal)
