@@ -1066,10 +1066,6 @@ struct RestorableAgentSessionIndex: Sendable {
         /// record is durable post-exit state for stable ownership selection;
         /// its liveness remains tri-state for shell-activity persistence.
         let hasRecordedProcessID: Bool
-        /// Whether the live process was admitted from a current hook record.
-        /// Cached revalidation must preserve that evidence when argv still
-        /// carries a launch-time Claude selector such as a resume title.
-        let usesCurrentHookRecord: Bool
         let processIDs: Set<Int>
         let processIdentities: [Int: AgentPIDProcessIdentity]
         let agentProcessIDs: Set<Int>
@@ -1088,7 +1084,6 @@ struct RestorableAgentSessionIndex: Sendable {
             updatedAt: TimeInterval,
             processLiveness: RestorableAgentProcessLiveness,
             hasRecordedProcessID: Bool = false,
-            usesCurrentHookRecord: Bool = false,
             processIDs: Set<Int>,
             processIdentities: [Int: AgentPIDProcessIdentity],
             agentProcessIDs: Set<Int>,
@@ -1104,7 +1099,6 @@ struct RestorableAgentSessionIndex: Sendable {
             self.updatedAt = updatedAt
             self.processLiveness = processLiveness
             self.hasRecordedProcessID = hasRecordedProcessID
-            self.usesCurrentHookRecord = usesCurrentHookRecord
             self.processIDs = processIDs
             self.processIdentities = processIdentities
             self.agentProcessIDs = agentProcessIDs
@@ -1755,10 +1749,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     processPresenceProvider: {
                         processSnapshot.process(pid: $0) == nil ? .absent : .present
                     },
-                    validator: validator,
-                    hermesSessionValidation: entry.usesCurrentHookRecord
-                        ? .currentHookRecord
-                        : .cachedSnapshot
+                    validator: validator
                 )
                 return (processID, processMatch)
             })
@@ -1813,7 +1804,6 @@ struct RestorableAgentSessionIndex: Sendable {
                 updatedAt: entry.updatedAt,
                 processLiveness: processLiveness,
                 hasRecordedProcessID: entry.hasRecordedProcessID,
-                usesCurrentHookRecord: entry.usesCurrentHookRecord,
                 processIDs: currentPanelProcessIDs,
                 processIdentities: currentProcessIdentities,
                 agentProcessIDs: confirmedAgentProcessIDs,
@@ -2411,7 +2401,6 @@ struct RestorableAgentSessionIndex: Sendable {
                         updatedAt: effectiveRecord.updatedAt,
                         processLiveness: processObservation.liveness,
                         hasRecordedProcessID: true,
-                        usesCurrentHookRecord: true,
                         processIDs: processIDs,
                         processIdentities: Self.processIdentities(
                             for: processIDs,
@@ -2435,7 +2424,6 @@ struct RestorableAgentSessionIndex: Sendable {
                         updatedAt: effectiveRecord.updatedAt,
                         processLiveness: processObservation.liveness,
                         hasRecordedProcessID: effectiveRecord.pid != nil,
-                        usesCurrentHookRecord: true,
                         processIDs: liveProcessID.map { [$0] } ?? [],
                         processIdentities: liveProcessIdentities,
                         agentProcessIDs: liveProcessID.map { [$0] } ?? [],
