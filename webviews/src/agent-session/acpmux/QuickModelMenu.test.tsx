@@ -183,3 +183,11 @@ test("Fast mode exposes one checked menu row with a visual switch and no bare st
   await settle();
   expect(document.querySelector(".acpmux-quick-fast")?.getAttribute("aria-checked")).toBe("true");
 });
+
+test("New Tab keeps Fast mode in the picker instead of adding a composer bolt", async () => {
+  await openMenu(true);
+  expect(document.querySelector(".acpmux-fast")).toBeNull();
+  const fast = document.querySelector<HTMLElement>(".acpmux-quick-fast")!;
+  expect(fast.getAttribute("role")).toBe("menuitemcheckbox");
+  expect(fast.getAttribute("aria-checked")).toBe("false");
+});
