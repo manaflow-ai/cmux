@@ -1388,7 +1388,7 @@ PY
       done
       [[ "$allowed" -eq 1 ]] && continue
       echo "FAIL: GitHub-hosted runner label: ${line#"$ROOT_DIR"/}" | cut -c1-260
-    done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]\"](os|runs_on|runs-on|[A-Za-z0-9_-]*[Rr]unner)\"?:[[:space:]]|[A-Za-z0-9_-]*RUNNER[A-Za-z0-9_-]*:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$|^[[:space:]]+default:[[:space:]])" "$dir")
+    done < <(grep -rnE "(runs-on:|^[[:space:]]+(labels|group):|[[:space:]\"](os|runs_on|runs-on|[A-Za-z0-9_-]*[Rr]unner)\"?:[[:space:]]|\"?[A-Za-z0-9_-]*RUNNER[A-Za-z0-9_-]*\"?:[[:space:]]|^[[:space:]]*-[[:space:]]+[A-Za-z0-9._-]+[[:space:]]*$|^[[:space:]]+default:[[:space:]])" "$dir")
   }
   local fixture scan_out failed=0
   fixture="$(mktemp -d)"
@@ -1404,6 +1404,8 @@ jobs:
       linux-arm64-runner: ubuntu-24.04-arm
       linux_runner: ubuntu-latest
       LINUX_BUILD_RUNNER: ubuntu-22.04
+    env:
+      "LINUX_RUNNER": ubuntu-latest
   g:
     strategy:
       matrix:
@@ -1436,8 +1438,8 @@ jobs:
 YAML
   scan_out="$(hosted_scan "$fixture")"
   rm -rf "$fixture"
-  if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 8 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
-    echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the eight hosted selections in its fixture and nothing in the clean one:"
+  if [[ "$(grep -c '^FAIL:' <<<"$scan_out")" -ne 9 ]] || grep -q 'clean-nightly.yml' <<<"$scan_out"; then
+    echo "FAIL: GitHub-hosted runner guard self-test: the scan must flag exactly the nine hosted selections in its fixture and nothing in the clean one:"
     echo "$scan_out"
     exit 1
   fi
