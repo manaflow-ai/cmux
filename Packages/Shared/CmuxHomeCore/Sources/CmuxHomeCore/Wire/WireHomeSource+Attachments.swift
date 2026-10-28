@@ -33,9 +33,13 @@ extension WireHomeSource {
         if value["mode"].string == "multipart" {
             let parts = try await putMultipart(value, from: file.fileURL)
             guard let slot = value["slot"].string else { throw HomeRejection.invalid("attachment.bad_answer") }
-            _ = try await client.post("/v1/home/attachments/multipart/complete", [
+            let complete: HomeWireJSON = [
                 "conversation": .string(file.conversation.rawValue), "slot": .string(slot), "parts": .array(parts)
-            ], effect: .mutation)
+            ]
+            // Direct parts never passed the server: it hashes the joined file back one bounded step per call.
+            while try await client.post("/v1/home/attachments/multipart/complete", complete, effect: .mutation)["value"]["state"].string == "verifying" {
+                try Task.checkCancellation()
+            }
         } else {
             let presigned = value["mode"].string == "presigned"
             let reply = try await put(value, from: file.fileURL, toWorker: !presigned)
@@ -141,8 +145,11 @@ extension WireHomeSource {
         }
     }
 
-    /// Sends a large original in bounded Worker requests. The server verifies
-    /// each piece, then streams the ordered objects into one hash-checked file.
+    /// Sends a large original in bounded requests, one per part. `transport`
+    /// "worker" (or absent): each part is a PUT through the server, which
+    /// hashes it. "direct" (parts larger than the server's request limit): a
+    /// POST asks for the part's presigned R2 URL, the part goes there with no
+    /// auth header, and R2's ETag is kept for the completion.
     private func putMultipart(_ answer: HomeWireJSON, from file: URL) async throws -> [HomeWireJSON] {
         guard let url = answer["upload_url"].string.flatMap(URL.init(string:)) else { throw HomeRejection.invalid("attachment.bad_answer") }
         let size = Int(answer["part_size"].double ?? 0)
@@ -160,9 +167,14 @@ extension WireHomeSource {
                 if let text = value.string { request.setValue(text, forHTTPHeaderField: name) }
             }
             request.setValue(String(number), forHTTPHeaderField: "x-cmux-part-number")
+            let http = client.http
+            if answer["transport"].string == "direct" {
+                parts.append(try await putDirectPart(number, data, asking: request))
+                number += 1
+                continue
+            }
             request.setValue(String(data.count), forHTTPHeaderField: "content-length")
             request.httpBody = data
-            let http = client.http
             let reply = try await client.exchange(request, effect: .mutation) { try await http.send($0) }
             let body = try HomeWireClient.check(reply, effect: .mutation)
             guard let part = body["value"]["part_number"].int, part == number,
@@ -176,6 +188,34 @@ extension WireHomeSource {
         }
         guard !parts.isEmpty else { throw HomeRejection.invalid("attachment.bad_answer") }
         return parts
+    }
+
+    /// One direct part: the server signs a URL for part `number`, then the
+    /// bytes go straight to the bucket and its ETag names the part.
+    private func putDirectPart(_ number: Int, _ data: Data, asking: URLRequest) async throws -> HomeWireJSON {
+        var ask = asking
+        ask.httpMethod = "POST"
+        let http = client.http
+        let signed = try HomeWireClient.check(try await client.exchange(ask, effect: .mutation) { try await http.send($0) }, effect: .mutation)["value"]
+        guard signed["part_number"].int == number, let url = signed["url"].string.flatMap(URL.init(string:)) else {
+            throw HomeRejection.invalid("attachment.bad_answer")
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = signed["method"].string ?? "PUT"
+        for (name, value) in signed["headers"].object ?? [:] {
+            if let text = value.string { request.setValue(text, forHTTPHeaderField: name) }
+        }
+        request.httpBody = data
+        let reply: HomeWireHTTPReply
+        do {
+            reply = try await http.send(request)
+        } catch {
+            throw HomeRejection.indeterminate
+        }
+        guard (200...299).contains(reply.status), let etag = reply.etag else {
+            throw reply.status >= 500 ? HomeRejection.indeterminate : HomeRejection.invalid("attachment.upload_refused")
+        }
+        return ["part_number": .number(Double(number)), "byte_count": .number(Double(data.count)), "etag": .string(etag)]
     }
 
     private static func derived(_ image: AttachmentDerivedImage) -> HomeWireJSON {

@@ -594,6 +594,20 @@ export class ConversationDO extends OwnerDO<Head> {
     return recorded
   }
 
+  async leaseDirect(entity: string, id: string): Promise<store.UploadSlot | null> {
+    if (!this.existingState(entity)) return null
+    const slot = store.leaseDirect(this.sqlStore, id)
+    this.scheduleAlarm()
+    return slot
+  }
+
+  async advanceDirect(entity: string, id: string, before: string | null, after: string): Promise<boolean> {
+    if (!this.existingState(entity)) return false
+    const advanced = store.advanceDirect(this.sqlStore, id, before, after)
+    this.scheduleAlarm()
+    return advanced
+  }
+
   async multipartEtags(entity: string, id: string): Promise<Array<string>> {
     return this.existingState(entity) ? store.multipartEtags(this.sqlStore, id) : []
   }

@@ -149,3 +149,14 @@ export const streamInto = async (bucket: R2Bucket, key: string, request: Request
   }
   return { ok: true, etag }
 }
+
+/** Reads all of `body` onto `sha` (a direct slot's verification step); answers the bytes read. */
+export const hashInto = async (body: ReadableStream<Uint8Array>, sha: ResumableSha256): Promise<number> => {
+  const reader = body.getReader()
+  let count = 0
+  for (let next = await reader.read(); !next.done; next = await reader.read()) {
+    count += next.value.byteLength
+    sha.update(next.value)
+  }
+  return count
+}
