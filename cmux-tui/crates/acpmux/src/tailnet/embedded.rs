@@ -210,16 +210,23 @@ impl Controller {
 
     /// Resume only a saved explicit opt-in; an untouched installation creates nothing.
     pub async fn resume(self: &Arc<Self>) -> Result<(), String> {
-        let _retirement = self.await_retirement_gate().await;
-        let _lifecycle = self.lifecycle.lock().await;
-        let path = self.state_dir.join("enabled");
-        let enabled = tokio::task::spawn_blocking(move || saved_opt_in(&path))
-            .await
-            .map_err(|e| e.to_string())??;
-        if enabled {
-            self.start_locked().await?;
+        loop {
+            let retirement = self.await_retirement_gate().await;
+            let lifecycle = self.lifecycle.lock().await;
+            if self.pending_retirement.load(Ordering::Acquire) {
+                drop(lifecycle);
+                drop(retirement);
+                continue;
+            }
+            let path = self.state_dir.join("enabled");
+            let enabled = tokio::task::spawn_blocking(move || saved_opt_in(&path))
+                .await
+                .map_err(|e| e.to_string())??;
+            if enabled {
+                self.start_locked().await?;
+            }
+            return Ok(());
         }
-        Ok(())
     }
 
     pub(crate) fn note_listener_error(&self) {
@@ -313,9 +320,16 @@ impl Controller {
     }
 
     async fn start_detached(self: Arc<Self>) -> Result<Snapshot, String> {
-        let _retirement = self.await_retirement_gate().await;
-        let _lifecycle = self.lifecycle.lock().await;
-        self.start_locked().await
+        loop {
+            let retirement = self.await_retirement_gate().await;
+            let lifecycle = self.lifecycle.lock().await;
+            if self.pending_retirement.load(Ordering::Acquire) {
+                drop(lifecycle);
+                drop(retirement);
+                continue;
+            }
+            return self.start_locked().await;
+        }
     }
 
     async fn await_retirement_gate(&self) -> tokio::sync::OwnedMutexGuard<()> {
