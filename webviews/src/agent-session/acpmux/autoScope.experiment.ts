@@ -22,5 +22,5 @@ export const autoScopeLook = defineExperiment({
       description: "Auto's own icon in place of the destination's, then the destination's name alone.",
     },
   },
-  defaultArm: "tag",
+  defaultArm: "dot",
 });

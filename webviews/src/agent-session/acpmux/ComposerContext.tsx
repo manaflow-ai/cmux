@@ -177,13 +177,19 @@ export function ComposerContext({
 }) {
   const newChat = !started && onProject !== undefined;
   const autoLabel = auto?.selected ? `${t("composer.auto")} · ${auto.detail}` : undefined;
-  // The scope line under Auto, by the `auto-scope-look` arm: the destination with a quiet Auto tag,
-  // one "Auto · destination" label, or Auto's icon before the destination. Its accessible value is
-  // always `autoLabel`.
+  // The scope line under Auto, by the `auto-scope-look` arm: one "Auto · destination" label, the
+  // destination with a quiet Auto tag, or Auto's icon before the destination. Its accessible value
+  // is always `autoLabel`. The Cloud row's icon is Cloud's own, uncoloured, as when it is picked.
   const autoArm = experimentArm(autoScopeLook);
   const autoFace = auto?.selected && (
     <LocationFace
-      icon={autoArm === "icon" ? <AutoIcon /> : <EnvironmentIcon kind={auto.kind ?? "local"} name={auto.detail} />}
+      icon={
+        autoArm === "icon" ? (
+          <AutoIcon />
+        ) : (
+          <EnvironmentIcon kind={auto.kind ?? "local"} name={auto.kind === "cloud" ? undefined : auto.detail} />
+        )
+      }
       value={autoArm === "dot" ? autoLabel! : auto.detail}
       {...(autoArm === "tag" ? { tag: t("composer.auto") } : {})}
       chevron

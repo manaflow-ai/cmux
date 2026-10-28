@@ -906,10 +906,10 @@ test("Auto shows its destination before opening and keeps explicit machines avai
   const calls = await mount(true, {
     auto: { detail: "gpu-box", kind: "ssh", selected: true, onPick: () => undefined },
   });
-  // The scope line (`auto-scope-look` arm `tag`): the destination, then a quiet Auto; its accessible
-  // value says both.
-  expect(computerButton()?.querySelector(".acpmux-location-label")?.textContent).toBe("gpu-box");
-  expect(computerButton()?.querySelector(".acpmux-location-tag")?.textContent).toBe(t("composer.auto"));
+  // The scope line (`auto-scope-look` default arm `dot`): one "Auto · gpu-box" label, which is also
+  // its accessible value.
+  expect(computerButton()?.querySelector(".acpmux-location-label")?.textContent).toBe(`${t("composer.auto")} · gpu-box`);
+  expect(computerButton()?.querySelector(".acpmux-location-tag")).toBeNull();
   expect(computerButton()?.getAttribute("aria-label")).toBe(
     `${t("composer.environment")}: ${t("composer.auto")} · gpu-box`,
   );
@@ -960,7 +960,9 @@ test("Auto over the folder's Cloud default: Auto is checked, not Cloud; Auto kee
     runMode,
     auto: { detail: t("composer.cloud"), kind: "cloud", selected: true, onPick: () => calls.push(["auto"]) },
   });
-  expect(computerButton()?.querySelector(".acpmux-location-label")?.textContent).toBe(t("composer.cloud"));
+  expect(computerButton()?.querySelector(".acpmux-location-label")?.textContent).toBe(
+    `${t("composer.auto")} · ${t("composer.cloud")}`,
+  );
   await openPicker();
   expect(doc().querySelector('.acpmux-env-popover [data-mode="cloud"][data-current]')).toBeNull();
   const auto = rows().find((row) => rowText(row).startsWith(t("composer.auto")))!;
