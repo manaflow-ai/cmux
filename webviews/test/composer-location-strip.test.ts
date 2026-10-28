@@ -302,6 +302,16 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     const rect = await menu.boundingBox();
     expect(rect).not.toBeNull();
     expect(rect!.y + rect!.height).toBeLessThanOrEqual(180);
+    const project = page.locator(".acpmux-location-row[data-expanded]").first();
+    const viewport = page.locator(".ui-combobox-viewport");
+    const projectRect = await project.boundingBox();
+    const viewportRect = await viewport.boundingBox();
+    expect(projectRect).not.toBeNull();
+    expect(viewportRect).not.toBeNull();
+    expect(viewportRect!.height).toBeGreaterThanOrEqual(projectRect!.height);
+    expect(projectRect!.y).toBeGreaterThanOrEqual(viewportRect!.y);
+    expect(projectRect!.y + projectRect!.height).toBeLessThanOrEqual(viewportRect!.y + viewportRect!.height);
+    expect(viewportRect!.y + viewportRect!.height).toBeLessThanOrEqual(rect!.y + rect!.height);
     const search = page.getByRole("combobox", { name: "Search projects" });
     await search.press("ArrowDown");
     await search.press("ArrowDown");
