@@ -230,7 +230,7 @@ impl App {
             }
         }
         for index in 0..self.pane_areas.len() {
-            let area = self.pane_areas[index];
+            let Some(&area) = self.pane_areas.get(index) else { break };
             if area.content.width == 0 || area.content.height == 0 {
                 continue;
             }

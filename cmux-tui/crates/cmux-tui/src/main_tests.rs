@@ -566,7 +566,7 @@ fn static_machine_catalog_notices_use_the_selected_locale() {
     }
 
     let runtime = MachineRuntime::new(PathBuf::from("/tmp/static-machine-notice.sock"), vec![]);
-    let active = runtime.initial_key();
+    let active = runtime.initial_key().unwrap();
     let connections = MachineConnectionHub::new(runtime.connection_connectors());
     let mut controller = StaticMachineController { runtime, active, connections, pending: None };
 
@@ -600,7 +600,7 @@ fn static_machine_creation_does_not_connect_until_selected() {
             subtitle: "container prototype".into(),
         }],
     );
-    let active = runtime.initial_key();
+    let active = runtime.initial_key().unwrap();
     let connections = MachineConnectionHub::new(runtime.connection_connectors());
     let mut controller = StaticMachineController { runtime, active, connections, pending: None };
 

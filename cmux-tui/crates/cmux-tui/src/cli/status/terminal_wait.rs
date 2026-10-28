@@ -28,6 +28,7 @@ use serde_json::{Map, Value, json};
 use super::super::command::CommandPlan;
 use super::super::resolve::{self, Failure, SocketRoute};
 use super::super::{GlobalArgs, Surface, UsageError, wire};
+use crate::cli::json_fields::JsonFields;
 
 /// The exit code of a wait whose timeout passed, as timeout(1) has it.
 pub(super) const TIMEOUT_EXIT: i32 = 124;
@@ -278,9 +279,11 @@ fn holds(record: &Value, until: Until) -> Result<bool, Failure> {
         }),
         Until::Prompt => Ok(false),
         Until::Idle => {
-            let command = extra["activity"]["state"] == "running";
-            let progress =
-                matches!(extra["progress"]["state"].as_str(), Some("normal" | "indeterminate"));
+            let command = extra.field("activity").field("state") == "running";
+            let progress = matches!(
+                extra.field("progress").field("state").as_str(),
+                Some("normal" | "indeterminate")
+            );
             let working = extra["program_status"]
                 .as_array()
                 .is_some_and(|records| records.iter().any(|record| record["state"] == "working"));

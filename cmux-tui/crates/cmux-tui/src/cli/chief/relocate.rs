@@ -15,8 +15,7 @@ pub(super) fn split_chief_home(args: &[String]) -> (Option<PathBuf>, Vec<String>
     let mut home = None;
     let mut rest = Vec::new();
     let mut index = 0;
-    while index < args.len() {
-        let arg = &args[index];
+    while let Some(arg) = args.get(index) {
         if let Some(value) = arg.strip_prefix("--chief-home=") {
             home = Some(PathBuf::from(value));
         } else if arg == "--chief-home" {

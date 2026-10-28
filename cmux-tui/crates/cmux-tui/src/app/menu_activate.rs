@@ -175,6 +175,10 @@ impl App {
                 }
             }
             MenuAction::CopyStatusMessage => self.copy_status_message(),
+            #[allow(
+                clippy::unreachable,
+                reason = "INVARIANT: the first match in activate_menu handles and returns for these actions"
+            )]
             MenuAction::NewPaneSmart(_)
             | MenuAction::NewTab(_)
             | MenuAction::NewBrowserTab(_)
@@ -186,6 +190,10 @@ impl App {
                 }
             }
             MenuAction::ClosePane(id) => self.session.close_pane(id),
+            #[allow(
+                clippy::unreachable,
+                reason = "INVARIANT: the first match in activate_menu handles and returns for these actions"
+            )]
             MenuAction::TogglePaneZoom { .. }
             | MenuAction::ToggleSidebar { .. }
             | MenuAction::ToggleSidebarCompact { .. }

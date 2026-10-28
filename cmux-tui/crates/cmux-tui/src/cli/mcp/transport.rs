@@ -13,6 +13,7 @@ use serde_json::{Map, Value, json};
 use super::super::GlobalArgs;
 use super::super::command::{RequestPlan, ResponseView, WireOperation, random_prefixed};
 use super::super::{app, resolve, wire};
+use crate::cli::json_fields::JsonFields;
 
 /// How a request that did not succeed ended: the owner rejected it, it
 /// never reached the owner, or it may have reached the owner and its
@@ -94,8 +95,12 @@ pub(super) fn resource(
     let fail = |kind, code: &str, message: String| {
         CallFailure::local(kind, code, message).with_key(key.as_deref())
     };
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: wire::request_value always sets a string id from random_request_id"
+    )]
     let request_id =
-        request["id"].as_str().expect("locally built request IDs are strings").to_string();
+        request.field("id").as_str().expect("locally built request IDs are strings").to_string();
     let (socket, derived) = wire::resolve_socket_with_origin(global).map_err(|error| {
         CallFailure { kind: NotRun, error: wire::resolve_failure(&error), idempotency_key: None }
             .with_key(key.as_deref())
@@ -108,6 +113,10 @@ pub(super) fn resource(
     let _ = stream.set_read_timeout(Some(wire::SERVER_PREFLIGHT_TIMEOUT));
     let mut reader = BufReader::new(stream);
     if !prefixes.is_empty() {
+        #[allow(
+            clippy::expect_used,
+            reason = "INVARIANT: wire::request_value above refuses a plan whose params are not an object"
+        )]
         let params = plan.params.as_object_mut().expect("validated params object");
         let route = ["machine", "session"]
             .into_iter()
@@ -140,7 +149,7 @@ pub(super) fn resource(
             })?;
             params.insert(prefix.field.clone(), Value::String(id));
         }
-        request["params"] = plan.params.clone();
+        request.insert("params", plan.params.clone());
     }
     // A browser tab in a session a cmux app owns is the app's to render
     // (frontend_browser.rs), as the CLI's `tab create browser` does.
@@ -209,12 +218,12 @@ pub(super) fn session_events(
         view: ResponseView::Full,
     };
     if let Some(cursor) = cursor {
-        plan.params["cursor"] = cursor.clone();
+        plan.params.insert("cursor", cursor.clone());
     }
     resolve::apply_global_route(global, &mut plan)
         .map_err(|error| local("usage.invalid", error.into()))?;
     let request = wire::request_value(&plan).map_err(|error| local("usage.invalid", error.0))?;
-    let request_id = request["id"].clone();
+    let request_id = request.field("id").clone();
     let (socket, derived) = wire::resolve_socket_with_origin(global).map_err(|error| {
         CallFailure { kind: NotRun, error: wire::resolve_failure(&error), idempotency_key: None }
     })?;
@@ -258,9 +267,9 @@ pub(super) fn session_events(
         let frame = serde_json::from_slice::<Value>(&line);
         line.clear();
         let Ok(frame) = frame else { continue };
-        match frame["type"].as_str() {
-            Some("response") if frame["id"] == request_id => {
-                if frame["ok"] != true {
+        match frame.field("type").as_str() {
+            Some("response") if frame.field("id") == &request_id => {
+                if frame.field("ok") != true {
                     let error = frame.get("error").cloned().unwrap_or(Value::Null);
                     return Err(CallFailure { kind: Rejected, error, idempotency_key: None });
                 }
@@ -269,8 +278,8 @@ pub(super) fn session_events(
             // An item the caller does not stop on keeps the stream open.
             Some("stream_item")
                 if opened
-                    && frame["stream_id"] == plan.params["stream_id"]
-                    && on_wake(Some(&frame["item"])) =>
+                    && frame.field("stream_id") == plan.params.field("stream_id")
+                    && on_wake(Some(frame.field("item"))) =>
             {
                 return Ok(());
             }
@@ -360,7 +369,8 @@ pub(super) fn watch_app_events(
         let line = line.map_err(|error| error.to_string())?;
         let Ok(frame) = serde_json::from_str::<Value>(&line) else { continue };
         if frame.get("ok").and_then(Value::as_bool) == Some(false) {
-            let message = frame["error"]["message"].as_str().unwrap_or("events.stream failed");
+            let message =
+                frame.field("error").field("message").as_str().unwrap_or("events.stream failed");
             return Err(message.to_owned());
         }
         on_frame(&frame);
@@ -422,7 +432,7 @@ pub(super) fn browser_host(
     let id = wire::random_request_id()
         .map_err(|error| CallFailure::local(FailureKind::NotRun, "usage.invalid", error.0))?;
     let request = json!({"id": id, "method": method, "params": with_caller_terminal(method, params), "origin": "mcp"});
-    let mut line = serde_json::to_vec(&request).expect("JSON values serialize");
+    let mut line = request.to_string().into_bytes();
     line.push(b'\n');
     let sent = if mutation { FailureKind::InProgress } else { FailureKind::NotRun };
     let lost = |message: String| CallFailure::local(sent, "transport.failed", message);
@@ -437,7 +447,7 @@ pub(super) fn browser_host(
             Err(error) => return Err(lost(format!("no answer from the browser host: {error}"))),
         }
         let Ok(reply) = serde_json::from_str::<Value>(&answer) else { continue };
-        if reply["id"] != json!(id) {
+        if reply.field("id") != &json!(id) {
             continue;
         }
         if let Some(error) = reply.get("error").filter(|error| !error.is_null()) {

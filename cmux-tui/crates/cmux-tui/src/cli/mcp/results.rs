@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 
 use super::MAX_RESULT_BYTES;
 use super::transport::{CallFailure, FailureKind};
+use crate::cli::json_fields::JsonFields;
 
 pub(super) fn error_response(id: Value, code: i64, message: &str) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
@@ -63,10 +64,10 @@ fn fit(mut value: Value) -> Result<Value, Value> {
     {
         let keep = items.len() / 2;
         items.truncate(keep);
-        value["truncated"] = json!(true);
-        value["returned"] = json!(keep);
+        value.insert("truncated", json!(true));
+        value.insert("returned", json!(keep));
         if let Some(offset) = value.get("offset").and_then(Value::as_u64) {
-            value["next_offset"] = json!(offset + keep as u64);
+            value.insert("next_offset", json!(offset + keep as u64));
         }
         if size(&value) <= MAX_RESULT_BYTES {
             return Ok(value);
@@ -90,7 +91,7 @@ fn fit(mut value: Value) -> Result<Value, Value> {
 pub(super) fn envelope(error: Value, state: &str, idempotency_key: Option<&str>) -> Value {
     let mut envelope = json!({ "error": error, "state": state });
     if let Some(key) = idempotency_key {
-        envelope["idempotency_key"] = json!(key);
+        envelope.insert("idempotency_key", json!(key));
     }
     envelope
 }
@@ -109,7 +110,8 @@ pub(in crate::cli) fn failure_result(failure: CallFailure) -> Value {
     });
     // The app's queue deadline (`timeout`) says nothing about whether the
     // run started; a retry with the same key is safe either way.
-    let timed_out = failure.kind == FailureKind::Rejected && failure.error["code"] == "timeout";
+    let timed_out =
+        failure.kind == FailureKind::Rejected && failure.error.field("code") == "timeout";
     let state = owner_state
         .or(timed_out.then_some("in_progress"))
         .unwrap_or(failure.kind.state())
