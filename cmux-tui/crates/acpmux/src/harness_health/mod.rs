@@ -551,6 +551,7 @@ mod tests {
         assert_eq!(auth_failure("Not logged in"), Auth::SignedOut);
         assert_eq!(auth_failure("check failed"), Auth::SignedOut);
         assert_eq!(auth_failure("HTTP 503"), Auth::Unknown);
+        assert_eq!(auth_failure("HTTP 502: authentication_failed"), Auth::Unknown);
         assert_eq!(auth_failure("Not logged in? HTTP 503: authentication_failed"), Auth::Unknown);
         assert_eq!(auth_failure("token expired? connection refused"), Auth::Unknown);
         assert_eq!(auth_failure("Your refresh token has expired; run codex login"), Auth::Expired);

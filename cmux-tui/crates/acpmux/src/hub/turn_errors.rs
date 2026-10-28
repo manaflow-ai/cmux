@@ -63,11 +63,15 @@ pub fn is_transport_error(message: &str) -> bool {
     !is_limit_error(message) && says_connection_dropped(message)
 }
 
-/// Whether an error says the provider had no capacity or the connection dropped
-/// ([`is_capacity_error`] or [`says_connection_dropped`]), whatever it also says about a
-/// sign-in: such an error is never evidence of a sign-in state.
+/// Whether an error says the provider had no capacity, a gateway failed (HTTP 502, 504) or
+/// the connection dropped ([`is_capacity_error`], [`says_connection_dropped`]), whatever it
+/// also says about a sign-in: such an error is never evidence of a sign-in state.
 pub fn says_unreachable(message: &str) -> bool {
-    is_capacity_error(message) || says_connection_dropped(message)
+    let m = message.to_lowercase();
+    is_capacity_error(message)
+        || has_status(&m, "502")
+        || has_status(&m, "504")
+        || says_connection_dropped(message)
 }
 
 /// Whether an agent error's words say the connection to the model dropped, whatever else it
@@ -159,8 +163,8 @@ pub(super) fn continuation_error<'a>(raw: Option<&'a str>, shown: &'a str) -> &'
 /// ([`transient_cause`]), or `agent_exited` (its agent process died mid-turn: "agent process
 /// closed"). `raw` is the
 /// agent's own error, `shown` the turn's error as recorded (with the dead process's last stderr
-/// line, or the sign-in explanation). A limit or sign-in failure (an expired credential too) in
-/// either is never continued:
+/// line, or the sign-in explanation). A limit or sign-in failure (an expired credential too,
+/// unless the error also says the provider was unreachable) in either is never continued:
 /// the fallback profile, or the reconciler that reads `lastTurn`, moves that session. Nor is a
 /// refused request ([`is_refused_request`]) in either: an agent that died of one would be
 /// refused the same way again.
@@ -168,7 +172,7 @@ pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
     if is_limit_error(raw)
         || is_limit_error(shown)
         || crate::claude_auth::is_sign_in_failure(shown)
-        || crate::claude_auth::is_expired_credential(shown)
+        || crate::recovery::auth_kind(shown) == Some(crate::recovery::kind::AUTH_EXPIRED)
         || is_refused_request(raw)
         || is_refused_request(shown)
     {
@@ -236,6 +240,13 @@ mod tests {
         assert_eq!(resume_cause(raw, "agent process closed (claude): You've hit your limit"), None);
         // An expired credential is a sign-in failure too (`recovery::auth_kind`: auth.expired).
         assert_eq!(resume_cause(raw, "agent process closed (claude): credential expired"), None);
+        // An unreachable provider is still retried, whatever it says of a credential.
+        let dropped = "token expired? connection refused";
+        assert_eq!(resume_cause(dropped, dropped), Some("transport"));
+        assert_eq!(
+            resume_cause("HTTP 503: credential expired", "HTTP 503: credential expired"),
+            Some("capacity")
+        );
         assert_eq!(
             resume_cause(raw, "agent process closed (fake): Not logged in · Please run /login"),
             None
