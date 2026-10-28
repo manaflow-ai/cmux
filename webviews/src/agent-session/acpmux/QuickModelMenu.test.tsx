@@ -227,6 +227,7 @@ test("inline effort picks a different model and its level together; model names 
             levels: [
               { id: "low", name: "Low" },
               { id: "high", name: "High" },
+              { id: "ultracode", name: "Ultracode" },
             ],
             current: "high",
             onPick() {},
@@ -262,7 +263,8 @@ test("inline effort picks a different model and its level together; model names 
     await settle();
   };
   await open();
-  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(3);
+  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(4);
+  expect(document.querySelector('[aria-label="Model A · Ultracode"]')).toBeTruthy();
   expect(document.querySelector('[aria-label="Model B · High"]')).toBeNull();
   await act(async () => (document.querySelector('[aria-label="Model B · Low"]') as HTMLElement).click());
   expect(picks.map(({ id, effort }) => ({ id, effort }))).toEqual([{ id: "b", effort: "low" }]);
