@@ -4,7 +4,7 @@
 import { expect, test } from "bun:test";
 import {
   attemptId,
-  joinedBefore,
+  joinedAs,
   joinName,
   redeemOverFetch,
   rememberJoined,
@@ -56,8 +56,9 @@ test("the secret leaves the URL at once and stays in the tab until the redeem wo
   const reload = page(`https://room.test/g/${SHARE}`);
   expect(takeGuestLink(reload.location, reload.history, kept)).toEqual({ shareId: SHARE, secret: SECRET });
   expect(reload.replaced).toEqual([]);
-  rememberJoined(SHARE, kept);
-  expect(joinedBefore(SHARE, kept)).toBe(true);
+  expect(joinedAs(SHARE, kept)).toBeUndefined();
+  rememberJoined(SHARE, "g1", kept);
+  expect(joinedAs(SHARE, kept)).toBe("g1");
   expect(takeGuestLink(reload.location, reload.history, kept)).toEqual({ shareId: SHARE });
 });
 
@@ -80,7 +81,7 @@ test("a retry after a lost reply reuses the attempt id; a new share or a join ma
   expect(first).toMatch(/^[0-9a-f]{32}$/);
   expect(attemptId(SHARE, kept, random)).toBe(first);
   expect(attemptId("b3RoZXItc2hhcmU", kept, random)).not.toBe(first);
-  rememberJoined(SHARE, kept);
+  rememberJoined(SHARE, "g1", kept);
   expect(attemptId(SHARE, kept, random)).not.toBe(first);
 });
 
