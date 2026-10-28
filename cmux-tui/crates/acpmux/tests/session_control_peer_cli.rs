@@ -346,7 +346,12 @@ async fn lifecycle_commands_use_peer_stable_ids_and_refuse_ambiguous_names() {
         })
         .await;
         let (ok, stdout, stderr) = cli(&root, &socket, &["--json", "session", "cancel", key]).await;
-        assert!(ok, "{stdout}{stderr}");
+        assert!(!ok, "remote cancel must retain the local-origin ownership rule: {stdout}{stderr}");
+        assert!(
+            format!("{stdout}{stderr}").contains("remote.session_cancel_ownership"),
+            "{stdout}{stderr}"
+        );
+        cb.send(method::SESSION_CANCEL, json!({"sessionId": cancel_id})).await;
         cb.wait(method::MUX_EVENT, |p| {
             p["sessionId"] == cancel_id
                 && p["kind"] == "turn_result"
