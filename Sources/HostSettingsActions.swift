@@ -631,11 +631,11 @@ final class HostSettingsActions: SettingsHostActions {
             // Shortcut rebinds and shared defaults change the displayed mode
             // list or digit labels. Tab-preference mutations post the shortcut
             // notification too; the newest-1 buffer coalesces the refreshes.
-            let observers = [
+            let observers = (RightSidebarMode.availabilityChangeNotifications + [
                 RightSidebarTabPreferences.didChangeNotification,
                 KeyboardShortcutSettings.didChangeNotification,
                 UserDefaults.didChangeNotification,
-            ].map { name in
+            ]).map { name in
                 MobileHostStatusObserverToken(
                     NotificationCenter.default.addObserver(
                         forName: name,

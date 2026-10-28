@@ -1,6 +1,7 @@
 import CmuxCloud
 import AppKit
 import Bonsplit
+import Combine
 import CMUXAgentLaunch
 import CmuxAppKitSupportUI
 import CmuxFoundation
@@ -216,8 +217,9 @@ struct RightSidebarPanelView: View {
         .onReceive(NotificationCenter.default.publisher(for: RightSidebarTabPreferences.didChangeNotification)) { _ in
             refreshModeAvailabilityAndFocusIfNeeded()
         }
-        .onReceive(NotificationCenter.default.publisher(for: ManagedDevicePolicy.didChangeNotification)
-            .merge(with: NotificationCenter.default.publisher(for: .cmuxFeatureFlagsDidChange))) { _ in
+        .onReceive(Publishers.MergeMany(RightSidebarMode.availabilityChangeNotifications.map {
+            NotificationCenter.default.publisher(for: $0)
+        })) { _ in
             managedPolicyRevision &+= 1
             refreshModeAvailabilityAndFocusIfNeeded()
         }

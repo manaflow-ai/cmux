@@ -1,8 +1,17 @@
 import CmuxCloud
+import CmuxSettings
 import AppKit
 import Foundation
 
 extension RightSidebarMode {
+    /// Availability can change without a UserDefaults notification, notably
+    /// when a managed profile or a remote rollout gate changes.
+    static let availabilityChangeNotifications: [Notification.Name] = [
+        RightSidebarBetaFeatureSettings.didChangeNotification,
+        ManagedDevicePolicy.didChangeNotification,
+        .cmuxFeatureFlagsDidChange,
+    ]
+
     static func from(cliArgument rawValue: String) -> RightSidebarMode? {
         switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "files":

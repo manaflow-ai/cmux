@@ -26,7 +26,7 @@ final class KeyboardShortcutSettingsObserver {
     @ObservationIgnored
     private var settingsObserver: NSObjectProtocol?
     @ObservationIgnored
-    private var featureGateObserver: NSObjectProtocol?
+    private var featureGateObservers: [NSObjectProtocol] = []
     @ObservationIgnored
     private var recorderObserver: NSObjectProtocol?
     @ObservationIgnored
@@ -57,16 +57,13 @@ final class KeyboardShortcutSettingsObserver {
                 self?.reloadCachedShortcuts()
             }
         }
-        // Feature-gated sidebar defaults are also stored in UserDefaults. The
-        // matcher must rebuild when a gate changes, even when no shortcut was
-        // edited.
-        featureGateObserver = notificationCenter.addObserver(
-            forName: RightSidebarBetaFeatureSettings.didChangeNotification,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            Self.deliverOnMainActor { [weak self] in
-                self?.reloadCachedShortcuts()
+        // Policy and rollout changes need not write local defaults, but they
+        // still change the positional bindings of the remaining visible tabs.
+        featureGateObservers = RightSidebarMode.availabilityChangeNotifications.map { name in
+            notificationCenter.addObserver(forName: name, object: nil, queue: nil) { [weak self] _ in
+                Self.deliverOnMainActor { [weak self] in
+                    self?.reloadCachedShortcuts()
+                }
             }
         }
         // A custom name or beta toggle changes positional defaults even when
@@ -105,8 +102,8 @@ final class KeyboardShortcutSettingsObserver {
         if let settingsObserver {
             notificationCenter.removeObserver(settingsObserver)
         }
-        if let featureGateObserver {
-            notificationCenter.removeObserver(featureGateObserver)
+        for observer in featureGateObservers {
+            notificationCenter.removeObserver(observer)
         }
         if let recorderObserver {
             notificationCenter.removeObserver(recorderObserver)
