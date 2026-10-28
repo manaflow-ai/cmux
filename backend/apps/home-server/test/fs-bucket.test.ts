@@ -638,4 +638,53 @@ describe("self-hosted attachment bucket", () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+  it("aborts uploads by prefix only through the bucket's own .multipart: a linked directory, a linked record or a swap after the check is refused", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const outside = join(parent, "outside")
+      mkdirSync(outside)
+      const id = "a".repeat(32)
+      const forged = JSON.stringify({ key: "home/v1/conv_a/x" })
+      writeFileSync(join(outside, `${id}.json`), forged)
+      mkdirSync(join(outside, id))
+      writeFileSync(join(outside, id, "part.1"), "kept")
+
+      // .multipart itself a link: refused, and nothing it points at is removed.
+      const linkedRoot = join(parent, "linked")
+      mkdirSync(linkedRoot)
+      symlinkSync(outside, join(linkedRoot, ".multipart"))
+      await expect(new FsBucket(linkedRoot).abortMultipartUploads("home/")).rejects.toThrow(/symbolic link/)
+
+      // A record that is a link is not an upload.
+      const root = join(parent, "bucket")
+      const bucket = new FsBucket(root)
+      const real = await bucket.createMultipartUpload("home/v1/conv_b/real")
+      await real.uploadPart(1, "real part")
+      symlinkSync(join(outside, `${id}.json`), join(root, ".multipart", `${id}.json`))
+      expect(await bucket.abortMultipartUploads("home/v1/conv_a/")).toBe(0)
+
+      // .multipart swapped for a link to a copy after the bucket checked it: refused, the copy and the real uploads untouched.
+      const copy = join(parent, "copy")
+      let swapped = false
+      const swapping = new FsBucket(root, {
+        afterPathCheck: () => {
+          if (swapped) return
+          swapped = true
+          cpSync(join(root, ".multipart"), copy, { recursive: true, verbatimSymlinks: true })
+          swapForLink(join(root, ".multipart"), copy)
+        }
+      })
+      const before = snapshot(outside)
+      await expect(swapping.abortMultipartUploads("home/v1/conv_b/")).rejects.toThrow(/symbolic link/)
+      expect(swapped).toBe(true)
+      expect(readdirSync(copy).sort()).toEqual([real.uploadId, `${real.uploadId}.json`, `${id}.json`].sort())
+      restore(join(root, ".multipart"))
+      expect(snapshot(outside)).toEqual(before)
+      expect(await bucket.abortMultipartUploads("home/v1/conv_b/")).toBe(1)
+      expect(readdirSync(join(root, ".multipart"))).toEqual([`${id}.json`])
+      expect(readFileSync(join(outside, `${id}.json`), "utf8")).toBe(forged)
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
+    }
+  })
 })
