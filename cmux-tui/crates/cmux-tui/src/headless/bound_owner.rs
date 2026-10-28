@@ -15,9 +15,10 @@
 //! an owner asked to exit with a process never runs unbound: a watch that
 //! cannot be armed (no pidfd on an old Linux kernel, a seccomp denial) fails
 //! the start. `server ensure` passes the process's start time with its pid
-//! (`<pid>@<ms>`); once the watch is armed the owner compares it, so a pid
-//! that was reused between the check and the watch counts as the process
-//! having exited.
+//! (`<pid>@<ms>`; a direct `--exit-with-pid <pid>` reads it before arming);
+//! once the watch is armed the owner compares it, so a pid that was reused
+//! before the watch counts as the process having exited. When the owner
+//! stops while the bound process has exited too, its terminals still end.
 //!
 //! One thread waits on the kernel's exit event for the pid (kqueue
 //! `EVFILT_PROC`/`NOTE_EXIT` on macOS, a pidfd on Linux) together with a stop
@@ -37,24 +38,46 @@ use crate::BoundPid;
 
 /// A watch armed at startup; [`Armed::start`] runs it once the mux exists.
 pub(crate) struct Armed {
-    pid: u32,
+    process: Process,
     watch: Watch,
     stop: io::PipeWriter,
-    /// The pid now names another process than the one `server ensure` saw.
+    /// The pid now names another process than the bound one.
     reused: bool,
 }
 
+/// The bound process: its pid and when it started.
+#[derive(Clone, Copy)]
+struct Process {
+    pid: u32,
+    started_ms: u64,
+}
+
+impl Process {
+    /// The pid no longer names this process (it exited, or was reused).
+    fn gone(self) -> bool {
+        cmux_tui_core::process_started_ms(self.pid) != Some(self.started_ms)
+    }
+}
+
 /// Arms the watch on `bound`'s process. An error fails the owner's start.
+/// The start time comes from `server ensure` (`<pid>@<ms>`); a direct
+/// `--exit-with-pid <pid>` reads it here, before the watch, and fails when
+/// it cannot.
 pub(crate) fn arm(bound: BoundPid) -> io::Result<Armed> {
+    let started_ms = match bound.started_ms {
+        Some(started) => started,
+        None => cmux_tui_core::process_started_ms(bound.pid).ok_or_else(|| {
+            io::Error::new(io::ErrorKind::NotFound, format!("process {} is not running", bound.pid))
+        })?,
+    };
+    let process = Process { pid: bound.pid, started_ms };
     let (reader, stop) = io::pipe()?;
     let watch = Watch::new(bound.pid, reader)?;
     // After the watch is registered, the pid cannot be reused unseen: a
-    // start time other than the one ensure saw (or none: gone) means the
+    // start time other than the recorded one (or none: gone) means the
     // bound process already exited.
-    let reused = bound
-        .started_ms
-        .is_some_and(|expected| cmux_tui_core::process_started_ms(bound.pid) != Some(expected));
-    Ok(Armed { pid: bound.pid, watch, stop, reused })
+    let reused = process.gone();
+    Ok(Armed { process, watch, stop, reused })
 }
 
 impl Armed {
@@ -63,11 +86,11 @@ impl Armed {
     /// terminals unwatched: they are ended here (with the survivor sweep)
     /// and the error fails the start.
     pub(crate) fn start(self, mux: &Arc<Mux>) -> io::Result<BoundOwner> {
-        let Self { pid, watch, stop, reused } = self;
+        let Self { process, watch, stop, reused } = self;
         let weak = Arc::downgrade(mux);
         let thread = std::thread::Builder::new()
             .name("bound-owner".into())
-            .spawn(move || run(&watch, reused, &weak, pid));
+            .spawn(move || run(&watch, reused, &weak, process));
         match thread {
             Ok(thread) => Ok(BoundOwner { stop: Some(stop), thread: Some(thread) }),
             Err(error) => {
@@ -101,10 +124,25 @@ enum Woke {
     Stopped,
 }
 
-fn run(watch: &Watch, reused: bool, mux: &Weak<Mux>, pid: u32) {
+fn run(watch: &Watch, reused: bool, mux: &Weak<Mux>, process: Process) {
+    let pid = process.pid;
     let woke = if reused { Ok(Woke::Exited) } else { watch.wait() };
     match woke {
-        Ok(Woke::Stopped) => return,
+        // The owner is leaving for its own reason. If the bound process
+        // exited too (both events at once), its terminals still end: a
+        // normal shutdown would keep them for an adopter that never comes.
+        Ok(Woke::Stopped) => {
+            if process.gone()
+                && let Some(mux) = mux.upgrade()
+            {
+                crate::client_log::stderr_log!(
+                    "lifecycle",
+                    "{BIN}: process {pid} exited (--exit-with-pid) as this owner stopped; ending its terminals"
+                );
+                end_every_terminal(&mux);
+            }
+            return;
+        }
         Ok(Woke::Exited) => crate::client_log::stderr_log!(
             "lifecycle",
             "{BIN}: process {pid} exited (--exit-with-pid); ending this owner's terminals and stopping"
@@ -214,15 +252,15 @@ impl Watch {
         }
         loop {
             // SAFETY: kevent is plain data; all-zero is a valid value.
-            let mut event: libc::kevent = unsafe { std::mem::zeroed() };
-            // SAFETY: no changes, one event slot, no timeout.
+            let mut events: [libc::kevent; 2] = unsafe { std::mem::zeroed() };
+            // SAFETY: no changes, two event slots, no timeout.
             let n = unsafe {
                 libc::kevent(
                     self.queue.as_raw_fd(),
                     std::ptr::null(),
                     0,
-                    &mut event,
-                    1,
+                    events.as_mut_ptr(),
+                    2,
                     std::ptr::null(),
                 )
             };
@@ -236,11 +274,9 @@ impl Watch {
             if n == 0 {
                 continue;
             }
-            return Ok(if event.filter == libc::EVFILT_PROC {
-                Woke::Exited
-            } else {
-                Woke::Stopped
-            });
+            // The process's exit wins over a stop seen in the same call.
+            let exited = events[..n as usize].iter().any(|event| event.filter == libc::EVFILT_PROC);
+            return Ok(if exited { Woke::Exited } else { Woke::Stopped });
         }
     }
 }
@@ -290,12 +326,12 @@ impl Watch {
                 }
                 return Err(error);
             }
-            // A leaving owner wins: its own shutdown is already running.
-            if fds[0].revents != 0 {
-                return Ok(Woke::Stopped);
-            }
+            // The process's exit wins over a stop seen in the same call.
             if fds[1].revents != 0 {
                 return Ok(Woke::Exited);
+            }
+            if fds[0].revents != 0 {
+                return Ok(Woke::Stopped);
             }
         }
     }
@@ -366,6 +402,15 @@ mod tests {
         assert!(arm(BoundPid { pid, started_ms: other }).unwrap().reused);
         drop(child.stdin.take());
         child.wait().unwrap();
+    }
+
+    #[test]
+    fn a_direct_binding_to_a_gone_pid_fails_to_arm() {
+        let mut child =
+            std::process::Command::new("/bin/sh").args(["-c", "exit 0"]).spawn().unwrap();
+        let pid = child.id();
+        child.wait().unwrap();
+        assert!(arm(BoundPid { pid, started_ms: None }).is_err());
     }
 
     #[test]
