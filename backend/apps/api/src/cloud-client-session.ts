@@ -70,7 +70,7 @@ export type ClientSessionReply = { readonly ok: true; readonly value: ClientSess
 export class ClientIdentityStore {
   constructor(private readonly sql: SqlStore) {
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_client_identity (machine TEXT NOT NULL, user TEXT NOT NULL, identity TEXT NOT NULL, vm TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (machine, user))`)
-    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_client_identity_retired (identity TEXT PRIMARY KEY, at INTEGER NOT NULL)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_client_identity_retired (identity TEXT PRIMARY KEY, at INTEGER NOT NULL, user TEXT)`)
   }
 
   get(machine: string, user: string): { identity: string; vmId: string } | null {
@@ -82,13 +82,14 @@ export class ClientIdentityStore {
   put(machine: string, user: string, identity: string, vmId: string, at: number): void {
     this.sql.transaction(() => {
       const before = this.get(machine, user)
-      if (before && before.identity !== identity) this.retire(before.identity, at)
+      if (before && before.identity !== identity) this.retire(before.identity, at, user)
       this.sql.exec(`INSERT OR REPLACE INTO cloud_client_identity (machine, user, identity, vm, at) VALUES (?, ?, ?, ?, ?)`, machine, user, identity, vmId, at)
     })
   }
 
-  retire(identity: string, at: number): void {
-    this.sql.exec(`INSERT OR IGNORE INTO cloud_client_identity_retired (identity, at) VALUES (?, ?)`, identity, at)
+  /** Queues `identity` for its delete; `user` (whose it was) lets a departure find it again. */
+  retire(identity: string, at: number, user: string | null): void {
+    this.sql.exec(`INSERT OR IGNORE INTO cloud_client_identity_retired (identity, at, user) VALUES (?, ?, ?)`, identity, at, user)
   }
 
   /** Retires the identities of every machine `gone` says is gone (deleted, deleting or failed). */
@@ -96,7 +97,7 @@ export class ClientIdentityStore {
     const rows = this.sql.exec<{ machine: string; user: string; identity: string }>(`SELECT machine, user, identity FROM cloud_client_identity`)
     for (const r of rows.filter((x) => gone(x.machine))) {
       this.sql.transaction(() => {
-        this.retire(r.identity, at)
+        this.retire(r.identity, at, r.user)
         this.sql.exec(`DELETE FROM cloud_client_identity WHERE machine = ? AND user = ?`, r.machine, r.user)
       })
     }
@@ -107,13 +108,13 @@ export class ClientIdentityStore {
     return this.sql.exec<{ identity: string }>(`SELECT identity FROM cloud_client_identity_retired ORDER BY at LIMIT ?`, limit).map((r) => r.identity)
   }
 
-  /** Retires every identity `user` holds (they left the team) and forgets them. */
+  /** Retires every identity `user` holds (they left the team) and returns those and every retired one of theirs still waiting. */
   forgetUser(user: string, at: number): Array<string> {
     return this.sql.transaction(() => {
       const ids = this.sql.exec<{ identity: string }>(`SELECT identity FROM cloud_client_identity WHERE user = ?`, user).map((r) => r.identity)
-      for (const id of ids) this.retire(id, at)
+      for (const id of ids) this.retire(id, at, user)
       this.sql.exec(`DELETE FROM cloud_client_identity WHERE user = ?`, user)
-      return ids
+      return this.sql.exec<{ identity: string }>(`SELECT identity FROM cloud_client_identity_retired WHERE user = ?`, user).map((r) => r.identity)
     })
   }
 
@@ -121,7 +122,7 @@ export class ClientIdentityStore {
   forget(machine: string, user: string, at: number): void {
     this.sql.transaction(() => {
       const current = this.get(machine, user)
-      if (current) this.retire(current.identity, at)
+      if (current) this.retire(current.identity, at, user)
       this.sql.exec(`DELETE FROM cloud_client_identity WHERE machine = ? AND user = ?`, machine, user)
     })
   }
@@ -223,7 +224,7 @@ export const mintClientSessionOn = async (host: ClientSessionHost, p: Principal,
     } catch (e) {
       if (e instanceof ClientIdentityLeft) {
         if (host.identities.get(machine, user)?.identity === e.identity) host.identities.forget(machine, user, host.now())
-        else host.identities.retire(e.identity, host.now())
+        else host.identities.retire(e.identity, host.now(), user)
         // Deleted now, not at the next alarm: a failed delete stays retired and is retried.
         if (await sweepClientIdentities(host.identities, host.machine, driver, host.now()).catch(() => true)) host.retryLater()
       }
@@ -234,7 +235,7 @@ export const mintClientSessionOn = async (host: ClientSessionHost, p: Principal,
     }
     const { grant, stale } = minted
     host.identities.put(machine, user, grant.identity, grant.vmId, host.now())
-    if (stale) host.identities.retire(stale, host.now())
+    if (stale) host.identities.retire(stale, host.now(), user)
     if (await sweepClientIdentities(host.identities, host.machine, driver, host.now()).catch(() => true)) host.retryLater()
     // The membership check is the last wait before the answer: a member who left while the provider
     // calls or the sweep ran gets nothing, and the new identity is retired and deleted.
