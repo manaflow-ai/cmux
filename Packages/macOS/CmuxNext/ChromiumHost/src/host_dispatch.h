@@ -98,6 +98,9 @@
 //   kOpEvent   CMUX_SHIM_WHEEL_ACK: the fork's ack of one of a page's wheels,
 //              with that wheel's input seq (host_wheel_ack.h); the HELLO lists
 //              kWheelAcksHelloName when the fork has the handler
+//   kOpHostHang, kOpInputDispatched  the UI thread's hangs and the input it
+//              dispatched (host_hang_watcher.h); the HELLO lists
+//              kHangWatchHelloName when the host sends them
 //   kOpEvent   CMUX_SHIM_LOCK: one call of the fork's lock delegate while
 //              cmux's handler is installed (host_locks.h); the HELLO lists
 //              kLocksHelloName when the fork has the delegate
@@ -128,6 +131,7 @@
 #include "host_mirror.h"
 #include "host_page_activity.h"
 #include "host_resize.h"
+#include "host_window_request_ids.h"
 #include "host_text_input.h"
 #include "host_wheel_ack.h"
 
@@ -284,9 +288,6 @@ class HostContext {
   // the fork's first ack of that browser after the acks of the wheels sent
   // before it answers it.
   void WheelSent(int chromium_id, uint32_t seq, bool momentum) { wheel_acks_.Sent(chromium_id, seq, momentum); }
-  static int OnWindowRequest(void* ctx, int kind, int disposition, int source_browser_id, int has_bounds, int x,
-                             int y, int width, int height, int user_gesture, const char* url,
-                             const char* profile_path);
   // cmux_shim_password_reveal's done; ctx is the reveal's PasswordReveal.
   static void OnPasswordRevealed(void* ctx, const char* password, size_t length);
 
@@ -314,8 +315,8 @@ class HostContext {
   // so cmux reads the host's value after the op once the ACK clears its mark.
   void RefreshMirror(uint16_t op, const TlvWriter& key, uint32_t wildcards);
 
-  // Puts the host's window-request handler in the shim and clears its focus handler
-  // (InstallPolicy* and Resume).
+  // Clears the shim's focus and window-request handlers: the shim's embedder-active
+  // rule decides focus and cmux's pushed policy windows (InstallPolicy* and Resume).
   void InstallHostPolicies();
 
   // An input ring frame (the ordered stream's dispatch, tasks 041 and 042):
@@ -354,6 +355,11 @@ class HostContext {
   // (browser_host_main.mm, before Attach, which then lists
   // kEnergySaverHelloName); nullptr takes kOpEnergySaver and changes nothing.
   void SetEnergySaver(EnergySaverFn energy_saver) { energy_saver_ = energy_saver; }
+
+  // The host watches its UI thread's turns and acks the input it dispatches
+  // (host_hang_watcher.h, browser_host_main.mm, before Attach): the HELLO
+  // lists kHangWatchHelloName, so cmux arms its busy deadline on the acks.
+  void SetHangWatch(bool watching) { hang_watch_ = watching; }
 
   // The host shim's cmux_shim_set_lock_handler when its fork has the lock
   // delegate (browser_host_main.mm, before Attach, which then lists
@@ -498,6 +504,8 @@ class HostContext {
   std::unordered_map<uint64_t, PendingBind> pending_binds_;
   // DevTools message ids: (Chromium browser << 32 | the shim's id) -> the minted id.
   std::unordered_map<uint64_t, int32_t> devtools_ids_;
+  // The ids minted for the tabs of the window requests the shim decided (task 031).
+  WindowRequestTabIds window_request_tabs_;
 
   // The tab and host mirrors pushed for every open tab (tasks 016 and 017).
   HostMirrors mirrors_;
@@ -538,6 +546,7 @@ class HostContext {
   SetWheelAckHandlerFn set_wheel_ack_handler_ = nullptr;
   WheelAcks wheel_acks_;
   EnergySaverFn energy_saver_ = nullptr;
+  bool hang_watch_ = false;
   SetLockHandlerFn set_lock_handler_ = nullptr;
   // Text input watches of minted ids whose creation has not come, by the
   // minted id: the watch tokens Bind arms and answers. Bounded with

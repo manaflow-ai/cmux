@@ -202,6 +202,22 @@ public final class HangReportCollector: Sendable {
         keepLater(.threadHang(thread, durationMs: ms, frames: []), addresses: addresses)
     }
 
+    /// One hang of the Chromium Host's UI thread, 250 ms or longer (main thread; task p01-process-084): the host
+    /// measured it and sends no stack (its stack is in the host's own dump at 10 s), so it is kept frameless, as a
+    /// watched thread's hang named ``hostUIThread``, in the thread hang slots: it never pushes the app's own main
+    /// thread hang out, and it counts in none of the app's histograms. Nothing when the wire schema has none.
+    public func noteHostHang(durationNanos: UInt64) {
+        guard isEnabled, keepsThreadHangs else { return }
+        let ms = Self.milliseconds(durationNanos)
+        state.withLock { state in
+            guard state.aggregate.wantsThreadHangSample(durationMs: ms) else { return }
+            state.aggregate.keep(.threadHang(Self.hostUIThread, durationMs: ms, frames: []))
+        }
+    }
+
+    /// The Chromium Host's UI thread in a hang report: the host's main thread.
+    public static let hostUIThread = HangSample.WatchedThread(name: "chromium-host.ui", kind: "main")
+
     /// One watched thread of another cmux process (a Rust process's `hangs-<pid>.jsonl` line, read by the app's
     /// Rust diagnostics forwarder on its utility queue) whose scope ran `durationMs` past its deadline: kept with the
     /// watched threads' hangs (``StallAggregate/threadHangs``) as a ``HangSample/Source/hangWatch`` sample that names
