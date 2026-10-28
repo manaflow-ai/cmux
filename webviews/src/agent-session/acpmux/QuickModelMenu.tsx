@@ -297,15 +297,24 @@ export function QuickModelMenu({
     const running = (!families || model.family === families.current) && model.id === current;
     if (menu.inlineEffort === false || (!families && !menu.onModelEffort)) return [];
     // An explicit empty list must not inherit another model's reasoning capabilities.
-    return model.efforts !== undefined
-      ? reasoningChoices(
-          model.efforts.map((value) => ({ value })),
-          { efforts: model.efforts },
-          t,
-        )
-      : running
-        ? levels
-        : [];
+    const advertised =
+      model.efforts !== undefined
+        ? reasoningChoices(
+            model.efforts.map((value) => ({ value })),
+            { efforts: model.efforts },
+            t,
+          )
+        : running
+          ? levels
+          : [];
+    // Ultracode is a session-specific option. It may be reported on the harness effort
+    // option even when the catalog model's own list predates it; keep it in the inline
+    // row as well as in the Effort submenu so the combined picker does not remove it.
+    const ultracode = effort?.levels.find((choice) => choice.id === "ultracode");
+    if (running && ultracode && !advertised.some((choice) => choice.id === "ultracode")) {
+      return [...advertised, ultracode];
+    }
+    return advertised;
   };
   const withEffort = (model: QuickModel, name: React.ReactNode) => {
     const choices = effortChoices(model);
