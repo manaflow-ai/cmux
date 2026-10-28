@@ -59,7 +59,7 @@ export const toMysqlValue = (v: unknown): unknown => {
  *   gets one;
  * - never used: no hosts, automations, runs, connections or conversations.
  * The copy skips these teams and their team-scoped rows instead of deleting them on Postgres, and
- * verify and the compare cron leave them out on both sides. The TeamDO stays the source of truth: a
+ * verify (and the retired compare cron) leave them out on both sides. The TeamDO stays the source of truth: a
  * kept-out team that changes later is projected again by its next outbox write.
  */
 export const JUNK_TEAMS_SQL = `SELECT t.id FROM teams t WHERE t.kind = 'stack' AND t.display_name = 'Personal Team'
