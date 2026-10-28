@@ -178,3 +178,7 @@ impl Hub {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "queue_approve_tests.rs"]
+mod tests;
