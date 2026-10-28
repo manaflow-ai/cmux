@@ -14,18 +14,34 @@ import CmuxNextWakeups
 // and diagnostics.
 extension CloudHandlers {
     static func bindCreation(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
+        let cloud = context.services.cloud
+        let signedOutCreation = CloudSignedOutCreationContinuation()
         bind("newCloudMachine", registry, reason: reason) { invocation in
             let request = try newMachineRequest(invocation)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
-            if request.isDefault, origin(of: invocation) == .user, window != nil {
-                beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession)
+            let start: @MainActor () -> Void = {
+                guard cloud.isSignedIn else { return }
+                // A person’s original gesture owns the window and request. If
+                // that window has gone away while the browser was open, drop
+                // the intent rather than creating an orphaned machine.
+                guard window != nil || origin(of: invocation) != .user else { return }
+                if request.isDefault, origin(of: invocation) == .user, window != nil {
+                    beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession)
+                    return
+                }
+                let flow = creationFlow(context, startedByPerson: origin(of: invocation) == .user,
+                                         askedBy: invocation.callerAgentSession)
+                guard request.isDefault else { return createRequested(request, flow: flow, window: window, context) }
+                reportCreatedMachine(flow.start(in: window, existing: nil), context)
+            }
+            guard !cloud.isSignedIn else {
+                start()
                 return
             }
-            let flow = creationFlow(context, startedByPerson: invocation.origin == .user, askedBy: invocation.callerAgentSession)
-            guard request.isDefault else { return createRequested(request, flow: flow, window: window, context) }
-            // The new machine's progress shows in the window at once; its
-            // first workspace opens there when its daemon is ready.
-            reportCreatedMachine(flow.start(in: window, existing: nil), context)
+            guard origin(of: invocation) == .user else {
+                throw ActionFailure(message: CloudStrings.signInFirst)
+            }
+            signedOutCreation.replace(signIn: { await cloud.auth.signIn() }, resume: start)
         }
         bind("newCloudWorkspace", registry, reason: reason) { invocation in
             let target = try workspaceMachine(invocation, context)
