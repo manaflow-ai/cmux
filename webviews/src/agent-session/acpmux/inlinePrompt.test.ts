@@ -381,8 +381,9 @@ test("a placed prompt marks its attachments placed, through the echo; an unplace
         ],
       },
     });
-    await settle(() => io.rows().some((row) => row.id.startsWith("user-")));
-    expect(io.rows().find((row) => row.id.startsWith("user-"))!.inlineParts?.[1]).toMatchObject({ placed: true });
+    const echoed = () => io.rows().find((row) => row.id.startsWith("user-") && row.text === "look");
+    await settle(() => echoed() !== undefined);
+    expect(echoed()!.inlineParts?.[1]).toMatchObject({ placed: true });
 
     await io.client.send("plain", [image("two")]);
     expect(io.sent[1]._meta.acpmux.inlineParts.some((part: any) => "placed" in part)).toBe(false);
