@@ -468,13 +468,13 @@ mod tests {
     async fn fork_transcript_reads_earlier_claude_id_of_the_same_chat() {
         let home = scoped_store("same-chat-fork");
         let hub = transcript_hub(&home);
-        replace_meta(
-            &hub,
-            "chat",
-            json!({
-                "agentSessionId": "new-session", "previousAgentSessionIds": ["s1"]
-            }),
-        );
+        {
+            let chat = hub.resolve("chat").unwrap();
+            let mut meta = chat.meta.lock().unwrap();
+            // The harness reported s1 before replacing it during a same-chat fork.
+            meta.set_agent_session_id(Some("s1".into()), "claude");
+            meta.set_agent_session_id(Some("new-session".into()), "claude");
+        }
         let page = handle(&hub, &transcript_request("wf_own")).await.unwrap();
         assert_eq!(page["lines"], 4);
         let absent = handle(&hub, &transcript_request("wf_missing")).await.unwrap_err();

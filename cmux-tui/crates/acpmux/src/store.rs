@@ -133,8 +133,8 @@ pub struct SessionMeta {
     /// from transcript contents.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub previous_agent_session_ids: Vec<String>,
-    /// Family of the currently recorded native id. Older metadata omits this and falls back to
-    /// its chat family when deciding whether that id may enter Claude history.
+    /// Proven family of the current native id. Older/imported metadata is unknown and cannot
+    /// authorize historical Claude reads when that id is retired.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_session_family: Option<String>,
     pub status: SessionStatus,
@@ -503,10 +503,9 @@ impl SessionMeta {
         if let Some(next) = next.as_ref().filter(|_| family == "claude") {
             self.previous_agent_session_ids.retain(|id| id != next);
         }
-        let previous_family =
-            self.agent_session_family.as_deref().or(self.family.as_deref()).unwrap_or(family);
+        let previous_family = self.agent_session_family.as_deref();
         if let Some(previous) = self.agent_session_id.take()
-            && previous_family == "claude"
+            && previous_family == Some("claude")
             && !(family == "claude" && Some(&previous) == next.as_ref())
             && !self.previous_agent_session_ids.contains(&previous)
         {
@@ -1774,6 +1773,18 @@ mod agent_session_history_tests {
         assert_eq!(m.claude_session_ids().collect::<Vec<_>>(), ["claude-old"]);
         m.set_agent_session_id(Some("claude-new".into()), "claude");
         assert_eq!(m.claude_session_ids().collect::<Vec<_>>(), ["claude-new", "claude-old"]);
+    }
+
+    #[test]
+    fn unknown_native_provenance_never_inherits_the_creation_family() {
+        for next_family in ["claude", "non-claude"] {
+            let mut m = meta();
+            m.agent_session_id = Some("unrelated-native-id".into());
+            m.agent_session_family = None;
+            m.set_agent_session_id(Some("new-id".into()), next_family);
+            m.set_agent_session_id(Some("confirmed-claude-id".into()), "claude");
+            assert!(!m.claude_session_ids().any(|id| id == "unrelated-native-id"));
+        }
     }
 
     #[test]
