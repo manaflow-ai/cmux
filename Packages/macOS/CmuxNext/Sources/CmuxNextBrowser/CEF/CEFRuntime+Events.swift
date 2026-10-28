@@ -81,6 +81,8 @@ extension CEFRuntime {
             browserCreated(browser, request: request, window: window, created: created)
         case .popup, .unknown: break // AFTER_CREATED of a popup's tab carries its URL, disposition and gesture (pending popups)
         case .createFailed(let browser, let request): CEFCreateFailure(browser: browser, request: request).apply(to: self)
+        case .windowRequestResult(let result):
+            windowRequests.hostDecided(result)
         case .chromeCommand(let browser, let command):
             chromeWindowCommandBlocked(command, browser: browser)
         case .beforeClose(let browser):

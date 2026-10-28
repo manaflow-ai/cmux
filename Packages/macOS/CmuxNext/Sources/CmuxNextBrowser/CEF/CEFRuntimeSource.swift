@@ -53,6 +53,13 @@ public final class CEFRuntimeSource {
     /// Whose children the Chromium helpers are, for listings on any thread (task p01-process-225): this app in
     /// process; in host mode none until the runtime that adopts this source attaches a host, then that host.
     public let helperParent: ChromiumHelperParent
+    /// Host mode: input the Chromium Host's UI thread has not dispatched for 2 s puts "Chromium is busy",
+    /// with Wait and Reload Chromium, over the panes that show its pages (feature `chromiumHostHangBanner`,
+    /// set by the App; ``ChromiumHostHangMonitor``, p01-process-084). Read when the runtime adopts the source.
+    public var watchesHostHangs = false
+    /// Host mode, with ``watchesHostHangs``: each UI hang of the Chromium Host of 250 ms or more, for the
+    /// app's hang reports (set by the App). Read at each hang.
+    public var onHostHang: ((ChromiumHostHang) -> Void)?
     /// Host mode: a page's pointer lock and keyboard lock are cmux's, and Escape ends them and the page's
     /// fullscreen (feature `chromiumHostLocks`, set by the App; ``CEFHostLocks``). Read when the runtime
     /// adopts the source; in process it changes nothing.
