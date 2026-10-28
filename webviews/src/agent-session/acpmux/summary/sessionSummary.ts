@@ -170,7 +170,7 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
         add(
           {
             url: pr ? (known?.url ?? canonical) : canonical,
-            label: pr ? (known?.title ?? `${owner}/${repo} #${number}`) : label,
+            label: pr || known?.kind === "issue" ? (known?.title ?? `${owner}/${repo} #${number}`) : label,
             kind: pr ? "pullRequest" : "issue",
           },
           order,
@@ -184,7 +184,7 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
       if (!tool.tool) continue;
       const item = tool.tool;
       if (item.status !== "completed" || (item.exitCode ?? 0) !== 0) continue;
-      const command = item.command ? pullRequestSourceCommand(item.command) : "";
+      const command = item.command ? pullRequestSourceCommand(item.command) : field(input(item).command) ?? "";
       const text = `${item.title} ${command} ${item.inputSummary ?? ""} ${item.output ?? ""}`;
       addUrls(text, rowIndex);
       if (item.kind === "fetch" && !/https?:\/\//.test(text)) add({ label: item.title }, rowIndex);
