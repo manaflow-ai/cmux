@@ -213,7 +213,7 @@ enum TapbackGlyph {
     nonisolated private static let selectedImages = Mutex<[String: UIImage]>([:])
 
     /// One Core Image context for every recoloring, made on first use.
-    // crash-allow: an immutable constant (a static let, made once); Apple documents CIContext objects as immutable and safe to share among threads
+    // crash-allow: a let made once (Swift's thread-safe static init) and never reassigned; Core Image Programming Guide: "CIContext and CIImage objects are immutable, which means each can be shared safely among threads", and multiple threads may render with the same context
     nonisolated(unsafe) private static let selectedRenderContext = CIContext(
         options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB) as Any]
     )

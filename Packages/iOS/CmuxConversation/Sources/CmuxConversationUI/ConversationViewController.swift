@@ -876,7 +876,7 @@ public final class ConversationViewController: UIViewController {
         let serial = rebuildSerial
         let traits = collectionView.traitCollection
         liveGate.beginMeasuring()
-        Task { [weak self] in
+        Task(priority: .userInitiated) { [weak self] in
             let measured = await MessageLayoutCache.measureAway(pending, width: width, margin: margin, traits: traits)
             guard let self else { return }
             let probeStart = self.probeClock()
