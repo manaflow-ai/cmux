@@ -2446,6 +2446,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
         discoveredIrohMacs = []
+        directDialCandidatesByPairingID.removeAll()
         directoryCandidatesGeneration &+= 1
         pairedMacLoadState = .notLoaded
         pairedMacLoadGeneration &+= 1
@@ -2593,6 +2594,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
         discoveredIrohMacs = []
+        directDialCandidatesByPairingID.removeAll()
         directoryCandidatesGeneration &+= 1
         pairedMacLoadState = .notLoaded
         pairedMacLoadGeneration &+= 1
@@ -6013,6 +6015,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// so it must not clear ``hasKnownPairedMac``; hiding changes list visibility,
     /// not whether a stored paired Mac is known.
     package func disconnectLiveConnection(preservingOtherMacWorkspaceState: Bool = false) {
+        if let connectedMacDeviceID {
+            directDialCandidatesByPairingID.removeValue(forKey: MobilePairedMac.pairingID(
+                macDeviceID: connectedMacDeviceID,
+                instanceTag: connectedMacInstanceTag
+            ))
+        }
         suppressNextConnectionOutageEdge = true
         invalidatePairingAttempt()
         clearMacSwitchAttemptState()
