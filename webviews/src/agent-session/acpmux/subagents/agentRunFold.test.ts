@@ -203,6 +203,33 @@ test("two background parent runs with the same name stay plain in either child o
   }
 });
 
+test("distinct explicit parent names remain deterministic with the same prompt", () => {
+  const { fold, send } = folder();
+  const alpha = `acpmux run --parent chat-1 -n alpha "Fix the flaky test"`;
+  const beta = `acpmux run --parent chat-1 -n beta "Fix the flaky test"`;
+  send(call("alpha", alpha));
+  send(call("beta", beta));
+  expect(
+    child(fold, 10, {
+      childSessionId: "child-alpha",
+      event: "started",
+      shortName: "alpha",
+      prompt: "Fix the flaky test",
+      harness: "codex",
+    }),
+  ).toBe("alpha");
+  expect(
+    child(fold, 11, {
+      childSessionId: "child-beta",
+      event: "started",
+      shortName: "beta",
+      prompt: "Fix the flaky test",
+      harness: "codex",
+    }),
+  ).toBe("beta");
+  expect(fold.all().map((agent) => agent.session)).toEqual(["alpha", "beta"]);
+});
+
 test("an overlapping start stays ambiguous after the other shell call fails", () => {
   const { fold, send } = folder();
   send(call("shell-a", PARENT_RUN));
@@ -214,6 +241,31 @@ test("an overlapping start stays ambiguous after the other shell call fails", ()
   expect(child(fold, 5, { event: "started", shortName: "fix", harness: "codex" })).toBeUndefined();
   expect(fold.all()).toEqual([]);
 });
+
+for (const [label, end] of [
+  [
+    "failed",
+    (send: (update: Record<string, unknown>) => boolean) =>
+      send({ sessionUpdate: "tool_call_update", toolCallId: "old", status: "failed" }),
+  ],
+  [
+    "timed out",
+    (send: (update: Record<string, unknown>) => boolean) =>
+      send({ sessionUpdate: "background_task_update", toolCallId: "old", state: "stopped" }),
+  ],
+] as const) {
+  test(`a late child from a ${label} parent cannot consume a later same-prompt call`, () => {
+    const { fold, send } = folder();
+    send(call("old", PARENT_RUN));
+    end(send);
+    send(call("new", PARENT_RUN));
+    expect(
+      child(fold, 5, { event: "started", shortName: "fix", prompt: "Fix the flaky test", harness: "codex" }),
+    ).toBeUndefined();
+    expect(fold.isRun("new")).toBe(false);
+    expect(fold.all()).toEqual([]);
+  });
+}
 
 test("two background parent runs and a same-name MCP start all retain their calls", () => {
   const { fold, send } = folder();
@@ -236,12 +288,26 @@ test("two background parent runs and a same-name MCP start all retain their call
   expect(fold.all()).toEqual([]);
 });
 
-test("a completed MCP call can still have a queued first prompt", () => {
+test("a completed MCP call does not poison a later distinct parent", () => {
+  const { fold, send } = folder();
+  send(sessionStart("mcp"));
+  send({ sessionUpdate: "tool_call_update", toolCallId: "mcp", status: "completed" });
+  send(call("shell", `acpmux run --parent chat-1 -n later "Review the tray"`));
+  expect(child(fold, 5, { event: "started", shortName: "later", prompt: "Review the tray", harness: "codex" })).toBe(
+    "shell",
+  );
+  expect(fold.all()[0]).toMatchObject({ session: "later", harness: "codex" });
+});
+
+test("a completed MCP start tombstone still rejects a late same-prompt child", () => {
   const { fold, send } = folder();
   send(sessionStart("mcp"));
   send({ sessionUpdate: "tool_call_update", toolCallId: "mcp", status: "completed" });
   send(call("shell", PARENT_RUN));
-  expect(child(fold, 5, { event: "started", shortName: "fix", harness: "codex" })).toBeUndefined();
+  expect(
+    child(fold, 5, { event: "started", shortName: "fix", prompt: "Fix the flaky test", harness: "codex" }),
+  ).toBeUndefined();
+  expect(fold.isRun("shell")).toBe(false);
   expect(fold.all()).toEqual([]);
 });
 

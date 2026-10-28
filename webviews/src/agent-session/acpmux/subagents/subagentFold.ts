@@ -109,6 +109,15 @@ type Step = { event: Event; update: any };
 /// The most `acpmux run --parent` calls waiting for their sub-session's start at once.
 const PENDING_CHILDREN = 16;
 type Group = { id: string; at: number; version: number; ids: string[] };
+type ChildIdentity = { name?: string; prompt?: string };
+type PendingParent = {
+  run: AgentRun;
+  command: string;
+  first: Step;
+  last?: Step;
+  identity: ChildIdentity;
+  ambiguous: boolean;
+};
 
 /// Folds a session's subagent records out of its transcript. Subagents the session spawns
 /// between two pieces of its own text draw as one group row where the first one started; their
@@ -155,13 +164,11 @@ export class SubagentFold {
   deferredRun = false;
   /// `acpmux run --parent` calls whose sub-session acpmux has not said started (``reduceChild``):
   /// what each runs, its first update and its newest. The oldest go past PENDING_CHILDREN.
-  private readonly parentCalls = new Map<
-    string,
-    { run: AgentRun; command: string; first: Step; last?: Step; ambiguous: boolean }
-  >();
-  /// A start_session may finish while its child waits for a run slot. Its eventual `started`
-  /// record has no call id, so later shell starts cannot rule it out either.
-  private sessionStartSeen = false;
+  private readonly parentCalls = new Map<string, PendingParent>();
+  /// Active MCP starts can overlap a parent shell call. Completed starts leave a bounded identity
+  /// tombstone because their child may still be queued and arrive after the call ends.
+  private readonly sessionStarts = new Map<string, ChildIdentity>();
+  private readonly retiredStarts: ChildIdentity[] = [];
   /// The run each sub-session is, by its session id; the runs whose reply acpmux recorded.
   private readonly children = new Map<string, string>();
   private readonly recorded = new Set<string>();
@@ -185,9 +192,18 @@ export class SubagentFold {
   /// Folds one session/update record; true when it belongs to subagents and draws no row.
   reduce(event: Event, update: any): boolean {
     const kind = update?.sessionUpdate;
-    if ((kind === "tool_call" || kind === "tool_call_update") && startsSession(update)) {
-      this.sessionStartSeen = true;
-      for (const pending of this.parentCalls.values()) pending.ambiguous = true;
+    const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
+    const sessionStart = startsSession(update);
+    if (call && (sessionStart || this.sessionStarts.has(call))) {
+      if (kind === "tool_call" || (kind === "tool_call_update" && !isTerminal(update.status))) {
+        if (sessionStart) this.sessionStarts.set(call, sessionStart);
+        const identity = this.sessionStarts.get(call);
+        if (identity) this.markAmbiguous(identity);
+      } else if (isTerminal(update.status)) {
+        const identity = this.sessionStarts.get(call) ?? sessionStart;
+        this.sessionStarts.delete(call);
+        if (update.status === "completed" && identity) this.retire(identity);
+      }
     }
     const mux = event.msg?.params?._meta?.acpmux;
     const events: any[] = Array.isArray(mux?.subagents) ? mux.subagents : [];
@@ -236,7 +252,6 @@ export class SubagentFold {
     }
     if (kind === "subagent_spawned" || kind === "subagent_state_update" || kind === "subagent_progress") return true;
     if (this.reduceRun(event, update)) return true;
-    const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
     if (call && this.spawnCalls.has(call)) {
       this.readSpawnCall(call, update);
       return true;
@@ -268,6 +283,7 @@ export class SubagentFold {
       const agent = known ? this.agents.get(known) : undefined;
       // A `--parent` call still waiting for its child's start that ended starts none.
       if (!agent && ["completed", "failed", "stopped"].includes(update.state)) {
+        this.retire(this.parentCalls.get(call)?.identity);
         this.parentCalls.delete(call);
         this.notRuns.add(call);
       }
@@ -295,6 +311,7 @@ export class SubagentFold {
       pending.last = { event, update };
       const ended = update.status === "failed" || update.status === "completed";
       if (ended && !(update.status === "completed" && backgroundOutputPath(outputOf(update)))) {
+        this.retire(pending.identity);
         this.parentCalls.delete(call);
         this.notRuns.add(call);
       }
@@ -310,11 +327,17 @@ export class SubagentFold {
     if (run?.parent !== undefined && this.harness) {
       // Child names are made unique by the daemon, and prompts can be identical. Neither
       // distinguishes concurrent shell starts, even after one call ends or fails.
-      const ambiguous = this.sessionStartSeen || this.parentCalls.size > 0;
-      if (ambiguous) for (const pending of this.parentCalls.values()) pending.ambiguous = true;
-      this.parentCalls.set(call, { run, command: line, first: { event, update }, ambiguous });
+      const identity = runIdentity(run);
+      const ambiguous =
+        [...this.parentCalls.values()].some((pending) => identitiesOverlap(identity, pending.identity)) ||
+        [...this.sessionStarts.values()].some((start) => identitiesOverlap(identity, start)) ||
+        this.retiredStarts.some((start) => identitiesOverlap(identity, start));
+      for (const pending of this.parentCalls.values())
+        if (identitiesOverlap(identity, pending.identity)) pending.ambiguous = true;
+      this.parentCalls.set(call, { run, command: line, first: { event, update }, identity, ambiguous });
       for (const old of this.parentCalls.keys()) {
         if (this.parentCalls.size <= PENDING_CHILDREN) break;
+        this.retire(this.parentCalls.get(old)?.identity);
         this.parentCalls.delete(old);
         this.notRuns.add(old);
       }
@@ -397,6 +420,8 @@ export class SubagentFold {
     const name = text(record.shortName);
     const asked = promptKey(record.prompt);
     // A name is the surer of the two: a different explicit name cannot fall back to its prompt.
+    const identity = { name, prompt: asked };
+    if (this.retiredStarts.some((start) => identitiesOverlap(start, identity))) return undefined;
     const calls = [...this.parentCalls];
     const call =
       calls.find(([, pending]) => name !== undefined && pending.run.session === name)?.[0] ??
@@ -430,6 +455,17 @@ export class SubagentFold {
     this.children.set(child, agent.id);
     if (pending.last) this.updateRun(agent, pending.last.event, pending.last.update);
     return call;
+  }
+
+  private markAmbiguous(identity: ChildIdentity): void {
+    for (const pending of this.parentCalls.values())
+      if (identitiesOverlap(identity, pending.identity)) pending.ambiguous = true;
+  }
+
+  private retire(identity: ChildIdentity | undefined): void {
+    if (!identity) return;
+    this.retiredStarts.push(identity);
+    if (this.retiredStarts.length > PENDING_CHILDREN * 2) this.retiredStarts.shift();
   }
 
   private updateRun(agent: Subagent, event: Event, update: any): void {
@@ -811,10 +847,37 @@ function promptKey(prompt: unknown): string | undefined {
 
 /// Both MCP servers expose start_session; Claude names the tool, Codex nests its arguments.
 /// An unknown server's identically named tool is conservatively a possible competing start.
-function startsSession(update: any): boolean {
-  return [update?._meta?.claude?.tool, update?.title, update?.rawInput?.tool].some(
+function startsSession(update: any): ChildIdentity | undefined {
+  const named = [update?._meta?.claude?.tool, update?.title, update?.rawInput?.tool].some(
     (name) => typeof name === "string" && /(?:^|[_.])start_session(?: call)?$/.test(name),
   );
+  if (!named) return undefined;
+  const input = update?.rawInput;
+  const args = input && typeof input.arguments === "object" && input.arguments !== null ? input.arguments : input;
+  return {
+    ...(text(args?.name) && { name: text(args.name) }),
+    ...(promptKey(args?.prompt) && { prompt: promptKey(args.prompt) }),
+  };
+}
+
+function runIdentity(run: AgentRun): ChildIdentity {
+  return {
+    ...(text(run.session) && { name: text(run.session) }),
+    ...(promptKey(run.prompt) && { prompt: promptKey(run.prompt) }),
+  };
+}
+
+/// A child record with no call id is safe to pair only when no other candidate could have
+/// produced the same name or prompt. Distinct explicit names are deterministic even with the
+/// same prompt; an absent name keeps prompt matching conservative.
+function identitiesOverlap(a: ChildIdentity, b: ChildIdentity): boolean {
+  if (a.name && b.name) return a.name === b.name;
+  if (a.prompt && b.prompt) return a.prompt === b.prompt;
+  return true;
+}
+
+function isTerminal(status: unknown): boolean {
+  return status === "completed" || status === "failed" || status === "stopped" || status === "cancelled";
 }
 
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
