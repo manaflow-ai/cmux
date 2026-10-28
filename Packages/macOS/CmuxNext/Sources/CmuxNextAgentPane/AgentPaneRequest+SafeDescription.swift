@@ -39,6 +39,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .jump: "jump"
         case .editShortcut: "editShortcut"
         case .runAction: "runAction"
+        case .listComposerActions: "listComposerActions"
         case .browseProject: "browseProject"
         case .sandboxRun: "sandboxRun"
         case .sandboxState: "sandboxState"

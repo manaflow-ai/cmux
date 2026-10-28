@@ -378,6 +378,7 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "action.composerList": self = .listComposerActions
         case "action.run":
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
                 self = .runAction(id)
