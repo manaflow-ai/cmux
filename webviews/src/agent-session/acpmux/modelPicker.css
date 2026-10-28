@@ -267,7 +267,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: calc(var(--ui-row-height) + var(--ui-popup-padding) * 2);
+  height: var(--ui-row-height);
+  box-sizing: border-box;
   margin: 0;
   padding-inline: var(--ui-row-padding-inline);
   border-block-end: var(--cmux-hairline, 0.5px) solid var(--agent-border);
