@@ -39,9 +39,12 @@
         "method": "sidebar.move",
         "params": {
           "items": [
-            "oracle"
+            "itm_app_store"
           ],
-          "to": {}
+          "to": {
+            "section": "sec_top",
+            "before": "itm_home"
+          }
         },
         "idempotencyKey": "sidebar-move-ok.call"
       },
@@ -53,7 +56,37 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the App Store item moves before Home in its own section"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "sidebar.move",
+        "params": {
+          "items": [
+            "itm_app_store"
+          ],
+          "to": {
+            "section": "sec_top",
+            "before": "itm_home"
+          }
+        },
+        "idempotencyKey": "sidebar-move-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [
@@ -62,8 +95,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.items[0] is a fixed placeholder, not a fixture object; sidebar/_tuning.json tunes it"
   ]
 }

@@ -1,5 +1,9 @@
 public import AppKit
+public import CmuxNextDesign
 public import CmuxNextFileGrid
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import CmuxNextFiles
 
 /// Runs a grid command on the pane's files: the one path the grid's menu,
@@ -14,6 +18,7 @@ public final class ScreenshotsCommands {
     private let files: any FileOperating
     private let pasteboard: NSPasteboard
     private let writer: FileGridPasteboard
+    private let dialogs: CmuxDialogCenter
     /// The last Undo's file operation (tests wait on it).
     private(set) var pendingUndo: Task<Void, any Error>?
     /// The open Rename sheet and its rename (tests wait on it).
@@ -26,12 +31,14 @@ public final class ScreenshotsCommands {
     ///   - files: renames and trashes (CmuxNextFiles).
     ///   - pasteboard: Copy's pasteboard (default: the general one).
     ///   - writer: what Copy writes.
+    ///   - dialogs: shows rename and Move to Trash failures (default: the app's dialog center).
     public init(workspace: any ScreenshotsWorkspace, files: any FileOperating, pasteboard: NSPasteboard = .general,
-                writer: FileGridPasteboard = FileGridPasteboard()) {
+                writer: FileGridPasteboard = FileGridPasteboard(), dialogs: CmuxDialogCenter = .shared) {
         self.workspace = workspace
         self.files = files
         self.pasteboard = pasteboard
         self.writer = writer
+        self.dialogs = dialogs
     }
 
     /// Runs `command` on `items`; sheets, errors and Undo attach to `window`.
@@ -51,9 +58,11 @@ public final class ScreenshotsCommands {
         case .rename:
             guard let item = items.first else { return }
             // task-owner: `pendingRename`; one rename sheet; ends when the person answers it
+            // main-hop-allow: an AppKit sheet on the pane's window must begin on the main actor (#24760); the rename after it runs off main in CmuxNextFiles
             pendingRename = Task { await askToRename(item, in: window) }
         case .trash:
             // task-owner: one Move to Trash; ends when the files are moved
+            // main-hop-allow: a person's Move to Trash: the move runs off main in CmuxNextFiles; Put Back registers on the window's undo manager, a main-actor object
             Task {
                 do { try await trash(items, undo: window?.undoManager) } catch { show(error, in: window) }
             }
@@ -92,13 +101,16 @@ public final class ScreenshotsCommands {
         let files = files
         undo.registerUndo(withTarget: self) { target in
             // task-owner: `pendingUndo`; one undo's file operation, ends when it is done
-            target.pendingUndo = Task { try await operation(files) }
+            target.pendingUndo = Task { @concurrent in try await operation(files) }
         }
     }
 
     /// Asks for a new name in a sheet (the name without its extension preselected, as Finder does).
+    /// A pane in no window has nothing to attach the sheet to, and no nested modal loop stands in for
+    /// one (p02-threads-132): it renames nothing.
     private func askToRename(_ item: FileGridItem, in window: NSWindow?) async {
-        // dialog-keys-exempt: CmuxNextScreenshots reaches no CmuxDialogCenter (it depends on CmuxNextFileGrid and CmuxNextFiles only); move to a dialog seam with the Finder pane
+        guard let window else { return }
+        // dialog-keys-exempt: the sheet preselects the name without its extension (Finder), which a CmuxDialogSpec text field cannot do yet
         let alert = NSAlert()
         alert.messageText = ScreenshotsStrings.renameTitle
         alert.addButton(withTitle: ScreenshotsStrings.renameConfirm)
@@ -110,21 +122,18 @@ public final class ScreenshotsCommands {
         alert.layout()
         alert.window.initialFirstResponder = field
         let baseLength = (item.name as NSString).deletingPathExtension.utf16.count
-        let response: NSApplication.ModalResponse
-        if let window {
-            // Begin the sheet here, on the main actor: an `async let` runs it in a
-            // child task off main, where AppKit throws (#24760).
-            response = await withCheckedContinuation { continuation in
-                alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
-                alert.window.makeFirstResponder(field)
-                field.currentEditor()?.selectedRange = NSRange(location: 0, length: baseLength)
-            }
-        } else {
-            response = alert.runModal()
-        }
+        // Begin the sheet here, on the main actor: an `async let` runs it in a
+        // child task off main, where AppKit throws (#24760).
+        // A sheet that went away without an answer renames nothing.
+        let response: NSApplication.ModalResponse = (try? await withOnceContinuation {
+            (continuation: OnceContinuation<NSApplication.ModalResponse, OnceContinuationError>) in
+            alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
+            alert.window.makeFirstResponder(field)
+            field.currentEditor()?.selectedRange = NSRange(location: 0, length: baseLength)
+        }) ?? .cancel
         guard response == .alertFirstButtonReturn else { return }
         do {
-            try await rename(item, to: field.stringValue, undo: window?.undoManager)
+            try await rename(item, to: field.stringValue, undo: window.undoManager)
         } catch FileBrowserError.exists {
             showMessage(ScreenshotsStrings.renameExists, in: window)
         } catch FileBrowserError.invalidName {
@@ -135,15 +144,12 @@ public final class ScreenshotsCommands {
     }
 
     private func show(_ error: any Error, in window: NSWindow?) {
-        // dialog-keys-exempt: CmuxNextScreenshots reaches no CmuxDialogCenter (it depends on CmuxNextFileGrid and CmuxNextFiles only); move to a dialog seam with the Finder pane
-        let alert = NSAlert(error: error)
-        if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+        showMessage(error.localizedDescription, in: window)
     }
 
+    /// Shows `text` as a cmux dialog on the pane's window (the app's when it has none); nothing waits for it.
     private func showMessage(_ text: String, in window: NSWindow?) {
-        // dialog-keys-exempt: CmuxNextScreenshots reaches no CmuxDialogCenter (it depends on CmuxNextFileGrid and CmuxNextFiles only); move to a dialog seam with the Finder pane
-        let alert = NSAlert()
-        alert.messageText = text
-        if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
+        let spec = CmuxDialogSpec(title: text, buttons: [.ok()], identifier: "cmux.dialog.screenshots.message")
+        dialogs.present(spec, in: window.map(CmuxDialogScope.window) ?? .app) { _ in }
     }
 }

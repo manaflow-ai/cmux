@@ -6,9 +6,11 @@ mod cli_wire_emitter_tests;
 mod cli_wire_tests;
 mod frame_tests;
 mod golden_tests;
+mod lane_writer_tests;
 mod methods_table_tests;
 mod reader_tests;
 mod schema_tests;
+mod server_families_tests;
 
 use bytes::{Bytes, BytesMut};
 

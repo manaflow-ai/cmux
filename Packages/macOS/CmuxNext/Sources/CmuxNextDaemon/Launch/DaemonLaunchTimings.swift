@@ -9,7 +9,7 @@ import CmuxNextSignposts
 /// keeps only the first time of each name as a launch mark. Marks come from
 /// any thread. The first connect starts in `main`, before the App installs its
 /// receiver, so marks are kept with their time until then.
-public final class DaemonLaunchTimings: @unchecked Sendable {
+public final class DaemonLaunchTimings: Sendable {
     public static let shared = DaemonLaunchTimings()
     private struct State {
         var sink: (@Sendable (String, Date) -> Void)?
@@ -38,6 +38,11 @@ public final class DaemonLaunchTimings: @unchecked Sendable {
         case attachStart = "terminal.attach_start"
         case attachEnd = "terminal.attach_end"
         case connectingStatusShown = "connecting_status_shown"
+        // The launch's connect milestones (``DaemonConnectMarks``), one record each per launch.
+        case connectStarted = "daemon.connect_started"
+        case spawned = "daemon.spawned"
+        case identified = "daemon.identified"
+        case snapshotReceived = "daemon.snapshot_received"
 
         /// The ring code of the mark `name`.
         static func traceCode(of name: String) -> UInt64 {
@@ -65,12 +70,17 @@ public final class DaemonLaunchTimings: @unchecked Sendable {
     }
 
     public func mark(_ name: String) {
+        mark(name, at: Date())
+    }
+
+    /// Marks `name` as having happened at `date` (a connect milestone kept until its connection was attached,
+    /// ``DaemonConnectMarks``); its ring event is recorded now.
+    public func mark(_ name: String, at date: Date) {
         signposter.event(.daemonStep, name, arg0: Step.traceCode(of: name))
-        let now = Date()
         let receiver = state.withLock { state -> (@Sendable (String, Date) -> Void)? in
-            if state.sink == nil, state.early.count < 64 { state.early.append((name, now)) }
+            if state.sink == nil, state.early.count < 64 { state.early.append((name, date)) }
             return state.sink
         }
-        receiver?(name, now)
+        receiver?(name, date)
     }
 }

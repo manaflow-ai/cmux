@@ -38,8 +38,26 @@
       "args": {
         "method": "browser.devices.add_custom",
         "params": {
-          "device": {},
-          "oracle_unknown": true
+          "device": {
+            "title": "Oracle Phone",
+            "type": "phone",
+            "screen": {
+              "device-pixel-ratio": 11,
+              "vertical": {
+                "width": 390,
+                "height": 844
+              },
+              "horizontal": {
+                "width": 844,
+                "height": 390
+              }
+            },
+            "capabilities": [
+              "touch",
+              "mobile"
+            ],
+            "user-agent": "Mozilla/5.0 (Linux; Android 14; Oracle Phone) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36"
+          }
         },
         "idempotencyKey": "browser-devices-add-custom-error.call"
       },
@@ -51,7 +69,7 @@
         "before",
         "settled"
       ],
-      "note": "oracle_unknown breaks its catalog type (request contains unknown parameters); the daemon's catalog check refuses it"
+      "note": "device-pixel-ratio 11 is outside Chrome's limit (above 0 and at most 10); the device is not stored"
     }
   ],
   "invariants": [

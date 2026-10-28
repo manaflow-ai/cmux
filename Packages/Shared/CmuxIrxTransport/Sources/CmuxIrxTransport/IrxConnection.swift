@@ -1,5 +1,6 @@
 public import CMUXMobileCore
 import CmuxIrohTransport
+import CmuxSafeConcurrency
 public import Foundation
 public import IrohLib
 
@@ -45,23 +46,20 @@ public actor IrxStreamWriter {
 /// keep-alives prove the peer's network stack is up, not that the host
 /// process is serving the connection. Written from every stream reader, so it
 /// is a lock rather than an actor hop per read.
-public final class IrxInboundActivityClock: @unchecked Sendable {
-    private let lock = NSLock()
-    private var last: ContinuousClock.Instant?
+public final class IrxInboundActivityClock: Sendable {
+    private let last = Mutex<ContinuousClock.Instant?>(nil)
 
     public init() {}
 
     public func record(at instant: ContinuousClock.Instant = .now) {
-        lock.lock()
-        defer { lock.unlock() }
-        if let last, last >= instant { return }
-        last = instant
+        last.withLock { last in
+            if let previous = last, previous >= instant { return }
+            last = instant
+        }
     }
 
     public var lastActivity: ContinuousClock.Instant? {
-        lock.lock()
-        defer { lock.unlock() }
-        return last
+        last.withLock { $0 }
     }
 }
 
@@ -209,7 +207,7 @@ public actor IrxConnection {
     private var probeTask: Task<Bool, Never>?
     private var probeID: UUID?
     private var probeLane: IrxLaneStream?
-    private var closureWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var closureWaiters: [UUID: OnceContinuation<Void, OnceContinuationError>] = [:]
     private var cancelledClosureWaiters = Set<UUID>()
     private var closureWatcher: Task<Void, Never>?
 
@@ -287,9 +285,9 @@ public actor IrxConnection {
         if isClosed || cancelledClosureWaiters.remove(observationID) != nil {
             return
         }
-        await withCheckedContinuation { continuation in
+        try? await withOnceContinuation { continuation in
             if isClosed || cancelledClosureWaiters.remove(observationID) != nil {
-                continuation.resume()
+                continuation.resume(returning: ())
             } else {
                 closureWaiters[observationID] = continuation
             }
@@ -300,7 +298,7 @@ public actor IrxConnection {
     /// connection itself.
     public func cancelClosureObservation(observationID: UUID) {
         if let continuation = closureWaiters.removeValue(forKey: observationID) {
-            continuation.resume()
+            continuation.resume(returning: ())
         } else {
             cancelledClosureWaiters.insert(observationID)
         }
@@ -315,7 +313,7 @@ public actor IrxConnection {
         closureWaiters.removeAll(keepingCapacity: false)
         cancelledClosureWaiters.removeAll(keepingCapacity: false)
         for continuation in waiters.values {
-            continuation.resume()
+            continuation.resume(returning: ())
         }
         closureWatcher = nil
     }

@@ -17,7 +17,7 @@ import Testing
 
         // /bin/bash, not /bin/sh: macOS's /bin/sh is a shim that starts bash itself; with it the red run saw no
         // inherited descriptor, so the check would not see this code path's leak.
-        let io = try LocalPTYTerminalIO(shell: "/bin/bash", workingDirectory: "/", environment: ["PS1": ""])
+        let io = try LocalPTYTerminalIO(shell: "/bin/bash", workingDirectory: "/", environment: ["PS1": ""], installedTerminfo: false)
         defer { io.terminate() }
         await io.write(Data("if [ -e /dev/fd/\(fds[0]) ]; then echo FD-OPEN; else echo FD-CLOSED; fi; exit\n".utf8))
         var output = ""

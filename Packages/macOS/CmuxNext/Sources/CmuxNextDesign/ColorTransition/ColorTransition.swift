@@ -136,10 +136,12 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
     public func mix(_ from: ThemeRGB, _ to: ThemeRGB, fraction: Double) -> ThemeRGB {
         var out = [0.0, 0.0, 0.0, 0.0]
         let a = [from.red, from.green, from.blue, from.alpha], b = [to.red, to.green, to.blue, to.alpha]
-        let mixed = a.withUnsafeBufferPointer { pa in
-            b.withUnsafeBufferPointer { pb in
-                out.withUnsafeMutableBufferPointer { po in
-                    cmux_motion_mix_rgba(pa.baseAddress, pb.baseAddress, fraction, space == .srgb ? 1 : 0, po.baseAddress)
+        // SAFETY: each buffer views its own four-Double array, valid for its closure; the mix reads four from `pa` and
+        // `pb` and writes four to `po` (cmux_motion_ffi.h) during the call only.
+        let mixed = unsafe a.withUnsafeBufferPointer { pa in
+            unsafe b.withUnsafeBufferPointer { pb in
+                unsafe out.withUnsafeMutableBufferPointer { po in
+                    unsafe cmux_motion_mix_rgba(pa.baseAddress, pb.baseAddress, fraction, space == .srgb ? 1 : 0, po.baseAddress)
                 }
             }
         }

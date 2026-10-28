@@ -29,6 +29,30 @@
   ],
   "steps": [
     {
+      "id": "adopt-remote",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "sidebar.adopt",
+        "params": {
+          "refs": [
+            {
+              "session_id": "oracle-remote",
+              "workspace_id": "ws_0123456789abcdef0123456789abcdef"
+            }
+          ]
+        },
+        "idempotencyKey": "sidebar-section-remove-error.adopt-remote"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,7 +62,7 @@
       "args": {
         "method": "sidebar.section.remove",
         "params": {
-          "id": ""
+          "id": "sec_m_oracle-remote"
         },
         "idempotencyKey": "sidebar-section-remove-error.call"
       },
@@ -50,7 +74,7 @@
         "before",
         "settled"
       ],
-      "note": "id breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "the sidebar reducer refuses it (machine_required) and writes nothing: a machine section cannot be removed"
     }
   ],
   "invariants": [
@@ -59,8 +83,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.id is a fixed placeholder, not a fixture object; sidebar/_tuning.json tunes it"
   ]
 }

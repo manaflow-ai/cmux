@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSidebar
 import CmuxNextTabs
+import CmuxNextWakeups
 import Observation
 
 /// Composes hint snapshots from this window and its actual binding table.
@@ -14,7 +15,8 @@ final class WindowShortcutHints {
     private weak var controller: WindowController?
     private let overlay = ShortcutHintOverlayView()
     private var monitor: WindowScopedShortcutHintModifierMonitor?
-    private var settingsTask: Task<Void, Never>?
+    /// Follows `ui.showModifierHoldHints`: on subscribes the hold watcher to the input tap, off unsubscribes it.
+    private var settingsWatch: ServiceObservation<Bool>?
     private var held: NSEvent.ModifierFlags?
 
     init(controller: WindowController) {
@@ -23,14 +25,16 @@ final class WindowShortcutHints {
         controller.root.addSubview(overlay, positioned: .above, relativeTo: nil)
         overlay.setAccessibilityElement(false)
         monitor = WindowScopedShortcutHintModifierMonitor(window: window, tap: controller.services.inputTap,
-                                                          deadlines: controller.services.mainDeadlines, keepsHints: { [weak self] in self?.keepsHints(for: $0) ?? false }) { [weak self] flags in
+                                                          deadlines: controller.services.mainDeadlines, events: controller.services.appEvents,
+                                                          keepsHints: { [weak self] in self?.keepsHints(for: $0) ?? false }) { [weak self] flags in
             self?.held = flags
             self?.refresh()
         }
-        settingsTask = Task { [weak self] in
-            for await enabled in ObservationStream({ DesignSettings.shared.showModifierHoldHints }) {
-                self?.monitor?.setEnabled(enabled)
-            }
+        // A subscription change, not view work: it holds while the window is hidden too.
+        settingsWatch = ServiceObservation(.visible, owner: "ShortcutHints.enabled", on: controller.services.mainWork) {
+            DesignSettings.shared.showModifierHoldHints
+        } apply: { [weak self] enabled in
+            self?.monitor?.setEnabled(enabled)
         }
     }
 
@@ -154,7 +158,7 @@ final class WindowShortcutHints {
 
     func stop() {
         monitor?.stop()
-        settingsTask?.cancel()
+        settingsWatch?.cancel()
         overlay.removeFromSuperview()
     }
 }

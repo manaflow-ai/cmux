@@ -15,29 +15,37 @@ protocol TerminalMouseSink: AnyObject {
 /// A view's Ghostty surface as its ``TerminalMouseSink``; with no surface (`ghostty_surface_new` failed)
 /// every event goes nowhere. The view that owns this sink owns the surface, and frees it only in its deinit.
 final class GhosttyMouseSink: TerminalMouseSink {
-    private let surface: ghostty_surface_t?
+    /// SAFETY: the owning view's surface, freed only in that view's deinit, which releases this
+    /// sink with it; every event arrives on the main actor while the view lives.
+    @safe private let surface: ghostty_surface_t?
 
+    /// `surface` is the owning view's (TerminalSurfaceView.mouse).
     init(surface: ghostty_surface_t?) {
-        self.surface = surface
+        // SAFETY: the owning view's surface, handed to this sink for the view's life (`surface`'s note).
+        self.surface = unsafe surface
     }
 
     func position(x: Double, y: Double, mods: ghostty_input_mods_e) {
         guard let surface else { return }
-        ghostty_surface_mouse_pos(surface, x, y, mods)
+        // SAFETY: the owning view's live surface (`surface`'s note).
+        unsafe ghostty_surface_mouse_pos(surface, x, y, mods)
     }
 
     func button(_ state: ghostty_input_mouse_state_e, _ button: ghostty_input_mouse_button_e, mods: ghostty_input_mods_e) -> Bool {
         guard let surface else { return false }
-        return ghostty_surface_mouse_button(surface, state, button, mods)
+        // SAFETY: as in position(x:y:mods:).
+        return unsafe ghostty_surface_mouse_button(surface, state, button, mods)
     }
 
     func scroll(x: Double, y: Double, mods: ghostty_input_scroll_mods_t) {
         guard let surface else { return }
-        ghostty_surface_mouse_scroll(surface, x, y, mods)
+        // SAFETY: as in position(x:y:mods:).
+        unsafe ghostty_surface_mouse_scroll(surface, x, y, mods)
     }
 
     func pressure(stage: UInt32, pressure: Double) {
         guard let surface else { return }
-        ghostty_surface_mouse_pressure(surface, stage, pressure)
+        // SAFETY: as in position(x:y:mods:).
+        unsafe ghostty_surface_mouse_pressure(surface, stage, pressure)
     }
 }

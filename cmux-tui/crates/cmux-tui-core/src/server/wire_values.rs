@@ -15,10 +15,6 @@ pub(super) fn machine_usage_json(usage: Option<&MachineUsage>) -> Value {
     })
 }
 
-pub(super) fn default_renderer_capability_ttl_ms() -> u64 {
-    30_000
-}
-
 /// The idempotency key the catalog requires on a mutation, or a typed
 /// validation error when a request reaches the handler without one.
 pub(crate) fn required_idempotency_key(

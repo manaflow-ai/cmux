@@ -118,7 +118,7 @@ impl WorkspaceBlockingPool {
             RpcError::new("session-closed", "workspace blocking executor is shutting down")
         })?;
         let (completed_tx, completed_rx) = oneshot::channel();
-        let worker = tokio::task::spawn_blocking(move || {
+        let worker = cmux_blocking::spawn_blocking(move || {
             // Move admission into the result so a canceled receiver drops any
             // rollback guard before releasing this worker slot.
             drop(completed_tx.send(CompletedBlockingJob::new(job(), permit, registration)));
@@ -155,7 +155,16 @@ impl WorkspaceBlockingPool {
         Fut: Future<Output = Result<T, RpcError>> + 'static,
     {
         let runtime = tokio::runtime::Handle::current();
-        self.run(operation, move || runtime.block_on(job())).await
+        // The job polls on the blocking worker `run` gives it, never on a
+        // runtime thread (Chromium's ScopedBlockingCall around a nested wait).
+        self.run(operation, move || {
+            cmux_blocking::scoped_blocking_call(
+                "runtime::block_on",
+                cmux_blocking::BlockingKind::BlockOn,
+                || runtime.block_on(job()),
+            )
+        })
+        .await
     }
 
     /// Prevent new jobs and wait up to `timeout` for already admitted work.

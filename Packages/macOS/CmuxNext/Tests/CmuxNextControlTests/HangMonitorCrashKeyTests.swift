@@ -18,10 +18,11 @@ import Testing
         try #require(attached)
         let keys = CrashKeySlots()
         let log = HangLog(capacity: 8)
-        var monitor = HangMonitor(watch: watch, log: log, logger: nil, crashKeys: keys)
+        var monitor = HangMonitor(source: HangMonitor.Source(watch: watch, crashKeys: keys), log: log, janks: HangLog(capacity: 8), logger: nil,
+                                  intervalNanos: 0, deliver: { _ in })
         let scope = HeldScope(watch: watch)
 
-        now.add(500_000_000) // past the 100 ms deadline
+        now.add(2_500_000_000) // past the 100 ms budget and the 2 s hang tier after it
         _ = monitor.service()
         #expect(keys.snapshot().hungThreadCount == 1, "the reported scope's thread is not named")
         #expect(keys.snapshot().hungThread(at: 0)?.kind == HangWatch.ThreadKind.io.rawValue)

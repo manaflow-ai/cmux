@@ -49,6 +49,55 @@
       }
     },
     {
+      "id": "fx-split",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id",
+        "screen": "$step:fx-workspace#/value/screen_id",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "pane.split",
+        "params": {
+          "direction": "right"
+        },
+        "idempotencyKey": "pane-split-ratio-set-error.fx-split"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "split-in-place",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/second/pane_id",
+        "equals": "$step:fx-split#/value/pane_id",
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "read-layout",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "screen": "$step:fx-workspace#/value/screen_id"
+      },
+      "args": {
+        "method": "screen.get",
+        "params": {}
+      },
+      "readOnly": true,
+      "expect": {
+        "outcome": "ok"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -59,20 +108,33 @@
       "args": {
         "method": "pane.split_ratio.set",
         "params": {
-          "split_id": "oracle",
-          "ratio": 0.5
+          "split_id": "split_0123456789abcdef0123456789abcdef",
+          "ratio": 0.25
         },
         "idempotencyKey": "pane-split-ratio-set-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed",
+        "errorDetails": {
+          "reason": "unknown split split_0123456789abcdef0123456789abcdef"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "split_id breaks its catalog type (resource id has the wrong type prefix); the daemon's catalog check refuses it"
+      "note": "a well-formed split id that names no split: operation.failed, the ratio stays 0.5"
+    },
+    {
+      "id": "ratio-kept",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/ratio",
+        "equals": 0.5,
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [
@@ -81,8 +143,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.split_id is a fixed placeholder, not a fixture object; layout/_tuning.json tunes it"
   ]
 }

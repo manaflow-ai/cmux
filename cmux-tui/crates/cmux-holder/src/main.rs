@@ -4,12 +4,19 @@
 //! terminal and no daemon for a while. It leaves the daemon's session
 //! first, and ignores the hang-up, interrupt and termination signals a
 //! daemon's exit or a cleanup script would send: only an explicit CLOSE
-//! ends a terminal.
+//! ends a terminal. Each panic appends one line to `holder-panics.jsonl`
+//! beside the socket (`cmux_holder::serve_process`).
+
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 
 #[cfg(unix)]
 fn main() -> std::process::ExitCode {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    match cmux_holder::serve(&args) {
+    // Chromium's SetCurrentTaskDefaultRole: echo is on a person's input path.
+    if let Err(error) = cmux_threads::process_role::set_default_role() {
+        eprintln!("cmux-holder: {error}");
+    }
+    match cmux_holder::serve_process(&args) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("cmux-holder: {error}");

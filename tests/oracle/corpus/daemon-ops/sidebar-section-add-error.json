@@ -38,8 +38,12 @@
       "args": {
         "method": "sidebar.section.add",
         "params": {
-          "section": {},
-          "oracle_unknown": true
+          "section": {
+            "id": "sec_top",
+            "kind": {
+              "type": "custom"
+            }
+          }
         },
         "idempotencyKey": "sidebar-section-add-error.call"
       },
@@ -51,7 +55,7 @@
         "before",
         "settled"
       ],
-      "note": "oracle_unknown breaks its catalog type (request contains unknown parameters); the daemon's catalog check refuses it"
+      "note": "the sidebar reducer refuses it (duplicate_id) and writes nothing: sec_top already exists"
     }
   ],
   "invariants": [

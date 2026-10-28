@@ -29,71 +29,27 @@
   ],
   "steps": [
     {
-      "id": "fx-workspace",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current"
-      },
-      "args": {
-        "method": "workspace.create",
-        "params": {
-          "initial_content": "terminal",
-          "name": "oracle"
-        },
-        "idempotencyKey": "browser-close-error.fx-workspace"
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "mutation_result"
-      }
-    },
-    {
-      "id": "fx-browser",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current",
-        "workspace": "$step:fx-workspace#/value/workspace_id",
-        "screen": "$step:fx-workspace#/value/screen_id",
-        "pane": "$step:fx-workspace#/value/pane_id"
-      },
-      "args": {
-        "method": "tab.create_browser",
-        "params": {
-          "url": "about:blank"
-        },
-        "idempotencyKey": "browser-close-error.fx-browser"
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "mutation_result"
-      }
-    },
-    {
       "id": "call",
       "op": "resource.call",
       "target": {
         "machine": "current",
         "session": "current",
-        "browser": "$step:fx-browser#/value/browser_id"
+        "browser": "browser_00000000000000000000000000000000"
       },
       "args": {
         "method": "browser.close",
-        "params": {
-          "expected_revision": -1
-        },
+        "params": {},
         "idempotencyKey": "browser-close-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "selector.not_found"
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "expected_revision breaks its catalog type (value must be an unsigned decimal string); the daemon's catalog check refuses it"
+      "note": "a well-formed browser id that names no browser"
     }
   ],
   "invariants": [

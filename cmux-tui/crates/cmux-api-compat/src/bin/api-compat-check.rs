@@ -24,13 +24,15 @@
 //! refuses a change. With `--base` it also puts back ledger entries edited
 //! by hand.
 
+#![forbid(unsafe_code)]
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
 use cmux_api_compat::Schema;
 use cmux_api_compat::coverage::{Snapshot, Verdict, check, surface_from_sdk_schema};
-use cmux_api_compat::fixtures::{Fixtures, check_fixtures};
+use cmux_api_compat::fixtures::{Fixtures, check_fixtures, check_vectors};
 use cmux_api_compat::wire::{
     LEDGER_FILE, RESOURCE_OPERATIONS, SDK_SCHEMA, WireLedgers, WireReport, check_against_base,
     check_all, ids_from_resource_operations, ids_from_sdk_schema,
@@ -112,6 +114,17 @@ fn run(root: &Path, base: Option<&str>, write: bool) -> Result<ExitCode, Error> 
         }
         eprintln!(
             "Every rule needs a fixture case crossing it in both directions; the cross-version matrix replays them."
+        );
+        return Ok(ExitCode::FAILURE);
+    }
+    let vector_problems = check_vectors(&fixtures);
+    if !vector_problems.is_empty() {
+        eprintln!("api-compat-check: spec/api-compat-fixtures.json has failing vectors:");
+        for problem in &vector_problems {
+            eprintln!("  - {problem}");
+        }
+        eprintln!(
+            "After editing vectors, regenerate the oracle cases: python3 scripts/cmux-next/oracle/gen_api_compat.py"
         );
         return Ok(ExitCode::FAILURE);
     }

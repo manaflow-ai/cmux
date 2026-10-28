@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextAccounts
 import CmuxNextActions
@@ -8,6 +9,8 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextChiefViews
 import CmuxNextCompat
+import CmuxNextControl
+import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextFeed
 import CmuxNextFloating
@@ -38,7 +41,7 @@ enum TunableCatalog {
             + [AgentPaneTunables.inspector.descriptor]
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
             + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + BrowserPageTunables.all + AccountTunables.all
-            + TitlebarHistoryTunables.all + HibernationTunables.all
+            + TitlebarHistoryTunables.all + HibernationTunables.all + MemoryDiscardToggles.all
             + HangFileTunables.all + HostPressureTunables.all
             + BrowserHostTunables.all
     }
@@ -54,7 +57,9 @@ enum TunableCatalog {
 /// file is read.
 @MainActor
 final class DebugSettingsService: InternalPageProvider {
-    unowned let services: AppServices
+    private let servicesReference: OwnerReference<AppServices>
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
     private var controller: DebugSettingsWindowController?
     private var sharedModel: DebugSettingsModel?
     /// The React page of the window and of each tab (by key), closed through the host that opened
@@ -70,31 +75,39 @@ final class DebugSettingsService: InternalPageProvider {
     nonisolated static let fileOverrideKey = "CMUX_NEXT_DEBUG_TUNABLES_FILE"
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = OwnerReference(services: services)
     }
 
     var isAvailable: Bool { DevTools.isEnabled }
     var model: DebugSettingsModel? { sharedModel }
     var window: NSWindow? {
-        controller?.window ?? services.pages.window(showing: .debugSettings, windows: services.windows.controllers)?.window
+        if let window = controller?.window { return window }
+        guard let services else { return nil }
+        return services.pages.window(showing: .debugSettings, windows: services.windows.controllers)?.window
     }
 
     /// Registers the catalog and activates the store (dev tools, or a bench run's override file).
     func start() {
-        let environment = ProcessInfo.processInfo.environment
-        let launch = services.environment.launch
-        guard Self.loadsTunables(devTools: isAvailable, benchBuild: Self.isBenchBuild,
-                                 bundleID: launch.bundleID, environment: environment) else { return }
+        guard let services, let url = Self.launchFile(launch: services.environment.launch, environment: ProcessInfo.processInfo.environment) else { return }
         let store = TunableStore.shared
         store.register(TunableCatalog.all)
-        let url = Self.fileURL(environment: environment, tag: launch.tag,
-                               bundleID: launch.bundleID, build: launch.build)
         fileURL = url
-        store.activate(file: url)
+        store.activate(file: TunableStore.FileSource(url: url, landingOn: services.mainWork))
+        // The Sentry scope names the arm features.list reports, the file's toggles and later changes included.
+        let features = FeatureFlagsPage.report(services.features, tunables: store, daemon: services.environment.daemonFeatureHello)
+        services.lifetimeFollowers.append(services.crashReporting.reporter.followFeatures(on: services.mainWork) { CrashFeatureScope(features.fieldState) })
         // CmuxNextCloud does not see tunables; Release keeps CloudAuth's default (automatic).
         services.cloud.auth.signInWindow = { .init(rawValue: AccountTunables.signInWindow.value.rawValue) ?? .automatic }
         // The store loads the file off the main actor, after the first icons draw: the family is read here.
         IconPack.useOverlay(Self.launchIconFamily(url).overlay)
+    }
+
+    /// The override file launch activates the tunable store with (``loadsTunables``), or nil where it stays inert.
+    /// `main` reads the tunables features replace from it before the launch's features resolve.
+    nonisolated static func launchFile(launch: LaunchIdentity, environment: [String: String]) -> URL? {
+        guard loadsTunables(devTools: DevTools.isEnabled, benchBuild: isBenchBuild,
+                            bundleID: launch.bundleID, environment: environment) else { return nil }
+        return fileURL(environment: environment, tag: launch.tag, bundleID: launch.bundleID, build: launch.build)
     }
 
     /// Whether launch activates the tunable store: with dev tools, or in a bench build
@@ -149,6 +162,7 @@ final class DebugSettingsService: InternalPageProvider {
     /// developer tools.
     func show(query: String? = nil, selection: DebugSettingsSelection? = nil, focus: Bool = true) throws {
         guard isAvailable else { throw ActionFailure(message: RefusalStrings.debugSettingsUnavailable) }
+        guard let services else { throw ActionFailure.appClosing }
         let model = sharedModel ?? DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)
         sharedModel = model
         if SettingsPresentation.tunable.value == .pane, let window = services.windows.active {
@@ -158,13 +172,13 @@ final class DebugSettingsService: InternalPageProvider {
             if services.pages.show(.debugSettings, in: window, focus: focus) != nil { return }
         }
         if controller == nil {
-            let page = webPage(model: model)
+            let page = webPage(model: model, services: services)
             windowPage = page
             let controller = DebugSettingsWindowController(model: model, content: page,
                                                            onFind: page.map { page in { _ = page.send(command: "focusSearch") } })
             controller.onClose = { [weak self] in
                 guard let self else { return }
-                if let page = windowPage { services.webUI.close(page) }
+                if let page = windowPage { self.services?.webUI.close(page) }
                 windowPage = nil
                 self.controller = nil
                 dropModelWhenUnused()
@@ -178,6 +192,7 @@ final class DebugSettingsService: InternalPageProvider {
     /// Closes the window and every Debug Settings tab.
     func close() {
         controller?.window?.performClose(nil)
+        guard let services else { return }
         for key in services.pages.keys(of: .debugSettings) {
             guard let pane = services.paneController(showingTab: key), let id = services.pages.stripID(showing: key, in: pane) else { continue }
             pane.close([id])
@@ -185,7 +200,7 @@ final class DebugSettingsService: InternalPageProvider {
     }
 
     private func dropModelWhenUnused() {
-        guard controller == nil, !services.pageIsOpen(.debugSettings) else { return }
+        guard controller == nil, services?.pageIsOpen(.debugSettings) != true else { return }
         sharedModel = nil
     }
 
@@ -198,19 +213,19 @@ final class DebugSettingsService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let model = sharedModel ?? DebugSettingsModel(store: TunableStore.shared, descriptors: TunableCatalog.all)
         sharedModel = model
-        if let page = webPage(model: model) {
+        if let services, let page = webPage(model: model, services: services) {
             // Called once per tab; a replaced page is no tab's view.
             if let replaced = tabPages.updateValue(page, forKey: key) { services.webUI.close(replaced) }
             DebugSettingsModel.followTheme(window?.themeScope ?? .app)
             return page
         }
-        return model.makePaneView(scope: window?.themeScope ?? .app)
+        return VisibilityGatedHostingView(owner: "DebugSettingsPage", hosting: model.makePaneView(scope: window?.themeScope ?? .app))
     }
 
     /// The React page over `model` when Debug Settings `debugSettings.surface` is `web` (the
     /// default), else nil (the SwiftUI view). Its own window has a standard title bar
     /// (`DebugSettingsWindowController`), so the page needs no title bar inset.
-    private func webPage(model: DebugSettingsModel) -> PageWebView? {
+    private func webPage(model: DebugSettingsModel, services: AppServices) -> PageWebView? {
         guard PageTunables.debugSettings.value == .web else { return nil }
         let provider = DebugSettingsPageProvider(model: model, hangs: services.quit.watchdog?.episodes, on: services.mainWork)
         let native = AppPageNativeProvider(services: services, page: .debugSettings)
@@ -221,7 +236,7 @@ final class DebugSettingsService: InternalPageProvider {
     }
 
     func tabClosed(_ key: String) {
-        if let page = tabPages.removeValue(forKey: key) { services.webUI.close(page) }
+        if let page = tabPages.removeValue(forKey: key) { services?.webUI.close(page) }
         dropModelWhenUnused()
     }
 
@@ -233,6 +248,6 @@ final class DebugSettingsService: InternalPageProvider {
 
     /// The tab's page went (the tab store closed it); the model stays with the tab.
     func viewDiscarded(_ key: String) {
-        if let page = tabPages.removeValue(forKey: key) { services.webUI.close(page) }
+        if let page = tabPages.removeValue(forKey: key) { services?.webUI.close(page) }
     }
 }

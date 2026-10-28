@@ -132,6 +132,7 @@ struct SlicedReleaseTests {
     /// The warm set's release closes real terminals (`TerminalEntry`) at once, keeping no last picture.
     @Test func aReleasedSurfaceClosesAtOnceWithNoLastFrame() throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         let services = AppServices(environment: AppEnvironment.current([:]))
         let cache = services.cache
         let rig = SlicedReleaseRig(warm: 0, windows: [], cache: cache)
@@ -167,7 +168,7 @@ struct SlicedReleaseTests {
         let io = DaemonTerminalIO(target: .init(attachment: attachment, initialSize: CellSize(cols: 80, rows: 24)), resizes: ResizeCoordinator(),
                                   visible: false, endpoint: { throw CancellationError() })
         return TerminalEntry(validity: "test", session: session, io: io, themeKey: TerminalThemeKey(machine: services.daemon.machineID, tab: tab),
-                             store: services.daemon.store, surface: tab.surface)
+                             store: services.daemon.store, surface: tab.surface, mainWork: services.mainWork)
     }
 }
 

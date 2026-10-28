@@ -38,19 +38,22 @@
       "args": {
         "method": "history.site.remove",
         "params": {
-          "host": ""
+          "host": "not a host"
         },
         "idempotencyKey": "history-site-remove-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "validation.invalid",
+        "errorDetails": {
+          "field": "host"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "host breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a host with a space passes the catalog's string bounds and the handler refuses it (history_ops/pages.rs host)"
     }
   ],
   "invariants": [

@@ -38,19 +38,23 @@
       "args": {
         "method": "history.backups.purge",
         "params": {
-          "restore_id": ""
+          "restore_id": "history:0000000000000000000000000000000a"
         },
         "idempotencyKey": "history-backups-purge-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "origin.forbidden",
+        "errorDetails": {
+          "derived": "agent",
+          "required": "user"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "restore_id breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "Gate A2 refuses an agent before validation: a backup is the undo of a removal"
     }
   ],
   "invariants": [
@@ -59,8 +63,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.restore_id is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it"
   ]
 }

@@ -38,20 +38,20 @@
       "args": {
         "method": "keybindings.remove",
         "params": {
-          "command": "",
+          "command": "newTab",
           "key": "oracle"
         },
         "idempotencyKey": "keybindings-remove-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "keybindings.invalid"
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "command breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a key that is not a chord passes the catalog's string bounds and the keybindings parser refuses it"
     }
   ],
   "invariants": [

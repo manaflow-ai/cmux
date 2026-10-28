@@ -213,7 +213,7 @@ import Testing
 
     // MARK: Exemptions
 
-    @Test func recentMediaOrACaptureVoteDisablesAlignment() {
+    @Test func recentMediaOrAShowingCaptureVoteDisablesAlignment() {
         let harness = DeadlineHarness()
         let node = harness.node(.hidden)
         let deadline = harness.deadline("media", alignment: .whenHidden(node))
@@ -229,10 +229,15 @@ import Testing
         deadline.schedule(after: .milliseconds(300)) {}
         #expect(deadline.plannedWake?.rule == .hidden, "media 30 s ago")
 
-        node.setCaptured(true)
-        #expect(deadline.plannedWake?.rule == .flexible, "a capture vote places the pending wake again")
+        let screenshot = node.captureVote(reason: "test.screenshot", stayHidden: true)
+        #expect(deadline.plannedWake?.rule == .hidden, "a stayHidden capture keeps the timers aligned")
+        let mirror = node.captureVote(reason: "test.mirror", stayHidden: false)
+        #expect(deadline.plannedWake?.rule == .flexible, "a capture vote that shows the node places the pending wake again")
         deadline.schedule(after: .milliseconds(300)) {}
         #expect(deadline.plannedWake?.rule == .flexible, "a capture vote")
+        mirror.release()
+        #expect(deadline.plannedWake?.rule == .hidden, "the vote's release aligns the pending wake again")
+        screenshot.release()
     }
 
     @Test func mediaStartingReplansAPendingBudgetWakeAtOnce() {
@@ -257,9 +262,10 @@ import Testing
         let deadline = harness.deadline("capture", alignment: .whenHidden(node))
         deadline.schedule(after: .milliseconds(300)) {}
         #expect(harness.rig.timer.armedDate == 1_000 * ms)
-        node.setCaptured(true)
+        let vote = node.captureVote(reason: "test.mirror", stayHidden: false)
         #expect(deadline.plannedWake?.fire == .milliseconds(304))
         #expect(harness.rig.timer.armedDate == 304 * ms)
+        vote.release()
     }
 
     @Test func showingTheNodeReplansAPendingHiddenDeadline() {
@@ -360,6 +366,34 @@ import Testing
         #expect(ran == (0..<5).map { "shared \($0)" })
         #expect(harness.rig.fires == 1)
     }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    // MARK: Arm census
+
+    /// A deadline armed while its ledger's arm census records (startup-queue.py arms, p08-startup-085) leaves one
+    /// record: its owner, the line that made it, the arms before its wake, and the wake.
+    @Test func aDeadlineArmedDuringTheLaunchIsInTheArmCensus() throws {
+        let harness = DeadlineHarness()
+        let census = harness.rig.ledger.armCensus
+        census.start(processStartNanos: 0)
+        let deadline = harness.deadline("census")
+        deadline.schedule(after: .milliseconds(20)) {}
+        deadline.schedule(after: .milliseconds(30)) {}
+        let untouched = harness.deadline("census.cancelled")
+        untouched.schedule(after: .seconds(5)) {}
+        untouched.cancel()
+        #expect(census.snapshot().arms.map(\.firstFireNanos).allSatisfy { $0 == nil })
+
+        harness.rig.fire()
+        let arms = census.snapshot().arms
+        #expect(arms.map(\.owner) == ["census", "census.cancelled"])
+        #expect(arms.map(\.kind) == [.mainDeadline, .mainDeadline])
+        #expect(arms.first?.site.description.contains("MainDeadlineTests.swift:") == true, "the harness line that made it")
+        #expect(arms.first?.count == 2)
+        #expect(arms.first?.firstFireNanos != nil, "the wake is the first fire, before the posted action runs")
+        #expect(arms.last?.firstFireNanos == nil)
+    }
+    #endif
 }
 
 private let ms: UInt64 = 1_000_000

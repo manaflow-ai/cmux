@@ -38,7 +38,7 @@
       "args": {
         "method": "sidebar.group.ungroup",
         "params": {
-          "id": ""
+          "id": "itm_home"
         },
         "idempotencyKey": "sidebar-group-ungroup-error.call"
       },
@@ -50,7 +50,7 @@
         "before",
         "settled"
       ],
-      "note": "id breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "the sidebar reducer refuses it (invalid_value) and writes nothing: itm_home is an app item, not a group"
     }
   ],
   "invariants": [
@@ -59,8 +59,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.id is a fixed placeholder, not a fixture object; sidebar/_tuning.json tunes it"
   ]
 }

@@ -1,5 +1,7 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
+import CmuxNextHibernation
 import CmuxNextSettings
 import CmuxNextTasks
 
@@ -17,11 +19,16 @@ extension InternalPageID {
 /// The layout follows the user setting `tasks.layout` live.
 @MainActor
 final class TasksPageService: InternalPageProvider {
-    private unowned let services: AppServices
+    private let servicesReference: OwnerReference<AppServices>
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
     private var sharedModel: TasksModel?
+    /// A user run's scope and New Task focus made before the model exists: the model takes them
+    /// when the tab first shows (``makeModel(_:)``).
+    private var pendingViewState: (scope: TasksScope?, newTask: Bool)?
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = OwnerReference(services: services)
     }
 
     /// The open model (debug and tests).
@@ -30,12 +37,15 @@ final class TasksPageService: InternalPageProvider {
     /// Shows the Tasks tab of the active window, else opens one. `scope`
     /// (nil keeps it) and `newTask` (focus the title field) are client view
     /// state, so they apply only when `focus` is true (a user run);
-    /// automation opens the tab and leaves the view as it is.
+    /// automation opens the tab and leaves the view as it is. A tab whose view is not made yet
+    /// gets them when it first shows.
     func show(scope: TasksScope?, newTask: Bool = false, focus: Bool) throws {
+        guard let services else { throw ActionFailure.appClosing }
         guard let window = services.windows.active else { throw ActionFailure(message: RefusalStrings.noWindowOpen) }
         guard services.pages.show(.tasks, in: window, focus: focus) != nil else {
             throw ActionFailure(message: RefusalStrings.noWindowOpen)
         }
+        if focus, sharedModel == nil { pendingViewState = (scope, newTask) }
         Self.applyViewState(scope: scope, newTask: newTask, focus: focus, to: sharedModel)
     }
 
@@ -54,11 +64,15 @@ final class TasksPageService: InternalPageProvider {
         return TasksLayout(rawValue: preference.rawValue) ?? TasksLayout.fallback
     }
 
-    private func makeModel() -> TasksModel {
+    private func makeModel(_ services: AppServices) -> TasksModel {
         if let sharedModel { return sharedModel }
-        let model = TasksModel(source: SocketTasksSource())
+        let model = TasksModel(source: SocketTasksSource(deadlines: services.mainDeadlines))
         model.start()
         sharedModel = model
+        if let pending = pendingViewState {
+            pendingViewState = nil
+            Self.applyViewState(scope: pending.scope, newTask: pending.newTask, focus: true, to: model)
+        }
         return model
     }
 
@@ -69,11 +83,21 @@ final class TasksPageService: InternalPageProvider {
     var symbol: String { "checklist" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        TasksHostView(model: makeModel(), layout: { [weak services] in Self.layout(services?.settings) })
+        guard let services else { return NSView() }
+        return TasksHostView(model: makeModel(services), layout: { [weak services] in Self.layout(services?.settings) })
     }
 
+    // MARK: Discard (p07-memory-025)
+
+    /// Ten minutes hidden (Chrome's proactive_discarding_policy.cc). The scope, the selection and a
+    /// New Task title typed and not sent (`newTaskDraft`) live in the shared model, which stays
+    /// while the tab does, so the rebuilt view shows them; the default view state adds the scroll.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
+
     func tabClosed(_ key: String) {
-        guard !services.pageIsOpen(.tasks), let model = sharedModel else { return }
+        guard services?.pageIsOpen(.tasks) != true else { return }
+        pendingViewState = nil
+        guard let model = sharedModel else { return }
         model.stop()
         sharedModel = nil
     }

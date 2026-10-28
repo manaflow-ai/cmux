@@ -156,6 +156,43 @@ private func allSource(_ emitter: ResourceEmitter) throws -> String {
         #expect(source.contains("    public typealias Result = V2Shape\n"))
     }
 
+    /// An optional nullable request field has three states (absent keeps, `null` clears, a value
+    /// sets), so it is a `ResourceFieldUpdate` defaulting to `.unchanged`, not an optional that
+    /// cannot send `null`. A required nullable field and a plain optional one keep their spelling.
+    @Test func emitsAnOptionalNullableRequestFieldAsAFieldUpdate() throws {
+        let operations = #"""
+            {"workspace.update": {"class": "mutation", "idempotency": "required", "errors": ["validation.invalid"],
+               "params": {"selectors": {"machine": "required", "session": "required"}, "extra": false,
+                 "fields": {"title": {"required": false, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "string"}}},
+                            "path": {"required": true, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "string"}}},
+                            "focus": {"required": false, "type": {"kind": "primitive", "name": "boolean"}},
+                            "task_status": {"required": false, "type": {"kind": "nullable", "value": {"kind": "enum", "values": ["todo", "done"]}}}}},
+               "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "EmptyResult"}]}}}
+            """#
+        let types = #"{"EmptyResult": {"kind": "object", "fields": {}, "extra": false}}"#
+        let source = try allSource(ResourceEmitter(catalog: catalog(types: types, operations: operations),
+                                                   operations: ["workspace.update"]))
+        #expect(source.contains("""
+                public var focus: Bool?
+                public var path: String?
+                public var taskStatus: ResourceFieldUpdate<TaskStatus>
+                public var title: ResourceFieldUpdate<String>
+            """))
+        #expect(source.contains("""
+                    focus: Bool? = nil,
+                    path: String?,
+                    taskStatus: ResourceFieldUpdate<TaskStatus> = .unchanged,
+                    title: ResourceFieldUpdate<String> = .unchanged
+                ) {
+            """))
+        #expect(source.contains("""
+                    try container.encodeIfPresent(self.focus, forKey: .focus)
+                    try container.encode(self.path, forKey: .path)
+                    try self.taskStatus.encode(into: &container, forKey: .taskStatus)
+                    try self.title.encode(into: &container, forKey: .title)
+            """))
+    }
+
     @Test func emitsObjectsGenericsUnionsAndErrors() throws {
         let source = try allSource(Self.shapes())
         #expect(source.contains("public struct V2MutationResult<T: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {"))
@@ -267,38 +304,54 @@ private func allSource(_ emitter: ResourceEmitter) throws -> String {
         let refusals: [(operations: String, types: String, expected: ResourceEmitterError)] = [
             (#"{"a.get": {\#(read), "params": {\#(selectors), "fields": {}}, "result": {"kind": "ref", "name": "Missing"}}}"#,
              "{}", .unknownType("Missing")),
-            (#"{"a.get": {\#(read), "result": {"kind": "ref", "name": "EmptyResult"}, "params": {\#(selectors),
-                "fields": {"tab_name": {"required": true, "type": {"kind": "primitive", "name": "string"}},
-                           "tab.name": {"required": true, "type": {"kind": "primitive", "name": "string"}}}}}}"#,
+            (#"""
+                  {"a.get": {\#(read), "result": {"kind": "ref", "name": "EmptyResult"}, "params": {\#(selectors),
+                  "fields": {"tab_name": {"required": true, "type": {"kind": "primitive", "name": "string"}},
+                  "tab.name": {"required": true, "type": {"kind": "primitive", "name": "string"}}}}}}
+              """#,
              #"{"EmptyResult": {"kind": "object", "fields": {}, "extra": false}}"#,
              .nameCollision(path: "$.operations.a.get.params", swiftName: "tabName")),
-            (#"{"a.get": {\#(read), "result": {"kind": "ref", "name": "EmptyResult"},
-                "params": {"selectors": {"planet": "required"}, "fields": {}, "extra": false}}}"#,
+            (#"""
+                  {"a.get": {\#(read), "result": {"kind": "ref", "name": "EmptyResult"},
+                  "params": {"selectors": {"planet": "required"}, "fields": {}, "extra": false}}}
+              """#,
              #"{"EmptyResult": {"kind": "object", "fields": {}, "extra": false}}"#,
              .unsupported(path: "$.operations.a.get.params.selectors.planet", reason: "not a resource scope")),
-            (#"{"a.get": {\#(read), "params": {\#(selectors), "fields": {}},
-                "result": {"kind": "primitive", "name": "uint8"}}}"#,
+            (#"""
+                  {"a.get": {\#(read), "params": {\#(selectors), "fields": {}},
+                  "result": {"kind": "primitive", "name": "uint8"}}}
+              """#,
              "{}", .unsupported(path: "$.operations.a.get.result", reason: "unknown primitive uint8")),
-            (#"{"a.b_c": {\#(read), "params": {\#(selectors), "fields": {}}, "result": {"kind": "primitive", "name": "string"}},
-                "a_b.c": {\#(read), "params": {\#(selectors), "fields": {}}, "result": {"kind": "primitive", "name": "string"}}}"#,
+            (#"""
+                  {"a.b_c": {\#(read), "params": {\#(selectors), "fields": {}}, "result": {"kind": "primitive", "name": "string"}},
+                  "a_b.c": {\#(read), "params": {\#(selectors), "fields": {}}, "result": {"kind": "primitive", "name": "string"}}}
+              """#,
              "{}", .nameCollision(path: "$", swiftName: "V2ABCRequest")),
             (#"{"a.get": {\#(read), "params": {\#(selectors), "fields": {}}, "result": {"kind": "ref", "name": "Shape"}}}"#,
-             #"{"Plain": {"kind": "object", "fields": {}, "extra": false},
-                "Shape": {"kind": "union", "discriminator": "kind", "variants": [{"kind": "ref", "name": "Plain"}]}}"#,
+             #"""
+                  {"Plain": {"kind": "object", "fields": {}, "extra": false},
+                  "Shape": {"kind": "union", "discriminator": "kind", "variants": [{"kind": "ref", "name": "Plain"}]}}
+              """#,
              .unsupported(path: "$.types.Shape.variants[0]",
                           reason: "a tagged variant must name an object whose required kind is an enum of its tags")),
             // An idempotency the envelope builder has no protocol for, and a stream with a key.
-            (#"{"a.set": {"class": "mutation", "idempotency": "optional", "errors": [], "params": {\#(selectors),
-                "fields": {}}, "result": {"kind": "primitive", "name": "string"}}}"#,
+            (#"""
+                  {"a.set": {"class": "mutation", "idempotency": "optional", "errors": [], "params": {\#(selectors),
+                  "fields": {}}, "result": {"kind": "primitive", "name": "string"}}}
+              """#,
              "{}", .unsupported(path: "$.operations.a.set.idempotency",
                                 reason: "idempotency is required or forbidden, not optional")),
-            (#"{"a.watch": {"class": "stream_open", "idempotency": "required", "errors": [], "params": {\#(selectors),
-                "fields": {}}, "result": {"kind": "primitive", "name": "string"},
-                "stream": {"item": {"kind": "primitive", "name": "string"}, "end": {"kind": "primitive", "name": "string"}}}}"#,
+            (#"""
+                  {"a.watch": {"class": "stream_open", "idempotency": "required", "errors": [], "params": {\#(selectors),
+                  "fields": {}}, "result": {"kind": "primitive", "name": "string"},
+                  "stream": {"item": {"kind": "primitive", "name": "string"}, "end": {"kind": "primitive", "name": "string"}}}}
+              """#,
              "{}", .unsupported(path: "$.operations.a.watch.idempotency", reason: "a stream takes no idempotency key")),
             // A family is a file name.
-            (#"{"Tab-Group.get": {\#(read), "params": {\#(selectors), "fields": {}},
-                "result": {"kind": "primitive", "name": "string"}}}"#,
+            (#"""
+                  {"Tab-Group.get": {\#(read), "params": {\#(selectors), "fields": {}},
+                  "result": {"kind": "primitive", "name": "string"}}}
+              """#,
              "{}", .unsupported(path: "$.operations.Tab-Group.get", reason: "its family `Tab-Group` is not a file name")),
         ]
         for (operations, types, expected) in refusals {

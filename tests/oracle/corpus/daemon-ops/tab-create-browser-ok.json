@@ -18,10 +18,12 @@
   },
   "preconditions": [
     "hermetic state root",
-    "no other cmux-tui on the state root"
+    "no other cmux-tui on the state root",
+    "a cmux-browser provider attached to the case daemon (the daemon launches no browser)"
   ],
   "requires": [
-    "resource_api"
+    "resource_api",
+    "chromium"
   ],
   "platforms": [
     "linux",
@@ -73,7 +75,34 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a daemon-rendered browser tab opens in the fixture pane"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id",
+        "screen": "$step:fx-workspace#/value/screen_id",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "tab.create_browser",
+        "params": {
+          "url": "about:blank"
+        },
+        "idempotencyKey": "tab-create-browser-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [
@@ -82,5 +111,8 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "untested": [
+    "no product runs it yet: the daemon product has no browser engine (engine_unavailable before the handler), and driver_app.py hands resource.call to driver_daemon.py; p15-oracle-239 runs requires-chromium cases on the app product's own daemon, whose browser host is the provider"
   ]
 }

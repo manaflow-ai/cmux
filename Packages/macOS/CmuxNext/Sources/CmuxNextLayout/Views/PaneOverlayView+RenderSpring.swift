@@ -14,8 +14,8 @@ extension PaneOverlayView {
     /// `velocity`, points per second) to its frame now, its rest, with its opacity from `fromAlpha` to
     /// `toAlpha` of its host's: its own layer's position and size as the host's
     /// (``NSView/renderSpringMoves(from:velocity:)``), its exclusion mask's (``rideMask(from:velocity:)``),
-    /// and each sublayer's (``sublayerStart(_:cellChange:)``). Empty outside the plane or hidden. A glowing
-    /// attention ring drops its fixed outline until ``rideEnded()``.
+    /// and each sublayer's (``sublayerStart(_:cellChange:)``). Empty outside the plane or hidden. Once the
+    /// group is added, ``followRideShadows()`` gives the glowing rings' shadows their springing outlines.
     func rideMoves(from: CGRect, velocity: RectComponents, fromAlpha: CGFloat, toAlpha: CGFloat) -> [RenderSpring.Move] {
         guard !isHidden, let layer else { return [] }
         var moves = renderSpringMoves(from: from, velocity: velocity)
@@ -23,7 +23,7 @@ extension PaneOverlayView {
         if fromAlpha != toAlpha, toAlpha > 0 {
             // Its opacity is the host's times the screen's.
             let rest = CGFloat(layer.opacity)
-            moves.append(RenderSpring.Move(layer, "opacity", from: rest * fromAlpha / toAlpha, to: rest))
+            moves.append(RenderSpring.Move(layer, .opacity, from: rest * fromAlpha / toAlpha, to: rest))
         }
         moves += rideMask(from: from, velocity: velocity)
         guard from.size != bounds.size else { return moves }
@@ -32,7 +32,6 @@ extension PaneOverlayView {
         for (sublayer, rest) in sublayerFrames(chromeFrames(cellSize: bounds.size)) {
             moves += Self.springMoves(sublayer, from: Self.sublayerStart(rest, cellChange: change), to: rest, velocity: growth)
         }
-        releaseGlowOutline()
         return moves
     }
 
@@ -46,9 +45,9 @@ extension PaneOverlayView {
                size: CGSize(width: rest.size.width + cellChange.width, height: rest.size.height + cellChange.height))
     }
 
-    /// The host's spring landed (or was taken back to the CPU): the mask covers the rest bounds again and the
-    /// glow's outline comes back at rest.
+    /// The host's spring landed (or was taken back to the CPU): the mask covers the rest bounds again.
     func rideEnded() {
+        ridesRenderSpring = false
         endMaskRide()
         layoutLayers()
     }
@@ -62,6 +61,7 @@ extension PaneOverlayView {
             RenderSpring.stop(target, "position")
             RenderSpring.stop(target, "bounds.size")
         }
+        stopFollowingRideShadows()
         rideEnded()
     }
 
@@ -76,10 +76,10 @@ extension PaneOverlayView {
         let start = position(from), rest = position(to)
         let rate = RenderLayerAxes(x: 1, y: 1).velocity(velocity, anchor: anchor)
         return [
-            RenderSpring.Move(layer, "position.x", from: start.x, to: rest.x, velocity: rate.position.x),
-            RenderSpring.Move(layer, "position.y", from: start.y, to: rest.y, velocity: rate.position.y),
-            RenderSpring.Move(layer, "bounds.size.width", from: from.size.width, to: to.size.width, velocity: rate.size.width),
-            RenderSpring.Move(layer, "bounds.size.height", from: from.size.height, to: to.size.height, velocity: rate.size.height),
+            RenderSpring.Move(layer, .positionX, from: start.x, to: rest.x, velocity: rate.position.x),
+            RenderSpring.Move(layer, .positionY, from: start.y, to: rest.y, velocity: rate.position.y),
+            RenderSpring.Move(layer, .boundsWidth, from: from.size.width, to: to.size.width, velocity: rate.size.width),
+            RenderSpring.Move(layer, .boundsHeight, from: from.size.height, to: to.size.height, velocity: rate.size.height),
         ]
     }
 }

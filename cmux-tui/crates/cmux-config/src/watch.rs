@@ -44,6 +44,13 @@ mod portable;
 #[cfg(not(target_os = "linux"))]
 use portable as backend;
 
+/// The class of the `cmux-config-watch` thread: a file watcher, Chromium's
+/// kUtility (`thread_qos::ThreadType::Utility` in cmux-tui-core, which sits
+/// above this crate and tests that the two agree; p04-input-084). A hint
+/// that takes a lock a higher class waits for posts that work to a thread of
+/// that class instead (the daemon's `settings::post_reload`).
+pub const WATCH_THREAD_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::Utility;
+
 /// A burst ends after this long without another event.
 const QUIET: Duration = Duration::from_millis(100);
 /// A burst that keeps going still gives a hint after this long.

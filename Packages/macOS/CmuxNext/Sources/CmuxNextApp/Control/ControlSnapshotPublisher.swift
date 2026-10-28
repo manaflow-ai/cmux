@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextControl
 import CmuxNextCompat
@@ -29,9 +30,15 @@ import os
 @MainActor
 final class ControlSnapshotPublisher {
     private let router: ControlRouter
-    private unowned let services: AppServices
+    private let servicesReference: OwnerReference<AppServices>
+    /// The app's services, which own this through the control service; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
+    /// The app's main-thread scheduler (``AppServices/mainWork``), which runs every publish.
+    private let mainWork: MainWorkScheduler
     private var isStopped = false
-    private var observers: [MainActorObservation] = []
+    /// Where the key-window and app-activation notices come from (key windows are not observable).
+    private let appEvents: AppEvents
+    private var notices: [EventSubscription] = []
     /// The classes of the publish tasks queued now: a change adds a task only when none of its class or a higher
     /// one is queued.
     private var queued: Set<BudgetedWorkClass> = []
@@ -52,14 +59,18 @@ final class ControlSnapshotPublisher {
     /// - Parameters:
     ///   - router: The control router whose snapshot store this publishes to.
     ///   - services: The app's services; their ``AppServices/mainWork`` runs every publish.
-    init(router: ControlRouter, services: AppServices) {
+    ///   - appEvents: The app notices' one fan-out; nil: the services' (``AppServices/appEvents``). Tests pass one on
+    ///     their own center.
+    init(router: ControlRouter, services: AppServices, appEvents: AppEvents? = nil) {
         self.router = router
-        self.services = services
+        servicesReference = OwnerReference(services: services)
+        mainWork = services.mainWork
+        self.appEvents = appEvents ?? services.appEvents
         publishOwner = services.mainWork.board.owner("control.snapshot.publish")
     }
 
     func start() {
-        // The entry's hop runs a turn after its change: a publish since rebuilt the entry and left nothing to do.
+        // It runs inside the entry's change (ControlWorkspaceInfoCache.onStale): it only queues the publish.
         workspaceInfos.onStale = { [weak self] in
             guard let self, self.workspaceInfos.hasStaleEntries else { return }
             self.invalidate()
@@ -68,17 +79,16 @@ final class ControlSnapshotPublisher {
         // the next request is read. A work-queue frame only marks the snapshot stale; the next read builds it
         // (`ControlSnapshotStore.fresh`), once for any number of frames, and a read waiting on its barrier now.
         router.workQueue.setAfterFrame { [weak self] in self?.workQueueFrameRan() }
-        let (work, owner) = (services.mainWork, publishOwner)
+        let (work, owner) = (mainWork, publishOwner)
         router.snapshots.setRefresher({ [weak self] in self?.flush() }, waiterAdded: { [weak self] in
             // The reader's own request: one automation task, held while the person's input response is open.
             work.postFromAnyThread(.automation, owner: owner) { [weak self] in self?.waiterAdded() }
         })
-        let center = NotificationCenter.default
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
-                     NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
-            observers.append(MainActorObservation(name, center: center) { [weak self] in
-                self?.invalidate()
-            })
+        // raw-observer-allow: names the app's one AppEvents subscribes to (recipe R-notif); no observer of its own
+        let names = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification, NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification]
+        // `always`: CLI reads need the key window and active state whatever is on screen; each post only sets a dirty bit.
+        notices = names.map { name in
+            appEvents.subscribe(name, owner: "ControlSnapshotPublisher") { [weak self] in self?.invalidate() }
         }
         // The first snapshot is background work too, so launch never waits for it. Until it is published the store
         // is stale: a read before it builds it in the reader's class.
@@ -90,7 +100,7 @@ final class ControlSnapshotPublisher {
         isStopped = true
         router.workQueue.setAfterFrame(nil)
         router.snapshots.setRefresher(nil)
-        observers.removeAll()
+        notices.removeAll()
     }
 
     /// Something the snapshot shows changed where the build's tracking does not see it (a key window, a workspace
@@ -124,7 +134,7 @@ final class ControlSnapshotPublisher {
         guard !isStopped, !queued.contains(where: { $0.workClass <= workClass.workClass }) else { return }
         queued.insert(workClass)
         // node-free: CLI reads and their write barriers need the snapshot whatever is on screen.
-        services.mainWork.post(workClass, owner: publishOwner) { [weak self] in
+        mainWork.post(workClass, owner: publishOwner) { [weak self] in
             self?.queued.remove(workClass)
             self?.flush()
         }
@@ -152,7 +162,7 @@ final class ControlSnapshotPublisher {
     /// Builds and publishes now. It runs in a publish task or a work-queue frame a reader waits on: never in the
     /// turn of the change itself.
     func publishNow() {
-        guard !isStopped else { return }
+        guard !isStopped, let services else { return }
         let started = ContinuousClock.now
         builds += 1
         let (built, settings, tabSearch) = topologyTracking.read({
@@ -161,7 +171,7 @@ final class ControlSnapshotPublisher {
         }, changed: { [weak self] in self?.topologyChanged() })
         // Outside the build's tracking: a sequence alone never rebuilds.
         var topology = built
-        let sequences = readSequences()
+        let sequences = readSequences(services)
         Self.apply(sequences, to: &topology)
         publishedSequences = sequences
         router.snapshots.publish(rebuilt: true) { snapshot in
@@ -179,7 +189,8 @@ final class ControlSnapshotPublisher {
 
     /// Publishes the daemon sequences alone: nothing the topology shows changed since its last build.
     private func publishSequences() {
-        let sequences = readSequences()
+        guard let services else { return }
+        let sequences = readSequences(services)
         guard sequences != publishedSequences else { return }
         sequencePublishes += 1
         publishedSequences = sequences
@@ -190,7 +201,7 @@ final class ControlSnapshotPublisher {
 
     /// The daemon sequences as of now. A clean bit means the tracking armed by the last read has not fired, so
     /// only a dirty one arms the next.
-    private func readSequences() -> ControlSequenceBarrier {
+    private func readSequences(_ services: AppServices) -> ControlSequenceBarrier {
         guard sequenceTracking.isDirty else { return Self.sequences(services) }
         return sequenceTracking.read({ Self.sequences(services) }, changed: { [weak self] in self?.sequencesChanged() })
     }
@@ -311,8 +322,10 @@ private nonisolated final class DirtyTracking: Sendable {
     @MainActor
     func read<T>(_ body: () -> T, changed: @escaping @MainActor @Sendable () -> Void) -> T {
         dirty.store(false, ordering: .releasing)
+        // view-observation-allow: the read is the whole topology build, once per publish; ServiceObservation would build again per flush and in the person's input response, which this publisher must stay out of (task 039)
         return withObservationTracking(body) { [self] in
             markDirty()
+            // main-hop-allow: models change on main, so this runs inline in the change's turn and only queues the publish, whose post names its class
             MainDelivery().run(changed)
         }
     }
