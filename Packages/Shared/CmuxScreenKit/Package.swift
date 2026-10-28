@@ -24,8 +24,12 @@ let package = Package(
         .library(name: "CmuxScreenKitUI", targets: ["CmuxScreenKitUI"]),
     ],
     dependencies: [
+        // OnceContinuation, the continuation that resumes exactly once (p10-stability-089).
+        .package(path: "../CmuxSafeConcurrency"),
         .package(path: "../CmuxVNC"),
         .package(path: "../CmuxVNCWebRTC"),
+        // blockingCall and Mutex of the app-linked packages (p02-threads-130, 146).
+        .package(path: "../CmuxThreading"),
         // Test-only: the seeded fuzz suites (p10-stability-023).
         .package(path: "../CmuxFuzzSupport"),
     ],
@@ -36,6 +40,8 @@ let package = Package(
                 .product(name: "CmuxVNC", package: "CmuxVNC"),
                 .product(name: "CmuxVNCDemoServer", package: "CmuxVNC"),
                 .product(name: "CmuxVNCWebRTC", package: "CmuxVNCWebRTC"),
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+                .product(name: "CmuxThreading", package: "CmuxThreading"),
             ],
             swiftSettings: swiftSettings
         ),

@@ -16,7 +16,7 @@ extension ActionRegistry {
     /// confirmed it.
     public func setWorkspaceLocalhost(_ invocation: ActionInvocation, workspace: () throws -> (id: String, name: String),
                                       machines: any RemoteLocalhostMachines,
-                                      approve: @escaping @MainActor (_ workspace: String, _ choice: String) async -> Bool) throws {
+                                      approve: @escaping @MainActor @Sendable (_ workspace: String, _ choice: String) async -> Bool) throws {
         let raw = invocation["localhost"]?.stringValue ?? ""
         // machine: the workspace's machine; thisMac: this Mac; setting: follow the setting (nil).
         let choices: [String: Bool?] = ["machine": true, "thisMac": false, "setting": nil]
@@ -33,14 +33,14 @@ extension ActionRegistry {
             return
         }
         let name = Self.quoted(model.name), title = choiceTitle(raw)
+        // main-hop-allow: tracked for the capturing caller (the CLI, a script): it awaits the person's main-actor sheet and then the home daemon's write; the router never cancels tracked work
         track(Task {
-            // The sheet goes before the caller stops waiting (the router never
-            // cancels tracked work): a change nobody waits for never happens.
-            let sheet = Task { await approve(name, title) }
-            let deadline = DemandTimer(owner: "remote-localhost-approval")
-            deadline.schedule(after: ActionDescriptor.resultDeadline - .seconds(5)) { sheet.cancel() }
-            defer { deadline.cancel() }
-            guard await sheet.value, !sheet.isCancelled else {
+            // The sheet goes before the caller stops waiting: a change nobody waits for never happens. The limit is a
+            // Deadline race (flexible, never sooner); the sheet is cancelled when it wins.
+            let approved = await Deadline(ActionDescriptor.resultDeadline - .seconds(5)).value("remote-localhost-approval") {
+                await approve(name, title)
+            }
+            guard approved == true else {
                 return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.localhostChoiceNotApproved)
             }
             return await home.failure("set-personal-workspace") { try await $0.setPersonalWorkspace(request) }

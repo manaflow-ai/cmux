@@ -166,10 +166,13 @@ final class MacScreenPageService: InternalPageProvider {
 
 extension AppServices {
     static func makeMacScreenPages(_ services: AppServices) -> MacScreenPages {
-        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID), mainWork: services.mainWork)
+        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID), deadlines: services.mainDeadlines,
+                                   appEvents: services.appEvents)
         pages.useShortcuts(of: services.registry)
         pages.pointerFrames = { [weak services] in services?.remotePointerFrames }
         pages.hubHost.indicatorMenuItem = { [weak registry = services.registry] in registry?.makeMenuItem(for: $0) }
+        // A shared screen may show any window: a connected viewer's vote reaches every window node under the app.
+        pages.hubHost.sharedScreenNode = services.appVisibility.node
         return pages
     }
 

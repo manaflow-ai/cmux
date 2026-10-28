@@ -47,8 +47,6 @@ public final class FrameScheduler: NSObject {
     /// (``install(displays:energy:)``; a clock of its own before that, in tests).
     public private(set) static var app = FrameScheduler(name: "app", host: .screen, displays: DisplayClock(), budget: nil)
 
-    private static var windows: [ObjectIdentifier: WeakScheduler] = [:]
-
     /// The display clock ``app`` and the window schedulers subscribe to.
     public static var appDisplays: DisplayClock { app.displayClock }
 
@@ -62,39 +60,6 @@ public final class FrameScheduler: NSObject {
         }
         app.follow(energy)
     }
-
-    /// `window`'s scheduler, created on first use and dropped with the window.
-    public static func forWindow(_ window: NSWindow) -> FrameScheduler {
-        let key = ObjectIdentifier(window)
-        if let scheduler = windows[key]?.value, scheduler.window === window { return scheduler }
-        windows = windows.filter { $0.value.value?.window != nil }
-        let scheduler = FrameScheduler(name: "window \(window.windowNumber)", host: .window(window), displays: appDisplays, budget: nil)
-        if let energy = app.energy { scheduler.follow(energy) } // its ambient clients follow the app's saver
-        windows[key] = WeakScheduler(value: scheduler)
-        // The window keeps its scheduler alive.
-        objc_setAssociatedObject(window, &FrameScheduler.associationKey, scheduler, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        // A window's late frames hold work like the app's (RenderStarvationGuard/watch(_:)).
-        app.starvation?.watch(scheduler)
-        // A subscribed scheduler is held by its display: let go of it when the window closes.
-        scheduler.closeObserver = MainActorObservation(NSWindow.willCloseNotification, object: window) { [weak scheduler] in
-            scheduler?.invalidate()
-        }
-        // It ticks on the display the window is on: the window going to another screen moves it there.
-        scheduler.screenFamily = WindowScreenFamily(window: window, scheduler: scheduler)
-        return scheduler
-    }
-
-    /// The scheduler of `view`'s window, or ``app`` while it has none.
-    public static func forView(_ view: NSView) -> FrameScheduler {
-        view.window.map(forWindow) ?? app
-    }
-
-    /// Every live scheduler (debug.wakeups).
-    public static var all: [FrameScheduler] {
-        [app] + windows.values.compactMap(\.value)
-    }
-
-    private static var associationKey: UInt8 = 0
 
     enum Host {
         case screen
@@ -155,9 +120,10 @@ public final class FrameScheduler: NSObject {
     weak var starvation: RenderStarvationGuard?
     /// The late period the guard saw since ``lastTick`` (stale once it moves).
     var starvationPeriod: RenderStarvationGuard.Period?
-    private var closeObserver: MainActorObservation?
+    /// Lets go of it when its window closes (window schedulers only): a ``WindowEvents`` subscription.
+    var closeObserver: EventSubscription?
     /// Moves it to its window's new display when the window changes screen (window schedulers only).
-    private var screenFamily: WindowScreenFamily?
+    var screenFamily: WindowScreenFamily?
     /// When the frame of its last tick is shown (nil before the first tick after subscribing).
     private var lastTargetTimestamp: CFTimeInterval?
     /// Set when it moves to another display: its last tick there. Until a link tick of the new display
@@ -184,6 +150,8 @@ public final class FrameScheduler: NSObject {
     public private(set) var frameRate: FrameRate?
     /// Energy Saver's ambient cap and the ambient clients waiting out display sleep (FrameScheduler+Energy.swift).
     var energyState = AmbientEnergyState()
+    /// Its window's occlusion and the clients waiting it out (FrameScheduler+Occlusion.swift).
+    var occlusionHold = OcclusionHold()
     /// Its motion and commit-window frame sequences (FrameSequenceTracker.swift).
     public let sequences: FrameSequenceTracker
 
@@ -258,7 +226,7 @@ public final class FrameScheduler: NSObject {
 
     func activate(_ client: FrameClient) {
         let key = ObjectIdentifier(client)
-        if waitsForScreens(client) { return }
+        if waitsForScreens(client) || waitsForVisibleWindow(client) { return }
         clients[key] = client
         if client.workClass.isBudgeted, !budgetedOrder.contains(key) { budgetedOrder.append(key) }
         guard !isSubscribed else { return updateFrameRate() }
@@ -322,6 +290,7 @@ public final class FrameScheduler: NSObject {
 
     func deactivate(_ client: FrameClient) {
         energyState.asleep[ObjectIdentifier(client)] = nil
+        occlusionHold.held[ObjectIdentifier(client)] = nil
         drop(ObjectIdentifier(client))
         if clients.isEmpty { pause() }
     }
@@ -362,6 +331,7 @@ public final class FrameScheduler: NSObject {
         for client in clients.values { client.detach() }
         clients.removeAll()
         detachAsleep()
+        detachOccluded()
         budgetedOrder.removeAll()
         frameRate = nil
         pause()
@@ -423,15 +393,17 @@ public final class FrameScheduler: NSObject {
                          targetTimestamp: target, sequence: frames)
     }
 
-    /// The frame-locked clients, every frame: the input stage first (the window's
-    /// FrameInputCoalescer), so the frame clients see this frame's input. Clients activated during
-    /// this frame tick next frame.
+    /// The frame-locked clients, every frame: the input stage first (the window's input coalescers),
+    /// then the frame clients, so they see this frame's input. A frame client the input stage
+    /// activated (a ghost spring a trailing move woke) ticks in this frame too, as Blink dispatches
+    /// rAF-aligned input before the frame's animation callbacks (`WidgetBase::BeginMainFrame`,
+    /// `third_party/blink/renderer/platform/widget/widget_base.cc`). Clients a frame client
+    /// activates tick next frame.
     func deliverFrameLocked(_ tick: FrameTick) { // perf-hot: 0.5ms frame-tick (every frame)
-        let ticking = clients.values.filter(\.isActive)
-        for client in ticking where client.workClass == .input {
+        for client in clients.values.filter({ $0.isActive && $0.workClass == .input }) {
             fire(client, tick)
         }
-        for client in ticking where client.workClass == .frame {
+        for client in clients.values.filter({ $0.isActive && $0.workClass == .frame }) {
             fire(client, tick)
         }
     }
@@ -475,9 +447,5 @@ public final class FrameScheduler: NSObject {
         guard clients[id] === client, client.isActive else { return }
         ledger.record(client.owner, reason: "frame")
         if !client.fire(tick) { drop(id) }
-    }
-
-    private struct WeakScheduler {
-        weak var value: FrameScheduler?
     }
 }

@@ -83,6 +83,8 @@ extension PageWebView {
         guard !isParkedSpare, !isShownForDiscard else { return false }
         // First: from here the page loads nothing, so ending its document below reports no load.
         discardShell.isDiscarded = true
+        // Its restore loads the files served then: a web files change it missed is no reason to load again.
+        bundleStale = false
         // A frozen page's engine page goes with its document; the WebKit view gets back the
         // throttling it had before the freeze, which its restored document runs with.
         if case .webKit(let restoring)? = frozenEngine, let restoring {
@@ -171,8 +173,11 @@ extension PageWebView {
         // Before either engine starts: a Chromium page that fell back before reopens in its WebKit
         // view; one with none builds it at a fallback (``fallBackToWebKit(_:detail:)``).
         webKitPieces?.view.navigationDelegate = self
+        // Its browser ended before the discard: the supervisor's answer picks the engine, as it does
+        // for a page that was not discarded.
+        if let chromiumRecovery { return chromiumRecovery.pageShown() }
         if engineDecision.engine == .cef, let chromiumHost {
-            startChromium(hosting: chromiumHost)
+            startChromium(hosting: chromiumHost, origin: .user) // it reloads as it shows: a person's
             return
         }
         let webView = webKit.view

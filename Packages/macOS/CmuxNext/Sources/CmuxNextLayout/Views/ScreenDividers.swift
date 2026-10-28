@@ -22,6 +22,7 @@ struct ScreenDividers {
     private func hoveredHandle(at event: NSEvent?) -> DividerHandleView? {
         // During a drag only the dragged handle shows (its line is the drag's).
         if let drag = screen.activeDrag { return screen.dividerViews[drag.kind] }
+        // visibility-walk-allow: the hover hit test: a hidden screen's handles take no hover
         guard let window = screen.window, !screen.isHiddenOrHasHiddenAncestor,
               let windowPoint = screen.context.hoverPointer(window, event) else { return nil }
         let point = screen.convert(windowPoint, from: nil)

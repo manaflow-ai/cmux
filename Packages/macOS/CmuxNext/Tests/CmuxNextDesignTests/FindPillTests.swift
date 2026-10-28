@@ -200,6 +200,39 @@ import CmuxNextInput
         #expect(!tap.flags.contains(.findPillOpen), "no pill edits, the flag stayed")
     }
 
+    /// Shift-Return in the field goes to the previous match: its Shift comes from the key the window's
+    /// tap dispatched (p04-input-068), not from AppKit's current event, which a run after the key keeps.
+    @Test func shiftReturnInTheFieldReadsShiftFromTheDispatchedKey() throws {
+        let tap = InputEventTap()
+        let (pill, window) = try makeWindowedPill(tap: tap)
+        defer { window.orderOut(nil); window.contentView = nil }
+        var commands: [FindPillCommand] = []
+        pill.onCommand = { commands.append($0) }
+        #expect(window.makeFirstResponder(pill.field))
+        let editor = try #require(pill.field.currentEditor() as? NSTextView)
+        let newline = #selector(NSResponder.insertNewline(_:))
+
+        Self.dispatch(try Self.returnKey(.shift, at: 1, window: window), through: tap)
+        #expect(pill.control(pill.field, textView: editor, doCommandBy: newline))
+        Self.dispatch(try Self.returnKey([], at: 2, window: window), through: tap)
+        #expect(pill.control(pill.field, textView: editor, doCommandBy: newline))
+        #expect(commands == [.previous, .next], "Return's Shift did not come from the dispatched key")
+    }
+
+    private static func dispatch(_ event: NSEvent, through tap: InputEventTap) {
+        tap.dispatching {
+            tap.deliverObserve(event)
+            _ = tap.deliverIntercepts(event)
+            tap.deliverAfterDispatch(event)
+        }
+    }
+
+    private static func returnKey(_ modifiers: NSEvent.ModifierFlags, at timestamp: TimeInterval, window: NSWindow) throws -> NSEvent {
+        try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: timestamp,
+                                      windowNumber: window.windowNumber, context: nil, characters: "\r",
+                                      charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
+    }
+
     private func makeWindowedPill(tap: InputEventTap) throws -> (FindPillView, NSWindow) {
         let pill = makePill()
         let window = TapWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 80), styleMask: [.titled],

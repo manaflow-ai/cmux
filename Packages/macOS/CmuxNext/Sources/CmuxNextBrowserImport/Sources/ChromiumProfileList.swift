@@ -44,7 +44,7 @@ public struct ChromiumProfileList {
         if let data = fileManager.contents(atPath: localState.path),
            let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let profile = root["profile"] as? [String: Any],
-           let cache = profile["info_cache"] as? [String: Any] {
+           let cache: [String: Any] = profile["info_cache"] as? [String: Any] {
             let order = (profile["profiles_order"] as? [String]) ?? []
             let names = cache.keys.sorted { lhs, rhs in
                 let (li, ri) = (order.firstIndex(of: lhs) ?? Int.max, order.firstIndex(of: rhs) ?? Int.max)

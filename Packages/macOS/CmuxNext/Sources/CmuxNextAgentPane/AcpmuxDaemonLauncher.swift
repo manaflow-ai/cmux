@@ -3,6 +3,9 @@ import Foundation
 import os
 import CmuxNextCompat
 import struct CmuxNextDaemon.POSIXErrorText
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Starts a detached acpmux daemon and returns its WebSocket endpoint from
 /// the `--ready-fd` line, so a fresh daemon needs no status round trip.
@@ -47,7 +50,8 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// Use secret, plus `childEnvironment`, non-secret Computer Use v2 state,
     /// the session offer tools while suggested tasks are on
     /// (``AcpmuxEnvironment/offersSessionTools``), the agent message runaway guard
-    /// off when ``AcpmuxEnvironment/agentPairGuard`` is off (else its cap), and the launch knobs.
+    /// off when ``AcpmuxEnvironment/agentPairGuard`` is off (else its cap), the app's daemon
+    /// features (``AcpmuxEnvironment/daemonFeatures``) and the launch knobs.
     static func spawnEnvironment(_ environment: AcpmuxEnvironment, inherited: [String: String]) -> [String: String] {
         let computerUse = Set(AcpmuxEnvironment.computerUseKeys + [AcpmuxEnvironment.computerUseHostKey])
         let safeInherited = inherited.filter { key, _ in
@@ -69,8 +73,11 @@ nonisolated enum AcpmuxDaemonLauncher {
         } else {
             variables[AcpmuxEnvironment.agentPairGuardKey] = "0"
         }
+        variables.merge(environment.daemonFeatures) { $1 }
         variables["ACPMUX_LAUNCH_LOG"] = environment.logPath
         variables["ACPMUX_LOGIN_ENV"] = "1"
+        // The owning app: the leftover daemon idle exit keeps the daemon while it runs.
+        variables["ACPMUX_OWNER_APP_PID"] = String(ProcessInfo.processInfo.processIdentifier)
         return variables
     }
 
@@ -269,9 +276,10 @@ nonisolated enum AcpmuxDaemonLauncher {
     /// armed for a shell that exited before. A shell that never exited would hold the launch; the script only
     /// backgrounds the daemon, in its own session (no terminal can stop it), so it cannot.
     private static func reap(_ pid: pid_t) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        // A watch dropped without its exit event ends the wait (abandoned): the launch goes on.
+        try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             ChildExitWatch(pid: pid, queue: DispatchQueue(label: "cmux.next.agent-pane.acpmux-launch-reap.\(pid)", qos: .userInitiated))
-                .start { _ in continuation.resume() }
+                .start { _ in continuation.resume(returning: ()) }
         }
     }
 }

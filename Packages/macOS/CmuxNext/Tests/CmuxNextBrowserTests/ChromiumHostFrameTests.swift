@@ -125,7 +125,8 @@ import Testing
         }
         #expect(decoded.map(\.phase) == [Self.changed, 0])
         #expect(decoded.map(\.momentumPhase) == [0, Self.began])
-        #expect(decoded.allSatisfy(\.precise))
+        let allPrecise = decoded.allSatisfy(\.precise)
+        #expect(allPrecise)
         #expect(decoded.map(\.deltaY) == [12.34, -25.5])
         #expect(decoded[0].deltaX == -1.5)
         #expect(decoded.map(\.modifierFlags) == [Self.shift, 0])

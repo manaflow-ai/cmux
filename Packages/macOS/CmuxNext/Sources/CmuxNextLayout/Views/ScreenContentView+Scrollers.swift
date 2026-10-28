@@ -362,22 +362,25 @@ extension ScreenContentView {
         return probe.spring != current?.spring
     }
 
-    /// The translation a row or scroll area fling on the render server still shows of `pane` on its way,
-    /// nil when none carries it: the visibility pass sweeps the pane over it (as `visiblePanes` sweeps the
-    /// strip's viewport over the strip's fling).
-    func scrollerFlingLeft(of pane: PaneID) -> CGVector? {
+    /// How far the row and scroll area flings on the render server that carry `pane` still move it, along each
+    /// axis, from where they rest (each container's model translation is its rest during a fling): what shows now,
+    /// its velocity and its overshoot (``SpringParameters/excursion(displacement:velocity:)``). Nil when none carries
+    /// it. The visibility pass sweeps the pane over it (``displayedSweeps()``), as it sweeps the strip's viewport
+    /// over the strip's fling.
+    func scrollerFlingReach(of pane: PaneID) -> (x: Excursion, y: Excursion)? {
         guard let host = context.hosts[pane] else { return nil }
-        var left = CGVector.zero, flings = false
+        var x = Excursion.zero, y = Excursion.zero, flings = false
         var current = host.superview
         while let container = current as? ScrollerPanContainerView {
-            if container.fling != nil {
+            if let fling = container.fling {
                 flings = true
-                let shown = container.shownPanTranslation
-                left.dx += shown.dx
-                left.dy += shown.dy
+                let shown = container.shown
+                let reach = fling.spring.excursion(displacement: container.alongAxis(shown.translation) - container.alongAxis(container.translation),
+                                                   velocity: container.alongAxis(shown.velocity))
+                if container.scroller.isArea { x.add(reach) } else { y.add(reach) }
             }
             current = container.superview
         }
-        return flings ? left : nil
+        return flings ? (x, y) : nil
     }
 }

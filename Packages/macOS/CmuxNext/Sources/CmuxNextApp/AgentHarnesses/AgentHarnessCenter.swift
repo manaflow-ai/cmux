@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextAgentUpdates
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -29,13 +30,16 @@ final class AgentHarnessCenter {
     @ObservationIgnored private var removed: JSONValue?
     @ObservationIgnored private var watchers = 0
     @ObservationIgnored private var watch: Task<Void, Never>?
+    /// The app's main-thread scheduler: a change notice's list applies as one posted task on it.
+    @ObservationIgnored private let mainWork: MainWorkScheduler
 
-    init(environment: @escaping @MainActor () -> AcpmuxEnvironment?) {
+    init(environment: @escaping @MainActor () -> AcpmuxEnvironment?, mainWork: MainWorkScheduler) {
         self.environment = environment
+        self.mainWork = mainWork
     }
 
     convenience init(services: AppServices) {
-        self.init(environment: { [weak services] in services.flatMap(QuitAgents.environment) })
+        self.init(environment: { [weak services] in services.flatMap(QuitAgents.environment) }, mainWork: services.mainWork)
         updates = AgentCLIUpdateActions(services: services)
     }
 
@@ -46,11 +50,17 @@ final class AgentHarnessCenter {
 
     /// The harness list again (`_acpmux/harnesses`).
     func refresh() async {
-        do {
-            list = try await call(.list)
+        apply(list: await Self.list(from: environment()))
+    }
+
+    /// The harness list's answer as Settings draws it.
+    private func apply(list answer: Result<JSONValue, any Error>) {
+        switch answer {
+        case .success(let value):
+            list = value
             status = "ready"
             message = nil
-        } catch {
+        case .failure(let error):
             status = "unreachable"
             message = Self.text(error)
         }
@@ -144,8 +154,14 @@ final class AgentHarnessCenter {
     func beginWatching() {
         watchers += 1
         guard watchers == 1, let environment = environment() else { return }
+        // The notice comes off main (the watcher's socket read): the list is read there too, and only its apply is
+        // a main-thread task. `visible`: Settings redraws a list no input of the person changed.
+        let mainWork = mainWork
         watch = environment.watchHarnesses { [weak self] in
-            Task { @MainActor in await self?.refresh() }
+            Task { @concurrent in
+                let answer = await Self.list(from: environment)
+                mainWork.postFromAnyThread(.visible, owner: "AgentHarnessCenter.changed") { [weak self] in self?.apply(list: answer) }
+            }
         }
     }
 
@@ -179,7 +195,22 @@ final class AgentHarnessCenter {
     }
 
     private func call(_ method: AcpmuxHarnessMethod, _ params: [String: any Sendable] = [:]) async throws -> JSONValue {
-        guard let environment = environment() else { throw AgentHarnessFailure.noDaemon }
+        try await Self.call(method, params, on: environment())
+    }
+
+    /// `_acpmux/harnesses` off main, its answer or its failure.
+    @concurrent private nonisolated static func list(from environment: AcpmuxEnvironment?) async -> Result<JSONValue, any Error> {
+        do {
+            return .success(try await call(.list, [:], on: environment))
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    /// One harness request to the daemon, off main.
+    @concurrent private nonisolated static func call(_ method: AcpmuxHarnessMethod, _ params: [String: any Sendable],
+                                                     on environment: AcpmuxEnvironment?) async throws -> JSONValue {
+        guard let environment else { throw AgentHarnessFailure.noDaemon }
         do {
             return try JSONValue.parse(try await environment.harness(method, params: params))
         } catch let error as AcpmuxRPCError where error.isUnreachable {

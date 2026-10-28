@@ -22,9 +22,9 @@ nonisolated struct CEFParentView: Equatable, Sendable {
     /// In process: `view`, unretained. Whoever passes it keeps the view alive while Chromium's window
     /// uses it, as the pane host keeps its host view and DevTools its own.
     @MainActor init(view: NSView) {
-        // SAFETY: only the view's address is read; it reaches the shim as the parent view, which the
+        // Only the view's address (its identity's bits); it reaches the shim as the parent view, which the
         // caller keeps alive (above). No retain count changes.
-        bits = unsafe UInt(bitPattern: Unmanaged.passUnretained(view).toOpaque())
+        bits = UInt(bitPattern: ObjectIdentifier(view))
     }
 
     /// Host mode: the token cmux minted for a page view (``ChromiumHostPageView/wireToken``).

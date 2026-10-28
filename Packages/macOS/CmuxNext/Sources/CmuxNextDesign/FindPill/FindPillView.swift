@@ -286,6 +286,7 @@ public final class FindPillView: NSView {
 
     // MARK: Theme
 
+    // visibility-walk-allow: color stores (tints, text and layer colors, the buttons' inks) for a few controls; the pill lives only while its find is open, so a deferral costs more
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
@@ -358,6 +359,8 @@ extension FindPillView: NSTextFieldDelegate {
     }
 
     public func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        handleFieldCommand(selector, shift: NSApp.currentEvent?.modifierFlags.contains(.shift) == true)
+        // The key the field editor is handling is the one the window's tap dispatched last.
+        let key = (window as? InputTapHosting)?.inputTap?.lastDispatched
+        return handleFieldCommand(selector, shift: key?.modifierFlags.contains(.shift) == true)
     }
 }

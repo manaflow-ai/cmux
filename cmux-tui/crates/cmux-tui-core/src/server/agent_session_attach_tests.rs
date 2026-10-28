@@ -442,6 +442,19 @@ fn through_route(
     (route.entry)(&routes::RouteLine { mux, client, message, writer, head: &head })
 }
 
+/// Hands a v2 line to the operation route its `operation` names
+/// (server/routes.rs), as the connection's dispatch does.
+fn through_operation_route(
+    mux: &Arc<Mux>,
+    client: u64,
+    message: &str,
+    writer: &MessageWriter,
+) -> Option<bool> {
+    let head = RequestHead::parse(message);
+    let route = head.operation().and_then(routes::find_operation)?;
+    (route.entry)(&routes::RouteLine { mux, client, message, writer, head: &head })
+}
+
 include!("agent_session_observe_tests.rs");
 include!("agent_session_children_tests.rs");
 
@@ -498,7 +511,7 @@ fn a_routed_trust_read_asks_acpmux_off_the_request_thread() {
                           "operation":"agent_session.trust.get",
                           "params":{"surface":surface,"cwd":"/tmp"}});
     let handled = request_thread_tests::on_request_thread_with(&mux, move |mux| {
-        page_router::try_handle(mux, client, &envelope.to_string(), &writer)
+        through_operation_route(mux, client, &envelope.to_string(), &writer)
     });
     assert_eq!(handled, Some(true));
     let reply = request_thread_tests::next_reply(&outbound);

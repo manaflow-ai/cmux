@@ -13,9 +13,13 @@ import CmuxNextDesign
 /// window, below the sidebar, and real glass over the live page. A WebKit
 /// page uses the same path, so both engines show one card the same way.
 ///
-/// The chrome owns the cards and places them over `page` (its page area):
-/// bottom center, `inset` above its bottom edge plus each card's `lift`,
-/// never wider than the page less the insets. A card shows only while the
+/// The chrome owns the cards and places them over `page` (its page area) by
+/// frame (`PageCardPlacement`): bottom center, `inset` above its bottom edge
+/// plus each card's `lift`, never wider than the page less the insets; a
+/// `PageFloatingCard` says its size for that width, any other card takes its
+/// fitting size. Chrome sizes a bubble the same way, from its contents'
+/// preferred size (ui/views/bubble/bubble_dialog_delegate.cc,
+/// `SizeToContents()`). A card shows only while the
 /// page is in a window and not hidden (a parked tab keeps its cards for when
 /// it shows again). The chrome syncs on layout and window, superview and
 /// hidden changes; a move of the window's pages without a resize (a pane
@@ -53,11 +57,12 @@ final class PageFloatingOverlays {
     /// The cards, bottom of the stack first (tests, diagnostics, lookups).
     var views: [NSView] { cards.map(\.view) }
 
-    /// Adds `view` (an Auto Layout view sized by its own constraints) above
-    /// the page; `lift` raises it over the page's bottom inset.
+    /// Adds `view` above the page; `lift` raises it over the page's bottom
+    /// inset. The card is placed by frame, also one built with constraints
+    /// inside (they size its content, never its place).
     func add(_ view: NSView, lift: CGFloat = 0) {
         guard !cards.contains(where: { $0.view === view }) else { return }
-        view.translatesAutoresizingMaskIntoConstraints = false
+        view.translatesAutoresizingMaskIntoConstraints = true
         cards.append(Card(view: view, lift: lift))
         observePages()
     }
@@ -79,49 +84,43 @@ final class PageFloatingOverlays {
 
     /// Places every card over the page when it shows in a window, else
     /// takes them off screen until it does. Inside its overlay clip (the
-    /// page area) a card keeps the constraints it had in the chrome: bottom
-    /// center, at least `inset` from the sides, its width from its own
-    /// content. The host then gets the frame Auto Layout solved, so its
-    /// mouse regions match the card.
+    /// page area) a card goes where `PageCardPlacement` puts it; the host
+    /// gets that frame as the card's anchor, so its mouse regions match the
+    /// card.
     func sync() {
         guard !cards.isEmpty, let page else { return }
+        // visibility-walk-allow: the cards are child windows placed over the page AppKit shows; a node would place them a turn after the page
         guard let window = page.window, !page.isHiddenOrHasHiddenAncestor else {
             for index in cards.indices { dismiss(index) }
             return
         }
         let clip = page.convert(page.bounds, to: nil)
         let scope = page.themeScope
+        let placement = PageCardPlacement(inset: BrowserMetrics.overlayInset)
         for index in cards.indices {
             let view = cards[index].view
             if view.themeScope !== scope { scope.root(view) }
+            let frame = placement.frame(for: Self.size(of: view, maxWidth: placement.maxWidth(in: clip.size)),
+                                        lift: cards[index].lift, in: clip.size)
+            if view.frame.size != frame.size { view.setFrameSize(frame.size) }
             if let handle = cards[index].handle, !handle.isDismissed, view.window?.parent === window {
                 handle.update(paneClip: clip)
             } else {
                 dismiss(index)
-                let handle = WindowOverlayHost.host(for: window).present(
+                cards[index].handle = WindowOverlayHost.host(for: window).present(
                     view, options: OverlayOptions(kind: .attached, anchor: NSRect(origin: clip.origin, size: .zero),
                                                   passesThroughClicks: cards[index].isReleased, layer: .pane(clip: clip))
                 )
-                cards[index].handle = handle
-                if let holder = view.superview { pin(view, in: holder, lift: cards[index].lift) }
             }
-            guard let holder = view.superview, let handle = cards[index].handle else { continue }
-            // sync-layout: view.frame below is the solved card frame the host's anchor takes.
-            holder.layoutSubtreeIfNeeded()
-            let solved = view.frame
-            handle.update(anchor: NSRect(x: clip.minX + solved.minX, y: clip.minY + solved.minY,
-                                         width: solved.width, height: solved.height))
+            cards[index].handle?.update(anchor: frame.offsetBy(dx: clip.minX, dy: clip.minY))
         }
     }
 
-    /// The card's place in its overlay clip, as it was in the chrome.
-    private func pin(_ view: NSView, in holder: NSView, lift: CGFloat) {
-        let inset = BrowserMetrics.overlayInset
-        NSLayoutConstraint.activate([
-            view.centerXAnchor.constraint(equalTo: holder.centerXAnchor),
-            view.bottomAnchor.constraint(equalTo: holder.bottomAnchor, constant: -inset - lift),
-            view.leadingAnchor.constraint(greaterThanOrEqualTo: holder.leadingAnchor, constant: inset),
-        ])
+    /// A card's size at most `maxWidth` wide.
+    private static func size(of view: NSView, maxWidth: CGFloat) -> CGSize {
+        if let card = view as? any PageFloatingCard { return card.cardSize(maxWidth: maxWidth) }
+        let fitting = view.fittingSize
+        return CGSize(width: min(fitting.width, maxWidth), height: fitting.height)
     }
 
     /// Whether a click at `view`'s center goes to the overlay host
@@ -147,5 +146,27 @@ final class PageFloatingOverlays {
         let handle = cards[index].handle
         cards[index].handle = nil
         handle?.dismiss()
+    }
+}
+
+/// A floating card that sizes itself for the page: its frame size when it
+/// may be at most `maxWidth` wide.
+@MainActor
+protocol PageFloatingCard: NSView {
+    func cardSize(maxWidth: CGFloat) -> CGSize
+}
+
+/// Where a floating card goes in its page: bottom center, `inset` above the
+/// bottom edge plus its lift, at most the page less the side insets wide.
+nonisolated struct PageCardPlacement: Equatable, Sendable {
+    var inset: CGFloat
+
+    /// The widest a card may be in a page of `page` size.
+    func maxWidth(in page: CGSize) -> CGFloat { max(page.width - inset * 2, 0) }
+
+    /// The card's frame in the page (the page's bottom left at the origin).
+    func frame(for size: CGSize, lift: CGFloat, in page: CGSize) -> CGRect {
+        let width = min(size.width, maxWidth(in: page))
+        return CGRect(x: ((page.width - width) / 2).rounded(.down), y: inset + lift, width: width, height: size.height)
     }
 }

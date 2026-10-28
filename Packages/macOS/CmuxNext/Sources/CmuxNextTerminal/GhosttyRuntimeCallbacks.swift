@@ -1,5 +1,8 @@
 import AppKit
+import CmuxNextCompat
+import CmuxNextWakeups
 import GhosttyNextKit
+import IOSurface
 
 /// Carries a Ghostty C handle across threads: the module's one reviewed
 /// pointer hand-off. Swift never reads through it; Ghostty's contract keeps
@@ -13,12 +16,18 @@ import GhosttyNextKit
 
 // MARK: - C callbacks
 //
-// libghostty calls wakeup_cb from any thread. Action and clipboard callbacks
+// libghostty calls wakeup_cb from any thread; the tick it queues (one however many wakeups came)
+// runs as the board task `ghostty.tick` (GhosttyTickClass). Action and clipboard callbacks
 // arrive on the main thread during ghostty_app_tick or a surface call; the
-// handlers still check and hop so an off-main caller can never touch AppKit.
+// handlers still check, and an off-main caller reaches the main run loop's next
+// pass (MainRunLoopBlock: one FIFO, so such calls keep their order) instead of
+// touching AppKit. A surface's state actions wait in its GhosttyActionMailbox for
+// its window's frame; its discrete actions, clipboard confirms and writes, and
+// close flush that mailbox first, so each runs after the state Ghostty sent
+// before it (p04-input-079).
 
 // Every `userdata` below is what cmux registered for its callback: the runtime's
-// RuntimeCallbackContext, or a surface's SurfaceBridge, which outlives its surface
+// RuntimeCallbackContext's registry token, or a surface's SurfaceBridge, which outlives its surface
 // (TerminalSurfaceView.deinit releases it after ghostty_surface_free returns).
 
 nonisolated func ghosttyWakeup(_ userdata: UnsafeMutableRawPointer?) {
@@ -27,10 +36,9 @@ nonisolated func ghosttyWakeup(_ userdata: UnsafeMutableRawPointer?) {
     guard context.pending.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else {
         return
     }
-    DispatchQueue.main.async {
-        // main-proof: DispatchQueue.main runs its blocks on the main thread
-        MainActor.assumeIsolated { context.runtime?.tick() }
-    }
+    // The wait starts here, on the waking thread: the board's ledger counts the run loop's queue too.
+    let post = MainTaskPost(enqueueNanos: MainTaskPost.uptimeNanos())
+    MainRunLoopBlock.perform { context.runtime?.tick(posted: post) }
 }
 
 nonisolated func ghosttyAction(_ app: ghostty_app_t?, _ target: ghostty_target_s, _ action: ghostty_action_s) -> Bool {
@@ -47,19 +55,18 @@ nonisolated func ghosttyAction(_ app: ghostty_app_t?, _ target: ghostty_target_s
     }
     // SAFETY: the live app's userdata is the runtime's context (above).
     let context = unsafe app.flatMap { unsafe RuntimeCallbackContext.from(ghostty_app_userdata($0)) }
-    if Thread.isMainThread {
-        // main-proof: guarded by Thread.isMainThread above
-        return MainActor.assumeIsolated {
-            GhosttyActionDispatcher.dispatch(decoded, bridge: bridge, runtime: context?.runtime)
-        }
+    guard Thread.isMainThread else {
+        MainRunLoopBlock.perform { _ = deliverGhosttyAction(decoded, bridge: bridge, runtime: context?.runtime) }
+        return true
     }
-    DispatchQueue.main.async {
-        // main-proof: DispatchQueue.main runs its blocks on the main thread
-        MainActor.assumeIsolated {
-            _ = GhosttyActionDispatcher.dispatch(decoded, bridge: bridge, runtime: context?.runtime)
-        }
-    }
-    return true
+    // main-proof: guarded by Thread.isMainThread above
+    return MainActor.assumeIsolated { deliverGhosttyAction(decoded, bridge: bridge, runtime: context?.runtime) }
+}
+
+/// A surface's action goes through its bridge (``SurfaceBridge/deliver(_:runtime:)``); an app's runs now.
+@MainActor private func deliverGhosttyAction(_ action: GhosttyAction, bridge: SurfaceBridge?, runtime: GhosttyRuntime?) -> Bool {
+    guard let bridge else { return GhosttyActionDispatcher.dispatch(action, bridge: nil, runtime: runtime) }
+    return bridge.deliver(action, runtime: runtime)
 }
 
 /// Paste and OSC 52 reads. Completes synchronously when the pasteboard has
@@ -140,14 +147,13 @@ nonisolated func ghosttyConfirmReadClipboard(
     // (TerminalClipboardRequests).
     let pointer = unsafe UncheckedPointer(raw: state)
     let run: @MainActor @Sendable () -> Void = {
-        bridge.view?.clipboardRequests.confirm(contents: contents, contentBytes: contentBytes, kind: kind, state: pointer)
+        bridge.confirmClipboard(contents: contents, contentBytes: contentBytes, kind: kind, state: pointer)
     }
     if Thread.isMainThread {
         // main-proof: guarded by Thread.isMainThread above
         MainActor.assumeIsolated(run)
     } else {
-        // main-proof: DispatchQueue.main runs its blocks on the main thread
-        DispatchQueue.main.async { MainActor.assumeIsolated(run) }
+        MainRunLoopBlock.perform(run)
     }
 }
 
@@ -176,22 +182,69 @@ nonisolated func ghosttyWriteClipboard(
     // SAFETY: a surface's userdata (above).
     let bridge = unsafe SurfaceBridge.from(userdata)
     let run: @MainActor @Sendable () -> Void = {
-        bridge?.view?.clipboardRequests.write(items: items, location: location, requiresConfirmation: confirm)
+        bridge?.writeClipboard(items: items, location: location, requiresConfirmation: confirm)
     }
     if Thread.isMainThread {
         // main-proof: guarded by Thread.isMainThread above
         MainActor.assumeIsolated(run)
     } else {
-        // main-proof: DispatchQueue.main runs its blocks on the main thread
-        DispatchQueue.main.async { MainActor.assumeIsolated(run) }
+        MainRunLoopBlock.perform(run)
     }
 }
 
 nonisolated func ghosttyCloseSurface(_ userdata: UnsafeMutableRawPointer?, _ processAlive: Bool) {
     // SAFETY: a surface's userdata (above).
     guard let bridge = unsafe SurfaceBridge.from(userdata) else { return }
-    DispatchQueue.main.async {
-        // main-proof: DispatchQueue.main runs its blocks on the main thread
-        MainActor.assumeIsolated { bridge.view?.surfaceRequestedClose() }
+    // Never inline, even on main: closing frees the surface, which must not happen inside its own callback.
+    MainRunLoopBlock.perform { bridge.requestClose() }
+}
+
+/// `ghostty_surface_vsync_wanted_cb` (ghostty-next p03-rendering-082), set in a surface's config when it runs on
+/// external vsync (``SurfaceBridge/setExternalVSync(in:userdata:)``): on the surface's renderer thread, on each
+/// edge of whether it wants ticks. `userdata` is the surface's bridge, released only after ghostty_surface_free
+/// returns (and never when the view is freed off main), so its ``SurfaceBridge/vsync`` outlives every call. It
+/// takes the pacer's lock briefly and arms its hub subscription (or its linkless deadline); it never waits for main
+/// or calls into Ghostty.
+nonisolated func ghosttySurfaceVSyncWanted(_ userdata: UnsafeMutableRawPointer?, _ wanted: Bool) {
+    // SAFETY: a surface's `vsync_userdata`, its bridge (above).
+    unsafe SurfaceBridge.from(userdata)?.vsync.wantedChanged(wanted)
+}
+
+#if GHOSTTY_EXTERNAL_CURSOR
+/// `ghostty_surface_cursor_cb` (ghostty-next p03-rendering-090), set in a surface's config while its view shows
+/// the cursor itself (``TerminalCursorLayer``): once per move or change of the cursor cell, never per blink, inside
+/// the Core Animation transaction that presents the cell's frame, on the thread that presents it (main, or the GPU
+/// completion thread for a content-only frame). `userdata` is the surface's ``SurfaceBridge`` (`cursor_userdata`),
+/// which outlives the surface. The cell goes on its layer in that transaction (``TerminalCursorPresenter``), so it
+/// moves with its text; the blink follows in one coalesced main turn. It never blocks or calls into Ghostty, as
+/// ghostty.h requires.
+// perf-hot: 5us terminal-key (one published cell: three layer property sets, two atomics, at most one main wake)
+nonisolated func ghosttySurfaceCursor(_ userdata: UnsafeMutableRawPointer?, _ cell: UnsafePointer<ghostty_cursor_cell_s>?) {
+    // SAFETY: a surface's `cursor_userdata`, its SurfaceBridge (above); Ghostty passes one cell, valid for this
+    // callback, which is copied before it returns.
+    guard let bridge = unsafe SurfaceBridge.from(userdata), let presenter = bridge.cursor,
+          let cell = unsafe cell?.pointee else { return }
+    guard presenter.present(TerminalCursorState(cell)) else { return }
+    MainRunLoopBlock.perform { bridge.view?.cursorCellsDidChange() }
+}
+
+extension TerminalCursorState {
+    /// Copies Ghostty's cell; the cell's IOSurface is retained here (Ghostty passes it +0, valid for the call).
+    nonisolated init(_ cell: ghostty_cursor_cell_s) {
+        let style: Style = switch cell.style {
+        case GHOSTTY_CURSOR_CELL_BLOCK_HOLLOW: .blockHollow
+        case GHOSTTY_CURSOR_CELL_BAR: .bar
+        case GHOSTTY_CURSOR_CELL_UNDERLINE: .underline
+        case GHOSTTY_CURSOR_CELL_LOCK: .lock
+        default: .block
+        }
+        // SAFETY: Ghostty's `surface` is an IOSurfaceRef (toll-free bridged to IOSurface) valid for this callback;
+        // taking it unretained and storing it retains it, so it outlives the callback.
+        let image = unsafe cell.surface.map { unsafe Image(surface: Unmanaged<IOSurface>.fromOpaque($0).takeUnretainedValue()) }
+        self.init(serial: cell.serial,
+                  cell: CGRect(x: Double(cell.x), y: Double(cell.y), width: Double(cell.width), height: Double(cell.height)),
+                  style: style, visible: cell.visible, blinking: cell.blinking, blinkIntervalMS: cell.blink_interval_ms,
+                  image: image)
     }
 }
+#endif

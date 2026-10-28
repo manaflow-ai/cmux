@@ -51,6 +51,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::panic_free::{alphabet_symbol, filled};
 use crate::pty::{
     FrameContext, PTY_PROTOCOL_VERSION, PtyManager, random_hex, session_name_ok, surface_ref_ok,
 };
@@ -147,14 +148,8 @@ impl TunnelFrameDecoder {
         self.buffer.extend_from_slice(chunk);
         self.storage_capacity = self.storage_capacity.max(self.buffer.capacity());
         let mut frames = Vec::new();
-        while self.buffer.len() >= HEADER_BYTES {
-            let length = u32::from_be_bytes([
-                self.buffer[0],
-                self.buffer[1],
-                self.buffer[2],
-                self.buffer[3],
-            ]) as usize;
-            let kind = self.buffer[4];
+        while let [b0, b1, b2, b3, kind, ..] = *self.buffer.as_ref() {
+            let length = u32::from_be_bytes([b0, b1, b2, b3]) as usize;
             if length > self.max_frame_bytes {
                 self.failed = true;
                 return Err("frame_too_large");
@@ -245,11 +240,10 @@ pub fn parse_tunnel_client_frame(payload: &[u8]) -> Option<ClientFrame> {
 /// Server-generated session names: same alphabet and prefix the Worker route
 /// uses, so pickers and process tables read consistently.
 pub fn generate_session_name() -> String {
-    const ALPHABET: &[u8] = b"abcdefghjkmnpqrstuvwxyz23456789";
+    const ALPHABET: &[u8; 31] = b"abcdefghjkmnpqrstuvwxyz23456789";
     let mut bytes = [0_u8; 4];
     let _ = getrandom::fill(&mut bytes);
-    let suffix: String =
-        bytes.iter().map(|byte| ALPHABET[*byte as usize % ALPHABET.len()] as char).collect();
+    let suffix: String = bytes.iter().map(|byte| alphabet_symbol(ALPHABET, *byte)).collect();
     format!("web-{suffix}")
 }
 
@@ -336,8 +330,10 @@ impl Connection {
                     "cols": frame.get("cols").cloned().unwrap_or(Value::Null),
                     "rows": frame.get("rows").cloned().unwrap_or(Value::Null),
                 });
-                if let Some(surface) = frame.get("surface").and_then(Value::as_str) {
-                    opened["surface"] = Value::from(surface);
+                if let Some(surface) = frame.get("surface").and_then(Value::as_str)
+                    && let Some(fields) = opened.as_object_mut()
+                {
+                    fields.insert("surface".to_owned(), Value::from(surface));
                 }
                 self.send_control(&opened);
             }
@@ -369,8 +365,10 @@ impl Connection {
                 let code =
                     wire_error_code(frame.get("code").and_then(Value::as_str).unwrap_or("failed"));
                 let mut error = json!({ "t": "error", "code": code });
-                if let Some(message) = frame.get("message").and_then(Value::as_str) {
-                    error["message"] = Value::from(message);
+                if let Some(message) = frame.get("message").and_then(Value::as_str)
+                    && let Some(fields) = error.as_object_mut()
+                {
+                    fields.insert("message".to_owned(), Value::from(message));
                 }
                 self.send_control(&error);
                 // Non-fatal errors (an oversized input frame) keep the
@@ -439,8 +437,10 @@ async fn handle_client_frame(
                 "cols": cols,
                 "rows": rows,
             });
-            if let Some(surface) = surface {
-                open["surface"] = Value::from(surface);
+            if let Some(surface) = surface
+                && let Some(fields) = open.as_object_mut()
+            {
+                fields.insert("surface".to_owned(), Value::from(surface));
             }
             connection.manager.handle_frame(&open, context).await;
         }
@@ -560,7 +560,7 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                     }
                     Ok(count) => count,
                 };
-                match decoder.push(&buffer[..count]) {
+                match decoder.push(filled(&buffer, count)) {
                     Ok(frames) => {
                         for frame in frames {
                             handle_client_frame(&connection, &context, frame).await;

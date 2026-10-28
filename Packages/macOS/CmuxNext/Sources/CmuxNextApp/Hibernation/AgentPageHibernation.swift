@@ -56,7 +56,10 @@ final class AgentPageHibernation {
     var hiddenAt: [String: ContinuousClock.Instant] = [:]
     var shown: Set<String> = []
     var releasing: Set<String> = []
-    let deadline = DemandTimer(owner: "AgentPageHibernation")
+    /// The next page to come due: one background deadline (nobody sees a page let go).
+    let deadline: MainDeadline
+    /// Where the turn follow runs (``followTurns(_:)``): the app's one main-thread scheduler.
+    let mainWork: MainWorkScheduler
     /// The acpmux turn state of the tab's chat; injected by the App.
     var turnState: (String) -> AgentTurnState? = { _ in nil }
     /// The acpmux turn watch is up. While it is down no chat's turn is known, so every chat counts as busy.
@@ -70,6 +73,8 @@ final class AgentPageHibernation {
     var displace: (String) -> Void = { _ in }
     /// The clock (tests set it).
     var now: () -> ContinuousClock.Instant = { .now }
+    /// Reports to the discard planner's last inputs (`debug.discards`): the app's `BrowserHibernation.discards`.
+    var noteDiscard: (ContentDiscardReport.Event) -> Void = { _ in }
     private(set) var releasedCount = 0
     /// A page was let go (the App counts it in the memory histograms).
     var onRelease: () -> Void = {}
@@ -78,7 +83,9 @@ final class AgentPageHibernation {
     /// How soon the armed deadline comes due, in seconds; nil when none is armed (tests tell the
     /// budget's short deadline from the timeout's).
     var deadlineDelay: Double?
-    private var turnObservation: Task<Void, Never>?
+    /// Follows the acpmux turns (``followTurns(_:)``): a background ``ServiceObservation`` (it replans pages while
+    /// no window shows).
+    private var turnObservation: ServiceObservation<(UInt64, Bool)>?
     /// The page lifecycle that drives agent pages (``follow(_:)``); nil: this class's timeout and budget.
     private(set) weak var lifecycle: PageLifecycle?
     /// What an agent page held as it hid, read while it still ran: a frozen page cannot answer, so its
@@ -120,15 +127,22 @@ final class AgentPageHibernation {
     /// Until when the timeout lets no chat go (``leavesCriticalEventToUrgentPass``).
     var noReleaseBefore: ContinuousClock.Instant?
 
-    init(tabs: @escaping () -> AgentTabStore?) {
+    /// - Parameters:
+    ///   - tabs: The agent tab store once the App made it.
+    ///   - deadlines: The app's main-thread deadline scheduler: the next page's deadline is a background deadline
+    ///     on it, and the turn follow runs on its scheduler.
+    init(tabs: @escaping () -> AgentTabStore?, deadlines: MainDeadlineScheduler) {
         store = tabs
+        deadline = MainDeadline(owner: "AgentPageHibernation", workClass: .background, scheduler: deadlines)
+        mainWork = deadlines.work
     }
 
     /// Wired to the App: never makes the agent tab store (that starts acpmux), follows the panes'
     /// presentation changes, and lets the pane holding a released page go.
     convenience init(services: AppServices) {
-        self.init(tabs: { [weak services] in services?.madeAgentTabs })
-        isPinned = { [weak services] key in services?.locateTab(key)?.0.pinned ?? false }
+        self.init(tabs: { [weak services] in services?.madeAgentTabs }, deadlines: services.mainDeadlines)
+        // R-index: the machines' tab index, O(1) per key.
+        isPinned = { [weak machines = services.machines] key in machines?.tabIndex.locate(key)?.0.pinned ?? false }
         turnState = { [weak services] key in
             guard let tabs = services?.madeAgentTabs, var (record, _) = tabs.lookup(tabs.resolve(key)) else { return nil }
             // The session the page runs, as its rebuild uses it: a refused bind leaves the record on the old one.
@@ -140,6 +154,7 @@ final class AgentPageHibernation {
         displace = { [weak services] key in services?.cache.presenter(of: key)?.surfaceWasDisplaced(key) }
         followTurns(AgentTurnStateStore.shared)
         let cache = services.cache
+        noteDiscard = { [weak cache] event in cache?.hibernation?.noteDiscard(event) }
         // `pageLifecycle`: agent tabs' reveal and conceal reach the page lifecycle. A chat shown before
         // this (the launch's) waits for its mount, which its live page answers now.
         if let lifecycle = cache.pageLifecycle {
@@ -177,14 +192,14 @@ final class AgentPageHibernation {
     }
 
     /// A turn that ends, or the watch coming back, makes its hidden page due again (a busy page
-    /// has no deadline).
+    /// has no deadline): a background ``ServiceObservation``, applied now and once per change.
     func followTurns(_ turns: AgentTurnStateStore) {
         turnObservation?.cancel()
-        turnObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (turns.stateRevision, turns.watching) }) {
-                guard let self else { return }
-                if lifecycle == nil { replan() } else { refreshTurnReasons() }
-            }
+        turnObservation = ServiceObservation(.background, owner: "AgentPageHibernation.turns", on: mainWork) {
+            (turns.stateRevision, turns.watching)
+        } apply: { [weak self] _ in
+            guard let self else { return }
+            if lifecycle == nil { replan() } else { refreshTurnReasons() }
         }
     }
 
@@ -216,9 +231,11 @@ final class AgentPageHibernation {
             shown.insert(key)
             hiddenAt[key] = nil
             tabs.launchImages.drop(key)
+            noteDiscard(.shown(key, .agentPage))
         } else if tabs.existingView(key) != nil {
             shown.remove(key)
             hiddenAt[key] = now()
+            noteDiscard(.hidden(key, .agentPage))
             replan()
         }
     }
@@ -228,6 +245,7 @@ final class AgentPageHibernation {
         hiddenAt[key] = nil
         hideReads[key] = nil
         store()?.launchImages.drop(key)
+        noteDiscard(.removed(key))
     }
 
     /// Asks `view` what it holds that acpmux does not and, with `frame`, for its last frame; `then` gets
@@ -235,6 +253,8 @@ final class AgentPageHibernation {
     func read(_ view: AgentPaneView, frame withFrame: Bool,
               then: @escaping @MainActor (AgentPaneWakeState?, (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)?) async -> Void) {
         let readWake = wakeState
+        // task-owner: one read, bounded by the wake state's 3 s and the frame's 2 s deadlines
+        // main-hop-allow: the wake state and the frame are the agent page's main-actor async script reads, and `then` (main-actor async: it awaits the launch image's encode) runs in their resume
         Task { @MainActor [weak self] in
             let wake = await readWake(view)
             var frame: (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)?
@@ -255,6 +275,7 @@ final class AgentPageHibernation {
             // stays: letting it go would drop its chips. The next plan asks again.
             if wake == nil, view.model.hasHandshake {
                 logger.info("agent page \(key, privacy: .public) kept: no wake state in time")
+                if let at = hiddenAt[key] { noteDiscard(.planned(key, .agentPage, hiddenFor: (now() - at).seconds, DiscardEligibility(keptFor: .unanswered))) }
                 return
             }
             // The page may have shown, changed or got busy (a turn started) while it was asked
@@ -282,11 +303,13 @@ final class AgentPageHibernation {
         if let session = view.model.sessionId { tabs.sessions[stored] = session }
         tabs.wakeStates[stored] = wake.flatMap { $0.isEmpty ? nil : $0 }
         tabs.views[stored] = nil
-        tabs.retirer.retire(view, closed: false)
+        view.retire(on: tabs.retirer, closed: false)
         tabs.stopCustomizationWhenUnused()
         hiddenAt[key] = nil
         releasedCount += 1
         onRelease()
+        noteDiscard(.discarding(key, .agentPage, HibernationPlanner.discardReason(at: pressure)))
+        noteDiscard(.discarded(key))
         logger.info("released agent page \(key, privacy: .public)")
     }
 }
@@ -386,10 +409,28 @@ extension AgentPageHibernation: AgentPageLifecycleOwner {
         hideReads[key] = nil
     }
 
-    /// A frozen page answers nothing: no read is asked of it until it thaws.
+    /// A frozen page answers nothing: no read is asked of it until it thaws. One with nothing on its acpmux
+    /// connection waiting for it closes the connection until the thaw (p13-webui-080).
     func pageDidFreeze(_ key: String) {
         hideReads[key]?.runs = false
+        guard let pane = store()?.existingView(key) else { return }
+        closeConnectionWhileFrozen(key, pane: pane, reasons: tabReasons(key, pane: pane))
     }
+
+    /// Tab `key`'s frozen page `pane`, whose tab gives `reasons`, lets its acpmux connection go when nothing
+    /// on it waits for the page: its thaw opens it again and reads the chat from the page's last event. A turn
+    /// that runs or waits on the person, a turn watch that is down, another machine's or a Chief home's chat,
+    /// and a page whose hide read did not say it holds no started chat (a chip pick's, which no prompt went
+    /// to) keep the connection. Asked at the freeze and whenever a frozen page's reasons change.
+    private func closeConnectionWhileFrozen(_ key: String, pane: AgentPaneView, reasons: Set<PageLifecyclePlanner.KeepReason>) {
+        guard let read = hideReads[key], read.isDone, let wake = read.wake, wake.pendingChat != true,
+              reasons.isDisjoint(with: Self.reasonsThatKeepTheConnection) else { return }
+        pane.closeTransportWhileFrozen()
+    }
+
+    /// The tab reasons that keep a frozen page's acpmux connection (``closeConnectionWhileFrozen(_:pane:reasons:)``).
+    static let reasonsThatKeepTheConnection: Set<PageLifecyclePlanner.KeepReason> =
+        [.turnRunning, .awaitingPerson, .turnsUnknown, .remoteChat, .unrestorable]
 
     /// The hidden page runs again (a turn started on it): a read it left unanswered is asked again.
     func pageDidThaw(_ key: String) {
@@ -412,9 +453,13 @@ extension AgentPageHibernation: AgentPageLifecycleOwner {
     /// Hands the lifecycle tab `key`'s keep reasons now: one that blocks a freeze thaws a frozen page in
     /// this turn (a turn started), one that ended arms a pass (the turn ended, the hide read answered).
     /// Never the page view's own (its load): those it reports itself, and a copy here would go stale.
+    /// A page that stays frozen whose connection no longer has anything waiting for it (the person's
+    /// question went away with no turn running) lets the connection go now (p13-webui-080).
     private func refreshKeepReasons(_ key: String) {
         guard let lifecycle, let pane = store()?.existingView(key) else { return }
-        lifecycle.setKeepReasons(tabReasons(key, pane: pane), for: key)
+        let reasons = tabReasons(key, pane: pane)
+        lifecycle.setKeepReasons(reasons, for: key)
+        if lifecycle.state(of: key) == .frozen { closeConnectionWhileFrozen(key, pane: pane, reasons: reasons) }
     }
 
     /// A turn started or ended, or the turn watch went down or came back: every hidden agent page's

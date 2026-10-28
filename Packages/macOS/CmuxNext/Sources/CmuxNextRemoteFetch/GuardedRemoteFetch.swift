@@ -1,5 +1,8 @@
 public import Foundation
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// A host fetch for page content whose URL is untrusted (markdown remote images; agent pane reply
 /// images and media). Every hop: https only, no URL credentials, no `localhost`, `.local` or
@@ -83,7 +86,9 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
         let clock = clock
         let timeout = timeout
         return await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            // A race dropped without an answer is a failed fetch.
+            (try? await withOnceContinuation {
+                (continuation: OnceContinuation<Result<RemoteFetchResponse, RemoteFetchFailure>, OnceContinuationError>) in
                 race.arm(continuation)
                 // task-owner: the fetch; the race resumes the caller with whichever ends first
                 let work = Task { race.finish(await follow(url)) }
@@ -94,7 +99,7 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
                     race.finish(.failure(.failed))
                 }
                 race.own(work, deadline)
-            }
+            }) ?? .failure(.failed)
         } onCancel: {
             race.finish(.failure(.failed))
         }

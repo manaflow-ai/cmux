@@ -4,14 +4,17 @@
 //! and every reload runs under the store lock and emits its changes before
 //! the lock is released, so events leave in revision order.
 
+use cmux_threads::sync::Mutex;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::{Arc, OnceLock, Weak};
 
 use cmux_config::{
     KeybindingsChange, KeybindingsOp, KeybindingsOutcome, KeybindingsRefusal, KeybindingsStore,
     Origin, Watcher,
 };
 
+use super::mux_work::Sequence;
+use super::settings::post_reload;
 use super::{Mux, MuxEvent};
 
 /// The daemon serves `keybindings.*` and emits `keybindings-changed`.
@@ -96,11 +99,15 @@ fn open_owner(mux: &Arc<Mux>) -> KeybindingsOwner {
 fn start_watcher(mux: Weak<Mux>, store: &Arc<Mutex<KeybindingsStore>>) -> Option<Watcher> {
     let files = store.lock().ok()?.watch_paths();
     let store = Arc::clone(store);
+    let reloads = Arc::new(Sequence::default());
     Watcher::start(files, move || {
-        let Some(mux) = mux.upgrade() else { return };
-        let mut store = store.lock().unwrap_or_else(|poison| poison.into_inner());
-        let change = store.reload();
-        emit_changes(&mux, change);
+        let store = Arc::clone(&store);
+        // Off the utility watch thread (settings.rs `post_reload`).
+        post_reload(&mux, &reloads, move |mux| {
+            let mut store = store.lock().unwrap_or_else(|poison| poison.into_inner());
+            let change = store.reload();
+            emit_changes(mux, change);
+        });
     })
     .ok()
 }

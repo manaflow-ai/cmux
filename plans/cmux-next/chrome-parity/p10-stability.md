@@ -259,11 +259,12 @@ GitHub CI job.
   a Q14 decode entry point, a file, a peer frame) or *internal invariant*. Input-reachable sites get validation that
   returns a typed error to a boundary; never clamping, never a silent default. Internal invariants go to the Invariant API.
 - **Invariant API** in `Packages/Shared/CmuxSafeConcurrency` (Foundation-free):
-  `Invariant.check(cond, id)` traps in every build (the one sanctioned trap; each site needs a `swift.invariant_check`
-  allowlist entry with a reason, used where continuing would corrupt shared or persisted state);
+  `Invariant.check(cond, id)` traps in every build (the one sanctioned trap; each site needs an `invariant_check` entry
+  in `scripts/cmux-next/invariant-allowlist.json` with a reason, used where continuing would corrupt shared or persisted
+  state; the local-only guardrail `invariant-site` enforces it, never CI's crash ratchet, rule 1);
   `Invariant.notFatalUntil(cond, id, build: N)` reports once per site per launch until build N, then traps (the ratchet
-  refuses a lowered or removed N without a reason); `Invariant.dumpWillBeCheck(cond, id)` reports forever and needs an
-  allowlist entry with a written handler. Reports do one atomic dedupe on the caller's thread and hand the event to the
+  refuses a lowered or removed N without a reason); `Invariant.dumpWillBeCheck(cond, id)` reports forever and needs a
+  `dump_will_be_check` entry in the same file with a written handler. Reports do one atomic dedupe on the caller's thread and hand the event to the
   background crash-reporting lane (no Sentry call or I/O on the caller's thread; consent respected). A `nightly-assert`
   variant reports `assert()` and debug checks from a sampled slice of Nightly (DCHECK canary).
 - **Swift checked access stays checked.** The bounds-checked subscript and checked Int conversions are already Chrome's
@@ -331,8 +332,8 @@ GitHub CI job.
 ## 4. Rules for implementers
 
 1. **No CI gates.** Do not add GitHub jobs, steps, required checks or rows that make CI fail on growth. New ratchet classes
-   (trap_api, raw_continuation, objc_raises, invariant_check, target-settings, async-blocking, unsupervised-spawn,
-   ffi-guard, SAFETY-TODO) live in the local-only tier (guardrails.py / prepush-gate local rules, skipped under
+   (trap_api, raw_continuation, objc_raises, invariant_check, dump_will_be_check, target-settings, async-blocking,
+   unsupervised-spawn, ffi-guard, SAFETY-TODO) live in the local-only tier (guardrails.py / prepush-gate local rules, skipped under
    GITHUB_ACTIONS and `--commits`) and in report-only baselines (`crash-safety-report-baseline.json`,
    `rust-panic-extra-baseline.json`) that CI never reads. CI-read baselines (`crash-safety-baseline.json`,
    `rust-panic-baseline.json`) may only go down through the existing mechanism.
@@ -392,14 +393,15 @@ Each check is a command with a number. `scripts/cmux-next/stability-final.sh` (1
    in closure modules; `git grep -c uniqueKeysWithValues -- 'Packages/**/Sources'` = 0 (today 72); `crash_ratchet.py
    --report objc_raises` = 0 in the modules of 167-170 and `git grep -n -E 'availableData|seekToEndOfFile\(\)|
    readData\(ofLength' -- 'Packages/**/Sources'` = 0 (today 23); every `Invariant.check` / `dumpWillBeCheck` site has an
-   allowlist entry.
+   `invariant-allowlist.json` entry (`crash_ratchet.py --report invariant_check,dump_will_be_check` lists the sites).
 8. RUST PANICS: in the merged Linux+macOS Q10 run, every deny lint is 0 for every crate of every shipped Rust workspace
    (rust-panic-baseline.json 69 crates today 6,519; rust-panic-extra-baseline.json rows for the 6 separate cmux-tui
    workspaces, Native/OptChat/*, Native/DiffSidecar and cmux-mobile-host). The `INVARIANT:` expect count is reported per
    crate. crash-safety-baseline rust rows for unwrap, expect, panic_macro and exit are 0.
-9. FFI: for cmux-app-ffi, cmux-rd-ffi, cmux-layout-reducer-ffi and cmux-palette-ranker, the count of `extern "C" fn` equals
-   the count of `ffi_boundary(` plus `ffi-nopanic:` (today 102 exports, 40 catch_unwind lines); the CCmuxAppFFI pin's source
-   sha contains tasks 152 and 156; `check-app-ffi-pin.sh` passes.
+9. FFI: for cmux-app-ffi, cmux-rd-ffi, cmux-layout-reducer-ffi and cmux-palette-ranker, the Q18 test
+   `every_export_is_guarded` passes, so every `extern "C" fn` body runs in `ffi_boundary(` or carries `ffi-nopanic:`
+   (today 102 exports, 40 catch_unwind lines); the CCmuxAppFFI pin's source sha contains tasks 152 and 156;
+   `check-app-ffi-pin.sh` passes.
 10. TOKIO BLOCKING AND PROCESSES: `cargo run --manifest-path cmux-tui/tools/async-blocking-scan/Cargo.toml -- --root
     cmux-tui/crates --json` reports 0 blocking-in-async, 0 dropped JoinHandles, 0 unsupervised long-lived spawns, 0
     non-signal-safe `pre_exec` bodies, 0 unreaped children and 0 unreasoned unbounded channels in production code; the lab
@@ -481,8 +483,13 @@ Each hit (or each file/module group shown) is one task; the generator splits gro
   rules); each signature is one fix task with its repro.
 - **Q17 field-signatures:** `scripts/cmux-next/stability-health.py --env nightly-next --top 50 --json`; each Sentry issue
   without a GitHub issue is one task.
-- **Q18 ffi-exports:** `git grep -n -A3 'extern "C" fn' -- cmux-tui/crates/{cmux-app-ffi,cmux-rd-ffi,
-  cmux-layout-reducer-ffi,cmux-palette-ranker}/src` without `ffi_boundary`/`ffi-nopanic:` (102 exports).
+- **Q18 ffi-exports:** the exports that `cmux_ffi_guard::testing::unguarded_exports` reports. It reads each
+  `extern "C" fn` body, not a fixed line window (rustfmt puts long parameter lists before the body), and the
+  `every_export_is_guarded` test of each crate fails on any hit. Run `cargo test every_export_is_guarded` with
+  `--manifest-path cmux-tui/crates/cmux-app-ffi/Cargo.toml`, `.../cmux-rd-ffi/Cargo.toml` and
+  `.../cmux-layout-reducer-ffi/Cargo.toml` (separate workspaces), and `cargo test -p cmux-palette-ranker
+  every_export_is_guarded` in `cmux-tui`. Q18 = 0 when the four tests pass. Do not compare counts of `ffi_boundary(`
+  and `extern "C" fn`: a recovery call inside a guarded body is also an `ffi_boundary(` (102 exports before 152).
 - **Q19 objc-raises:** `crash_ratchet.py --report objc_raises` (160 JSONSerialization, 23 FileHandle, ~440 NSRange).
 - **Q20 rust-process:** `async-blocking-scan --kind pre_exec,child,unbounded` (54 pre_exec lines, 852 Command::new vs 42
   kill_on_drop, 468 unbounded/std channel lines, raw counts incl. tests).
@@ -1410,9 +1417,11 @@ with a defined fallback.
 - Files: Packages/Shared/CmuxSafeConcurrency/Sources/CmuxSafeConcurrency/Invariant.swift,
   Packages/Shared/CmuxHomeRender/Sources/CmuxHomeRender/Support/CrashGuard.swift,
   Packages/macOS/CmuxNext/Sources/CmuxNextCrashReporting/InvariantSink.swift, scripts/cmux-next/crash-allowlist.json
-- Change: `Invariant.check(cond, id)` (traps in every build; allowlist class swift.invariant_check with reason);
+- Change: `Invariant.check(cond, id)` (traps in every build; an `invariant_check` entry with reason in
+  invariant-allowlist.json, judged by the local-only guardrail `invariant-site`, task 199);
   `Invariant.notFatalUntil(cond, id, build:)` (report once per site per launch until build N, then trap; ratchet refuses a
-  lowered N without reason); `Invariant.dumpWillBeCheck(cond, id)` (report; allowlisted with a handler). Report path: one
+  lowered N without reason); `Invariant.dumpWillBeCheck(cond, id)` (report; a `dump_will_be_check` entry naming its
+  handler). Report path: one
   atomic dedupe on the caller's thread, event handed to the background crash-reporting lane (sink set by the composition
   root), consent respected. CrashGuard's fault-once path calls notFatalUntil.
 - Acceptance: No Sentry call or I/O on the caller's thread (test with a main-thread I/O detector); one event per site per
@@ -1587,8 +1596,8 @@ Common acceptance: the Q10 report shows 0 deny hits in the files; baseline lower
   pure arithmetic with no panic path gets `// ffi-nopanic: <why>`. app-ffi release profile: `debug = "line-tables-only"`,
   no strip of line tables, dSYM uploaded with the xcframework. The Swift side forwards stored panics (150). Lands through the
   pin lander (153).
-- Acceptance: Q18 = 0 (export count == ffi_boundary + ffi-nopanic); a unit test per crate makes a guarded fn panic and gets
-  the error value, not an abort.
+- Acceptance: Q18 = 0 (`every_export_is_guarded` passes in each of the four crates); a unit test per crate makes a guarded
+  fn panic and gets the error value, not an abort.
 - Test phase: cargo test in each FFI crate on Testbox; app compile-check with the new pin; motion and remote-view suites.
 
 #### p10-stability-153 FFI pin lander
@@ -1940,8 +1949,12 @@ Common acceptance: the Q10 report shows 0 deny hits in the files; baseline lower
 - Change: Rules tagged local_only run in the hook and plain runs only (skipped under GITHUB_ACTIONS and `--commits`);
   crash_ratchet/rust_panic_ratchet read report-only baselines (`*-report-baseline.json`, `rust-panic-extra-baseline.json`)
   only with `--report`, never in the compare mode CI runs.
+  The p10 crash classes (trap_api, raw_continuation, objc_raises, invariant_check, dump_will_be_check) are report-only
+  classes of crash_ratchet.py and never in its CI compare or crash-allowlist.json's "banned"; 099's Invariant sites are
+  judged by the local-only guardrail `invariant-site` against scripts/cmux-next/invariant-allowlist.json.
 - Acceptance: A test runs prepush-gate with GITHUB_ACTIONS=true and `--commits` and shows no local_only rule ran;
-  crash-safety-baseline.json and rust-panic-baseline.json gain no rows from p10.
+  crash-safety-baseline.json and rust-panic-baseline.json gain no rows from p10; a test names the p10 classes and
+  shows none is in crash_ratchet.SWIFT, SWIFT_KINDS or crash-allowlist.json's "banned".
 - Test phase: `python3 -I -m pytest` for prepush-gate and guardrails self-tests.
 
 #### p10-stability-200 Tart image replication + dedicated lab hosts

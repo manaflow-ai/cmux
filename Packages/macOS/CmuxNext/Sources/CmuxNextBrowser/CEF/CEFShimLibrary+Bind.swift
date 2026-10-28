@@ -53,6 +53,15 @@ nonisolated extension CEFShimLibrary {
             return ChromiumHostAccessibilityToken(length: length, buffer: buffer)
         }
         browserSetEmbedderVisibility = r.optional("cmux_shim_browser_set_embedder_visibility")
+        browserSetPageVisibility = try r("cmux_shim_browser_set_page_visibility")
+        tabSetVisibility = r.optional("cmux_shim_tab_set_visibility")
+        let cTabPagePush: (@convention(c) (Int32, UnsafePointer<CChar>?) -> Int32)? = unsafe r.optional("cmux_shim_tab_page_push")
+        if let c = unsafe cTabPagePush {
+            tabPagePush = { a0, a1 in unsafe Self.withCString(a1) { s1 in unsafe c(a0, s1) } }
+        } else {
+            tabPagePush = nil
+        }
+        browserSetPageDisplay = try r("cmux_shim_browser_set_page_display")
         unsafe initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
         unsafe setScheduleDelayed = try r("cmux_shim_set_schedule_delayed")
@@ -138,6 +147,10 @@ nonisolated extension CEFShimLibrary {
         extOpenOptions = { a0, a1 in unsafe Self.withCString(a1) { s1 in unsafe cExtOpenOptions(a0, s1) } }
         let cExtLoadUnpacked: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_ext_load_unpacked")
         extLoadUnpacked = { a0, a1 in unsafe Self.withCString(a1) { s1 in unsafe cExtLoadUnpacked(a0, s1) } }
+        extLoadLaterSupported = try r("cmux_shim_ext_load_later_supported")
+        let cExtLoadCommandLine: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?) -> Int32 =
+            try unsafe r("cmux_shim_ext_load_command_line")
+        extLoadCommandLine = { a0, a1, a2 in unsafe Self.withCString(a0) { s0 in unsafe Self.withCString(a2) { s2 in unsafe cExtLoadCommandLine(s0, a1, s2) } } }
         let cExtCommands: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>? = try unsafe r("cmux_shim_ext_commands")
         extCommands = { a0 in unsafe Self.take(cExtCommands(a0), cFree) }
         let cExtCommandRun: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_ext_command_run")
@@ -150,6 +163,7 @@ nonisolated extension CEFShimLibrary {
         windowCount = try r("cmux_shim_window_count")
         shutdown = try r("cmux_shim_shutdown")
         unsafe setWindowRequestHandler = try r("cmux_shim_set_window_request_handler")
+        unsafe setWindowRequestPolicy = try r("cmux_shim_set_window_request_policy")
         unsafe setFocusRequestHandler = try r("cmux_shim_set_focus_request_handler")
         foreignBrowserCount = try r("cmux_shim_foreign_browser_count")
         let cDownloadURL: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_download_url")
@@ -267,11 +281,17 @@ nonisolated extension CEFShimLibrary {
         }
         tabSetFrozen = r.optional("cmux_shim_tab_set_frozen")
         tabSendClick = r.optional("cmux_shim_tab_send_click")
+        tabSendMouseMove = r.optional("cmux_shim_tab_send_mouse_move")
         tabSetColorScheme = r.optional("cmux_shim_tab_set_color_scheme")
         tabDiscard = r.hostExports == nil ? r.optional("cmux_shim_tab_discard") : nil
+        tabCopySurface = r.optional("cmux_shim_tab_copy_surface")
         widgets = CEFShimWidgetOps(setGeometry: r.optional("cmux_shim_widget_set_geometry"), dismiss: r.optional("cmux_shim_widget_dismiss"),
                                    sendInput: r.optional("cmux_shim_widget_send_input"))
         dragTarget = try CEFShimDragTargetOps(r)
+        locks = try CEFShimLockOps(r)
+        popupMenus = try CEFShimPopupMenuOps(r)
+        suggestions = try CEFShimSuggestionOps(r)
+        choosers = try CEFShimChooserOps(r)
         let cImeSetComposition: (@convention(c) (Int32, UnsafePointer<UInt8>?, Int32, UnsafePointer<UInt8>?, Int32, Int32, Int32, Int32,
                                                  Int32) -> Void)? = unsafe r.optional("cmux_shim_browser_ime_set_composition")
         let cImeCommitText: (@convention(c) (Int32, UnsafePointer<UInt8>?, Int32, Int32, Int32) -> Void)? = unsafe r.optional("cmux_shim_browser_ime_commit_text")

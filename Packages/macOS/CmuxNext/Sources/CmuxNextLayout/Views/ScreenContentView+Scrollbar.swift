@@ -37,18 +37,26 @@ extension ScreenContentView {
         let bar = StripScrollbarView(hideClock: context.scrollbarClock)
         addSubview(bar)
         scrollbar = bar
+        // The thumb drag scrolls once per frame (feature `pointerFrameDrags`).
+        bar.pointerFrames = { [weak self] in self?.context.dragFrameInput }
         bar.onDragBegan = { [weak self] in
             guard let self else { return }
             self.beginUserScroll()
         }
-        bar.onDrag = { [weak self] offset in
+        // Every thumb point counts toward the release velocity at its event's time; only the
+        // delivery's latest shows.
+        bar.onDragSample = { [weak self] offset, time in
             guard let self, let raw = self.scrollState.gesture?.raw else { return }
-            self.userScroll(deltaX: raw - offset, timestamp: ProcessInfo.processInfo.systemUptime)
+            self.userScrollSample(deltaX: raw - offset, timestamp: time)
+        }
+        bar.onDrag = { [weak self] offset, time in
+            guard let self, let raw = self.scrollState.gesture?.raw else { return }
+            self.userScroll(deltaX: raw - offset, timestamp: time)
             self.context.requestFrames()
         }
-        bar.onDragEnded = { [weak self] in
+        bar.onDragEnded = { [weak self] time in
             guard let self else { return }
-            self.endUserScroll(timestamp: ProcessInfo.processInfo.systemUptime)
+            self.endUserScroll(timestamp: time)
             self.context.requestFrames()
         }
         bar.onPage = { [weak self] target in

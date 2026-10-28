@@ -17,7 +17,7 @@ struct CloudFeedSourceWakeTests {
         let count = Count()
         let (attempts, attempt) = AsyncStream.makeStream(of: Int.self)
         let source = CloudFeedSource(
-            apiBaseURL: URL(string: "https://api.test")!, device: "Mac", token: { "t" },
+            apiBaseURL: URL(string: "https://api.test")!, device: "Mac", mainWork: linklessMainWork(), token: { "t" },
             reconnect: Backoff(initial: .seconds(3600), maximum: .seconds(3600), jitter: 0),
             connect: { _, onSnapshot, opened in
                 count.value += 1
@@ -38,7 +38,7 @@ struct CloudFeedSourceWakeTests {
         }
         #expect(count.value == 2)
         // The same policy again closes nothing.
-        energy.update(EnergyPolicy(onBattery: true, networkResumes: 1))
+        energy.update(EnergyPolicy(networkResumes: 1, onBattery: true))
         source.stop()
         #expect(count.value == 2)
     }

@@ -63,10 +63,36 @@ extension CEFDevToolsController {
         // pane's. Its input method ops go to the host for the DevTools browser, as the pane's do.
         let page = ChromiumHostPageView(frame: .zero, inputTarget: .pageWindow)
         page.wireToken = tab.runtime.mintPageViewToken()
+        // What the person sees of the DevTools page goes to the host, as the pane's page does
+        // (``postPageVisibility(browser:)``): its page window is detached too.
+        page.onPageVisibility = { [weak self] _ in self?.postPageVisibility() }
+        // DevTools' page window takes the view's display, as the pane's page does (task 221).
+        page.onScreenInfo = { [weak self, weak page, weak runtime = tab.runtime] _ in
+            guard let self, let page, let runtime, let browser = devToolsBrowserID else { return false }
+            return runtime.placeHostedPage(page, browser: browser)
+        }
         #if DEBUG || CMUX_BENCH_HOOKS
         page.textInputSink = { [weak self] op in self?.sendTextInput(op) }
         #endif
         hostedPage = page
+        return page
+    }
+
+    /// Host mode: tells the host what the person sees of ``hostedPage``
+    /// (``ChromiumHostPageView/pageVisibility``) for DevTools browser `browser` (by default the open
+    /// one), as ``CEFPaneHost/postPageVisibility(browser:)`` does for the pane's page. Nothing goes
+    /// while no DevTools is open.
+    func postPageVisibility(browser: Int32? = nil) {
+        guard let page = hostedPage, let browser = browser ?? devToolsBrowserID else { return }
+        _ = tab?.runtime.shim?.browserSetPageVisibility(browser, page.pageVisibility.rawValue)
+    }
+
+    /// Host mode: ``hostedPage`` while it shows DevTools browser `browser`, the view its `<select>`
+    /// popups show over: in the DevTools window, or docked while the pane shows the tab (as a page's
+    /// popups need its tab shown, ``CEFRuntime/popupMenuView(of:)``). Nil otherwise.
+    func hostedPopupMenuView(of browser: Int32) -> NSView? {
+        guard devToolsBrowserID == browser, let tab, tab.devTools.isOpen, let page = hostedPage, page.window != nil,
+              !tab.devTools.dock.isDocked || tab.host.visibleTab === tab else { return nil }
         return page
     }
 
@@ -140,7 +166,10 @@ extension CEFDevToolsController {
         guard forkAPI >= CEFLayerHosting.forkAPI else {
             return runtime.logger.error("Chromium Host fork API \(forkAPI) cannot layer-host DevTools")
         }
+        // Before the hosting op: the host applies it when it detaches the DevTools page window.
+        postPageVisibility(browser: devTools)
         let sent = runtime.sendAsync { $0.browserSetLayerHosting(devTools, 1) }
+        runtime.placeHostedPage(page, browser: devTools)
         runtime.whenAnswered(sent, label: "DevTools context") { [weak self, weak page, weak runtime] id in
             guard let self, let page, hostedPage === page, devToolsBrowserID == devTools else { return }
             if let id, id != 0, page.show(contextID: id) { return }

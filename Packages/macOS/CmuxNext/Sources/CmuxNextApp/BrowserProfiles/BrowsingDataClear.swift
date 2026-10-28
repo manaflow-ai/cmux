@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextHistory
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -74,8 +75,10 @@ enum BrowsingDataClear {
         let webKit = services.cache.webKit.profileStore
         let cef = services.cache.cef
         let liveTabs = services.cache.browsers.values.compactMap { $0.tab as? CEFTab }.filter { $0.profileID == profile }
-        // task-owner: one clear of one profile's stores; ends when both engines answer
-        Task { @MainActor in
+        let logger = Self.logger
+        // task-owner: one clear of one profile's stores; ends when both engines answer. R-hop: a nonisolated task at
+        // the priority of the person's clear awaits the engines' clears; nothing applies on main after them.
+        services.work.task(.userBlocking) {
             await webKit.clearBrowsingData(for: profile, siteData: cookies, cache: cache, since: since)
             do {
                 try await cef.clearBrowsingData(profile, cookies: cookies, cache: cache, since: since, liveTabs: liveTabs)

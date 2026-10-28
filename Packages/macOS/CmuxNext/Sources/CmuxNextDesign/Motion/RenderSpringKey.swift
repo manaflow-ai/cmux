@@ -47,7 +47,8 @@ extension RenderSpringKey where Value == CGFloat {
     public static var cornerRadius: Self { Self("cornerRadius", read: { $0.cornerRadius }, write: { $0.cornerRadius = $1 }) }
     /// The layer's `opacity` (a `Float`) as a scalar.
     public static var opacity: Self { Self("opacity", read: { CGFloat($0.opacity) }, write: { $0.opacity = Float($1) }) }
-    /// The layer's `shadowOpacity` (a `Float`) as a scalar.
+    /// The layer's `shadowOpacity` (a `Float`) as a scalar: the strength only; the shape stays the
+    /// layer's shadowPath (``CALayer/cast(shadowPath:)``).
     public static var shadowOpacity: Self {
         Self("shadowOpacity", read: { CGFloat($0.shadowOpacity) }, write: { $0.shadowOpacity = Float($1) })
     }
@@ -62,6 +63,10 @@ extension RenderSpringKey where Value == CGFloat {
     /// The x translation of the layer's `sublayerTransform` (its `m41`).
     public static var sublayerTranslationX: Self {
         Self("sublayerTransform.translation.x", read: { $0.sublayerTransform.m41 }, write: { $0.sublayerTransform.m41 = $1 })
+    }
+    /// The y translation of the layer's `sublayerTransform` (its `m42`).
+    public static var sublayerTranslationY: Self {
+        Self("sublayerTransform.translation.y", read: { $0.sublayerTransform.m42 }, write: { $0.sublayerTransform.m42 = $1 })
     }
 }
 
