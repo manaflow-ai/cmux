@@ -38,8 +38,8 @@ extension LineTransport {
 
     /// Routes one message the reader cut: a line by its fields, a frame by its header. Returns why it is a bad
     /// message, which ends the connection, or nil. After a handled message the reader waits, outside its hang
-    /// scope, while its ``lane``'s backlog is full and then, after a line, as `events` asks
-    /// (``EventDispatch/readerWait``, ``LineTransport/start(dispatch:onCausedEvent:onClose:)``).
+    /// scope, while its ``lane``'s backlog is full and then, after a line, as `events` asks, or after an attach
+    /// stream's item as its stream asks (``EventDispatch/readerWait``, ``LineTransport/start(dispatch:onCausedEvent:onClose:)``).
     func dispatch(_ message: FrameReader.Message, decoder: WireDecoder, outputStream: DaemonWireStats.Recorder?,
                   events: EventDispatch, onEvent: @escaping CausedEventHandler) -> String? {
         switch message {
@@ -47,9 +47,14 @@ extension LineTransport {
             // An empty line carries nothing.
             guard !bytes.isEmpty else { return nil }
             outputStream?.outputCopied(2 * bytes.count)  // out of the reader as the line, then into its Data
-            handle(bytes, decoder: decoder, dispatch: events, onEvent: onEvent)
+            let stream = handle(bytes, decoder: decoder, dispatch: events, onEvent: onEvent)
             lane.waitForRoom()
-            events.readerWait?()
+            if let stream {
+                // An attach stream's item: its view's wait, not the control consumer's.
+                stream.readerWait?()
+            } else {
+                events.readerWait?()
+            }
             return nil
         case .frame(let frame):
             let unrouted = handle(frame, decoder: decoder)

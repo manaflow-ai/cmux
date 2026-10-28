@@ -11,9 +11,10 @@ extension LineTransport {
     /// bytes, so a reply or an event is parsed once, by its reader. Only a line the scan cannot read is decoded
     /// as an ``Envelope`` here; a reply that is not `ok:true` is decoded once for its error fields, on the lane.
     /// What a line causes (its handler, its waiter's resumption) goes to ``lane`` in wire order (p05-ipc-144):
-    /// the reader counts and routes, and decodes nothing a handler reads.
+    /// the reader counts and routes, and decodes nothing a handler reads. Returns the wait an attach stream's item
+    /// leaves the reader, which it runs after the line, outside its hang scope (``AttachStreamSink``).
     func route<Line: RandomAccessCollection<UInt8>>(_ bytes: Line, decoder: WireDecoder, dispatch: EventDispatch,
-                                                    onEvent: @escaping CausedEventHandler)
+                                                    onEvent: @escaping CausedEventHandler) -> AttachStreamRouted?
     where Line.Index == Int {
         let line = Data(bytes)
         let envelope: Envelope
@@ -25,7 +26,11 @@ extension LineTransport {
             decoded = true
         } else {
             recorder?.lineRead(.ignored)
-            return
+            return nil
+        }
+        if let stream = envelope.stream, let event = envelope.event,
+           let routed = routeAttachStream(stream, event: event, line: line) {
+            return routed
         }
         // A v2 stream line goes to the stream handler of a dedicated
         // connection (`SessionJournalRead`); on the control connection it
@@ -46,10 +51,11 @@ extension LineTransport {
             case .handler(let handler):
                 recorder?.lineRead(streamKind)
                 // A resource stream's item is bulk: its handler decodes it.
-                return lane.post(.heavy, bytes: line.count) { handler(streamID, line) }
+                lane.post(.heavy, bytes: line.count) { handler(streamID, line) }
+                return nil
             case .unrouted:
                 recorder?.lineRead(.ignored)
-                return
+                return nil
             }
         }
         if let name = streamed ? Self.streamEvent : envelope.event {
@@ -61,13 +67,14 @@ extension LineTransport {
             recorder?.lineRead(streamed ? streamKind : .event)
             let cause = envelope.cause
             lane.post(dispatch.weigh(name, line), bytes: line.count) { onEvent(name, line, index, cause) }
-            return
+            return nil
         }
         guard envelope.ok != nil || envelope.id != nil else {
             recorder?.lineRead(.ignored)
-            return
+            return nil
         }
         resolveReply(envelope, line: line, parsed: decoded, decoder: decoder)
+        return nil
     }
 
     /// Hands a reply to its waiter: a line's, or a REPLY or ERROR frame's body (LineTransport+Frames.swift).
@@ -88,10 +95,12 @@ extension LineTransport {
         if let sent = entry.sent { recorder?.replied(sent) }
         recorder?.lineRead(waiter.replyKind(ok: envelope.ok == true))
         if envelope.ok == true {
-            if case .reply(_, let slot) = waiter {
-                // Light: resolving decodes nothing; its awaiter decodes the line.
-                let response = Response(line: line, eventBarrier: barrier, recorder: recorder)
-                lane.post(.light, bytes: line.count) { slot.resolve(.success(response)) }
+            // Light: resolving decodes nothing; its awaiter (or its handler, on the lane) decodes the line.
+            let response = Response(line: line, eventBarrier: barrier, recorder: recorder)
+            switch waiter {
+            case .reply(_, let slot): lane.post(.light, bytes: line.count) { slot.resolve(.success(response)) }
+            case .handled(_, let handler): lane.post(.light, bytes: line.count) { handler(.success(response)) }
+            case .discard, .expired: break
             }
             return
         }

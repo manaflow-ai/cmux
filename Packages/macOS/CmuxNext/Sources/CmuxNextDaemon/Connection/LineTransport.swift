@@ -354,7 +354,7 @@ final class LineTransport: Sendable {
             // A request the connection closed under never gets its reply.
             if let sent = entry.sent { recorder?.abandoned(sent) }
             switch entry.waiter {
-            case .reply(_, let slot): slot.resolve(.failure(error))
+            case .reply, .handled: entry.waiter.failure?(error)
             case .discard, .expired: break
             }
         }
@@ -418,8 +418,13 @@ final class LineTransport: Sendable {
         failAll(reason)
         writer.close()
         closeDescriptor()
-        // After every event and reply the reader handed the lane.
-        lane.post(.heavy, bytes: 0) { onClose(reason) }
+        // Every open attach stream ends, then the connection, each after every event and reply the reader
+        // handed the lane.
+        let streams = takeAttachStreams()
+        lane.post(.heavy, bytes: 0) {
+            for stream in streams { stream.deliver(.lost(reason)) }
+            onClose(reason)
+        }
     }
 
     /// Stream-0 events routed so far; a reply captures it as its barrier.
@@ -430,11 +435,11 @@ final class LineTransport: Sendable {
     var routedEventCount: UInt64 { state.withLock { $0.eventCount } }
 
     /// Routes one line inside a hang scope of ``lineHangDeadline`` (Chrome watches each IO-thread task
-    /// the same way, base/threading/hang_watcher.cc).
+    /// the same way, base/threading/hang_watcher.cc). Returns the wait an attach stream's item leaves the reader.
     func handle<Line: RandomAccessCollection<UInt8>>(_ bytes: Line, decoder: WireDecoder, dispatch: EventDispatch,
-                                                     onEvent: @escaping CausedEventHandler)
+                                                     onEvent: @escaping CausedEventHandler) -> AttachStreamRouted?
     where Line.Index == Int {
         guard let hangWatched else { return route(bytes, decoder: decoder, dispatch: dispatch, onEvent: onEvent) }
-        hangWatched.run { route(bytes, decoder: decoder, dispatch: dispatch, onEvent: onEvent) }
+        return hangWatched.run { route(bytes, decoder: decoder, dispatch: dispatch, onEvent: onEvent) }
     }
 }
