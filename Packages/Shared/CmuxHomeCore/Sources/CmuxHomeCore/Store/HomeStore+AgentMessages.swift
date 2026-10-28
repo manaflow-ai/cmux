@@ -1,9 +1,9 @@
 import Foundation
 
 extension HomeStore {
-    func applyAgentRun(_ run: HomeAgentRun) {
+    func applyAgentRun(_ run: HomeAgentRun, preservingLiveAfter snapshot: UInt64? = nil) {
         guard pager.isShown(run.conversation) else { return }
-        if agentMessages[run.conversation, default: HomeAgentMessages()].apply(run) {
+        if agentMessages[run.conversation, default: HomeAgentMessages()].apply(run, preservingLiveAfter: snapshot) {
             bumpTranscript(run.conversation)
         }
     }
@@ -16,6 +16,7 @@ extension HomeStore {
             return
         }
         let epoch = pager.epoch(conversation)
+        let liveVersion = agentMessages[conversation]?.liveVersion ?? 0
         let window = HomeAgentRunWindow(messages: mirror.windows[conversation]?.messages ?? [])
         let owner = source
         // task-owner: one run snapshot; cancelled on close or stop, ends when the owner answers
@@ -25,7 +26,7 @@ extension HomeStore {
             guard self.pager.epoch(conversation) == epoch else { return }
             self.agentMessageReads[conversation] = nil
             guard !Task.isCancelled, !self.stopped, self.pager.isShown(conversation) else { return }
-            for run in runs { self.applyAgentRun(run) }
+            for run in runs { self.applyAgentRun(run, preservingLiveAfter: liveVersion) }
             // A history page may arrive while this request is in flight. Follow the newly
             // loaded window once the previous read ends instead of dropping that request.
             let current = HomeAgentRunWindow(messages: self.mirror.windows[conversation]?.messages ?? [])
