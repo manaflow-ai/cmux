@@ -23,6 +23,7 @@ public final class AccountsModel {
     @ObservationIgnored private var generation = 0
     /// Providers whose login was started here; re-detected on activation.
     @ObservationIgnored private var pendingReauth: Set<AIProvider> = []
+    @ObservationIgnored private var openingReauth: Set<AIProvider> = []
     /// A detection has finished. Until then every row reads Checking… and
     /// refuses work, which the palette and CLI meet before the screen opens.
     @ObservationIgnored private var hasDetected = false
@@ -117,32 +118,39 @@ public final class AccountsModel {
     /// use ``performReauthenticate(_:)``. A row already Re-authenticating
     /// opens the login again (its tab may be gone).
     @discardableResult
-    public func reauthenticate(_ provider: AIProvider) -> String? {
+    public func reauthenticate(_ provider: AIProvider) async -> String? {
+        guard !openingReauth.contains(provider) else { return AccountsStrings.errorBusy }
         let state = row(provider)
         guard state.canReauthenticate else { return nil }
         guard state.phase == .idle || state.phase == .reauthenticating else { return AccountsStrings.errorBusy }
         if state.phase == .idle { apply(.reauthStarted, to: provider) }
-        pendingReauth.insert(provider)
-        guard services.reauthenticate(provider, plan: provider.reauthPlan) else { return nothingOpened(provider) }
-        return nil
+        return await openProviderPlan(provider, plan: provider.reauthPlan)
     }
 
     /// ``reauthenticate(_:)`` after detection settled, in the caller's task,
     /// so a busy row's refusal reaches the page, palette or CLI.
     public func performReauthenticate(_ provider: AIProvider) async -> String? {
         await settle()
-        return reauthenticate(provider)
+        return await reauthenticate(provider)
     }
 
     /// Runs the provider's own logout in a terminal tab; re-detects when the
     /// app becomes active again, like a re-authentication. Returns why
     /// nothing ran when no local pane could take the tab, or nil.
     @discardableResult
-    public func signOut(_ provider: AIProvider) -> String? {
+    public func signOut(_ provider: AIProvider) async -> String? {
+        guard !openingReauth.contains(provider) else { return AccountsStrings.errorBusy }
         guard row(provider).canSignOut, !row(provider).isBusy else { return nil }
         apply(.reauthStarted, to: provider)
+        return await openProviderPlan(provider, plan: provider.signOutPlan)
+    }
+
+    private func openProviderPlan(_ provider: AIProvider, plan: ReauthPlan) async -> String? {
+        openingReauth.insert(provider)
+        defer { openingReauth.remove(provider) }
+        guard await services.reauthenticate(provider, plan: plan) else { return nothingOpened(provider) }
+        apply(.reauthStarted, to: provider)
         pendingReauth.insert(provider)
-        guard services.reauthenticate(provider, plan: provider.signOutPlan) else { return nothingOpened(provider) }
         return nil
     }
 

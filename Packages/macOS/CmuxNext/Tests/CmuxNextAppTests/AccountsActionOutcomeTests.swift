@@ -58,7 +58,7 @@ import Testing
     @Test func aReauthenticateThatCannotWaitWhileCheckingSaysSo() async {
         let services = MockAccountsServices()
         let model = AccountsModel(services: services)
-        #expect(model.reauthenticate(.codex) != nil)
+        #expect(await model.reauthenticate(.codex) != nil)
         await model.settle()
         #expect(!services.calls.contains("reauth:codex"))
     }
@@ -86,7 +86,7 @@ import Testing
         let model = await refreshed(services)
         model.connect(.codex, confirmed: true)
         #expect(model.row(.codex).phase == .connecting)
-        #expect(model.reauthenticate(.codex) != nil)
+        #expect(await model.reauthenticate(.codex) != nil)
         #expect(!services.calls.contains("reauth:codex"))
     }
 
@@ -95,12 +95,40 @@ import Testing
     @Test func aRemoveAfterALoginInATabReDetectsAndRemoves() async throws {
         let services = MockAccountsServices()
         let model = await refreshed(services)
-        model.reauthenticate(.codex)
+        await model.reauthenticate(.codex)
         #expect(model.row(.codex).phase == .reauthenticating)
         let account = try #require(await model.linkedAccount(id: linkedID))
         let failure = await model.performRemove(account)
         #expect(failure == nil)
         #expect(services.calls.contains("remove:\(linkedID)"))
+    }
+
+    @Test(arguments: [true, false])
+    func aReauthenticateWaitsForWorkspaceCreationAndReportsItsResult(opened: Bool) async {
+        let services = MockAccountsServices()
+        let started = AsyncStream<Void>.makeStream()
+        var answer: CheckedContinuation<Bool, Never>?
+        services.openProviderTab = { _ in
+            await withCheckedContinuation { continuation in
+                answer = continuation
+                started.continuation.yield(())
+                started.continuation.finish()
+            }
+        }
+        let model = await refreshed(services)
+        var completed = false
+        let action = Task { @MainActor in
+            let result = await model.perform(.reauthenticate(.codex))
+            completed = true
+            return result
+        }
+        for await _ in started.stream { break }
+        #expect(!completed, "the action answered before the workspace opened")
+        #expect(await model.reauthenticate(.codex) != nil, "a second click started another pending workspace")
+        answer?.resume(returning: opened)
+        let failure = await action.value
+        #expect((failure == nil) == opened)
+        #expect(model.row(.codex).phase == (opened ? .reauthenticating : .idle))
     }
 
     @Test func aCodexConnectWithoutACodexSignInNamesCodexNotCmux() async {
