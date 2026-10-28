@@ -875,22 +875,12 @@ public final class ConversationViewController: UIViewController {
         // the measuring ends, these rows are still the store's rows.
         let serial = rebuildSerial
         let traits = collectionView.traitCollection
-        let work = MeasureWork(models: pending)
         liveGate.beginMeasuring()
-        Task { [weak self] in
-            let measured = await Task.detached(priority: .userInitiated) {
-                var result: [MessageLayoutCache.Measured] = []
-                result.reserveCapacity(work.models.count)
-                traits.performAsCurrent {
-                    for model in work.models {
-                        result.append(MessageLayoutCache.measure(model, width: width, margin: margin))
-                    }
-                }
-                return MeasuredBatch(items: result)
-            }.value
+        Task(priority: .userInitiated) { [weak self] in
+            let measured = await MessageLayoutCache.measureAway(pending, width: width, margin: margin, traits: traits)
             guard let self else { return }
             let probeStart = self.probeClock()
-            self.layoutCache.adopt(measured.items, width: width, margin: margin)
+            self.layoutCache.adopt(measured, width: width, margin: margin)
             self.probeSection(.measured, since: probeStart)
             guard generation == self.measureGeneration else { return }
             let current = serial == self.rebuildSerial
@@ -2019,7 +2009,7 @@ extension ConversationViewController {
         guard !model.message.isScheduled, let size = cellLayout.textFrame?.size else { return }
         let text = layoutCache.attributedText(for: model)
         guard ConversationRichTextStyler.hasEffects(text) else { return }
-        let resolved = PrefetchText(text.resolvingDynamicColors(with: collectionView.traitCollection))
+        let resolved = FrozenAttributedText(text.resolvingDynamicColors(with: collectionView.traitCollection))
         let seed = ConversationTextEffectMotion.seed(model.rowID)
         Task.detached(priority: .userInitiated) {
             ConversationTextEffectLayer.prepare(
@@ -2037,21 +2027,6 @@ private struct PreparedBubbleText: Sendable {
     var mentions: [ConversationMention]
     var meID: String?
     var runs: [ConversationTextRun]
-}
-
-/// Rows handed to a measuring task (immutable value models).
-private struct MeasureWork: @unchecked Sendable {
-    let models: [MessageRowModel]
-}
-
-private struct MeasuredBatch: @unchecked Sendable {
-    let items: [MessageLayoutCache.Measured]
-}
-
-/// An immutable attributed string handed to a prefetch task.
-private struct PrefetchText: @unchecked Sendable {
-    let value: NSAttributedString
-    init(_ value: NSAttributedString) { self.value = value }
 }
 
 /// The transcript reports the composer band (and keyboard) as its bottom
