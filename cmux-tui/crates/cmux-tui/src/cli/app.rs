@@ -798,6 +798,12 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
             }
             .unwrap_or(result);
             warn_unstable_handles(method, &value, global.output);
+            if global.output == OutputMode::Human
+                && let Some(line) = super::share_cli::human_line(&params, &value)
+            {
+                print!("{line}");
+                return Ran::Done(0);
+            }
             Ran::Done(super::wire::print_local_success(&value, global.output))
         }
         Err(error) if cli_name && error_code(&error) == Some("not_found") => {
