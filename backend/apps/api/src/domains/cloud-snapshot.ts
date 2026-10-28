@@ -46,7 +46,7 @@ export const snapshotCreate = (config: CloudConfig, state: CloudState, params: u
   if (!stored) return reject("cloud.machine.not_found", "no such machine in this team")
   const m = stored.row
   if (!mayManage(ctx.principal, m)) return reject("auth.forbidden", "only the machine's creator or a team admin may snapshot it")
-  // Freestyle snapshots a running or paused VM; a machine that never bound has nothing worth keeping.
+  // The provider snapshots a running or paused VM; a machine that never bound has nothing worth keeping.
   if ((m.status !== "running" && m.status !== "paused") || !m.host) return reject("cloud.machine.not_running", "only a running or paused machine can be snapshotted", { machine: m.id, state: m.status })
   const plan = teamPlan(config, state.team ?? ctx.principal.team)
   if (!plan) return reject("cloud.plan.required", "Cloud machines need a paid plan", planRequiredDetails())

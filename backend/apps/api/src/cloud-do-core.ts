@@ -382,7 +382,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
             const found = await driver.findOwned(row.provider_name, tag)
             result = found ? { key: row.key, ok: true, provider_id: found.id } : { key: row.key, ok: false, error: { code: "cloud.provider.unavailable", message: "the cancelled create has not appeared (yet)" }, final: false }
           } else if (row.op === "create") {
-            // Freestyle's own timers are off (createBody): idle belongs to our policy and backstop.
+            // The provider's own timers are off (every provider's create): idle belongs to our policy and backstop.
             const m = engine.rows.get<MachineRow>(TABLE_MACHINE, row.machine)?.row
             // A restore boots its snapshot (a recorded, guarded slug); every other create the deployment's image.
             const fromSnapshot = m?.from_snapshot

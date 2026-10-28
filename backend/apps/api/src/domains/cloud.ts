@@ -298,7 +298,7 @@ const update = (state: CloudState, op: string, params: unknown, ctx: ReduceConte
   const rev = state.rev + 1
   const row: MachineRow = rename
     ? { ...stored.row, name: d.value.name!, revision: String(rev) }
-    : // Ours only (coordinator, 2026-10-05): Freestyle's timer is off; cloud.idlePause applies the policy from the VM's reports.
+    : // Ours only (coordinator, 2026-10-05): the provider's timer is off; cloud.idlePause applies the policy from the VM's reports.
       { ...stored.row, idle_policy: { idle_seconds: d.value.idle_seconds! }, revision: String(rev) }
   return { ok: true, state: next(state, {}, { machine: row.id, removed: false }), value: { machine: publicMachine(row) }, writes: [upsertMachine(row, stored.n)] }
 }
@@ -395,7 +395,7 @@ const driverResult = (state: CloudState, params: unknown, ctx: ReduceContext): R
   // binds it (5.8). The token expires 15 minutes after the provider reported the VM running.
   if (l.op === "create" && machine && r.bind_token_sha256) {
     const bind: BindState = { token_sha256: r.bind_token_sha256, expires_at: ctx.now + BIND_TOKEN_TTL_MS, spent: false }
-    // The record takes the VM's real size (Freestyle has no size at create).
+    // The record takes the VM's real size (a provider without `sizing` takes no size at create).
     return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done, upsertMachine({ ...machine.row, bind, ...(r.resources ? { size: r.resources } : {}) }, machine.n)] }
   }
   if (l.op === "create" || !machine) return { ok: true, state: next(state, { pending }), value: { applied: true }, writes: [done] }
