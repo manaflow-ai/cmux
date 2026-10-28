@@ -110,12 +110,27 @@ extension StartupTrace {
             /// that ran 1 ms or more, a main task or a lane task by where it was posted. The scheduler keeps its own
             /// log, so its tasks never take the ring's room. Build it off the main thread.
             public func events(adding tasks: [StartupTaskLog.Record]) -> [Event] {
+                events(adding: tasks.compactMap { task -> TaskSlice? in
+                    guard let start = task.startNanos, let duration = task.durationNanos else { return nil }
+                    return TaskSlice(name: task.name.description, onMain: task.destination == .main, startNanos: start, durationNanos: duration)
+                })
+            }
+
+            /// One startup task that ran: its name, whether it was posted to the main thread, and its times.
+            struct TaskSlice {
+                var name: String
+                var onMain: Bool
+                var startNanos: UInt64
+                var durationNanos: UInt64
+            }
+
+            /// The ring's events and each of `tasks` that ran 1 ms or more.
+            func events(adding tasks: [TaskSlice]) -> [Event] {
                 events + tasks.compactMap { task -> Event? in
-                    guard let startNanos = task.startNanos, let durationNanos = task.durationNanos,
-                          durationNanos >= SlowLaunchRing.sliceThresholdNanos else { return nil }
-                    let start = startNanos > processStartNanos ? startNanos - processStartNanos : 0
-                    return Event(kind: task.destination == .main ? .mainTask : .laneTask, name: task.name.description,
-                                 startMicros: start / 1_000, durationMicros: durationNanos / 1_000)
+                    guard task.durationNanos >= SlowLaunchRing.sliceThresholdNanos else { return nil }
+                    let start = task.startNanos > processStartNanos ? task.startNanos - processStartNanos : 0
+                    return Event(kind: task.onMain ? .mainTask : .laneTask, name: task.name, startMicros: start / 1_000,
+                                 durationMicros: task.durationNanos / 1_000)
                 }
             }
 

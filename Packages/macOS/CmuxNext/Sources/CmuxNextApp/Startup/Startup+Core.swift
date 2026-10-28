@@ -48,9 +48,8 @@ extension AppDelegate {
         let hangReports = WatchdogReporting.install(control.watchdog, services: services)
         AppProcessRoot.shared.adopt(hangReports: hangReports)
         // The slow-launch ring: freed at startup_complete, its trace kept only for a launch past its p95 budget (p08-startup-111).
-        SlowLaunchReporting(ring: recorders.ring, startup: order.startup, mainWork: mainWork, work: services.work) { [weak hangReports] in
-            hangReports?.noteLaunchTrace($0)
-        }.install(sends: hangReports.sendsLaunchTrace)
+        recorders.ring?.reportAtCompletion(of: order.startup, sends: hangReports.sendsLaunchTrace, marks: { DebugTimings.launchMarksNow.all },
+                                           mainWork: mainWork, work: services.work) { [weak hangReports] in hangReports?.noteLaunchTrace($0) }
         services.quit.watchdog = control.watchdog
         // Idle wakeups per inactive minute (p09-observability-059), once the launch's own work is done.
         order.startup.post(.afterStartup, "AppServices.startIdleWakeups", on: .main) { [weak services, control = self.control] in

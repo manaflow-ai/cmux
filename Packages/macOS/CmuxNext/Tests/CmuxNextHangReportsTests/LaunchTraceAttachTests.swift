@@ -155,6 +155,25 @@ struct LaunchTraceAttachTests {
         #expect(PrivacyLeakScanner(forbiddenTerms: HangReportFixtures.forbiddenTerms).findings(in: body).isEmpty)
     }
 
+    /// At startup_complete the setting may not be read yet: the trace waits for the first decision, and goes only on.
+    @Test @MainActor func aTraceWaitsForTheFirstDecisionAndGoesOnlyWhenReportsAreOn() throws {
+        let trace = try Self.trace(.cold, firstFrameMs: 900)
+        let collector = Self.collector()
+        collector.setEnabled(true)
+        let handoff = LaunchTraceHandoff()
+        handoff.note(trace, collector: collector)
+        #expect(collector.snapshot().launchTrace == nil)
+        handoff.decide(true, collector: collector)
+        #expect(collector.snapshot().launchTrace == trace)
+        let off = Self.collector()
+        let dropped = LaunchTraceHandoff()
+        dropped.note(trace, collector: off)
+        dropped.decide(false, collector: off)
+        off.setEnabled(true)
+        dropped.decide(true, collector: off)
+        #expect(off.snapshot().launchTrace == nil)
+    }
+
     @Test func aLaunchIsReadFromItsMarksOnlyAtACompletionAReportKnows() throws {
         let complete: [(name: String, ms: Double)] = [("startup_complete.failsafe", 10_000), ("startup_complete", 10_000)]
         let failsafe = try #require(LaunchAggregate.Record(marks: complete))

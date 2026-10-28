@@ -1,3 +1,4 @@
+import CmuxNextHangReports
 @testable import CmuxNextLaunch
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
@@ -88,6 +89,53 @@ import Testing
         #expect(ring.finish(keeping: true) == nil)
         ring.whenFreed { calls.withLock { $0.append("after") } }
         #expect(calls.withLock { $0 } == ["before", "after"])
+    }
+
+    // MARK: the report
+
+    /// A forced slow launch: a warm launch whose first frame came at 640 ms, past the 180 ms budget. Its ring and the
+    /// startup scheduler's tasks become the report's trace; the ring's overwritten records count as dropped.
+    @Test func aForcedSlowLaunchsRingBecomesTheReportsTrace() throws {
+        let record = try #require(LaunchAggregate.Record(marks: [
+            ("launch.temperature.warm", 90), ("first_window_frame_committed", 640), ("startup_complete.visiblePaneLoadedIdle", 2_000),
+            ("startup_complete", 2_000),
+        ]))
+        #expect(HangReport.LaunchTrace.exceedsBudget(record))
+        let ring = Ring(processStartNanos: 0, bytes: 3 * MemoryLayout<StartupTraceRecord>.stride, mainThread: nil, now: { 0 })
+        ring.mark("main_start", at: 1_000_000)
+        ring.mainTurn(start: 2_000_000, end: 30_000_000)
+        ring.laneJobSink(.files, .userVisible, 3_000_000, 9_000_000)
+        ring.mark("first_window_frame_committed", at: 640_000_000)
+        let launch = try #require(ring.finish(keeping: HangReport.LaunchTrace.exceedsBudget(record)))
+        #expect(ring.heldBytes == 0)
+        let trace = try #require(launch.trace(of: record, tasks: []))
+        #expect(trace.firstFrameMs == 640)
+        #expect(trace.budgetMs == 180)
+        #expect(trace.dropped == 1)
+        #expect(trace.events.map(\.kind) == [.mainTurn, .laneJob, .mark])
+        #expect(trace.events.last?.name == "first_window_frame_committed")
+        #expect(Ring.Event.Kind.allCases.map(\.reportKind) == [.mark, .mainTask, .laneTask, .mainTurn, .laneJob])
+        // Within its budget: no trace.
+        let quick = try #require(LaunchAggregate.Record(marks: [
+            ("launch.temperature.warm", 90), ("first_window_frame_committed", 150), ("startup_complete.noVisiblePane", 400),
+            ("startup_complete", 400),
+        ]))
+        #expect(launch.trace(of: quick, tasks: []) == nil)
+    }
+
+    /// The scheduler's tasks of 1 ms and more join the ring's events, a main task or a lane task by destination.
+    @Test func theSchedulersTasksJoinTheRingsEvents() throws {
+        typealias Slice = Ring.Launch.TaskSlice
+        let tasks = [
+            Slice(name: "AppServices.restore", onMain: true, startNanos: 1_000_000, durationNanos: 5_000_000),
+            Slice(name: "Launch.read", onMain: false, startNanos: 6_000_000, durationNanos: 2_000_000),
+            Slice(name: "Short", onMain: true, startNanos: 8_000_000, durationNanos: 100),
+        ]
+        let launch = try #require(Self.ring().finish(keeping: true))
+        #expect(launch.events(adding: tasks) == [
+            Ring.Event(kind: .mainTask, name: "AppServices.restore", startMicros: 0, durationMicros: 5_000),
+            Ring.Event(kind: .laneTask, name: "Launch.read", startMicros: 5_000, durationMicros: 2_000),
+        ])
     }
 
     // MARK: the recorders' fan-out

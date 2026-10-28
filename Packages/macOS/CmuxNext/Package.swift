@@ -1565,7 +1565,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Trace: LaunchMarks moves each mark's Date onto the trace clock through the launch's one LaunchClock pairing.
             // CmuxTheme: a window picture's theme fingerprint (WindowPictureMeta+Theme).
             // CmuxSafeConcurrency: OnceContinuation (p10-stability-089).
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextProfileRuntimeC",
+            // HangReports: the slow-launch ring's trace and its launch record (p08-startup-111).
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextHangReports", "CmuxNextInputCore", "CmuxNextProfileRuntimeC",
                            "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextWakeups", .product(name: "CmuxTheme", package: "CmuxTheme"),
                            .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: daemonSwiftSettings
@@ -1579,7 +1580,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Compat, Signposts and Trace: LaunchReadEventTests reads the `launch.read_done` record of a test trace runtime;
             // LaunchCounterLogTests journals with Compat's Mutex.
             // Design: LaunchViewQueueTests gates a tab on a LaunchReveal pane region; BrowserLaunchPicturesTests holds the launch read with its own LaunchFileReader.
-            dependencies: ["CmuxNextLaunch", "CmuxNextDesign", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat",
+            // HangReports: SlowLaunchRingTests turns a forced slow launch's ring into its report trace.
+            dependencies: ["CmuxNextLaunch", "CmuxNextDesign", "CmuxNextHangReports", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat",
                            "CmuxNextSignposts", "CmuxNextTrace", .product(name: "CmuxTheme", package: "CmuxTheme")],
             swiftSettings: uiSwiftSettings
         ),

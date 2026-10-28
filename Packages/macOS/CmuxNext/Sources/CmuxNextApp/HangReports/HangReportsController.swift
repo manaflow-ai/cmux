@@ -74,7 +74,7 @@ final class HangReportsController {
     /// Rust crash's black box goes only then); off at once on a build that never sends.
     private let blackboxConsent: @MainActor (Bool) -> Void
     /// A slow launch's trace, held until reports are first turned on or off (``noteLaunchTrace(_:)``).
-    let launchTraces = LaunchTraceHandoff()
+    private let launchTraces = LaunchTraceHandoff()
 
     private struct Asking {
         let settings: SettingsController
@@ -119,7 +119,7 @@ final class HangReportsController {
                               blackboxConsent: @escaping @MainActor (Bool) -> Void = { _ in },
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
-        let mayReport = Self.mayReport(channel: policy.channel, environment: environment)
+        let mayReport = CrashReportingPolicy.mayReportHangs(channel: policy.channel, devOptIn: devOptIn, environment: environment)
         let managed = ManagedPreferenceLocation.defaultReader(environment: environment)
         let managedDisables: @Sendable () -> Bool = {
             managed.read().forced[CrashReportingPolicy.disableTelemetryPolicyKey]?.boolValue == true
@@ -193,6 +193,25 @@ final class HangReportsController {
 
     /// Whether this build can send hang reports at all.
     var isAvailable: Bool { service != nil }
+
+    /// Whether this launch keeps the slow-launch ring (p08-startup-111, read in `main()` before the first mark): a
+    /// build that may send hang reports, on a Mac with the consent record. A build that never sends reads no defaults.
+    static func recordsSlowLaunch(bundleID: String? = Bundle.main.bundleIdentifier, isDebugBuild: Bool = ControlService.isDebugBuild,
+                                  defaults: @autoclosure () -> UserDefaults = .standard,
+                                  environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        CrashReportingPolicy.mayReportHangs(channel: CrashReportingPolicy.channel(bundleID: bundleID, isDebugBuild: isDebugBuild),
+                                            devOptIn: environment[devOptInKey] == "1", environment: environment)
+            && defaults().object(forKey: consentKey) is Date
+    }
+
+    /// Whether this launch's reports carry a slow launch's trace (features `hangReportsSchema3` and `hangReportsLaunchTrace`).
+    var sendsLaunchTrace: Bool { collector?.keepsLaunchTrace ?? false }
+
+    /// A launch past its first-frame budget: to the collector once reports are first decided (``LaunchTraceHandoff``).
+    func noteLaunchTrace(_ trace: HangReport.LaunchTrace) {
+        guard let collector, collector.keepsLaunchTrace else { return }
+        launchTraces.note(trace, collector: collector)
+    }
 
     /// `debug.shipping_mode`'s hang reports (``ShippingModeReport/HangReports``) with the setting's value now.
     func shippingModeState(setting: Bool?) async -> ShippingModeReport.HangReports {
