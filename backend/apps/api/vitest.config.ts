@@ -100,6 +100,8 @@ export default defineConfig({
           HANDS_ENABLED: "1",
           // The opencode brain (O) is selectable; no container binds here, so an O Chief falls back to P (chief-brain-opencode-route.test.ts).
           CHIEF_OPENCODE_ENABLED: "1",
+          // Cloud Chief D (chief-durable/) is selectable per Chief (brain_impl "durable"); test/chief-durable.test.ts.
+          CHIEF_DURABLE_ENABLED: "1",
           // Test-only fault hooks (chief-fault.ts): evict a brain object in the middle of a turn.
           CHIEF_FAULT_HOOKS: "1",
           // The metered Claude route and its sign-in refresh, faked at their HTTP boundary in

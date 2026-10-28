@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSidebar
 
 /// Rooms (plans/cmux-next/data-model.md 8; the daemon calls them profiles):
 /// create, edit, delete, reorder, switch, and the workspace and group moves.
@@ -120,18 +121,13 @@ enum RoomHandlers {
                 await RoomConfirmation.showDeleted(name, closedID: closedID, services: services)
             }
         }
-        bind("space.moveLeft") { try move(invocation: $0, by: -1, context) }
-        bind("space.moveRight") { try move(invocation: $0, by: 1, context) }
+        bind("space.moveLeft") { try move($0, context) { from, _ in from - 1 } }
+        bind("space.moveRight") { try move($0, context) { from, _ in from + 1 } }
+        bind("space.moveToStart") { try move($0, context) { _, _ in 0 } }
+        bind("space.moveToEnd") { try move($0, context) { _, count in count - 1 } }
         bind("space.move") { invocation in
-            let room = try context.room(invocation)
             guard let position = invocation["index"]?.intValue else { throw ActionFailure.invalidTarget(RoomStrings.roomArgumentRequired) }
-            let order = context.services.machines.local.store.profileIDs
-            let from = order.firstIndex(of: room.id) ?? 0
-            let target = min(max(position - 1, 0), order.count - 1)
-            // Insertion index: past the removed slot when moving right.
-            let insertion = target > from ? target + 1 : target
-            let id = room.id
-            context.services.machines.local.send("move-profile") { try await $0.moveProfile(id, to: insertion) }
+            try move(invocation, context, allowsStay: true) { _, count in min(max(position - 1, 0), count - 1) }
         }
         bind("space.next") { _ in try step(1, context) }
         bind("space.previous") { _ in try step(-1, context) }
@@ -211,13 +207,13 @@ enum RoomHandlers {
         _ = try await windows.createWorkspace(WorkspaceSpawn(profile: profile), into: newWindow)
     }
 
-    private static func move(invocation: ActionInvocation, by delta: Int, _ context: AppActionContext) throws {
-        let room = try context.room(invocation)
-        let order = context.services.machines.local.store.profileIDs
-        guard let from = order.firstIndex(of: room.id), order.indices.contains(from + delta) else {
-            throw ActionFailure.invalidTarget(RoomStrings.roomAtEdge)
-        }
-        let insertion = delta > 0 ? from + 2 : from - 1
+    /// Move Left/Right, to Start/End and to Position: `target` maps (position, count) to the new position.
+    private static func move(_ invocation: ActionInvocation, _ context: AppActionContext, allowsStay: Bool = false,
+                             to target: (Int, Int) -> Int) throws {
+        let room = try context.room(invocation), order = context.services.machines.local.store.profileIDs
+        guard let from = order.firstIndex(of: room.id),
+              let insertion = ProfileBarLogic.moveInsertion(from: from, to: target(from, order.count), count: order.count, allowsStay: allowsStay)
+        else { throw ActionFailure.invalidTarget(RoomStrings.roomAtEdge) }
         let id = room.id
         context.services.machines.local.send("move-profile") { try await $0.moveProfile(id, to: insertion) }
     }
