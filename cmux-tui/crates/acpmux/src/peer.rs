@@ -248,14 +248,15 @@ impl Peer {
         }
         let state = link.state();
         let mut notes = self.state_notes.lock_or_recover();
-        let Some(to) = notes.to.as_ref() else { return };
-        if notes.sent == Some(state) {
+        if notes.to.is_none() || notes.sent == Some(state) {
             return;
         }
         notes.sent = Some(state);
         let error = self.last_error.lock_or_recover().clone();
         let note = state_note(&self.name, state.wire(), link.last_seen, error);
-        let _ = to.send(note);
+        if let Some(to) = notes.to.as_ref() {
+            let _ = to.send(note);
+        }
     }
 
     pub fn state(&self) -> PeerState {

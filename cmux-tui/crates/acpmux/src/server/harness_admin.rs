@@ -336,7 +336,10 @@ pub(super) async fn handle(
 /// connections get (a remote-origin connection's chats get no start mode).
 pub(super) fn watch_note(conn: &super::Conn, note: Value) {
     if let Some(state) = note.get(crate::peer::STATE_NOTE) {
-        conn.send(&crate::rpc::Message::notification(method::MUX_PEER_STATE_CHANGED, state.clone()));
+        conn.send(&crate::rpc::Message::notification(
+            method::MUX_PEER_STATE_CHANGED,
+            state.clone(),
+        ));
     } else if note.get(crate::hub::start_mode::START_MODE_NOTE).is_none() {
         conn.send(&crate::rpc::Message::notification(method::MUX_HARNESSES_CHANGED, note));
     } else if !conn.origin.web_class() {
