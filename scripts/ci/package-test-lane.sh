@@ -410,13 +410,8 @@ record_built_ref() {
 # package whose prebuild fails is built again by its `swift test`, which
 # reports the error in that package's group as before.
 prebuild_one() {
-  local pkg="$1" log="$2" started=$SECONDS status=0 args_status=0
-  package_args "$pkg" > "$log" 2>&1 || args_status=$?
-  if [ "$args_status" -eq 75 ]; then
-    # The resolve failed on the network on every try: no build here; the package's run resolves again.
-    cat "$log" >&2
-    return 75
-  elif [ "$args_status" -ne 0 ]; then
+  local pkg="$1" log="$2" started=$SECONDS status=0
+  if ! package_args "$pkg" > "$log" 2>&1; then
     cat "$log" >&2
     echo "error: prebuild of $pkg compiled nothing: package not found." >&2
     return 2
@@ -563,7 +558,7 @@ run_package_tests() {
   }
   test_package() {
     local pkg="$1"
-    package_args "$pkg" || return $? # 1: not found; 75: the resolve failed on the network (no verdict)
+    package_args "$pkg" || return 1
     case "$pkg" in
     # These packages have process-tree suites whose child fixtures
     # share global process resources; run each suite in its own Swift
@@ -604,7 +599,6 @@ run_package_tests() {
   fi
   failed=0
   first_failure_status=0
-  no_verdict=0
   while IFS= read -r pkg; do
     [ -n "$pkg" ] || continue
     echo "::group::swift test $pkg"
@@ -616,12 +610,6 @@ run_package_tests() {
     if [ "$package_status" -eq 0 ]; then
       result=passed
       passed+=("$pkg")
-    elif [ "$package_status" -eq 75 ]; then
-      # Its resolve failed on the network on every try: no test of it ran. Not a failure; the lane goes on,
-      # and it ends with 75 (no verdict) only when no package failed for real.
-      no_verdict=$((no_verdict + 1))
-      result="no verdict (fetch)"
-      echo "::warning title=Swift package not tested::$pkg: fetch failed, no test ran (network, after retries); rerun the step"
     else
       failed=$((failed + 1))
       [ "$first_failure_status" -ne 0 ] || first_failure_status="$package_status"
@@ -649,10 +637,6 @@ run_package_tests() {
   if [ "$failed" -ne 0 ]; then
     echo "$failed of ${#summary[@]} Swift packages failed."
     exit "$first_failure_status"
-  fi
-  if [ "$no_verdict" -ne 0 ]; then
-    echo "$no_verdict of ${#summary[@]} Swift packages were not tested: fetch failed, no test ran (exit 75, no verdict)."
-    exit 75
   fi
 }
 
@@ -717,7 +701,7 @@ run_suite() {
     ensure_cmux_tui_tree
   fi
   local scratch="$suite_package/.build${CMUX_SWIFT_SANITIZE:+-sanitize-$CMUX_SWIFT_SANITIZE}"
-  swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
+  swiftpm_binary_module_guard "$suite_package" "$scratch"
   echo "::group::swift build --build-tests ${configuration[*]} $suite_package"
   local build_log build_status=0
   build_log="$(mktemp -t swift-suite-build.XXXXXX)"
@@ -728,7 +712,7 @@ run_suite() {
   if [ "$build_status" -ne 0 ] && swiftpm_stale_module_failure "$build_log"; then
     echo "::warning title=Stale precompiled module::$suite_package: the warm build read a stale explicit module; building again from clean outputs"
     swiftpm_purge_build_outputs "$scratch"
-    swiftpm_binary_module_guard "$suite_package" "$scratch" || exit $? # 75: fetch failed, no test ran
+    swiftpm_binary_module_guard "$suite_package" "$scratch"
     build_status=0
     swift build --build-tests "${configuration[@]}" --package-path "$suite_package" < /dev/null || build_status=$?
   fi
@@ -793,7 +777,7 @@ compile_one() {
   if [ "$status" -ne 0 ] && swiftpm_stale_module_failure "$log"; then
     echo "::warning title=Stale precompiled module::the warm build read a stale explicit module; building again from clean outputs"
     swiftpm_purge_build_outputs "$compile_scratch"
-    swiftpm_binary_module_guard "$compile_pkgdir" "$compile_scratch" || exit $? # 75: fetch failed, nothing compiled
+    swiftpm_binary_module_guard "$compile_pkgdir" "$compile_scratch"
     status=0
     swift build "$@" < /dev/null 2>&1 | tee "$log" || status=$?
   fi
@@ -846,7 +830,7 @@ run_compile_tests() {
     if [ "${#submodules[@]}" -gt 0 ]; then
       git submodule update --init --depth 1 -- "${submodules[@]}"
     fi
-    swiftpm_binary_module_guard "$compile_pkgdir" "$compile_scratch" || exit $? # 75: fetch failed, nothing compiled
+    swiftpm_binary_module_guard "$compile_pkgdir" "$compile_scratch"
     if [ "${#words[@]}" -gt 1 ]; then
       builds=("${words[@]:1}")
     else
