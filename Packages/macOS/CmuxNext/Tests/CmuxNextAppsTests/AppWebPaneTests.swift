@@ -86,6 +86,13 @@ struct AppWebPaneTests {
         // refused by ``AppWebPane/file(for:)`` (thePaneReadsOnlyItsWebRoot).
         #expect(result == "undefined,blocked,blocked,reached,blocked", "\(result ?? "nil")")
 
+        // No peer connections, and the page cannot bring them back.
+        let rtc = try await view.webView.callAsyncJavaScript("""
+            try { window.RTCPeerConnection = function () {}; } catch {}
+            return [typeof RTCPeerConnection, typeof webkitRTCPeerConnection, typeof RTCDataChannel].join(",");
+            """, arguments: [:], in: nil, contentWorld: .page) as? String
+        #expect(rtc == "undefined,undefined,undefined", "\(rtc ?? "nil")")
+
         let (refused, refusal) = AsyncStream.makeStream(of: Void.self)
         view.onRefusedNavigation = { refusal.yield() }
         _ = try? await view.webView.evaluateJavaScript("location.href = 'https://example.com/'")

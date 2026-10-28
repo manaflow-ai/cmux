@@ -246,6 +246,28 @@ fn registry_ids_follow_the_manifest_schema() {
 }
 
 #[test]
+fn a_put_shadowed_by_another_copy_writes_nothing() {
+    let root = temp_dir();
+    // A bundled copy with the same id wins the catalog (first source wins).
+    write_web_app(
+        &root.0.join("bundled"),
+        "board",
+        "octo/board",
+        "0.9.0",
+        json!({ "workspace:read": "r" }),
+    );
+    let f = fixture_with(&[], Duration::from_secs(60), root);
+    let files = bundle("1.0.0");
+    assert_eq!(
+        put(&f, "octo/board", "1.0.0", &hash(&files), &files).unwrap_err(),
+        "apps.registry.shadowed"
+    );
+    assert!(!f.state.join("apps/registry/octo.board").exists());
+    let staging = f.state.join("apps/registry-staging");
+    assert!(std::fs::read_dir(&staging).map_or(true, |mut d| d.next().is_none()), "nothing staged");
+}
+
+#[test]
 fn the_bundle_hash_is_the_registry_contract() {
     // The same vector the Cloud registry's tests assert (section 6.2).
     let files = BTreeMap::from([
