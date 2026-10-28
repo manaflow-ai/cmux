@@ -6,6 +6,7 @@ public struct CrashWorkspaceSignature: Sendable {
     let workspaceID: UUID?
     let checkpointIDs: Set<String>
     let nonAgentPanelIDs: Set<UUID>
+    let preservedContentIDs: Set<String>?
     let title: String?
     let description: String?
     let groupID: UUID?
@@ -26,15 +27,19 @@ public struct CrashWorkspaceSignature: Sendable {
     ///   - dock: Dock identity, or nil when no dock was persisted.
     ///   - fidelityScore: Restore metadata score used when checkpoint sets are equal.
     ///   - nonAgentPanelIDs: Persisted panels without agent checkpoint identity.
+    ///   - preservedContentIDs: Fingerprints of saved terminal text keyed by panel or checkpoint;
+    ///     nil refuses whole-copy selection when that text cannot be compared.
     public nonisolated init(
         stableID: UUID?, workspaceID: UUID?, checkpointIDs: Set<String>,
         title: String?, description: String?, groupID: UUID?, directory: String,
-        dock: CrashDockSignature?, fidelityScore: Int, nonAgentPanelIDs: Set<UUID> = []
+        dock: CrashDockSignature?, fidelityScore: Int, nonAgentPanelIDs: Set<UUID> = [],
+        preservedContentIDs: Set<String>? = []
     ) {
         self.stableID = stableID
         self.workspaceID = workspaceID
         self.checkpointIDs = checkpointIDs
         self.nonAgentPanelIDs = nonAgentPanelIDs
+        self.preservedContentIDs = preservedContentIDs
         self.title = title
         self.description = description
         self.groupID = groupID

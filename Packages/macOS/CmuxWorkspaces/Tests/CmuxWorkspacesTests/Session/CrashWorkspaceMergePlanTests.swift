@@ -7,12 +7,12 @@ struct CrashWorkspaceMergePlanTests {
     private func workspace(
         id: UUID? = nil, agents: Set<String> = [], title: String? = nil,
         group: UUID? = nil, dock: CrashDockSignature? = nil, score: Int = 0,
-        nonAgents: Set<UUID> = []
+        nonAgents: Set<UUID> = [], contents: Set<String>? = []
     ) -> CrashWorkspaceSignature {
         CrashWorkspaceSignature(
             stableID: nil, workspaceID: id, checkpointIDs: agents,
             title: title, description: nil, groupID: group, directory: "/work",
-            dock: dock, fidelityScore: score, nonAgentPanelIDs: nonAgents
+            dock: dock, fidelityScore: score, nonAgentPanelIDs: nonAgents, preservedContentIDs: contents
         )
     }
 
@@ -57,6 +57,26 @@ struct CrashWorkspaceMergePlanTests {
         )
         #expect(plan.selections == [.supplemental(0)])
         #expect(plan.matches == [0: 0])
+    }
+
+    @Test("Recovered text wins over a metadata-rich empty copy")
+    func recoveredTextSurvives() {
+        let id = UUID()
+        let plan = CrashWorkspaceMergePlan(
+            preferred: [workspace(id: id, agents: ["a"], score: 100)],
+            supplemental: [workspace(id: id, agents: ["a"], contents: ["a:scrollback"])]
+        )
+        #expect(plan.selections == [.supplemental(0)])
+    }
+
+    @Test("Conflicting or unknown text is never discarded", arguments: [Set(["new"]), nil])
+    func conflictingTextSurvives(contents: Set<String>?) {
+        let id = UUID()
+        let plan = CrashWorkspaceMergePlan(
+            preferred: [workspace(id: id, agents: ["a"], contents: ["old"])],
+            supplemental: [workspace(id: id, agents: ["a"], contents: contents)]
+        )
+        #expect(plan.selections == [.preferred(0), .supplemental(0)])
     }
 
     @Test("An original workspace is matched at most once")

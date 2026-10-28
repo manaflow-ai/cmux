@@ -7,13 +7,17 @@ public import Foundation
 public struct CrashDockSignature: Equatable, Sendable {
     public let panelIDs: Set<UUID>
     public let checkpointIDs: Set<String>
+    /// Fingerprint of the complete persisted dock, or nil when it cannot be compared safely.
+    public let contentFingerprint: String?
 
     /// Captures all panels and agent checkpoints in one dock.
     /// - Parameters:
     ///   - panelIDs: Persisted identities of every dock panel, including nonterminals.
     ///   - checkpointIDs: Agent checkpoints belonging to the dock's terminals.
-    public nonisolated init(panelIDs: Set<UUID>, checkpointIDs: Set<String>) {
+    ///   - contentFingerprint: A deterministic digest of the complete persisted dock.
+    public nonisolated init(panelIDs: Set<UUID>, checkpointIDs: Set<String>, contentFingerprint: String? = nil) {
         self.panelIDs = panelIDs
         self.checkpointIDs = checkpointIDs
+        self.contentFingerprint = contentFingerprint
     }
 }
