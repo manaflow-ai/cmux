@@ -48,6 +48,9 @@ final class ChromiumRuntimeService {
     let pinnedKey: String?
     /// The last installer state (`debug.cef`).
     private(set) var state: ChromiumRuntimeInstallState = .idle
+    /// Runs once the downloaded runtime is installed and Chromium can open tabs: tabs whose record names
+    /// Chromium and that run in WebKit meanwhile move to Chromium (`TabContentCache.chromiumBecameReady`).
+    var onInstalled: (@MainActor () -> Void)?
     private let installer: ChromiumRuntimeInstaller?
     private let mainBundle: URL
     /// Load-time trust for an installed pack. Nil only for a bundled runtime
@@ -188,7 +191,7 @@ final class ChromiumRuntimeService {
         case .installed(let installation):
             let trust = downloadedTrust ?? .downloaded(teamID: nil)
             if let layout = CEFRuntimeLayout.at(installation.frameworksDirectory, fallbackMainBundle: mainBundle, trust: trust) {
-                source.install(layout)
+                if source.install(layout) { onInstalled?() }
             } else {
                 source.update(pending: .downloadFailed("missing: \(installation.frameworksDirectory.path)"))
             }

@@ -8,6 +8,7 @@ extension AppServices {
     func startChromiumRuntime() {
         let runtime = chromiumRuntime
         runtime.start(on: mainDeadlines)
+        runtime.onInstalled = { [weak cache] in if let cache { cache.browserTabs.fallbacks.chromiumBecameReady(in: cache) } }
         let browserTabs = cache.browserTabs
         let engineReason = browserTabs.cefUnavailable
         browserTabs.cefUnavailable = { [weak runtime] in

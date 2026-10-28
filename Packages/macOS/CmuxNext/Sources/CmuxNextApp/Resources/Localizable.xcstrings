@@ -13552,6 +13552,399 @@
           }
         }
       }
+    },
+    "browser.engine.fallback.webKitForNow.downloading": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium is downloading, so this tab runs in WebKit for now. It moves to Chromium when Chromium is ready."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يجري تنزيل Chromium، لذا تعمل علامة التبويب هذه في WebKit مؤقتًا. ستنتقل إلى Chromium عندما يصبح Chromium جاهزًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium se preuzima, pa ova kartica za sada radi u WebKitu. Prelazi u Chromium kada Chromium bude spreman."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium downloades, så denne fane kører i WebKit indtil videre. Den flytter til Chromium, når Chromium er klar."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium wird geladen, daher läuft dieser Tab vorerst in WebKit. Er wechselt zu Chromium, sobald Chromium bereit ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium se está descargando, así que esta pestaña se ejecuta en WebKit por ahora. Pasará a Chromium cuando Chromium esté listo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium est en cours de téléchargement : cet onglet s’exécute dans WebKit pour l’instant. Il passera à Chromium dès que Chromium sera prêt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium è in download, quindi per ora questa scheda usa WebKit. Passerà a Chromium quando Chromium sarà pronto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium をダウンロード中のため、このタブは現在 WebKit で動作しています。Chromium の準備ができると Chromium に移ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium កំពុងទាញយក ដូច្នេះផ្ទាំងនេះដំណើរការក្នុង WebKit សិន។ វានឹងផ្លាស់ទៅ Chromium ពេល Chromium រួចរាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium을 다운로드하는 중이므로 이 탭은 당분간 WebKit에서 실행됩니다. Chromium이 준비되면 Chromium으로 옮겨집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium lastes ned, så denne fanen kjører i WebKit inntil videre. Den flytter til Chromium når Chromium er klar."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium jest pobierany, więc ta karta na razie działa w WebKit. Przejdzie do Chromium, gdy Chromium będzie gotowy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Chromium está sendo baixado, então esta guia usa o WebKit por enquanto. Ela passa para o Chromium quando o Chromium estiver pronto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium загружается, поэтому эта вкладка пока работает в WebKit. Она перейдёт в Chromium, когда Chromium будет готов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กำลังดาวน์โหลด Chromium แท็บนี้จึงทำงานใน WebKit ไปก่อน และจะย้ายไปยัง Chromium เมื่อ Chromium พร้อม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium indiriliyor, bu yüzden bu sekme şimdilik WebKit’te çalışıyor. Chromium hazır olduğunda Chromium’a geçer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium завантажується, тому ця вкладка поки працює у WebKit. Вона перейде до Chromium, коли Chromium буде готовий."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium đang được tải xuống nên thẻ này tạm chạy trong WebKit. Thẻ sẽ chuyển sang Chromium khi Chromium sẵn sàng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 正在下载，因此此标签页暂时在 WebKit 中运行。Chromium 就绪后，它会移至 Chromium。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 正在下載，因此此分頁暫時在 WebKit 中執行。Chromium 就緒後，它會移至 Chromium。"
+          }
+        }
+      }
+    },
+    "browser.engine.fallback.webKitForNow.downloadFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium couldn’t download yet, so this tab runs in WebKit for now. It moves to Chromium when Chromium is ready."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تنزيل Chromium حتى الآن، لذا تعمل علامة التبويب هذه في WebKit مؤقتًا. ستنتقل إلى Chromium عندما يصبح Chromium جاهزًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium se još nije mogao preuzeti, pa ova kartica za sada radi u WebKitu. Prelazi u Chromium kada Chromium bude spreman."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium kunne ikke downloades endnu, så denne fane kører i WebKit indtil videre. Den flytter til Chromium, når Chromium er klar."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium konnte noch nicht geladen werden, daher läuft dieser Tab vorerst in WebKit. Er wechselt zu Chromium, sobald Chromium bereit ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium aún no se pudo descargar, así que esta pestaña se ejecuta en WebKit por ahora. Pasará a Chromium cuando Chromium esté listo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium n’a pas encore pu être téléchargé : cet onglet s’exécute dans WebKit pour l’instant. Il passera à Chromium dès que Chromium sera prêt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stato ancora possibile scaricare Chromium, quindi per ora questa scheda usa WebKit. Passerà a Chromium quando Chromium sarà pronto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium をまだダウンロードできないため、このタブは現在 WebKit で動作しています。Chromium の準備ができると Chromium に移ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនទាន់អាចទាញយក Chromium បានទេ ដូច្នេះផ្ទាំងនេះដំណើរការក្នុង WebKit សិន។ វានឹងផ្លាស់ទៅ Chromium ពេល Chromium រួចរាល់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 Chromium을 다운로드하지 못해 이 탭은 당분간 WebKit에서 실행됩니다. Chromium이 준비되면 Chromium으로 옮겨집니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium kunne ikke lastes ned ennå, så denne fanen kjører i WebKit inntil videre. Den flytter til Chromium når Chromium er klar."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się jeszcze pobrać Chromium, więc ta karta na razie działa w WebKit. Przejdzie do Chromium, gdy Chromium będzie gotowy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda não foi possível baixar o Chromium, então esta guia usa o WebKit por enquanto. Ela passa para o Chromium quando o Chromium estiver pronto."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium пока не удалось загрузить, поэтому эта вкладка пока работает в WebKit. Она перейдёт в Chromium, когда Chromium будет готов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังดาวน์โหลด Chromium ไม่ได้ แท็บนี้จึงทำงานใน WebKit ไปก่อน และจะย้ายไปยัง Chromium เมื่อ Chromium พร้อม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium henüz indirilemedi, bu yüzden bu sekme şimdilik WebKit’te çalışıyor. Chromium hazır olduğunda Chromium’a geçer."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium поки не вдалося завантажити, тому ця вкладка поки працює у WebKit. Вона перейде до Chromium, коли Chromium буде готовий."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa tải được Chromium nên thẻ này tạm chạy trong WebKit. Thẻ sẽ chuyển sang Chromium khi Chromium sẵn sàng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 暂时无法下载，因此此标签页暂时在 WebKit 中运行。Chromium 就绪后，它会移至 Chromium。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 暫時無法下載，因此此分頁暫時在 WebKit 中執行。Chromium 就緒後，它會移至 Chromium。"
+          }
+        }
+      }
+    },
+    "browser.engine.fallback.movedToChromium": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This tab moved to Chromium at the same address. Chromium has its own cookies, so sites may ask you to sign in again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انتقلت علامة التبويب هذه إلى Chromium على العنوان نفسه. لدى Chromium ملفات تعريف ارتباط خاصة به، لذا قد تطلب منك المواقع تسجيل الدخول مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova kartica je prešla u Chromium na istoj adresi. Chromium ima vlastite kolačiće, pa vas stranice mogu ponovo tražiti da se prijavite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne fane er flyttet til Chromium på samme adresse. Chromium har sine egne cookies, så websteder kan bede dig logge ind igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Tab ist mit derselben Adresse zu Chromium gewechselt. Chromium hat eigene Cookies, daher fragen Websites eventuell erneut nach einer Anmeldung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta pestaña pasó a Chromium con la misma dirección. Chromium tiene sus propias cookies, así que los sitios pueden pedirte que vuelvas a iniciar sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet onglet est passé à Chromium à la même adresse. Chromium a ses propres cookies : des sites peuvent vous demander de vous reconnecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa scheda è passata a Chromium allo stesso indirizzo. Chromium ha i propri cookie, quindi i siti potrebbero chiederti di accedere di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このタブは同じアドレスのまま Chromium に移りました。Chromium は独自の Cookie を持つため、サイトから再度ログインを求められることがあります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទាំងនេះបានផ្លាស់ទៅ Chromium នៅអាសយដ្ឋានដដែល។ Chromium មានខូគីផ្ទាល់ខ្លួន ដូច្នេះគេហទំព័រអាចសុំឱ្យអ្នកចូលគណនីម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 탭이 같은 주소로 Chromium으로 옮겨졌습니다. Chromium은 자체 쿠키를 사용하므로 사이트에서 다시 로그인하라고 할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne fanen er flyttet til Chromium med samme adresse. Chromium har egne informasjonskapsler, så nettsteder kan be deg logge på igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta karta przeszła do Chromium pod tym samym adresem. Chromium ma własne pliki cookie, więc witryny mogą poprosić o ponowne zalogowanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta guia passou para o Chromium no mesmo endereço. O Chromium tem os próprios cookies, então os sites podem pedir que você entre de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Эта вкладка перешла в Chromium с тем же адресом. У Chromium свои файлы cookie, поэтому сайты могут попросить войти снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แท็บนี้ย้ายไปยัง Chromium ที่ที่อยู่เดิมแล้ว Chromium มีคุกกี้ของตัวเอง เว็บไซต์จึงอาจขอให้คุณลงชื่อเข้าใช้อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sekme aynı adresle Chromium’a geçti. Chromium’un kendi çerezleri vardır, bu yüzden siteler yeniden oturum açmanızı isteyebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ця вкладка перейшла до Chromium з тією самою адресою. Chromium має власні файли cookie, тому сайти можуть попросити увійти знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thẻ này đã chuyển sang Chromium với cùng địa chỉ. Chromium có cookie riêng nên các trang web có thể yêu cầu bạn đăng nhập lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此标签页已在同一地址移至 Chromium。Chromium 有自己的 Cookie，因此网站可能会要求你重新登录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此分頁已在同一網址移至 Chromium。Chromium 有自己的 Cookie，因此網站可能會要求你重新登入。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

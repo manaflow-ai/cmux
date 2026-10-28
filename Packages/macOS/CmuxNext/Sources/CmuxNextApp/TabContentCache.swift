@@ -125,7 +125,7 @@ final class TabContentCache {
     /// Page-originated tab requests (new-tab links, popups, window.close).
     let pageRequests = BrowserPageRequests()
     /// Chromium pages being created (ChromiumWarmup waits for none, `onPagesSettled`).
-    private(set) var pendingBrowsers: Set<String> = [] {
+    var pendingBrowsers: Set<String> = [] {
         didSet { if !oldValue.isEmpty, !hasPendingPages { onPagesSettled?() } }
     }
     /// Terminals made before their daemon knew its tab records, waiting to take their record's font scale
@@ -325,7 +325,7 @@ final class TabContentCache {
         claimAgentDriven(surface: tab.surface, key: key)
         // A close the daemon makes (`cmux tab close`, another client) frees the page too.
         goneTabs.track(key, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
-        if let entry = browsers[key] { return entry }
+        if let entry = browsers[key] { return browserTabs.fallbacks.movesToChromium(key, tab: tab, in: self) ? nil : entry }
         if pageRequests.claimCloseOnArrival(tab.surface) {
             // Its page closed before the tab appeared (BrowserPageRequests): the tab closes after this presentation.
             mainWork.post(.visible, owner: "TabContentCache.closeOnArrival") { [weak self] in self?.pageRequests.closeTab(key) }
@@ -349,7 +349,7 @@ final class TabContentCache {
         if let page = deferredPage(tab, url: url, origin: origin) { return page }  // after crashes, or hidden at launch
         if let read = enginesAwait, !read.isSignaled { return awaitLaunchRead(read, key) }
         guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url), tab) }
-        if let reason = browserTabs.cefUnavailable() { return fallBack(tab, url: url, reason: reason) }
+        if let reason = browserTabs.cefUnavailable() { return browserTabs.fallbacks.page(tab, url: url, reason: reason, in: self) }
         if !pendingBrowsers.contains(key), let page = ChromiumNewTabNow(cache: self).page(tab, url: url, origin: origin) { return tracked(install(page, for: key), tab) }
         guard pendingBrowsers.insert(key).inserted, cef.notePoint("page_task") else { return nil }
         // Off main until CEF's own main-thread steps (configuration, page creation); the cache's steps run in `startCEFPage`.
@@ -365,7 +365,7 @@ final class TabContentCache {
             page = try await makeCEFTab(cef.noted("history", await browserTabs.historyStarts.chromium(tab, cef.noted("configured", await chromiumConfiguration(for: tab, key: key, url: url, origin: origin)), cache: self)))
         } catch {
             guard let tab = browserTabs.tabModel(key), browsers[key] == nil else { return }
-            _ = fallBack(tab, url: url, reason: browserTabs.cefUnavailable() ?? .startFailed(String(describing: error)))
+            _ = browserTabs.fallbacks.page(tab, url: url, reason: browserTabs.cefUnavailable() ?? .startFailed(String(describing: error)), in: self)
             onBrowserReady?(key)
             return
         }
@@ -403,7 +403,7 @@ final class TabContentCache {
     /// machine's tree opens only web pages (`RemoteRelayPolicy`): a remote
     /// host must not make this Mac load `file:` or `javascript:` content or
     /// launch an app through a custom scheme.
-    private func recordURL(_ tab: TabModel) -> URL? {
+    func recordURL(_ tab: TabModel) -> URL? {
         guard let services = pageRequests.services, !services.machines.daemon(forTab: tab).isLocal else {
             return browserTabs.startURL(for: tab).flatMap(URL.init(string:))
         }
@@ -412,7 +412,7 @@ final class TabContentCache {
 
     /// The Chromium configuration of `tab` showing `url`, made with `origin`, with its
     /// remote-localhost store. A failed proxy start leaves the page blank.
-    private func chromiumConfiguration(for tab: TabModel, key: String, url: URL?, origin: BrowserTabOrigin) async -> BrowserTabConfiguration {
+    func chromiumConfiguration(for tab: TabModel, key: String, url: URL?, origin: BrowserTabOrigin) async -> BrowserTabConfiguration {
         await chromiumConfiguration(for: tab, base: BrowserTabConfiguration(id: BrowserTabID(rawValue: key), profile: browserProfile?(key) ?? .default,
                                                                             initialURL: url, origin: origin))
     }
@@ -446,15 +446,8 @@ final class TabContentCache {
         swapPage(key, with: webKit.makeWebKitTab(id: old.id, profile: profile, initialURL: url, zoom: old.state.zoom))
     }
 
-    /// A WebKit page for a Chromium record, with the fallback recorded and the one-time notice shown when this is the first.
-    private func fallBack(_ tab: TabModel, url: URL?, reason: CEFUnavailableReason) -> BrowserEntry {
-        let fallbacks = browserTabs.fallbacks
-        fallbacks.record(reason, source: .recordedTab, machine: browserTabs.daemon(for: tab).machineID, surface: tab.surface)
-        return tracked(browserTabs.historyStarts.page(tab, url: url, cache: self) ?? browser(for: tab.id, url: url), tab)
-    }
-
     /// Starts the record write-back and shows a pending fallback notice.
-    private func tracked(_ entry: BrowserEntry, _ tab: TabModel) -> BrowserEntry {
+    func tracked(_ entry: BrowserEntry, _ tab: TabModel) -> BrowserEntry {
         browserTabs.track(entry.tab, for: tab)
         if let notice = browserTabs.fallbacks.takeNotice(machine: browserTabs.daemon(for: tab).machineID, surface: tab.surface) {
             entry.chrome.showNotice(notice)
@@ -565,6 +558,7 @@ final class TabContentCache {
         terminals.removeValue(forKey: key)?.close()
         fontScaleWaits[key] = nil
         goneTabs.forget(key)
+        browserTabs.fallbacks.forgetWebKitPage(key)
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)
         previews.remove(key)

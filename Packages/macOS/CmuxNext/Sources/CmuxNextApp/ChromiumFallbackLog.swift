@@ -1,11 +1,17 @@
 import CmuxNextBrowser
 import CmuxNextDaemon
+import Foundation
 
 /// Every time a tab that should have been Chromium opened in WebKit
 /// instead (Chromium is the default engine, or the tab's record names it),
-/// with the typed reason for `debug.cef`. The first fallback page shown in
-/// this process gets one subtle notice (`BrowserChromeView.showNotice`); after
-/// that fallbacks are only counted, so the notice never repeats.
+/// with the typed reason for `debug.cef`. Each fallback page says so with a
+/// notice (`BrowserChromeView.showNotice`) when its page is made, not only the
+/// first one of the run: the WebKit page has its own cookies, so the person must
+/// be able to tell which engine a tab runs in (behavior audit 4, P6).
+///
+/// A tab whose record names Chromium keeps naming it, so its WebKit page is a
+/// stand-in: ``webKitPages`` holds it until Chromium can open tabs, and then the
+/// tab moves to Chromium at the address it shows (`TabContentCache.moveToChromium`).
 @MainActor
 final class ChromiumFallbackLog {
     enum Source: String {
@@ -19,12 +25,14 @@ final class ChromiumFallbackLog {
     private(set) var lastReason: CEFUnavailableReason?
     private(set) var lastSource: Source?
     private(set) var count = 0
-    /// True once the notice was handed to a tab.
+    /// True once a notice was handed to a tab.
     private(set) var notified = false
     /// Fallback tabs whose page was not created yet, by machine and surface
-    /// (handles are per daemon); the first one shown takes the notice.
-    /// Emptied once notified.
+    /// (handles are per daemon); each one's page takes its notice.
     private var candidates: [Candidate: CEFUnavailableReason] = [:]
+    /// Tabs whose record names Chromium and whose page runs in WebKit now, by
+    /// tab id, with why: each moves to Chromium once Chromium can open tabs.
+    private(set) var webKitPages: [String: CEFUnavailableReason] = [:]
 
     private struct Candidate: Hashable {
         let machine: String
@@ -36,17 +44,40 @@ final class ChromiumFallbackLog {
         lastReason = reason
         lastSource = source
         count += 1
-        guard !notified, let surface else { return }
+        guard let surface else { return }
         candidates[Candidate(machine: machine, surface: surface)] = reason
     }
 
-    /// The notice text when `machine`'s `surface` is a fallback tab and no
-    /// notice was shown yet in this process (once).
+    /// The notice text when `machine`'s `surface` is a fallback tab whose page
+    /// has not shown it yet (once per tab).
     func takeNotice(machine: String, surface: SurfaceID) -> String? {
-        guard !notified, let reason = candidates[Candidate(machine: machine, surface: surface)] else { return nil }
+        guard let reason = candidates.removeValue(forKey: Candidate(machine: machine, surface: surface)) else { return nil }
         notified = true
-        candidates = [:]
         return Self.notice(for: reason)
+    }
+
+    /// Tab `key`, whose record names Chromium, got a WebKit page for `reason`.
+    /// Returns the notice its page shows: it runs in WebKit for now, and why.
+    func noteWebKitPage(_ key: String, reason: CEFUnavailableReason) -> String {
+        webKitPages[key] = reason
+        notified = true
+        return Self.webKitPageNotice(for: reason)
+    }
+
+    /// Whether tab `key`'s page is a WebKit stand-in for its Chromium record.
+    func isWebKitPage(_ key: String) -> Bool { webKitPages[key] != nil }
+
+    /// Tab `key` no longer has a WebKit stand-in (it moved to Chromium or closed).
+    func forgetWebKitPage(_ key: String) { webKitPages[key] = nil }
+
+    /// The notice of a Chromium record's WebKit page: it runs in WebKit for
+    /// now, why, and, while the runtime downloads, that it moves to Chromium.
+    static func webKitPageNotice(for reason: CEFUnavailableReason) -> String {
+        switch reason {
+        case .downloading: BrowserEngineStrings.webKitForNowDownloading
+        case .downloadFailed: BrowserEngineStrings.webKitForNowDownloadFailed
+        case .notBundled, .startFailed, .shutDown: notice(for: reason)
+        }
     }
 
     static func notice(for reason: CEFUnavailableReason) -> String {
@@ -67,6 +98,60 @@ final class ChromiumFallbackLog {
         case .downloadFailed: BrowserEngineStrings.downloadFailed
         case .notBundled, .startFailed, .shutDown: nil
         }
+    }
+}
+
+/// A Chromium record's WebKit page and its move to Chromium (behavior audit 4, P6), on `cache`'s pages.
+extension ChromiumFallbackLog {
+    /// A WebKit page for `tab`, whose record names Chromium, with the fallback recorded: the page says it runs in
+    /// WebKit for now and why, and it moves to Chromium once Chromium can open tabs (``movesToChromium(_:tab:in:)``).
+    func page(_ tab: TabModel, url: URL?, reason: CEFUnavailableReason, in cache: TabContentCache) -> BrowserEntry {
+        let browserTabs = cache.browserTabs
+        record(reason, source: .recordedTab, machine: browserTabs.daemon(for: tab).machineID, surface: nil)
+        let entry = browserTabs.historyStarts.page(tab, url: url, cache: cache) ?? cache.browser(for: tab.id, url: url)
+        entry.chrome.showNotice(noteWebKitPage(tab.id, reason: reason))
+        return cache.tracked(entry, tab)
+    }
+
+    /// Tab `key`'s page is a WebKit stand-in and Chromium can open tabs now: the stand-in closes and a Chromium page
+    /// is made at the address it shows, as a reroute re-makes a page in its new store. The caller gets no page until
+    /// the Chromium one is installed (`onBrowserReady`). False when the page is no stand-in or a page is being made.
+    func movesToChromium(_ key: String, tab: TabModel, in cache: TabContentCache) -> Bool {
+        guard isWebKitPage(key), cache.browserTabs.cefUnavailable() == nil, let entry = cache.browsers[key],
+              entry.tab.engineKind == .webkit, cache.pendingBrowsers.insert(key).inserted else { return false }
+        let url = entry.tab.state.url ?? cache.recordURL(tab)
+        forgetWebKitPage(key)
+        cache.browserTabs.untrack(key)
+        cache.browsers.removeValue(forKey: key)?.close()
+        Task { @concurrent [weak self, weak cache] in await self?.makeChromiumPage(tab, key: key, url: url, in: cache) }
+        return true
+    }
+
+    /// The Chromium page of a tab that moved from WebKit: it says Chromium has its own cookies. A WebKit page again
+    /// when Chromium fails to make it.
+    private func makeChromiumPage(_ tab: TabModel, key: String, url: URL?, in cache: TabContentCache?) async {
+        guard let cache else { return }
+        defer { cache.pendingBrowsers.remove(key) }
+        let page: any BrowserTab
+        do {
+            page = try await cache.makeCEFTab(await cache.chromiumConfiguration(for: tab, key: key, url: url, origin: .user))
+        } catch {
+            guard let tab = cache.tabModel(key), cache.browsers[key] == nil, cache.goneTabs.tracks(key) else { return }
+            _ = self.page(tab, url: url, reason: cache.browserTabs.cefUnavailable() ?? .startFailed(String(describing: error)), in: cache)
+            cache.onBrowserReady?(key)
+            return
+        }
+        guard cache.goneTabs.tracks(key) else { return page.close() } // closed while it started
+        let entry = cache.install(page, for: key)
+        cache.browserTabs.track(page, tabID: key)
+        entry.chrome.showNotice(BrowserEngineStrings.movedToChromium)
+        cache.onBrowserReady?(key)
+    }
+
+    /// Chromium's runtime was installed (`ChromiumRuntimeService.onInstalled`): each pane that shows a stand-in shows
+    /// its tab again, which moves it to Chromium now; a hidden one moves when it shows.
+    func chromiumBecameReady(in cache: TabContentCache) {
+        for key in webKitPages.keys { cache.onBrowserReady?(key) }
     }
 }
 
@@ -93,5 +178,23 @@ enum BrowserEngineStrings {
     }
     static var fallbackStartFailed: String {
         String(localized: "browser.engine.fallback.startFailed", defaultValue: "Chromium couldn’t start, so this tab uses WebKit.", bundle: .module)
+    }
+    /// A Chromium tab's WebKit page while the runtime downloads.
+    static var webKitForNowDownloading: String {
+        String(localized: "browser.engine.fallback.webKitForNow.downloading",
+               defaultValue: "Chromium is downloading, so this tab runs in WebKit for now. It moves to Chromium when Chromium is ready.",
+               bundle: .module)
+    }
+    /// A Chromium tab's WebKit page after the runtime download failed (cmux tries again).
+    static var webKitForNowDownloadFailed: String {
+        String(localized: "browser.engine.fallback.webKitForNow.downloadFailed",
+               defaultValue: "Chromium couldn’t download yet, so this tab runs in WebKit for now. It moves to Chromium when Chromium is ready.",
+               bundle: .module)
+    }
+    /// The tab moved from its WebKit page to Chromium: the engines keep separate cookies.
+    static var movedToChromium: String {
+        String(localized: "browser.engine.fallback.movedToChromium",
+               defaultValue: "This tab moved to Chromium at the same address. Chromium has its own cookies, so sites may ask you to sign in again.",
+               bundle: .module)
     }
 }
