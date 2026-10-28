@@ -94,6 +94,24 @@ fn state_for_hook_kind(kind: &str) -> Option<AgentState> {
     })
 }
 
+/// The roster state a hook journal event moves its terminal to, given the state the roster holds
+/// for it now (`current`); `None` when the event leaves it as it is. A question, an approval or an
+/// error blocks the agent (`state_for_hook_kind`) until the turn ends. A tool call that completes
+/// after the person answered (`PostToolUse`, or its failure) resumes a blocked agent instead:
+/// the agent runs on in its turn, so it is working, not waiting on the person.
+pub(crate) fn hook_roster_state(
+    kind: &str,
+    native_event: &str,
+    current: Option<AgentState>,
+) -> Option<AgentState> {
+    if crate::agent_hooks::is_tool_completion(native_event)
+        && matches!(kind, "agent.state.changed" | "agent.error.reported")
+    {
+        return (current == Some(AgentState::Blocked)).then_some(AgentState::Working);
+    }
+    state_for_hook_kind(kind)
+}
+
 /// One journal record reduced to the fields the roster fold reads. Built
 /// from a live `JournalIngress` at commit time and from stored
 /// `SessionJournalRecord`s during tail replay, with identical semantics so
@@ -690,7 +708,12 @@ impl AgentRoster {
             let agent = event.adapter_id().map(str::to_string);
             (state, AgentSource::Detected, None, None, None, agent, event.committed_at_ms)
         } else {
-            let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
+            let current =
+                self.entries.get(terminal_id).and_then(|entry| agent_state_from_str(&entry.state));
+            let native_event = event.native_event().unwrap_or_default();
+            let Some(state) = hook_roster_state(event.kind, native_event, current) else {
+                return Vec::new();
+            };
             // The session fence shared with the hook projector decides
             // whether this event belongs to the terminal's current
             // session. It advances even when timestamp arbitration below
