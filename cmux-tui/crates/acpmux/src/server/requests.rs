@@ -47,7 +47,9 @@ pub(super) fn ask<'a>(conn: &Conn, params: &Value, who: &'a str) -> crate::hub::
     let web =
         super::remote_guard::control_of(conn.origin, conn.auth, params) == crate::hub::Control::Web;
     let name = create_name(params);
-    crate::hub::admission::Ask { force, can_force, person, who, local: !web, name }
+    // A peer daemon's connection never learns this host's peers (`redact::hide_peers_from_peer`).
+    let peers = conn.origin != Origin::Peer;
+    crate::hub::admission::Ask { force, can_force, person, who, local: !web, peers, name }
 }
 
 /// The create's name, as `session/new` and `session/fork` read it.
@@ -636,8 +638,9 @@ async fn dispatch_request(
             str_param(&params, "query")
                 .ok_or_else(|| RpcError::invalid_params("query is required"))?,
             params.get("bead").and_then(Value::as_bool) == Some(true),
-            // A read-only machine reads what its session list shows (`pairing/read_only.rs`).
-            conn.auth != ConnAuth::ReadOnlyDevice,
+            // A read-only machine reads what its session list shows (`pairing/read_only.rs`), and a
+            // peer daemon's connection never learns this host's peers (`redact::hide_peers_from_peer`).
+            conn.auth != ConnAuth::ReadOnlyDevice && conn.origin != Origin::Peer,
         ),
         method::INITIALIZE => {
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {

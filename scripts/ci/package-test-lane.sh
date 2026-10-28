@@ -741,7 +741,7 @@ run_suite() {
   # not run", which the per-test classifier (test_reds) reads as a run that is not whole, so
   # the base-red excuse never excuses it.
   local log filter status started result failed=0 first_failure_status=0 rows=()
-  local ran skipped reason daemon_skips
+  local ran skipped reason daemon_skips display_skips hint
   for filter in "${suite_filters[@]}"; do
     echo "::group::swift test --filter $filter"
     log="$(mktemp -t swift-suite-test.XXXXXX)"
@@ -758,7 +758,7 @@ run_suite() {
       python3 scripts/ci/require_swift_test_execution.py --log "$log" --skip-report "$log.skips" || status=$?
     fi
     echo "::endgroup::"
-    ran=0 skipped=0
+    ran=0 skipped=0 display_skips=0 hint=""
     # Read from the log itself, whatever the exit status or CMUX_TEST_REQUIRE_GUI: a failing test or a GUI
     # skip beside a missing-cmux-tui skip must not hide the no-result line.
     daemon_skips="$(grep -cE '(Test|Suite) .+ skipped: "needs the same-tree cmux-tui' "$log" || true)"
@@ -770,6 +770,9 @@ run_suite() {
       if [ "$skipped" -gt 0 ]; then
         while IFS= read -r reason; do
           echo "$filter: skipped $reason"
+          # The suites' own display traits: "the drag tests need a display", "needs an awake display ...",
+          # "run on a GUI host", "no GUI login session".
+          if printf '%s' "$reason" | grep -qiE 'display|screen|GUI'; then display_skips=$((display_skips + 1)); fi
         done < <(tail -n +2 "$log.skips")
       fi
       if [ "$skipped" -gt 0 ] && [ "${CMUX_TEST_REQUIRE_GUI:-}" = 1 ]; then
@@ -785,7 +788,14 @@ run_suite() {
         result="no result (no cmux-tui)"
       else
         result="no result (0 ran)"
-        echo "::error title=Swift suite no result::$filter in $suite_package: required tests did not run: none of its $skipped tests ran (all skipped); no result, never a pass or a base red"
+        # cmux-ci sends a step naming a listed display suite (scripts/ci/display-suites.txt) to a display
+        # worker and marks it CMUX_CI_DISPLAY_ROUTED=1; the lane's hint is for a step routing did not reach.
+        if [ "$display_skips" -gt 0 ] && [ "${CMUX_CI_DISPLAY_ROUTED:-}" = 1 ]; then
+          hint="; this suite needs a display and was sent to a display worker, whose console session was lost (locked or logged out)"
+        elif [ "$display_skips" -gt 0 ]; then
+          hint="; this suite needs a display; rerun with CMUX_TEST_REQUIRE_GUI=1"
+        fi
+        echo "::error title=Swift suite no result::$filter in $suite_package: required tests did not run: none of its $skipped tests ran (all skipped)$hint; no result, never a pass or a base red"
       fi
     elif [ "$status" -eq 0 ] && [ "$skipped" -gt 0 ]; then
       result="passed, $skipped skipped"

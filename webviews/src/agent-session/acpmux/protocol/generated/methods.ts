@@ -68,6 +68,10 @@ export interface AcpmuxRequests {
   "_acpmux/process/list": { params: unknown; result: unknown };
   "_acpmux/process/tail": { params: unknown; result: unknown };
   "_acpmux/process/kill": { params: unknown; result: unknown };
+  "_acpmux/bg/start": { params: unknown; result: unknown };
+  "_acpmux/bg/list": { params: unknown; result: unknown };
+  "_acpmux/bg/output": { params: unknown; result: unknown };
+  "_acpmux/bg/stop": { params: unknown; result: unknown };
   "_acpmux/process/background": { params: ProcessBackgroundParams; result: ProcessBackgroundResult };
   "_acpmux/worktree/report": { params: unknown; result: unknown };
   "_acpmux/worktree/clean": { params: unknown; result: unknown };
@@ -323,6 +327,10 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/process/list", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process/tail", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process/kill", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/bg/start", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/bg/list", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/bg/output", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/bg/stop", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process/background", kind: "request", acp: false, typed: true },
   { name: "_acpmux/worktree/report", kind: "request", acp: false, typed: false },
   { name: "_acpmux/worktree/clean", kind: "request", acp: false, typed: false },

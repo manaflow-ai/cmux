@@ -53,6 +53,7 @@ import { ContextMenu } from "../../ui/ContextMenu";
 import { useComposerSettings } from "./composerSettings";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
+import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
 import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
 import { useEscapingPopup } from "../../ui/popupHost";
 import { usePopupHost } from "../../ui/UiProvider";
@@ -1587,6 +1588,9 @@ export function Picker({
   const rows = sections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
   // A live update can shrink the list under the highlight.
   const selected = Math.min(active, Math.max(rows.length - 1, 0));
+  useEffect(() => {
+    if (open && rows.length) scrollActiveMenuRow(menu.current, `${menuId}-${selected}`);
+  }, [open, rows.length, menuId, selected]);
 
   useEffect(() => {
     if (!open) return;
