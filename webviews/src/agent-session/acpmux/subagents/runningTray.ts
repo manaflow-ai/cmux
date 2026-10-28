@@ -187,6 +187,7 @@ function cardKey(node: Subagent): string {
           agent.state ?? "",
           agent.action ?? "",
           agent.result ?? "",
+          (agent as typeof agent & { lastMessage?: string }).lastMessage ?? "",
           agent.model ?? "",
           agent.tokens ?? "",
           agent.startedAt ?? "",

@@ -81,8 +81,9 @@ export function WorkflowCard({
   const running = workflow.state === "running" && counts.running > 0;
   const now = useNow(running);
   const elapsed = workflow.elapsedMs ?? (workflow.startedAt !== undefined ? Math.max(0, now - workflow.startedAt) : 0);
-  const total = workflow.counts?.started ?? counts.total;
-  const done = workflow.counts?.done ?? counts.done;
+  const reportedTotal = (workflow.counts?.started ?? 0) + (workflow.counts?.queued ?? 0);
+  const total = Math.max(counts.total, reportedTotal);
+  const done = Math.min(total, Math.max(counts.done, workflow.counts?.done ?? 0));
   const progress = total > 0 ? Math.min(1, done / total) : 0;
   const activeAgents = workflow.agents.filter((agent) => agent.state === "running" || agent.state === "paused");
   const focusAgent = activeAgents.at(-1) ?? workflow.agents.at(-1);
