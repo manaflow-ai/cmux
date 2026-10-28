@@ -23,10 +23,14 @@ fn held(session: &str, id: &str, text: &str) -> Value {
     by(prompt(session, id, text, None), Some(&guest()))
 }
 
-fn answer(session: &str, id: &str, revision: Option<u64>) -> Value {
+fn answer(hub: &Arc<Hub>, session: &str, id: &str, revision: Option<u64>) -> Value {
     let mut params = json!({"sessionId": session, "promptId": id, "_meta": {"acpmux": {}}});
     if let Some(revision) = revision {
         params["revision"] = json!(revision);
+        let records = hub.events(session, 0, 10_000).unwrap();
+        params["turnId"] = records.iter().rev()
+            .find(|e| e.kind == "queued" && e.msg["promptId"] == id)
+            .map(|e| e.msg["turnId"].clone()).unwrap_or(Value::Null);
     }
     params
 }
@@ -75,12 +79,12 @@ async fn a_guests_prompt_waits_while_the_owners_run_past_it() {
     let queued = queued.iter().find(|m| m["promptId"] == "g-1").expect("its queued record");
     assert_eq!((&queued["awaitingOwner"], &queued["revision"]), (&json!(true), &json!(0)));
 
-    let authored = by(answer(&session, "g-1", Some(0)), Some(&guest()));
+    let authored = by(answer(&hub, &session, "g-1", Some(0)), Some(&guest()));
     let refused = c.reply("_acpmux/queue_approve", authored).await;
     assert_eq!(reason(&refused), "queue.owner_only", "{refused}");
-    let stale = c.reply("_acpmux/queue_approve", answer(&session, "g-1", Some(1))).await;
+    let stale = c.reply("_acpmux/queue_approve", answer(&hub, &session, "g-1", Some(1))).await;
     assert_eq!(reason(&stale), "queue.stale", "{stale}");
-    c.call("_acpmux/queue_approve", answer(&session, "g-1", Some(0))).await;
+    c.call("_acpmux/queue_approve", answer(&hub, &session, "g-1", Some(0))).await;
     // Both answers, in either order.
     for _ in 0..2 {
         let done = c.until(|v| [waiting, again].iter().any(|id| v.get("id") == Some(&json!(id))));
@@ -89,7 +93,7 @@ async fn a_guests_prompt_waits_while_the_owners_run_past_it() {
     let message = c.user_message(&session, "g-1").await;
     assert_eq!(message.pointer("/_meta/provenance/from"), Some(&json!("guest:k3x9")));
     assert_ne!(message["steer"], true, "it went in as a steer: {message}");
-    let late = c.reply("_acpmux/queue_decline", answer(&session, "g-1", None)).await;
+    let late = c.reply("_acpmux/queue_decline", answer(&hub, &session, "g-1", None)).await;
     assert_eq!(reason(&late), "queue.not_found", "{late}");
     assert_eq!(late.pointer("/error/data/decided"), Some(&json!("approved")), "{late}");
 }
@@ -101,13 +105,13 @@ async fn a_declined_prompt_answers_declined_and_never_runs() {
     let session = c.new_session(json!({"harness": "fake"})).await;
     // Nothing runs: it waits for the owner all the same.
     let waiting = c.queue(held(&session, "g-1", "guest words")).await;
-    let authored = by(answer(&session, "g-1", None), Some(&guest()));
+    let authored = by(answer(&hub, &session, "g-1", None), Some(&guest()));
     let refused = c.reply("_acpmux/queue_decline", authored).await;
     assert_eq!(reason(&refused), "queue.owner_only", "{refused}");
-    c.call("_acpmux/queue_decline", answer(&session, "g-1", None)).await;
+    c.call("_acpmux/queue_decline", answer(&hub, &session, "g-1", None)).await;
     let declined = c.reply_to(waiting).await;
     assert_eq!(reason(&declined), "queue.declined", "{declined}");
-    let again = c.reply("_acpmux/queue_approve", answer(&session, "g-1", Some(0))).await;
+    let again = c.reply("_acpmux/queue_approve", answer(&hub, &session, "g-1", Some(0))).await;
     assert_eq!(again.pointer("/error/data/decided"), Some(&json!("declined")), "{again}");
     c.call("session/prompt", prompt(&session, "p-after", "after", None)).await;
     assert!(!ran(&mut c, &session, "g-1").await, "a declined prompt ran");
@@ -133,14 +137,14 @@ async fn the_guest_edits_or_removes_it_and_nothing_else() {
     assert_eq!(c.call("_acpmux/queue_edit", edit(&session, "g-1", "update")).await["ok"], true);
     let listed = queue(&hub, &session);
     assert_eq!((&listed[0]["awaitingOwner"], &listed[0]["revision"]), (&json!(true), &json!(1)));
-    let stale = c.reply("_acpmux/queue_approve", answer(&session, "g-1", Some(0))).await;
+    let stale = c.reply("_acpmux/queue_approve", answer(&hub, &session, "g-1", Some(0))).await;
     assert_eq!(reason(&stale), "queue.stale", "the owner approved words they never saw");
-    c.call("_acpmux/queue_approve", answer(&session, "g-1", Some(1))).await;
+    c.call("_acpmux/queue_approve", answer(&hub, &session, "g-1", Some(1))).await;
     let late = c.reply("_acpmux/queue_edit", edit(&session, "g-1", "update")).await;
     assert_eq!(reason(&late), "queue.approved", "{late}");
-    let remove = by(answer(&session, "g-1", None), Some(&guest()));
+    let remove = by(answer(&hub, &session, "g-1", None), Some(&guest()));
     assert_eq!(c.call("_acpmux/queue_remove", remove).await["removed"], true);
-    let gone = c.reply("_acpmux/queue_decline", answer(&session, "g-1", None)).await;
+    let gone = c.reply("_acpmux/queue_decline", answer(&hub, &session, "g-1", None)).await;
     assert_eq!(gone.pointer("/error/data/decided"), Some(&json!("removed")), "{gone}");
 
     // At most 16 wait for the owner at once, per author.
@@ -189,9 +193,9 @@ async fn a_held_prompt_survives_a_restart_at_its_revision() {
     assert_eq!(listed.len(), 1, "{listed:?}");
     assert_eq!((&listed[0]["awaitingOwner"], &listed[0]["revision"]), (&json!(true), &json!(1)));
     assert!(!ran(&mut c, &session, "g-1").await, "a restart ran it");
-    let stale = c.reply("_acpmux/queue_approve", answer(&session, "g-1", Some(0))).await;
+    let stale = c.reply("_acpmux/queue_approve", answer(&hub, &session, "g-1", Some(0))).await;
     assert_eq!(reason(&stale), "queue.stale", "{stale}");
-    c.call("_acpmux/queue_approve", answer(&session, "g-1", Some(1))).await;
+    c.call("_acpmux/queue_approve", answer(&hub, &session, "g-1", Some(1))).await;
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     while !ran(&mut c, &session, "g-1").await {
         assert!(std::time::Instant::now() < deadline, "the approved prompt never ran");
@@ -212,7 +216,7 @@ async fn an_approval_never_carries_over_to_a_prompt_reusing_its_id() {
     let mut c = Client::open(&hub);
     let session = c.new_session(json!({"harness": "fake"})).await;
     let first = c.queue(held(&session, "g-1", "first words")).await;
-    c.call("_acpmux/queue_approve", answer(&session, "g-1", Some(0))).await;
+    c.call("_acpmux/queue_approve", answer(&hub, &session, "g-1", Some(0))).await;
     assert!(c.reply_to(first).await.get("error").is_none());
     hub.shutdown_all().await;
     drop(c);
@@ -255,8 +259,8 @@ async fn approve_and_remove_are_logged_in_the_order_they_happened() {
     for i in 0..20 {
         let id = format!("g-race-{i}");
         c.queue(held(&session, &id, "race")).await;
-        let remove = by(answer(&session, &id, None), Some(&guest()));
-        let approve = owner.send("_acpmux/queue_approve", answer(&session, &id, Some(0))).await;
+        let remove = by(answer(&hub, &session, &id, None), Some(&guest()));
+        let approve = owner.send("_acpmux/queue_approve", answer(&hub, &session, &id, Some(0))).await;
         let removed = c.reply("_acpmux/queue_remove", remove).await;
         owner.reply_to(approve).await;
         assert_eq!(removed["result"]["removed"], true, "{removed}");
@@ -272,7 +276,7 @@ async fn approve_and_remove_are_logged_in_the_order_they_happened() {
         }
         decisions.sort();
         assert_eq!(decisions.last().map(|d| d.1), Some("queue_removed"), "{id}: {decisions:?}");
-        let late = c.reply("_acpmux/queue_decline", answer(&session, &id, None)).await;
+        let late = c.reply("_acpmux/queue_decline", answer(&hub, &session, &id, None)).await;
         assert_eq!(late.pointer("/error/data/decided"), Some(&json!("removed")), "{id}: {late}");
     }
     c.cancel(&session).await;
@@ -295,7 +299,7 @@ async fn a_decline_before_the_restored_task_claims_it_stays_the_answer() {
     let hub = durable(&dir);
     let mut c = Client::open(&hub);
     // Reading the chat's log restores its queue (a stale approval changes nothing).
-    let stale = c.reply("_acpmux/queue_approve", answer(&session, "g-1", Some(9))).await;
+    let stale = c.reply("_acpmux/queue_approve", answer(&hub, &session, "g-1", Some(9))).await;
     assert_eq!(reason(&stale), "queue.stale", "{stale}");
     // Its restored task is spawned, and before it runs (nothing is awaited in between on this
     // test's one thread) the owner declines the prompt: the task then finds it gone.
@@ -328,9 +332,125 @@ async fn a_chat_is_not_moved_while_a_prompt_waits_for_the_owner() {
     assert!(c.records(&session, "transfer_aborted").await.len() == 1);
     // Still the owner's to answer here, and the chat still takes prompts.
     c.call("session/prompt", prompt(&session, "p-owner", "owner words", None)).await;
-    c.call("_acpmux/queue_decline", answer(&session, "g-1", None)).await;
+    c.call("_acpmux/queue_decline", answer(&hub, &session, "g-1", None)).await;
     assert_eq!(reason(&c.reply_to(waiting).await), "queue.declined");
     let moved = c.call("_acpmux/transfer_begin", begin).await;
     let abort = json!({"sessionId": session, "transferId": moved["transferId"]});
     c.call("_acpmux/transfer_abort", abort).await;
+}
+
+/// An old card still names the removed incarnation, even when another prompt reuses both its
+/// client id and revision after a restart. Missing turn ids must fail closed too.
+#[tokio::test]
+async fn stale_approval_cannot_approve_a_reused_prompt_id() {
+    let dir = std::env::temp_dir().join(format!("acpmux-approval-{}", uuid::Uuid::now_v7()));
+    let hub = durable(&dir);
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let first = c.queue(held(&session, "reused", "words the owner saw")).await;
+    let old = answer(&hub, &session, "reused", Some(0));
+    c.call("_acpmux/queue_remove", by(answer(&hub, &session, "reused", None), Some(&guest()))).await;
+    c.reply_to(first).await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable(&dir);
+    let mut c = Client::open(&hub);
+    hub.resume_queues();
+    let second = c.queue(held(&session, "reused", "unseen replacement")).await;
+    let fresh = answer(&hub, &session, "reused", Some(0));
+    assert_ne!(old["turnId"], fresh["turnId"]);
+    let stale = c.reply("_acpmux/queue_approve", old).await;
+    assert_eq!(reason(&stale), "queue.stale", "{stale}");
+    let mut missing = fresh.clone();
+    missing.as_object_mut().unwrap().remove("turnId");
+    let refused = c.reply("_acpmux/queue_approve", missing).await;
+    assert_eq!(refused["error"]["code"], -32602, "{refused}");
+    assert!(queue(&hub, &session).iter().any(|q| q["promptId"] == "reused" && q["awaitingOwner"] == true));
+    assert!(!ran(&mut c, &session, "reused").await);
+    c.call("_acpmux/queue_approve", fresh).await;
+    assert!(c.reply_to(second).await.get("error").is_none());
+    assert_eq!(c.user_message(&session, "reused").await["text"], "unseen replacement");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn declined_resend_stays_an_error_after_restart() {
+    let dir = std::env::temp_dir().join(format!("acpmux-approval-{}", uuid::Uuid::now_v7()));
+    let hub = durable(&dir);
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let first = c.queue(held(&session, "declined", "guest words")).await;
+    let turn = answer(&hub, &session, "declined", Some(0))["turnId"].clone();
+    c.call("_acpmux/queue_decline", answer(&hub, &session, "declined", None)).await;
+    assert_eq!(reason(&c.reply_to(first).await), "queue.declined");
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable(&dir);
+    let mut c = Client::open(&hub);
+    hub.resume_queues();
+    let mut resend = held(&session, "declined", "guest words");
+    resend["_meta"]["acpmux"]["resend"] = json!(true);
+    // First answers from the durable log, second from the newly populated ledger.
+    for _ in 0..2 {
+        let reply = c.reply("session/prompt", resend.clone()).await;
+        assert_eq!(reason(&reply), "queue.declined", "{reply}");
+        assert_eq!(reply["error"]["data"]["turnId"], turn, "{reply}");
+    }
+    assert!(!ran(&mut c, &session, "declined").await);
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Inject a completed queue removal immediately after export has copied the log. This is the
+/// same snapshot/live-queue split as a decline that passed its moving check before the freeze.
+struct AfterScanStore {
+    inner: Box<dyn acpmux::store::Store>,
+    after: Arc<std::sync::Mutex<Option<Box<dyn FnOnce() + Send>>>>,
+}
+
+impl acpmux::store::Store for AfterScanStore {
+    fn list(&self) -> anyhow::Result<Vec<acpmux::store::SessionMeta>> { self.inner.list() }
+    fn load(&self, id: &str) -> anyhow::Result<Option<acpmux::store::SessionMeta>> { self.inner.load(id) }
+    fn save(&self, meta: &acpmux::store::SessionMeta) -> anyhow::Result<()> { self.inner.save(meta) }
+    fn append(&self, id: &str, record: &acpmux::store::EventRecord) -> anyhow::Result<()> { self.inner.append(id, record) }
+    fn events(&self, id: &str, after: u64, limit: usize) -> anyhow::Result<Vec<acpmux::store::EventRecord>> { self.inner.events(id, after, limit) }
+    fn delete(&self, id: &str) -> anyhow::Result<()> { self.inner.delete(id) }
+    fn scan(&self, id: &str, after: u64, visit: &mut dyn FnMut(acpmux::store::EventRecord) -> bool) -> anyhow::Result<()> {
+        self.inner.scan(id, after, visit)?;
+        let callback = self.after.lock().unwrap().take();
+        if let Some(callback) = callback { callback(); }
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn transfer_refuses_a_held_snapshot_even_when_the_live_prompt_was_removed() {
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "defaultHarness": "fake", "permissionPolicy": "approve-all"
+    })).unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let inner = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let after = Arc::new(std::sync::Mutex::new(None));
+    let hub = Hub::new(cfg, Box::new(AfterScanStore { inner, after: after.clone() }));
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    c.queue(held(&session, "g-1", "never approved")).await;
+    let s = hub.resolve(&session).unwrap();
+    let h = hub.clone();
+    *after.lock().unwrap() = Some(Box::new(move || { assert!(h.remove_queued(&s, "g-1")); }));
+    let result = hub.transfer_request("_acpmux/transfer_begin", &json!({"sessionId": session})).await;
+    assert!(queue(&hub, &session).is_empty(), "injected removal did not run");
+    // Clean up even on the old vulnerable implementation, which incorrectly offers a bundle.
+    if let Ok(bundle) = &result {
+        hub.transfer_request("_acpmux/transfer_abort", &json!({"sessionId": session, "transferId": bundle["transferId"]})).await.unwrap();
+    }
+    hub.shutdown_all().await;
+    let error = result.expect_err("exported held prompt was offered to an older target");
+    assert_eq!(error.data.unwrap()["reason"], "transfer.held_prompts");
 }
