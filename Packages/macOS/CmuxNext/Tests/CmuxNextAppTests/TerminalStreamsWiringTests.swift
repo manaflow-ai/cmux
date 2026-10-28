@@ -9,8 +9,12 @@ import Testing
 /// terminal views, echoes the grant and joins shared sizing as this Mac; off (the default), it asks for none.
 /// And of `ipcFrames` (p05-ipc-096): on, the same connection asks for framed IPC with this build's schema.
 struct TerminalStreamsWiringTests {
+    /// Exactly `names` of the two switches on: `ipcFrames` is on by default in DEV (feature-switch-policy.md), so the
+    /// one not named is turned off explicitly.
     private static func features(enabling names: Set<String>) -> FeatureList {
-        FeatureList(registry: FeatureRegistry(), channel: .dev, overrides: FeatureOverrides(environmentEnabled: names))
+        let disabled = Set(["ipcFrames", "terminalStreams"]).subtracting(names)
+        return FeatureList(registry: FeatureRegistry(), channel: .dev,
+                           overrides: FeatureOverrides(environmentDisabled: disabled, environmentEnabled: names))
     }
 
     private static func localConfiguration(_ features: FeatureList) -> DaemonConnection.Configuration {
@@ -31,7 +35,7 @@ struct TerminalStreamsWiringTests {
         #expect(configuration.streamsTerminals)
     }
 
-    /// Frames alone ask for no stream grant; with `ipcFrames` off (the default) the connection asks for no
+    /// Frames alone ask for no stream grant; with `ipcFrames` off the connection asks for no
     /// framed IPC at all and keeps JSON lines, whatever `terminalStreams` says.
     @Test(arguments: [["ipcFrames"], ["terminalStreams"], []] as [Set<String>])
     func ipcFramesAsksOnlyWhatIsOn(enabled: Set<String>) {
