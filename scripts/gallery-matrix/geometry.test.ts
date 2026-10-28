@@ -123,6 +123,36 @@ test("finding IDs preserve element boundaries", async () => {
 });
 
 
+test("capture tuples preserve colons for duplicate detection and crop lookup", async () => {
+  const dir = mkdtempSync(join(process.cwd(), "geometry-capture-keys-"));
+  try {
+    const first = artifact(); first.capture.caseId = "rows:extra";
+    const second = artifact(); second.capture.engine = "extra:chromium";
+    const baseline = config(); baseline.required = [first.capture, second.capture];
+    const inputs = [first, second].map((value, index) => {
+      const png = new PNG({ width: 100, height: 100 });
+      png.data.fill(index === 0 ? 17 : 231);
+      const screenshot = join(dir, `${index}.png`);
+      writeFileSync(screenshot, PNG.sync.write(png));
+      value.capture.screenshot = screenshot;
+      return { file: join(dir, `${index}.geometry.json`), artifact: value };
+    });
+    expect((await lintGeometry(inputs, baseline)).passed).toBe(true);
+    const duplicate = await lintGeometry([...inputs, inputs[0]!], baseline);
+    expect(duplicate.errors).toHaveLength(1);
+    expect(duplicate.errors[0]).toContain('duplicate capture ["rows:extra","chromium","light"]');
+
+    second.elements[1]!.rect.x += 2;
+    const report = await lintGeometry(inputs, baseline, dir);
+    expect(report.errors).toEqual([]);
+    expect(report.findings).toHaveLength(1);
+    const crop = PNG.sync.read(readFileSync(join(dir, report.findings[0]!.crop!)));
+    expect(crop.data[0]).toBe(231);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("full-page screenshots may exceed viewport height", async () => {
   const dir = mkdtempSync(join(process.cwd(), "geometry-screenshot-"));
   try {

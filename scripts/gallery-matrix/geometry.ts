@@ -346,6 +346,10 @@ export async function validateScreenshot(file: string, artifact: GeometryArtifac
   return errors;
 }
 
+function captureKey(capture: Pick<GeometryCapture, "caseId" | "engine" | "theme">): string {
+  return JSON.stringify([capture.caseId, capture.engine, capture.theme]);
+}
+
 export async function lintGeometry(artifacts: Array<{ file: string; artifact: GeometryArtifact }>, config: GeometryConfig, reportDir?: string): Promise<GeometryReport> {
   const findings: GeometryFinding[] = [];
   const errors: string[] = [];
@@ -354,18 +358,18 @@ export async function lintGeometry(artifacts: Array<{ file: string; artifact: Ge
   for (const { file, artifact } of artifacts) {
     if (artifact.revision.sha !== config.revision.sha) errors.push(`${file}: capture revision ${artifact.revision.sha} does not match config revision ${config.revision.sha}`);
     if (artifact.revision.sha !== artifacts[0]?.artifact.revision.sha) errors.push(`${file}: mixed capture revisions`);
-    const key = `${artifact.capture.caseId}:${artifact.capture.engine}:${artifact.capture.theme}`;
+    const key = captureKey(artifact.capture);
     if (seen.has(key)) errors.push(`${file}: duplicate capture ${key}`);
     seen.add(key);
     const measurements = measurementArtifact(artifact);
     for (const rule of config.rules) lintRule(findings, rule, measurements);
   }
-  for (const capture of config.required) if (!artifacts.some(({ artifact }) => artifact.capture.caseId === capture.caseId && artifact.capture.engine === capture.engine && artifact.capture.theme === capture.theme)) errors.push(`missing required capture: ${capture.caseId}:${capture.engine}:${capture.theme}`);
+  for (const capture of config.required) if (!seen.has(captureKey(capture))) errors.push(`missing required capture: ${capture.caseId}:${capture.engine}:${capture.theme}`);
   for (const finding of findings) {
     const accepted = config.acceptedFindings?.[finding.id];
     if (accepted && finding.deltaPx !== undefined && finding.deltaPx <= accepted.maxDeltaPx) finding.accepted = true;
     if (!finding.accepted && reportDir) {
-      const source = artifacts.find(({ artifact }) => `${artifact.capture.caseId}:${artifact.capture.engine}:${artifact.capture.theme}` === `${finding.caseId}:${finding.engine}:${finding.theme}`);
+      const source = artifacts.find(({ artifact }) => captureKey(artifact.capture) === captureKey(finding));
       if (source) await writeCrop(source.file, finding, source.artifact, reportDir);
     }
   }
