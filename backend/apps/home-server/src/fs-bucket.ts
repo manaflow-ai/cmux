@@ -234,8 +234,9 @@ export class FsBucket {
   }
 
   async uploadMultipartPart(key: string, uploadId: string, partNumber: number, value: unknown): Promise<{ partNumber: number; etag: string }> {
-    if (!isPartNumber(partNumber)) throw new Error("invalid multipart part")
+    // The upload first, as R2 does: a forged, crossed or closed upload is NoSuchUpload whatever the number.
     this.openMultipart(key, uploadId)
+    if (!isPartNumber(partNumber)) throw new FsBucketError("InvalidPart", "a part number must be an integer from 1 to 10,000")
     const partPath = this.partPath(uploadId, partNumber)
     // The part streams to a temp file and replaces any earlier upload of that number only once
     // whole; its etag record is written last, so completion never trusts a half-written part.
