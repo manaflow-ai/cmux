@@ -2174,3 +2174,8 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_swift_linux_packages.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_attachment_caps_guard.py"
+lane = "manual"
+reason = "Attachment admission regressions run by the change owner through cmux-ci test; no new CI gate."
