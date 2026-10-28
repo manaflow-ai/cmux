@@ -895,6 +895,85 @@ struct TerminalStartupRestoreFailureTests {
         }
     }
 
+    @Test("Path and hook UUID aliases start one checkpoint across restore containers",
+          arguments: [false, true], ["pi", "omp"])
+    func pathCheckpointAliasesStartOnce(inDock: Bool, kind: String) throws {
+        let defaults = try makeAutoResumeDefaults()
+        defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+        let sessionID = UUID().uuidString.lowercased()
+        let path = "/tmp/restore sessions/2026-10-28_\(sessionID).jsonl"
+        let agentKind = try #require(RestorableAgentKind(rawValue: kind))
+        var first = Self.codexPanel(
+            id: UUID(), sessionID: path, workingDirectory: "/tmp", capturedAt: 1
+        )
+        first.terminal?.agent = SessionRestorableAgentSnapshot(
+            kind: agentKind, sessionId: path, workingDirectory: "/tmp", launchCommand: nil
+        )
+        var copy = first
+        copy.id = UUID()
+        let hook = Self.hookBindingPanel(
+            id: UUID(), sessionID: sessionID, workingDirectory: "/tmp",
+            kind: kind, command: "\(kind) --session \(sessionID)"
+        )
+        let panels = [first, copy, hook]
+        let layout = SessionWorkspaceLayoutSnapshot.pane(SessionPaneLayoutSnapshot(
+            panelIds: panels.map(\.id), selectedPanelId: first.id
+        ))
+        let batch = SurfaceResumeRunPromptBatch.shared
+        batch.reset()
+        batch.beginRestorePass()
+        defer { batch.reset() }
+
+        func check(_ restored: [TerminalPanel]) {
+            #expect(restored.count == 3)
+            // A path cannot be sent as an unquoted CLI argument. The valid
+            // --surface route must still own its canonical checkpoint.
+            #expect(restored.first?.surface.debugInitialInputForTesting() == " cmux restore --surface\n")
+            for duplicate in restored.dropFirst() {
+                #expect(duplicate.surface.debugInitialInputForTesting() == nil)
+                if case .failed(let reason, let input) = duplicate.restoreRecovery.state {
+                    #expect(reason == "duplicate-restore-owner")
+                    #expect(input != nil)
+                } else {
+                    Issue.record("each alias must remain recoverable without starting a writer")
+                }
+            }
+        }
+
+        if inDock {
+            let dock = DockSplitStore(
+                workspaceId: UUID(), baseDirectoryProvider: { nil },
+                agentSessionAutoResumeDefaults: defaults.store,
+                restorableAgentIndexProvider: { .empty }
+            )
+            defer { dock.closeAllPanels() }
+            let remap = dock.restoreSessionSnapshot(SessionSplitContainerSnapshot(
+                focusedPanelId: first.id, layout: layout, panels: panels
+            ))
+            let restored = try panels.map { panel in
+                let id = try #require(remap[panel.id])
+                return try #require(dock.panels[id] as? TerminalPanel)
+            }
+            check(restored)
+        } else {
+            let workspace = Workspace(
+                agentSessionAutoResumeDefaults: defaults.store,
+                restorableAgentIndexProvider: { .empty }
+            )
+            defer { workspace.teardownAllPanels() }
+            var snapshot = workspace.sessionSnapshot(includeScrollback: false)
+            snapshot.panels = panels
+            snapshot.layout = layout
+            snapshot.focusedPanelId = first.id
+            let remap = workspace.restoreSessionSnapshot(snapshot, startupRestoreCommitOwner: .workspaceTopology)
+            let restored = try panels.map { panel in
+                let id = try #require(remap[panel.id])
+                return try #require(workspace.terminalPanel(for: id))
+            }
+            check(restored)
+        }
+    }
+
     private func makeAutoResumeDefaults() throws -> (store: UserDefaults, name: String) {
         let name = "cmux-terminal-startup-failure-\(UUID().uuidString)"
         let store = try #require(UserDefaults(suiteName: name))

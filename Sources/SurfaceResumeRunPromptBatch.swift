@@ -1,5 +1,4 @@
 import Foundation
-import CMUXAgentLaunch
 
 @MainActor
 final class SurfaceResumeRunPromptBatch {
@@ -137,65 +136,21 @@ extension SurfaceResumeRunPromptBatch {
         return Self.legacyAgentExecutable(in: binding.command) == "codex" ? "codex" : nil
     }
 
-    /// Checks that a structured snapshot has a nonempty, canonicalizable identity.
+    /// Identity is independent of shell transport: --surface can resolve
+    /// checkpoint paths and registered agents whose IDs need shell quoting.
     private nonisolated static func hasAgentRestoreIdentity(
         _ restorableAgent: SessionRestorableAgentSnapshot
     ) -> Bool {
-        let kind = restorableAgent.kind.rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let sessionID = restorableAgent.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard AgentRestoreCLIArgument(rawValue: kind) != nil, !sessionID.isEmpty else {
-            return false
-        }
-        if AgentRestoreCLIArgument(rawValue: sessionID) != nil {
-            return true
-        }
-        guard kind == "pi" || kind == "omp" else { return false }
-        return ManagedAgentSessionIdentity.canonicalSessionID(
-            kind: kind,
-            sessionID: sessionID
-        ) != sessionID
+        !restorableAgent.kind.rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            !restorableAgent.sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    /// Extracts the executable after a simple cwd guard and shell prefixes.
+    /// Uses the same quoted-word and cwd-guard parser as binding replay.
     private nonisolated static func legacyAgentExecutable(in command: String) -> String? {
-        let words = command
-            .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
-            .map { String($0).trimmingCharacters(in: CharacterSet(charactersIn: "'\"")) }
-            .filter { !$0.isEmpty }
-        guard !words.isEmpty else { return nil }
-
-        var index = 0
-        if words[index] == "cd" {
-            guard let separator = words[index...].firstIndex(where: {
-                $0 == "&&"
-                    || $0 == ";"
-                    || $0 == "|"
-                    || $0 == "||"
-            }) else {
-                return nil
-            }
-            // A generated cwd guard uses `|| ... && executable`; prefer the
-            // command after the final && so the guard's test is not treated as
-            // the agent executable.
-            let guardEnd = words[index...].lastIndex(of: "&&") ?? separator
-            index = guardEnd + 1
-        }
-        while index < words.count {
-            let word = words[index]
-            if word.contains("=") && !word.hasPrefix("=") {
-                index += 1
-                continue
-            }
-            if word == "env" || word == "exec" || word == "command" {
-                index += 1
-                continue
-            }
-            if word.hasPrefix("-") {
-                index += 1
-                continue
-            }
-            return word.split(separator: "/").last.map(String.init)?.lowercased()
-        }
-        return nil
+        let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
+        guard let index = SurfaceResumeCommandCanonicalizer.commandExecutableWordIndex(
+            in: words, command: command
+        ) else { return nil }
+        return (words[index].value as NSString).lastPathComponent
     }
 }

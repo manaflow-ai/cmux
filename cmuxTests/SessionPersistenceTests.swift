@@ -6471,21 +6471,44 @@ extension SessionPersistenceTests {
             )?.kind,
             "pi"
         )
-        let malformedCodex = SessionRestorableAgentSnapshot(
+        let emptyCheckpoint = SessionRestorableAgentSnapshot(
             kind: .codex,
-            sessionId: "/tmp/not-a-codex-checkpoint",
+            sessionId: " ",
             workingDirectory: "/tmp/identity",
             launchCommand: nil
         )
         XCTAssertNil(
             SurfaceResumeRunPromptBatch.agentRestoreIdentity(
-                restorableAgent: malformedCodex, agentMayAutoResume: true,
+                restorableAgent: emptyCheckpoint, agentMayAutoResume: true,
                 resumeBinding: nil, bindingWillLaunch: false
             )
         )
 
-        let kindlessClaudeInCodexDirectory = legacyCodex
-        var claudeCommand = kindlessClaudeInCodexDirectory
+        // Quoting and environment prefixes are parsed by the same parser
+        // used to replay old command-only bindings.
+        legacyCodex.command = "env ACCOUNT=work '/opt/company tools/codex' resume pi-session"
+        XCTAssertEqual(
+            SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+                restorableAgent: nil, agentMayAutoResume: false,
+                resumeBinding: legacyCodex, bindingWillLaunch: true
+            )?.kind,
+            "codex"
+        )
+        let directoryCheckpoint = SessionRestorableAgentSnapshot(
+            kind: .custom("directory-agent"),
+            sessionId: "/tmp/session directory",
+            workingDirectory: "/tmp/identity",
+            launchCommand: nil
+        )
+        XCTAssertEqual(
+            SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+                restorableAgent: directoryCheckpoint, agentMayAutoResume: true,
+                resumeBinding: nil, bindingWillLaunch: false
+            )?.sessionID,
+            directoryCheckpoint.sessionId
+        )
+
+        var claudeCommand = legacyCodex
         claudeCommand.command = "cd /tmp/codex-project && claude --resume pi-session"
         XCTAssertNil(
             SurfaceResumeRunPromptBatch.agentRestoreIdentity(
