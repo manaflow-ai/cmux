@@ -91,7 +91,8 @@ pub(crate) fn bridge(socket: cmux::local_socket::Stream) -> io::Result<Stream> {
                     Ok(n) => n,
                 };
                 // Fails once this process dropped its read half.
-                if reads.block_on(inbound.write_all(&buf[..n])).is_err() {
+                let Some(chunk) = buf.get(..n) else { break };
+                if reads.block_on(inbound.write_all(chunk)).is_err() {
                     break;
                 }
             }
@@ -109,7 +110,8 @@ pub(crate) fn bridge(socket: cmux::local_socket::Stream) -> io::Result<Stream> {
                     Ok(0) | Err(_) => break,
                     Ok(n) => n,
                 };
-                if writer.write_all(&buf[..n]).is_err() {
+                let Some(chunk) = buf.get(..n) else { break };
+                if writer.write_all(chunk).is_err() {
                     break;
                 }
             }

@@ -155,7 +155,8 @@ async fn start(id: &str, profile: &HarnessProfile, timeout: Duration) -> Result<
     let mut cmd = crate::agent::harness_command(id, &spawn, &folder.path, None, None)?;
     // The sign-in may print to stderr (a URL); show it.
     cmd.stderr(std::process::Stdio::inherit());
-    let mut child = cmd.spawn().map_err(|e| anyhow!("start {}: {e}", spawn.argv[0]))?;
+    let program = spawn.argv.first().map_or("", String::as_str);
+    let mut child = cmd.spawn().map_err(|e| anyhow!("start {program}: {e}"))?;
     let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
         bail!("no stdio pipes");
     };
@@ -284,11 +285,12 @@ fn codex_globals(args: &[String]) -> &[String] {
     let mut i = 0;
     while let Some(a) = args.get(i) {
         if a == "app-server" || !a.starts_with('-') {
-            return &args[..i];
+            break;
         }
         i += if a.contains('=') { 1 } else { 2 };
     }
-    &args[..i.min(args.len())]
+    // Past the end only when the last flag has no value: all of `args`.
+    args.get(..i).unwrap_or(args)
 }
 
 /// Whether harness `id` is signed in.
@@ -386,7 +388,8 @@ pub async fn login(
     match profile.kind {
         HarnessKind::Acp => {}
         HarnessKind::ClaudeStdio if profile.argv.len() == 1 => {
-            let argv = vec![profile.argv[0].clone(), "auth".into(), "login".into()];
+            let argv: Vec<String> =
+                profile.argv.iter().cloned().chain(["auth".into(), "login".into()]).collect();
             let env = resolved(profile)?.env;
             let code = terminal(&argv, &env)?;
             return if code == 0 {

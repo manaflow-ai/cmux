@@ -5,7 +5,7 @@
 use super::dialog::{self, DialogRow, DialogSpec};
 use super::scroll::draw_thumb;
 use super::theme::Chrome;
-use super::{App, ButtonAction, Focus, NewForm, Overlay, POLICIES, Picker, Toggle};
+use super::{App, ButtonAction, Focus, NewForm, Overlay, Picker, Toggle};
 use crate::transcript::{Item, Transcript};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -216,7 +216,9 @@ pub fn project_label(cwd: &str) -> String {
         return "~".into();
     }
     let parts: Vec<&str> = trimmed.split('/').filter(|p| !p.is_empty()).collect();
-    if parts.len() == 2 && matches!(parts[0], "Users" | "home") {
+    if let [first, _] = parts.as_slice()
+        && matches!(*first, "Users" | "home")
+    {
         return "~".into();
     }
     std::path::Path::new(trimmed)
@@ -700,9 +702,7 @@ impl Selection {
         for (r, line) in rows.iter().enumerate().take(r1 + 1).skip(r0) {
             let chars: Vec<char> = line.chars().collect();
             let piece = match self.cols_on_row(r, line) {
-                Some((s, e)) if e > s => {
-                    chars[s.min(chars.len())..e.min(chars.len())].iter().collect::<String>()
-                }
+                Some((s, e)) if e > s => chars.iter().take(e).skip(s).collect::<String>(),
                 _ => String::new(),
             };
             out.push(piece.trim_end().to_owned());
@@ -716,13 +716,14 @@ impl Selection {
 /// before trailing padding.
 pub fn content_bounds(line: &str) -> (usize, usize) {
     let chars: Vec<char> = line.chars().collect();
+    let at = |i: usize| chars.get(i).copied();
     let mut lo = 0;
-    while lo < chars.len() && chars[lo] == ' ' {
+    while at(lo) == Some(' ') {
         lo += 1;
     }
-    if lo < chars.len()
-        && matches!(
-            chars[lo],
+    if matches!(
+        at(lo),
+        Some(
             '›' | '•'
                 | '»'
                 | '▸'
@@ -741,27 +742,24 @@ pub fn content_bounds(line: &str) -> (usize, usize) {
                 | '✗'
                 | '–'
         )
-    {
+    ) {
         lo += 1;
-        while lo < chars.len() && chars[lo] == ' ' {
+        while at(lo) == Some(' ') {
             lo += 1;
         }
         // A second marker, e.g. the outcome bullet after the collapse arrow.
-        if lo < chars.len()
-            && matches!(chars[lo], '•' | '✓' | '✗')
-            && chars.get(lo + 1) == Some(&' ')
-        {
+        if matches!(at(lo), Some('•' | '✓' | '✗')) && at(lo + 1) == Some(' ') {
             lo += 2;
         }
     }
     let mut hi = chars.len();
-    while hi > lo && chars[hi - 1] == ' ' {
+    while hi > lo && at(hi - 1) == Some(' ') {
         hi -= 1;
     }
     // A trailing toggle glyph ("  ›", "  ▾") is chrome, not content.
-    if hi >= lo + 3 && matches!(chars[hi - 1], '›' | '▾') && chars[hi - 2] == ' ' {
+    if hi >= lo + 3 && matches!(at(hi - 1), Some('›' | '▾')) && at(hi - 2) == Some(' ') {
         hi -= 1;
-        while hi > lo && chars[hi - 1] == ' ' {
+        while hi > lo && at(hi - 1) == Some(' ') {
             hi -= 1;
         }
     }
@@ -770,18 +768,17 @@ pub fn content_bounds(line: &str) -> (usize, usize) {
 
 pub fn word_bounds(line: &str, col: usize) -> (usize, usize) {
     let chars: Vec<char> = line.chars().collect();
-    if chars.is_empty() {
-        return (0, 0);
-    }
-    let col = col.min(chars.len() - 1);
+    let col = col.min(chars.len().saturating_sub(1));
+    let Some(&under) = chars.get(col) else { return (0, 0) };
     let is_word = |c: char| c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | '/' | ':' | '~');
-    let target = is_word(chars[col]);
+    let target = is_word(under);
+    let same = |i: usize| chars.get(i).is_some_and(|&c| is_word(c) == target);
     let mut s = col;
-    while s > 0 && is_word(chars[s - 1]) == target {
+    while s > 0 && same(s - 1) {
         s -= 1;
     }
     let mut e = col + 1;
-    while e < chars.len() && is_word(chars[e]) == target {
+    while same(e) {
         e += 1;
     }
     (s, e)

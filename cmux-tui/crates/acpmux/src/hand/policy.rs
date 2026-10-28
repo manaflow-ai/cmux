@@ -50,9 +50,9 @@ fn destructive_exec(argv: &[String], home: Option<&Path>) -> Option<String> {
     };
     for (i, w) in words.iter().enumerate() {
         let base = w.rsplit('/').next().unwrap_or(w);
+        let rest = words.get(i + 1..).unwrap_or_default();
         match base {
             "rm" | "srm" => {
-                let rest = &words[i + 1..];
                 let recursive = rest.iter().any(|a| {
                     a.starts_with('-')
                         && !a.starts_with("--")
@@ -64,8 +64,8 @@ fn destructive_exec(argv: &[String], home: Option<&Path>) -> Option<String> {
                 }
             }
             "find"
-                if words[i + 1..].iter().take(3).any(|a| is_root_target(a))
-                    && words[i + 1..].iter().any(|a| *a == "-delete" || *a == "rm") =>
+                if rest.iter().take(3).any(|a| is_root_target(a))
+                    && rest.iter().any(|a| *a == "-delete" || *a == "rm") =>
             {
                 return Some("find deletes from the home folder or the disk".into());
             }
@@ -73,7 +73,7 @@ fn destructive_exec(argv: &[String], home: Option<&Path>) -> Option<String> {
                 return Some(format!("{base} formats a disk"));
             }
             "diskutil"
-                if words[i + 1..].iter().any(|a| {
+                if rest.iter().any(|a| {
                     a.starts_with("erase")
                         || a.starts_with("zero")
                         || *a == "secureErase"
@@ -83,7 +83,7 @@ fn destructive_exec(argv: &[String], home: Option<&Path>) -> Option<String> {
             {
                 return Some("diskutil erases or repartitions a disk".into());
             }
-            "dd" if words[i + 1..].iter().any(|a| a.starts_with("of=/dev/")) => {
+            "dd" if rest.iter().any(|a| a.starts_with("of=/dev/")) => {
                 return Some("dd writes to a raw disk".into());
             }
             _ if base.starts_with(":(){") => return Some("a fork bomb".into()),

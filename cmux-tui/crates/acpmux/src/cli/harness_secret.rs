@@ -110,23 +110,26 @@ fn push_security_quoted(out: &mut String, text: &str) {
 pub fn run_store(cmd: &StoreCommand) -> Result<()> {
     use std::process::{Command, Stdio};
     use wait_timeout::ChildExt;
-    let mut child = Command::new(&cmd.argv[0])
-        .args(&cmd.argv[1..])
+    let Some((program, args)) = cmd.argv.split_first() else {
+        bail!("the store command is empty; nothing was stored");
+    };
+    let mut child = Command::new(program)
+        .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| anyhow!("cannot run {}: {e}", cmd.argv[0]))?;
+        .map_err(|e| anyhow!("cannot run {program}: {e}"))?;
     if let Some(mut stdin) = child.stdin.take() {
         stdin.write_all(cmd.stdin.as_bytes())?;
     }
     match child.wait_timeout(std::time::Duration::from_secs(60))? {
         Some(status) if status.success() => Ok(()),
-        Some(status) => bail!("{} failed ({status}); nothing was stored", cmd.argv[0]),
+        Some(status) => bail!("{program} failed ({status}); nothing was stored"),
         None => {
             let _ = child.kill();
             let _ = child.wait();
-            bail!("{} did not finish in 60 s; nothing was stored", cmd.argv[0])
+            bail!("{program} did not finish in 60 s; nothing was stored")
         }
     }
 }
@@ -237,12 +240,14 @@ pub fn write_reference(path: &Path, id: &str, key: &str) -> Result<bool, String>
     let header = |l: &str| l.trim_start().starts_with('[');
     let is_env_header = |l: &str| {
         let t = l.trim();
-        t == "[env]" || (t.starts_with("[env]") && t[5..].trim_start().starts_with('#'))
+        t.strip_prefix("[env]")
+            .is_some_and(|rest| rest.is_empty() || rest.trim_start().starts_with('#'))
     };
     let env_at = lines.iter().position(|l| is_env_header(l));
     let key_at = env_at.and_then(|start| {
-        lines[start + 1..]
+        lines
             .iter()
+            .skip(start + 1)
             .take_while(|l| !header(l))
             .position(|l| {
                 l.trim_start()
@@ -252,7 +257,11 @@ pub fn write_reference(path: &Path, id: &str, key: &str) -> Result<bool, String>
             .map(|i| start + 1 + i)
     });
     match (env_at, key_at) {
-        (_, Some(at)) => lines[at] = line,
+        (_, Some(at)) => {
+            if let Some(old) = lines.get_mut(at) {
+                *old = line;
+            }
+        }
         (Some(at), None) => lines.insert(at + 1, line),
         (None, None) => {
             lines.push(String::new());

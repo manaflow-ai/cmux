@@ -1,9 +1,0 @@
-{// "quoted"
-"tabs":{"commandDigits":1},"editor":{"bracketPairColorization":{// "quoted"
-"enabled":true}},"browser":{// note
-"hibernationExclusions":[1],"omnibox":{"popupColor":"1a2b3c"}},"sidebar":{/* block */ "workspaceRow":{"mixed":{// note
-"notification":true}}},// note
-"diff":{"showBulkActions":true},// "quoted"
-"terminal":{"fontSize":"1"},"ui":{/* * */ "calm":"still"},/* // inside */ "notifications":{"attention":{"blinkCount":-8},"sound":true},"appearance":{"surfaces":{"docks":{"opacity":"1"}}},// "quoted"
-"markdown":{// "quoted"
-"code":{/* block */ "family":true}}}
