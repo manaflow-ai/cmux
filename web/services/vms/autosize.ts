@@ -80,16 +80,17 @@ export const MAX_MEASURED_RUNS = 20;
 
 /** One earlier run of the same repo and task kind, as its machine recorded it. */
 export type MeasuredRun = {
-  /** The shape it ran on. */
+  /** The shape it ran on (disk when known). */
   readonly vcpus: number;
   readonly memoryMb: number;
+  readonly storageMb?: number;
   /** Its peaks; absent when no sample reached the control plane. */
   readonly peakMemoryMb?: number;
   /** Mean busy cores over the run (cores x cpu%). Peaks of a 250 ms sample say little about cores. */
   readonly meanBusyCpus?: number;
   readonly peakDiskMb?: number;
-  /** It ran short: out of memory or disk. The next pick goes above the shape it had. */
-  readonly ranShort?: boolean;
+  /** It ran out of memory or disk. The next pick goes above the shape it had on that axis. */
+  readonly ranShort?: "memory" | "disk";
 };
 
 export type AutosizeInput = {
@@ -134,18 +135,19 @@ function measuredNeed(runs: readonly MeasuredRun[]) {
     const known = values.filter((v): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0);
     return known.length ? p95(known) : null;
   };
-  const memory = pick(runs.map((run) => (run.ranShort ? undefined : run.peakMemoryMb)));
+  const memory = pick(runs.map((run) => (run.ranShort === "memory" ? undefined : run.peakMemoryMb)));
   const cpus = pick(runs.map((run) => run.meanBusyCpus));
-  const disk = pick(runs.map((run) => run.peakDiskMb));
-  // A run that ran short used all it had and wanted more. Whatever the other
-  // runs say, the need is above the largest shape that ran short, so one
-  // failure is never outvoted by the percentile.
-  const shortMb = Math.max(0, ...runs.filter((run) => run.ranShort).map((run) => run.memoryMb + 1));
-  const memoryMb = memory === null ? null : withMargin(memory);
+  const disk = pick(runs.map((run) => (run.ranShort === "disk" ? undefined : run.peakDiskMb)));
+  // A run that ran short used all it had on that axis and wanted more. Whatever
+  // the other runs say, the need there is above the largest shape that ran
+  // short, so one failure is never outvoted by the percentile.
+  const floor = (axis: "memory" | "disk", of: (run: MeasuredRun) => number | undefined) =>
+    Math.max(0, ...runs.filter((run) => run.ranShort === axis).map((run) => (of(run) ?? 0) + 1));
+  const withFloor = (measured: number | null, min: number) => (min > 1 ? Math.max(measured ?? 0, min) : measured);
   return {
-    memoryMb: shortMb > 0 ? Math.max(memoryMb ?? 0, shortMb) : memoryMb,
+    memoryMb: withFloor(memory === null ? null : withMargin(memory), floor("memory", (run) => run.memoryMb)),
     cpus: cpus === null ? null : Math.ceil(cpus * MEASURED_MARGIN),
-    diskMb: disk === null ? null : withMargin(disk),
+    diskMb: withFloor(disk === null ? null : withMargin(disk), floor("disk", (run) => run.storageMb ?? run.peakDiskMb)),
   };
 }
 

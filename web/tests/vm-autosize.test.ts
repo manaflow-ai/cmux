@@ -91,7 +91,7 @@ describe("pickMachineSize from measured runs", () => {
 
   test("a run that ran short sends the next pick above the shape it had", () => {
     // It had md (8 GiB) and ran short: 8 GiB * 1.2 -> 10 GiB, so lg.
-    const result = pick({ taskKind: "chat", measuredRuns: [{ vcpus: 4, memoryMb: 8192, ranShort: true }] });
+    const result = pick({ taskKind: "chat", measuredRuns: [{ vcpus: 4, memoryMb: 8192, ranShort: "memory" }] });
     expect(result.pick).toBe("lg");
   });
 
@@ -106,8 +106,17 @@ describe("pickMachineSize from measured runs", () => {
 
   test("one run that ran short is never outvoted by the percentile", () => {
     const fine = Array.from({ length: 19 }, () => run(2000, 1));
-    const result = pick({ taskKind: "chat", measuredRuns: [...fine, { vcpus: 4, memoryMb: 8192, ranShort: true }] });
+    const result = pick({ taskKind: "chat", measuredRuns: [...fine, { vcpus: 4, memoryMb: 8192, ranShort: "memory" }] });
     expect(result.pick).toBe("lg");
+  });
+
+  test("a run that ran out of disk raises the disk, and says so when no shape has more", () => {
+    // md (32 GiB disk) ran out of disk: lg has 64 GiB.
+    expect(pick({ taskKind: "chat", measuredRuns: [{ vcpus: 4, memoryMb: 8192, storageMb: 32768, peakDiskMb: 30000, ranShort: "disk" }] }).pick).toBe("lg");
+    // xl (128 GiB) ran out: 2xl has the same 128 GiB, so no shape fits.
+    const result = pick({ taskKind: "chat", planMemoryOptionsMb: MAX, measuredRuns: [{ vcpus: 16, memoryMb: 32768, storageMb: 131072, ranShort: "disk" }] });
+    expect(result).toMatchObject({ pick: "2xl", capped: true });
+    expect(result.reason).toEndWith(", the largest your plan allows");
   });
 
   test("only the newest runs count", () => {
