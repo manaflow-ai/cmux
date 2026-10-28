@@ -26,7 +26,7 @@ enum RemoteHandlers {
                 let session = try ssh.connect(destination: text, session: invocation["session"]?.stringValue,
                                               binary: invocation["binary"]?.stringValue, stateDir: invocation["stateDir"]?.stringValue,
                                               offerInstall: interactive)
-                if interactive { showWhenConnected(session, context) }
+                showWhenConnected(session, context)
             }
             if let text = invocation["destination"]?.stringValue {
                 return try connect(text)
@@ -161,7 +161,7 @@ enum RemoteHandlers {
         throw ActionFailure(message: RemoteStrings.noMachine)
     }
 
-    /// After a Connect from the UI: shows the machine's first workspace in
+    /// After Connect from the UI or CLI: shows the machine's first workspace in
     /// the active window once its tree loads (creating one when it has
     /// none). Keeps recovery available through retries; ends on dismissal or disconnect.
     static func showWhenConnected(_ session: SSHMachineSession, _ context: AppActionContext) {
