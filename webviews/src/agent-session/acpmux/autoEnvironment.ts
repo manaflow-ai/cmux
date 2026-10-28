@@ -28,7 +28,7 @@ export type AutoEnvironmentChoice =
 const EXECUTION = /^(?:please\s+)?(?:run|build|test|deploy|execute|start|continue|work|use)\b/i;
 const NEGATED = /\b(?:not|never|avoid|without|don['’]t|do not)\b/i;
 const REMOTE_DESTINATION =
-  /\b(?:(?:in|on|to|using)\s+(?:(?:the|a)\s+)?(?:cloud|remote machine|remote server|vm)|remotely|cloud (?:build|job|task|test))\b/i;
+  /\b(?:(?:in|on|to|using)\s+(?:(?:the|a|my|our)\s+)?(?:cloud|remote machine|remote server|vm)|remotely|cloud (?:build|job|task|test))\b/i;
 // Local as a destination, not a word: "locally" or "on this Mac"; "the local dataset" is no ask.
 const LOCAL_DESTINATION = /\b(?:locally|(?:on|using)\s+(?:this|my)\s+(?:mac|computer|machine|laptop))\b/i;
 
@@ -102,7 +102,7 @@ function containsMachineReference(prompt: string, label: string): boolean {
   // The name ends the word: at the end, before a non-name character, or before a full stop that
   // ends the sentence ("on gpu-box."), never one inside a longer host name ("gpu-box.example.com").
   return new RegExp(
-    `\\b(?:on|to|using|use)\\s+(?:the\\s+)?${escaped}(?=$|[^\\p{L}\\p{N}_.-]|\\.(?:$|\\s))`,
+    `\\b(?:on|to|using|use)\\s+(?:(?:the|my|our)\\s+)?${escaped}(?=$|[^\\p{L}\\p{N}_.-]|\\.(?:$|\\s))`,
     "u",
   ).test(prompt);
 }

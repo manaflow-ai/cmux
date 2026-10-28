@@ -173,6 +173,13 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
       />,
     );
   });
+  // Picked on this page: Cloud the tab came with is only a default, which Auto may not follow.
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>('.acpmux-location-picker[data-kind="computer"] button')!.click(),
+  );
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const cloudRow = document.querySelector<HTMLElement>('.acpmux-env-popover [data-mode="cloud"]')!;
+  await act(async () => (cloudRow.closest<HTMLElement>('[role="option"]') ?? cloudRow).click());
   const field = container.querySelector<HTMLTextAreaElement>("textarea")!;
   await act(async () => {
     const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLTextAreaElement.prototype, "value")!.set!;

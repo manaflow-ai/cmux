@@ -157,3 +157,9 @@ test("a machine name may end the sentence, but not be the start of a longer host
   );
   expect(where(chooseAutoEnvironment({ prompt: "Run the tests on gpu-box.example.com", environments }))).toBe("local");
 });
+
+test("a possessive names the destination too: my machine, my remote server, our VM", () => {
+  expect(where(chooseAutoEnvironment({ prompt: "Run the tests on my gpu-box", environments }))).toBe("gpu-box");
+  for (const prompt of ["Run this on my remote server", "Build on our VM"])
+    expect(chooseAutoEnvironment({ prompt, cloudRow: true, environments })).toEqual({ to: "cloud", reason: "prompt" });
+});
