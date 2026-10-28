@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `appearance.machineColors` in cmux.json: the color of a machine's marks (its sidebar rows and
 /// tab badges), keyed by the machine's name as cmux shows it, in any case and with any surrounding

@@ -14,8 +14,8 @@ fn request(line: Value) -> Request {
     serde_json::from_value(line).expect("test request parses")
 }
 
-fn queued(admission: &Arc<ServerSurfaceOperationAdmission>, line: Value) -> PendingSurfaceRequest {
-    PendingSurfaceRequest {
+fn queued(admission: &Arc<ServerSurfaceOperationAdmission>, line: Value) -> SequencedItem {
+    SequencedItem::Request(PendingSurfaceRequest {
         request: request(line),
         arrival: RequestArrival::now(),
         cause: crate::event_cause::EventCause::Program,
@@ -23,7 +23,7 @@ fn queued(admission: &Arc<ServerSurfaceOperationAdmission>, line: Value) -> Pend
         retained_bytes: 0,
         _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
         stream_barrier: None,
-    }
+    })
 }
 
 /// The ids in the order the control sequence takes them, with no worker running.
@@ -35,7 +35,9 @@ fn drain_order(lines: Vec<Value>) -> Vec<u64> {
     }
     let mut order = Vec::new();
     while let Some(index) = ConnectionSurfaceScheduler::next_runnable_index(&state) {
-        let pending = state.requests.remove(index).unwrap();
+        let Some(SequencedItem::Request(pending)) = state.requests.remove(index) else {
+            panic!("only requests are queued");
+        };
         order.push(pending.request.id.unwrap().as_u64().unwrap());
     }
     assert!(state.requests.is_empty(), "requests left unrunnable: {}", state.requests.len());

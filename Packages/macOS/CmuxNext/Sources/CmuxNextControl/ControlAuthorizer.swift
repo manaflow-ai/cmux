@@ -50,6 +50,19 @@ struct ControlAuthorizer: Sendable {
         }
     }
 
+    /// The response line for one request line on `router`, with no startup lock (in-process callers and
+    /// tests), and whether to keep the connection open.
+    func respond(to rawLine: String, router: ControlRouter, connection: ControlConnectionID = .inProcess) async -> (String?, Bool) {
+        switch screen(rawLine) {
+        case .answered(let response, let keepOpen):
+            return (response, keepOpen)
+        case .request(let request):
+            return (ControlRouter.encode(id: request.id, result: await router.handle(request, connection: connection)), true)
+        case .plainText(let text):
+            return (await router.response(forLine: text, connection: connection), true)
+        }
+    }
+
     var isPeerAdmitted: Bool {
         switch configuration.accessMode {
         case .off:

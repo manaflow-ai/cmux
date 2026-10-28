@@ -119,7 +119,7 @@ struct PageChromiumDevToolsFreeTests {
     }
 
     /// A debug hover is the native mouse move at the element's CSS center times the zoom, says so, and
-    /// counts only once the page reports `:hover`; with no native move (a fork before API 38) it is a
+    /// counts only once the page reports `:hover`; with no native move (a fork before API 40) it is a
     /// DevTools `mouseMoved`, reported as DevTools.
     @Test func aDebugHoverIsTheNativeMouseMove() async throws {
         defer { try? FileManager.default.removeItem(at: root) }

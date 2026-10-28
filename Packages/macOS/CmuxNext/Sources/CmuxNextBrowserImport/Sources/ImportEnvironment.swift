@@ -86,7 +86,7 @@ public enum FileAccess: Sendable, Equatable {
     /// privacy protection (TCC) still blocks.
     public static func probe(_ url: URL) -> FileAccess {
         // SAFETY: the path is a NUL-terminated copy Swift keeps alive for the call; open only reads it.
-        let fd = unsafe open(url.path, O_RDONLY)
+        let fd = unsafe blockingOpen(url.path, O_RDONLY)
         if fd >= 0 {
             close(fd)
             return .readable

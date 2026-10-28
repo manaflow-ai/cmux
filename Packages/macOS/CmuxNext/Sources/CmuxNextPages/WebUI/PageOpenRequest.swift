@@ -95,7 +95,7 @@ extension PageWebView {
                 .map { PageWebKitProcessGroup(groups: groups, membership: $0) }
         } : nil
         let host = Self.hostConfiguration(handler: handler, documentAttributes: request.documentAttributes,
-                                          options: request.options, dataStore: group?.groups.dataStore)
+                                          options: request.options, dataStore: group.map { $0.groups.dataStore(for: $0.membership) })
         if request.parked { Self.installParkedScript(host.configuration.userContentController) }
         self.init(descriptor: request.descriptor, configuration: host.configuration,
                   inputReadiness: host.inputReadiness, routes: request.routes, route: request.route,

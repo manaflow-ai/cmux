@@ -26,6 +26,10 @@ public final class CEFRuntimeSource {
     /// show in cmux panels and panes (feature `chromiumHostWidgets`, set by the App). Read when the
     /// runtime adopts the source, before Chromium starts; in process it changes nothing.
     public var showsHostWidgets = false
+    /// Host mode: hosted pages' keys, clicks, moves and wheel ticks go through the host's input
+    /// ring, paced by its acks (feature `chromiumHostInputRing`, set by the App). Read when the
+    /// runtime adopts the source; in process it changes nothing.
+    public var routesHostInput = false
     /// Host mode: drags onto a page reach it with DragTarget calls (feature `chromiumHostDragIn`, set by
     /// the App; p01-process-050). Read when the runtime adopts the source; in process it changes nothing.
     public var takesHostDrags = false

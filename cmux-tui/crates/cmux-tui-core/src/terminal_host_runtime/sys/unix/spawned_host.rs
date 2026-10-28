@@ -3,6 +3,7 @@
 //! started (`cmux_process`), exact-killed and waited if the launch is not
 //! committed.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::time::Duration;
 
 /// What reaps a committed host: the mux's one child reaper.
@@ -25,6 +26,7 @@ impl SpawnedHostProcess {
 
     /// False once the process has exited (killed, or crashed before use).
     pub(crate) fn is_alive(&mut self) -> bool {
+        // wakeup-allow: bounded one non-blocking exit check when a standby host is handed out; it never waits
         self.child.as_mut().is_some_and(|child| matches!(child.try_wait(), Ok(None)))
     }
 
@@ -47,9 +49,11 @@ impl SpawnedHostProcess {
         if let Some(unwatched) = unwatched {
             eprintln!("cmux-tui: the terminal host's exit has its own wait thread ({unwatched})");
         }
-        let _ = cmux_threads::spawn(
+        let _ = supervised::spawn_at(
             "terminal-host-reaper",
             cmux_threads::qos::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
             move || {
                 let _ = child.wait();
             },

@@ -357,7 +357,7 @@ impl Hub {
     fn end_move(self: &Arc<Self>, session: &Arc<Session>) {
         *session.moving.lock().unwrap_or_else(|e| e.into_inner()) = None;
         let (hub, followed) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        self.supervise("hub.move-end", Fatal, ShutdownBehavior::Skip, async move {
             hub.follow_policy(&followed).await;
             followed.queue_moved.notify_waiters();
         });

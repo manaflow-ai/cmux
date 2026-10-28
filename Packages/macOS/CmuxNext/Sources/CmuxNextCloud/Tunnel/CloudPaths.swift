@@ -1,5 +1,6 @@
 import CryptoKit
 public import Foundation
+import CmuxNextCompat
 
 /// Per-installation Cloud state: the WireGuard key, device id, completed
 /// config, hub socket, and cmux-tui link client state. Owner-only (0700
@@ -61,7 +62,7 @@ public struct CloudPaths: Sendable {
     func writeSecret(_ text: String, to url: URL) throws {
         let temporary = url.appendingPathExtension("tmp")
         FileManager.default.createFile(atPath: temporary.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600])
-        guard rename(temporary.path, url.path) == 0 else {
+        guard blockingRename(temporary.path, url.path) == 0 else {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
         }
     }
