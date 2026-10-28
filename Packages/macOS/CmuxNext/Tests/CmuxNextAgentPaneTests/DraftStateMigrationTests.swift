@@ -134,6 +134,20 @@ nonisolated struct DraftStateMigrationTests {
         #expect((try fixture.object("current/agent-composer-drafts.json"))["quick-composer-v1"] as? String == "")
     }
 
+    @Test func settledArtifactsStayClearedAfterASeparateArtifactFails() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write("source/agent-draft-attachments/chat/file", "restored attachment")
+        try fixture.write("source/agent-unsent-drafts.json", "malformed source")
+
+        DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"))
+        #expect(try fixture.text("destination/agent-draft-attachments/chat/file") == "restored attachment")
+
+        try FileManager.default.removeItem(at: fixture.url("destination/agent-draft-attachments"))
+        DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"))
+        #expect(!FileManager.default.fileExists(atPath: fixture.url("destination/agent-draft-attachments").path))
+    }
+
     @Test func malformedDestinationIsKeptAndAdoptionCanRetry() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
