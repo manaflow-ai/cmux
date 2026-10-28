@@ -161,7 +161,7 @@ describe("parseAutosizeRequest", () => {
   });
 
   test("invalid fields are a field error", () => {
-    for (const value of [[], "build", { taskKind: "deploy" }, { gpu: "yes" }, { repo: [] }, { repo: { sizeMb: -1 } }, { repo: { rootFiles: [1] } }]) {
+    for (const value of [[], "build", { taskKind: "deploy" }, { taskKind: null }, { gpu: "yes" }, { repo: [] }, { repo: { sizeMb: -1 } }, { repo: { rootFiles: [1] } }]) {
       expect(typeof parseAutosizeRequest(value)).toBe("string");
     }
   });

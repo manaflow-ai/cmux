@@ -203,7 +203,7 @@ export function parseAutosizeRequest(value: unknown): { readonly taskKind: Autos
   if (value === undefined || value === null) return null;
   if (typeof value !== "object" || Array.isArray(value)) return "`autosize` must be an object.";
   const v = value as Record<string, unknown>;
-  const taskKind = v.taskKind ?? "chat";
+  const taskKind = v.taskKind === undefined ? "chat" : v.taskKind;
   if (typeof taskKind !== "string" || !(AUTOSIZE_TASK_KINDS as readonly string[]).includes(taskKind)) {
     return `\`autosize.taskKind\` must be one of ${AUTOSIZE_TASK_KINDS.join(", ")}.`;
   }
