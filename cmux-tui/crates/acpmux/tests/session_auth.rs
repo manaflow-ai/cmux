@@ -1,6 +1,6 @@
 //! `_acpmux/session/auth` (`hub/session_auth.rs`; Leo: "you gotta re-authenticate. You gotta
 //! log in again on the modal picker before the user even sends a prompt."): a chat's sign-in
-//! from its own evidence, never a guess.
+//! from its own evidence, by session or by target, never a guess.
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -34,6 +34,7 @@ fn scratch(tag: &str) -> PathBuf {
 /// Claude home, its routes and bindings under `root`.
 fn hub(root: &Path) -> Arc<Hub> {
     let two = root.join("claude-two");
+    let defaulted = root.join("claude-defaulted");
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fake": {"argv": ["python3", FAKE], "family": "claude"},
@@ -42,7 +43,12 @@ fn hub(root: &Path) -> Arc<Hub> {
             "checked": {"argv": ["python3", FAKE], "family": "plain"},
             // A profile whose own route `acct` (an account home) its chats spawn on.
             "acct": {"argv": ["python3", FAKE], "family": "claude", "env": {"ACPMUX_PROFILE_ROUTE": "acct"}},
+            // A profile with its own route, which beats a family or global binding at spawn.
+            "pinned": {"argv": ["python3", FAKE], "family": "claude", "env": {"ACPMUX_PROFILE_ROUTE": "busy"}},
+            // A profile whose `defaults` entry pins its account home.
+            "deflt": {"argv": ["python3", FAKE], "family": "claude"},
         },
+        "defaults": {"deflt": {"env": {"CLAUDE_CONFIG_DIR": defaulted}}},
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
         "presets": {
@@ -245,4 +251,133 @@ async fn session_auth_names_the_route_the_chat_spawns_on() {
         format!("CLAUDE_CONFIG_DIR={} claude auth login", home.display()),
         "{out}"
     );
+}
+
+/// A target (a new tab with no session yet) reads the newest turn of a chat here with the same
+/// harness, account home and route: none is unknown, a sibling's sign-in failure counts, and a
+/// chat in another account home never does.
+#[tokio::test]
+async fn session_auth_for_a_target_reads_only_its_own_account() {
+    let root = scratch("target");
+    let hub = hub(&root);
+    let mut c = client(&hub);
+    let target = json!({"target": {"harness": "fake"}});
+    let none = c.auth(target.clone()).await;
+    assert_eq!(state(&none), ("unknown", "none"), "{none}");
+
+    let other_home = c.new_session(Some("two")).await;
+    c.prompt(&other_home, &format!("fail-streamed: {NOT_SIGNED_IN}")).await;
+    let out = c.auth(target.clone()).await;
+    assert_eq!(state(&out), ("unknown", "none"), "another account home leaked: {out}");
+    let theirs = c.auth(json!({"sessionId": other_home})).await;
+    assert_eq!(state(&theirs), ("signedOut", "turn"), "{theirs}");
+
+    let sibling = c.new_session(None).await;
+    c.prompt(&sibling, &format!("fail-streamed: {NOT_SIGNED_IN}")).await;
+    let out = c.auth(target.clone()).await;
+    assert_eq!(state(&out), ("signedOut", "turn"), "{out}");
+    assert_eq!(out["fromSessionId"], json!(sibling), "{out}");
+
+    let unknown = c.call(method::MUX_SESSION_AUTH, json!({"target": {"harness": "nope"}})).await;
+    assert_eq!(unknown["error"]["code"], -32602, "{unknown}");
+}
+
+/// A home the harness's `defaults` env pins is the home its chats run in, as at spawn (the
+/// defaults' env under the profile's): a chat's and a target's sign-in names it.
+#[tokio::test]
+async fn session_auth_reads_the_home_the_defaults_pin() {
+    let root = scratch("defaults-home");
+    let hub = hub(&root);
+    let mut c = client(&hub);
+    let home = root.join("claude-defaulted");
+    let login = format!("CLAUDE_CONFIG_DIR={} claude auth login", home.display());
+    let chat = c.new_session_of("deflt").await;
+    c.prompt(&chat, &format!("fail-streamed: {NOT_SIGNED_IN}")).await;
+    let out = c.auth(json!({"sessionId": chat})).await;
+    assert_eq!(state(&out), ("signedOut", "turn"), "{out}");
+    assert_eq!(out["login"]["command"], login, "{out}");
+    let out = c.auth(json!({"target": {"harness": "deflt"}})).await;
+    assert_eq!(state(&out), ("signedOut", "turn"), "{out}");
+    assert_eq!(out["fromSessionId"], json!(chat), "{out}");
+    assert_eq!(out["login"]["command"], login, "{out}");
+}
+
+/// A route's health endpoint: every request gets the status `status` holds at the time.
+async fn endpoint(status: Arc<std::sync::Mutex<&'static str>>) -> String {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/health", l.local_addr().unwrap());
+    tokio::spawn(async move {
+        while let Ok((mut tcp, _)) = l.accept().await {
+            let mut buf = [0u8; 4096];
+            let _ = tcp.read(&mut buf).await;
+            let status = *status.lock().unwrap();
+            let reply =
+                format!("HTTP/1.1 {status}\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{{}}");
+            let _ = tcp.write_all(reply.as_bytes()).await;
+        }
+    });
+    url
+}
+
+/// The bound route's probe comes before the turn: auth_needed is routeAuthNeeded (sign in to
+/// the route), while a rate-limited answer says nothing of the sign-in and falls through.
+#[tokio::test]
+async fn session_auth_reads_the_routes_probe_and_a_rate_limit_falls_through() {
+    let root = scratch("route");
+    let hub = hub(&root);
+    let mut c = client(&hub);
+    let locked = Arc::new(std::sync::Mutex::new("401 Unauthorized"));
+    let busy = Arc::new(std::sync::Mutex::new("429 Too Many Requests"));
+    for (id, status) in [("locked", &locked), ("busy", &busy)] {
+        let url = endpoint(status.clone()).await;
+        let added = c
+            .call(
+                "_acpmux/route/add",
+                json!({"id": id, "kind": "custom-anthropic", "anthropicBaseUrl": url, "healthUrl": url}),
+            )
+            .await;
+        assert!(added.get("error").is_none(), "{added}");
+    }
+    let set =
+        c.call("_acpmux/route/default.set", json!({"scope": "global", "routeId": "locked"})).await;
+    assert!(set.get("error").is_none(), "{set}");
+
+    // Without refresh and no probe yet: nothing to read.
+    let out = c.auth(json!({"target": {"harness": "fake"}})).await;
+    assert_eq!(state(&out), ("unknown", "none"), "{out}");
+    assert_eq!(out["routeId"], "locked", "the default route applies: {out}");
+    let out = c.auth(json!({"target": {"harness": "fake"}, "refresh": true})).await;
+    assert_eq!(state(&out), ("routeAuthNeeded", "routeProbe"), "{out}");
+    assert_eq!(out["login"], json!({"kind": "route", "routeId": "locked"}), "{out}");
+    // The probe is reused without refresh.
+    let again = c.auth(json!({"target": {"harness": "fake"}})).await;
+    assert_eq!(state(&again), ("routeAuthNeeded", "routeProbe"), "{again}");
+
+    // Refresh probes again: the route now answers.
+    *locked.lock().unwrap() = "200 OK";
+    let out = c.auth(json!({"target": {"harness": "fake"}, "refresh": true})).await;
+    assert_eq!(state(&out), ("unknown", "none"), "a fresh probe replaces the old one: {out}");
+
+    let rate_limited = json!({"target": {"harness": "fake", "routeId": "busy"}, "refresh": true});
+    let out = c.auth(rate_limited).await;
+    assert_eq!(state(&out), ("unknown", "none"), "a rate limit is no sign-in: {out}");
+    assert_eq!(out["routeId"], "busy", "{out}");
+
+    // A profile's own route beats the global default, as at spawn.
+    let out = c.auth(json!({"target": {"harness": "pinned"}})).await;
+    assert_eq!(out["routeId"], "busy", "the profile's route applies: {out}");
+    assert_eq!(state(&out), ("unknown", "none"), "{out}");
+
+    // A route that does not serve the harness is refused, as a spawn refuses it.
+    let added = c
+        .call(
+            "_acpmux/route/add",
+            json!({"id": "codex-only", "kind": "custom-openai", "openaiBaseUrl": "http://127.0.0.1:9/v1", "families": ["codex"]}),
+        )
+        .await;
+    assert!(added.get("error").is_none(), "{added}");
+    let other = json!({"target": {"harness": "fake", "routeId": "codex-only"}});
+    let refused = c.call(method::MUX_SESSION_AUTH, other).await;
+    assert_eq!(refused["error"]["code"], -32602, "{refused}");
 }
