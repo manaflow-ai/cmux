@@ -143,7 +143,7 @@ import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
 import { ChatUnavailableState } from "./ChatUnavailableState";
 import { useCloudChatRecovery } from "./useCloudChatRecovery";
-import { cloudChatUnavailable, type CloudChatIdentity } from "./cloudChatRecovery";
+import { cloudChatRecoveryActive, cloudChatUnavailable, type CloudChatIdentity } from "./cloudChatRecovery";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos, projectRows } from "./projectRepos";
@@ -6550,7 +6550,7 @@ function AcpmuxPane() {
   const cloudRecovery = useCloudChatRecovery({
     cloud: cloudChatIdentity,
     session: snapshot.missingSession ?? snapshot.sessionId,
-    active: !!snapshot.unavailable || snapshot.connection !== "connected",
+    active: cloudChatRecoveryActive(!!snapshot.unavailable, snapshot.sessionId, snapshot.rows.length, snapshot.connection === "connected"),
     recheck: recheckCloudChat,
   });
   const cloudUnavailable =

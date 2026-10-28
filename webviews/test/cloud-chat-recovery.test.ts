@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cloudChatState, cloudChatUnavailable } from "../src/agent-session/acpmux/cloudChatRecovery";
+import { cloudChatRecoveryActive, cloudChatState, cloudChatUnavailable } from "../src/agent-session/acpmux/cloudChatRecovery";
 import { ChatUnavailableState } from "../src/agent-session/acpmux/ChatUnavailableState";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -16,6 +16,13 @@ const paused = { id: cloud.id, name: "Demo machine", stage: "paused" };
 const offline = { reason: "offline" as const, machine: "Demo machine" };
 
 describe("cloud chat recovery", () => {
+  test("transport loss preserves a cached transcript, but an empty native chat can recover", () => {
+    expect(cloudChatRecoveryActive(false, "chat", 5, false)).toBe(false);
+    expect(cloudChatRecoveryActive(false, "chat", 0, false)).toBe(true);
+    expect(cloudChatRecoveryActive(false, "chat", 0, true)).toBe(false);
+    expect(cloudChatRecoveryActive(false, undefined, 0, false)).toBe(false);
+    expect(cloudChatRecoveryActive(true, "chat", 5, true)).toBe(true);
+  });
   test("paused native VM offers Resume machine, while peers keep their existing state", () => {
     const state = cloudChatState(cloud, inventory([paused]));
     expect(state).toBe("paused");

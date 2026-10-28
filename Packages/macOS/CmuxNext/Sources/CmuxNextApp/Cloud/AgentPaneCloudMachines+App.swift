@@ -14,7 +14,8 @@ extension AgentPaneCloudMachines {
         let inventory: @MainActor (Duration) async -> Inventory = { [weak services] age in
             guard let services, services.cloud.isSignedIn else { return Inventory(signedIn: false, loaded: false, machines: []) }
             await services.cloud.refresh(ifOlderThan: age)
-            guard services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines else {
+            guard services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines,
+                  age != .zero || services.cloud.lastError == nil else {
                 return Inventory(signedIn: services.cloud.isSignedIn, loaded: false, machines: [])
             }
             let machines = services.machines.cloud.compactMap { session in
