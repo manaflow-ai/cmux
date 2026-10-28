@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import Darwin
 import Foundation
 
 /// A long dictation recording sent to the machine a chat on another computer runs on (an ssh
@@ -37,7 +38,11 @@ struct AgentPaneDictationUpload {
     /// stager's failure (a stage it began is cancelled, so it drops what it staged).
     static func send(_ file: URL, through stager: AgentPaneUploadStager, session: String) async -> [String: Any] {
         let failed = AgentPaneReply.failure(code: "upload_failed", message: "The recording could not be sent.")
-        guard let size = await Task.detached(priority: .userInitiated, operation: { Self.size(of: file) }).value else { return failed }
+        // Opened once, without following a link, and read only through that descriptor: a path
+        // swapped for a symlink after this check never sends the file the link names.
+        guard let opened = await Task.detached(priority: .userInitiated, operation: { Self.openRegular(file) }).value else { return failed }
+        defer { try? opened.handle.close() }
+        let size = opened.size
         let begun = await stager(.begin(name: file.lastPathComponent, size: size, batchToken: nil, batch: nil), session)
         guard let started = value(begun) else { return begun }
         guard let token = started["token"] as? String else { return failed }
@@ -50,7 +55,7 @@ struct AgentPaneDictationUpload {
         while offset < size {
             let at = offset, count = min(chunk, size - offset)
             let answer: [String: Any]
-            if let bytes = await Task.detached(priority: .userInitiated, operation: { Self.read(file, at: at, count: count) }).value, bytes.count == count {
+            if let bytes = await Task.detached(priority: .userInitiated, operation: { Self.read(opened.handle, at: at, count: count) }).value, bytes.count == count {
                 answer = await stager(.chunk(token: token, offset: at, data: bytes), session)
             } else {
                 answer = failed
@@ -80,17 +85,28 @@ struct AgentPaneDictationUpload {
         return path
     }
 
-    /// The size of a regular file (not a link) at `file`; nil otherwise.
-    nonisolated static func size(of file: URL) -> Int? {
-        guard let attributes = try? FileManager.checked.attributesOfItem(atPath: file.path),
-              attributes[.type] as? FileAttributeType == .typeRegular else { return nil }
-        return (attributes[.size] as? NSNumber)?.intValue
+    /// A recording opened for reading: its descriptor's handle and the size `fstat` gave it.
+    // crash-allow: the handle is used by one upload, one awaited step at a time, never concurrently.
+    nonisolated struct Opened: @unchecked Sendable {
+        let handle: FileHandle
+        let size: Int
     }
 
-    /// `count` bytes of `file` from `offset`; nil when it can't be read.
-    nonisolated static func read(_ file: URL, at offset: Int, count: Int) -> Data? {
-        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
-        defer { try? handle.close() }
+    /// `file` opened with `O_NOFOLLOW` (a symlink is refused) when that descriptor is a regular
+    /// file; nil otherwise. Its checks and every read use the descriptor, never the path again.
+    nonisolated static func openRegular(_ file: URL) -> Opened? {
+        let fd = open(file.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        guard fd >= 0 else { return nil }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG else {
+            close(fd)
+            return nil
+        }
+        return Opened(handle: FileHandle(fileDescriptor: fd, closeOnDealloc: true), size: Int(info.st_size))
+    }
+
+    /// `count` bytes of the opened recording from `offset`; nil when they can't be read.
+    nonisolated static func read(_ handle: FileHandle, at offset: Int, count: Int) -> Data? {
         do {
             try handle.seek(toOffset: UInt64(offset))
             return try handle.blockingRead(upToCount: count)

@@ -194,7 +194,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const live = useRef({ options, t });
   live.current = { options, t };
   /// Each batch still being read, with the chat it belongs to (`scope`).
-  const batches = useRef(new Set<{ scope?: string }>());
+  const batches = useRef(new Set<{ scope?: string; hostMade?: boolean }>());
   /// Each pending chip's file, for Retry; a chip cancelled by its × is gone from here, so what its
   /// read makes later is dropped.
   const sources = useRef(new Map<string, PendingSource>());
@@ -215,8 +215,10 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const from = lastScope.current;
     lastScope.current = scope;
     if (from === scope || (from !== undefined && !live.current.options.carries?.())) return;
-    for (const batch of batches.current) if (batch.scope === from) batch.scope = scope;
-    setPending((chips) => chips.map((chip) => (chip.scope === from ? { ...chip, scope } : chip)));
+    // A chip the host makes (attachLater, `holdsSend`) keeps its chat: the host started it for that
+    // chat, and its answer (a path on that chat's machine) goes to that chat's kept chips.
+    for (const batch of batches.current) if (batch.scope === from && !batch.hostMade) batch.scope = scope;
+    setPending((chips) => chips.map((chip) => (chip.scope === from && !chip.holdsSend ? { ...chip, scope } : chip)));
   }, [scope]);
   /// `uploads`: the person dropped, pasted or chose these, so the chat's host may save what the
   /// composer can't attach (a moved chat's machine, or this Mac for a local chat) and its chip sends
@@ -344,7 +346,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// makes it, or without it once its × drops it (and whatever `make` answers later).
   const [attachLater] = useState(
     () => (name: string, make: () => Promise<ComposerAttachment | undefined>, failure: string) => {
-      const batch = { scope: live.current.options.scope };
+      const batch = { scope: live.current.options.scope, hostMade: true };
       const chip: PendingAttachment = {
         id: crypto.randomUUID(),
         name,
