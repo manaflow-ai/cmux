@@ -456,8 +456,15 @@ export default componentEntry<GalleryProps>({
       props: startedFork,
       play: async (ctx) => {
         await openQuick(ctx);
-        await ctx.hover({ role: "menuitem", name: /^Account/ });
-        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-quick-menu").length > 1);
+        // Keyboard activation is stable on a started chat even when the pointer-hover timer races
+        // the async account list. Keep checking the real signed-in routes, not just a popup count.
+        await ctx.focus({ role: "menuitem", name: /^Account/ });
+        await ctx.press("Enter");
+        await ctx.waitFor(() =>
+          Array.from(ctx.document.querySelectorAll("[role=menuitemradio]")).some(
+            (row) => row.textContent === "Anthropic API key",
+          ),
+        );
       },
     },
     // Three captures keep the menu comparison concrete: default Effort submenu, opt-in slider, and
