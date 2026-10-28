@@ -309,6 +309,35 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       await page.close();
     });
 
+    test("Other textarea inherits the row font, fills its space, and shows multiline text", async () => {
+      const page = await pendingQuestion();
+      await page.keyboard.press("4");
+      const field = page.getByRole("textbox", { name: "Other", exact: true });
+      await page.keyboard.type("Signed cookies");
+      await page.keyboard.press("Shift+Enter");
+      await page.keyboard.type("with rotation");
+      const geometry = await field.evaluate((element) => {
+        const field = element as HTMLTextAreaElement;
+        const row = field.closest(".acpmux-question-row")!;
+        const style = getComputedStyle(field);
+        const rowStyle = getComputedStyle(row);
+        return {
+          font: style.fontFamily + "/" + style.fontSize,
+          rowFont: rowStyle.fontFamily + "/" + rowStyle.fontSize,
+          resize: style.resize,
+          border: style.borderTopWidth,
+          fill: field.getBoundingClientRect().width / row.getBoundingClientRect().width,
+          clipped: field.scrollHeight > field.clientHeight,
+        };
+      });
+      expect(geometry.font).toBe(geometry.rowFont);
+      expect(geometry.resize).toBe("none");
+      expect(geometry.border).toBe("0px");
+      expect(geometry.fill).toBeGreaterThan(0.8);
+      expect(geometry.clipped).toBe(false);
+      await page.close();
+    });
+
     test("Other takes a typed answer, which ⌘↩ sends", async () => {
       const page = await pendingQuestion();
       await page.keyboard.press("4");
