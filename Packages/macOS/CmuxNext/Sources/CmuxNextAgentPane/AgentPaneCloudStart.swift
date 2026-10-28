@@ -1,3 +1,4 @@
+import CmuxNextSettings
 public import Foundation
 
 /// `cloud.startChat {task, cwd?, harness?, model?, key}`: a new chat's first send with Cloud picked
@@ -79,5 +80,18 @@ struct AgentPaneHandOff {
             return AgentPaneModel.transportFailure(.gestureRequired)
         }
         return await body(replacements)
+    }
+}
+
+extension AgentPaneCloudStart {
+    /// How this start goes, for the card under the message (webviews `cloudStartProgress.ts`): the
+    /// step it is on (`machine`, `folder`, `opening`) and the machine once known, keyed by the
+    /// page's send so a card for another start ignores it.
+    @MainActor public func progress(_ step: String, machine: String? = nil, to view: AgentPaneView) {
+        var value: [String: JSONValue] = ["key": .string(key), "step": .string(step)]
+        if let machine { value["machine"] = .string(machine) }
+        let push = JSONValue.object(value)
+        view.deliver([AgentPageEvent(kind: "cloudStartProgress", value: push)],
+                     scripts: ["window.cmuxAcpmuxBridge?.cloudStartProgress?.(\(push.compactText));"])
     }
 }

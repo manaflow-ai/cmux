@@ -27,17 +27,21 @@ struct CloudStartChat {
                   services.machines.daemon(forTab: tab).isLocal else {
                 return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat)
             }
-            return await CloudStartChat(services: services).reply(start, tab: tab)
+            return await CloudStartChat(services: services).reply(start, tab: tab) { [weak view] step, machine in
+                if let view { start.progress(step, machine: machine, to: view) }
+            }
         }
     }
 
     /// The page's reply: success with the machine's name, or a refusal in the person's words.
-    func reply(_ start: AgentPaneCloudStart, tab: TabModel) async -> [String: Any] {
+    /// `report` tells the page's card each step as it begins (``AgentPaneCloudStart/progress(_:machine:to:)``).
+    func reply(_ start: AgentPaneCloudStart, tab: TabModel,
+               report: @MainActor (_ step: String, _ machine: String?) -> Void = { _, _ in }) async -> [String: Any] {
         if let refusal = Self.refusal(services) { return AgentPaneReply.failure(code: refusal, message: refusal) }
         let toastID = "cloud-start-" + tab.id
         CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: .seconds(600))
         do {
-            let machine = try await run(start, tab: tab)
+            let machine = try await run(start, tab: tab, report: report)
             CloudMove.toast(services, toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
             return AgentPaneReply.success(["machine": machine])
         } catch {
@@ -57,7 +61,8 @@ struct CloudStartChat {
     }
 
     /// The start; returns the machine's name.
-    private func run(_ start: AgentPaneCloudStart, tab: TabModel) async throws -> String {
+    private func run(_ start: AgentPaneCloudStart, tab: TabModel,
+                     report: @MainActor (_ step: String, _ machine: String?) -> Void) async throws -> String {
         // The folder the page named, as Move to Cloud's `path` takes one: an existing folder, never
         // the home folder or the disk's root. A page could already start a chat on this Mac in it.
         var isFolder: ObjCBool = false
@@ -67,15 +72,18 @@ struct CloudStartChat {
         guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
         let move = CloudMove(services: services)
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
+        report("machine", nil)
         let machine = try await move.machine(invocation) { await CloudChatPick(services: services).read(folder: chat, tab: tab) }
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         guard let socket = await machine.daemon.connection?.endpoint?.socketPath else {
             throw CloudMove.Failure(message: CloudMoveStrings.notConnected(name))
         }
         let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
+        report("folder", name)
         let remote = try await move.sync(folder, to: socket, machine: name, cli: cli, retry: again)
         let context = AppActionContext(services: services)
         let anchor = try await CloudHandlers.terminalAnchor(on: machine, context)
+        report("opening", name)
         let seed = AgentPaneSeed(cwd: remote.chat, prompt: start.task, promptBy: .person, harness: start.harness)
         let pending = try services.agentTabs.open(in: anchor.pane.handle, of: machine.daemon, seed: AgentPaneSeedSource(seed))
         let opened = try await pending.value()
