@@ -63,6 +63,13 @@ pub fn is_transport_error(message: &str) -> bool {
     !is_limit_error(message) && says_connection_dropped(message)
 }
 
+/// Whether an error says the provider had no capacity or the connection dropped
+/// ([`is_capacity_error`] or [`says_connection_dropped`]), whatever it also says about a
+/// sign-in: such an error is never evidence of a sign-in state.
+pub fn says_unreachable(message: &str) -> bool {
+    is_capacity_error(message) || says_connection_dropped(message)
+}
+
 /// Whether an agent error's words say the connection to the model dropped, whatever else it
 /// says ([`is_transport_error`] without its limit and sign-in exclusion).
 pub fn says_connection_dropped(message: &str) -> bool {

@@ -49,8 +49,7 @@ pub mod kind {
 /// provider had no capacity or the connection dropped is never a sign-in state, whatever words
 /// about a sign-in it also carries ("HTTP 503: authentication_failed").
 pub fn auth_kind(message: &str) -> Option<&'static str> {
-    use crate::hub::turn_errors::{is_capacity_error, says_connection_dropped};
-    if is_capacity_error(message) || says_connection_dropped(message) {
+    if crate::hub::turn_errors::says_unreachable(message) {
         return None;
     }
     if crate::claude_auth::is_expired_credential(message) {

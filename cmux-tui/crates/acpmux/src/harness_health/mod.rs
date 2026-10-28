@@ -298,9 +298,17 @@ pub fn keychain_sign_in(id: &str, profile: &crate::config::HarnessProfile) -> Op
 }
 
 /// A failed auth check is expired only when its own output says a credential expired
-/// (`claude_auth::is_expired_credential`, the matcher a failed turn uses too).
+/// (`claude_auth::is_expired_credential`, the matcher a failed turn uses too), and unknown
+/// when it says the provider had no capacity or the connection dropped: a transport error is
+/// never a sign-in state (`turn_errors::says_unreachable`, as `recovery::auth_kind`).
 fn auth_failure(output: &str) -> Auth {
-    if crate::claude_auth::is_expired_credential(output) { Auth::Expired } else { Auth::SignedOut }
+    if crate::hub::turn_errors::says_unreachable(output) {
+        Auth::Unknown
+    } else if crate::claude_auth::is_expired_credential(output) {
+        Auth::Expired
+    } else {
+        Auth::SignedOut
+    }
 }
 
 static SIGN_IN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
@@ -490,10 +498,12 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
                 Ok((true, _)) => (Auth::SignedIn, Some(format!("`{}` passed", s.check.join(" ")))),
                 Ok((false, output)) => {
                     let auth = auth_failure(&output);
-                    let detail = if auth == Auth::Expired {
-                        "credential expired".to_owned()
-                    } else {
-                        format!("`{}` failed", s.check.join(" "))
+                    let detail = match auth {
+                        Auth::Expired => "credential expired".to_owned(),
+                        Auth::Unknown => {
+                            format!("`{}` could not reach its provider", s.check.join(" "))
+                        }
+                        _ => format!("`{}` failed", s.check.join(" ")),
                     };
                     (auth, Some(detail))
                 }
@@ -539,7 +549,10 @@ mod tests {
     fn expired_login_probe_is_not_just_signed_out() {
         assert_eq!(auth_failure("OAuth token has expired"), Auth::Expired);
         assert_eq!(auth_failure("Not logged in"), Auth::SignedOut);
-        assert_eq!(auth_failure("HTTP 503"), Auth::SignedOut);
+        assert_eq!(auth_failure("check failed"), Auth::SignedOut);
+        assert_eq!(auth_failure("HTTP 503"), Auth::Unknown);
+        assert_eq!(auth_failure("Not logged in? HTTP 503: authentication_failed"), Auth::Unknown);
+        assert_eq!(auth_failure("token expired? connection refused"), Auth::Unknown);
         assert_eq!(auth_failure("Your refresh token has expired; run codex login"), Auth::Expired);
         assert_eq!(auth_failure("the MCP session expired"), Auth::SignedOut);
         assert_eq!(auth_failure("Provided authentication token is expired."), Auth::Expired);
