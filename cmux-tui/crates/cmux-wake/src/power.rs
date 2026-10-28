@@ -1,4 +1,4 @@
-//! The power inputs a [`super::MaintenanceClock`] follows (p14-energy-137),
+//! The power inputs a [`super::MaintenanceClock`] follows,
 //! so the daemon reads AC or battery, the charge, Low Power Mode and the
 //! thermal state itself and keeps following them after the app quits. The
 //! daemon turns a reading into its own Energy Saver by the app's rule

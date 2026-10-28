@@ -26,7 +26,7 @@ struct AcpmuxLaunchReadyWaitTests {
         ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.acpmux-tests", priority: .userBlocking)
     }
 
-    static let readyLine = #"{"ready":true,"pid":1,"webUrl":"http://127.0.0.1:4567/?token=t"}"#
+    static let readyLine = #"{"ready":true,"pid":1,"webUrl":"http://127.0.0.1:4567/#token=t"}"#
 
     /// The launch blocks its caller's thread (the home's creation), so it runs where ``AcpmuxHost``
     /// runs it: on a serial queue of its own, never this test's main actor; the spawn goes to `launcher`.

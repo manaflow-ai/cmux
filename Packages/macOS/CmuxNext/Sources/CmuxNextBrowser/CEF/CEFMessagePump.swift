@@ -36,7 +36,7 @@ import Foundation
 /// takes no late frame's slice; pending keys to the page with the keyboard and input after a page
 /// input do not hold it (Chromium acks the page's input inside the pump), pending pointer input does.
 ///
-/// With a frame deadline (``CEFPumpFrameDeadline``, task p03-rendering-116) a due pass then runs only
+/// With a frame deadline (``CEFPumpFrameDeadline``) a due pass then runs only
 /// to the frame's commit, or waits for the next frame, a person's input turn or a plan apply's commit.
 ///
 /// Each timer fire is one main wake in the wakeup ledger (owner ``ledgerOwner``) with the reason it

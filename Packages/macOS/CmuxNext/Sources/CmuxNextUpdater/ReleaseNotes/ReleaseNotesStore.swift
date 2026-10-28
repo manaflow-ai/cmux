@@ -82,7 +82,7 @@ nonisolated public struct ReleaseNotesStore: Sendable {
     }
 
     /// The signed feature document beside these notes (`notes/flags.json`), checked
-    /// with the same content key: no second URL or key (p12-perf-process-093).
+    /// with the same content key: no second URL or key.
     public func flagsDocument(fetcher: any ConditionalFetching = URLSessionConditionalFetcher()) -> FlagsDocumentFetch {
         FlagsDocumentFetch(notesBase: notesBase, publicKey: publicKey, fetcher: fetcher)
     }

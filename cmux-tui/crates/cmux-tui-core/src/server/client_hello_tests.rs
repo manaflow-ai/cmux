@@ -44,15 +44,14 @@ impl Client {
         let server = listener.accept().unwrap();
         let server_mux = mux.clone();
         let handler = std::thread::spawn(move || {
-            let peer = origin_gate::AcceptedPeer::resolve(&server_mux, &*server);
-            serve_line_connection(
+            serve_connection(
                 server_mux,
                 server,
-                peer,
                 Arc::new(RenderService::new()),
                 None,
                 kind,
-                &admission::LocalAdmission,
+                Box::new(admission::LocalAdmission),
+                Box::<frame_dispatch::RequestFrames>::default(),
             );
         });
         let reader = client.try_clone_box().unwrap();
@@ -195,6 +194,70 @@ fn hello_as_first_line_returns_the_connection_id_and_fixes_the_role() {
     assert_ok_connection_id(&reply, &mux);
     assert_nonce(&reply, false);
     assert_eq!(role_for_test(&mux, only_client(&mux)), "main");
+}
+
+/// `bridge-hello`: a bridge's first line, which keeps the
+/// far client's hello window open, and only there.
+#[test]
+fn bridge_hello_first_keeps_the_far_clients_window_open() {
+    let mux = mux("bridge-first");
+    let mut client = Client::connect(&mux, "bridge-first");
+    let reply = client.request(json!({"cmd": "bridge-hello", "features": ["bridge-frames-v1"]}));
+    assert_eq!(reply["ok"], true, "{reply}");
+    // The test binary is the daemon's own executable: a kernel byte bridge.
+    assert_eq!(reply["data"]["features"], json!(["bridge-frames-v1"]), "{reply}");
+    assert!(frame_bridge(&mux, only_client(&mux)));
+    client.identify();
+    assert_ok_connection_id(&client.hello(json!({"role": "main"})), &mux);
+    assert_eq!(role_for_test(&mux, only_client(&mux)), "main");
+}
+
+#[test]
+fn a_second_bridge_hello_is_window_closed() {
+    let mux = mux("bridge-twice");
+    let mut client = Client::connect(&mux, "bridge-twice");
+    let first = client.request(json!({"cmd": "bridge-hello", "features": ["bridge-frames-v1"]}));
+    assert_eq!(first["ok"], true, "{first}");
+    let again = client.request(json!({"cmd": "bridge-hello", "features": ["bridge-frames-v1"]}));
+    assert_hello_error(&again, "bridge_hello.window_closed");
+}
+
+#[test]
+fn bridge_hello_after_any_line_is_window_closed_and_changes_nothing() {
+    let mux = mux("bridge-late");
+    let mut client = Client::connect(&mux, "bridge-late");
+    client.identify();
+    let reply = client.request(json!({"cmd": "bridge-hello", "features": ["bridge-frames-v1"]}));
+    assert_hello_error(&reply, "bridge_hello.window_closed");
+    assert!(!frame_bridge(&mux, only_client(&mux)));
+}
+
+/// Whether `client` counts as a framed bridge for the grant rule.
+fn frame_bridge(mux: &Mux, client: u64) -> bool {
+    let state = mux.control_clients.state.lock().unwrap();
+    state.clients.get(&client).is_some_and(|record| record.origin.frame_bridge)
+}
+
+#[test]
+fn bridge_hello_validates_its_features_and_ignores_unknown_ones() {
+    let mux = mux("bridge-bad");
+    let mut bad = Client::connect(&mux, "bridge-bad");
+    let reply = bad.request(json!({"cmd": "bridge-hello", "features": "bridge-frames-v1"}));
+    assert_hello_error(&reply, "bridge_hello.bad_request");
+    drop(bad);
+    let mut unknown = Client::connect(&mux, "bridge-unknown");
+    let reply = unknown.request(json!({"cmd": "bridge-hello", "features": ["later-v9"]}));
+    assert_eq!(reply["ok"], true, "{reply}");
+    assert_eq!(reply["data"]["features"], json!([]), "{reply}");
+}
+
+#[test]
+fn bridge_hello_on_a_non_unix_connection_is_local_only() {
+    let mux = mux("bridge-remote");
+    let mut client = Client::connect_with(&mux, "bridge-remote", ClientTransport::Remote);
+    let reply = client.request(json!({"cmd": "bridge-hello", "features": ["bridge-frames-v1"]}));
+    assert_hello_error(&reply, "bridge_hello.local_only");
+    assert!(!frame_bridge(&mux, only_client(&mux)));
 }
 
 #[test]
@@ -405,7 +468,7 @@ fn no_hello_is_the_legacy_client_role_and_set_client_info_never_sets_a_role() {
     assert_eq!(refused["error"]["details"]["derived"], "agent", "{refused}");
 }
 
-/// The daemon features of the hello tests (p12-perf-process-150): a
+/// The daemon features of the hello tests: a
 /// `process=daemon` kill switch, a perfPath and a `process=both` kill switch.
 mod features {
     use super::*;

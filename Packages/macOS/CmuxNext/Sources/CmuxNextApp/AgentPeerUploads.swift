@@ -78,7 +78,7 @@ struct AgentPeerUploads {
                 guard let stage = stages[token], stage.target.session == target.session, stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
                 stages.removeValue(forKey: token)
                 defer { try? FileManager.default.removeItem(at: stage.file) }
-                do { let path = try await stage.target.host.putFile(sessionId: stage.target.session, name: stage.name, file: stage.file); return AgentPaneReply.success(["path": path]) } catch { return reply(AgentPaneFilePutFailure(error), machine: target.machine) }
+                do { let path = try await stage.target.host.putFile(sessionId: stage.target.session, name: stage.name, file: stage.file, runner: work); return AgentPaneReply.success(["path": path]) } catch { return reply(AgentPaneFilePutFailure(error), machine: target.machine) }
             case .cancel(let token):
                 if let stage = stages[token], stage.target.session == target.session {
                     stages.removeValue(forKey: token)

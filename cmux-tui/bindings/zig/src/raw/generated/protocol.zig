@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "974986b7d253aacd825bed6d8efd6c978efd265af55140e73b402e8a32e4e3bc";
+pub const ir_sha256 = "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3";
 
 pub const AccessRequestKind = enum {
     file,
@@ -796,6 +796,10 @@ pub const BookmarkImportNode = struct {
     };
 };
 
+pub const BridgeHelloResult = struct {
+    features: []const []const u8,
+};
+
 pub const BrowserFrame = struct {
     data: Base64,
     height: u32,
@@ -1374,6 +1378,41 @@ pub const CursorStyle = enum {
             .bar => "bar",
         };
     }
+};
+
+pub const DaemonStartupMarks = struct {
+    /// Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The startup configuration was read.
+    config_loaded: ?u64 = null,
+    /// Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The first identify answered once the lifecycle is ready, so it is the last step.
+    first_identify_served: ?u64 = null,
+    /// Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The launch snapshot writer step is done.
+    launch_snapshot_writer_started: ?u64 = null,
+    /// Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. Every owner the lifecycle commands need is installed.
+    lifecycle_ready: ?u64 = null,
+    /// Unix microseconds (wall clock) when the daemon binary's main began: the origin of every step below.
+    main_start_unix_us: u64,
+    /// Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The registry is open and its terminals adopted.
+    mux_restored: ?u64 = null,
+    /// Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The local owner's event loop runs.
+    owner_event_loop: ?u64 = null,
+    /// Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The owner's process setup ran.
+    owner_prepared: ?u64 = null,
+    /// Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The session socket is bound and answers as a restoring owner.
+    socket_bound: ?u64 = null,
+    /// Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The WebSocket control listener step is done (bound, or none asked).
+    websocket_ready: ?u64 = null,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "config_loaded",
+        "first_identify_served",
+        "launch_snapshot_writer_started",
+        "lifecycle_ready",
+        "mux_restored",
+        "owner_event_loop",
+        "owner_prepared",
+        "socket_bound",
+        "websocket_ready",
+    };
 };
 
 pub const DeadPane = struct {
@@ -1973,6 +2012,7 @@ pub const IdentifyResult = struct {
     sdk_schema_digest: wire.Field([]const u8) = .absent,
     session: []const u8,
     session_id: ?[]const u8 = null,
+    startup_marks: wire.Field(DaemonStartupMarks) = .absent,
     terminal_revision: u64,
     update_command: wire.Field([]const u8) = .absent,
     version: []const u8,
@@ -5749,6 +5789,23 @@ pub fn bindConversationTabSession(client: anytype, request: BindConversationTabS
     );
 }
 
+pub const BridgeHelloRequest = struct {
+    features: []const []const u8,
+};
+
+pub fn bridgeHello(client: anytype, request: BridgeHelloRequest) !wire.Decoded(BridgeHelloResult) {
+    return client.callTyped(
+        BridgeHelloResult,
+        .{
+            .name = "bridge-hello",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "bridge-hello-v1",
+        },
+        request,
+    );
+}
+
 pub const BrowserActivateRequest = struct {
     surface: Id,
 };
@@ -8845,10 +8902,12 @@ pub fn homeInbox(client: anytype, request: HomeInboxRequest) !wire.Decoded(HomeI
 pub const IdentifyRequest = struct {
     machine_metadata: ?bool = null,
     revisions: ?bool = null,
+    startup_marks: ?bool = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "machine_metadata",
         "revisions",
+        "startup_marks",
     };
 };
 
@@ -8863,6 +8922,7 @@ pub fn identify(client: anytype, request: IdentifyRequest) !wire.Decoded(Identif
             .fields = &.{
                 .{ .name = "machine_metadata", .since = 12, .capability = "machine-identity-v1" },
                 .{ .name = "revisions", .since = 12, .capability = null },
+                .{ .name = "startup_marks", .since = 12, .capability = "startup-marks-v1" },
             },
         },
         request,
@@ -15089,7 +15149,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 365;
+pub const command_count: usize = 366;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "access-request", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
     .{ .name = "access-request-answer", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
@@ -15145,6 +15205,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "apps-unmount", .authority = "local-admin", .since = 12, .capability = "apps-v1", .stream = null },
     .{ .name = "attach-surface", .authority = "frontend", .since = 5, .capability = null, .stream = "attach" },
     .{ .name = "bind-conversation-tab-session", .authority = "control", .since = 12, .capability = "agent-session-tabs-v1", .stream = null },
+    .{ .name = "bridge-hello", .authority = "local-admin", .since = 12, .capability = "bridge-hello-v1", .stream = null },
     .{ .name = "browser-activate", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-back", .authority = "frontend", .since = 6, .capability = null, .stream = null },
     .{ .name = "browser-forward", .authority = "frontend", .since = 6, .capability = null, .stream = null },

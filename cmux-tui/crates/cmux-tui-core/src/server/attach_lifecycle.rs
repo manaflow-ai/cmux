@@ -4,15 +4,16 @@
 //! attach and starting its stream worker, rollback and cleanup of failed
 //! attaches, detaching committed attaches, and view geometry replacement.
 //!
-//! A legacy attach's worker is a thread; an attach stream's is an
-//! [`attach_pump::AttachPump`] on the daemon-wide sequenced pool
-//! (p05-ipc-079).
+//! A control attach's worker, legacy or on a client-minted stream, is an
+//! [`attach_pump::AttachPump`] on the daemon-wide sequenced pool, which
+//! also takes the surface's notifications.
+//! Resource attaches still start a worker thread
+//! ([`commit_client_attach_and_start_worker`]) until p01-process-204.
 
 use super::MessageWriter;
 use super::OutboundStream;
 use crate::panic_free::JsonFields;
 use crate::server::request_hang_watch::ipc_reply;
-use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::sync as waits;
 
 use super::INITIAL_BROWSER_RESIZE_TIMEOUT;
@@ -22,7 +23,6 @@ use super::size_state_for_client;
 use crate::Mux;
 use crate::MuxEvent;
 use crate::SurfaceId;
-use crate::stream_interrupt::StreamInterrupt;
 use crate::surface::AttachLifecycle;
 use serde_json::Value;
 use serde_json::json;
@@ -56,46 +56,6 @@ pub(super) fn attach_notification_json(surface: SurfaceId, event: MuxEvent) -> O
         }
         _ => None,
     }
-}
-
-pub(super) fn spawn_attach_notification_stream(
-    mux: Arc<Mux>,
-    surface_id: SurfaceId,
-    writer: MessageWriter,
-    lifecycle: AttachLifecycle,
-    outbound_stream: OutboundStream,
-) -> std::io::Result<()> {
-    let events = mux.subscribe_attached_surface(surface_id);
-    supervised::spawn_at(
-        "mux-attach-notifications",
-        crate::thread_qos::ThreadType::Interactive.qos(),
-        Fatal,
-        ShutdownBehavior::Continue,
-        move || {
-            let interrupt = StreamInterrupt::new();
-            writer.register_interrupt(&interrupt);
-            outbound_stream.register_interrupt(&interrupt);
-            lifecycle.register_interrupt(&interrupt);
-            events.wake_on(&interrupt);
-            while writer.is_open() && outbound_stream.is_open() && !lifecycle.is_canceled() {
-                let event = match events.recv_until_interrupted(&interrupt) {
-                    Ok(event) => event,
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                };
-                let Some(value) = attach_notification_json(surface_id, event) else { continue };
-                if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
-                    handle_attach_send_error(&lifecycle, &error);
-                    break;
-                }
-            }
-            if events.overflowed() {
-                lifecycle.mark_overflow();
-            }
-            report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
-        },
-    )
-    .map(|_| ())
 }
 
 pub(super) struct MarkedClientAttach {

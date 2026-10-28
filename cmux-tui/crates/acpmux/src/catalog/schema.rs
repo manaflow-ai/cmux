@@ -279,7 +279,7 @@ pub fn parse(body: &[u8]) -> Result<Catalog, CatalogError> {
     }
     let mut catalog: Catalog = serde_json::from_value(value).map_err(|e| invalid(e.to_string()))?;
     let date = catalog.generated_at.as_bytes();
-    ensure(date.len() >= 11 && date.len() <= 40 && date[4] == b'-' && date[10] == b'T', || {
+    ensure(date.len() <= 40 && date.get(4) == Some(&b'-') && date.get(10) == Some(&b'T'), || {
         "generatedAt must be an ISO-8601 timestamp".into()
     })?;
     ensure(matches!(catalog.source.as_str(), "live" | "snapshot"), || {

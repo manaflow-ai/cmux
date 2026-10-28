@@ -3,6 +3,7 @@
 //! the session shutdown start from the signal thread (`session-shutdown`).
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 #[cfg(unix)]
 mod chief_owner_exit;
@@ -159,7 +160,7 @@ impl SignalRecord {
     /// `Ok` once the thread recorded the signal; [`SignalRecordFailed`] when
     /// its body unwound (its sender dropped without a record).
     pub(crate) fn finish(self) -> Result<(), SignalRecordFailed> {
-        self.0.recv().map_err(|_| SignalRecordFailed)
+        cmux_blocking::sync::recv(&self.0).map_err(|_| SignalRecordFailed)
     }
 }
 
@@ -227,20 +228,20 @@ pub(crate) fn finish_server_shutdown<W, R>(
 fn wait_for_stop(stopped: impl Fn() -> bool) {
     owner_start::register_main_thread();
     let (lock, wake) = &HEADLESS_WAKE;
-    let mut generation = lock.lock().unwrap();
+    let mut generation = lock.lock().recover_poison();
     while !stopped() {
-        generation = wake.wait(generation).unwrap();
+        generation = wake.wait(generation).recover_poison();
     }
 }
 
 /// Wakes `run_headless`. Callers set their flag first; the wait re-checks
 /// every flag under this lock, so no wake is lost.
-static HEADLESS_WAKE: (std::sync::Mutex<u64>, std::sync::Condvar) =
-    (std::sync::Mutex::new(0), std::sync::Condvar::new());
+static HEADLESS_WAKE: (std::sync::Mutex<u64>, cmux_threads::sync::Condvar) =
+    (std::sync::Mutex::new(0), cmux_threads::sync::Condvar::new());
 
 pub(crate) fn wake_headless() {
     let (lock, wake) = &HEADLESS_WAKE;
-    let mut generation = lock.lock().unwrap();
+    let mut generation = lock.lock().recover_poison();
     *generation = generation.wrapping_add(1);
     wake.notify_all();
 }
@@ -251,7 +252,7 @@ mod tests {
         crate::parse_args(argv.iter().map(|arg| (*arg).to_string()))
     }
 
-    /// p02-threads-207: the headless owner's main thread waits as the
+    /// The headless owner's main thread waits as the
     /// `main` row at UserInitiated, and a thread it starts during setup
     /// (`owner_start::prepare`, then the mux workers) does not run at that
     /// class. On Linux the class is nice 0, which a thread started at a

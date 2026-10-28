@@ -28,7 +28,7 @@ import CmuxNextInputCore
 ///
 /// Host mode: a hosted page has no page window, so its ``ChromiumHostPageView`` hands each scroll here
 /// first (``handleHosted(_:tab:page:)``), as Chrome's page view hands its scrolls to its history
-/// swiper. When the host acks each wheel (``CEFHostStart/acksWheels``, task p01-process-234), the
+/// swiper. When the host acks each wheel (``CEFHostStart/acksWheels``), the
 /// gesture decides from Chromium's acks of its own wheels (WHEEL_ACK, ``wheelAcked(_:browser:)``):
 /// no probe, so a gesture sends the host no control request. A host without acks is probed as in process.
 @MainActor
@@ -279,7 +279,7 @@ final class CEFSwipeNavigation {
 }
 
 /// What swipe gestures asked of their pages since launch (`debug.cef` `swipe`, chromium-host-bench.py's swipe
-/// row): a gesture over a hosted page whose host acks wheels counts acks and no probes (task p01-process-234).
+/// row): a gesture over a hosted page whose host acks wheels counts acks and no probes.
 public nonisolated struct CEFSwipeStats: Equatable, Sendable {
     /// Gestures that began over a page.
     public var gestures = 0

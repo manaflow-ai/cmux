@@ -28,6 +28,8 @@ struct Daemon {
     debounce_ms: u64,
     /// The readiness line of the current run (it has the `webUrl`).
     ready: String,
+    /// The daemon's `CMUX_ENABLE_FEATURES`.
+    features: &'static str,
 }
 
 fn profile(tag: &str) -> Value {
@@ -50,6 +52,17 @@ impl Daemon {
 
     /// `with_fakeb` with the cmux settings file `settings`, written before the first start.
     fn with_settings(tag: &str, debounce_ms: u64, fakeb: &Value, settings: Option<Value>) -> Self {
+        Self::with_features(tag, debounce_ms, fakeb, settings, "")
+    }
+
+    /// `with_settings` with the daemon features `features` on.
+    fn with_features(
+        tag: &str,
+        debounce_ms: u64,
+        fakeb: &Value,
+        settings: Option<Value>,
+        features: &'static str,
+    ) -> Self {
         // Short: socket paths must stay under the macOS limit.
         let home = std::env::temp_dir().join(format!("asp-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&home);
@@ -60,6 +73,7 @@ impl Daemon {
             home,
             debounce_ms,
             ready: String::new(),
+            features,
         };
         daemon.write_config(fakeb);
         if let Some(settings) = settings {
@@ -98,6 +112,10 @@ impl Daemon {
             // Each marker file here stalls one agent host's hello (debug
             // builds' seam): `stall_hellos`.
             .env("ACPMUX_TEST_HOST_HELLO_STALL_DIR", self.stall_dir())
+            // A FIFO here holds the next claim in its priority change (debug
+            // builds' seam): `hold_next_claim`.
+            .env("ACPMUX_TEST_POOL_PRIORITY_STALL_FIFO", self.priority_fifo())
+            .env("CMUX_ENABLE_FEATURES", self.features)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -120,6 +138,24 @@ impl Daemon {
         for i in 0..n {
             std::fs::write(self.stall_dir().join(format!("stall-{i}")), "").unwrap();
         }
+    }
+
+    fn priority_fifo(&self) -> PathBuf {
+        self.home.join("prio-stall")
+    }
+
+    /// The next claim that puts a pooled entry back to its normal priority
+    /// stops in that change until the returned task's write end is
+    /// dropped; the task resolves once the claim is there.
+    fn hold_next_claim(&self) -> tokio::task::JoinHandle<std::fs::File> {
+        let fifo = self.priority_fifo();
+        let path = std::ffi::CString::new(fifo.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: a NUL-terminated path that outlives the call.
+        assert_eq!(unsafe { libc::mkfifo(path.as_ptr(), 0o600) }, 0, "mkfifo");
+        // Opening the write end waits for the daemon to open the read end.
+        tokio::task::spawn_blocking(move || {
+            std::fs::OpenOptions::new().write(true).open(fifo).expect("open the stall FIFO")
+        })
     }
 
     /// Stall markers no host took yet.
@@ -377,6 +413,149 @@ async fn a_hinted_switch_takes_a_hidden_session_that_was_never_listed() {
     assert_runs_on_pooled_host(&daemon, &third, &pooled_fake);
 }
 
+/// Whether `pid` runs best-effort (`process_priority`'s read-back).
+fn best_effort(pid: &Value) -> bool {
+    let pid = u32::try_from(pid.as_i64().expect("a pid")).unwrap();
+    cmux_tui_platform::process_priority::is_background(pid).expect("read the priority")
+}
+
+/// Whether this test process runs best-effort already (cargo under
+/// `nice -n 10`): the daemon and its agents inherit it.
+fn inherited() -> bool {
+    cmux_tui_platform::process_priority::is_background(std::process::id()).unwrap()
+}
+
+/// Test polling: wait until `pid`'s best-effort read-back is `want`.
+async fn wait_best_effort(pid: &Value, want: bool, what: &str) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while best_effort(pid) != want {
+        assert!(Instant::now() < deadline, "{what} never became best-effort={want}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// Test polling: wait until `session`'s log shows it came from the pool (the
+/// log writer's thread writes it after the reply).
+async fn wait_taken(daemon: &Daemon, session: &str) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !taken(daemon, session) {
+        assert!(Instant::now() < deadline, "{session} did not come from the pool");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_agent_runs_best_effort_until_a_session_takes_it() {
+    let feature = "idleHelperBackgroundPriority";
+    let daemon = Daemon::with_features("prio", 0, &profile("b"), None, feature);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert_eq!(warmed["accepted"], true, "{warmed}");
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let pooled = daemon.pool_records()[0].clone();
+    // Where a lowered priority could not be raised again (Linux without root
+    // or RLIMIT_NICE) the daemon changes nothing: everything keeps what it
+    // inherited from this test.
+    let lowers = cmux_tui_platform::process_priority::reversible();
+    let inherited = inherited();
+    let normal = !lowers && inherited;
+    assert_eq!(best_effort(&pooled["host_pid"]), lowers || inherited, "{pooled}");
+    assert_eq!(best_effort(&pooled["harness_pid"]), lowers || inherited, "{pooled}");
+
+    // The claim serves the entry only once it is back: normal when session/new answers.
+    let (session, _) = new_session(&mut rpc, &home, "fakeb").await;
+    wait_taken(&daemon, &session).await;
+    assert_runs_on_pooled_host(&daemon, &session, &pooled);
+    assert_eq!(best_effort(&pooled["host_pid"]), normal, "{pooled}");
+    assert_eq!(best_effort(&pooled["harness_pid"]), normal, "{pooled}");
+    // The connected daemon itself runs at its normal priority: the one it
+    // started with.
+    let daemon_pid = json!(daemon.child.as_ref().unwrap().id());
+    assert_eq!(best_effort(&daemon_pid), inherited);
+    let reply = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "hello"}]}),
+        )
+        .await;
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+}
+
+/// macOS: a process forked while its parent runs darwin-background keeps the
+/// parent's own policy, which no claim can take off. A pooled start whose
+/// client left at once runs while the daemon has no client: the daemon stays
+/// normal until the host forked, and the claim serves a normal entry.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_start_after_the_last_client_left_is_served_at_normal_priority() {
+    let feature = "idleHelperBackgroundPriority";
+    let daemon = Daemon::with_features("prfk", 0, &profile("b"), None, feature);
+    let lowers = cmux_tui_platform::process_priority::reversible();
+    let inherited = inherited();
+    let daemon_pid = json!(daemon.child.as_ref().unwrap().id());
+    let home = daemon.home.clone();
+    {
+        let mut rpc = daemon.rpc().await;
+        let hint = rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home})).await;
+        assert_eq!(hint["accepted"], true, "{hint}");
+    }
+    // No client now: once the start is done and nothing runs, the daemon is best-effort.
+    wait_best_effort(&daemon_pid, lowers || inherited, "the client-less daemon").await;
+    let mut rpc = daemon.rpc().await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let pooled = daemon.pool_records().pop().expect("a pooled host");
+    let (session, _) = new_session(&mut rpc, &home, "fakeb").await;
+    wait_taken(&daemon, &session).await;
+    let normal = !lowers && inherited;
+    assert_eq!(best_effort(&pooled["host_pid"]), normal, "{pooled}");
+    assert_eq!(best_effort(&pooled["harness_pid"]), normal, "{pooled}");
+}
+
+/// A shutdown while a claim puts its entry back to normal priority ends the
+/// entry: it is in the claims `stop_pool` drains, not between the pool and
+/// the claims.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_shutdown_during_a_claims_priority_change_ends_the_pooled_agent() {
+    if !cmux_tui_platform::process_priority::reversible() {
+        // No priority change happens, so no claim stops in one.
+        return;
+    }
+    let feature = "idleHelperBackgroundPriority";
+    let mut daemon = Daemon::with_features("prst", 0, &profile("b"), None, feature);
+    let home = daemon.home.clone();
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let pooled = daemon.pool_records()[0].clone();
+    let host = pooled["host_pid"].as_i64().unwrap();
+    let harness = pooled["harness_pid"].as_i64().unwrap();
+
+    let held = daemon.hold_next_claim();
+    let mut claimer = daemon.rpc().await;
+    let claim = tokio::spawn(async move {
+        let line = json!({"jsonrpc": "2.0", "id": 1, "method": "session/new", "params":
+            {"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeb"}}}});
+        claimer.wr.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+        // Its answer, or the socket closing with the daemon.
+        let _ = claimer.lines.next_line().await;
+    });
+    let held = tokio::time::timeout(Duration::from_secs(30), held)
+        .await
+        .expect("the claim reached its priority change")
+        .unwrap();
+    rpc.call("_acpmux/shutdown", json!({})).await;
+    // While the claim still waits in its change, the shutdown ends the entry
+    // before the daemon exits (a host left behind ends only later, on its own).
+    daemon.wait_exit();
+    let ended =
+        gone_within(harness, Duration::from_secs(1)) && gone_within(host, Duration::from_secs(1));
+    drop(held);
+    assert!(ended, "the claimed pooled agent outlived the daemon's shutdown");
+    let _ = tokio::time::timeout(Duration::from_secs(30), claim).await;
+    assert!(daemon.pool_records().is_empty());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn hints_are_debounced_and_a_config_change_is_never_served() {
     let daemon = Daemon::new("deb", 300);
@@ -530,8 +709,7 @@ async fn a_pool_claim_in_a_mode_that_does_not_ask_refuses_a_web_prompt() {
     assert!(taken(&daemon, &claimed), "the session came from the pool");
     // A Web connection (the dashboard token only).
     let ready: Value = serde_json::from_str(&daemon.ready).unwrap();
-    let ws_url = ready["webUrl"].as_str().unwrap().replace("http://", "ws://");
-    let (mut ws, _) = tokio_tungstenite::connect_async(ws_url).await.unwrap();
+    let (mut ws, _) = tokio_tungstenite::connect_async(web_request(&ready)).await.unwrap();
     let prompt = json!({"jsonrpc": "2.0", "id": 1, "method": "session/prompt",
         "params": {"sessionId": claimed, "prompt": [{"type": "text", "text": "from the web"}]}});
     ws.send(Frame::Text(prompt.to_string().into())).await.unwrap();
@@ -586,8 +764,7 @@ async fn a_pooled_claude_session_claimed_in_bypass_refuses_a_web_prompt() {
     let info = rpc.call("_acpmux/info", json!({"sessionId": claimed})).await;
     assert_eq!(info["modes"]["currentModeId"], "bypassPermissions", "{info}");
     let ready: Value = serde_json::from_str(&daemon.ready).unwrap();
-    let ws_url = ready["webUrl"].as_str().unwrap().replace("http://", "ws://");
-    let (mut ws, _) = tokio_tungstenite::connect_async(ws_url).await.unwrap();
+    let (mut ws, _) = tokio_tungstenite::connect_async(web_request(&ready)).await.unwrap();
     let prompt = json!({"jsonrpc": "2.0", "id": 1, "method": "session/prompt",
         "params": {"sessionId": claimed, "prompt": [{"type": "text", "text": "from the web"}]}});
     ws.send(Frame::Text(prompt.to_string().into())).await.unwrap();
@@ -988,4 +1165,15 @@ async fn opencode_policy_a_pooled_agent_is_never_taken_by_a_chat_it_would_not_as
     assert!(taken(&daemon, &wide), "an approve-all chat takes the pooled agent");
     let seen = rpc.prompt_text(&wide, "env: OPENCODE_CONFIG_CONTENT").await;
     assert_eq!(config(seen), Value::Null);
+}
+
+/// A WebSocket request to the listener of a readiness line, with the token of
+/// its `webUrl` (`http://host/#token=t`) as a bearer token.
+fn web_request(ready: &Value) -> tokio_tungstenite::tungstenite::handshake::client::Request {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    let url = ready["webUrl"].as_str().unwrap();
+    let (base, token) = url.split_once("#token=").unwrap();
+    let mut req = base.replace("http://", "ws://").into_client_request().unwrap();
+    req.headers_mut().insert("authorization", format!("Bearer {token}").parse().unwrap());
+    req
 }

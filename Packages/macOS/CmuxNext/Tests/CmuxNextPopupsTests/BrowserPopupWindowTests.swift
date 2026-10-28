@@ -206,7 +206,7 @@ import CmuxNextWakeups
         #expect(editor.selectedRange() == NSRange(location: 0, length: (editor.string as NSString).length), "the whole address is selected")
     }
 
-    // MARK: Event identity in a popup (p04-input-068)
+    // MARK: Event identity in a popup
 
     /// The popup carries the app's input tap as a main window does, so the press that focuses its
     /// omnibar is a click (the whole address selects on release), and focus with no press is not.
@@ -283,7 +283,7 @@ import CmuxNextWakeups
         #expect(tab.state.url?.absoluteString == "https://www.example.org/next")
     }
 
-    /// p06-scheduler-221: the fork re-adds the popup's page window above every child, the overlay
+    /// The fork re-adds the popup's page window above every child, the overlay
     /// host's panel (omnibar suggestions, toasts) included. No per-event check puts the panel back, so
     /// the popup's `addChildWindow` does it in the same call, as the main window's does.
     @Test func aPageAddedToThePopupGoesBelowItsOverlayPanel() {
@@ -352,7 +352,7 @@ import CmuxNextWakeups
         #expect(window.isToolbarShown)
     }
 
-    /// The window's own full-screen notices reach it through its one ``WindowEvents`` (p06-scheduler-336): one
+    /// The window's own full-screen notices reach it through its one ``WindowEvents``: one
     /// subscription per notice on the window's shared observer, which the close ends. (The toolbar they toggle is
     /// fullscreenHidesTheLocationBar's.)
     @Test func theWindowFollowsItsFullScreenNoticesThroughItsWindowEvents() {
@@ -366,7 +366,7 @@ import CmuxNextWakeups
     }
 
     /// The page's title changes are its program's: they reach the window title as one posted visible task, not in
-    /// the page's own turn, and a burst before it runs applies its last title (p06-scheduler-336).
+    /// the page's own turn, and a burst before it runs applies its last title.
     @Test func aBurstOfTitleChangesAppliesItsLastTitleInOnePostedTask() async throws {
         let (popups, tab, window, _) = open("https://accounts.example.com/signin")
         defer { popups.closeAll() }

@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The main-turn and input-queueing histograms (p12-perf-process-031): Chrome-resolution buckets, a
+/// The main-turn and input-queueing histograms: Chrome-resolution buckets, a
 /// percentile within one bucket of the true one, and the watchdog filling them from the stamps it already
 /// takes. Heartbeats are driven by hand on an injected clock.
 @Suite struct MainTurnHistogramTests {

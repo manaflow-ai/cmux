@@ -607,16 +607,20 @@ impl CdpClient {
     ) -> anyhow::Result<()> {
         let weak = Arc::downgrade(&self.inner);
         // supervise-allow: this client's reader; a panic closes the client as a socket error does, so pending and later calls fail at once.
-        std::thread::Builder::new().name("cmux-tui-cdp-reader".into()).spawn(move || {
-            let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                reader_loop(&weak, ws, &outbound, &event_output);
-            }));
-            if read.is_err()
-                && let Some(inner) = weak.upgrade()
-            {
-                close_inner(&inner, "CDP reader failed");
-            }
-        })?;
+        cmux_threads::spawn(
+            "cmux-tui-cdp-reader",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
+                let read = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    reader_loop(&weak, ws, &outbound, &event_output);
+                }));
+                if read.is_err()
+                    && let Some(inner) = weak.upgrade()
+                {
+                    close_inner(&inner, "CDP reader failed");
+                }
+            },
+        )?;
         Ok(())
     }
 

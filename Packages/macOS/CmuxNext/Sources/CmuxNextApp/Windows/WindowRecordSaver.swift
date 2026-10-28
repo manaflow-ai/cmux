@@ -22,7 +22,7 @@ struct WindowRecordSaves {
 /// an unchanged document writes nothing. Geometry settles for 500 ms first. Owned by `WindowManager`.
 @MainActor
 final class WindowRecordSaver {
-    /// The window manager, which owns this as `WindowManager.recordSaver` (p10-stability-091).
+    /// The window manager, which owns this as `WindowManager.recordSaver`.
     private let managerReference: OwnerReference<WindowManager>
     /// The manager; nil (reported) only once it is gone, and then nothing is saved.
     var manager: WindowManager? { managerReference.resolve() }

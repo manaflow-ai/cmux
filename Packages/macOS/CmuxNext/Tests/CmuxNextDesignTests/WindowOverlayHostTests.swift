@@ -4,8 +4,8 @@ import CmuxNextDesignTokens
 import CmuxNextInput
 import Testing
 
-/// A window's overlay host listens on the app's one input tap, not AppKit event monitors
-/// (p04-input-013): an overlay that dismisses on Escape holds an intercept of order `.modal`, which
+/// A window's overlay host listens on the app's one input tap, not AppKit event monitors:
+/// an overlay that dismisses on Escape holds an intercept of order `.modal`, which
 /// runs before every popup's and consumes the Escape it takes; an interactive overlay keeps a pointer
 /// observer for the panel's mouse routing; with no overlay left, the host holds no subscription.
 @MainActor @Suite(.serialized) struct WindowOverlayHostTests {
@@ -100,7 +100,7 @@ import Testing
         #expect(host.panel.ignoresMouseEvents, "an exit off the overlay left the panel taking the mouse")
     }
 
-    // MARK: Clicks route per event, the tag hover once per frame (feature `pointerFrameHover`, p04-input-036)
+    // MARK: Clicks route per event, the tag hover once per frame (feature `pointerFrameHover`)
 
     final class Tags: AgentCursorTagSource {
         var tags: [AgentCursorTagTarget] = [

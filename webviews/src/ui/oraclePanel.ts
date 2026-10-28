@@ -1,4 +1,4 @@
-// The open panels of the refactor oracle's `webviews` facet (protocol/oracle-state.ts, p15-oracle-215):
+// The open panels of the refactor oracle's `webviews` facet (protocol/oracle-state.ts):
 // each shared overlay (dialog, which sheets use too, popover, menu) names its kind while it is open, so every page
 // that uses them reports its panels with no code of its own. Kinds, never labels: a label is
 // localized text. Developer builds only; elsewhere contributeOracleState keeps nothing.

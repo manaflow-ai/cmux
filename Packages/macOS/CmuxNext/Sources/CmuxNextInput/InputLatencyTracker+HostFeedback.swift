@@ -1,7 +1,7 @@
 public import CmuxNextInputCore
 public import Foundation
 
-/// A Chromium page's presentation feedback (p04-input-066). A page in its own host process shows its input in a frame
+/// A Chromium page's presentation feedback. A page in its own host process shows its input in a frame
 /// cmux does not commit; the host reports when that frame reached the display, by the input's event time, as the viz
 /// presentation feedback of a renderer's frame closes its events' `EventMetrics` in Chrome
 /// (cc/metrics/compositor_frame_reporter.cc, `DidPresentCompositorFrame`; `gfx::PresentationFeedback` in

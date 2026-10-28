@@ -1,8 +1,8 @@
 import Foundation
 import Testing
 
-/// Every infinite Core Animation loop in CmuxNext's sources runs through a ``LoopHost``
-/// (p14-energy-056): a loop added with a bare `layer.add` keeps the render server drawing frames
+/// Every infinite Core Animation loop in CmuxNext's sources runs through a ``LoopHost``:
+/// a loop added with a bare `layer.add` keeps the render server drawing frames
 /// for a hidden view or an occluded window. A source check, as `rg 'repeatCount = .infinity'`,
 /// judged per call site: the function that builds each infinite loop is a maker, and every call
 /// of a maker is the make closure of an `.attach(_:key:)` call, sits in a function that returns

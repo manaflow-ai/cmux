@@ -32,7 +32,7 @@ cmux-ffi-guard = { path = "../cmux-ffi-guard", features = ["testing"] }
 opt-level = 3
 codegen-units = 1
 # Line tables, not full debug info: Rust frames of an app crash symbolicate
-# to file and line from the app's dSYM (p10-stability-152), for a fraction of
+# to file and line from the app's dSYM, for a fraction of
 # full DWARF's size. Nothing strips them here; the app's own strip step
 # removes them from the shipped binary after dsymutil copied them.
 debug = "line-tables-only"

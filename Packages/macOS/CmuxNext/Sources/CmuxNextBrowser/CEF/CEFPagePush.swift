@@ -1,6 +1,6 @@
 import Foundation
 
-/// The page push channel of one CEF tab (`cmux_shim_tab_page_push`, fork API 43, p13-webui-079): a string
+/// The page push channel of one CEF tab (`cmux_shim_tab_page_push`, fork API 43): a string
 /// to the receiver the tab's cmux-page document registered with `cmuxPageListen`. The page gets it as data,
 /// with no script and no answer, as Chrome's WebUI pages get Mojo messages instead of
 /// `WebUI::CallJavascriptFunction` scripts (content/browser/webui/web_ui_impl.cc).

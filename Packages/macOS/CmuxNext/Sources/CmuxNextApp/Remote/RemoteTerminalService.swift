@@ -45,8 +45,8 @@ final class RemoteTerminalService {
         servicesReference = OwnerReference(services: services)
     }
 
-    /// The app's service (`AppServices.remoteTerminals`), made on first use, never in init
-    /// (p08-startup-021): a remote-terminal tab mounted (a restored window's selected one in its
+    /// The app's service (`AppServices.remoteTerminals`), made on first use, never in init:
+    /// a remote-terminal tab mounted (a restored window's selected one in its
     /// first frame), opened, closed, moved or resolved. From then on it follows every session's
     /// connection, so a mounted tab reconnects when its machine does.
     static func made(for services: AppServices) -> RemoteTerminalService {

@@ -21,7 +21,7 @@ public struct PageRelayEpoch: Hashable, Sendable {
     }
 }
 
-/// One page's stream on a daemon's page-relay connection (p05-ipc-103, -104): the daemon judges
+/// One page's stream on a daemon's page-relay connection: the daemon judges
 /// every request on it with the stream's origin `page:<id>`, fixed when the stream opened. There
 /// is no send without a stream, so no page call can go out untagged.
 public protocol PageRelayStream: AnyObject, Sendable {

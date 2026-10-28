@@ -201,7 +201,7 @@ impl App {
         for handle in
             self.status_command_workers.drain(..).chain(self.retiring_status_workers.drain(..))
         {
-            let _ = handle.join();
+            let _ = crate::blocking::thread::join(handle);
         }
         self.frontend_journal.stop_and_join();
         if let Some(mut updates) = self.machine_update_pump.take() {
@@ -630,22 +630,17 @@ impl App {
                 RenderAction::Draw
             }
             MachineControllerCompletion::ReplacementSettled { action_id, committed, updates } => {
-                if self
+                let Some(pending) = self
                     .pending_machine_replacement
-                    .as_ref()
-                    .is_none_or(|pending| pending.action_id != action_id)
-                {
+                    .take_if(|pending| pending.action_id == action_id)
+                else {
                     self.status_message = Some(format!(
                         "{}: {}",
                         localization::catalog().sidebar.machine_action_failed,
                         localization::catalog().sidebar.machine_replacement_stale
                     ));
                     return RenderAction::Draw;
-                }
-                let pending = self
-                    .pending_machine_replacement
-                    .take()
-                    .expect("matching pending replacement was checked");
+                };
                 self.machine_action_in_flight = false;
                 let (request, connection_attempt, connection_canceled) =
                     self.take_machine_action_request();

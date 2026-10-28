@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Checks that scripts/cmux-next/linux/swift-tier.sh never writes to the
-# checkout (p15-oracle-229) and that its runner reports every red
-# (p15-oracle-004).
+# checkout and that its runner reports every red.
 #
 # Builds a throwaway git repo whose CmuxNext manifest has a Linux mode with a
 # different dependency graph (CMUX_SWIFTPM_TARGET_LINUX=1 swaps the macOS-only
@@ -10,7 +9,7 @@
 #   2. two builds through swift-tier.sh leave `git status --porcelain` empty,
 #      and the scratch sources are hard links into the checkout; the target's
 #      string catalog builds because swift-tier.sh compiled the tables of the
-#      Linux mode's LinuxStringTables resource (p15-oracle-228) into the
+#      Linux mode's LinuxStringTables resource into the
 #      scratch copy, and the second run rewrites none of them;
 #   3. extra pins and no originHash (the shape of the committed CmuxNext seed:
 #      the macOS pins minus sentry-cocoa and Sparkle) still build;
@@ -231,13 +230,13 @@ echo "ok 7 a scratch root inside the checkout is refused"
   || fail "control: an in-checkout Linux resolve did not touch Package.resolved"
 echo "ok 8 control: an in-checkout Linux resolve rewrites Package.resolved"
 
-# ---- the runner (p15-oracle-004): receipt, errors queue, [ linux ] lines ----
+# ---- the runner: receipt, errors queue, [ linux ] lines ----
 git -C "$repo" checkout -q -- Packages # the committed pins (check 6 made them agree)
 mkdir -p "$repo/scripts/cmux-next/oracle" "$repo/tests/oracle/Expectations.d" \
   "$pkg/Sources/Bad" "$pkg/Tests/TierTests" "$pkg/Tests/BadTests"
 cp "$root/scripts/cmux-next/linux/errors_queue.py" "$repo/scripts/cmux-next/linux/"
 cp "$root/scripts/cmux-next/oracle/expectations.py" "$repo/scripts/cmux-next/oracle/"
-# Like the CmuxNext manifest's Linux mode (p15-oracle-002), the fixture keeps
+# Like the CmuxNext manifest's Linux mode, the fixture keeps
 # only the targets linux-tier.json names, so the runner can prune red ones.
 python3 -I - "$pkg/Package.swift" <<'PY'
 import sys

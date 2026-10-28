@@ -8,7 +8,7 @@ import CmuxNextWakeups
 @MainActor
 struct FileBrowserModelTests {
     private func model(_ temp: TempFolder, watcher: any FolderWatching = ManualWatcher(), now: @escaping @Sendable () -> Date = { Date() }) -> FileBrowserModel {
-        FileBrowserModel(folder: temp.url, work: MainWorkScheduler(budget: MainFrameBudget()), watcher: watcher, resolver: GoToFolderResolver(home: temp.url), now: now)
+        FileBrowserModel(folder: temp.url, work: MainWorkScheduler(budget: MainFrameBudget()), watcher: watcher, lanes: BackgroundWork(), resolver: GoToFolderResolver(home: temp.url), now: now)
     }
 
     @Test func listsSortedAndHidesHiddenUntilAsked() async throws {

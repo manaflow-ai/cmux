@@ -1,4 +1,4 @@
-/// Swift spellings of schema names for TypeEmitter (p05-ipc-020): wire names are
+/// Swift spellings of schema names for TypeEmitter: wire names are
 /// kebab-, snake- or dot-separated lower case; Swift members are lowerCamelCase
 /// and types UpperCamelCase, with `id`/`ids` written `ID`/`IDs` (the app's
 /// convention, `SurfaceID`, `terminalID`).

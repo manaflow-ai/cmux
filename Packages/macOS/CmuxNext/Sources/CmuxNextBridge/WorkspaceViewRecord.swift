@@ -4,8 +4,8 @@ public import CoreGraphics
 /// The scroll offsets a workspace's views showed that neither the daemon nor the window keeps:
 /// each screen's strip, row and scroll area offsets, each pane's tab strip scroll and the screen
 /// bar's. Its window keeps it in memory when it unmounts the workspace
-/// (`WindowController.releaseParked`) and the next mount applies it before its first frame commits
-/// (p07-memory-033), so an unmount loses nothing the person can see. The tree, tabs and titles come
+/// (`WindowController.releaseParked`) and the next mount applies it before its first frame commits,
+/// so an unmount loses nothing the person can see. The tree, tabs and titles come
 /// back from the daemon's store; the selected tabs and the focused pane stay in the window
 /// (`TabSelectionMemory`, the focus machine's remembered pane), which an unmount does not touch.
 ///

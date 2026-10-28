@@ -10,7 +10,7 @@ public import Foundation
 /// macOS 14 cannot back-deploy). Keep the token in a stored property; set it to nil or call
 /// ``cancel()`` to stop early.
 ///
-/// The handler runs in a ``MainCallbackClass`` (p04-input-080): pass one from the app's main-thread
+/// The handler runs in a ``MainCallbackClass``: pass one from the app's main-thread
 /// scheduler so the notification's work is posted with a class and an owner and waits behind a
 /// person's pending input. The default, ``MainCallbackClass/immediate``, runs it in the
 /// notification's callout with no class; it stays only until the call sites name a class (tasks 081
@@ -51,7 +51,7 @@ public final class MainActorObservation {
         let handler: @MainActor () -> Void = { [weak alive] in
             workClass.run { [weak alive] in if alive != nil { work() } }
         }
-        // raw-observer-allow: the one Compat observer adapter (p06-scheduler-340), for notices WindowEvents and AppEvents do not carry
+        // raw-observer-allow: the one Compat observer adapter, for notices WindowEvents and AppEvents do not carry
         token = center.addObserver(forName: name, object: object, queue: .main) { _ in
             // main-proof: the observer is registered on the main queue (queue: .main).
             MainActor.assumeIsolated { handler() }
@@ -92,7 +92,7 @@ public final class MainActorObservation {
         let handler: @MainActor (Value) -> Void = { [weak alive] value in
             workClass.run { [weak alive] in if alive != nil { work(value) } }
         }
-        // raw-observer-allow: the one Compat observer adapter (p06-scheduler-340), for notices WindowEvents and AppEvents do not carry
+        // raw-observer-allow: the one Compat observer adapter, for notices WindowEvents and AppEvents do not carry
         token = center.addObserver(forName: name, object: object, queue: .main) { note in
             // crash-allow: the center delivers on the main queue (queue: .main) and the notification is read only inside the assumeIsolated below, on this same delivery, so it never crosses actors.
             nonisolated(unsafe) let note = note

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 974986b7d253aacd825bed6d8efd6c978efd265af55140e73b402e8a32e4e3bc. */
+/* cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "974986b7d253aacd825bed6d8efd6c978efd265af55140e73b402e8a32e4e3bc" as const;
+export const SDK_IR_SHA256 = "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -818,6 +818,18 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. An optional harness is written with the session; the same session with another harness changes the harness alone and is no replay; without harness the recorded one stays. See spec/commands.md."
+    ]
+  },
+  "bridge-hello": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "bridge-hello-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "A byte bridge's first line only (bridge_hello.window_closed otherwise); the far client's client-hello window stays open behind it.",
+      "Local (Unix) connections only (bridge_hello.local_only).",
+      "With bridge-frames-v1, a connection whose kernel peer is of the daemon's user and has no role may be granted ipc-frames-v2 and attach-frames-v1, never terminal-output-ring-v1."
     ]
   },
   "browser-activate": {
@@ -2272,6 +2284,10 @@ export const COMMAND_METADATA = {
       "revisions": {
         "since": 12,
         "capability": null
+      },
+      "startup_marks": {
+        "since": 12,
+        "capability": "startup-marks-v1"
       }
     },
     "stream": null,
@@ -7319,6 +7335,26 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "BridgeHelloResult": {
+    "additional_properties": false,
+    "fields": {
+      "features": {
+        "constraints": [
+          "The features the daemon took: bridge-frames-v1 when the connection may get frames."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "BrowserFrame": {
     "additional_properties": false,
     "fields": {
@@ -9204,6 +9240,102 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "bar"
     ]
   },
+  "DaemonStartupMarks": {
+    "additional_properties": false,
+    "fields": {
+      "config_loaded": {
+        "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The startup configuration was read.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "first_identify_served": {
+        "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The first identify answered once the lifecycle is ready, so it is the last step.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "launch_snapshot_writer_started": {
+        "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The launch snapshot writer step is done.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "lifecycle_ready": {
+        "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. Every owner the lifecycle commands need is installed.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "main_start_unix_us": {
+        "description": "Unix microseconds (wall clock) when the daemon binary's main began: the origin of every step below.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "mux_restored": {
+        "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The registry is open and its terminals adopted.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "owner_event_loop": {
+        "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The local owner's event loop runs.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "owner_prepared": {
+        "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The owner's process setup ran.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "socket_bound": {
+        "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The session socket is bound and answers as a restoring owner.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "websocket_ready": {
+        "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The WebSocket control listener step is done (bound, or none asked).",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "DeadPane": {
     "additional_properties": false,
     "fields": {
@@ -10914,6 +11046,19 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "startup_marks": {
+        "capability": "startup-marks-v1",
+        "constraints": [
+          "The serving daemon's startup timeline: each step's first time, measured from its main; null when no daemon serves the mux. Only with identify {startup_marks: true}."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "DaemonStartupMarks"
         }
       },
       "terminal_revision": {
@@ -21361,6 +21506,32 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     }
   },
+  "bridge-hello": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "features": {
+          "constraints": [
+            "At most 16 names of at most 128 characters (bridge_hello.bad_request {field: features} otherwise). bridge-frames-v1: the bridge reads each 0xFF message by its frame header; unknown names are ignored."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "BridgeHelloResult"
+    }
+  },
   "browser-activate": {
     "request": {
       "additional_properties": false,
@@ -27574,6 +27745,19 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "revisions": {
           "constraints": [
             "Adds api_revision, min_api_revision, crate_version, install, update_command and bulk_frame_max to the reply. Off by default so strict older SDK decoders keep reading the reply."
+          ],
+          "nullable": false,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "startup_marks": {
+          "capability": "startup-marks-v1",
+          "constraints": [
+            "Adds startup_marks to the reply. Off by default so strict older SDK decoders keep reading the reply."
           ],
           "nullable": false,
           "presence": "optional",

@@ -26,6 +26,7 @@ use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
 use crate::maintenance::{JobSpec, Maintenance, MaintenanceError, Start};
+use crate::no_panic::JsonExt;
 
 pub use fetch::{FetchOutcome, Fetcher, HttpsFetcher};
 pub use schema::{Catalog, CatalogError, CatalogHarness, HarnessModel, ModelInfo};
@@ -211,7 +212,7 @@ impl CatalogService {
         let state = self.state();
         let mut v = json!({"schemaVersion": state.catalog.schema_version, "generatedAt": state.catalog.generated_at, "source": state.catalog.source, "delivery": state.source});
         if let Some(at) = state.fetched_at_ms {
-            v["fetchedAt"] = json!(at);
+            v.set("fetchedAt", json!(at));
         }
         v
     }
@@ -219,7 +220,7 @@ impl CatalogService {
     /// `catalog.get`: the whole document in use and its summary.
     pub fn get(&self) -> Value {
         let mut v = self.summary();
-        v["catalog"] = serde_json::to_value(&*self.current()).unwrap_or(Value::Null);
+        v.set("catalog", serde_json::to_value(&*self.current()).unwrap_or(Value::Null));
         v
     }
 
@@ -267,9 +268,9 @@ impl CatalogService {
             Some(fetcher) => self.fetch_once(fetcher.as_ref()).await,
         };
         let mut reply = self.summary();
-        reply["changed"] = json!(changed);
+        reply.set("changed", json!(changed));
         if let Some(error) = error {
-            reply["error"] = json!(error);
+            reply.set("error", json!(error));
         }
         if changed {
             let _ = self.changed.send(self.summary());

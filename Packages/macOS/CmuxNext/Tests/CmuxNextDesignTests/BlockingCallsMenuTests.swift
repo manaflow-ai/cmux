@@ -35,7 +35,7 @@ struct BlockingCallsMenuTests {
         #expect(reset.title != "debug.blockingCalls.reset")
     }
 
-    /// Debug records a new site instead of stopping (p02-threads-006): the item carries a badge with the
+    /// Debug records a new site instead of stopping: the item carries a badge with the
     /// number of sites nobody looked at, from the Debug menu's open until the submenu opens.
     @Test func aNewSiteBadgesTheItemUntilTheSubmenuOpens() async throws {
         let table = BlockingViolationTable(mode: .record)

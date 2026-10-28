@@ -356,7 +356,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     sub = parser.add_subparsers(dest="command")
     live = sub.add_parser("live", help="the mock against a real debug cmux-tui")
     live.add_argument("--cmux", type=Path, required=True, help="a debug or --features oracle cmux-tui binary")
-    # A debug daemon panics on two blocking calls every connection makes (p02-threads-308, p02-threads-309);
+    # A debug daemon panics on two blocking calls every connection makes;
     # `--daemon-blocking record` records them instead until those land.
     live.add_argument("--daemon-blocking", choices=("record", "panic"), help="CMUX_DAEMON_BLOCKING for the daemon")
     args = parser.parse_args(argv)

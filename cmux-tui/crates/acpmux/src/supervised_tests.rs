@@ -94,11 +94,15 @@ async fn a_task_started_after_shutdown_does_not_run() {
 #[tokio::test]
 async fn an_owned_fatal_thread_that_panics_reaches_the_sink_and_joins() {
     let (supervisor, sink) = Recorded::supervisor();
-    let thread =
-        owned_thread(&supervisor, "acpmux-test-thread", Fatal, ShutdownBehavior::Continue, || {
-            panic!("injected")
-        })
-        .expect("the thread starts");
+    let thread = owned_thread(
+        &supervisor,
+        "acpmux-test-thread",
+        ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        || panic!("injected"),
+    )
+    .expect("the thread starts");
     let report = sink.first().await;
     assert_eq!(report.worker, "acpmux-test-thread");
     // The body unwound: its owner's join returns.
@@ -112,6 +116,7 @@ async fn an_owned_thread_joins_once_its_body_returns() {
     let thread = owned_thread(
         &supervisor,
         "acpmux-test-owned",
+        ThreadQos::Utility,
         Fatal,
         ShutdownBehavior::Continue,
         move || {
@@ -261,9 +266,36 @@ async fn a_scoped_task_that_panics_closes_its_channels() {
 }
 
 #[tokio::test]
+async fn a_supervised_thread_runs_registered_at_its_qos_and_leaves_no_row() {
+    let (supervisor, sink) = Recorded::supervisor();
+    let (row_tx, row) = std::sync::mpsc::sync_channel(1);
+    let name = "acpmux-test-registered";
+    let thread = owned_thread(
+        &supervisor,
+        name,
+        ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            let seen = cmux_threads::snapshot()
+                .into_iter()
+                .find(|info| info.name == name)
+                .map(|info| info.declared);
+            let _ = row_tx.send(seen);
+        },
+    )
+    .expect("the thread starts");
+    let seen = tokio::task::spawn_blocking(move || row.recv()).await.expect("received");
+    assert_eq!(seen, Ok(Some(ThreadQos::Utility)));
+    tokio::task::spawn_blocking(move || thread.join()).await.expect("joined");
+    assert!(cmux_threads::snapshot().iter().all(|info| info.name != name));
+    assert!(sink.reports().is_empty());
+}
+
+#[tokio::test]
 async fn a_scoped_thread_that_panics_joins_with_its_error_and_drops_its_pipe() {
     let (tx, rx) = std::sync::mpsc::channel::<u32>();
-    let thread = scoped_thread("acpmux-test-scoped", move || {
+    let thread = scoped_thread("acpmux-test-scoped", ThreadQos::Utility, move || {
         let _ = tx.send(1);
         panic!("injected");
     })

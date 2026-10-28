@@ -91,6 +91,10 @@ Run directory (`run --out DIR`; the format diff.py (014) reads, with the extra f
 run format baselines.py (016) reads (a `cases` list, the case name without its suite) and runs
 `baselines.py rebaseline` on it.
 
+`diff --base A [--head B]` is the default diff (spec 3F.1, task 112): head defaults to HEAD; both
+SHAs are built (daemon: linux_run.sh in the VM queue; app: fleet.py, bench config, both sides of a
+shard on one host) and comparison.json's "builds" holds each side's ref, exact SHA and every gitlink
+of its tree. A run whose receipt names another SHA than its build record is refused.
 `run --arm launch-config` sets every registry switch to its `planned` arm; `diff --arm launch-config` runs it against
 all-default. `run --switches NAME=ARM,...` runs one explicit set (a bisect probe; other switches at their default).
 `bisect-switches CASE` (task 183) names the smallest switch set at its planned arm whose run of CASE diverges from
@@ -112,10 +116,10 @@ engine differences with their reasons.
 
 `diff` exit codes: 0 no unexplained divergence, 1 divergences, 2 bad input, 3 refused (host
 mismatch, an incomplete or mismatched shard set, nothing compared, a queued side that did not
-build or run, and for --switch: arm-not-applied, arm-not-exercised, arms-read-back-same,
-arms-differ-beyond-switch), 4 diff.py internal error. Every diff writes comparison.json and
-divergences.jsonl (one line per divergent case; empty when the comparison is refused or clean)
-in --out.
+build or run, a run of another build, and for --switch: arm-not-applied, arm-not-exercised,
+arms-read-back-same, arms-differ-beyond-switch), 4 diff.py internal error. Every diff writes
+comparison.json and divergences.jsonl (one line per divergent case; empty when the comparison is
+refused or clean) in --out.
 
 `diff --switch NAME` (spec 3F.2, task 111) is the virtual suite of one refactor switch, like
 `run_web_tests.py --flag-specific=NAME`: the same build runs the switch's `suites` on arm old and
@@ -133,9 +137,13 @@ Sibling interfaces this file calls:
     baselines.Store(root).read(suite, case, pdir, arm), platform_dir(platform, product),
         suite_class(suite), BaselineError; baselines.py rebaseline --run DIR         (016)
     expectations.Expectations.load_root(root), RunConfig, resolve, should_run, lint  (015)
-    linux_run.sh run SHA [--suite S] [--arm A] [--side L] [--fresh] [-- RUN_OPTIONS]
-        -> last stdout line is the run dir; every daemon run on the VM goes through it (007, 024)
+    linux_run.sh run SHA [--suite S] [--arm A] [--side L] [--receipt F] [--fresh] [-- RUN_OPTIONS]
+        -> last stdout line is the run dir, F the build receipt (sha, gitlinks); every daemon run
+        on the VM goes through it (007, 024)
     fleet.py diff ARGS: the app product's base/head and switch diffs                (050)
+    linux_run.sh overlay BASE HEAD --out FILE; overlay.load_plan, mask_runs, summary  (202)
+        -> a base/head diff builds the plan's buildSha on the base side, runs `run --facets v0` on both
+           sides for a v0 plan, and `diff --overlay PLAN` masks what is not comparable (never a pass)
     confirm.py --diff DIR: reruns the divergent cases of DIR/comparison.json (its a_dir, b_dir and
         expected_files) and routes only "head fails twice, base passes" through route.py (184, 118)
 """
@@ -174,6 +182,8 @@ SWITCH_REGISTRY = REPO / "plans" / "cmux-next" / "refactor-switches"
 CASE_SCHEMA = REPO / "schemas" / "oracle" / "case-v1.schema.json"
 RESOURCE_OPERATIONS = REPO / "cmux-tui" / "spec" / "resource-operations-v2.json"
 DEFAULT_OUT_BASE = Path("/tmp/oracle/runs")
+# The VM's build-and-run queue for the cmux-tui products (task 024).
+LINUX_RUN = HERE / "linux_run.sh"
 # Spec 3G: state roots are /tmp/o/<run6>/<case6> so a daemon socket path stays under sun_path.
 DEFAULT_STATE_BASE = Path("/tmp/o")
 
@@ -186,9 +196,9 @@ CAPABILITIES = frozenset(
 )
 # WPT runs one suite against several products; a case runs on a product only when the
 # product has every capability the case `requires`. git_repo (a case with fixture.repo): the
-# driver builds the repository with make_repo.build_for_case first; no driver does yet
-# (p15-oracle-243), so no product has it. state_root (a case with fixture.stateRoot) runs a tag's
-# build and head's on one state root: gen_upgrades.py run is its runner (p15-oracle-208), so no
+# driver builds the repository with make_repo.build_for_case first; no driver does yet,
+# so no product has it. state_root (a case with fixture.stateRoot) runs a tag's
+# build and head's on one state root: gen_upgrades.py run is its runner, so no
 # product has it either.
 PRODUCTS: Dict[str, frozenset] = {
     "daemon": frozenset({"resource_api", "restart"}),
@@ -248,7 +258,7 @@ DELEGATES: Dict[str, Tuple[str, Tuple[str, ...], str]] = {
     "switches": ("switches.py", (), "p15-oracle-018"),
     "route": ("route.py", (), "p15-oracle-118"),
     "coverage": ("coverage.py", (), "p15-oracle-190"),
-    "selftest": ("selftest.py", (), "p15-oracle-019"),  # --mutants: mutant_catch.py (p15-oracle-115)
+    "selftest": ("selftest.py", (), "p15-oracle-019"),  # --mutants: mutant_catch.py
 }
 
 
@@ -398,10 +408,15 @@ def load_case(path: Path, case_id: str, *, check_id: bool = True) -> Tuple[Optio
     return Case(case_id, suite, path, data), None
 
 
-def load_corpus(root: Path) -> Tuple[List[Case], List[str]]:
-    """Every tests/oracle/corpus/<suite>/**/<case>.json; the id is the path without .json."""
+def load_corpus(root: Path, suites: Optional[Sequence[str]] = None) -> Tuple[List[Case], List[str]]:
+    """Every tests/oracle/corpus/<suite>/**/<case>.json; the id is the path without .json. The stored suites
+    (tests/oracle/corpus-store.json; `suites` of them, default all) are written first; one that cannot be is an error."""
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+    import corpus_store  # noqa: PLC0415 - sibling
+
     cases: List[Case] = []
-    errors: List[str] = []
+    errors: List[str] = corpus_store.load_errors(root, suites)
     if not root.is_dir():
         return cases, [f"{root}: no corpus directory"]
     for path in sorted(root.rglob("*.json")):
@@ -930,6 +945,9 @@ class RunOptions:
     expectations_root: Path = DEFAULT_EXPECTATIONS_ROOT
     # hermetic_env.ISOLATION_MODES: netns refuses a host without unprivileged user namespaces.
     isolation: str = "netns"
+    # "v0": push-base methods only (facets_v0.py), so the run compares with a base from before the oracle
+    # (overlay.py). None is the driver's default (v1).
+    facets: Optional[str] = None
     # The engine arm (an ENGINE_READBACK key): every launch's browser.defaultEngine; None is the app's default.
     engine: Optional[str] = None
     # The refactor switch registry the run's switches are checked against (`--switch-registry`); the driver
@@ -971,6 +989,7 @@ class RunOptions:
             "ref": self.ref,
             "tag": self.tag,
             "engine": self.engine,
+            **({"facets": self.facets} if self.facets else {}),
         }
 
 
@@ -1008,6 +1027,7 @@ def execute(plan: Plan, options: RunOptions, open_session: SessionOpener, expect
         "out_dir": str(options.out),
         "isolation": dict(isolation),
         "engine": options.engine,
+        **({"facets": options.facets} if options.facets else {}),
         "switch_registry": str(options.switch_registry.resolve()),
     }
     runnable = [tuple(c for c in batch if not expected[c.id].skip) for batch in plan.batches]
@@ -1722,6 +1742,61 @@ def comparability(a: RunView, b: RunView, *, partial: bool, order_parity: bool =
     return None
 
 
+SHA_TEXT = frozenset("0123456789abcdef")
+
+
+def is_full_sha(value: Any) -> bool:
+    return isinstance(value, str) and len(value) == 40 and set(value) <= SHA_TEXT
+
+
+def tree_gitlinks(ref: str, repo: Optional[Path] = None) -> Optional[Dict[str, str]]:
+    """Every gitlink (submodule path -> commit) in the tree of `ref`, or None when the commit is not in `repo`."""
+    proc = subprocess.run(["git", "-C", str(repo or REPO), "ls-tree", "-r", "-z", f"{ref}^{{commit}}"], check=False,
+                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    if proc.returncode != 0:
+        return None
+    links = {}
+    for entry in filter(None, proc.stdout.split("\0")):
+        meta, path = entry.split("\t", 1)
+        _mode, kind, sha = meta.split()
+        if kind == "commit":
+            links[path] = sha
+    return links
+
+
+def check_builds(builds: Mapping[str, Any], labels: Tuple[str, str]) -> None:
+    """A base/head diff's build records: each side's exact SHA and every gitlink of its tree (task 112)."""
+    if sorted(builds) != sorted(labels):
+        raise UsageError(f"build records name sides {sorted(builds)}, the diff compares {list(labels)}")
+    for label in labels:
+        build = builds[label]
+        if not isinstance(build, dict) or not is_full_sha(build.get("sha")):
+            raise UsageError(f"the {label} build record has no full commit SHA")
+        links = build.get("gitlinks")
+        if not isinstance(links, dict) or not all(isinstance(p, str) and is_full_sha(s) for p, s in links.items()):
+            raise UsageError(f"the {label} build record has no gitlinks map (submodule path -> commit)")
+
+
+def build_mismatch(builds: Mapping[str, Any], views: Tuple[RunView, RunView], labels: Tuple[str, str]) -> Optional[str]:
+    """Why the runs are not of the builds the records name: a run receipt's SHA is the one its binary was built at."""
+    for label, view in zip(labels, views):
+        ran = view.receipt.get("sha") or ""
+        if ran and ran != builds[label]["sha"]:
+            return f"build-mismatch: the {label} run is of {ran}, its build record of {builds[label]['sha']}"
+    return None
+
+
+def load_builds(path: Path, labels: Tuple[str, str]) -> Dict[str, Any]:
+    try:
+        builds = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise UsageError(f"--builds {path}: {error}") from None
+    if not isinstance(builds, dict):
+        raise UsageError(f"--builds {path}: a JSON object of side label -> build record")
+    check_builds(builds, labels)
+    return builds
+
+
 def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path],
                 arm_pointers: Sequence[str] = (), cases: Sequence[str] = ()) -> Tuple[int, Dict[str, Any]]:
     """diff.py over two run dirs; `cases` limits it to those case ids (confirm.py's reruns)."""
@@ -1761,7 +1836,8 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
                   partial: bool, expected: Sequence[Path], rules: Sequence[Dict[str, str]],
                   not_comparable: Optional[Dict[str, str]] = None, refused: Optional[str] = None,
                   as_json: bool = False, order_parity: bool = False, arm_pointers: Sequence[str] = (),
-                  switch: Optional[Dict[str, Any]] = None) -> int:
+                  switch: Optional[Dict[str, Any]] = None, builds: Optional[Mapping[str, Any]] = None,
+                  overlay: Optional[Dict[str, Any]] = None) -> int:
     """Checks that the sides are comparable, then hands every comparison to diff.py.
 
     diff.py owns the host check, the first divergence per case, expected differences and the
@@ -1770,10 +1846,15 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
     flaky by diff.py and never count as compared. With `order_parity`, a case that leaked state
     on one side only is a divergence too: its leak depends on the order. Two sides of
     different `--engine` arms are an engine parity comparison: each arm must read its engine back
-    and show no tab engine (its driver dropped it), and ENGINE_PARITY_FILE explains the differences it lists.
+    and show no tab engine (its driver dropped it), and ENGINE_PARITY_FILE explains the differences it lists. `builds`
+    (a base/head diff) names each side's exact SHA and gitlinks; it goes into comparison.json, and
+    a run of another SHA than its build record is refused.
     """
     target = out / "divergence.json"
     target.unlink(missing_ok=True)
+    if builds is not None:
+        check_builds(builds, labels)
+        refused = refused or build_mismatch(builds, (a, b), labels)
     refused = refused or comparability(a, b, partial=partial, order_parity=order_parity)
     engine, engine_refusal = engine_sides(a, b, labels)
     refused = refused or engine_refusal
@@ -1821,6 +1902,7 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         "explained": sorted(cid for cid, s in statuses.items() if s == "explained"),
         "flaky_excluded": sorted(cid for cid, s in statuses.items() if s == "flaky"),
         "not_comparable": dict(sorted((not_comparable or {}).items())),
+        "overlay": overlay,
         "divergence": str(target) if target.is_file() else None,
         "divergences": str(out / "divergences.jsonl"),
         # What confirm.py (task 184) reruns and compares with: the two run dirs, diff.py's --expected files
@@ -1832,6 +1914,7 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         "order_parity": order_parity,
         "leaked_state": leaks,
         "leaks_differ": leaks_differ,
+        "builds": dict(builds) if builds is not None else None,
         "engine_parity": engine,
         "ok": refused is None and code == DIFF_OK and not leaks_differ,
     }
@@ -1846,6 +1929,13 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
               f"explained {summary.get('explained', 0)}, divergent {len(divergent)}, "
               f"flaky (excluded) {summary.get('flaky', 0)}, skipped {summary.get('skipped', 0)}, "
               f"not comparable {len(comparison['not_comparable'])}")
+        if overlay:
+            print(f"  base build: {overlay.get('mode')} {overlay.get('overlaySha') or overlay.get('buildSha')} "
+                  f"({overlay.get('facets')} facets{'; ' + overlay['reason'] if overlay.get('reason') else ''}); "
+                  f"facets never compared: {', '.join(sorted(overlay.get('notComparableFacets') or {})) or 'none'}")
+        for label in labels if builds is not None else ():
+            links = ", ".join(f"{path}@{sha[:12]}" for path, sha in sorted(builds[label]["gitlinks"].items()))
+            print(f"  {label}: {builds[label]['sha']} (gitlinks: {links or 'none'})")
         for item in document.get("divergences", [])[:20]:
             print(f"  divergent: {item['journey']} step={item['step']} checkpoint={item['checkpoint']} "
                   f"pointer={item['pointer']} a={json.dumps(item['a'], sort_keys=True)} b={json.dumps(item['b'], sort_keys=True)}")
@@ -2222,6 +2312,7 @@ def options_from_args(args: argparse.Namespace, *, retry_default: Optional[int],
         expectations_root=args.expectations_root,
         isolation=args.isolation,
         engine=engine,
+        facets=getattr(args, "facets", None),
         switch_registry=args.switch_registry,
     )
     if args.retry_limit is not None:
@@ -2244,7 +2335,7 @@ def switch_roots(registry: Path) -> Any:
 
 
 def run_one(options: RunOptions, *, open_session: Optional[SessionOpener] = None) -> Tuple[Dict[str, Any], int]:
-    cases, errors = load_corpus(options.corpus)
+    cases, errors = load_corpus(options.corpus, options.suites)
     if errors:
         raise UsageError("corpus errors (run `oracle.py check`):\n  " + "\n  ".join(errors[:20]))
     store = run_expectations(options)
@@ -2298,7 +2389,7 @@ def print_run(receipt: Dict[str, Any], options: RunOptions, as_json: bool) -> No
     print(f"  receipt: {options.out / 'receipt.json'}")
 
 
-# The Linux VM runs every cmux-tui suite run in the runnerd queue (p15-oracle-007, spec 3G): one
+# The Linux VM runs every cmux-tui suite run in the runnerd queue (spec 3G): one
 # quota scope, request joining and receipt reuse. This process is a runnerd job when RUNNERD_JOB is set.
 QUEUE_HINT = ("on the Linux VM cmux-tui suite runs go through the runnerd queue: `linux_run.sh run REF "
               "[--suite S] [--arm A] [-- RUN_OPTIONS]`, or `oracle.py diff` with --base/--head, or with "
@@ -2348,13 +2439,13 @@ def side_refusal(receipt: Mapping[str, Any], side: Side) -> Optional[str]:
 def diff_sides(args: argparse.Namespace, registry: Dict[str, Dict[str, Any]]) -> Tuple[Tuple[Side, Side], List[Path]]:
     """The two sides to run and the expected-differences files that apply to them."""
     if args.base or args.head:
-        if not (args.base and args.head):
-            raise UsageError("--base and --head go together")
+        if not args.base:
+            raise UsageError("--head needs --base (the default diff is --base REF, head HEAD)")
         if args.product not in RUST_PRODUCTS:
             raise UsageError(f"--product {args.product}: base/head builds on the VM are the cmux-tui products {sorted(RUST_PRODUCTS)}")
         # On the VM, queued_diff builds the refs; elsewhere the caller brings the binaries.
         return (Side("base", None, None, {}, args.base, args.base_binary),
-                Side("head", None, None, {}, args.head, args.head_binary)), []
+                Side("head", None, None, {}, args.head or "HEAD", args.head_binary)), []
     if args.arm == "launch-config":
         planned = resolve_switches(registry, None, "launch-config")
         return (
@@ -2465,13 +2556,20 @@ def diff_switch(args: argparse.Namespace, out: Path, open_session: Optional[Sess
     listed = [str(suite) for suite in entry.get("suites") or ()]
     if args.order_parity:
         raise UsageError("--order-parity compares one config in two orders; --switch compares two arms")
+    builds: Optional[Dict[str, Any]] = None
     if args.base_run or args.head_run:
         if not (args.base_run and args.head_run):
             raise UsageError("--switch with runs: --base-run is the old arm's run, --head-run the new arm's")
         if args.shards is not None:
             raise UsageError("--shards runs the arms; with --base-run/--head-run the runs are given")
         dirs, views = merge_arm_runs({"old": args.base_run, "new": args.head_run}, out)
+        # fleet.py's builds.json names the first side (arm old) base and the second (arm new) head.
+        if args.builds:
+            records = load_builds(args.builds, ("base", "head"))
+            builds = {f"{name}=old": records["base"], f"{name}=new": records["head"]}
     else:
+        if args.builds:
+            raise UsageError("--builds names the builds of --base-run and --head-run")
         if args.base or args.head or args.baselines:
             raise UsageError("--switch compares two arms of one build: no --base/--head or --baselines")
         if not args.suite:
@@ -2493,7 +2591,8 @@ def diff_switch(args: argparse.Namespace, out: Path, open_session: Optional[Sess
                          labels=(f"{name}=old", f"{name}=new"), partial=args.partial,
                          expected=switch_expected_files(registry, [name], args.switch_registry),
                          rules=[*arm_under_test_rules(name), *comparison_rules(views["new"], args.expectations_root)],
-                         refused=refused, arm_pointers=arm_pointers(name, entry), switch=block, as_json=args.json)
+                         refused=refused, arm_pointers=arm_pointers(name, entry), switch=block, as_json=args.json,
+                         builds=builds)
 
 
 def comparison_rules(view: RunView, root: Path) -> List[Dict[str, str]]:
@@ -2503,6 +2602,22 @@ def comparison_rules(view: RunView, root: Path) -> List[Dict[str, str]]:
     store = load_expectations(root, platform=receipt["platform"], arm=config.get("arm"), product=receipt["product"],
                               build=config["build"])
     return store.pointer_rules() if store else []
+
+
+def overlay_sides(a_dir: Path, b_dir: Path, out: Path,
+                  plan_path: Optional[Path]) -> Tuple[Path, Path, Dict[str, str], Optional[Dict[str, Any]]]:
+    """The run dirs diff.py compares under an overlay plan (overlay.mask_runs), the cases with nothing comparable
+    left, and the plan record comparison.json names. Without a plan: the dirs as they are."""
+    if plan_path is None:
+        return a_dir, b_dir, {}, None
+    overlay = require_sibling("overlay", "p15-oracle-202")
+    try:
+        plan = overlay.load_plan(plan_path)
+    except overlay.OverlayError as error:
+        raise UsageError(str(error)) from None
+    masked = overlay.mask_runs(a_dir, b_dir, out / "masked", plan.get("notComparable") or ())
+    record = {**overlay.summary(plan), "plan": str(plan_path), "notComparableFacets": masked.facets}
+    return masked.a_dir, masked.b_dir, masked.cases, record
 
 
 def cmd_diff(args: argparse.Namespace) -> int:
@@ -2538,10 +2653,17 @@ def cmd_diff(args: argparse.Namespace) -> int:
         base, base_errors = merge_runs(args.base_run, require_complete=False)
         if base_errors or head_errors:
             raise UsageError("; ".join(base_errors + head_errors))
-        return compare_views(base, head, a_dir=write_merged(base, out / "a-merged"), b_dir=write_merged(head, out / "b-merged"),
+        builds = load_builds(args.builds, ("base", "head")) if args.builds else None
+        a_dir, b_dir, cases, overlay = overlay_sides(write_merged(base, out / "a-merged"),
+                                                     write_merged(head, out / "b-merged"), out, args.overlay)
+        return compare_views(base, head, a_dir=a_dir, b_dir=b_dir,
                              out=out, labels=("base", "head"), partial=args.partial, expected=[],
                              rules=comparison_rules(head, args.expectations_root), as_json=args.json,
-                             order_parity=args.order_parity)
+                             order_parity=args.order_parity, not_comparable=cases, overlay=overlay, builds=builds)
+    if args.builds:
+        raise UsageError("--builds names the builds of --base-run and --head-run")
+    if args.overlay:
+        raise UsageError("--overlay goes with --base-run/--head-run (--base/--head make their own plan)")
     if args.product == "app":
         fleet = HERE / "fleet.py"
         if not fleet.is_file():
@@ -2598,10 +2720,12 @@ def side_run_args(side: Side) -> List[str]:
 
 
 def queued_side_command(args: argparse.Namespace, side: Side, sha: str, run_args: Sequence[str],
-                        same: bool) -> List[str]:
-    """The `linux_run.sh run` request of one side; `same` labels each of two otherwise identical requests."""
+                        same: bool, receipt: Optional[Path] = None) -> List[str]:
+    """The `linux_run.sh run` request of one side; `same` labels each of two otherwise identical requests,
+    and `receipt` is where linux_run.sh writes the side's build record (exact SHA and gitlinks)."""
     suites = ",".join(parse_list(args.suite)) or "all"
-    command = ["bash", str(HERE / "linux_run.sh"), "run", sha, "--suite", suites, "--arm", side_arm(side)]
+    command = ["bash", str(LINUX_RUN), "run", sha, "--suite", suites, "--arm", side_arm(side)]
+    command += ["--receipt", str(receipt)] if receipt is not None else []
     command += ["--side", side.label] if same else []
     command += ["--fresh"] if args.fresh else []
     command += ["--", *run_args, *side_run_args(side)]
@@ -2668,24 +2792,68 @@ def queued_diff(args: argparse.Namespace, sides: Tuple[Side, Side], expected: Li
     # One SHA and arm on both sides (a determinism check) must run twice, not join one job.
     same = shas[0] == shas[1] and len({(side_arm(side), tuple(side_run_args(side))) for side in sides}) == 1
     run_args = queued_run_args(args)
-    procs = [subprocess.Popen(queued_side_command(args, side, sha, run_args, same), stdout=subprocess.PIPE, text=True)
-             for side, sha in zip(sides, shas)]
+    plan_path = None
+    if args.base:
+        # A base from before head's oracle builds head's oracle commits on it, or both sides run v0 facets.
+        plan_path = queued_overlay(args, shas, out)
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        shas[0] = plan["buildSha"]
+        run_args += ["--facets", "v0"] if plan["facets"] == "v0" else []
+    receipts = [out / f"build-{side.label}.json" for side in sides]
+    for receipt in receipts:
+        receipt.unlink(missing_ok=True)
+    procs = [subprocess.Popen(queued_side_command(args, side, sha, run_args, same, receipt=receipt),
+                              stdout=subprocess.PIPE, text=True)
+             for side, sha, receipt in zip(sides, shas, receipts)]
     finished = [(proc.communicate()[0], proc.returncode) for proc in procs]
-    views, dirs = [], []
+    loaded_sides = []
     for side, (stdout, code) in zip(sides, finished):
         loaded = queued_side_view(side, stdout, code)
         if loaded is None:
             return EXIT_REFUSED
-        view, run_dir = loaded
+        loaded_sides.append(loaded)
+    views, dirs, builds = [], [], {}
+    for side, sha, receipt, (view, run_dir) in zip(sides, shas, receipts, loaded_sides):
+        # Both sides ran: a build receipt that is missing or names another commit or tree is bad input.
+        builds[side.label] = queued_build(side, sha, receipt)
+        print(f"{side.label}: {side.ref} = {sha}")
         refused = side_refusal(read_receipt(run_dir), side)
         if refused:
             print(refused)
             return EXIT_REFUSED
         views.append(view)
         dirs.append(run_dir)
-    return compare_views(views[0], views[1], a_dir=dirs[0], b_dir=dirs[1], out=out,
+    a_dir, b_dir, cases, overlay = overlay_sides(dirs[0], dirs[1], out, plan_path)
+    return compare_views(views[0], views[1], a_dir=a_dir, b_dir=b_dir, out=out,
                          labels=(sides[0].label, sides[1].label), partial=args.partial, expected=expected,
-                         rules=comparison_rules(views[1], args.expectations_root), as_json=args.json)
+                         rules=comparison_rules(views[1], args.expectations_root), as_json=args.json,
+                         not_comparable=cases, overlay=overlay, builds=builds)
+
+
+def queued_overlay(args: argparse.Namespace, shas: Sequence[str], out: Path) -> Path:
+    """`linux_run.sh overlay BASE HEAD`: the plan of the base build (overlay.py), the overlay built in the queue."""
+    command = ["bash", str(LINUX_RUN), "overlay", shas[0], shas[1], "--product", args.product,
+               "--out", str((out / "overlay.json").resolve())] + (["--fresh"] if args.fresh else [])
+    proc = subprocess.run(command, stdout=subprocess.PIPE, text=True, check=False)
+    lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    if proc.returncode != 0 or not lines or not Path(lines[-1]).is_file():
+        raise UsageError(f"linux_run.sh overlay {shas[0]} {shas[1]} wrote no plan (exit {proc.returncode})")
+    return Path(lines[-1])
+
+
+def queued_build(side: Side, sha: str, receipt: Path) -> Dict[str, Any]:
+    """The side's build record from linux_run.sh's build receipt, checked against the commit it was asked for."""
+    try:
+        build = json.loads(receipt.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise UsageError(f"the {side.label} build of {sha} left no build receipt at {receipt}") from None
+    if build.get("sha") != sha:
+        raise UsageError(f"the {side.label} build receipt is of {build.get('sha')}, not of {sha}")
+    expected = tree_gitlinks(sha)
+    if expected is not None and build.get("gitlinks") != expected:
+        raise UsageError(f"the {side.label} build of {sha} recorded gitlinks {build.get('gitlinks')}, "
+                         f"its tree has {expected}")
+    return {"ref": side.ref, **build, "receipt": str(receipt)}
 
 
 BISECT_SCHEMA = "cmux-oracle-bisect-switches-v1"
@@ -3052,13 +3220,15 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--ref", help="source ref recorded in the receipt")
     run.add_argument("--engine", choices=sorted(ENGINE_READBACK),
                      help="engine arm: every launch's browser.defaultEngine, and the engine of a case that pins one")
+    run.add_argument("--facets", choices=["v0", "v1"],
+                     help="v0: push-base methods only (facets_v0.py), to compare with a pre-oracle base (overlay.py)")
     run.add_argument("--out", type=Path, help=f"run directory (default {DEFAULT_OUT_BASE}/<run id>)")
     run.set_defaults(func=cmd_run)
 
     diff = sub.add_parser("diff", help="run two sides and compare them through diff.py; flaky cases are left out")
     add_selection_args(diff)
     diff.add_argument("--base", help="base ref (on the Linux VM: built and run in the runnerd queue)")
-    diff.add_argument("--head", help="head ref")
+    diff.add_argument("--head", help="head ref (default HEAD when --base is given)")
     diff.add_argument("--base-binary", help="prebuilt base binary instead of building --base")
     diff.add_argument("--head-binary", help="prebuilt head binary instead of building --head")
     diff.add_argument("--switch", help="same build, arm old against arm new, on the switch's suites")
@@ -3069,6 +3239,12 @@ def build_parser() -> argparse.ArgumentParser:
     diff.add_argument("--ref", help="source ref recorded for --switch, --arm and --engine runs")
     diff.add_argument("--base-run", type=Path, action="append", help="existing run directory (repeat for shards)")
     diff.add_argument("--head-run", type=Path, action="append", help="existing run directory (repeat for shards)")
+    diff.add_argument("--overlay", type=Path,
+                      help="with --base-run/--head-run: the overlay plan of the base build (overlay.py); facets it "
+                           "or either side cannot compare are masked and named, never compared")
+    diff.add_argument("--builds", type=Path,
+                      help="with --base-run/--head-run: JSON {\"base\": build, \"head\": build}, each with the exact "
+                           "\"sha\" and \"gitlinks\" of its build (linux_run.sh, fleet.py); copied into comparison.json")
     diff.add_argument("--baselines", action="store_true", help="compare --head-run golden cases with reviewed baselines")
     diff.add_argument("--baselines-root", type=Path, default=DEFAULT_BASELINES_ROOT)
     diff.add_argument("--partial", action="store_true", help="compare a shard subset; the result says partial")

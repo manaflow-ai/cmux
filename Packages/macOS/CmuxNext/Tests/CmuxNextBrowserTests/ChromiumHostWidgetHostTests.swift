@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// The host's widgets with a WebContents (p01-process-066): extension popups, the side panel,
+/// The host's widgets with a WebContents: extension popups, the side panel,
 /// DevTools docked and undocked, chrome.windows popups and InitAsPopup page popups (date and
 /// datalist) show their context in cmux windows and panes, with input and geometry to the host.
 @MainActor
@@ -112,7 +112,7 @@ import Testing
         #expect(ChromiumHostWidgetKind.documentPictureInPicture.name == "document_pip")
     }
 
-    // MARK: Picture-in-picture (p01-process-228)
+    // MARK: Picture-in-picture
 
     /// A video's picture-in-picture: its own floating panel at the bottom right of the screen, not a
     /// child of the opener's window, never key, with the video's shape; the host's next size keeps the

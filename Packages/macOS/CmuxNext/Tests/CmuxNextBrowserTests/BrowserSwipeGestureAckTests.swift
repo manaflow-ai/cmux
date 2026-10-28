@@ -2,8 +2,8 @@ import CoreGraphics
 @testable import CmuxNextBrowser
 import Testing
 
-/// A swipe over a hosted page decides from Chromium's acks of the gesture's own wheels (WHEEL_ACK, task
-/// p01-process-234), as Chrome's history swiper does: no probe is asked, a page whose first scroll update
+/// A swipe over a hosted page decides from Chromium's acks of the gesture's own wheels (WHEEL_ACK),
+/// as Chrome's history swiper does: no probe is asked, a page whose first scroll update
 /// scrolled anything (or whose script took a wheel) keeps the gesture, and a swipe needs an overscroll the
 /// page leaves to the browser.
 @Suite struct BrowserSwipeGestureAckTests {

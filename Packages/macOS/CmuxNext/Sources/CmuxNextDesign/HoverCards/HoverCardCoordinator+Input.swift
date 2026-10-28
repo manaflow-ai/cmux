@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextInput
 import CmuxNextWakeups
 
-// The input tap subscriptions of `HoverCardCoordinator` (p04-input-013): what ends a card and the
+// The input tap subscriptions of `HoverCardCoordinator`: what ends a card and the
 // pointer moves over a shown card, held only while a card is pending or shown.
 extension HoverCardCoordinator {
     /// Key presses, clicks and wheel scrolls end a card: the tap observer and scroll intercept

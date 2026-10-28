@@ -6,7 +6,7 @@ import ImageIO
 import UniformTypeIdentifiers
 
 /// The browser pages' last pictures, saved at quit and drawn over each pane at launch until its page shows its
-/// first content (p08-startup-043), so a relaunch shows the page the pane showed, not the theme color, while
+/// first content, so a relaunch shows the page the pane showed, not the theme color, while
 /// Chromium starts. Chrome does this on Android (`StartupPaintPreview`,
 /// chrome/android/java/src/org/chromium/chrome/browser/paint_preview/StartupPaintPreviewHelper.java): the restored tab shows its saved capture
 /// until the live page's first meaningful paint, and drops it on any mismatch.

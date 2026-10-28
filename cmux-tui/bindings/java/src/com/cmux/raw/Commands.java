@@ -64,6 +64,7 @@ public final class Commands {
     public static final CommandMetadata APPS_UNMOUNT = new CommandMetadata("apps-unmount", Authority.LOCAL_ADMIN, 12, "apps-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ATTACH_SURFACE = new CommandMetadata("attach-surface", Authority.FRONTEND, 5, null, StreamKind.ATTACH, Map.ofEntries(Map.entry("mode", 7L), Map.entry("stream", 12L)), Map.ofEntries(Map.entry("cols", "attach-initial-size"), Map.entry("expected_generation", "attach-identity-v1"), Map.entry("expected_terminal_id", "attach-identity-v1"), Map.entry("rows", "attach-initial-size"), Map.entry("snapshot", "terminal-snapshot-v1"), Map.entry("snapshot_images", "terminal-snapshot-images-v1"), Map.entry("snapshot_local_history", "terminal-snapshot-local-history-v1"), Map.entry("snapshot_version", "terminal-snapshot-v1"), Map.entry("stream", "attach-streams-v1"), Map.entry("viewer_backlog_bytes", "terminal-snapshot-v1")));
     public static final CommandMetadata BIND_CONVERSATION_TAB_SESSION = new CommandMetadata("bind-conversation-tab-session", Authority.CONTROL, 12, "agent-session-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata BRIDGE_HELLO = new CommandMetadata("bridge-hello", Authority.LOCAL_ADMIN, 12, "bridge-hello-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_ACTIVATE = new CommandMetadata("browser-activate", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_BACK = new CommandMetadata("browser-back", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata BROWSER_FORWARD = new CommandMetadata("browser-forward", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -195,7 +196,7 @@ public final class Commands {
     public static final CommandMetadata GET_SIZE_STATE = new CommandMetadata("get-size-state", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata HISTORY_SEARCH = new CommandMetadata("history-search", Authority.LOCAL_ADMIN, 12, "history-search-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata HOME_INBOX = new CommandMetadata("home-inbox", Authority.LOCAL_ADMIN, 12, "home-inbox-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata IDENTIFY = new CommandMetadata("identify", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("machine_metadata", 12L), Map.entry("revisions", 12L)), Map.ofEntries(Map.entry("machine_metadata", "machine-identity-v1")));
+    public static final CommandMetadata IDENTIFY = new CommandMetadata("identify", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("machine_metadata", 12L), Map.entry("revisions", 12L), Map.entry("startup_marks", 12L)), Map.ofEntries(Map.entry("machine_metadata", "machine-identity-v1"), Map.entry("startup_marks", "startup-marks-v1")));
     public static final CommandMetadata IDS = new CommandMetadata("ids", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IMPORT_BOOKMARKS = new CommandMetadata("import-bookmarks", Authority.CONTROL, 12, "bookmarks-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata IMPORT_SESSION_ORGANIZATION = new CommandMetadata("import-session-organization", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -433,6 +434,7 @@ public final class Commands {
         values.put("apps-unmount", APPS_UNMOUNT);
         values.put("attach-surface", ATTACH_SURFACE);
         values.put("bind-conversation-tab-session", BIND_CONVERSATION_TAB_SESSION);
+        values.put("bridge-hello", BRIDGE_HELLO);
         values.put("browser-activate", BROWSER_ACTIVATE);
         values.put("browser-back", BROWSER_BACK);
         values.put("browser-forward", BROWSER_FORWARD);

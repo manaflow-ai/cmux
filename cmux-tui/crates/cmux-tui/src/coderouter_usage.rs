@@ -142,7 +142,7 @@ pub(crate) fn default_env_file_path() -> Option<PathBuf> {
 }
 
 fn read_env_file(path: Option<&Path>) -> Option<String> {
-    std::fs::read_to_string(path?).ok()
+    cmux_blocking::fs::read_to_string(path?).ok()
 }
 
 /// Why the daemon currently has no readout. Only used for log text.
@@ -265,7 +265,7 @@ impl UsagePoller {
     pub(crate) fn stop(mut self) {
         self.stop.notify_one();
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = crate::blocking::thread::join(thread);
         }
     }
 }
@@ -293,29 +293,30 @@ fn start_poller_with_source(
     let stop = Arc::new(Notify::new());
     let stop_for_thread = stop.clone();
     // supervise-allow: owned by UsagePoller and stopped with it; a panic ends usage polling only.
-    let spawn = std::thread::Builder::new().name("machine-usage-poll".into()).spawn(move || {
-        let runtime = match cmux_threads::tokio::builder(
-            "machine-usage-poll",
-            cmux_threads::ThreadQos::Background,
-            cmux_threads::tokio::Flavor::CurrentThread,
-        )
-        .build()
-        {
-            Ok(runtime) => runtime,
-            Err(error) => {
-                crate::client_log::log(
-                    "DEBUG",
-                    LOG_AREA,
-                    &format!("runtime start failed: {error}"),
-                );
-                return;
-            }
-        };
-        cmux_threads::tokio::block_on(
-            &runtime,
-            poll_loop(mux, source, stop_for_thread, startup_delay, interval),
-        );
-    });
+    let spawn =
+        cmux_threads::spawn("machine-usage-poll", cmux_threads::ThreadQos::Background, move || {
+            let runtime = match cmux_threads::tokio::builder(
+                "machine-usage-poll",
+                cmux_threads::ThreadQos::Background,
+                cmux_threads::tokio::Flavor::CurrentThread,
+            )
+            .build()
+            {
+                Ok(runtime) => runtime,
+                Err(error) => {
+                    crate::client_log::log(
+                        "DEBUG",
+                        LOG_AREA,
+                        &format!("runtime start failed: {error}"),
+                    );
+                    return;
+                }
+            };
+            cmux_threads::tokio::block_on(
+                &runtime,
+                poll_loop(mux, source, stop_for_thread, startup_delay, interval),
+            );
+        });
     match spawn {
         Ok(thread) => Some(UsagePoller { stop, thread: Some(thread) }),
         Err(error) => {

@@ -87,7 +87,7 @@ import Testing
         #expect(posted == 2, "both pages moved on screen: \(posted) posts")
     }
 
-    /// p06-scheduler-046: ten pages in one window, one of them moved: one fork post, and the
+    /// Ten pages in one window, one of them moved: one fork post, and the
     /// registry counts the one page that changed. A page of another window hears nothing.
     @Test func movingOneOfTenPagesPostsOnce() {
         let pages = TwoPages()

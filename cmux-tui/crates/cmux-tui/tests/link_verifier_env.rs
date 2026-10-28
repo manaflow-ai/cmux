@@ -3,7 +3,7 @@
 //! the daemon logs its verifier mode once, and no child (the terminal host
 //! and the terminal's process) inherits the variable. The same daemon is
 //! started with `CMUX_TUI_OWNER_APP_PID` too, which no terminal inherits
-//! either (p07-memory-063: an owner started from one would claim the app).
+//! either (an owner started from one would claim the app).
 #![cfg(unix)]
 
 use std::fs;

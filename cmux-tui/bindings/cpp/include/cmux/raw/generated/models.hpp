@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "974986b7d253aacd825bed6d8efd6c978efd265af55140e73b402e8a32e4e3bc";
+inline constexpr std::string_view kProtocolIrSha256 = "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -71,6 +71,7 @@ struct Base64;
 struct Bookmark;
 struct BookmarkChangeResult;
 struct BookmarkImportNode;
+struct BridgeHelloResult;
 struct BrowserFrame;
 struct BrowserHostProviderResult;
 enum class BrowserProviderAuthentication;
@@ -118,6 +119,7 @@ enum class ConversationThreadStatus;
 struct ConversationThreadSummary;
 struct CopyResult;
 enum class CursorStyle;
+struct DaemonStartupMarks;
 struct DeadPane;
 struct DeclarativeLayout;
 struct DetachClientTarget;
@@ -405,6 +407,7 @@ struct AppsUnmountRequest;
 struct AttachSurfaceRequest;
 struct BindConversationTabSessionRequest;
 struct BindConversationTabSessionResult;
+struct BridgeHelloRequest;
 struct BrowserActivateRequest;
 struct BrowserBackRequest;
 struct BrowserForwardRequest;
@@ -2062,6 +2065,16 @@ struct BookmarksChangedEvent {
     std::string browser_profile_id{};
     std::optional<EventCause> cause{};
     friend bool operator==(const BookmarksChangedEvent&, const BookmarksChangedEvent&) = default;
+};
+
+struct BridgeHelloRequest {
+    std::vector<std::string> features{};
+    friend bool operator==(const BridgeHelloRequest&, const BridgeHelloRequest&) = default;
+};
+
+struct BridgeHelloResult {
+    std::vector<std::string> features{};
+    friend bool operator==(const BridgeHelloResult&, const BridgeHelloResult&) = default;
 };
 
 struct BrowserActivateRequest {
@@ -3827,6 +3840,20 @@ struct DaemonShutdownEvent {
     friend bool operator==(const DaemonShutdownEvent&, const DaemonShutdownEvent&) = default;
 };
 
+struct DaemonStartupMarks {
+    std::optional<std::uint64_t> config_loaded{};
+    std::optional<std::uint64_t> first_identify_served{};
+    std::optional<std::uint64_t> launch_snapshot_writer_started{};
+    std::optional<std::uint64_t> lifecycle_ready{};
+    std::uint64_t main_start_unix_us{};
+    std::optional<std::uint64_t> mux_restored{};
+    std::optional<std::uint64_t> owner_event_loop{};
+    std::optional<std::uint64_t> owner_prepared{};
+    std::optional<std::uint64_t> socket_bound{};
+    std::optional<std::uint64_t> websocket_ready{};
+    friend bool operator==(const DaemonStartupMarks&, const DaemonStartupMarks&) = default;
+};
+
 struct DeadPane {
     Id id{};
     friend bool operator==(const DeadPane&, const DeadPane&) = default;
@@ -4552,6 +4579,7 @@ struct IdMapping {
 struct IdentifyRequest {
     std::optional<bool> machine_metadata{};
     std::optional<bool> revisions{};
+    std::optional<bool> startup_marks{};
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
 };
 
@@ -4586,6 +4614,7 @@ struct IdentifyResult {
     Field<std::string> sdk_schema_digest{};
     std::string session{};
     std::optional<std::string> session_id{};
+    Field<DaemonStartupMarks> startup_marks{};
     std::uint64_t terminal_revision{};
     Field<std::string> update_command{};
     std::string version{};
@@ -8210,6 +8239,12 @@ struct Codec<BookmarkImportNode> {
 };
 
 template <>
+struct Codec<BridgeHelloResult> {
+    static Result<Json> encode(const BridgeHelloResult& value);
+    static Result<BridgeHelloResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<BrowserFrame> {
     static Result<Json> encode(const BrowserFrame& value);
     static Result<BrowserFrame> decode(const Json& value);
@@ -8489,6 +8524,12 @@ template <>
 struct Codec<CursorStyle> {
     static Result<Json> encode(const CursorStyle& value);
     static Result<CursorStyle> decode(const Json& value);
+};
+
+template <>
+struct Codec<DaemonStartupMarks> {
+    static Result<Json> encode(const DaemonStartupMarks& value);
+    static Result<DaemonStartupMarks> decode(const Json& value);
 };
 
 template <>
@@ -10211,6 +10252,12 @@ template <>
 struct Codec<BindConversationTabSessionResult> {
     static Result<Json> encode(const BindConversationTabSessionResult& value);
     static Result<BindConversationTabSessionResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<BridgeHelloRequest> {
+    static Result<Json> encode(const BridgeHelloRequest& value);
+    static Result<BridgeHelloRequest> decode(const Json& value);
 };
 
 template <>

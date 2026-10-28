@@ -18,7 +18,7 @@ extension UpdaterService {
 
     /// Fetches the signed feature document beside ``releaseNotes`` (`notes/flags.json`)
     /// and hands a verified copy to `flagsReceiver`, off the main actor; it applies at
-    /// the next launch (p12-perf-process-093). ``start()`` runs it once a launch, next
+    /// the next launch. ``start()`` runs it once a launch, next
     /// to its announcements fetch from the same notes folder. Kill switches must
     /// arrive with automatic update checks off, so neither `updates.checkAutomatically`,
     /// `DisableAutoUpdate` nor Sparkle gates it; only ``remoteFeatureFlagsPolicy`` does.

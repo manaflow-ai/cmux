@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 974986b7d253aacd825bed6d8efd6c978efd265af55140e73b402e8a32e4e3bc.
+// cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -840,6 +840,12 @@ pub struct BindConversationTabSessionResult {
     pub conversation: T::ConversationTabRecord,
     pub replayed: bool,
     pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BridgeHelloRequest {
+    pub features: Vec<String>,
 }
 
 #[rustfmt::skip]
@@ -2745,6 +2751,8 @@ pub struct IdentifyRequest {
     pub machine_metadata: Option<bool>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub revisions: Option<bool>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub startup_marks: Option<bool>,
 }
 
 #[rustfmt::skip]
@@ -5451,6 +5459,10 @@ impl CmuxClient {
         self.execute(&BIND_CONVERSATION_TAB_SESSION_METADATA, &request)
     }
 
+    pub fn bridge_hello(&mut self, request: BridgeHelloRequest) -> Result<T::BridgeHelloResult> {
+        self.execute(&BRIDGE_HELLO_METADATA, &request)
+    }
+
     pub fn browser_activate(&mut self, request: BrowserActivateRequest) -> Result<BrowserActivateResult> {
         self.execute(&BROWSER_ACTIVATE_METADATA, &request)
     }
@@ -6065,6 +6077,10 @@ impl CmuxClient {
         }
         if request.revisions.is_some() {
             self.require_protocol_field("identify", 12)?;
+        }
+        if request.startup_marks.is_some() {
+            self.require_protocol_field("identify", 12)?;
+            self.require_capability_field("identify", "startup-marks-v1")?;
         }
         self.execute_identify(&IDENTIFY_METADATA, &request)
     }

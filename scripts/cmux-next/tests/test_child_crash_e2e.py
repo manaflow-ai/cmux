@@ -297,7 +297,7 @@ class Cases(unittest.TestCase):
         self.assertEqual(self.omnibar_calls(app), ["chrome://inducebrowsercrashforrealz"])
 
     def test_host_case_kills_the_host_that_runs_the_tab(self):
-        # The host's end shows the crash page with Reload (p01-process-082); Reload brings the tab back.
+        # The host's end shows the crash page with Reload; Reload brings the tab back.
         page = {"gone": False}
 
         def page_status(params):

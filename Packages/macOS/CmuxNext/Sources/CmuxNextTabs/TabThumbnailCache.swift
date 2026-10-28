@@ -10,7 +10,7 @@ import CoreGraphics
 /// the hover card's memory release drops entries over them (`removeOldest`), as does
 /// the next insert.
 ///
-/// It keeps ``PurgeablePicture``s that ``picture(of:)`` made (p07-memory-107), so an insert copies no pixels. With
+/// It keeps ``PurgeablePicture``s that ``picture(of:)`` made, so an insert copies no pixels. With
 /// feature `purgeableImageCaches` on, a thumbnail is a copy drawn off the main actor into purgeable pages, volatile
 /// except while a card shows it, so the kernel takes it back under pressure; a purged thumbnail is a miss (the card
 /// pictures the tab again), never a blank card. Off, a thumbnail is the image itself, as before.

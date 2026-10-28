@@ -1,6 +1,6 @@
 import AppKit
 
-// Frame delivery (p06-scheduler-222, the `pageScriptFrames` feature): the router's envelopes reach
+// Frame delivery (the `pageScriptFrames` feature): the router's envelopes reach
 // the page as one script per frame, and a hidden page takes none until it shows.
 extension PageWebView {
     /// From now on the router's envelopes wait for `frame` and go to the page as one script per

@@ -161,3 +161,12 @@ fn names_with_line_breaks_and_foreign_env_keys_drop_the_agent() {
     let own = r#"{"id": "fast-agent", "name": "F", "version": "1.0.0", "distribution": {"uvx": {"package": "f==1.0.0", "env": {"FAST_AGENT_MODEL": "m", "F_DISABLE_AUTO_UPDATE": "1"}}}}"#;
     assert_eq!(one(own).agents.len(), 1);
 }
+
+#[test]
+fn the_constant_patterns_compile() {
+    // The registry's checks are constant regexes behind INVARIANT unwraps: building
+    // each one here keeps a broken pattern a test failure, never a daemon panic.
+    for pattern in [&ID, &NPX_PACKAGE, &UVX_PACKAGE, &ENV_KEY, &SHA256] {
+        assert!(!LazyLock::force(pattern).as_str().is_empty());
+    }
+}

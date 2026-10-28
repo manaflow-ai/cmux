@@ -58,7 +58,7 @@ extension TabContentCache {
     /// discarder keeps each as its window's active tab (`kActiveTab`, discard_eligibility_policy.cc);
     /// the panes keep no neighbor tabs awake, so those sleep after the timeout. Hiding the shown
     /// pages themselves at once is the fork's tab visibility (API 37) or, before it, the freeze of
-    /// `offScreenWindowPageFreeze` (p07-memory-097). Terminals pause their drawing (`WindowDrawPolicy`).
+    /// `offScreenWindowPageFreeze`. Terminals pause their drawing (`WindowDrawPolicy`).
     func windowDidChangeOnScreen(_ window: ObjectIdentifier, offScreen: Bool) {
         guard offScreen ? offScreenWindows.insert(window).inserted : offScreenWindows.remove(window) != nil else { return }
         var panes: [ObjectIdentifier] = []

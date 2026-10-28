@@ -146,7 +146,7 @@ impl Surface {
     /// progress and program status upserts) to the mux's work lane. Each is
     /// a SQLite workspace registry commit, which an output thread
     /// (`surface-<id>-reader`, `surface-<id>-host`: echo threads with
-    /// blocking disallowed) may not make (MQ-13, p02-threads-303): in the
+    /// blocking disallowed) may not make (MQ-13): in the
     /// detector's panic mode the reader panicked holding the registry and
     /// state locks. Chromium posts such work as a `MayBlock` task
     /// (base/task/task_traits.h). The check here is memory only; at most one

@@ -9,7 +9,8 @@ import CmuxNextCompat
 public nonisolated protocol TerminalAttachLink: AnyObject, Sendable {
     /// `replay -> (output | resized | …)* -> closed`, finishing after `closed`.
     var events: AsyncStream<TerminalChannelEvent> { get }
-    func sendInput(_ data: Data)
+    /// Sends input; `keyFlow` is the latency slot flow of the key press the bytes encode (0: none).
+    func sendInput(_ data: Data, keyFlow: UInt64)
     /// Reports `size`, then claims canonical geometry.
     func sendClaim(reporting size: CellSize)
     /// Take over: optionally sets the terminal's policy to last active, then reports `size` and claims.
@@ -58,9 +59,15 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         public func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(link)) }
     }
 
+    /// An effect the applier sends, with the key flow of the input that made it (0: none).
+    private struct Outgoing {
+        var effect: Machine.Effect
+        var keyFlow: UInt64 = 0
+    }
+
     private struct Core {
         var machine: Machine
-        var outbox: [Machine.Effect] = []
+        var outbox: [Outgoing] = []
         var applying = false
         /// One task per attach attempt: opens the link, then pumps it.
         var tasks: [Int: Task<Void, Never>] = [:]
@@ -131,8 +138,8 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     deinit {
         streamFocus?.release(ObjectIdentifier(self))
         // Nothing can reach this driver any more: free whatever it holds.
-        let effects = core.withLock { core -> [Machine.Effect] in
-            let effects = core.outbox + core.machine.reduce(.close)
+        let effects = core.withLock { core -> [Outgoing] in
+            let effects = core.outbox + core.machine.reduce(.close).map { Outgoing(effect: $0) }
             core.outbox = []
             return effects
         }
@@ -161,7 +168,9 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     // MARK: Events
 
     public func start() { send(.start) }
-    public func input(_ data: Data) { send(.input(data)) }
+    /// Input from the surface; `keyFlow` is the latency slot flow of the key press the bytes encode (0: none). The
+    /// live link sends it with them; input held while attaching goes without it.
+    public func input(_ data: Data, keyFlow: UInt64 = 0) { send(.input(data), keyFlow: keyFlow) }
     public func resize(_ size: CellSize) { send(.resize(size)) }
     public func setVisible(_ visible: Bool) {
         send(.visibility(visible))
@@ -219,11 +228,16 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
 
     // MARK: Reducer and applier
 
-    private func send(_ event: Machine.Event) {
-        var batch = core.withLock { core -> [Machine.Effect] in
+    /// Reduces `event` and applies what it makes; the input's own send carries `keyFlow`.
+    private func send(_ event: Machine.Event, keyFlow: UInt64 = 0) {
+        var batch = core.withLock { core -> [Outgoing] in
             let effects = core.machine.reduce(event)
             if let onGridSent { Self.reportGrids(effects, of: core.machine, to: onGridSent) }
-            core.outbox += effects
+            // A live link's input makes one send, its own; held input (sent after a replay) makes none.
+            for effect in effects {
+                let isInputsSend = if case .send = effect { true } else { false }
+                core.outbox.append(Outgoing(effect: effect, keyFlow: isInputsSend ? keyFlow : 0))
+            }
             observer?(event, core.machine)
             guard !core.applying, !core.outbox.isEmpty else { return [] }
             core.applying = true
@@ -232,7 +246,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         }
         while !batch.isEmpty {
             batch.forEach(apply)
-            batch = core.withLock { core -> [Machine.Effect] in
+            batch = core.withLock { core -> [Outgoing] in
                 guard !core.outbox.isEmpty else {
                     core.applying = false
                     return []
@@ -243,15 +257,15 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         }
     }
 
-    private func apply(_ effect: Machine.Effect) {
-        switch effect {
+    private func apply(_ outgoing: Outgoing) {
+        switch outgoing.effect {
         case .open(let attempt, let size):
             if attempt > 1 { onReattach(attempt) }
             startAttempt(attempt, size: size, delay: nil)
         case .openAfterBackoff(let attempt, let size, let failedReconnects):
             onReattach(attempt)
             startAttempt(attempt, size: size, delay: failedReconnects)
-        case .send(let ref, let data): ref.link.sendInput(data)
+        case .send(let ref, let data): ref.link.sendInput(data, keyFlow: outgoing.keyFlow)
         case .claim(let ref, let size): ref.link.sendClaim(reporting: size)
         case .takeOver(let ref, let size, let setLatest): ref.link.sendTakeOver(reporting: size, setLatest: setLatest)
         case .hide(let ref): ref.link.sendHidden(true)
@@ -387,7 +401,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
 
 /// The live link: a daemon byte-mode attachment on its own connection.
 extension TerminalAttachment: TerminalAttachLink {
-    public nonisolated func sendInput(_ data: Data) { enqueueInput(data) }
+    public nonisolated func sendInput(_ data: Data, keyFlow: UInt64) { enqueueInput(data, keyFlow: keyFlow) }
     public nonisolated func sendClaim(reporting size: CellSize) { claimGeometry(reporting: size) }
     public nonisolated func sendTakeOver(reporting size: CellSize, setLatest: Bool) { takeOver(reporting: size, setLatest: setLatest) }
     public nonisolated func sendSnapshotRequest(reason: SnapshotRequestReason) { requestSnapshot(reason: reason) }

@@ -7,7 +7,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// `debug.input` (p04-input-007): a read with every producer present decodes every section key into its
+/// `debug.input`: a read with every producer present decodes every section key into its
 /// shape, a section without a producer is listed under `absent`, `reset` reaches every source and
 /// recorder, a recorder that has not landed answers `unavailable`, the latency section is a real
 /// `InputLatencyReporter`'s ledger, and the params parse strictly (a key the action does not take fails).

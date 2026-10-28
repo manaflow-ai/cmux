@@ -7,6 +7,14 @@ public import Foundation
 /// publish atomically; the file watcher then reloads and applies them, so
 /// there is one path from disk to live settings.
 public actor CmuxConfigFile {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.next.settings.config-file`): its config file writes block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.next.settings.config-file
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.settings.config-file", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     public nonisolated let url: URL
     /// Keys an MDM profile or the team policy manages; every write checks it.
     public nonisolated let managedGuard: ManagedKeyGuard
@@ -174,6 +182,13 @@ public actor CmuxConfigFile {
         } else {
             try FileManager.default.moveItem(at: temporary, to: url)
         }
+    }
+
+    /// The managed preferences and the file's text, read in one turn of this actor's queue (a reload's
+    /// inputs; both block, so neither runs on a cooperative pool thread).
+    public func sourceAndManaged(_ reader: any ManagedPreferenceReader) -> (source: Result<String, any Error>, managed: ManagedPreferences) {
+        let managed = reader.read()
+        return (Result { try Self.source(at: url) }, managed)
     }
 
     // MARK: - Key paths

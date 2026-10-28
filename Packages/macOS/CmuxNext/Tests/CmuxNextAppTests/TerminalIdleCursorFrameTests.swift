@@ -8,7 +8,7 @@ import Testing
 /// ghostty-integration-DESIGN.md G7: a focused terminal at rest draws no frame that changes no pixel.
 /// A blink tick of a hidden cursor (agent TUIs keep DECTCEM off) used to update and draw a frame
 /// (about 1.7 a second per terminal); any renderer wake (output that sets only a title, as agent
-/// TUIs do several times a second) used to rebuild and draw one too (p03-rendering-089).
+/// TUIs do several times a second) used to rebuild and draw one too.
 @MainActor @Suite(.serialized) struct TerminalIdleCursorFrameTests {
     @Test func aFocusedTerminalWithAHiddenCursorDrawsNothingAtRest() async throws {
         let terminal = try await FocusedTerminal.ready()

@@ -1,4 +1,4 @@
-//! `server-diagnostic-site` (p02-threads-233): the forwarder keeps each site
+//! `server-diagnostic-site`: the forwarder keeps each site
 //! once and emits it once; a `diagnostic-sites-v1` app connection gets the
 //! sites seen before its `subscribe`, then each new one, once; any other
 //! subscriber gets none; the capability is advertised; and the request

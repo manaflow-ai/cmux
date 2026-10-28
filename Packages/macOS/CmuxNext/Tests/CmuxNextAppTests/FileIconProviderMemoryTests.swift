@@ -7,7 +7,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// p07-memory-059: the Files thumbnails were an `NSCache` with a count limit only, outside the
+/// The Files thumbnails were an `NSCache` with a count limit only, outside the
 /// memory coordinator. Now they are one lossless consumer bounded by count and pixel bytes: a new
 /// limit frees nothing, a release frees down to it least recently used first, the critical limit
 /// keeps only the working set, and a thumbnail asked for after a release renders again.
@@ -93,7 +93,7 @@ import Testing
     }
 
     /// Package icons (one per app bundle) were kept with the type icons, unbounded and uncounted. Each is read on
-    /// the system lane (p02-threads-056), so the test waits for the 300 to land.
+    /// the system lane, so the test waits for the 300 to land.
     @Test func packageIconsAreCountBoundedCountedAndReleased() {
         let system = OpenWithWorkspace(apps: [], defaultApp: nil)
         let queries = WorkspaceQueries(work: BackgroundWork(label: "test.file-icons"), mainWork: .still(), system: system,

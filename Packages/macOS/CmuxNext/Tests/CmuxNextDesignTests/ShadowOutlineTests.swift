@@ -2,7 +2,7 @@
 import QuartzCore
 import Testing
 
-/// Every shadowed layer casts from a `shadowPath` (chrome-parity p03-rendering-108, MQ-shadow-path): a
+/// Every shadowed layer casts from a `shadowPath` (MQ-shadow-path): a
 /// shadow with no path makes Core Animation render the layer offscreen to find its alpha. These pin the
 /// outline helpers: the path is the layer's rounded rect, it is rebuilt only when its inputs change, a
 /// border's band leaves its inside clear, the strength matches the content shadow it replaces, and a

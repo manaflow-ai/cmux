@@ -122,6 +122,9 @@ pub(crate) struct HolderService {
     /// The standalone holder failed to start once: this daemon starts the
     /// holder built into its host executable from then on.
     standalone_failed: AtomicBool,
+    /// The `pty-writer` that writes every terminal's input on its custody
+    /// master (`crate::pty_write`), started with the first terminal.
+    pty_writer: OnceLock<crate::pty_write::PtyWriter>,
 }
 
 impl HolderService {
@@ -147,9 +150,28 @@ impl HolderService {
             listed: Mutex::default(),
             superseded: AtomicBool::new(false),
             standalone_failed: AtomicBool::new(false),
+            pty_writer: OnceLock::new(),
         });
         services.insert(host_root.to_path_buf(), service.clone());
         Ok(service)
+    }
+
+    /// A queue on the service's `pty-writer` for the custody master
+    /// `master` (a dup the writer owns): input to the terminal never waits
+    /// for its program. The writer starts on first use; a start that loses a
+    /// race ends with its handle, as no queue is on it.
+    pub(super) fn input_queue(
+        &self,
+        master: OwnedFd,
+    ) -> io::Result<crate::pty_write::PtyInputQueue> {
+        let writer = match self.pty_writer.get() {
+            Some(writer) => writer,
+            None => {
+                let started = crate::pty_write::PtyWriter::start()?;
+                self.pty_writer.get_or_init(|| started)
+            }
+        };
+        writer.register(master)
     }
 
     /// Reap every holder this service starts from now on with `reaper` (the
@@ -436,6 +458,7 @@ impl HolderService {
             sink,
             service: self.clone(),
             replay: Mutex::new(None),
+            input: OnceLock::new(),
         });
         {
             let mut live = self.live.lock().recover_poison();
@@ -550,8 +573,9 @@ impl HolderService {
                 }
                 // The holder died: start a new one and hand it every master.
                 service.note_link_down(CrashKeyLink::Lost);
-                let _ = supervised::spawn(
+                let _ = supervised::spawn_at(
                     "holder-restart",
+                    cmux_threads::ThreadQos::UserInitiated,
                     Fatal,
                     ShutdownBehavior::Continue,
                     move || {
@@ -726,9 +750,15 @@ pub(crate) fn prepare_in_background() {
     if !super::enabled() {
         return;
     }
-    let _ = supervised::spawn("cmux-holder-exe", Fatal, ShutdownBehavior::Continue, || {
-        let _ = standalone_holder();
-    });
+    let _ = supervised::spawn_at(
+        "cmux-holder-exe",
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        || {
+            let _ = standalone_holder();
+        },
+    );
 }
 
 /// `/tmp/cmux-hd-<uid>/<hash of the host root>.sock`: short enough for
@@ -860,6 +890,7 @@ pub(crate) mod tests {
             listed: Mutex::default(),
             superseded: AtomicBool::new(false),
             standalone_failed: AtomicBool::new(false),
+            pty_writer: OnceLock::new(),
         })
     }
 
@@ -979,7 +1010,7 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// p02-threads-237: a holder the daemon starts is reaped by the mux's
+    /// A holder the daemon starts is reaped by the mux's
     /// one child reaper once it exits, with no `holder-reaper` thread.
     #[test]
     fn a_ready_holder_is_reaped_by_the_mux_reaper_with_no_thread_of_its_own() {

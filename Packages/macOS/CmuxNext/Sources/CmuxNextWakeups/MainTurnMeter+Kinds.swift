@@ -1,5 +1,5 @@
 extension MainTurnMeter {
-    /// What a turn ran for the budgeted scheduler (p06-scheduler-201): its display tick, or the
+    /// What a turn ran for the budgeted scheduler: its display tick, or the
     /// after-commit placement's budget turn. One turn may be both (a nested loop's turn, or a tick
     /// that came in the budget turn's run-loop pass).
     public enum TurnKind: UInt8, Sendable {

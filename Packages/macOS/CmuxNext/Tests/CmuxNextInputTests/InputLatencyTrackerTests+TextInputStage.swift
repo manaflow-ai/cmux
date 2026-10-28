@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextInputCore
 import Testing
 
-/// TextInputStage (p04-input-101): a key's input method call is stamped between its dispatch start and end, once
+/// TextInputStage: a key's input method call is stamped between its dispatch start and end, once
 /// when calls nest, only for the key down in dispatch (never for another key interpreted during its dispatch), and
 /// ``InputLatencyDispatch`` hands it each key press's slot.
 extension InputLatencyTrackerTests {

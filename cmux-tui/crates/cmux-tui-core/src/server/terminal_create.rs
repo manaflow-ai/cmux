@@ -312,7 +312,12 @@ impl ConnectionSurfaceScheduler {
     fn finish_creation(&self) {
         let mut state = self.state.lock().recover_poison();
         state.active_creations -= 1;
+        let hooks = state.take_settled_hooks();
         self.changed.notify_all();
+        drop(state);
+        for hook in hooks {
+            hook();
+        }
     }
 }
 

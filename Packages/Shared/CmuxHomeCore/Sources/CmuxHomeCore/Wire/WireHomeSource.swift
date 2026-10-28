@@ -243,8 +243,10 @@ public actor WireHomeSource: HomeSource {
                                      displayName: info.displayName.isEmpty ? displayName : info.displayName)
                 } catch {
                     setConnection(.offline(since: Date()))
-                    // A bounded, cancellable retry delay (the server is down or Tailscale is off).
-                    do { try await clock.sleep(for: reconnectDelay(attempt: attempt)) } catch { return }
+                    let delay = reconnectDelay(attempt: attempt)
+                    // wakeup-allow: backoff 1 s doubling to 30 s while the server is down or Tailscale is off;
+                    // `shutdown` cancels it
+                    do { try await clock.sleep(for: delay, tolerance: HomeWakeLeeway(delay: delay).tolerance) } catch { return }
                     attempt += 1
                 }
             }

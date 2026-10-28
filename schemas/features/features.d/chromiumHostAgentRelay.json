@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumHostAgentRelay",
+  "owner": "PL-cef-helper",
+  "description": "In host mode, the Chromium Host opens its own link to the browser host and relays agent DevTools traffic for agent-ready tabs, so agents never add work to the cmux main thread.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["chromium-host", "crash-survival"],
+  "sticky": false,
+  "runtimeMutable": false
+}

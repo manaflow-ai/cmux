@@ -55,7 +55,7 @@ for _path in (str(HERE), str(SCRIPTS), str(SDK)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-import facets_v0  # noqa: E402 - sibling (p15-oracle-006)
+import facets_v0  # noqa: E402 - sibling
 from case_values import MISSING, decode_pointer, predicate_holds, resolve_pointer  # noqa: E402 - shared with driver_daemon.py
 
 FACETS = (

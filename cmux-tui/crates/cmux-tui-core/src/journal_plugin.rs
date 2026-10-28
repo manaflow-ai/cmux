@@ -433,8 +433,9 @@ impl JournalPluginRuntime {
             }
             state.started = true;
             let shared = Arc::clone(&self.state);
-            let handle = supervised::spawn(
+            let handle = supervised::spawn_at(
                 "cmux-journal-plugin",
+                cmux_threads::ThreadQos::Utility,
                 Fatal,
                 ShutdownBehavior::Continue,
                 move || supervise(shared),

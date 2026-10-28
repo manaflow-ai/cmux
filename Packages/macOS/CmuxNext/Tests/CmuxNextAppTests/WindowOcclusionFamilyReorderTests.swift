@@ -4,7 +4,7 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import Testing
 
-/// p03-rendering-097: an order that changes neither the key nor the main window (`.bringForward` while
+/// An order that changes neither the key nor the main window (`.bringForward` while
 /// the app is inactive, `.orderBack`, a restack) posts no notification the families' checker observes.
 /// The window manager's order report (`WindowManager.windowDidOrder`) starts its pass, so the window
 /// now in front is seen again and the one now behind is occluded.

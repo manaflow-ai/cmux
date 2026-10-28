@@ -13,7 +13,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// p06-scheduler-346 (rule 9): one case per migrated owner class of the remaining targets' sweep.
+/// One case per migrated owner class of the remaining targets' sweep.
 ///
 /// - The cookie consent panel's answer is one outcome the import awaits off main: a panel that goes away without an
 ///   answer denies, and the first answer is the only one.

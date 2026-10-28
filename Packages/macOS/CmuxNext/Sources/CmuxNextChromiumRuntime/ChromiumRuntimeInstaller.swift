@@ -29,6 +29,14 @@ public import CmuxNextWakeups
 /// let state = await installer.run(.user)
 /// ```
 public actor ChromiumRuntimeInstaller {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.chromium-runtime.installer`): its staging-file calls block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.chromium-runtime.installer
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.chromium-runtime.installer", qos: .utility)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     /// How urgently the pack is wanted.
     public enum Priority: Int, Sendable, Comparable {
         /// A prefetch after launch: waits for a network that is neither

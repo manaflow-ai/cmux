@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// The one view every hosted Chromium page shows in (p01-process-040): in-process layer hosting
+/// The one view every hosted Chromium page shows in: in-process layer hosting
 /// and the Chromium host app use the same type; only who takes the page's input differs.
 @MainActor
 @Suite struct ChromiumHostPageViewTests {
@@ -327,7 +327,7 @@ import Testing
         return try #require(NSEvent(cgEvent: cg))
     }
 
-    /// p04-input-063: the page view sends the event's phases, precise flag and
+    /// The page view sends the event's phases, precise flag and
     /// scrolling deltas. Before, it sent the integer point deltas only.
     @Test func aWheelCarriesItsPhasesAndPreciseDeltas() throws {
         let page = makePage(.view)

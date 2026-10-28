@@ -10,7 +10,7 @@
 /// which stops while the Mac sleeps). Time after the last input of an open span is not yet known
 /// to be active: a read counts the span up to that input, and the rest counts once the next input
 /// or the resign-active notice arrives within the timeout. A stamp older than the open span's start
-/// counts nothing. `stability.active_seconds` (p09-observability-109, not built yet) is to count with
+/// counts nothing. `stability.active_seconds` (not built yet) is to count with
 /// this type, so the two denominators agree.
 ///
 /// ```swift

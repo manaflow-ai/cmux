@@ -42,7 +42,7 @@
   "clients": {
    "id": 2,
    "description": "Connected clients and their focus.",
-   "next_ordinal": 6
+   "next_ordinal": 7
   },
   "terminal-io": {
    "id": 3,
@@ -2362,6 +2362,115 @@
      "nullable": false,
      "default": [],
      "since": 12
+    },
+    "startup_marks": {
+     "type": {
+      "kind": "ref",
+      "name": "DaemonStartupMarks"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12,
+     "capability": "startup-marks-v1",
+     "constraints": [
+      "The serving daemon's startup timeline: each step's first time, measured from its main; null when no daemon serves the mux. Only with identify {startup_marks: true}."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "DaemonStartupMarks": {
+   "kind": "object",
+   "fields": {
+    "main_start_unix_us": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Unix microseconds (wall clock) when the daemon binary's main began: the origin of every step below."
+    },
+    "config_loaded": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The startup configuration was read."
+    },
+    "owner_prepared": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The owner's process setup ran."
+    },
+    "socket_bound": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The session socket is bound and answers as a restoring owner."
+    },
+    "mux_restored": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The registry is open and its terminals adopted."
+    },
+    "owner_event_loop": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The local owner's event loop runs."
+    },
+    "websocket_ready": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The WebSocket control listener step is done (bound, or none asked)."
+    },
+    "launch_snapshot_writer_started": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The launch snapshot writer step is done."
+    },
+    "lifecycle_ready": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. Every owner the lifecycle commands need is installed."
+    },
+    "first_identify_served": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "description": "Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The first identify answered once the lifecycle is ready, so it is the last step."
     }
    },
    "additional_properties": false
@@ -12942,6 +13051,26 @@
    },
    "additional_properties": false
   },
+  "BridgeHelloResult": {
+   "kind": "object",
+   "fields": {
+    "features": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The features the daemon took: bridge-frames-v1 when the connection may get frames."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
   "ClientHelloResult": {
    "kind": "object",
    "fields": {
@@ -13419,6 +13548,19 @@
       "since": 12,
       "constraints": [
        "Adds api_revision, min_api_revision, crate_version, install, update_command and bulk_frame_max to the reply. Off by default so strict older SDK decoders keep reading the reply."
+      ]
+     },
+     "startup_marks": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "startup-marks-v1",
+      "constraints": [
+       "Adds startup_marks to the reply. Off by default so strict older SDK decoders keep reading the reply."
       ]
      }
     },
@@ -36221,6 +36363,47 @@
    "method_id": 5125,
    "priority": "control",
    "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "bridge-hello": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "bridge-hello-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "features": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "At most 16 names of at most 128 characters (bridge_hello.bad_request {field: features} otherwise). bridge-frames-v1: the bridge reads each 0xFF message by its frame header; unknown names are ignored."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "BridgeHelloResult"
+   },
+   "stream": null,
+   "constraints": [
+    "A byte bridge's first line only (bridge_hello.window_closed otherwise); the far client's client-hello window stays open behind it.",
+    "Local (Unix) connections only (bridge_hello.local_only).",
+    "With bridge-frames-v1, a connection whose kernel peer is of the daemon's user and has no role may be granted ipc-frames-v2 and attach-frames-v1, never terminal-output-ring-v1."
+   ],
+   "method_id": 518,
+   "priority": "control",
+   "durability": "memory",
    "clients": [
     "sdk"
    ]

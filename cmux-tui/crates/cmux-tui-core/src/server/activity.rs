@@ -97,9 +97,15 @@ impl ActivityStream {
             if !state.worker {
                 state.worker = true;
                 let shared = Arc::clone(&self.shared);
-                supervised::spawn("cmux-activity", Fatal, ShutdownBehavior::Continue, move || {
-                    run_worker(shared);
-                })?;
+                supervised::spawn_at(
+                    "cmux-activity",
+                    cmux_threads::ThreadQos::Utility,
+                    Fatal,
+                    ShutdownBehavior::Continue,
+                    move || {
+                        run_worker(shared);
+                    },
+                )?;
             }
             (state.user_input_ms, state.agent_action_ms)
         };

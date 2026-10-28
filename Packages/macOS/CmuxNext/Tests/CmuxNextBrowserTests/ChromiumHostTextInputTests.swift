@@ -4,7 +4,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// The page's NSTextInputClient in host mode (p01-process-043): one key's input method calls
+/// The page's NSTextInputClient in host mode: one key's input method calls
 /// become Chrome's key frames and ops in Chrome's order, and every question is answered from the
 /// state the host pushed, never by asking it.
 @MainActor

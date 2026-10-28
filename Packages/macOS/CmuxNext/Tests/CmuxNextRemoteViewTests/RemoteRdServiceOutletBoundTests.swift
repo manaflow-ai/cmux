@@ -5,8 +5,8 @@ import Testing
 
 /// The session service's bodies wait for their consumer under the core's own message bound: each
 /// costs its JSON bytes plus 64, and once the consumer holds the bound untaken the outlet is backed
-/// up, so the transport stops taking the core's messages until the consumer took half
-/// (p07-memory-098). The stream was unbounded, so a stalled consumer grew it with every body the host
+/// up, so the transport stops taking the core's messages until the consumer took half.
+/// The stream was unbounded, so a stalled consumer grew it with every body the host
 /// sent; no body is ever dropped and the session never ends for it.
 @Suite struct RemoteRdServiceOutletBoundTests {
     /// A producer offers 100 MB of bodies as fast as the outlet lets it, to a consumer that takes

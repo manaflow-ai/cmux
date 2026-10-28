@@ -78,7 +78,7 @@ def recorded_trace():
                     "ScheduleNextUpdate")] * 5
     events += [task(BROWSER, 1, "chrome/browser/component_updater/crl_set_component_installer.cc", "ComponentReady")] * 3
     events += [task(BROWSER, 1, "content/browser/devtools/devtools_session.cc", "DispatchProtocolMessage")] * 9
-    # Out: the probe's tracing service and the extension renderer (p14-energy-108).
+    # Out: the probe's tracing service and the extension renderer.
     events += [task(TRACING, 11, "mojo/public/cpp/system/simple_watcher.cc", "Notify")] * 10
     events += [task(EXTENSION, 12, "third_party/blink/renderer/core/timing/dom_timer.cc", "Fired")] * 8
     events.append({"ph": "X", "pid": RENDERER, "tid": 4, "ts": 0, "dur": 1, "name": "ProxyMain::BeginMainFrame", "args": {}})

@@ -7,7 +7,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// A pane's launch image holds startup only while the pane is in its window (p08-startup-016): a
+/// A pane's launch image holds startup only while the pane is in its window: a
 /// pane that leaves its window or is torn down with its image up ends its share with `noVisiblePane`,
 /// so startup completes then, not at the 10 s failsafe.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct PaneLaunchImageHoldTests {

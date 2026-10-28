@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// p13-webui-063: the cmux page tabs of one pane share one Chromium window (`CEFEngine.pagesPane(window:pane:)`), as
+/// The cmux page tabs of one pane share one Chromium window (`CEFEngine.pagesPane(window:pane:)`), as
 /// one Chrome `Browser` holds its whole tab strip (chrome/browser/ui/browser.h). Five page tabs of a pane are one host
 /// and one window; a tab moved to another pane moves into that pane's window with its document
 /// (`cmux_tab_move_to_window`, the popup move path), which gives two; moving it back empties the second host, which

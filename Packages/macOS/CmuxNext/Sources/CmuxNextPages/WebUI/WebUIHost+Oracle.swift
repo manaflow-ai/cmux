@@ -1,7 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
 
-/// Where a page shows: the tab and pane whose view holds it (the oracle's `webviews` facet, p15-oracle-215).
+/// Where a page shows: the tab and pane whose view holds it (the oracle's `webviews` facet).
 public struct OraclePagePlace: Sendable, Hashable {
     public let tab: String
     public let pane: String
@@ -12,7 +12,7 @@ public struct OraclePagePlace: Sendable, Hashable {
     }
 }
 
-/// The page host's half of the oracle's `webviews` facet (p15-oracle-215): which pages a person can reach, each
+/// The page host's half of the oracle's `webviews` facet: which pages a person can reach, each
 /// one's answer to `cmux.page.oracle.state`, and the change signal a `debug.oracle.wait_for` on the facet hears.
 extension WebUIHost {
     /// Signals ``oracleChanges`` when `page` posts ``PageRouter/oracleStateChangedOp`` or its document starts or

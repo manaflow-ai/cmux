@@ -4,8 +4,8 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// Host mode against a spy remote dylib, for CEFRuntimeHostRepliesTests and its pane host cases
-/// (task p01-process-021): a real `CEFHostStart` attached to
+/// Host mode against a spy remote dylib, for CEFRuntimeHostRepliesTests and its pane host cases:
+/// a real `CEFHostStart` attached to
 /// ``HostRepliesSpy``, whose REPLY sink the tests call as the host's frames would.
 @MainActor enum HostRepliesHarness {
     static func storage() -> CEFProfileStorage {

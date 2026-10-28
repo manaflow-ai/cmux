@@ -31,7 +31,7 @@ public import Foundation
     ///   - center: Where the notifications are posted.
     ///   - observerLedger: For a system center (NSWorkspace's, the distributed one), whose wakes are process wakeups:
     ///     in Debug and bench builds that ledger's arm census records each observer (one per name, under its first
-    ///     subscriber's owner and line) and its first post (startup-queue.py arms, p08-startup-085). Nil records
+    ///     subscriber's owner and line) and its first post (startup-queue.py arms). Nil records
     ///     none, as for the app's own center.
     public init(center: NotificationCenter, observerLedger: WakeupLedger? = nil) {
         fanOut = NotificationFanOut(object: nil, center: center, observerLedger: observerLedger)

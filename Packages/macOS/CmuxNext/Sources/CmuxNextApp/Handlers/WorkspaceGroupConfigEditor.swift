@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBridge
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextSidebar

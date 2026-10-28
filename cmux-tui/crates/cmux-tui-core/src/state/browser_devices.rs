@@ -21,6 +21,7 @@
 
 use std::sync::OnceLock;
 
+use crate::panic_free::JsonFields;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
 
@@ -59,6 +60,10 @@ struct BuiltIn {
 fn built_in() -> &'static BuiltIn {
     static LIST: OnceLock<BuiltIn> = OnceLock::new();
     LIST.get_or_init(|| {
+        #[allow(
+            clippy::expect_used,
+            reason = "INVARIANT: BUILT_IN is emulated-devices.json compiled in (include_str!); the device tests parse it"
+        )]
         let file: Value = serde_json::from_str(BUILT_IN).expect("emulated-devices.json parses");
         let chrome = file.get("chrome").cloned().unwrap_or(Value::Null);
         let chromium =
@@ -161,7 +166,7 @@ pub(crate) const GROUPS: [&str; 6] =
 /// in `devices`, so `import-chrome-devices.py` can rewrite them.
 fn annotate(device: &Value, notes: Option<&Map<String, Value>>) -> Value {
     let mut device = device.clone();
-    let title = device["title"].as_str().unwrap_or_default().to_string();
+    let title = device.field("title").as_str().unwrap_or_default().to_string();
     if let (Some(extra), Some(object)) = (
         notes.and_then(|notes| notes.get(&title)).and_then(Value::as_object),
         device.as_object_mut(),
@@ -214,7 +219,7 @@ pub(crate) fn add_custom(transaction: &Transaction<'_>, device: &Value) -> anyho
         text.len() <= MAX_DEVICE_BYTES,
         "bad request: a device is at most {MAX_DEVICE_BYTES} bytes of JSON"
     );
-    let title = device["title"].as_str().unwrap_or_default().to_string();
+    let title = device.field("title").as_str().unwrap_or_default().to_string();
     let exists = transaction
         .query_row("SELECT 1 FROM browser_custom_devices WHERE title = ?1", [&title], |_| Ok(()))
         .optional()?
@@ -695,7 +700,7 @@ pub(crate) fn resolve(stored: &str) -> Option<Value> {
     }
     let mut agent = json!({"userAgent": user_agent});
     if let Some(metadata) = &metadata {
-        agent["userAgentMetadata"] = metadata.clone();
+        agent.insert("userAgentMetadata", metadata.clone());
     }
     let touch_call = if touch {
         json!({"enabled": true, "maxTouchPoints": 1})

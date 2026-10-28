@@ -13,10 +13,13 @@
 //! beside `bin/cmux`: the daemon runs the sibling of its own executable
 //! (scripts/cmux-next/bundle-cmux-tui.sh, check-bundled-browser-host.sh).
 
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 #[cfg(unix)]
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    // The host's black box first (p09-observability-095), in the app's trace
+    // The host's black box first, in the app's trace
     // folder; the short-lived client commands (eval, list, ...) keep none.
     if args.first().is_some_and(|command| command == "serve") {
         drop(cmux_trace::init_blackbox(cmux_trace::process_dir(), cmux_trace::Role::BrowserHost));
@@ -242,15 +245,17 @@ mod unix {
         let slot = engines.provider_slot();
         let bundle: Arc<str> = agent_bundle().into();
         // supervise-allow: the provider listener; its loop only accepts, checks the peer and starts one thread per handshake (a handshake's panic stays on that thread), so it ends only when the listener fails, which leaves the host without app tabs until the daemon restarts it.
-        std::thread::Builder::new()
-            .name("cmux-browser-host-providers".into())
-            .spawn(move || {
+        cmux_threads::spawn(
+            "cmux-browser-host-providers",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 let secret = cmux_browser_host::provider::ProviderSecret::new(secret);
                 let _ = cmux_browser_host::server::serve_providers_notifying(
                     listener, secret, slot, bundle, on_change,
                 );
-            })
-            .map_err(|e| e.to_string())?;
+            },
+        )
+        .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -370,13 +375,16 @@ mod unix {
         }
         if let Some(idle) = idle {
             // supervise-allow: the idle stop; a panic ends the idle stop only, and the host keeps serving until its daemon stops it, as when this thread cannot start.
-            let spawned =
-                std::thread::Builder::new().name("supervisor-idle".into()).spawn(move || {
+            let spawned = cmux_threads::spawn(
+                "supervisor-idle",
+                cmux_threads::ThreadQos::Utility,
+                move || {
                     if idle.wait() {
                         // crash-allow: the idle stop; nothing to save (no session, no provider), and the daemon starts the host again on the next agent connect.
                         std::process::exit(0);
                     }
-                });
+                },
+            );
             if spawned.is_err() {
                 eprintln!("cmux-browser-host: cannot start the idle stop; running without it");
             }
@@ -402,16 +410,17 @@ mod unix {
         }
         drop(stdout);
         // supervise-allow: the stdin watch, Fatal by hand: the host exits at the end of stdin or at a panic in the watch, so it never outlives its daemon.
-        let spawned = std::thread::Builder::new().name("supervisor-stdin".into()).spawn(|| {
-            let _ = std::panic::catch_unwind(|| {
-                let mut sink = [0_u8; 256];
-                let mut stdin = std::io::stdin().lock();
-                // Bytes from the daemon mean nothing; only the end does.
-                while matches!(stdin.read(&mut sink), Ok(n) if n > 0) {}
+        let spawned =
+            cmux_threads::spawn("supervisor-stdin", cmux_threads::ThreadQos::Utility, || {
+                let _ = std::panic::catch_unwind(|| {
+                    let mut sink = [0_u8; 256];
+                    let mut stdin = std::io::stdin().lock();
+                    // Bytes from the daemon mean nothing; only the end does.
+                    while matches!(stdin.read(&mut sink), Ok(n) if n > 0) {}
+                });
+                // crash-allow: the end of stdin means the daemon stopped or died; the host stops with it.
+                std::process::exit(0);
             });
-            // crash-allow: the end of stdin means the daemon stopped or died; the host stops with it.
-            std::process::exit(0);
-        });
         if spawned.is_err() {
             eprintln!("cmux-browser-host: cannot watch stdin; stopping");
             // crash-allow: without the stdin watch a supervised host could outlive its daemon.
@@ -470,7 +479,7 @@ mod unix {
                 return Err(());
             }
             // A bounded connect retry while the host starts, not a synchronization.
-            std::thread::sleep(Duration::from_millis(50));
+            cmux_threads::checked::sync::sleep(Duration::from_millis(50));
         }
     }
 
@@ -513,10 +522,15 @@ mod unix {
                 0
             }
             Err(error) => {
-                eprintln!("{}", error["message"].as_str().unwrap_or("error"));
+                eprintln!("{}", error_message(&error));
                 1
             }
         }
+    }
+
+    /// The `message` of a host error reply; "error" when it has none.
+    fn error_message(error: &Value) -> &str {
+        error.get("message").and_then(Value::as_str).unwrap_or("error")
     }
 
     /// A request whose answer is not printed (cleanup).
@@ -567,20 +581,22 @@ mod unix {
                 "terminal": caller_terminal(),
             }),
         ) {
-            eprintln!("{}", error["message"].as_str().unwrap_or("error"));
+            eprintln!("{}", error_message(&error));
             return 1;
         }
-        let mut params = json!({"session": options.session, "code": code});
+        let mut params = serde_json::Map::new();
+        params.insert("session".to_owned(), json!(options.session));
+        params.insert("code".to_owned(), json!(code));
         if let Some(max) = options.max_output {
-            params["maxOutput"] = json!(max);
+            params.insert("maxOutput".to_owned(), json!(max));
         }
         if let Some(ms) = options.timeout_ms {
-            params["timeoutMs"] = json!(ms);
+            params.insert("timeoutMs".to_owned(), json!(ms));
         }
-        match request(&mut stream, 2, "browser.repl.eval", params) {
+        match request(&mut stream, 2, "browser.repl.eval", Value::Object(params)) {
             Ok(result) => {
-                print!("{}", result["output"].as_str().unwrap_or(""));
-                match result["error"].as_str() {
+                print!("{}", result.get("output").and_then(Value::as_str).unwrap_or(""));
+                match result.get("error").and_then(Value::as_str) {
                     Some(error) => {
                         eprintln!("{error}");
                         1
@@ -589,7 +605,7 @@ mod unix {
                 }
             }
             Err(error) => {
-                eprintln!("{}", error["message"].as_str().unwrap_or("error"));
+                eprintln!("{}", error_message(&error));
                 1
             }
         }

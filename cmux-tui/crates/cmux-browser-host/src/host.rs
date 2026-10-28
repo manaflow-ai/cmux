@@ -374,14 +374,16 @@ impl Host {
         let (tx, rx) = std::sync::mpsc::channel::<DriverEvent>();
         let events_vm = vm.events();
         // supervise-allow: one session's event forwarder, ending when the session drops its sender; it only queues into that session's VM, and a panic ends that session's events only.
-        std::thread::Builder::new()
-            .name(format!("cmux-browser-host-events-{name}"))
-            .spawn(move || {
+        cmux_threads::spawn(
+            format!("cmux-browser-host-events-{name}"),
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 for event in rx {
                     events_vm.event(&event.name, event.payload);
                 }
-            })
-            .map_err(|e| DriverError::closed(format!("could not start the session: {e}")))?;
+            },
+        )
+        .map_err(|e| DriverError::closed(format!("could not start the session: {e}")))?;
         *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some((gate.clone(), tx));
         let resolved = if engine == "auto" { "headless".to_owned() } else { engine };
         let idle = Idle::new(self.idle_timeout);
@@ -533,7 +535,9 @@ fn watch_idle(
     changed: ChangedSink,
 ) {
     // supervise-allow: one session's idle timer holding a weak map; a panic keeps that session until browser.repl.close or host exit, and the session map lock is poison-tolerant.
-    let spawned = std::thread::Builder::new().name(format!("cmux-browser-host-idle-{name}")).spawn(
+    let spawned = cmux_threads::spawn(
+        format!("cmux-browser-host-idle-{name}"),
+        cmux_threads::ThreadQos::Utility,
         move || {
             while idle.wait_expired() {
                 let Some(sessions) = sessions.upgrade() else { return };

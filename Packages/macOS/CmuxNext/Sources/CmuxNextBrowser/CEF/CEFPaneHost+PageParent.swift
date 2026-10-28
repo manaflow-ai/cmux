@@ -46,7 +46,7 @@ extension CEFPaneHost {
         // What the person sees of the page goes to the host (``postPageVisibility(browser:)``).
         page.onPageVisibility = { [weak self] _ in
             self?.postPageVisibility()
-            self?.hostPageShownChanged()  // the busy deadline runs only while a hosted page shows (p01-process-084)
+            self?.hostPageShownChanged()  // the busy deadline runs only while a hosted page shows
         }
         // The page's display follows the view's (task 221): the host places the page window there.
         // With no tab shown yet nothing goes out; ``showBrowser(of:activate:)`` places it then.
@@ -112,7 +112,7 @@ extension CEFPaneHost {
         runtime.whenAnswered(sent, label: "page context") { [weak self, weak page] id in
             guard let self else { return }
             // A context means the host detached the page window (it refuses hosting it cannot
-            // detach): the page's focus is embedder-active from here (p01-process-046).
+            // detach): the page's focus is embedder-active from here.
             if let id, id != 0 { runtime.tabsByBrowser[browser]?.hostDetachedPage(browser: browser) }
             guard let page, hostedPageView === page, window == shown else { return }
             if let id, id != 0, page.show(contextID: id) { return }
@@ -134,7 +134,7 @@ extension CEFPaneHost {
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its text input.
 extension CEFPaneHost {
     /// Host mode: sends the page view's input method op to the host's IME exports for the shown
-    /// tab's browser, on the control channel after the keys written before it (p04-input-064), as
+    /// tab's browser, on the control channel after the keys written before it, as
     /// Chrome's page view calls its RenderWidgetHostNSViewHost (render_widget_host_ns_view.mojom).
     /// Nothing goes with no browser shown, or when the host's shim lacks an IME op
     /// (``CEFShimTextInputOps/isComplete``), as no widget shows without every widget op

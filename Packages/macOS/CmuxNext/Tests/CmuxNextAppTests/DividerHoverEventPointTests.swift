@@ -3,8 +3,8 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// A divider handle's enter or exit hovers from that event's own point, not from the live cursor
-/// (p04-input-095): the enter below lands on the handle wherever the real mouse rests, and the
+/// A divider handle's enter or exit hovers from that event's own point, not from the live cursor:
+/// the enter below lands on the handle wherever the real mouse rests, and the
 /// exit off it clears the hover.
 @MainActor @Suite(.serialized)
 struct DividerHoverEventPointTests {

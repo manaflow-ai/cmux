@@ -88,24 +88,25 @@ impl ActionWatch {
 /// the notification, the shared host tells every client of that app).
 pub(super) fn spawn(global: GlobalArgs, changed: impl Fn() + Send + 'static) {
     // supervise-allow: this MCP process's catalog watcher; a panic ends tool-list change notices only, and the tools still answer.
-    let started = std::thread::Builder::new().name("cmux-mcp-actions".into()).spawn(move || {
-        let params = json!({"names": [CATALOG_CHANGED], "include_heartbeats": false});
-        let mut watch = ActionWatch::default();
-        let mut delay = FIRST_RETRY;
-        loop {
-            let _ = super::transport::watch_app_events(&global, params.clone(), |frame| {
-                if watch.frame(frame) {
-                    changed();
+    let started =
+        cmux_threads::spawn("cmux-mcp-actions", cmux_threads::ThreadQos::Utility, move || {
+            let params = json!({"names": [CATALOG_CHANGED], "include_heartbeats": false});
+            let mut watch = ActionWatch::default();
+            let mut delay = FIRST_RETRY;
+            loop {
+                let _ = super::transport::watch_app_events(&global, params.clone(), |frame| {
+                    if watch.frame(frame) {
+                        changed();
+                    }
+                });
+                if watch.lost() {
+                    delay = FIRST_RETRY;
                 }
-            });
-            if watch.lost() {
-                delay = FIRST_RETRY;
+                // Backoff after a failure or a closed stream.
+                cmux_blocking::thread::sleep(delay);
+                delay = (delay * 2).min(MAX_RETRY);
             }
-            // Backoff after a failure or a closed stream.
-            std::thread::sleep(delay);
-            delay = (delay * 2).min(MAX_RETRY);
-        }
-    });
+        });
     if let Err(error) = started {
         eprintln!("cmux mcp: cannot watch the app's actions: {error}");
     }

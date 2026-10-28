@@ -31,6 +31,7 @@ mod place;
 mod pull;
 mod remote;
 
+use crate::json_fields::JsonFields;
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read as _;
 use std::os::unix::fs::OpenOptionsExt as _;
@@ -107,7 +108,7 @@ pub(super) fn run(args: &[String]) -> i32 {
     match push(&socket, &local, &remote) {
         Ok(summary) => {
             let mut line = summary.json();
-            line["ok"] = json!(true);
+            line.insert("ok", json!(true));
             println!("{line}");
             0
         }
@@ -183,7 +184,7 @@ pub(super) fn remote_kind(socket: &Path, path: &str) -> anyhow::Result<Option<St
 /// `target` on the machine, making its folder.
 pub(super) fn copy_file(socket: &Path, local: &Path, target: &str) -> anyhow::Result<()> {
     use std::os::unix::fs::PermissionsExt as _;
-    let meta = std::fs::symlink_metadata(local)
+    let meta = cmux_blocking::fs::symlink_metadata(local)
         .with_context(|| format!("cannot read {}", local.display()))?;
     if !meta.file_type().is_file() {
         anyhow::bail!("{} is not a regular file", local.display());
@@ -284,7 +285,7 @@ pub(super) fn git_top(folder: &Path, ceiling: &std::ffi::OsStr) -> Option<PathBu
         .output()
         .ok()?;
     let top = String::from_utf8(output.stdout).ok().filter(|_| output.status.success())?;
-    std::fs::canonicalize(top.trim()).ok()
+    cmux_blocking::fs::canonicalize(top.trim()).ok()
 }
 
 /// Whether `name` reads as `.git` on any disk ([`names::is_dotgit`]).
@@ -313,8 +314,8 @@ fn push_inner(
     keep: &dyn Fn(&str, bool) -> bool,
     files_only: bool,
 ) -> anyhow::Result<Summary> {
-    let local =
-        std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
+    let local = cmux_blocking::fs::canonicalize(local)
+        .with_context(|| format!("cannot open {}", local.display()))?;
     let mut set = local::collect(&local)?;
     let before = set.files.len();
     let in_git = set.git;
@@ -419,11 +420,11 @@ impl Listings {
     /// a file.
     fn revision(&mut self, remote: &mut Remote, target: &str) -> anyhow::Result<Option<String>> {
         let (parent, name) = remote::split(target)?;
-        if !self.0.contains_key(parent) {
-            let listing = remote.list(parent)?;
-            self.0.insert(parent.to_string(), listing);
-        }
-        Ok(self.0[parent]
+        let listing = match self.0.entry(parent.to_string()) {
+            std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::btree_map::Entry::Vacant(entry) => entry.insert(remote.list(parent)?),
+        };
+        Ok(listing
             .as_ref()
             .and_then(|entries| entries.get(name))
             .filter(|entry| entry.kind == "file")
@@ -440,11 +441,13 @@ impl Listings {
 fn open(file: &LocalFile) -> anyhow::Result<Box<dyn std::io::Read>> {
     Ok(match &file.source {
         Source::File(path) => {
-            let opened = std::fs::OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-                .open(path)
-                .with_context(|| format!("cannot read {}", path.display()))?;
+            let opened = crate::blocking::fs::open_with(
+                std::fs::OpenOptions::new()
+                    .read(true)
+                    .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK),
+                path,
+            )
+            .with_context(|| format!("cannot read {}", path.display()))?;
             if !opened.metadata()?.is_file() {
                 anyhow::bail!("{} is no longer a regular file", path.display());
             }
@@ -456,7 +459,7 @@ fn open(file: &LocalFile) -> anyhow::Result<Box<dyn std::io::Read>> {
 
 fn size(file: &LocalFile) -> anyhow::Result<u64> {
     Ok(match &file.source {
-        Source::File(path) => std::fs::metadata(path)?.len(),
+        Source::File(path) => cmux_blocking::fs::metadata(path)?.len(),
         Source::Bytes(bytes) => bytes.len() as u64,
     })
 }
@@ -470,7 +473,7 @@ fn hash(file: &LocalFile) -> anyhow::Result<String> {
         if read == 0 {
             break;
         }
-        hasher.update(&buffer[..read]);
+        hasher.update(crate::panic_free::reported_prefix(&buffer, read)?);
     }
     Ok(hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
 }

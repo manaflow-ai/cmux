@@ -8,7 +8,7 @@ import CmuxNextOracle
 import CmuxNextSettings
 import Testing
 
-/// The oracle's focus facet (p15-oracle-034) is `InputObservationBuilder.observe` in the snapshot
+/// The oracle's focus facet is `InputObservationBuilder.observe` in the snapshot
 /// schema's form: public window ids, the model next to AppKit, Ghostty and the layout per window, and
 /// each window consistent exactly when no world invariant violation names it.
 /// Run: `swift test --filter OracleFocusFacetTests`.

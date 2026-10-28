@@ -1,8 +1,7 @@
 public import AppKit
 public import QuartzCore
 public import CmuxNextDesignTokens
-import CmuxNextCompat
-
+import CmuxNextCompatAppKit
 /// A spring that runs on the render server, with no main-thread work per frame
 /// (chrome-parity R2, plans/cmux-next/chrome-parity/p03-rendering.md).
 ///

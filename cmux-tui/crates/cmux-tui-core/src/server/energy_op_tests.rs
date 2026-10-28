@@ -1,4 +1,4 @@
-//! `energy.set` and `energy.status` on the wire (p14-energy-033): a round
+//! `energy.set` and `energy.status` on the wire: a round
 //! trip through the connection's frame path, the override over the daemon's
 //! own reading, one watcher call per edge and none for a repeat, who may
 //! send which line, and the override's end with the connection that set it.
@@ -280,7 +280,7 @@ fn energy_lines_are_routed_and_the_capability_is_advertised() {
     assert!(capabilities.contains(&RULE_CAPABILITY));
 }
 
-/// The daemon relays its mode to acpmux (p14-energy-034): the app's
+/// The daemon relays its mode to acpmux: the app's
 /// `energy.set` reaches a fake acpmux as `_acpmux/energy` on the agent chat
 /// watch's connection, after the mode the watch sent as it connected.
 #[cfg(unix)]

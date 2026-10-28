@@ -683,6 +683,7 @@
       "loopback-shutdown",
       "loopback-close",
       "loopback-status",
+      "bridge-hello",
       "client-hello",
       "machine-catalog-publish",
       "agent-inventory",

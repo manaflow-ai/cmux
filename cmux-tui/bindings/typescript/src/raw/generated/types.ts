@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 974986b7d253aacd825bed6d8efd6c978efd265af55140e73b402e8a32e4e3bc. */
+/* cmux-tui mux protocol 12, IR d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -364,6 +364,10 @@ export type BookmarkImportNode = {
   "url"?: string;
 };
 
+export type BridgeHelloResult = {
+  "features": Array<string>;
+};
+
 export type BrowserFrame = {
   "data": Base64;
   "height": number;
@@ -701,6 +705,29 @@ export type CopyResult = {
 
 export type CursorStyle = "block" | "underline" | "bar";
 
+export type DaemonStartupMarks = {
+  /** Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The startup configuration was read. */
+  "config_loaded"?: bigint;
+  /** Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The first identify answered once the lifecycle is ready, so it is the last step. */
+  "first_identify_served"?: bigint;
+  /** Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The launch snapshot writer step is done. */
+  "launch_snapshot_writer_started"?: bigint;
+  /** Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. Every owner the lifecycle commands need is installed. */
+  "lifecycle_ready"?: bigint;
+  /** Unix microseconds (wall clock) when the daemon binary's main began: the origin of every step below. */
+  "main_start_unix_us": bigint;
+  /** Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The registry is open and its terminals adopted. */
+  "mux_restored"?: bigint;
+  /** Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The local owner's event loop runs. */
+  "owner_event_loop"?: bigint;
+  /** Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The owner's process setup ran. */
+  "owner_prepared"?: bigint;
+  /** Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The session socket is bound and answers as a restoring owner. */
+  "socket_bound"?: bigint;
+  /** Microseconds after main_start_unix_us (monotonic clock) at which this step was first reached; absent until reached. The WebSocket control listener step is done (bound, or none asked). */
+  "websocket_ready"?: bigint;
+};
+
 export type DeadPane = {
   "dead": true;
   "id": Id;
@@ -969,6 +996,7 @@ export type IdentifyResult = {
   "sdk_schema_digest"?: (string) | null;
   "session": string;
   "session_id"?: string;
+  "startup_marks"?: (DaemonStartupMarks) | null;
   "terminal_revision": bigint;
   "update_command"?: (string) | null;
   "version": string;

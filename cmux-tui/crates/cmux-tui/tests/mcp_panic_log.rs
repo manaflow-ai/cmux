@@ -1,4 +1,4 @@
-//! p09-observability-099: a panic in `cmux mcp serve` must never be lost.
+//! A panic in `cmux mcp serve` must never be lost.
 //! The MCP client drops the server's stderr, so the server appends each
 //! panic to `mcp-panics.jsonl` at the state root and keeps serving; the
 //! cmux-next app sends new lines to Sentry.

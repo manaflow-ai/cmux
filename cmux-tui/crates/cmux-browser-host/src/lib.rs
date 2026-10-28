@@ -10,6 +10,9 @@
 //! - WebKit tabs are driven by the Swift driver in the app; the host reaches
 //!   it through [`provider`] frames.
 
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 pub mod automation_input;
 pub mod cdp;
 pub mod cookie_backups;
@@ -44,6 +47,7 @@ pub mod idle_exit;
 pub mod lease;
 pub mod locality;
 pub mod observe;
+mod panic_free;
 #[cfg(unix)]
 pub mod panic_log;
 pub mod policy;

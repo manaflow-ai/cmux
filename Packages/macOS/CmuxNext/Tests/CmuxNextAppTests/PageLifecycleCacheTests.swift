@@ -6,10 +6,11 @@ import CmuxNextDaemon
 import CmuxNextHibernation
 @testable import CmuxNextPages
 @testable import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// The tab content cache feeds the page lifecycle (`pageLifecycle`, p13-webui-022): with only that
+/// The tab content cache feeds the page lifecycle (`pageLifecycle`): with only that
 /// feature wired (no `memoryDiscardInternalPages`), a page tab mounts, so its reveal and conceal reach
 /// the lifecycle; a reveal thaws a frozen page before the content shows; and a tab's release forgets
 /// it. Driven through `TabContentCache.present`/`withdraw` with a stand-in pane, as `PaneController`
@@ -116,7 +117,7 @@ struct PageLifecycleCacheTests {
                                         uptime: { uptime.now }) { _ in RigWakeUpTimer() }
             lifecycle = PageLifecycle(deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()), queue: queue))
             AppMemoryConsumers(services: services).installPageLifecycle(lifecycle)
-            host = WebUIHost(chromium: nil, openPanel: nil, memory: ManualMemoryLevelRegistry())
+            host = WebUIHost(chromium: nil, openPanel: nil, memory: ManualMemoryLevelRegistry(), deadlines: .testing())
             folder = FileManager.default.temporaryDirectory.appending(path: "page-lifecycle-cache-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try Data("<!doctype html><title>Lifecycle</title>".utf8).write(to: folder.appending(path: "index.html"))

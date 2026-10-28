@@ -970,7 +970,7 @@ class AppSessionTest(SessionTestBase):
         self.assertNotIn(driver_app.JOURNAL, [m for m, _ in app.calls[-1:]], "no journal read from a hung app")
         self.assertFalse((Path(self.tmp.name) / "journals" / "actions" / "hung.jsonl").exists())
 
-    # -- the trace of invariants I11-I15 (p15-oracle-217)
+    # -- the trace of invariants I11-I15
 
     TRACED = step("new", "action.run", target={"workspace": "current"}, args={"action": "workspace.new"},
                   expect={"outcome": "ok"}, checkpoint=["before", "settled"])

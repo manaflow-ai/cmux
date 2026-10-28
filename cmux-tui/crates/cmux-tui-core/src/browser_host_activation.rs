@@ -136,9 +136,15 @@ pub(super) fn arm(inner: &Arc<Inner>) {
         return;
     }
     let weak = Arc::downgrade(inner);
-    match supervised::spawn("browser-host-activate", Fatal, ShutdownBehavior::Continue, move || {
-        run(&weak, agent, cancel);
-    }) {
+    match supervised::spawn_at(
+        "browser-host-activate",
+        cmux_threads::ThreadQos::UserInitiated,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            run(&weak, agent, cancel);
+        },
+    ) {
         Ok(handle) => *thread = Some(handle),
         Err(error) => eprintln!("cmux-tui: cannot start browser host activation: {error}"),
     }

@@ -1,4 +1,4 @@
-//! Stream visibility priority (p05-ipc-142; p05-ipc.md 3.4 "Stream
+//! Stream visibility priority (p05-ipc.md 3.4 "Stream
 //! visibility"): `set-stream-priority {stream, focused|visible|hidden}` ranks
 //! one client-minted attach stream against the others of its connection.
 //!
@@ -19,8 +19,9 @@
 //!   parses its bytes, and the viewer gets one READY when it shows if any
 //!   arrived meanwhile, else it continues at its offset.
 //!
-//! A stream never set keeps what it opened with (the bulk lane, input
-//! workers), so a client that never sends the command sees no change.
+//! A stream never set keeps what it opened with (the bulk lane, its
+//! connection's view priority), so a client that never sends the command
+//! sees no change.
 
 use std::sync::Arc;
 use std::sync::OnceLock;

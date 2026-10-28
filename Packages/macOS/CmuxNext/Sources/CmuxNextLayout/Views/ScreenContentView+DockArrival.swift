@@ -2,10 +2,10 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// A new dock column on the render server (chrome-parity p03-rendering-028, on with `motion.renderServer`):
+/// A new dock column on the render server (on with `motion.renderServer`):
 /// the docked pane grows in from its screen edge on its host's render-server spring
-/// (``springSplitOnRenderServer()``), and the strip's clip, the strip container's bounds
-/// (p03-rendering-023), springs with it on the same token. The main thread steps no frame for it: no
+/// (``springSplitOnRenderServer()``), and the strip's clip, the strip container's bounds,
+/// springs with it on the same token. The main thread steps no frame for it: no
 /// per-frame `PaneArrival.stripClip` (``stripRangesComputed``), no MotionClock frame.
 extension ScreenContentView {
     /// The strip's range in `geometry` beside the docks where `docks` (still growing in) show

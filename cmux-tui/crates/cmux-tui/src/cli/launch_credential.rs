@@ -42,7 +42,7 @@ fn for_socket(credential: Option<String>, own: Option<PathBuf>, socket: &Path) -
     let own = own.filter(|path| !path.as_os_str().is_empty())?;
     let same = own == socket
         || matches!(
-            (std::fs::canonicalize(&own), std::fs::canonicalize(socket)),
+            (cmux_blocking::fs::canonicalize(&own), cmux_blocking::fs::canonicalize(socket)),
             (Ok(own), Ok(target)) if own == target
         );
     same.then_some(credential)
