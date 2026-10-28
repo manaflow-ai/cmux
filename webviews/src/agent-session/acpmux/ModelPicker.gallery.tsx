@@ -620,7 +620,7 @@ export default componentEntry<GalleryProps>({
     "many-harnesses": {
       props: { ...base, catalog: manyHarnesses },
       height: 1000,
-      play: cappedHeight,
+      play: manyHarnessesVisible,
     },
     // The agent CLI is outdated: a dot on the chip, and Update and Skip This Version in the
     // picker, never a banner over the chat (hq#2569 #12).

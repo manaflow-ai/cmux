@@ -512,8 +512,8 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 2px 6px;
-  padding-block: 2px;
+  gap: calc(var(--ds-space-1) / 2) calc(var(--ds-space-1) + var(--ds-space-1) / 2);
+  padding-block: calc(var(--ds-space-1) / 2);
 }
 .acpmux-quick-model-effort > .acpmux-quick-item {
   flex: 1 1 120px;
@@ -523,7 +523,7 @@
   flex: 0 1 auto;
   max-width: 100%;
   border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-control);
 }
 .acpmux-quick-efforts > [role="group"] {
   display: flex;
@@ -533,9 +533,9 @@
   display: flex;
   flex: 1 0 auto;
   justify-content: center;
-  min-height: 30px;
-  padding: 3px 6px;
-  border-radius: 5px;
+  min-height: calc(var(--ds-control-row) + var(--ds-space-1) / 2);
+  padding: calc(var(--ds-space-1) - var(--ds-space-1) / 4) calc(var(--ds-space-1) + var(--ds-space-1) / 2);
+  border-radius: var(--ui-row-radius);
   color: var(--agent-muted);
   font-size: var(--text-caption);
 }
@@ -548,7 +548,7 @@
 .acpmux-quick-effort-segment:has([data-selected]) {
   color: var(--agent-text);
   background: var(--acpmux-menu-hover);
-  font-weight: 600;
+  font-weight: var(--weight-emphasis);
 }
 [data-effort-look="spaced"] .acpmux-quick-efforts {
   border: 0;
