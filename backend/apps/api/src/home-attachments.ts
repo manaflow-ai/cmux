@@ -60,6 +60,7 @@ interface ConversationAttachments {
   settleDerived(entity: string, id: string, etag: string | null): Promise<void>
   settleSlot(entity: string, id: string): Promise<void>
   setMultipartUpload(entity: string, id: string, uploadId: string): Promise<boolean>
+  renewMultipartSlot(entity: string, id: string): Promise<boolean>
   commitAttachment(entity: string, slotId: string, etag?: string): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; derived?: Image } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }>
   downloadAccess(entity: string, actor: string, by: { hash: string } | { object_id: string }, at?: { message_id: string; part_index: number }): Promise<DownloadAccess | "forbidden">
 }
@@ -357,7 +358,7 @@ export const handleAttachmentMultipartPart = async (request: Request, env: Env, 
   if (!put.ok) return failure({ status: put.code === "attachment.part_exists" ? 409 : 400, code: put.code, message: put.code === "attachment.part_exists" ? "that upload part was already stored" : "the upload part is empty, too large or has the wrong length" })
   // A request admitted just before completion may finish afterwards. It
   // must not leave an orphan after the completion removes the slot.
-  if (!await conv.uploadSlot(conversation, id, "multipart", false)) {
+  if (!await conv.renewMultipartSlot(conversation, id)) {
     await bucket.delete(key)
     return invalid
   }
@@ -436,6 +437,7 @@ export const handleAttachmentMultipartComplete = async (request: Request, env: E
       })()
       const result = await Promise.all([upload.uploadPart(completed.length + 1, fixed.readable), pipe])
       completed.push(result[0])
+      if (!await conv.setMultipartUpload(body.conversation, slot.id, upload.uploadId)) throw new Error("upload slot expired")
     }
     if (count !== slot.byte_count || hasher.digest("hex") !== slot.hash) throw new Error("attachment.hash_mismatch")
     etag = (await upload.complete(completed)).etag

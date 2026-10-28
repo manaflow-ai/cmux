@@ -233,7 +233,12 @@ describe("Home attachments: re-check blockers (sweep cursor, orphan slots, requi
     const tail = new Uint8Array(17).fill(3)
     const r = await intent(alice, g.id, tail, { multipart: true, byte_count: 32 * 1024 * 1024 + tail.byteLength })
     expect(r.json.value.mode).toBe("multipart")
+    // A long-running upload remains live when each next piece arrives before
+    // the idle lease ends; expiry is not a fixed deadline from the intent.
+    await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET expires_at = ?", Date.now() + 60_000))
     expect((await worker.fetch(r.json.value.upload_url, { method: "PUT", body: tail, headers: { "content-length": String(tail.byteLength), "x-cmux-part-number": "2" } })).status).toBe(200)
+    const renewed = await runInDurableObject(stub, async (_i, state) => state.storage.sql.exec("SELECT expires_at FROM home_attachment_slots").toArray()[0] as { expires_at: number })
+    expect(renewed.expires_at).toBeGreaterThan(Date.now() + 14 * 60_000)
     const conv = stub as unknown as {
       uploadSlot(e: string, id: string, mode: string, consume: boolean): Promise<{ object_key: string }>
       setMultipartUpload(e: string, id: string, uploadId: string): Promise<boolean>

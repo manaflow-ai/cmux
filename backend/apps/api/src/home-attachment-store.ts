@@ -195,6 +195,14 @@ export const takeSlot = (sql: Sql, id: string, mode: UploadSlot["mode"], consume
   return { ...s, state: consume ? "uploading" : "open" }
 }
 
+/** Successful pieces renew an idle lease, so total upload time has no fixed ceiling. */
+export const renewMultipartSlot = (sql: Sql, id: string): boolean => {
+  const slot = slotIn(sql, id, "open")
+  if (!slot || slot.mode !== "multipart" || slot.expires_at + UPLOADING_GRACE_MS <= Date.now()) return false
+  sql.exec(`UPDATE ${SLOTS} SET expires_at = ? WHERE id = ?`, Date.now() + conversation.ATTACHMENT_LIMITS.uploadTtlMs, id)
+  return true
+}
+
 /** Whether the slot's declared derived image (if any) is stored, so the attachment may commit. */
 export const derivedReady = (slot: UploadSlot): boolean => !slot.derived || slot.derived_state === "stored"
 
@@ -444,6 +452,6 @@ export const clearDrop = (sql: Sql, objectKey: string): void => void sql.exec(`D
 export const setMultipartUpload = (sql: Sql, id: string, uploadId: string): boolean => {
   ensure(sql)
   if (!slotIn(sql, id, "uploading")) return false
-  sql.exec(`UPDATE ${SLOTS} SET multipart_upload_id = ? WHERE id = ?`, uploadId, id)
+  sql.exec(`UPDATE ${SLOTS} SET multipart_upload_id = ?, expires_at = ? WHERE id = ?`, uploadId, Date.now() + conversation.ATTACHMENT_LIMITS.uploadTtlMs, id)
   return true
 }

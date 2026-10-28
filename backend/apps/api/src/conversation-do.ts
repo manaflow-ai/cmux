@@ -584,7 +584,16 @@ export class ConversationDO extends OwnerDO<Head> {
 
   async setMultipartUpload(entity: string, id: string, uploadId: string): Promise<boolean> {
     if (!this.existingState(entity)) return false
-    return store.setMultipartUpload(this.sqlStore, id, uploadId)
+    const stored = store.setMultipartUpload(this.sqlStore, id, uploadId)
+    this.scheduleAlarm()
+    return stored
+  }
+
+  async renewMultipartSlot(entity: string, id: string): Promise<boolean> {
+    if (!this.existingState(entity)) return false
+    const renewed = store.renewMultipartSlot(this.sqlStore, id)
+    this.scheduleAlarm()
+    return renewed
   }
 
   /** Ends an `uploading` slot whose bytes failed verification (the Worker deleted its object). */
