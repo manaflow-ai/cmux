@@ -67,7 +67,7 @@ nonisolated extension ActionSurfaceCatalog {
         "renameTab", "palette.clearTabName", "tab.restart",
         "moveSurfaceLeft", "moveSurfaceRight", "moveSurfaceToPreviousPane", "moveSurfaceToNextPane",
         "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "moveSurfaceToPaneDown",
-        "palette.moveTabToNewWorkspace", "palette.toggleTabPin", "palette.toggleTabUnread", "toggleTabAudioMute", "tab.muteAudio", "tab.unmuteAudio", "tab.muteOtherAudio",
+        "palette.moveTabToNewWorkspace", "palette.toggleTabPin", "palette.toggleTabUnread", "toggleTabAudioMute", "palette.forkAgentConversationTo", "tab.muteAudio", "tab.unmuteAudio", "tab.muteOtherAudio",
         "workspace.toggleAudioMute", "duplicateTab",
         "tab.setIcon", "tab.clearIcon",
         "reloadTab", "reopenClosedBrowserPanel", "tabGroup.create",
@@ -168,7 +168,7 @@ nonisolated extension ActionSurfaceCatalog {
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .ownerVerb: ownerVerbActions,
         .guiOnly: [
-            "agentHistory.show", "music.open", "music.stop",
+            "agentHistory.show", "music.open", "music.stop", "palette.forkAgentConversationTo",
             "notifications.dismissHighlight", "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
             "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "palette.openTaskManager", "palette.sleepyMode", "about",
