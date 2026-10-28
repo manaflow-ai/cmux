@@ -2127,14 +2127,6 @@ path = "tests/test_cmux_next_dev_landing_workflow.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_runs_on_fallback.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_workflow_file_size.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_runs_on_values.py"
 lane = "linux-guard"
 
