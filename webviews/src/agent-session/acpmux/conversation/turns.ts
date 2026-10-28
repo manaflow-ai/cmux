@@ -306,9 +306,21 @@ type ShapedTurn = {
 const shapedTurns = new WeakMap<AcpmuxRow, ShapedTurn>();
 
 /// A completed turn has one disclosure, keyed by its original prompt. Live rows do not read it,
-/// so a remembered open state never changes the transcript while the next turn is running.
-function openFolds(rows: readonly AcpmuxRow[], start: number, expanded: ReadonlySet<string>): string {
-  return expanded.has(`${WORKED}-${rows[start]!.id}`) ? "1" : "";
+/// so a remembered open state never changes the transcript while the next turn is running. A
+/// history page can begin at a landed steer; accept that provisional key until the older prompt
+/// arrives, so loading history does not erase an explicit open choice.
+function openFolds(
+  rows: readonly AcpmuxRow[],
+  start: number,
+  end: number,
+  expanded: ReadonlySet<string>,
+): string {
+  if (expanded.has(`${WORKED}-${rows[start]!.id}`)) return "1";
+  for (let index = start + 1; index < end; index += 1) {
+    const row = rows[index]!;
+    if (row.kind === "user" && continuesTurn(row) && expanded.has(`${WORKED}-${row.id}`)) return "1";
+  }
+  return "";
 }
 
 /// The drawn rows of the turn at `rows[start]` (its prompt) up to `end`, then its held prompts.
@@ -326,7 +338,7 @@ function shapedTurn(
   lineBelow = false,
 ): AcpmuxRow[] {
   const user = rows[start]!;
-  const open = openFolds(rows, start, expanded);
+  const open = openFolds(rows, start, end, expanded);
   // A running turn changes with every event.
   const cached = live ? undefined : shapedTurns.get(user);
   if (
@@ -376,6 +388,7 @@ function shapedTurn(
       user,
       turn,
       expanded,
+      open === "1",
       live,
       last,
       last && held.length === 0,
@@ -456,6 +469,7 @@ function shapeTurn(
   user: AcpmuxRow,
   turn: AcpmuxRow[],
   expanded: ReadonlySet<string>,
+  foldOpen: boolean,
   live: boolean,
   last: boolean,
   retryable: boolean,
@@ -497,7 +511,7 @@ function shapeTurn(
     if (work.length) {
       folded = true;
       const id = `${WORKED}-${segment.anchor.id}`;
-      const open = expanded.has(id);
+      const open = foldOpen || expanded.has(id);
       const from = segment.anchor.at;
       const worked: AcpmuxRow = {
         id,
@@ -1074,6 +1088,7 @@ const mixVersion = (a: number, b: number) => (a * 1_009 + b * 7 + 1) % 2_147_483
 /// opens its own turn, and a pending or failed prompt opens nothing unless it is the first one.
 export function turnFoldFor(rows: readonly AcpmuxRow[], index: number): string | undefined {
   let unsent: AcpmuxRow | undefined;
+  let provisional: AcpmuxRow | undefined;
   for (let at = Math.min(index, rows.length - 1); at >= 0; at -= 1) {
     const row = rows[at]!;
     if (row.kind === "user" && isUnsent(row)) {
@@ -1081,8 +1096,13 @@ export function turnFoldFor(rows: readonly AcpmuxRow[], index: number): string |
       continue;
     }
     if (opensTurn(row)) return `${WORKED}-${row.id}`;
+    // A paged history may start at a landed steer, which the renderer uses as its temporary
+    // prompt until the older one is loaded. Walk all the way back so multiple steers resolve to
+    // the first visible row, matching that provisional renderer anchor.
+    if (row.kind === "user" && continuesTurn(row)) provisional = row;
   }
-  return unsent && `${WORKED}-${unsent.id}`;
+  const anchor = unsent ?? provisional;
+  return anchor && `${WORKED}-${anchor.id}`;
 }
 
 /// Where to bring one message of the chat into view (a link's `message=<id>`, links.ts): the first
