@@ -36,7 +36,7 @@ struct UnsentDraftTests {
         #expect(restored?.draft == "compare the two retry policies")
         #expect(restored?.draftAttachments == [attachment])
         // A later B write survives another relaunch and cannot be clobbered by the old A seed.
-        drafts.set("B draft", attachments: [attachment], for: "tab-1")
+        relaunched.set("B draft", attachments: [attachment], for: "tab-1")
         let second = AgentUnsentDrafts(file: file)
         #expect(await second.seed(for: "tab-1", session: nil)?.take()?.draft == "B draft")
         #expect(relaunched.seed(for: "tab-1", session: "s-1") == nil, "a chat with a session keeps its draft in acpmux")

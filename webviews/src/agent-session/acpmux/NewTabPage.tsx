@@ -447,6 +447,15 @@ export function NewTabPage({
   useEffect(() => {
     if (draftDirty.current) draftChanged.current?.(text, attachments);
   }, [text, location, attachments]);
+  useEffect(() => {
+    const flush = () => {
+      const liveText = field.current?.value ?? text;
+      if (draftDirty.current || liveText !== (location ?? "") || attachmentRef.current.length)
+        draftChanged.current?.(liveText, attachmentRef.current);
+    };
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
+  }, [text, location]);
   const holdForAttachments = useSendWhenAttached(unsettled);
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page), staged attachments, and a kind or folder picked

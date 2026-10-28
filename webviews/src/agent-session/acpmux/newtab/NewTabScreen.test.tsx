@@ -205,6 +205,37 @@ test("a normal pagehide flushes a New Tab draft without unmounting", async () =>
   ]);
 });
 
+test("pagehide persists the final DOM edit and a cleared restored draft", async () => {
+  const writes: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        initialDraft="old draft"
+        onAsk={() => {}}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        onDraftChanged={(...args) => writes.push(args)}
+      />,
+    );
+  });
+  const input = container.querySelector<HTMLTextAreaElement>("textarea.nt-field")!;
+  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), "value")!.set!;
+  setValue.call(input, "last edit");
+  await act(async () => window.dispatchEvent(new window.Event("pagehide")));
+  expect(writes.at(-1)).toEqual(["last edit", []]);
+  await act(async () => {
+    setValue.call(input, "");
+    input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  await act(async () => window.dispatchEvent(new window.Event("pagehide")));
+  expect(writes.at(-1)).toEqual(["", []]);
+});
+
 test("ordinary New Tab edits are persisted before native quit", async () => {
   const writes: unknown[][] = [];
   await act(async () => {
@@ -263,7 +294,7 @@ test("Classic New Tab restores attachments and persists an ordinary edit", async
       <NewTabPage
         snapshot={noChat()}
         initialDraft="saved text"
-        initialAttachments={[{ id: "shot", kind: "image", name: "shot.png", mimeType: "image/png", size: 4 }]}
+        initialAttachments={[{ id: "shot", kind: "image", name: "shot.png", mimeType: "image/png", size: 4, data: "dGVzdA==" }]}
         onDraftChanged={(...args) => writes.push(args)}
         onSubmit={() => {}}
         onOpenSession={() => {}}
@@ -281,6 +312,12 @@ test("Classic New Tab restores attachments and persists an ordinary edit", async
   });
   expect(writes.at(-1)).toEqual([
     "saved text plus edit",
+    [expect.objectContaining({ id: "shot", name: "shot.png" })],
+  ]);
+  setValue.call(input, "final before quit");
+  await act(async () => window.dispatchEvent(new window.Event("pagehide")));
+  expect(writes.at(-1)).toEqual([
+    "final before quit",
     [expect.objectContaining({ id: "shot", name: "shot.png" })],
   ]);
 });
