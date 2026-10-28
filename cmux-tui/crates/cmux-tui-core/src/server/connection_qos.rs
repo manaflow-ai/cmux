@@ -49,6 +49,7 @@ use cmux_tui_platform::qos::WorkQos;
 use crate::request_origin::RequestOrigin;
 use crate::request_qos::RequestQos;
 use crate::server::ClientTransport;
+use crate::server::sequenced_pool::SequencePriority;
 use crate::thread_qos::ThreadType;
 
 /// Who a connection serves, which sets the class its threads rest at.
@@ -103,6 +104,24 @@ impl ConnectionClass {
             (Self::Person, ConnectionThread::Reader) => crate::echo_thread::ECHO_PATH_QOS,
             (Self::Unclassified | Self::Person, _) => ThreadType::Interactive.qos(),
             (Self::Automation, _) => ThreadType::Utility.qos(),
+        }
+    }
+
+    /// The priority of an attach view's drain on the sequenced pool. The
+    /// person's views carry the echo on the input workers; automation's
+    /// views run on the utility workers, below them, so an agent's views
+    /// never take a worker the person's echo waits for, as Chrome runs a
+    /// background renderer's work below the foreground's
+    /// (base/task/thread_pool/thread_pool_impl.cc keeps separate foreground
+    /// and background thread groups). A connection not classed yet runs on
+    /// the control workers, at the user-initiated class it rests at. A view
+    /// keeps its priority for life; its bulk work (a snapshot viewer's READY
+    /// encode and history chunks) is utility whatever its class.
+    pub(in crate::server) const fn view_priority(self) -> SequencePriority {
+        match self {
+            Self::Person => SequencePriority::Input,
+            Self::Unclassified => SequencePriority::Control,
+            Self::Automation => SequencePriority::Utility,
         }
     }
 

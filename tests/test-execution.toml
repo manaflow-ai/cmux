@@ -1963,3 +1963,8 @@ reason = "Lawrence 2026-10-23: no new CI tests; agents run it on the fleet. Run 
 path = "tests/test_sparkle_image_cost.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. sparkle-image-cost.py is the p08-startup-067 fleet measurement, not a gate; run python3 -I tests/test_sparkle_image_cost.py yourself after changing the script (under 1 s, no app, no build)."
+
+[[test]]
+path = "tests/test_shell_restore_cwd_control_bytes.py"
+lane = "manual"
+reason = "Shell-integration escape-injection regression (Ghostty 1.4.0 6eb24a0f0); its author runs it (python3 -I tests/test_shell_restore_cwd_control_bytes.py) with zsh, bash and fish. CI tests are not added (CLAUDE.md, Lawrence 2026-10-23)."

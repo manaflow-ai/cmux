@@ -104,7 +104,7 @@ extension TerminalHandlers {
             let daemon = ctx.services.daemon(for: pane)
             // action-wait-allow: the path to paste is known only after the screenshot folder is read
             return .waiting(.fileSystem) {
-                guard let url = await latestScreenshot() else {
+                guard let url = await latestScreenshot(), !url.path.containsTerminalControlCharacter else {
                     return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noScreenshot)
                 }
                 let text = shellQuoted(url.path)

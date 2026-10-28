@@ -174,8 +174,13 @@ if test "$_cmux_integration_enabled" != 0
         set -l path "$CMUX_RESTORE_SCROLLBACK_FILE"
         test -n "$path"; or return 0
         set -e CMUX_RESTORE_SCROLLBACK_FILE
-        set -l token (string replace -r '^.*/' '' -- "$path")
-        set -l host (/bin/hostname)
+        # The host, token and directory are untrusted text: a raw ESC or BEL
+        # in a folder name would end the report early and start a sequence of
+        # its own (an OSC 52 clipboard write). Their control bytes go; printf
+        # prints %s values as they are (Ghostty 1.4.0, 6eb24a0f0).
+        set -l token (string replace -r '^.*/' '' -- "$path" | string replace -ra '[\x00-\x1f\x7f]' '')
+        set -l host (/bin/hostname | string replace -ra '[\x00-\x1f\x7f]' '')
+        set -l pwd (string replace -ra '[\x00-\x1f\x7f]' '' -- "$PWD")
 
         printf '\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/start\007' "$host" "$token"
         if test -r "$path"
@@ -183,7 +188,7 @@ if test "$_cmux_integration_enabled" != 0
             /bin/rm -f -- "$path" >/dev/null 2>&1; or true
         end
         printf '\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/end\007' "$host" "$token"
-        printf '\033]1337;CurrentDir=kitty-shell-cwd://%s%s\007' "$host" "$PWD"
+        printf '\033]1337;CurrentDir=kitty-shell-cwd://%s%s\007' "$host" "$pwd"
     end
     _cmux_restore_scrollback_once
 

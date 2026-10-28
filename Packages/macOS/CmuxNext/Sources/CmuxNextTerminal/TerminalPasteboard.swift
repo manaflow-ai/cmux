@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 /// Pasteboard access shared by clipboard callbacks, paste, and drops.
 enum TerminalPasteboard {
@@ -38,7 +39,7 @@ enum TerminalPasteboard {
     static func pasteText(from pasteboard: NSPasteboard) -> String? {
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
            !urls.isEmpty {
-            return normalizedLineEndings(urls.map { shellEscaped($0.path) }.joined(separator: " "))
+            return escapedPaths(urls)
         }
         if let string = pasteboard.string(forType: .string) {
             return normalizedLineEndings(string)
@@ -52,7 +53,7 @@ enum TerminalPasteboard {
     /// ``pasteText(from:)`` on contents already read (same order).
     static func pasteText(from contents: TerminalPasteboardContents) -> String? {
         if !contents.fileURLs.isEmpty {
-            return normalizedLineEndings(contents.fileURLs.map { shellEscaped($0.path) }.joined(separator: " "))
+            return escapedPaths(contents.fileURLs)
         }
         if let string = contents.string { return normalizedLineEndings(string) }
         if !contents.urls.isEmpty {
@@ -61,7 +62,18 @@ enum TerminalPasteboard {
         return nil
     }
 
-    private static func normalizedLineEndings(_ text: String) -> String {
+    /// The files' shell-escaped paths, space-separated; nil when a path holds a control character,
+    /// which no escaping keeps from acting when typed (Ctrl-U erases the line, CR runs it: Ghostty
+    /// 1.4.0, 0c234a04d).
+    private static func escapedPaths(_ files: [URL]) -> String? {
+        let paths = files.map(\.path)
+        guard !paths.contains(where: \.containsTerminalControlCharacter) else { return nil }
+        return normalizedLineEndings(paths.map(shellEscaped).joined(separator: " "))
+    }
+
+    /// `text` with CRLF and CR as LF, so Ghostty's unsafe-paste check (LF only in this pin) sees a
+    /// carriage return as the line break it is (Ghostty 1.4.0, 5c9a3d8a9).
+    static func normalizedLineEndings(_ text: String) -> String {
         text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
     }
 

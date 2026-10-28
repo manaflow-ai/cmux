@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 import UniformTypeIdentifiers
 
 /// What cmux does with a URL or file macOS hands it (it is the default
@@ -116,6 +117,10 @@ public nonisolated struct ExternalOpenRouter: Sendable {
         let ext = (path as NSString).pathExtension.lowercased()
         let folder = (path as NSString).deletingLastPathComponent
         if Self.pageExtensions.contains(ext) { return .browserTab(URL(fileURLWithPath: path)) }
+        // A script runs by typing its quoted path; a control character in it (Ctrl-U, CR) would
+        // erase the quoted path and run something else (Ghostty 1.4.0, 0c234a04d): refused.
+        let typed = Self.scriptShells[ext] != nil || (ext.isEmpty && isExecutable(path))
+        if typed, path.containsTerminalControlCharacter { return .unsupported }
         if let shell = Self.scriptShells[ext] {
             let quoted = ShellQuote.quote(path)
             return .terminal(cwd: folder, command: isExecutable(path) ? quoted : "\(shell) \(quoted)")

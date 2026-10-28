@@ -281,9 +281,9 @@ _cmux_restore_scrollback_once() {
     local path="${CMUX_RESTORE_SCROLLBACK_FILE:-}"
     [[ -n "$path" ]] || return 0
     unset CMUX_RESTORE_SCROLLBACK_FILE
-    local token="${path:t}"
+    local token="${${path:t}//[[:cntrl:]]}"
 
-    builtin printf '\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/start\007' "$HOST" "$token"
+    builtin printf '\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/start\007' "${HOST//[[:cntrl:]]}" "$token"
 
     if [[ -r "$path" ]]; then
         /bin/cat -- "$path" 2>/dev/null || true
@@ -296,8 +296,13 @@ _cmux_restore_scrollback_once() {
 
     # Valid kitty-shell-cwd URIs reach Ghostty's PWD action in PTY order. The
     # following real cwd report keeps the private boundary out of title state.
-    builtin printf '\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/end\007' "$HOST" "$token"
-    builtin printf '\033]1337;CurrentDir=kitty-shell-cwd://%s%s\007' "$HOST" "$PWD"
+    # The host and directory are untrusted text: a raw ESC or BEL in a folder
+    # name would end the report early and start a sequence of its own (an
+    # OSC 52 clipboard write). Their control bytes go; printf prints %s values
+    # as they are, so backslashes stay text (Ghostty 1.4.0, 6eb24a0f0).
+    local host="${HOST//[[:cntrl:]]}"
+    builtin printf '\033]1337;CurrentDir=kitty-shell-cwd://%s/.cmux/session-scrollback-replay/%s/end\007' "$host" "$token"
+    builtin printf '\033]1337;CurrentDir=kitty-shell-cwd://%s%s\007' "$host" "${PWD//[[:cntrl:]]}"
 }
 _cmux_restore_scrollback_once
 

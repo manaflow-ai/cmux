@@ -90,14 +90,32 @@ extension TerminalSurfaceView: NSMenuItemValidation {
         TerminalPasteboard.pasteText(from: sender.draggingPasteboard) == nil ? [] : .copy
     }
 
-    /// Dropped files paste as shell-escaped paths, dropped text as text.
-    /// Delivered through `ghostty_surface_text` so bracketed paste applies.
+    /// Dropped files paste as shell-escaped paths, dropped text as text (``pasteDropped(_:)``).
     public override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        guard let surface, let text = TerminalPasteboard.pasteText(from: sender.draggingPasteboard) else { return false }
-        // SAFETY: the view's live surface (TerminalSurfaceView.surface); Swift passes a NUL-terminated
-        // copy of `text` for the call, its length without the NUL, and Ghostty copies what it keeps.
-        unsafe ghostty_surface_text(surface, text, UInt(text.utf8.count))
+        guard let text = TerminalPasteboard.pasteText(from: sender.draggingPasteboard), pasteDropped(text) else { return false }
         window?.makeFirstResponder(self)
+        return true
+    }
+
+    /// Sends dropped `text` to the terminal as a paste, so paste protection asks before a line break
+    /// (a carriage return too) reaches an unbracketed shell, as Cmd-V of the same text does (Ghostty
+    /// 1.4.0, 5580df602 and 5c9a3d8a9). This GhosttyNextKit has no `ghostty_surface_paste_text`, so
+    /// the drop runs the `paste_from_clipboard` binding with its clipboard read served the dropped
+    /// text (``TerminalClipboardRequests/asDrop(_:paste:)``): Ghostty's own paste path, with bracketed
+    /// paste and the `clipboard-paste-*` settings. False without a live surface.
+    func pasteDropped(_ text: String) -> Bool {
+        guard surface != nil else { return false }
+        let text = TerminalPasteboard.normalizedLineEndings(text)
+        guard !text.isEmpty else { return true }
+        if clipboardRequests.asDrop(text, paste: { _ = performBindingAction("paste_from_clipboard") }) { return true }
+        // A program that reads paste events (kitty mode 5522) gets none for a drop, which would let it
+        // read the real clipboard: the drop goes in as text after the same check and prompt.
+        clipboardRequests.confirmDrop(text) { [weak self] in
+            guard let surface = self?.surface else { return }
+            // SAFETY: the view's live surface (TerminalSurfaceView.surface); Swift passes a NUL-terminated
+            // copy of `text` for the call, its length without the NUL, and Ghostty copies what it keeps.
+            unsafe ghostty_surface_text(surface, text, UInt(text.utf8.count))
+        }
         return true
     }
 }
