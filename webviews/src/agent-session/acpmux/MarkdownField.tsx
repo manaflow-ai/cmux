@@ -853,13 +853,15 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     current.dispatch(tr.setSelection(TextSelection.create(tr.doc, tr.doc.content.size - 1)));
   };
 
+  // Inline mode turned on or off, or the attachments it knows changed (a draft read back before its
+  // attachments came): each token of a known attachment becomes its node, or every node its token.
   useLayoutEffect(() => {
     const current = view.current;
     if (!current) return;
     if (inlineOptions.current.enabled) placeTokens(current, inlineKnown);
     else unplaceInline(current);
     notifyInlineViews();
-  }, [inlineAttachments, onInlineViews]);
+  }, [inlineAttachments, isInlineAttachment, onInlineViews]);
 
   // A value from outside (a send cleared it, the menu wrote a command) replaces the document.
   useLayoutEffect(() => {
