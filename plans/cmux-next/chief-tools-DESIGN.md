@@ -45,10 +45,10 @@ already reaches the Chief as `[aN] report`).
 - `attachments`: a list of local paths (`/abs`, `~/rel`, `file://`) or
   `http(s)` URLs. A path is uploaded as an attachment part of the message:
   pictures and videos show inline (png, jpeg, gif, webp, heic, mp4, mov), any
-  other file (pdf, md, html, zip, json, log, ...) as a file attachment, up to
-  50 MB each. A URL is added as its own line (it gets a link card). A path
-  that does not exist, is empty or too large is refused before anything is
-  posted, so the model can fix the call. At least one of `text` and
+  other file (pdf, md, html, zip, json, log, ...) as a file attachment, of any
+  size (read from disk a chunk at a time). A URL is added as its own line (it
+  gets a link card). A path that does not exist or is empty is refused before
+  anything is posted, so the model can fix the call. At least one of `text` and
   `attachments` is needed.
 - `reply_to`: the line id of a user message (as `reply` takes): the message
   goes into its thread. Without it, the message posts at the top level.

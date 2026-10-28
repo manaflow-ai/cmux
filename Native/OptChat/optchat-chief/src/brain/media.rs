@@ -4,18 +4,15 @@
 //! `[run.mov](/tmp/run.mov)`, name a file to send. The preview thread (previews.rs) uploads
 //! each one as an attachment record of the conversation and the reply goes out with an
 //! `attachment` part per file after its text; the image syntax leaves the text (the picture
-//! shows instead), a link stays. Only an existing regular file of a type the owner takes as a
-//! picture or video (png, jpeg, gif, webp, heic, mp4, mov), at most [`MAX_MEDIA_BYTES`], is
-//! read; anything else stays text.
+//! shows instead), a link stays. Only an existing, non-empty regular file of a type the owner
+//! takes as a picture or video (png, jpeg, gif, webp, heic, mp4, mov), of any size, is read
+//! (a chunk at a time, never whole); anything else stays text.
 
 use std::path::{Path, PathBuf};
 
 use cmux_conversation::Part;
 
 use crate::daemon::PreviewPort;
-
-/// The largest file the Chief sends (the owner's limit is 100 MB; one upload holds it in memory).
-pub const MAX_MEDIA_BYTES: u64 = 50_000_000;
 
 /// One local file a reply names.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,8 +112,7 @@ pub fn media_refs(reply: &str, home: Option<&Path>) -> Vec<MediaRef> {
         let Some(mime_type) = media_type(&path) else {
             continue;
         };
-        let sendable = std::fs::metadata(&path)
-            .is_ok_and(|meta| meta.is_file() && meta.len() > 0 && meta.len() <= MAX_MEDIA_BYTES);
+        let sendable = std::fs::metadata(&path).is_ok_and(|meta| meta.is_file() && meta.len() > 0);
         if !sendable || refs.iter().any(|r| r.path == path) {
             continue;
         }
@@ -197,22 +193,13 @@ pub fn upload(
 ) -> Vec<(MediaRef, Part)> {
     let mut sent = Vec::new();
     for media in refs {
-        let bytes = match std::fs::read(&media.path) {
-            Ok(bytes) if !bytes.is_empty() && bytes.len() as u64 <= MAX_MEDIA_BYTES => bytes,
-            Ok(_) => continue,
-            Err(e) => {
-                log(&format!(
-                    "sending {}: reading it failed: {e}",
-                    media.path.display()
-                ));
-                continue;
-            }
-        };
         let size = media
             .mime_type
             .starts_with("image/")
             .then(|| {
-                image::ImageReader::new(std::io::Cursor::new(&bytes))
+                // Only the header is read for the size.
+                image::ImageReader::open(&media.path)
+                    .ok()?
                     .with_guessed_format()
                     .ok()?
                     .into_dimensions()
@@ -229,7 +216,7 @@ pub fn upload(
             .collect::<String>();
         match port.upload_attachment(
             conversation,
-            &bytes,
+            &media.path,
             media.mime_type,
             &name,
             size.map(|s| s.0),
