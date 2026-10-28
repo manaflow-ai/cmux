@@ -27,6 +27,7 @@ export function childRows(
   let activity: string | undefined;
   let group: { row: string; ids: string[] } | undefined;
   for (const { event, update, spawned, settled } of entries) {
+    if (settled) reply = activity = undefined;
     if (spawned) {
       if (!group) {
         group = { row: `${id}:${SUBAGENTS}-${event.seq}`, ids: [] };
@@ -103,7 +104,6 @@ export function childRows(
       if (!known) activity = rowId;
       reply = undefined;
     }
-    if (settled) reply = activity = undefined;
   }
   if (reply && agents.get(id)?.state === "running") rows.get(reply)!.streaming = true;
   // Group rows list their subagents as they are now; a change redraws the group.

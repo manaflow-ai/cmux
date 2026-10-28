@@ -68,7 +68,7 @@ const NAMED_REF = /(?<![\w/.#-])([\w][\w.-]*)( ?)#(\d+)\b/g;
 /// A bare `#N` in a reply.
 const BARE_REF = /(?<![\w/.#&-])#(\d+)\b/g;
 const QUOTED = /"(?:[^"\\]|\\.)*"|'[^']*'/g;
-const BODY_VALUE = /(?:--body(?:-file)?)(?:=|\s+)(?:"(?:[^"\\]|\\.)*"|'[^']*'|\S+)/g;
+const BODY_VALUE = /(?:--body(?:-file)?|-b)(?:=|\s+)(?:"(?:[^"\\]|\\.)*"|'[^']*'|\S+)/g;
 /// A heredoc's body (`<<EOF` … `EOF`, `<<'EOF'`, `<<-EOF`), up to its terminator line; the rest
 /// of the opening line stays (it is often the command that reads it). Never `<<<` or a shift.
 const HEREDOC = /(?<!<)<<-?[ \t]*(['"]?)([A-Za-z_]\w*)\1([^\n]*)\n[\s\S]*?\n[ \t]*\2(?=[ \t]*(?:\n|$))/g;
@@ -204,6 +204,10 @@ function toolFindings(tool: Tool): Finding[] {
   // Strip body/title payloads before URL and shorthand scans; those are data, not activity.
   const plain = callText(command);
   const parts = callText(command)
+    .replace(/\btrue\s*\|\|\s*([^;\n]+)/g, "true")
+    .replace(/\bfalse\s*\|\|\s*/g, "")
+    .replace(/\btrue\s*&&\s*/g, "")
+    .replace(/\bfalse\s*&&\s*([^;\n]+)/g, "false")
     .replace(/(?<!\\)\$\(([^()]*)\)/g, "\n$1\n")
     .split(/[\n;&|]+/);
   let skipFalseBranch = false;
@@ -224,7 +228,7 @@ function toolFindings(tool: Tool): Finding[] {
         .replace(/^\s*[({]\s*/, "")
         .replace(/\s*[)}]\s*$/, "")
         .replace(/^\s*(?:(?:if|then|do|else|elif)\s+)+/, "")
-        .replace(/^\s*!\s*/, "");
+        .replace(/^\s*!\s*/, "! ");
       return EXECUTED_PR_COMMAND.test(normalized) && !/(?:^|\s)(?:--help|-h)(?=\s|$)/.test(normalized)
         ? [normalized]
         : [];

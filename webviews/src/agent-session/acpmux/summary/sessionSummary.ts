@@ -179,29 +179,33 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
     }
   };
   for (const [rowIndex, row] of rows.entries()) {
+    if (row.kind === "assistant") {
+      if (!row.streaming) addUrls(row.text ?? "", rowIndex);
+      continue;
+    }
     if (row.kind !== "activity") continue;
-    for (const tool of row.items ?? []) {
+    for (const [toolIndex, tool] of (row.items ?? []).entries()) {
       if (!tool.tool) continue;
       const item = tool.tool;
       if (item.status !== "completed" || (item.exitCode ?? 0) !== 0) continue;
       const inputFields = input(item);
-      const inputCommand = field(inputFields.command);
+      const inputCommandValue = inputFields.command;
+      const inputCommand =
+        field(inputCommandValue) ?? (Array.isArray(inputCommandValue) ? inputCommandValue.map(String).join(" ") : undefined);
       const command = item.command ? pullRequestSourceCommand(item.command) : inputCommand ?? "";
       const title = item.command || inputCommand ? pullRequestSourceCommand(item.command ?? inputCommand ?? item.title) : item.title;
       // When raw input carries a shell command, scanning the JSON would reintroduce URLs from
       // --body/--body-file payloads that the command sanitizer intentionally removed.
       const inputText = inputCommand ? "" : item.inputSummary ?? "";
       const text = `${title} ${command} ${inputText} ${item.output ?? ""}`;
-      addUrls(text, rowIndex);
-      if (item.kind === "fetch" && !/https?:\/\//.test(text)) add({ label: item.title }, rowIndex);
-      if (item.kind === "read") for (const path of editedPaths(item)) add({ label: path, kind: "file" }, rowIndex);
+      const order = rowIndex + toolIndex / 1000;
+      addUrls(text, order);
+      if (item.kind === "fetch" && !/https?:\/\//.test(text)) add({ label: item.title }, order);
+      if (item.kind === "read") for (const path of editedPaths(item)) add({ label: path, kind: "file" }, order);
       const call = mcpCall(item);
-      if (call) add({ label: mcpPlainName(call), kind: "mcp" }, rowIndex);
+      if (call) add({ label: mcpPlainName(call), kind: "mcp" }, order);
     }
   }
-  // Producer revisions keep streamed replies out of this settled scan.
-  for (const [rowIndex, row] of rows.entries())
-    if (row.kind === "assistant" && !row.streaming) addUrls(row.text ?? "", rowIndex);
   // Add shorthand-only references after transcript URLs have been encountered, so a URL earlier
   // in the same reply keeps its position while PR evidence still promotes an issue-form link.
   for (const pr of pullRequests)
@@ -221,7 +225,7 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
             label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
             kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
           });
-          return seen.has(sourceKeyValue) || pr.kind !== "pullRequest" ? order : order - 0.0001;
+          return order;
         })(),
       );
     }
@@ -230,7 +234,7 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
 
 /// The pull requests the chat opened (the composer's PR bars, PullRequestDock.tsx).
 export const sessionPullRequests = (rows: readonly AcpmuxRow[]) =>
-  transcriptPullRequests(rows).filter((pr) => pr.opened);
+  transcriptPullRequests(rows).filter((pr) => pr.opened && pr.kind !== "issue");
 
 /// How background shells ended: on their call (`background`, direct.ts `markBackgroundCall`), or
 /// in a background task row when the call is not in the transcript.
@@ -291,7 +295,9 @@ export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string |
   const result = {
     ...(cwd ? { cwd } : {}),
     scheduled: scheduled(all),
-    pullRequests: inspector ? pullRequests : pullRequests.filter((pr) => !pr.mentioned),
+    pullRequests: (inspector ? pullRequests : pullRequests.filter((pr) => !pr.mentioned)).filter(
+      (pr) => pr.kind !== "issue",
+    ),
     outputs: cwd === undefined ? turnFiles(rows as AcpmuxRow[]) : filesInProject(turnFiles(rows as AcpmuxRow[]), cwd),
     subagents: subagents(rows, all),
     sources: sources(rows, pullRequests),

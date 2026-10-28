@@ -523,7 +523,6 @@ test("shell substitutions and conditions retain executed mutations", () => {
     "url=$(gh pr create -R acme/app); echo $url",
     "if gh pr merge 41 -R acme/app --squash; then echo merged; fi",
     "if false; then true; elif gh pr merge 42 -R acme/app --squash; fi",
-    "if ! gh pr merge 43 -R acme/app --squash; then echo merged; fi",
     "timeout 60 gh pr merge 44 -R acme/app --squash",
     "timeout -k 5 60 gh pr merge 47 -R acme/app --squash",
   ]) {
@@ -534,6 +533,15 @@ test("shell substitutions and conditions retain executed mutations", () => {
   expect(transcriptPullRequests(toolsRows(shell("( gh pr merge 46 -R acme/app --squash )")))).toMatchObject([
     { number: 46, changed: true, state: "merged" },
   ]);
+});
+
+test("short-circuit and negated shell forms reflect executed mutations", () => {
+  expect(transcriptPullRequests(toolsRows(shell("false || gh pr merge 41 -R acme/app --squash")))[0]).toMatchObject({
+    number: 41,
+    changed: true,
+  });
+  expect(transcriptPullRequests(toolsRows(shell("true || gh pr merge 42 -R acme/app --squash")))).toEqual([]);
+  expect(transcriptPullRequests(toolsRows(shell("! gh pr merge 43 -R acme/app --squash")))).toEqual([]);
 });
 
 test("issue commands do not hide unrelated references on the same shell line", () => {
