@@ -635,6 +635,7 @@ def run_round(app, scenario, index, sampled):
         keys.append({"k": k, "t_ms": round((schedule[k] - open_ns) / 1e6, 1), "probe_ms": latency,
                      "complete": (row or {}).get("complete"), "dispatch_end_ms": col("dispatch_end_ms"), "io_write_ms": col("io_write_ms"),
                      "output_received_ms": col("output_received_ms"), "contents_ms": col("contents_ms"), "commit_ms": col("commit_ms"),
+                     "dispatch_start_ms": col("dispatch_start_ms"),
                      "delay_ms": sent[k].get("delay_ms") if k < len(sent) else None})
     frames = app.photon.frames(open_ns - int(0.2e9), end_ns) if app.photon and not app.photon.error else []
     big = (app.photon_area or 10 ** 12) * 0.25
@@ -691,6 +692,21 @@ def buckets(rounds, field):
     return out
 
 
+def held(rounds, limit_ms=100):
+    """Per bucket: keys whose dispatch started more than `limit_ms` after the key (the tracker's dispatchStart: the
+    typing probe's dispatch_start_ms, classic's typing.delay), and keys measured."""
+    width = opts.bucket_ms
+    edges = int(opts.seconds * 1000 // width) + 1
+    out = []
+    for b in range(edges):
+        vals = [k.get("dispatch_start_ms") if k.get("dispatch_start_ms") is not None else k.get("delay_ms")
+                for r in rounds if not r["sampled"] for k in r["keys"] if b * width <= k["t_ms"] < (b + 1) * width]
+        vals = [v for v in vals if v is not None]
+        out.append({"from_ms": int(b * width), "keys": len(vals), "over_100ms": sum(v > limit_ms for v in vals),
+                    "over_16_7ms": sum(v > 16.7 for v in vals)})
+    return out
+
+
 def hops(rounds):
     width = opts.bucket_ms
     edges = int(opts.seconds * 1000 // width) + 1
@@ -737,6 +753,7 @@ def measure(app_path, zdot, result, family, features=""):
                 save(result)
             entry["scenarios"][scenario] = {"rounds": rounds, "probe_buckets": buckets(rounds, "probe_ms"),
                                             "delay_buckets": buckets(rounds, "delay_ms"),
+                                            "held": held(rounds),
                                             "dispatch_buckets": buckets(rounds, "dispatch_end_ms"),
                                             "photon_buckets": buckets(rounds, "photon_ms"), "hops": hops(rounds)}
             print_table(entry["app"], scenario, entry["scenarios"][scenario])
@@ -761,10 +778,10 @@ def print_table(name, scenario, data):
 
 def print_dispatch(name, scenario, data):
     note(f"FIRST5S-DISPATCH {name} {scenario}: key press to its dispatch in the app (main-thread wait), per bucket n/p50/p95/max")
-    for d, c in zip(data["dispatch_buckets"], data["delay_buckets"]):
+    for d, c, h in zip(data["dispatch_buckets"], data["delay_buckets"], data["held"]):
         def cell(x):
             return f"{x.get('n', 0):3d} {x.get('p50', '-'):>7} {x.get('p95', '-'):>7} {x.get('max', '-'):>7}" if x.get("n") else "  0       -       -       -"
-        note(f"   {d['from_ms']:5d}-{d['to_ms']:<5d} next {cell(d)}    classic {cell(c)}")
+        note(f"   {d['from_ms']:5d}-{d['to_ms']:<5d} next {cell(d)}    classic {cell(c)}    dispatchStart>100ms {h['over_100ms']}/{h['keys']}")
 
 
 def save(result):
