@@ -8,7 +8,7 @@ import QuartzCore
 /// The work one pointer event or one display frame costs the layout, counted at the product boundary: a
 /// `ShellWindow` wired as the app wires it (its overlay layer adopts the layout's plane, places the divider
 /// catcher areas and asks the window's Chromium pages to update), the test as the clock. The layout perf
-/// audit's before/after numbers (LayoutDragBench `dividerDragWorkPerEvent`, PaneMotionWorkTests
+/// audit's before/after numbers (LayoutDragBench `dividerDragWorkPerEvent`, PaneMotionBench
 /// `aStripPanFrameOverADockMovesNothingTwice`); a bench, not a CI gate.
 @MainActor
 final class LayoutWorkProbe {
