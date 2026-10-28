@@ -48,6 +48,7 @@ struct AgentChatFontSizeShortcutTests {
 
             try await settings.set(.number(28), at: key)
             #expect(services.registry.perform("increaseWorkspaceTerminalFontSize", invocation: ActionInvocation(origin: .user)))
+            #expect(await services.agentChatFontSizeWrites.latest?.value == nil)
             #expect(settings.fileRoot.value(at: key) == .number(28), "the upper Settings limit is kept")
             #expect(services.registry.perform("resetWorkspaceTerminalFontSize", invocation: ActionInvocation(origin: .user)))
             try await PasswordManagerRouteTests.until({ settings.fileRoot.value(at: key) == nil })
