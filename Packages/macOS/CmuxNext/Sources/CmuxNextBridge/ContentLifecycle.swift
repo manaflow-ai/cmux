@@ -235,8 +235,13 @@ public struct ContentLifecycle<Key: Hashable & Sendable>: Sendable {
             records[key] = record
             return [record.wantsVisible ? .reveal(key, token) : .conceal(key, token)]
 
-        case .adopted:
-            return [] // red: lands in the next commit
+        case .adopted(let key):
+            guard records[key] == nil else { return [] }
+            var record = Record()
+            _ = bump(&record)
+            record.phase = .mountedHidden
+            records[key] = record
+            return []
 
         case .removed(let key):
             records[key] = nil
