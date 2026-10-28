@@ -206,14 +206,11 @@ impl Mux {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .session_journal_head()?;
-            let latest = self
+            let checkpoint_source = self
                 .workspace_registry
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .journal_checkpoints()?
-                .into_iter()
-                .next();
-            let checkpoint_source = latest.map_or(0, |checkpoint| checkpoint.source_sequence);
+                .latest_journal_checkpoint_source()?;
             let mut sealed_through = self
                 .workspace_registry
                 .lock()

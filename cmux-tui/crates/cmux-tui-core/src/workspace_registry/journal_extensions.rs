@@ -1886,6 +1886,15 @@ impl WorkspaceRegistry {
             .collect()
     }
 
+    /// The newest checkpoint's source sequence, 0 without one. Read from the
+    /// `source_sequence` index alone: a summary row's later columns sit past
+    /// `state_json`, so `journal_checkpoints` walks every snapshot's overflow
+    /// pages, which held the registry for seconds on a large registry each
+    /// maintenance tick (https://github.com/manaflow-ai/cmux/issues/26702).
+    pub(crate) fn latest_journal_checkpoint_source(&self) -> anyhow::Result<u64> {
+        Ok(self.journal_checkpoints()?.first().map_or(0, |checkpoint| checkpoint.source_sequence))
+    }
+
     pub(crate) fn journal_checkpoint(
         &self,
         selector: &str,
@@ -2927,5 +2936,72 @@ mod tests {
 
         let error = registry.journal_checkpoint(&commit.checkpoint.checkpoint_id).unwrap_err();
         assert!(error.to_string().contains("digest"), "{error:#}");
+    }
+
+    /// Pages the registry connection read from the file since the last call.
+    fn take_cache_misses(registry: &WorkspaceRegistry) -> i32 {
+        let (mut current, mut highwater) = (0, 0);
+        let connection = registry.connection.get();
+        // SAFETY: the handle belongs to the connection the guard holds for this
+        // call, and both out-pointers are live locals.
+        let code = unsafe {
+            rusqlite::ffi::sqlite3_db_status(
+                connection.handle(),
+                rusqlite::ffi::SQLITE_DBSTATUS_CACHE_MISS,
+                &mut current,
+                &mut highwater,
+                1,
+            )
+        };
+        assert_eq!(code, rusqlite::ffi::SQLITE_OK);
+        current
+    }
+
+    /// Journal maintenance asks for the newest checkpoint every tick under the
+    /// registry lock. Reading it through the checkpoint summaries walked each
+    /// snapshot's overflow pages: about 10 s on a 1.8 GB registry, so every
+    /// request queued behind the lock, CLIs gave up and the owner refused new
+    /// connections at its limit (https://github.com/manaflow-ai/cmux/issues/26702).
+    #[test]
+    fn the_latest_checkpoint_lookup_does_not_read_checkpoint_snapshots() {
+        const CHECKPOINTS: i64 = 8;
+        const STATE_BYTES: usize = 1024 * 1024;
+        let root = std::env::temp_dir()
+            .join(format!("cmux-latest-checkpoint-{}", crate::workspace_registry::new_uuid_v4()));
+        let session = "latest-checkpoint";
+        {
+            let registry = WorkspaceRegistry::open(&root, session).unwrap();
+            let state = serde_json::to_string(&json!({"pad": "x".repeat(STATE_BYTES)})).unwrap();
+            let db = registry.connection.get();
+            for sequence in 1..=CHECKPOINTS {
+                let digest = Sha256::digest(sequence.to_be_bytes());
+                db.execute(
+                    "INSERT INTO journal_checkpoints(checkpoint_id, source_sequence,
+                       reducer_version, state_json, content_refs_json, sha256, created_at_ms)
+                     VALUES(?1, ?2, 1, ?3, '[]', ?4, ?2)",
+                    params![
+                        format!("checkpoint_{}", encode_hex(&digest)),
+                        sequence,
+                        state,
+                        digest.as_slice()
+                    ],
+                )
+                .unwrap();
+            }
+        }
+        // A reopened registry starts with an empty page cache.
+        let registry = WorkspaceRegistry::open(&root, session).unwrap();
+        take_cache_misses(&registry);
+
+        assert_eq!(registry.latest_journal_checkpoint_source().unwrap(), CHECKPOINTS as u64);
+        let lookup_pages = take_cache_misses(&registry);
+        assert_eq!(registry.journal_checkpoints().unwrap().len(), CHECKPOINTS as usize);
+        let summary_pages = take_cache_misses(&registry);
+
+        drop(registry);
+        let _ = std::fs::remove_dir_all(&root);
+        // The summaries read every snapshot (8 MiB here); the lookup reads index pages.
+        assert!(summary_pages > 1_000, "the fixture must make snapshots expensive: {summary_pages}");
+        assert!(lookup_pages < 32, "the latest-checkpoint lookup read {lookup_pages} pages");
     }
 }
