@@ -72,5 +72,5 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: { ...base, runMode: cloud },
     },
   },
-  experiment: { definition: autoScopeLook, script: [] },
+  experiment: { definition: autoScopeLook, script: [{ name: "Open the picker", run: openPicker }] },
 });
