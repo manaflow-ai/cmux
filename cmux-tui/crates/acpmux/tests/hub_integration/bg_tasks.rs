@@ -299,3 +299,35 @@ async fn a_purge_stops_a_task_whose_record_is_unreadable() {
     r.c.request(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await.unwrap();
     r.until("a purge left a task with an unreadable record running", || !alive(pid as u32)).await;
 }
+
+/// A runner of an earlier folder of the chat id, whose stop FIFO sits in a later folder of that
+/// id (a purge moved its folder aside while it started), is never stopped by the later chat: its
+/// stops carry the later folder's generation, which the runner ignores. A stop that carries the
+/// runner's own generation still ends it.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_purge_never_stops_a_runner_of_another_generation() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "other-generation").await;
+    let task = start(&mut r, &id, "sleep 600").await;
+    let (task_id, pid) = (task["id"].as_str().unwrap().to_owned(), task["pid"].as_u64().unwrap());
+    let dir = acpmux::config::home().join("bg").join(&id);
+    let own = acpmux::bg_run::read_record(&dir, &task_id).unwrap().generation;
+    // The folder is now a later one of this id; the runner still belongs to the earlier one.
+    std::fs::write(dir.join(".generation"), "a-later-folder").unwrap();
+    assert!(acpmux::bg_run::request_stop(&dir, &task_id, "a-later-folder"));
+    r.c.request(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await.unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(alive(pid as u32), "a stop of another generation ended the task");
+    // Its own generation stops it, in the folder the purge moved aside.
+    let aside = acpmux::config::home().join("bg").join(".purged");
+    let moved = std::fs::read_dir(&aside)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.file_name().unwrap().to_string_lossy().starts_with(&format!("{id}-")))
+        .expect("the purge moved no folder aside");
+    assert!(acpmux::bg_run::request_stop(&moved, &task_id, &own), "the runner left its FIFO");
+    r.until("a stop of the runner's own generation did not end it", || !alive(pid as u32)).await;
+}

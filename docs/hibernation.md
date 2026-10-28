@@ -67,8 +67,10 @@ instead:
   `_acpmux/bg/output` reads by offset in the whole output, returns the exact bytes (base64) and
   the text, and says how much is gone. `_acpmux/bg/list` shows each task's state and its last
   1 KiB.
-- A woken agent finds its tasks by id. `_acpmux/bg/stop` writes one byte to the task's FIFO,
-  which opens only while its runner holds it, so no pid is signalled. The runner then sends
+- A woken agent finds its tasks by id. `_acpmux/bg/stop` writes the chat folder's generation to
+  the task's FIFO, which opens only while its runner holds it, so no pid is signalled. A runner
+  acts only on its own generation, so a runner of an earlier folder of the chat id never takes
+  a later chat's stop or purge. The runner then sends
   SIGTERM to the task's own group, then SIGKILL to the group 5 s later, so a stop takes 5 s.
   Only the runner signals that group, and only before it reaps the leader, which it reaps only
   once the pipe ends and a stop's SIGKILL went out. So output a child writes after the leader

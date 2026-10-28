@@ -108,7 +108,7 @@ impl Hub {
         bg_spawn(&runner, &spec).await.map_err(|e| RpcError::internal(format!("{e:#}")))?;
         // A stop or purge that came meanwhile missed it: it ends here.
         if closing() {
-            bg_run::request_stop(&dir, &id);
+            bg_run::request_stop(&dir, &id, &spec.generation);
             return Err(RpcError::invalid_params("the chat stopped; its task was stopped"));
         }
         let record = bg_run::read_record(&dir, &id)
@@ -203,7 +203,7 @@ impl Hub {
     /// to the group after the grace) and waits until the runner is gone, at most [`STOP_WAIT`].
     pub async fn bg_stop(&self, session: &Session, id: &str) -> Result<Value, RpcError> {
         let (dir, record) = self.bg_record(session, id)?;
-        if bg_run::request_stop(&dir, id) {
+        if bg_run::request_stop(&dir, id, &record.generation) {
             bg_wait_gone(&dir, id).await;
         }
         let record = bg_run::read_record(&dir, id).unwrap_or(record);
@@ -232,8 +232,19 @@ impl Hub {
             let _ = std::fs::remove_dir_all(&dir);
             return bg_cleared(&dir);
         }
-        for id in &ids {
-            bg_run::request_stop(&dir, id);
+        // The stops carry the folder's generation, so only its own runners act on them: a runner
+        // of an earlier folder of this id whose FIFO landed here ignores them. A folder with no
+        // generation started no task of its own (a start makes it first). One that cannot be
+        // read fails the purge.
+        let generation = match bg_generation(&dir, false) {
+            Ok(g) => Some(g),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(internal(e)),
+        };
+        if let Some(generation) = &generation {
+            for id in &ids {
+                bg_run::request_stop(&dir, id, generation);
+            }
         }
         let to = aside.join(format!("{}-{}", session.id, uuid::Uuid::now_v7().simple()));
         match std::fs::create_dir_all(&aside).and_then(|()| std::fs::rename(&dir, &to)) {
