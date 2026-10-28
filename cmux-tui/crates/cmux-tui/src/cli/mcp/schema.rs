@@ -160,10 +160,15 @@ fn primitive(expression: &Value) -> Value {
         "uint64" => json!({ "type": "integer", "minimum": 0 }),
         "int32" => json!({ "type": "integer", "minimum": i32::MIN, "maximum": i32::MAX }),
         "float64" => json!({ "type": "number" }),
+        // The wire takes a decimal string (a u64 is past JSON's safe
+        // integers); agents send numbers, so both are accepted (v2_tools.rs
+        // `plan`). tests/tool-evals: `terminal_wait {timeout_ms: 10000}`
+        // failed validation.
         "decimal" => json!({
-            "type": "string",
+            "type": ["integer", "string"],
+            "minimum": 0,
             "pattern": "^(0|[1-9][0-9]{0,19})$",
-            "description": "An unsigned integer written as a decimal string.",
+            "description": "A whole number (a decimal string also works).",
         }),
         "base64" => json!({ "type": "string", "contentEncoding": "base64" }),
         _ => json!({}),

@@ -537,6 +537,7 @@ impl V2Tool {
                             .then(|| field["type"]["resource"].as_str())
                             .flatten()
                     });
+                    let decimal = field.is_some_and(|field| field["type"]["name"] == "decimal");
                     let value = match (resource, value.as_str()) {
                         (Some(resource), Some(raw)) => {
                             let id = self.id_argument(name, resource, raw, &mut session)?;
@@ -545,6 +546,8 @@ impl V2Tool {
                             }
                             Value::String(id.0)
                         }
+                        // The wire's decimal string from a JSON number.
+                        _ if decimal && value.is_u64() => Value::String(value.to_string()),
                         _ => value.clone(),
                     };
                     params.insert(name.clone(), value);

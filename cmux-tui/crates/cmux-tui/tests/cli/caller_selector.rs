@@ -197,8 +197,9 @@ fn state_cli_tab_groups_and_caller_workspace_through_a_real_daemon() {
 
 /// `cmux mcp serve` in a session no app owns (a cmux TUI or Cloud session):
 /// `current` is the caller's own pane, found from the daemon as the CLI
-/// finds it, not a `caller.unresolved` error on every call
-/// (tests/tool-evals `no-app-current`, 2026-10-27).
+/// finds it, not a `caller.unresolved` error on every call, and a new
+/// terminal with no place goes beside the chat (tests/tool-evals
+/// `no-app-current`, `wait-for-output`, 2026-10-27).
 #[test]
 fn mcp_current_is_the_callers_pane_without_an_app() {
     let Split { server, terminal, pane, alpha, beta } =
@@ -232,7 +233,10 @@ fn mcp_current_is_the_callers_pane_without_an_app() {
                 "params": {"name": "cmux_exec", "arguments": {"script":
                     "const split = await cmux.pane_split({pane: 'current', direction: 'right'}); \
                      const panes = await cmux.pane_list({workspace: 'current'}); \
-                     return {split, panes};"}}}),
+                     const tab = await cmux.tab_create_terminal({shell: 'echo BESIDE_OK'}); \
+                     const waited = await cmux.terminal_wait({terminal: tab.value.terminal_id, \
+                         pattern: 'BESIDE_OK', timeout_ms: 10000}); \
+                     return {split, panes, tab, waited};"}}}),
         ] {
             writeln!(stdin, "{message}").unwrap();
         }
@@ -253,6 +257,10 @@ fn mcp_current_is_the_callers_pane_without_an_app() {
     assert_eq!(screen["workspace_id"], alpha.as_str(), "split landed in {screen}");
     let listed = value["panes"]["items"].as_array().unwrap_or_else(|| panic!("{reply}"));
     assert!(listed.iter().any(|item| item["id"] == pane.as_str()), "{reply}");
+    // A terminal with no place goes beside the chat (the new right column),
+    // as the app's `beside` puts it, and a numeric timeout_ms is taken.
+    assert_eq!(value["tab"]["value"]["pane_id"], new_pane, "{reply}");
+    assert!(value["waited"].to_string().contains("BESIDE_OK"), "{reply}");
     let focused = state_cli(&server, None, &["workspace", "current", "show"]);
     assert_eq!(focused["id"], beta.as_str(), "{focused}");
 }

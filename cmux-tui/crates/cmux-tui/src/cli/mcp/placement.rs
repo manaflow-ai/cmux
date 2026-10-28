@@ -50,12 +50,12 @@ impl<B: Backend> Server<B> {
         {
             return Ok(Cow::Borrowed(arguments));
         }
-        let Some(placement) = self
-            .backend
-            .identity()
-            .ok()
-            .flatten()
-            .and_then(|identity| crate::cli::beside::placement(&identity))
+        let identity = match self.backend.identity() {
+            Ok(identity) => identity,
+            Err(_) => self.daemon_identity(),
+        };
+        let Some(placement) =
+            identity.and_then(|identity| crate::cli::beside::placement(&identity))
         else {
             return Ok(Cow::Borrowed(arguments));
         };
@@ -178,6 +178,28 @@ impl<B: Backend> Server<B> {
             .flatten();
         caller_scope::apply(params, caller.as_ref(), focus.as_ref());
         Ok(())
+    }
+
+    /// The app's `system.identify` answer built from the session daemon
+    /// alone, for a session no app owns: the caller ([`Self::daemon_caller`])
+    /// and, as `beside`, the pane right of the caller's. A terminal with no
+    /// place then goes beside the chat, as with the app, not into the chat's
+    /// own pane.
+    fn daemon_identity(&self) -> Option<Value> {
+        let caller = self.daemon_caller()?;
+        let pane = caller.get("pane")?.as_str()?;
+        let tool = v2_tools::find("pane_neighbor_get")?;
+        let mut arguments = Map::new();
+        arguments.insert("pane".into(), json!(pane));
+        arguments.insert("direction".into(), json!("right"));
+        let call = tool.plan(&arguments).ok()?;
+        let answer = self.backend.resource(None, call.plan, &call.prefixes).ok()?;
+        let right =
+            answer.get("value").unwrap_or(&answer)["pane"]["id"].as_str().map(str::to_owned);
+        Some(match right {
+            Some(right) => json!({"caller": caller, "beside": {"pane": right}}),
+            None => json!({"caller": caller}),
+        })
     }
 
     /// The caller's place from the session daemon alone: the terminal in

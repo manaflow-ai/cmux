@@ -185,6 +185,22 @@ async function answerTool(sample, use) {
     const r = await runBash(sample, `cat -n ${JSON.stringify(String(input.file_path ?? ""))} | head -${Number(input.limit ?? 2000)}`);
     return r;
   }
+  if (name === "Write" || name === "Edit") {
+    // Only inside the scratch directory, as the sandbox allows.
+    const path = resolve(sample.session.work, String(input.file_path ?? ""));
+    if (!path.startsWith(sample.session.work)) return { text: "Writes outside the working directory are not allowed here.", isError: true };
+    if (name === "Write") {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, String(input.content ?? ""));
+      return { text: `File created successfully at: ${path}`, isError: false };
+    }
+    if (!existsSync(path)) return { text: `File does not exist: ${path}`, isError: true };
+    const old = readFileSync(path, "utf8");
+    const from = String(input.old_string ?? "");
+    if (!old.includes(from)) return { text: "String to replace not found in file.", isError: true };
+    writeFileSync(path, input.replace_all ? old.split(from).join(String(input.new_string ?? "")) : old.replace(from, String(input.new_string ?? "")));
+    return { text: `The file ${path} has been updated successfully.`, isError: false };
+  }
   return { text: `${name} is not available in this session.`, isError: true };
 }
 
