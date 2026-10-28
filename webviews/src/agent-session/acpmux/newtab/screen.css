@@ -67,15 +67,30 @@
 @media (prefers-reduced-motion:no-preference){.nt-row,.nt-card,.nt-open-tab,.nt-tool,.nt-all-row{transition:background-color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out),color var(--agent-motion-hover-out,0s) var(--agent-ease-out,ease-out)}.nt-row:hover,.nt-card:hover,.nt-open-tab:hover,.nt-tool:hover,.nt-all-row:hover{transition-duration:var(--agent-motion-hover,.08s)}}
 /* Shell mode on the new tab field (`!` first): a `!` glyph in the theme's magenta before a
    monospace command, inside the same box. */
-.nt-shell-glyph {
-  flex: none;
-  /* On the field's first line (the row is top-aligned so the glyph stays there as the draft grows). */
+.nt-field-slot {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+}
+.nt-input-glyph {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 16px;
+  width: 1ch;
+  height: var(--text-content--line-height);
   display: flex;
   align-items: center;
-  height: var(--text-content--line-height);
-  margin-top: 16px;
   font: 600 16px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  pointer-events: none;
+}
+.nt-shell-glyph {
   color: var(--agent-ansi-5, #d670d6);
+}
+/* Reserve the text column too, before the first key: changing only the textarea's inner inset
+   still shifts its anonymous text box. The shared icon size is independent of the mode's font. */
+.nt-field-slot .nt-field {
+  padding-inline-start: var(--ds-control-icon);
 }
 .nt-screen[data-shell] .nt-field {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -158,11 +173,7 @@
 /* Templates (cx-yabk, plans/cmux-next/new-tab-templates.md): the same screen, other sections and
    type. The theme's own tones only; no accent color. */
 .nt-prompt-glyph {
-  flex: none;
-  display: flex;
-  align-items: center;
-  height: var(--text-content--line-height);
-  margin-top: 16px;
+  /* Keep the prompt prefix on the same monospace metrics as the reserved shell slot. */
   font: 600 16px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--agent-soft);
 }

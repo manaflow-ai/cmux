@@ -640,6 +640,70 @@ export type RetrySummary = {
 } & Record<string, unknown>;
 
 /**
+ * `terminal`: run `command` in a terminal on `host` (null: this machine). `route`: edit or
+ * sign in again to the route `routeId`.
+ */
+export type SessionAuthLogin = {
+  command?: (string | null);
+  host?: (string | null);
+  kind: SessionAuthLoginKind;
+  routeId?: (string | null);
+} & Record<string, unknown>;
+
+export type SessionAuthLoginKind = "terminal" | "route";
+
+/**
+ * A chat by `sessionId`, or by `target` before it has a session (a new tab before its first
+ * send). Exactly one of the two. `refresh`: probe the route and run the harness's own sign-in
+ * check that reads no keychain, when no newer evidence answers.
+ */
+export type SessionAuthParams = {
+  refresh?: boolean;
+  sessionId?: (string | null);
+  target?: (SessionAuthTarget | null);
+} & Record<string, unknown>;
+
+/**
+ * What `_acpmux/session/auth` answers. A client blocks a send only on `signedOut`, `expired`
+ * or `routeAuthNeeded`; `unknown` never blocks.
+ */
+export type SessionAuthResult = {
+  /** One sentence: the probe's status, the turn's error, or the check that ran. */
+  detail: string;
+  /** When the evidence was observed (ms since the epoch); null when `source` is `none`. */
+  evidenceAt?: (number | null);
+  /**
+   * The chat whose turn is the evidence (`source` `turn`): for a `target`, a chat on this
+   * daemon with the same harness, account home and route.
+   */
+  fromSessionId?: (string | null);
+  harness: string;
+  /** The peer the chat runs on; null on this daemon. */
+  host?: (string | null);
+  /** How to sign in: only for `signedOut`, `expired` and `routeAuthNeeded`. */
+  login?: (SessionAuthLogin | null);
+  /** The route the chat is bound to; null when it is not routed. */
+  routeId?: (string | null);
+  source: SessionAuthSource;
+  state: SessionAuthState;
+} & Record<string, unknown>;
+
+export type SessionAuthSource = "peerLink" | "routeProbe" | "turn" | "authCheck" | "none";
+
+export type SessionAuthState = "ready" | "signedOut" | "expired" | "routeAuthNeeded" | "routeUnreachable" | "peerUnreachable" | "unknown";
+
+/**
+ * The chat a send would start: its harness, the peer it runs on (`host`, a peer name; absent:
+ * this daemon) and the route the picker selected (absent: the harness's default route, as at
+ * spawn).
+ */
+export type SessionAuthTarget = {
+  harness: string;
+  host?: (string | null);
+  routeId?: (string | null);
+} & Record<string, unknown>;
+
+/**
  * To watchers when a session changed: its new summary (only its id when
  * purged), the coarse `kind` and the log record behind it.
  */

@@ -1082,6 +1082,9 @@ impl Hub {
         // that comes and goes while it waits on the agent still holds for it (reviews 73, 75 and
         // 77 of #23322).
         let off = self.off_latch();
+        // The idle pass never ends the harness under a mode change (`idle.rs`).
+        self.touch(session);
+        let _using = session.harness_use.read().await;
         // Every switch into a mode that skips approvals, from any client (the app, the CLI, a
         // script), passes here: refused while `sessions.allowFullAccess` is off.
         if super::start_mode::requests_full_access(m, &params) && !off.allows_full_access() {
@@ -1372,6 +1375,8 @@ impl Hub {
 
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
+        // An idle pass under way ends first; none starts while this stop runs (`idle.rs`).
+        let _using = session.harness_use.read().await;
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);

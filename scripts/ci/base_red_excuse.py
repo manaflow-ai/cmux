@@ -43,6 +43,15 @@ SETUP_STEPS = frozenset({"Set up job", "Set up runner"})
 AGGREGATES = frozenset({"ci-status"})
 HOOK_REFUSAL = "glaeda-cmux-runner-hook: refused"
 VERDICTS = frozenset({"success", "failure"})
+# How far back the base lookup reads. A feat-cmux-next push skips swift-test, so its base verdict comes
+# from the tip Swift suite (main's cmux-next-tip-swift-suite-dispatch.yml, about one run an hour), and
+# DEV daily dispatches land between those runs every few minutes: on 2026-10-28, 16 of the base's 20
+# newest completed runs were DEV daily runs, and the tip suite run fell out of a 20-run window, so
+# no Swift red on any PR could be compared. One page of 100 runs reaches back hours; job listings
+# are read newest first, at most BASE_JOB_READS per workflow, so a long run of runs with no verdict
+# for the job stays bounded.
+BASE_RUNS_PAGE = 100
+BASE_JOB_READS = 40
 TESTS = (
     re.compile(r"✘ Test (.+?\)) (?:recorded an issue|failed)"),  # Swift Testing
     re.compile(r"Test Case '-\[(\S+ \S+)\]' failed"),  # XCTest
@@ -132,6 +141,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
     audit: list[str] = []
     base_runs: dict[int, list[dict]] = {}
     base_jobs: dict[int, list[dict]] = {}
+    job_reads: dict[int, int] = {}
     jobs = head_jobs(repo, sha, runs, list(checks), github)
     if not jobs:
         # A red run or check with no failed job to show has nothing the base can excuse.
@@ -151,7 +161,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                           + " (a crash or a cut-short run is never a base red)")
         workflow = github.json(f"repos/{repo}/actions/runs/{job['run_id']}").get("workflow_id")
         if workflow not in base_runs:
-            listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&status=completed&per_page=20")
+            listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?branch={base}&status=completed"
+                                 f"&per_page={BASE_RUNS_PAGE}")
             base_runs[workflow] = [run for run in listed.get("workflow_runs") or []
                                    if run.get("event") != "pull_request" and run.get("conclusion") != "skipped"]
         # The newest base run where this job has a verdict decides: a base push
@@ -159,6 +170,9 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         base_run = base_job = None
         for candidate_run in base_runs[workflow]:
             if candidate_run["id"] not in base_jobs:
+                if job_reads.get(workflow, 0) >= BASE_JOB_READS:
+                    break
+                job_reads[workflow] = job_reads.get(workflow, 0) + 1
                 base_jobs[candidate_run["id"]] = [found for page in github.json(
                     f"repos/{repo}/actions/runs/{candidate_run['id']}/jobs?filter=latest&per_page=100", paginate=True)
                     for found in page.get("jobs") or []]
@@ -167,7 +181,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 base_run, base_job = candidate_run, found
                 break
         if base_run is None:
-            raise Refused(f"'{name}': no completed {base} run of its workflow has a verdict for it to compare with")
+            raise Refused(f"'{name}': no completed {base} run of its workflow has a verdict for it to compare with "
+                          f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists)")
         if base_job.get("conclusion") != "failure":
             raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}); "
                           "fix it on this head")

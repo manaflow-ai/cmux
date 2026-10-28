@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 # The tree-commit marker: one public, write-once object per feat-cmux-next
-# commit saying its cmux-tui tree is published and daemon-tested, so main's
-# promote guard (scripts/ci/promote-nightly-next.mjs) and request-nightly-next.sh
-# can check a commit without the tree key algorithm, which main does not have,
-# and without a GitHub API call.
+# commit saying its cmux-tui tree is published and verified, so main's promote
+# guard (scripts/ci/promote-nightly-next.mjs) and request-nightly-next.sh can
+# check a commit without the tree key algorithm, which main does not have, and
+# without a GitHub API call.
+#
+# Since 2026-10-28 the marker does not wait for the tree's daemon tests. They
+# still run after the publish and report their result, and the feat-cmux-next
+# channel (scripts/ci/cmux-tui-point-channel.sh) still follows only
+# daemon-tested trees, but no nightly waits on them. A Zig package download
+# failure in those tests (run 40651931144) left 60 commits unmarked and held a
+# launch-crash fix off the nightly feed. Leo, 2026-10-23: "we want no smoke
+# tests".
 #
 # Contract (readers must keep to it):
 #   GET https://files.cmux.com/cmux-tui/tree-commits/<sha40>.json?t=<now>
@@ -14,9 +22,9 @@
 #     network error, a body that does not parse or names another commit): a
 #     read failure, never "not ready"; callers fail closed and say so.
 #   Written write-once by cmux-tui-artifacts.yml (mark-tree-commits) on every
-#   feat-cmux-next push or dispatch run whose tree is published and
-#   daemon-tested, for each first-parent commit in the last 40 of the run's
-#   commit (the run's own included) whose tree is ready, and for the same window
+#   feat-cmux-next push or dispatch run whose tree is published, for each
+#   first-parent commit in the last 40 of the run's commit (the run's own
+#   included) whose tree is ready, and for the same window
 #   from the branch tip: a run that publishes a tree late (a takeover after the
 #   owner's publish failed) marks the newer commits that share it, whose own
 #   runs found it unpublished and ended (the 2026-10-28 promote waited on them).
@@ -26,10 +34,11 @@
 #   tree-commit-marker.sh check <sha>       exit 0 marked (prints key=), 1 not marked, 3 read failure
 #   tree-commit-marker.sh daemon-tested <key>
 #                                            exit 0 when the tree's daemon tests passed (or it
-#                                            predates separate daemon tests), 1 not yet, 3 read failure
-#   tree-commit-marker.sh tree-ready <key>   exit 0 published, verified and daemon-tested
-#                                            (prints publishedBy=), 1 not (a 404), 3 a read failure
-#                                            or an unverifiable tree
+#                                            predates separate daemon tests), 1 not yet, 3 read
+#                                            failure; not part of tree-ready
+#   tree-commit-marker.sh tree-ready <key>   exit 0 published and verified (prints publishedBy=),
+#                                            1 not (a 404), 3 a read failure or an unverifiable
+#                                            tree
 #   tree-commit-marker.sh write [--window N] [--tip-branch B]
 #                                            marks HEAD and its first-parent ancestors (default
 #                                            40) whose tree is ready, and with --tip-branch the
@@ -104,17 +113,17 @@ daemon_tested() { # <key>
   esac
 }
 
+# Tree <key> is published and verified (pin-cmux-tui.sh verify-key: its sha256,
+# source.json and the publishing commit's attested manifest agree). Its daemon
+# tests are not asked for (see the header).
 tree_ready() { # <key>
   local key="$1" out rc=0
-  local rc=0
   out="$(bash "$script_dir/pin-cmux-tui.sh" verify-key "$key")" || rc=$?
   case "$rc" in
     0) ;;
     1) return 1 ;;
     *) return 3 ;;
   esac
-  daemon_tested "$key" || rc=$?
-  (( rc == 0 )) || return "$rc"
   echo "publishedBy=${out#commit=}"
 }
 
@@ -230,6 +239,6 @@ case "$cmd" in
   daemon-tested) daemon_tested "${1:-}" ;;
   tree-ready) tree_ready "${1:-}" ;;
   write) write_markers "$@" ;;
-  -h|--help|"") sed -n '2,39p' "$0" ;;
+  -h|--help|"") sed -n '2,48p' "$0" ;;
   *) echo "error: unknown command $cmd" >&2; exit 2 ;;
 esac

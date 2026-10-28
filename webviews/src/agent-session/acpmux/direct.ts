@@ -1261,7 +1261,9 @@ export class AcpmuxDirectClient {
   private queuedSends = new Set<string>();
   /// The steers the agent has not read yet, by row (the reply that was streaming when one went
   /// still streams above it; a later message means the agent read them).
-  private waitingSteers: { rowId: string; promptId?: string }[] = [];
+  private waitingSteers: readonly { rowId: string; promptId?: string }[] = [];
+  /// The rows of `waitingSteers` as the snapshot names them, made again only when that list changes.
+  private waitingSteerRows: { from: readonly { rowId: string }[]; rows: readonly string[] } | undefined;
   /// A prompt sent now to an agent that cannot steer while a turn ran (acpmux `queue_order`
   /// `next`): acpmux ends that turn (a cancel, or the agent's `end_turn`, acpmux #22808) and runs
   /// the prompt next. That end is not a Stop: its summary is `continued`, and the prompt then
@@ -4121,7 +4123,8 @@ export class AcpmuxDirectClient {
         const continues = promptId !== undefined && this.continuations.has(promptId);
         if (continues) this.continueTurn(promptId!);
         else if (this.awaiting !== undefined && msg.steer !== true) this.dropContinuation(this.awaiting);
-        if (steer === "waiting") this.waitingSteers.push({ rowId: `user-${event.seq}`, promptId });
+        // A new list, never one changed in place: the snapshot names its rows by the list's identity.
+        if (steer === "waiting") this.waitingSteers = [...this.waitingSteers, { rowId: `user-${event.seq}`, promptId }];
         if (steer === "waiting" && promptId) this.steerRows.set(promptId, `user-${event.seq}`);
         const knownParts = fallbackPromptId
           ? (this.optimisticPromptParts.get(fallbackPromptId) ??
@@ -4556,6 +4559,13 @@ export class AcpmuxDirectClient {
     if (this.awaiting === promptId) this.awaiting = undefined;
   }
 
+  /// The rows of the steers that wait (snapshot `waitingSteers`), one array while the list holds.
+  private steerRowIds(): readonly string[] {
+    if (this.waitingSteerRows?.from !== this.waitingSteers)
+      this.waitingSteerRows = { from: this.waitingSteers, rows: this.waitingSteers.map((waiting) => waiting.rowId) };
+    return this.waitingSteerRows.rows;
+  }
+
   /// The waiting steers (or the one `promptId` names) were read: their rows say so.
   private landSteer(promptId?: string): void {
     const read = this.waitingSteers.filter((waiting) => promptId === undefined || waiting.promptId === promptId);
@@ -4725,6 +4735,8 @@ export class AcpmuxDirectClient {
       permissionGroups: this.permissions.state,
       queue: this.shownQueue(),
       ...(this.queueWithdrawn.length ? { queueWithdrawn: this.queueWithdrawn } : {}),
+      // Two or more steers the agent has not read: the transcript draws other sessions' as one card.
+      ...(this.waitingSteers.length > 1 ? { waitingSteers: this.steerRowIds() } : {}),
       permission: this.pendingPermission,
       ...(this.pendingPermission && this.waitingPermissions.size > 0
         ? { permissionsWaiting: this.waitingPermissions.size }
