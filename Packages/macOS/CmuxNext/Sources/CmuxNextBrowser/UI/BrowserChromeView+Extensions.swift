@@ -13,6 +13,7 @@ extension BrowserChromeView {
     public static let omnibarIdentifier = "browser.toolbar.omnibar"
     public static let pageGoneIdentifier = "browser.page.gone"
     public static let pageGoneReloadIdentifier = "browser.page.gone.reload"
+    public static let pageGoneReloadAllIdentifier = "browser.page.gone.reloadAll"
     public static let pageUnresponsiveIdentifier = "browser.page.unresponsive"
     public static let pageUnresponsiveWaitIdentifier = "browser.page.unresponsive.wait"
     public static let pageUnresponsiveExitIdentifier = "browser.page.unresponsive.exit"

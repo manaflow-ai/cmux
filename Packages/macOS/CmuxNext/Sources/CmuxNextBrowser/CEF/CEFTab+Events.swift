@@ -42,6 +42,7 @@ extension CEFTab {
                 machine.apply(.finished(navigation))
             }
             if !loading {
+                keepNavigationEntries()
                 clearTitleBeforeCommit()
                 // A load that ends without OnLoadEnd (stopped, aborted) also
                 // leaves the page area to its document.
@@ -106,6 +107,7 @@ extension CEFTab {
             }
         case .address(_, let url):
             machine.apply(.urlChanged(URL(string: url)))
+            keepNavigationEntries()
         case .title(_, let title):
             offerTitle(title.isEmpty ? nil : title)
             if capturesTitleBeforeCommit, state.phase == .provisional { titleBeforeCommit = title.isEmpty ? nil : title }

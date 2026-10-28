@@ -34453,6 +34453,268 @@
           }
         }
       }
+    },
+    "browser.pageGone.chromiumHost.incognitoMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium stopped while it showed this page. This incognito tab’s sign-ins and site data were only in Chromium’s memory, so they are gone. Its address and history stay. Reload starts Chromium again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقف Chromium أثناء عرض هذه الصفحة. كانت عمليات تسجيل الدخول وبيانات المواقع لعلامة التبويب المتخفية هذه في ذاكرة Chromium فقط، لذا فقد زالت. يبقى عنوانها وسجلها. تؤدي إعادة التحميل إلى تشغيل Chromium من جديد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium se zaustavio dok je prikazivao ovu stranicu. Prijave i podaci stranica ove anonimne kartice bili su samo u memoriji Chromiuma, pa su nestali. Njena adresa i historija ostaju. Ponovno učitavanje ponovo pokreće Chromium."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium stoppede, mens denne side blev vist. Denne inkognitofanes logins og webstedsdata var kun i Chromiums hukommelse, så de er væk. Dens adresse og historik bliver. Genindlæs starter Chromium igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium wurde beim Anzeigen dieser Seite beendet. Die Anmeldungen und Websitedaten dieses Inkognito-Tabs waren nur im Speicher von Chromium und sind daher weg. Adresse und Verlauf bleiben. „Neu laden“ startet Chromium neu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium se detuvo mientras mostraba esta página. Los inicios de sesión y los datos de sitios de esta pestaña de incógnito solo estaban en la memoria de Chromium, así que se han perdido. Su dirección y su historial se conservan. Al volver a cargar, Chromium se inicia de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium s’est arrêté pendant l’affichage de cette page. Les connexions et les données de site de cet onglet de navigation privée n’étaient que dans la mémoire de Chromium : elles sont perdues. Son adresse et son historique restent. Recharger redémarre Chromium."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium si è interrotto mentre mostrava questa pagina. Gli accessi e i dati dei siti di questa scheda in incognito erano solo nella memoria di Chromium, quindi sono andati persi. L’indirizzo e la cronologia restano. Ricarica avvia di nuovo Chromium."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このページの表示中に Chromium が停止しました。このシークレットタブのログイン情報とサイトデータは Chromium のメモリにしかなかったため、失われました。アドレスと履歴は残ります。再読み込みすると Chromium が再び起動します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium បានឈប់ ពេលកំពុងបង្ហាញទំព័រនេះ។ ការចូលគណនី និងទិន្នន័យគេហទំព័ររបស់ផ្ទាំងអនាមិកនេះ មាននៅក្នុងអង្គចងចាំរបស់ Chromium តែប៉ុណ្ណោះ ដូច្នេះវាបានបាត់បង់។ អាសយដ្ឋាន និងប្រវត្តិរបស់វានៅដដែល។ ការផ្ទុកឡើងវិញ ចាប់ផ្ដើម Chromium ម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 페이지를 표시하는 동안 Chromium이 중지되었습니다. 이 시크릿 탭의 로그인 정보와 사이트 데이터는 Chromium의 메모리에만 있었으므로 사라졌습니다. 주소와 방문 기록은 유지됩니다. 새로고침하면 Chromium이 다시 시작됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium stoppet mens denne siden ble vist. Påloggingene og nettstedsdataene til denne inkognitofanen var bare i minnet til Chromium, så de er borte. Adressen og loggen blir. Last inn på nytt starter Chromium igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium zatrzymał się podczas wyświetlania tej strony. Logowania i dane witryn tej karty incognito były tylko w pamięci Chromium, więc zniknęły. Jej adres i historia zostają. Ponowne wczytanie uruchamia Chromium od nowa."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Chromium parou enquanto mostrava esta página. Os logins e os dados de sites desta guia anônima estavam só na memória do Chromium, então foram perdidos. O endereço e o histórico continuam. Recarregar inicia o Chromium de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium остановился во время показа этой страницы. Входы в аккаунты и данные сайтов этой вкладки инкогнито были только в памяти Chromium, поэтому они утрачены. Адрес и история вкладки сохранились. Перезагрузка снова запускает Chromium."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium หยุดทำงานขณะแสดงหน้านี้ การลงชื่อเข้าใช้และข้อมูลเว็บไซต์ของแท็บไม่ระบุตัวตนนี้อยู่ในหน่วยความจำของ Chromium เท่านั้น จึงหายไปแล้ว ที่อยู่และประวัติของแท็บยังคงอยู่ การโหลดซ้ำจะเริ่ม Chromium อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium bu sayfayı gösterirken durdu. Bu gizli sekmenin oturum açma bilgileri ve site verileri yalnızca Chromium’un belleğindeydi, bu yüzden kayboldu. Adresi ve geçmişi kalır. Yeniden yükle Chromium’u yeniden başlatır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium зупинився під час показу цієї сторінки. Входи в облікові записи й дані сайтів цієї вкладки в режимі інкогніто були лише в пам’яті Chromium, тому їх втрачено. Адреса та історія вкладки залишаються. Перезавантаження знову запускає Chromium."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium đã dừng khi đang hiển thị trang này. Thông tin đăng nhập và dữ liệu trang web của thẻ ẩn danh này chỉ nằm trong bộ nhớ của Chromium nên đã mất. Địa chỉ và lịch sử của thẻ vẫn còn. Tải lại sẽ khởi động lại Chromium."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示此页面时 Chromium 停止了。此无痕标签页的登录信息和网站数据只在 Chromium 的内存中，因此已丢失。它的地址和历史记录会保留。重新加载会再次启动 Chromium。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示此頁面時 Chromium 停止了。此無痕分頁的登入資訊和網站資料只存在 Chromium 的記憶體中，因此已遺失。它的網址和瀏覽記錄會保留。重新載入會再次啟動 Chromium。"
+          }
+        }
+      }
+    },
+    "browser.pageGone.reloadAllTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload All Tabs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تحميل كل علامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponovo učitaj sve kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genindlæs alle faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Tabs neu laden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a cargar todas las pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recharger tous les onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ricarica tutte le schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのタブを再読み込み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទុកផ្ទាំងទាំងអស់ឡើងវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 탭 새로고침"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last inn alle faner på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wczytaj ponownie wszystkie karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recarregar todas as guias"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезагрузить все вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหลดแท็บทั้งหมดซ้ำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm Sekmeleri Yeniden Yükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезавантажити всі вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tải lại tất cả các thẻ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新加载所有标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新載入所有分頁"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

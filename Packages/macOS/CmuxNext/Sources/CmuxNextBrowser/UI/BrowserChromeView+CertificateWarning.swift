@@ -8,4 +8,7 @@ extension BrowserChromeView {
         get { pageStatus.certificateWarningRouter }
         set { pageStatus.certificateWarningRouter = newValue }
     }
+
+    /// The crash page's Reload All Tabs through the registry (`browser.crashPage.reloadAllTabs`); true when it ran.
+    public var crashPageReloadAllRouter: (() -> Bool)? { get { pageStatus.reloadAllRouter } set { pageStatus.reloadAllRouter = newValue } }
 }

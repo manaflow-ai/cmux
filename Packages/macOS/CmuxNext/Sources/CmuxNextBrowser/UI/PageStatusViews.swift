@@ -14,6 +14,9 @@ final class PageStatusViews {
     /// Runs a warning page button through the action registry (the App
     /// installs it); true when it ran there.
     var certificateWarningRouter: ((CertificateWarningCommand) -> Bool)?
+    /// Runs the crash page's Reload All Tabs through the action registry (the App installs it); true when it
+    /// ran there.
+    var reloadAllRouter: (() -> Bool)?
     /// The view the status views are in; a shown card asks it for a layout.
     private weak var parent: NSView?
     /// The tab whose state the views show (``render(tab:)``); its crash page may show before the next render.
@@ -44,6 +47,10 @@ final class PageStatusViews {
         errorView.onProceed = { send(.proceed) }
         errorView.onBack = { send(.goBack) }
         goneView.onReload = { tab()?.reload() }
+        goneView.onReloadAll = { [weak self] in
+            if let router = self?.reloadAllRouter, router() { return }
+            (tab() as? any BrowserCrashPageHosting)?.reloadAllTabsTheHostEndLeft()
+        }
         unresponsiveView.onWait = { (tab() as? any BrowserHangAnswering)?.answerUnresponsivePage(terminate: false) }
         unresponsiveView.onExit = { (tab() as? any BrowserHangAnswering)?.answerUnresponsivePage(terminate: true) }
     }
@@ -58,7 +65,7 @@ final class PageStatusViews {
 
     func render(_ state: BrowserTabState) {
         if let exit = state.processExit {
-            goneView.show(exit)
+            goneView.show(exit, inMemoryOnly: (shownTab as? any BrowserCrashPageHosting)?.keepsSiteDataInMemoryOnly == true)
         } else if !goneView.isHidden {
             goneView.isHidden = true
         }

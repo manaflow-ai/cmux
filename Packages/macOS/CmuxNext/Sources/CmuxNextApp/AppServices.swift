@@ -903,7 +903,7 @@ final class AppServices {
         cache.onBrowserEntryCreated = { [registry, weak self] entry in
             guard let self else { return }
             PageInfoHandlers.installRouter(on: entry, registry: registry)
-            CertificateWarningHandlers.installRouter(on: entry, registry: registry)
+            CertificateWarningHandlers.installPageStatusRouters(on: entry, registry: registry)
             BrowserToolbarHandlers.install(on: entry, services: self)
             installOmnibarHooks(on: entry)
             bookmarks.attach(entry)

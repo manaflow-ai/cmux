@@ -116,9 +116,15 @@ class BrowserRestoredSession {
             // The page may have moved on while it answered.
             if tab.state.url == url { knownScrollY[url] = y }
         }
-        guard let url = tab.state.url else { return nil }
+        return savedSession(around: tab.nativeNavigationList())
+    }
+
+    /// The tab's entries as they are saved, around `native`, the engine's own list (the one it has now, or the
+    /// last one cmux saw of an engine that is gone), with the scroll positions the tab knows. Measures nothing.
+    func savedSession(around native: BrowserNavigationList?) -> BrowserSavedSession? {
+        guard let tab, let url = tab.state.url else { return nil }
         let shown = BrowserNavigationEntry(url: url, title: tab.state.title)
-        var session = (history ?? .empty).session(around: tab.nativeNavigationList(), shown: shown)
+        var session = (history ?? .empty).session(around: native, shown: shown)
         guard session.entries.indices.contains(session.current) else { return nil }
         for index in session.entries.indices {
             if session.entries[index].scrollY == nil { session.entries[index].scrollY = knownScrollY[session.entries[index].url] }

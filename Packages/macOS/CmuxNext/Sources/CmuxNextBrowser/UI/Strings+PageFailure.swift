@@ -39,6 +39,20 @@ extension Strings {
                defaultValue: "Chromium stopped while it showed this page. Reload starts Chromium again.", bundle: .module)
     }
 
+    /// The sad tab's message for an incognito Chromium tab whose Chromium Host ended: its sign-ins and
+    /// site data lived only in the host's memory, so they are gone; cmux kept its address and history.
+    static var pageGoneChromiumHostIncognitoMessage: String {
+        String(localized: "browser.pageGone.chromiumHost.incognitoMessage",
+               defaultValue: "Chromium stopped while it showed this page. This incognito tab’s sign-ins and site data were only in Chromium’s memory, so they are gone. Its address and history stay. Reload starts Chromium again.",
+               bundle: .module)
+    }
+
+    /// The sad tab's second button after the Chromium Host ended: every shown tab the end left reloads now,
+    /// and each hidden one reloads when it shows.
+    static var pageGoneReloadAllTabs: String {
+        String(localized: "browser.pageGone.reloadAllTabs", defaultValue: "Reload All Tabs", bundle: .module)
+    }
+
     static func pageGoneErrorCode(_ code: String) -> String {
         String(format: String(localized: "browser.pageGone.errorCode", defaultValue: "Error code: %@", bundle: .module), code)
     }

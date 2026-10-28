@@ -5502,6 +5502,137 @@
           }
         }
       }
+    },
+    "action.crashPage.reloadAllTabs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reload All Tabs After Chromium Stopped"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تحميل كل علامات التبويب بعد توقف Chromium"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponovo učitaj sve kartice nakon zaustavljanja Chromiuma"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genindlæs alle faner, efter Chromium stoppede"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Tabs neu laden, nachdem Chromium beendet wurde"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a cargar todas las pestañas tras detenerse Chromium"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recharger tous les onglets après l’arrêt de Chromium"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ricarica tutte le schede dopo l’interruzione di Chromium"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 停止後にすべてのタブを再読み込み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្ទុកផ្ទាំងទាំងអស់ឡើងវិញ បន្ទាប់ពី Chromium ឈប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 중지 후 모든 탭 새로고침"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last inn alle faner på nytt etter at Chromium stoppet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wczytaj ponownie wszystkie karty po zatrzymaniu Chromium"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recarregar todas as guias após o Chromium parar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезагрузить все вкладки после остановки Chromium"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "โหลดแท็บทั้งหมดซ้ำหลังจาก Chromium หยุดทำงาน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium Durduktan Sonra Tüm Sekmeleri Yeniden Yükle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перезавантажити всі вкладки після зупинки Chromium"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tải lại tất cả các thẻ sau khi Chromium dừng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 停止后重新加载所有标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 停止後重新載入所有分頁"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -3,6 +3,12 @@ import Foundation
 /// A Chromium tab's back/forward entries saved before a relaunch
 /// (`BrowserRestoredSession`, shared with WebKit tabs).
 final class CEFRestoredSession: BrowserRestoredSession {
+    /// Chromium's back/forward list as the mirror last showed it (`CEFTab+HostEndHistory`): in host mode the
+    /// Chromium Host's end takes the list with it, so cmux keeps its own copy.
+    var keptNavigationEntries: String?
+    /// The entries the tab had when its Chromium Host ended, for the page its Reload loads on the next host.
+    var hostEndHistory: BrowserSavedSession?
+
     init(tab: CEFTab) {
         super.init { [weak tab] in tab.map(CEFRestoredSessionHost.init) }
     }

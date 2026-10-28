@@ -121,6 +121,7 @@ public nonisolated enum ActionCatalog {
         FilePageActionCatalog.self,
         PageInfoActionCatalog.self,
         CertificateWarningActionCatalog.self,
+        CrashPageActionCatalog.self,
         ExtensionActionCatalog.self,
         BrowserProfileActionCatalog.self,
         ProfileMenuActionCatalog.self,

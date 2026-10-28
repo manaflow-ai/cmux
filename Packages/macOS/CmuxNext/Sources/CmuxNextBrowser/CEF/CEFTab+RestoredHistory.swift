@@ -49,6 +49,10 @@ extension CEFTab {
         restores.set(nil, for: self)
         guard !isClosed, browserID == nil, !isCreationPending, let url = hostRestoreURL else { return }
         (pendingRestore, pendingURL) = (saved, url)
+        // Chromium's own list comes back with `saved`; without it, the entries cmux kept stand in for it.
+        let kept = restored.hostEndHistory
+        restored.hostEndHistory = nil
+        if saved == nil { restoreHostEndHistory(kept) }
         guard host.visibleTab === self else { return restores.set(.waitsForShow, for: self) }
         startHostRestore()
         host.recreateShown(self)

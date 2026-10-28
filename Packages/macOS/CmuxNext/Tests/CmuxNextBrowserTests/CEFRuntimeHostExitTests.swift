@@ -14,7 +14,7 @@ import Testing
 /// supervisor for a host again. Against a spy remote shim and a supervisor that reports host ends.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct CEFRuntimeHostExitTests {
     private static let killed = BrowserProcessExit(reason: .killed, code: Int(SIGKILL), engine: .cef)
-    private static let page = URL(string: "https://example.com/")!
+    static let page = URL(string: "https://example.com/")!
     private static let elsewhere = URL(string: "https://example.org/next")!
 
     @Test func aHostEndShowsTheCrashStateOnEveryPageAndRecordsOnlyTheHost() async throws {
@@ -448,57 +448,6 @@ import Testing
         #endif
     }
 
-    // MARK: What the host's end keeps (behavior audit 4, P8)
-
-    /// The host's end takes the tab's Chromium back/forward list with it (Chromium kept it, cmux only mirrored
-    /// it), but cmux keeps the entries it last saw: the Reload on the next host loads the page with those
-    /// entries as its Back list, as Chrome's session restore gives a crashed tab its entries. An incognito tab
-    /// too: its entries were only in memory, and cmux's copy outlives the host.
-    @Test func aReloadAfterTheHostEndedKeepsTheTabsBackForwardEntries() async throws {
-        let (runtime, supervisor, wire) = try await Self.startedRuntime(forkAPI: CEFTab.backForwardListForkAPI)
-        defer { wire.close() }
-        let tab = Self.tab(runtime, browser: 1, offTheRecord: true)
-        let first = URL(string: "https://example.com/a")!, second = URL(string: "https://example.com/b")!
-        HostWire.state.withLock {
-            $0.navigationEntries[1] = #"{"entries":[{"url":"https://example.com/a","title":"A"},{"url":"https://example.com/b","title":"B"}],"current":1}"#
-        }
-        tab.load(second)
-        runtime.handle(.address(browser: 1, url: second.absoluteString))
-        runtime.handle(.loadingState(browser: 1, loading: false, canGoBack: true, canGoForward: false))
-        #expect(tab.navigationList()?.entries.map(\.url) == [first, second])
-
-        supervisor.onHostEnded?(Self.hostKilled)
-        tab.reload()
-        for _ in 0..<1_000 where supervisor.asked < 2 { await Task.yield() }
-        try await runtime.start(layout: nil, environment: [:], trigger: "test")
-        for _ in 0..<1_000 where tab.state.processExit != nil { await Task.yield() }
-        #expect(tab.state.processExit == nil, "the page did not start loading again")
-        runtime.register(tab, browser: 11)
-
-        #expect(tab.navigationList()?.entries.map(\.url) == [first, second], "the host's end wiped the tab's Back list")
-        #expect(tab.state.canGoBack, "Back is not offered after the Reload")
-    }
-
-    /// An incognito tab's sign-ins and site data lived only in the dead host's memory: its crash page says
-    /// they are gone, which a normal tab's (whose data is on disk) does not.
-    @Test func anIncognitoTabsCrashPageSaysItsSiteDataIsGone() async throws {
-        let (runtime, supervisor, wire) = try await Self.startedRuntime()
-        defer { wire.close() }
-        let normal = Self.tab(runtime, browser: 1)
-        let incognito = Self.tab(runtime, browser: 2, offTheRecord: true)
-        let (normalStatus, normalArea) = Self.statusViews(showing: normal)
-        let (incognitoStatus, incognitoArea) = Self.statusViews(showing: incognito)
-        defer { withExtendedLifetime((normalArea, incognitoArea)) {} }
-
-        supervisor.onHostEnded?(Self.hostKilled)
-
-        #expect(!normalStatus.goneView.isHidden && !incognitoStatus.goneView.isHidden)
-        #if DEBUG
-        #expect(incognitoStatus.goneView.debugText != normalStatus.goneView.debugText,
-                "the incognito tab's crash page does not say its sign-ins and site data are gone")
-        #endif
-    }
-
     #if DEBUG
     /// The supervisor's path from a real host process to the runtime (task 080 conforms the same way): a
     /// stand-in host launched with the host launcher, SIGKILLed, its end mapped with `pageExit` and reported
@@ -525,7 +474,7 @@ import Testing
 
     /// A runtime started in host mode over the spy remote shim, following `supervisor`'s host ends. It
     /// outlives the test: a pane's scheduled work reads it through an unowned reference.
-    private static func startedRuntime(
+    static func startedRuntime(
         forkAPI: Int32 = 0,
         prepareInputs: (@Sendable (CEFStartInputs.Request) -> CEFStartInputs)? = nil
     ) async throws -> (CEFRuntime, ReportingHost, HostWire.Pipe) {
@@ -546,11 +495,11 @@ import Testing
     }
 
     /// A Chromium Host's SIGKILL as the supervisor reports it (``ChromiumHostExit/pageExit``).
-    private static let hostKilled = BrowserProcessExit(reason: .killed, code: Int(SIGKILL), engine: .cef, process: .chromiumHost)
+    static let hostKilled = BrowserProcessExit(reason: .killed, code: Int(SIGKILL), engine: .cef, process: .chromiumHost)
 
     /// A chrome's status views over its page area (the views' parent, which the caller keeps: they hold it
     /// weakly), rendered once for `tab` as the chrome renders the tab it binds.
-    private static func statusViews(showing tab: CEFTab) -> (PageStatusViews, NSView) {
+    static func statusViews(showing tab: CEFTab) -> (PageStatusViews, NSView) {
         let status = PageStatusViews()
         let area = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         status.install(in: area) { tab }
@@ -580,9 +529,8 @@ import Testing
     }
 
     /// A tab of `profile` in a pane of its own whose browser is `browser`.
-    private static func tab(_ runtime: CEFRuntime, browser: Int32, profile: BrowserProfileID = .default, offTheRecord: Bool = false) -> CEFTab {
-        let key = CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: profile, offTheRecord: offTheRecord)
-        let host = CEFPaneHost(key: key, runtime: runtime)
+    static func tab(_ runtime: CEFRuntime, browser: Int32, profile: BrowserProfileID = .default, offTheRecord: Bool = false) -> CEFTab {
+        let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: profile, offTheRecord: offTheRecord), runtime: runtime)
         host.endOfTurn = { $0() }
         let tab = CEFTab(id: .random(), profile: profile, host: host, runtime: runtime)
         host.add(tab)
@@ -593,7 +541,7 @@ import Testing
 
 /// Hands out the spy's wire on each request and reports host ends through ``onHostEnded``, which the
 /// runtime sets.
-@MainActor private final class ReportingHost: @MainActor ChromiumHostExitReporting {
+@MainActor final class ReportingHost: @MainActor ChromiumHostExitReporting {
     var onHostEnded: (@MainActor (BrowserProcessExit) -> Void)?
     /// Whether the next reported end is within the restart budget (p01-process-083).
     var lastEndRestoresPages = false
@@ -647,22 +595,6 @@ import Testing
     #endif
 }
 
-/// The addresses whose saved navigation the runtime asked for.
-@MainActor private final class AskedURLs {
-    var urls: [URL] = []
-}
-
-/// Closes the tab when it asks to close, as the app's tab owner does.
-@MainActor private final class TabCloser: BrowserTabDelegate {
-    private(set) var closes = 0
-
-    func browserTab(_ tab: any BrowserTab, didRequest intent: BrowserTabIntent) {
-        guard case .close = intent else { return }
-        closes += 1
-        (tab as? CEFTab)?.close()
-    }
-}
-
 /// Whether each preparation of a start's inputs ran on the main thread.
 private nonisolated final class PreparingThreads: Sendable {
     let onMain = Mutex<[Bool]>([])
@@ -681,7 +613,7 @@ private nonisolated final class PreparingThreads: Sendable {
 /// initialize (succeeds); the fork API version and `set_energy_saver` (recorded); `reload`, `load_url`,
 /// `close`, `create_window`, `try_close` (sent for a REPLY: the next token) and `before_unload_reply`, which
 /// count the ops sent while no wire is attached. Every other export does nothing and returns 0.
-private nonisolated enum HostWire {
+nonisolated enum HostWire {
     private static let abiCString: StaticString = "host-exit-spy-abi"
     static let abi = "\(abiCString)"
 

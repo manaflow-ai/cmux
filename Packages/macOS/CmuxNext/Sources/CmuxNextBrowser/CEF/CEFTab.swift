@@ -353,7 +353,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
 
     public func load(_ url: URL) {
         guard !isClosed, !loadsDebugURL(url) else { return }
-        isDiscardedInPlace = false
+        (isDiscardedInPlace, restored.hostEndHistory) = (false, nil)
         automaticDownloads.userGesture()
         let id = makeNavigationID()
         navigation = id
@@ -383,7 +383,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         if runtime.awaitsHostRestart { return runtime.reloadAfterHostRestart(self) }
         guard let browserID else {
             // A page its host restore brings back loads with its saved navigation (``hostRestoreShown()``).
-            if !hasHostRestore, let url = pendingURL ?? state.url { load(url) }
+            if !hasHostRestore, let url = pendingURL ?? state.url { loadKeepingHostEndHistory(url) }
             return
         }
         switch reloadPlan {

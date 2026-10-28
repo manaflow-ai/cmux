@@ -69,6 +69,11 @@ extension CEFEngine {
         Self.restartHost(self, then: done)
     }
 
+    /// Whether a Chromium Host's end left tabs on its crash page (`browser.crashPage.reloadAllTabs` can run).
+    public var hasTabsTheHostEndLeft: Bool { !CEFRuntime.shared.tabsTheHostEndLeft.isEmpty }
+    /// Reload All Tabs: ``CEFRuntime/reloadTabsTheHostEndLeft()``, waiting for nothing.
+    public func reloadTabsTheHostEndLeft() { CEFRuntime.shared.reloadTabsTheHostEndLeft() }
+
     /// The start waits off the main actor, as a sad tab's Reload does: it runs on main as the engine's
     /// own call, and the main thread holds nothing while the supervisor starts the host.
     private nonisolated static func restartHost(_ engine: CEFEngine, then done: @escaping @MainActor @Sendable (Bool) -> Void) {

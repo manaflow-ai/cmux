@@ -6,6 +6,12 @@
 protocol BrowserCrashPageHosting: AnyObject {
     /// The view that shows this tab's crash page: the chrome that binds the tab. The tab holds it weakly.
     var crashPagePresenter: (any BrowserCrashPagePresenter)? { get set }
+    /// The tab's cookies and site data live only in its engine's memory (an incognito window's store): an
+    /// end of the process that held them takes them, and its crash page says so.
+    var keepsSiteDataInMemoryOnly: Bool { get }
+    /// The crash page's Reload All Tabs after the Chromium Host ended, when no action registry routes it
+    /// (``PageStatusViews/reloadAllRouter``): every tab the end left reloads, the shown ones now.
+    func reloadAllTabsTheHostEndLeft()
 }
 
 /// The view that shows a tab's crash page (`BrowserChromeView`).

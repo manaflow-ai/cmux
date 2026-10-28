@@ -169,3 +169,43 @@ extension CEFPaneHost {
         if ensureCreated(tab) { showBrowser(of: tab, activate: false) }
     }
 }
+
+/// Reload All Tabs on the crash page after the Chromium Host ended (behavior audit 4, P8).
+extension CEFRuntime {
+    /// The tabs whose pages ended with the host and still show its crash page: web tabs only (a cmux page
+    /// comes back through its own supervisor outcome, ``CEFEngine/restartPagesAfterHostEnd(_:)``).
+    var tabsTheHostEndLeft: [CEFTab] {
+        hosts.values.flatMap(\.tabs).filter(\.showsHostEnd)
+    }
+
+    /// Reload All Tabs: every shown tab the host's end left reloads now (they share one restart of the host,
+    /// ``reloadAfterHostRestart(_:)``), and every hidden one keeps its mark and reloads when it shows, as
+    /// Chrome loads a discarded tab when it is selected. O(tabs) in the person's turn, with no wait: each
+    /// Reload starts or joins the restart off the main actor. Returns how many tabs reload now.
+    @discardableResult
+    func reloadTabsTheHostEndLeft() -> Int {
+        var now = 0
+        for tab in tabsTheHostEndLeft {
+            if tab.host.visibleTab === tab {
+                tab.reload()
+                now += 1
+            } else {
+                tab.reloadWhenShown = true
+            }
+        }
+        return now
+    }
+}
+
+extension CEFTab {
+    /// The page ended with the Chromium Host and the tab shows that crash page: a web tab, open, with no
+    /// browser yet on a next host.
+    var showsHostEnd: Bool {
+        !isClosed && !agentRelay.servesCmuxPage && browserID == nil && state.processExit?.process == .chromiumHost
+    }
+
+    /// An incognito window's tab: its cookies and site data are in the host's memory only.
+    var keepsSiteDataInMemoryOnly: Bool { host.key.offTheRecord }
+
+    func reloadAllTabsTheHostEndLeft() { runtime.reloadTabsTheHostEndLeft() }
+}

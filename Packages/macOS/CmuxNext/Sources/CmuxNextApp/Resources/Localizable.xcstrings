@@ -13552,6 +13552,137 @@
           }
         }
       }
+    },
+    "action.crashPage.reloadAllTabs.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No tab is waiting for Chromium to start again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا توجد علامة تبويب تنتظر أن يبدأ Chromium من جديد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nijedna kartica ne čeka da se Chromium ponovo pokrene."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen fane venter på, at Chromium starter igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Tab wartet darauf, dass Chromium neu startet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ninguna pestaña espera a que Chromium se inicie de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun onglet n’attend que Chromium redémarre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna scheda attende che Chromium si avvii di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium の再起動を待っているタブはありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គ្មានផ្ទាំងណាកំពុងរង់ចាំ Chromium ចាប់ផ្ដើមម្ដងទៀតទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium이 다시 시작되기를 기다리는 탭이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen fane venter på at Chromium skal starte igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Żadna karta nie czeka na ponowne uruchomienie Chromium."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma guia está esperando o Chromium iniciar de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нет вкладок, ожидающих повторного запуска Chromium."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่มีแท็บใดรอให้ Chromium เริ่มทำงานอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium’un yeniden başlamasını bekleyen sekme yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жодна вкладка не чекає на повторний запуск Chromium."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không có thẻ nào đang chờ Chromium khởi động lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有标签页在等待 Chromium 重新启动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沒有分頁在等待 Chromium 重新啟動。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
