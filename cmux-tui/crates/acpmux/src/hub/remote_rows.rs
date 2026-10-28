@@ -62,8 +62,15 @@ impl RemoteRows {
     /// is taken out and put back through `insert`, so the index follows whatever the mark touched.
     /// There is no other way to change a row in place.
     pub(crate) fn mark_peer_stale(&mut self, peer: &str, last_seen: Option<u64>) -> Vec<Value> {
-        let keys: Vec<String> =
-            self.rows.iter().filter(|(_, r)| r.peer == peer).map(|(k, _)| k.clone()).collect();
+        let keys: Vec<String> = self
+            .rows
+            .iter()
+            .filter(|(_, r)| r.peer == peer && r.summary["status"] != "closed")
+            .filter(|(_, r)| {
+                r.summary["stale"] != true || r.summary["lastSeen"] != json!(last_seen)
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
         let mut changed = Vec::new();
         for key in keys {
             let Some(mut row) = self.remove(&key) else { continue };

@@ -515,24 +515,21 @@ impl Hub {
         });
     }
 
-    pub(super) async fn peer_notice_loop(self: Arc<Self>) {
-        let Some(mut rx) = self.peer_notices_rx.lock().await.take() else { return };
-        use crate::peer::PeerNotice;
-        while let Some((peer, generation, notice)) = rx.recv().await {
-            // Only the registered instance speaks for a name: a replaced or
-            // removed peer's queued notices are stale.
-            let Some(current) = self.peer(&peer).filter(|p| p.generation == generation) else {
-                continue;
-            };
-            let settles = matches!(
-                notice,
-                PeerNotice::Connected | PeerNotice::Disconnected(_) | PeerNotice::Restarting
-            );
-            self.apply_peer_notice(&peer, generation, notice);
-            if settles {
-                current.mark_settled();
-                self.watches.peer_settled();
+    /// The row transition after a continuous outage's grace has elapsed.
+    pub(super) fn mark_peer_unreachable(&self, peer: &str, generation: u64) {
+        let changed = {
+            let mut map = self.remote_sessions.lock().unwrap();
+            if !self.is_current(peer, generation) {
+                return;
             }
+            let last_seen = self.peer(peer).and_then(|p| p.link().last_seen);
+            map.mark_peer_stale(peer, last_seen)
+        };
+        if !changed.is_empty() {
+            self.save_peer_cache(peer, generation, true);
+        }
+        for summary in changed {
+            self.announce_remote(peer, summary, "status");
         }
     }
 
@@ -565,30 +562,8 @@ impl Hub {
                     tracing::info!(peer = %peer, "peer restarting");
                 }
                 PeerNotice::Disconnected(e) => {
-                    let link = self.peer(&peer).map(|p| p.link()).unwrap_or_default();
-                    // One line per drop, not per failed attempt while it is down.
-                    if link.attempts <= 1 {
-                        tracing::warn!(peer = %peer, "peer disconnected: {e}");
-                    } else {
-                        tracing::debug!(peer = %peer, attempts = link.attempts, "peer still unreachable: {e}");
-                    }
-                    // Keep the last known list, but flag it.
-                    let changed: Vec<Value> = {
-                        let mut map = self.remote_sessions.lock().unwrap();
-                        if !self.is_current(&peer, generation) {
-                            return;
-                        }
-                        self.with_tombstones(&peer, generation, |t| t.link_ended());
-                        map.mark_peer_stale(&peer, link.last_seen)
-                    };
-                    if !changed.is_empty() {
-                        self.save_peer_cache(&peer, generation, true);
-                    }
-                    // What its chats streamed in the last seconds is kept now (`peer_snapshot.rs`).
-                    self.peer_snapshots.flush(Some(&peer));
-                    for summary in changed {
-                        self.announce_remote(&peer, summary, "status");
-                    }
+                    self.note_peer_drop(&peer, generation, &e);
+                    self.mark_peer_unreachable(&peer, generation);
                 }
                 PeerNotice::Sessions(list) => {
                     // The list can land after clients took their snapshot (an
@@ -631,7 +606,9 @@ impl Hub {
                         self.peer_snapshots.listed(&peer, listed.collect(), true);
                         (changed, old.into_values().collect::<Vec<_>>())
                     };
-                    self.save_peer_cache(&peer, generation, true);
+                    if !changed.is_empty() || !gone.is_empty() {
+                        self.save_peer_cache(&peer, generation, true);
+                    }
                     for summary in changed {
                         self.announce_remote(&peer, summary, "status");
                     }
