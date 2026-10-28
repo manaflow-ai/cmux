@@ -11,28 +11,32 @@
 # 20 minutes (the same run's attempt 3), so the deadline is on progress: an
 # attempt whose download (zig-pkg/ and the global cache's p/ and tmp/) has not
 # grown for CMUX_ZIG_FETCH_STALL_TIMEOUT is stopped, as is one that runs past
-# CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT. A stopped attempt's whole process group is
-# killed, and so is anything zig leaves running when it exits.
+# CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT (a backstop well above the slowest healthy
+# fetch). A stopped attempt's whole process group is killed, and so is anything
+# zig leaves running when it exits or when this script is cancelled.
 #
 # Zig stages an unpack (zig-pkg/.tmp-* on 0.16) and moves a package into place
 # only after its hash checks. But it keeps a copy of each download in
 # <global cache>/p/<hash>.tar.gz and unpacks from it without checking it: one
-# cut short makes every later fetch fail with "unable to unpack tarball to
-# temporary directory: ReadFailed". After a failed attempt, the staging dirs of
-# this checkout and every archive in p/ that fails its integrity check are
-# removed before the retry; a whole archive, whoever wrote it, stays.
+# cut short (a cache restored or copied in part) makes every later fetch fail
+# with "unable to unpack tarball to temporary directory: ReadFailed". After a
+# failed attempt, the staging dirs of this checkout and every archive in p/ that
+# fails its integrity check are removed before the retry; a whole archive,
+# whoever wrote it, stays. Zig writes p/ archives atomically (a temp file in p/
+# renamed into place, src/Package/Fetch.zig), so another job's archive is never
+# partial under its final name, and a temp file has no archive suffix and stays.
 #
 # usage: fetch-ghostty-zig-packages.sh [ghostty source dir]
 # CMUX_ZIG_FETCH_ATTEMPTS (default 3), CMUX_ZIG_FETCH_STALL_TIMEOUT (seconds
 # without progress, default 180), CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT (seconds an
-# attempt may run, default 900), CMUX_ZIG_FETCH_RETRY_DELAY (seconds, default
+# attempt may run, default 1800), CMUX_ZIG_FETCH_RETRY_DELAY (seconds, default
 # 20, multiplied by the attempt number) and CMUX_ZIG_FETCH_SAMPLE (seconds
 # between progress checks, default 5) bound the retries.
 set -euo pipefail
 source_dir="${1:-ghostty-next}"
 attempts="${CMUX_ZIG_FETCH_ATTEMPTS:-3}"
 stall_timeout="${CMUX_ZIG_FETCH_STALL_TIMEOUT:-180}"
-attempt_timeout="${CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT:-900}"
+attempt_timeout="${CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT:-1800}"
 delay="${CMUX_ZIG_FETCH_RETRY_DELAY:-20}"
 sample="${CMUX_ZIG_FETCH_SAMPLE:-5}"
 for value in "$attempts" "$stall_timeout" "$attempt_timeout" "$sample"; do
@@ -45,7 +49,8 @@ zig_bin="${CMUX_ZIG:-zig}"
 cd "$source_dir"
 
 marker="$(mktemp "${TMPDIR:-/tmp}/zig-fetch-stopped.XXXXXX")"
-trap 'rm -f "$marker"' EXIT
+# The running attempt's process group and watchdog, stopped if this script is.
+fetch_pid="" watchdog_pid=""
 
 # Zig's global cache, where it keeps package archives (p/).
 cache="${ZIG_GLOBAL_CACHE_DIR:-}"
@@ -103,6 +108,18 @@ stop_group() {
   kill -KILL -- "-$pgid" 2>/dev/null || true
 }
 
+# Cancelled (the job timed out or was cancelled): the fetch runs in a process
+# group of its own, which a signal to this script's group does not reach.
+on_exit() {
+  if [[ -n "$watchdog_pid" ]]; then kill "$watchdog_pid" 2>/dev/null || true; fi
+  if [[ -n "$fetch_pid" ]]; then stop_group "$fetch_pid"; fi
+  rm -f "$marker"
+}
+trap on_exit EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
 # One fetch under the deadlines. Returns zig's status, or 124 when a deadline
 # stopped a fetch that had not succeeded (the reason is in $marker). A fetch
 # that exits 0 succeeded even at a deadline: Zig checked what it moved in.
@@ -113,6 +130,7 @@ fetch_once() {
   set -m
   "$zig_bin" build --fetch=all &
   local pid=$!
+  fetch_pid=$pid
   set +m
   (
     start=$SECONDS last_change=$SECONDS next_sample=$SECONDS last=""
@@ -136,14 +154,17 @@ fetch_once() {
     done
   ) &
   local watchdog=$!
+  watchdog_pid=$watchdog
   local status=0
   wait "$pid" || status=$?
   # The watchdog goes as soon as zig is reaped, so it never signals a reused pid.
   kill "$watchdog" 2>/dev/null || true
   wait "$watchdog" 2>/dev/null || true
+  watchdog_pid=""
   # Anything zig left running in its group (a downloader that outlived it) would
   # hold the step's output open: stop it.
   stop_group "$pid"
+  fetch_pid=""
   if (( status != 0 )) && [[ -s "$marker" ]]; then
     return 124
   fi

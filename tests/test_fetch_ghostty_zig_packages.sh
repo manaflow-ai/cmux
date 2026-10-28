@@ -144,4 +144,26 @@ children_gone || fail "a hung attempt's child process outlived its deadline"
 [ ! -e "$TMP/cache/p/N-done" ] || fail "a hung fetch left a package that looks complete"
 (( elapsed < 40 )) || fail "three 2 s stalls took ${elapsed}s"
 
+# Cancelling the script (a job timeout or cancel signals its process group)
+# stops the fetch too, though the fetch runs in a process group of its own.
+rm -rf "$TMP/count" "$TMP/children" "$TMP/cache/p"/* "$TMP/src/zig-pkg"; : > "$TMP/children"
+set -m
+env -u ZIG_GLOBAL_CACHE_DIR PATH="$TMP/bin:$PATH" FAKE_ZIG_COUNT="$TMP/count" FAKE_ZIG_HANGS=5 \
+  FAKE_ZIG_CHILDREN="$TMP/children" FAKE_ZIG_DIR="$(cd "$TMP/src" && pwd -P)" FAKE_CACHE="$TMP/cache" \
+  CMUX_ZIG_FETCH_STALL_TIMEOUT=60 "$SCRIPT" "$TMP/src" >"$TMP/out" 2>&1 &
+script_pid=$!
+set +m
+for _ in $(seq 1 100); do [ -s "$TMP/children" ] && break; sleep 0.1; done
+[ -s "$TMP/children" ] || fail "the hanging fetch did not start"
+kill -TERM -- "-$script_pid"
+cancel_status=0
+wait "$script_pid" || cancel_status=$?
+[ "$cancel_status" != 0 ] || fail "a cancelled fetch passed"
+children_gone || fail "cancelling the script left the fetch running"
+
+# The attempt limit is a backstop: it stays well above the slowest healthy
+# fetch seen (20 minutes, publisher run 40630560459 attempt 3).
+default_limit="$(sed -n 's/^attempt_timeout="${CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT:-\([0-9]*\)}"$/\1/p' "$SCRIPT")"
+[ -n "$default_limit" ] && (( default_limit >= 1500 )) || fail "the default attempt limit (${default_limit:-unset}s) would stop a healthy 20-minute fetch"
+
 echo "PASS: Ghostty Zig packages are fetched with bounded, progress-deadlined retries"
