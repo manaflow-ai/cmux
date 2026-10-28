@@ -104,6 +104,7 @@ public final class BrowserDownloadTempFiles {
         }
 
         private func write(_ paths: Set<String>) {
+            let manager = FileManager.default
             if paths.isEmpty {
                 try? manager.removeItem(at: recordURL)
                 return
