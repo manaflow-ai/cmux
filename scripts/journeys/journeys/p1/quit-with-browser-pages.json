@@ -132,11 +132,8 @@
    "key": "d",
    "modifiers": [
     "cmd"
-   ]
-  },
-  {
-   "do": "focused_terminal",
-   "as": "right"
+   ],
+   "mark": "split"
   },
   {
    "do": "key",
