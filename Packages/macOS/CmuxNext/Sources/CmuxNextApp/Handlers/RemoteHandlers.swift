@@ -16,7 +16,7 @@ enum RemoteHandlers {
     /// A loaded workspace is handled by `CloudHandlers.show`, which can create a
     /// window when the app has none; recovery still needs an existing window.
     static func shouldHandleConnectionObservation(loaded: Bool, hasWindow: Bool) -> Bool {
-        hasWindow
+        loaded || hasWindow
     }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
@@ -194,7 +194,8 @@ enum RemoteHandlers {
             for await (loaded, status, failure, _) in ObservationStream({
                 (daemon.store.isLoaded && daemon.connection != nil, session.linkStatus, session.daemonFailure, session.connectRecoveryAttempt)
             }) {
-                guard !Task.isCancelled, let window else { return }
+                guard !Task.isCancelled else { return }
+                guard Self.shouldHandleConnectionObservation(loaded: loaded, hasWindow: window != nil) else { return }
                 if loaded {
                     recovery.stop()
                     let id: String?
@@ -203,6 +204,7 @@ enum RemoteHandlers {
                     if let id, !Task.isCancelled { CloudHandlers.show(id, context) }
                     return
                 }
+                guard let window else { return }
                 if status == .offline { return }
                 if !session.connectRecoveryRetrying && (status.needsRecovery || failure != nil) {
                     let detail = RemoteStrings.detail(session) ?? ""
