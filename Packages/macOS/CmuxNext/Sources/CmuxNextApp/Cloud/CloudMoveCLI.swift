@@ -51,9 +51,13 @@ nonisolated struct CloudMoveCLI: Sendable {
     /// `cmux link agent move`: moves the chat of tab `surface` of the daemon at
     /// `from` to the machine daemon at `to`, where it runs in `cwd`. A rerun
     /// resolves a move an earlier run left unresolved. `askFirst` has the source narrow the chat
-    /// to an asking policy and mode before it moves (`--ask-first`).
-    func agentMove(from: String, surface: UInt64, to: String, cwd: String, askFirst: Bool = false) async throws -> Answer {
-        let flags = askFirst ? ["--ask-first"] : []
+    /// to an asking policy and mode before it moves (`--ask-first`). `vmKind` (`--vm-kind`): for a
+    /// move onto a Cloud machine, the Cloud API's answer for this app on the link in use, which that
+    /// machine's daemon takes the chat on (only `owner`), never its own record.
+    func agentMove(from: String, surface: UInt64, to: String, cwd: String, askFirst: Bool = false,
+                   vmKind: String? = nil, toPID: Int32? = nil) async throws -> Answer {
+        let flags = (askFirst ? ["--ask-first"] : []) + (vmKind.map { ["--vm-kind", $0] } ?? [])
+            + (toPID.map { ["--to-pid", String($0)] } ?? [])
         return try await run(["link", "agent", "move", "--from-socket", from, "--surface", String(surface), "--to-socket", to, "--cwd", cwd] + flags)
     }
 

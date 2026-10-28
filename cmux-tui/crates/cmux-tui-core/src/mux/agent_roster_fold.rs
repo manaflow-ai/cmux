@@ -29,7 +29,7 @@ impl Mux {
             return Ok(());
         }
         let native_event = ingress.payload.get("native_event").and_then(Value::as_str);
-        let kind_state = agent_state_for_hook_kind(&ingress.kind);
+        let kind_state = crate::journal_reducers::state_for_hook_kind(&ingress.kind);
         if kind_state.is_none()
             && !crate::agent_hooks::resumes_blocked_turn(&ingress.kind, native_event)
         {

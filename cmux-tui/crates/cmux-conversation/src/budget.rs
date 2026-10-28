@@ -6,6 +6,12 @@
 //! threads do not spend each other's budget; only a person's text (or a
 //! person's question answer) resets one. Pure: the host passes the head or the
 //! newest messages and the clock. Same rule as home-core `budget.ts`.
+//!
+//! The first round after a person's text is free of the gap: while a thread's
+//! streak is below the number of agents in the conversation, every agent may
+//! answer the person at once (two Chiefs answer in parallel, not one gap
+//! apart). After that round agent texts are spaced again, so an agent-to-agent
+//! exchange still waits the gap and stops at the turn budget.
 
 use crate::reducer::Reject;
 use crate::types::{ConversationHead, Message, Part, Participant, ParticipantKind};
@@ -17,6 +23,12 @@ pub const MIN_AGENT_GAP_MS: u64 = 2_000;
 /// How many of the newest messages of the thread the host must pass (enough
 /// to see the last person's text or the full budget).
 pub const BUDGET_WINDOW: usize = MAX_AGENT_TURNS + 1;
+
+/// The agents in the conversation: how many answers the gap lets through
+/// after a person's text (a local head drops a participant who leaves).
+pub fn agent_count(participants: &[Participant]) -> usize {
+    participants.iter().filter(|p| p.kind == ParticipantKind::Agent).count()
+}
 
 /// Whether `message` is in thread `thread_root` (None: the top level).
 pub fn in_thread(message: &Message, thread_root: Option<&str>) -> bool {
@@ -108,8 +120,12 @@ pub fn check_agent_budget(
     if !is_agent(actor) || !has_text(parts) {
         return Ok(());
     }
-    if thread_agent_streak(&head.participants, recent, thread_root) >= MAX_AGENT_TURNS {
+    let streak = thread_agent_streak(&head.participants, recent, thread_root);
+    if streak >= MAX_AGENT_TURNS {
         return Err(Reject::AgentBudget);
+    }
+    if streak < agent_count(&head.participants) {
+        return Ok(());
     }
     // A clock that moved back (now before the last agent message) never blocks.
     let too_soon = recent
@@ -140,8 +156,12 @@ pub fn check_agent_streak(
     if !agent || !parts.iter().any(Part::counts_as_turn) {
         return Ok(());
     }
-    if streak_of(head, thread_root) as usize >= MAX_AGENT_TURNS {
+    let streak = streak_of(head, thread_root) as usize;
+    if streak >= MAX_AGENT_TURNS {
         return Err(Reject::AgentBudget);
+    }
+    if streak < agent_count(&head.participants) {
+        return Ok(());
     }
     let too_soon = head
         .last_agent_text_at
