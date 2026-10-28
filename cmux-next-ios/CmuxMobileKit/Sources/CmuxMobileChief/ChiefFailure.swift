@@ -70,6 +70,12 @@ public struct ChiefTurnFailure: Equatable, Sendable {
         reply.isEmpty ? friendlyText : "\(reply)\n\n\(friendlyText)"
     }
 
+    init(kind: Kind, reply: String, detail: String) {
+        self.kind = kind
+        self.reply = reply
+        self.detail = detail
+    }
+
     /// The failure at the end of `text`, or nil when Chief's message did
     /// not end in one. Only the brain's own trailing note counts, so a reply
     /// that merely mentions a failure is left alone.
@@ -100,6 +106,25 @@ public struct ChiefTurnFailure: Equatable, Sendable {
         reply = String(trimmed[..<start]).trimmingCharacters(in: .whitespacesAndNewlines)
         self.detail = detail
         kind = Self.kind(of: detail)
+    }
+
+    /// A list preview of a message that may end in the brain's note. The
+    /// Mac's Home list cuts previews short, so the note's closing parenthesis
+    /// may be gone: the note is recognized by its start alone here.
+    public static func previewText(_ text: String) -> String {
+        if let failure = ChiefTurnFailure(text: text) { return failure.displayText }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasPrefix("(turn failed") || trimmed.hasPrefix("(turn refused") {
+            let note = trimmed.dropFirst()
+            let detail = note.firstIndex(of: ":").map { String(note[note.index(after: $0)...]) } ?? ""
+            return ChiefTurnFailure(kind: kind(of: detail), reply: "", detail: detail).friendlyText
+        }
+        if let range = trimmed.range(of: "\n\n(turn failed", options: .backwards) {
+            let detail = String(trimmed[range.upperBound...])
+            let reply = String(trimmed[..<range.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            return ChiefTurnFailure(kind: kind(of: detail), reply: reply, detail: detail).displayText
+        }
+        return text
     }
 
     /// `text` without URLs, IP addresses and host:port pairs.

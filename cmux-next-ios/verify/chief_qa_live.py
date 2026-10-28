@@ -210,7 +210,10 @@ def main():  # noqa: C901 - one live run of several scenarios
         time.sleep(0.3)
         send = sim.wait(ident="conversation.composer.send", timeout=10)
         if not send:
-            raise RuntimeError("no Send button")
+            now = sim.find(ident="conversation.composer.text")
+            focus = [(e.kind, e.ident) for e in sim.tree() if e.get("AXFocused") or e.get("focused")]
+            shot("typing-did-not-land")
+            raise RuntimeError(f"no Send button; composer {now[0].value if now else None!r}, focused {focus[:3]}")
         sim.tap_el(send)
 
     def scenario(name, fn):
