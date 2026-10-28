@@ -31,6 +31,17 @@ const FRAME_DEADLINE_US: u64 = 500_000;
 const NACK_AFTER_US: u64 = 50_000;
 /// When an unacknowledged input event is sent again.
 const INPUT_RESEND_US: u64 = 50_000;
+/// The watchdog (the 2026-10-24 freeze): input the host has not
+/// acknowledged for this long, or a write to the channel that waited this
+/// long, ends the stream as [`STALLED`] and the app opens it again. Either
+/// means the page is no longer answering, however the screen looks.
+const INPUT_STALL_US: u64 = 5_000_000;
+const SEND_STALL: std::time::Duration = std::time::Duration::from_secs(5);
+/// The close code of a stream the watchdog ended.
+pub const STALLED: &str = "stalled";
+/// Shortest time between two keyframe requests on the media lane from a
+/// viewer waiting for its tab's first keyframe there.
+const LANE_ASK_INTERVAL_US: u64 = 250_000;
 
 /// One complete video frame.
 #[derive(Debug, Clone, PartialEq, uniffi::Record)]
@@ -198,9 +209,13 @@ pub(crate) fn start(
         observer,
         stats: Arc::clone(&stats),
         epoch,
+        video_on_lane: track.is_some(),
         track,
         track_frame: 0,
         track_synced: false,
+        last_lane_ask_us: None,
+        foreign_lane_frames: 0,
+        input_waiting_since_us: None,
         demand: media.as_ref().map(cmux_mobile_link::hybrid::MediaManager::acquire),
         media,
     };
@@ -220,6 +235,17 @@ struct Viewer {
     track_frame: u32,
     /// A keyframe of this stream's own tag arrived: later frames decode.
     track_synced: bool,
+    /// This tab's newest frame came on the lane (else on the channel): a
+    /// decoder's keyframe request goes where its frames come from. The lane
+    /// is shared by every tab, and asking it restarts every tab's frames at
+    /// a keyframe.
+    video_on_lane: bool,
+    last_lane_ask_us: Option<u64>,
+    /// Lane frames dropped for carrying another tab's tag (diagnostics).
+    foreign_lane_frames: u64,
+    /// Since when input has waited with no acknowledgement from the host
+    /// (reset by every ack, so a long scroll on a live page never trips it).
+    input_waiting_since_us: Option<u64>,
     /// The WebRTC media session beside a WireGuard link, and this shown
     /// tab's hold on it.
     media: Option<cmux_mobile_link::hybrid::MediaManager>,
@@ -272,7 +298,7 @@ impl Viewer {
                     }
                     Some(Command::Keyframe) => {
                         let _ = self.session.request_keyframe(0);
-                        if let Some(track) = &self.track {
+                        if self.video_on_lane && let Some(track) = &self.track {
                             track.frames.request_keyframe();
                         }
                     }
@@ -305,8 +331,26 @@ impl Viewer {
             while let Some(bytes) = self.input.packet(now) {
                 out.extend(bytes);
             }
-            if !out.is_empty() && sender.send(out.into()).await.is_err() {
-                break ("link_closed".to_owned(), String::new());
+            if self.input.next_deadline_us().is_some() {
+                let since = *self.input_waiting_since_us.get_or_insert(now);
+                if now.saturating_sub(since) >= INPUT_STALL_US {
+                    let reason = "the page stopped answering input";
+                    sender.close(STALLED, reason).await;
+                    break (STALLED.to_owned(), reason.to_owned());
+                }
+            } else {
+                self.input_waiting_since_us = None;
+            }
+            if !out.is_empty() {
+                match tokio::time::timeout(SEND_STALL, sender.send(out.into())).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(_)) => break ("link_closed".to_owned(), String::new()),
+                    Err(_) => {
+                        let reason = "the browser channel stopped moving";
+                        sender.close(STALLED, reason).await;
+                        break (STALLED.to_owned(), reason.to_owned());
+                    }
+                }
             }
         };
         self.observer.on_closed(code, reason);
@@ -323,19 +367,36 @@ impl Viewer {
     /// first keyframe on.
     fn lane_frame(&mut self, mut frame: ReceivedFrame) {
         let Some(track) = &self.track else { return };
-        if cmux_mobile_link::media::tag::strip(&mut frame.access_unit) != Some(track.tag) {
+        let tag = cmux_mobile_link::media::tag::strip(&mut frame.access_unit);
+        if tag != Some(track.tag) {
             // Another tab's (the lane is switching), or an untagged frame.
+            self.foreign_lane_frames += 1;
+            if self.foreign_lane_frames.is_power_of_two() {
+                tracing::info!(
+                    count = self.foreign_lane_frames,
+                    ours = format!("{:08x}", track.tag),
+                    got = ?tag.map(|t| format!("{t:08x}")),
+                    keyframe = frame.keyframe,
+                    "browser: lane frames for another tab"
+                );
+            }
             return;
         }
         if !self.track_synced {
             if !frame.keyframe {
+                tracing::debug!("browser: a lane P-frame before this tab's first lane keyframe");
                 // This tab's claim started mid-stream (or its first
                 // keyframe went to the tab before): ask again.
-                track.frames.request_keyframe();
+                let now = self.now();
+                if self.last_lane_ask_us.is_none_or(|at| now.saturating_sub(at) >= LANE_ASK_INTERVAL_US) {
+                    self.last_lane_ask_us = Some(now);
+                    track.frames.request_keyframe();
+                }
                 return;
             }
             self.track_synced = true;
         }
+        self.video_on_lane = true;
         self.track_frame(frame);
     }
 
@@ -383,7 +444,11 @@ impl Viewer {
     fn drain(&mut self, now: u64) {
         while let Some(message) = self.session.pop_message() {
             if message.kind != STREAM_CONTROL {
-                let _ = self.input.on_ack(&message.bytes);
+                // The host applied input: it is answering, however much more
+                // is still in flight (a pan streams events faster than RTT).
+                if self.input.on_ack(&message.bytes).is_ok() {
+                    self.input_waiting_since_us = None;
+                }
                 continue;
             }
             let Ok(control) = serde_json::from_slice::<Value>(&message.bytes) else { continue };
@@ -414,6 +479,7 @@ impl Viewer {
                 // lane): when this tab takes the lane back, its lane frames
                 // start again at a keyframe.
                 self.track_synced = false;
+                self.video_on_lane = false;
             }
             let capture_us = complete.body.t_capture_us;
             let age_us = clock.map(|c| {

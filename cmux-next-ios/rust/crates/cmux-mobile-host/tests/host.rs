@@ -21,6 +21,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[path = "support/fake_rb_host.rs"]
 mod fake_rb_host;
+#[path = "support/fake_surface_source.rs"]
+mod fake_surface_source;
 
 struct Fixture {
     _server: FakeSignaling,
@@ -37,6 +39,10 @@ struct Fixture {
     outside: std::path::PathBuf,
     uploads: std::path::PathBuf,
     browser_launches: Arc<std::sync::atomic::AtomicUsize>,
+    /// What hostd told the fake simulator surface sources (touches, text, keys).
+    surface_inputs: fake_surface_source::Inputs,
+    /// Every request line the fake daemon read.
+    daemon_lines: Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
 }
 
 fn options() -> DialOptions {
@@ -45,22 +51,49 @@ fn options() -> DialOptions {
 
 /// A stand-in cmux-tui session socket: answers each request line with
 /// `{"id":..,"ok":true,"data":{"cmd":..}}`.
+/// Every request line it read goes to the returned list, in order.
 /// `browser_url`: the page the Mac's one browser tab shows (`list-workspaces`).
-fn fake_daemon(dir: &std::path::Path, browser_url: String) {
+fn fake_daemon(dir: &std::path::Path, browser_url: String) -> Arc<std::sync::Mutex<Vec<serde_json::Value>>> {
     let listener = tokio::net::UnixListener::bind(dir.join("main.sock")).unwrap();
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&seen);
     tokio::spawn(async move {
         while let Ok((stream, _)) = listener.accept().await {
+            let recorded = Arc::clone(&recorded);
             let browser_url = browser_url.clone();
             tokio::spawn(async move {
                 let (read, mut write) = stream.into_split();
                 let mut lines = BufReader::new(read).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+                    recorded.lock().unwrap().push(request.clone());
+                    // A busy terminal: an attach streams output until the socket closes.
+                    if request["cmd"] == "attach-surface" && request["busy"] == true {
+                        let answer = serde_json::json!({"id": request["id"], "ok": true, "data": {}});
+                        write.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
+                        let (mut out, mut lines_left) = (write, lines);
+                        let surface = request["surface"].clone();
+                        tokio::spawn(async move {
+                            loop {
+                                let event = serde_json::json!({"event": "output", "surface": surface, "data": "eA=="});
+                                if out.write_all(format!("{event}\n").as_bytes()).await.is_err() {
+                                    return;
+                                }
+                                tokio::task::yield_now().await;
+                            }
+                        });
+                        while let Ok(Some(line)) = lines_left.next_line().await {
+                            recorded.lock().unwrap().push(serde_json::from_str(&line).unwrap());
+                        }
+                        return;
+                    }
                     let mut data =
                         serde_json::json!({"cmd": request["cmd"], "host": request["agent_session"]["host"]});
                     if request["cmd"] == "list-workspaces" {
                         data["workspaces"] = serde_json::json!([{"screens": [{"panes": [{"tabs": [
-                            {"surface": 9, "kind": "browser", "url": browser_url}]}]}]}]);
+                            {"surface": 9, "kind": "browser", "url": browser_url},
+                            {"surface": 12, "kind": "conversation", "conversation": {"page": "phone", "route": "sim:A"}},
+                            {"surface": 13, "kind": "conversation", "conversation": {"page": "settings"}}]}]}]}]);
                     }
                     let answer = serde_json::json!({"id": request["id"], "ok": true, "data": data});
                     write.write_all(format!("{answer}\n").as_bytes()).await.unwrap();
@@ -68,6 +101,7 @@ fn fake_daemon(dir: &std::path::Path, browser_url: String) {
             });
         }
     });
+    seen
 }
 
 /// A stand-in Chief owner: lists the Chief, an owner-and-agents chat and a
@@ -159,9 +193,10 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
     std::fs::write(outside.path().join("secret"), "nope").unwrap();
     std::fs::write(root.path().join("shared page.html"), "<p>shared</p>").unwrap();
     std::fs::write(outside.path().join("mac page.html"), "<p>the Mac opened this</p>").unwrap();
-    fake_daemon(sockets.path(), file_url(&outside.path().join("mac page.html")));
+    let daemon_lines = fake_daemon(sockets.path(), file_url(&outside.path().join("mac page.html")));
     fake_chief(sockets.path());
     let browser_launches = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let surface_inputs = fake_surface_source::Inputs::default();
     let services = ServiceConfig {
         chief_socket: Some(sockets.path().join("chief.sock")),
         tui_socket_dir: sockets.path().to_path_buf(),
@@ -175,6 +210,10 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
         upload_max_bytes: 1024 * 1024,
         browser: cmux_mobile_host::browser::BrowserConfig::new(
             Some(fake_rb_host::launcher(Arc::clone(&browser_launches))),
+            4,
+        ),
+        surface: cmux_mobile_host::surface::SurfaceConfig::new(
+            Some(fake_surface_source::launcher(Arc::clone(&surface_inputs))),
             4,
         ),
     };
@@ -208,6 +247,7 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
             ice: IceSource::Fixed(Vec::new()),
             include_loopback: true,
             exclude_cgnat: false,
+            mailbox: None,
         },
     ));
     let phone_id = uuid::Uuid::new_v4().to_string();
@@ -224,6 +264,8 @@ async fn fixture_trust(fake: FakeOptions, pairing: bool, loaded: bool) -> Fixtur
         outside: outside.path().to_path_buf(),
         uploads: uploads.path().to_path_buf(),
         browser_launches,
+        surface_inputs,
+        daemon_lines,
         _dirs: vec![sockets, root, outside, uploads],
     }
 }
@@ -352,10 +394,11 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(value["link"], 2);
     assert!(value["hostd"].is_string());
-    // This fixture has a browser host: a phone may offer browser tabs.
+    // This fixture has a browser host and a simulator surface source: a phone
+    // may offer browser tabs and stream phone tabs.
     assert_eq!(
         value["capabilities"],
-        serde_json::json!(["removal-v1", "browser-stream-v1", "browser-video-track-v1"])
+        serde_json::json!(["removal-v1", "browser-stream-v1", "browser-video-track-v1", "surface-stream-v1"])
     );
 
     // daemon: allowed lines reach the socket, denied ones are answered locally,
@@ -583,6 +626,8 @@ async fn exercise_services_with(fixture: &Fixture, kind: TransportKind, options:
     assert_eq!(rd3.control(&mut mac_tab).await["t"], "welcome");
     rd3.control(&mut mac_tab).await;
     rd3.control(&mut mac_tab).await;
+    // A new host of a file page starts blank, gets its file policy, then the page.
+    assert_eq!(rd3.control(&mut mac_tab).await["body"]["url"], "about:blank");
     assert_eq!(rd3.control(&mut mac_tab).await["body"]["url"], mac_page.as_str());
     mac_tab.close("eof", "").await;
     let mut bad_tab = link.open("browser", serde_json::json!({"tab": "../x"})).await.unwrap();
@@ -704,6 +749,104 @@ async fn browser_video(kind: TransportKind, phone_lane: bool) {
     link.close("done");
 }
 
+/// A simulator surface streams like a browser tab: only a phone tab of
+/// this Mac opens, its video rides the media lane with its tag, and the
+/// lane goes to whichever of the browser tab and the surface is shown.
+async fn surface_video(kind: TransportKind) {
+    let fixture = fixture(FakeOptions::default()).await;
+    let phone = DialOptions { video_lane: true, ..options() };
+    let connected =
+        cmux_mobile_link::dial::connect(&fixture.phone, &fixture.mac_id, kind, &phone, LinkConfig::default())
+            .await
+            .expect("dial");
+    let link = &connected.link;
+    let Some(cmux_mobile_link::media::MediaLane::In(lane)) = link.media() else { panic!("no media lane") };
+    let mut frames = lane.subscribe().await;
+    // Not a phone tab, not a tab of this Mac, not a tab key: refused before any source starts.
+    for (tab, code) in
+        [("s9", "forbidden"), ("s13", "forbidden"), ("s14", "forbidden"), ("../x", "bad_request")]
+    {
+        let mut channel = link.open("surface", serde_json::json!({"tab": tab})).await.unwrap();
+        assert_eq!(close_reason(&mut channel).await.0, code, "{tab}");
+    }
+    assert!(fixture.surface_inputs.lock().unwrap().is_empty());
+    // A browser tab holds the lane first.
+    let mut page = link
+        .open("browser", serde_json::json!({"tab": "sA", "url": "https://example.com/", "video": "track", "video_tag": 0xa1}))
+        .await
+        .unwrap();
+    let mut rd_page = RdReader::default();
+    assert_eq!(rd_page.control(&mut page).await["t"], "welcome");
+    let mut sim = link
+        .open("surface", serde_json::json!({"tab": "s12", "video": "track", "video_tag": 0x5e}))
+        .await
+        .unwrap();
+    let mut rd = RdReader::default();
+    let welcome = rd.control(&mut sim).await;
+    assert_eq!(welcome["t"], "welcome");
+    assert_eq!((welcome["width"].as_u64(), welcome["height"].as_u64()), (Some(390), Some(844)));
+    assert_eq!(rd.control(&mut sim).await["t"], "started");
+    sim.send(phone_rb(serde_json::json!({"t": "rb.open", "tab": "s12"}))).await.unwrap();
+    assert_eq!(rd.control(&mut sim).await["body"]["t"], "rb.opened");
+    // The surface took the lane: its frames carry its tag, starting at a keyframe.
+    let first = loop {
+        let mut frame = tokio::time::timeout(Duration::from_secs(10), frames.frames.recv())
+            .await
+            .expect("a surface frame on the lane")
+            .unwrap();
+        match cmux_mobile_link::media::tag::strip(&mut frame.access_unit) {
+            Some(0xa1) => continue,
+            Some(0x5e) => break frame,
+            other => panic!("a lane frame tagged {other:?}"),
+        }
+    };
+    assert!(first.keyframe && cmux_mobile_link::media::h264::is_keyframe(&first.access_unit));
+    // The browser tab shown again takes the lane back; hiding the surface reaches the source.
+    sim.send(phone_rb(serde_json::json!({"t": "rb.visibility", "visible": false}))).await.unwrap();
+    page.send(phone_rb(serde_json::json!({"t": "rb.visibility", "visible": true}))).await.unwrap();
+    loop {
+        let mut frame = tokio::time::timeout(Duration::from_secs(10), frames.frames.recv())
+            .await
+            .expect("a page frame after the take-back")
+            .unwrap();
+        if cmux_mobile_link::media::tag::strip(&mut frame.access_unit) == Some(0xa1) {
+            break;
+        }
+    }
+    for _ in 0..200 {
+        if fake_surface_source::has(&fixture.surface_inputs, "visible", "visible", &serde_json::json!(false))
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(fake_surface_source::has(
+        &fixture.surface_inputs,
+        "visible",
+        "visible",
+        &serde_json::json!(false)
+    ));
+    // A navigation on a surface never reaches its source.
+    sim.send(phone_rb(serde_json::json!({"t": "rb.navigate", "url": "https://example.org/"}))).await.unwrap();
+    // A second viewer of the same surface replaces the first.
+    let _second = link.open("surface", serde_json::json!({"tab": "s12"})).await.unwrap();
+    assert_eq!(close_reason(&mut sim).await.0, "replaced");
+    assert!(
+        !fixture.surface_inputs.lock().unwrap().iter().any(|line| line.to_string().contains("example.org"))
+    );
+    link.close("done");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn surface_video_rides_the_webrtc_track() {
+    surface_video(TransportKind::WebRtc).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn surface_video_rides_rtp_inside_the_wireguard_tunnel() {
+    surface_video(TransportKind::WireGuard).await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn browser_video_rides_the_webrtc_track() {
     browser_video(TransportKind::WebRtc, true).await;
@@ -800,6 +943,18 @@ async fn auth(
     signer: &ring::signature::EcdsaKeyPair,
     action: &str,
 ) -> Channel {
+    auth_presenting(link, fixture, keys, signer, action, None).await
+}
+
+/// `auth`, with the pairing code's pre-approval sent beside the signature when `pair_token` is set.
+async fn auth_presenting(
+    link: &cmux_mobile_link::Link,
+    fixture: &Fixture,
+    keys: &PhoneKeys,
+    signer: &ring::signature::EcdsaKeyPair,
+    action: &str,
+    pair_token: Option<&str>,
+) -> Channel {
     let mut channel = link
         .open(
             "auth",
@@ -819,8 +974,46 @@ async fn auth(
         action,
     );
     let signature = hex(signer.sign(&ring::rand::SystemRandom::new(), &message).unwrap().as_ref());
-    channel.send(Bytes::from(serde_json::json!({"signature": signature}).to_string())).await.unwrap();
+    let mut reply = serde_json::json!({"signature": signature});
+    if let Some(token) = pair_token {
+        reply["pairToken"] = serde_json::json!(token);
+    }
+    channel.send(Bytes::from(reply.to_string())).await.unwrap();
     channel
+}
+
+/// A pairing code's pre-approval rides with the signature to the app, which decides; hostd only
+/// checks its shape, and a phone without one is asked exactly as before.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_scanned_pairing_code_reaches_the_app_with_the_request() {
+    let fixture = fixture_with(FakeOptions::default(), true).await;
+    let keys = phone_keys();
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let token = "Zm9vYmFyLWJhel9xdXV4";
+
+    let mut bad =
+        auth_presenting(&connected.link, &fixture, &keys, &keys.identity, "pair", Some("no spaces allowed"))
+            .await;
+    assert_eq!(drain(&mut bad).await.1, "bad_request");
+
+    let mut channel =
+        auth_presenting(&connected.link, &fixture, &keys, &keys.identity, "pair", Some(token)).await;
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"pending": true}));
+    let request = fixture.events.as_ref().unwrap().lock().await.recv().await.unwrap();
+    assert_eq!(
+        request,
+        Event::PairRequest {
+            phone_device_id: fixture.phone_id.clone(),
+            name: "Test iPhone".into(),
+            identity_key: keys.identity_hex.clone(),
+            approval_key: keys.approval_hex.clone(),
+            registered_at_ms: None,
+            pair_token: Some(token.into()),
+        }
+    );
+    // The app allowed it (as it does for a live token): the phone is served.
+    fixture.trust.as_ref().unwrap().send_replace(Some(trusting(&fixture, &keys)));
+    assert_eq!(json_frame(channel.recv().await), serde_json::json!({"ok": true}));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -852,6 +1045,7 @@ async fn a_token_alone_never_reaches_a_service_and_the_mac_approves_each_phone()
             identity_key: keys.identity_hex.clone(),
             approval_key: keys.approval_hex.clone(),
             registered_at_ms: None,
+            pair_token: None,
         }
     );
     fixture.trust.as_ref().unwrap().send_replace(Some(DeviceTrust {
@@ -1143,4 +1337,72 @@ async fn the_mac_proves_its_key_and_a_chief_answer_needs_the_phones_signature() 
     chief.send(Bytes::from(format!("{signed}\n"))).await.unwrap();
     let replay = next_line(&mut chief, &mut buffer).await;
     assert_eq!(replay["error_code"], "forbidden", "{replay}");
+}
+
+/// A phone that closes its terminal channel on purpose (a tab it left, an
+/// older phone that does not release first) gets its terminal sizes released
+/// by the Mac before the daemon socket closes, so the daemon never takes the
+/// close for a dropped link and holds the grid (PROTOCOL.md "Terminal size
+/// claims").
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_terminal_channel_the_phone_closes_releases_its_sizes() {
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WebRtc).await.expect("dial");
+    let mut daemon = connected.link.open("daemon", serde_json::json!({})).await.unwrap();
+    daemon
+        .send(Bytes::from_static(
+            b"{\"id\":1,\"cmd\":\"attach-surface\",\"surface\":7,\"cols\":53,\"rows\":42}\n{\"id\":2,\"cmd\":\"resize-surface\",\"surface\":9,\"cols\":53,\"rows\":42}\n",
+        ))
+        .await
+        .unwrap();
+    let mut buffer = Vec::new();
+    for _ in 0..2 {
+        next_line(&mut daemon, &mut buffer).await;
+    }
+    daemon.close("eof", "").await;
+    let released = |lines: &[serde_json::Value]| {
+        let mut surfaces = lines
+            .iter()
+            .filter(|line| line["cmd"] == "release-surface-size")
+            .filter_map(|line| line["surface"].as_u64())
+            .collect::<Vec<_>>();
+        surfaces.sort_unstable();
+        surfaces
+    };
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let lines = fixture.daemon_lines.lock().unwrap().clone();
+        if released(&lines) == [7, 9] {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "no releases after the phone closed: {lines:?}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// The same on a busy terminal: output keeps coming while the phone closes,
+/// so the Mac's send to the phone fails first; the release still goes out.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_busy_terminal_channel_the_phone_closes_still_releases_its_size() {
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WebRtc).await.expect("dial");
+    let mut daemon = connected.link.open("daemon", serde_json::json!({})).await.unwrap();
+    daemon
+        .send(Bytes::from_static(
+            b"{\"id\":1,\"cmd\":\"attach-surface\",\"surface\":7,\"cols\":53,\"rows\":42,\"busy\":true}\n",
+        ))
+        .await
+        .unwrap();
+    let mut buffer = Vec::new();
+    next_line(&mut daemon, &mut buffer).await;
+    daemon.close("eof", "").await;
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let lines = fixture.daemon_lines.lock().unwrap().clone();
+        if lines.iter().any(|line| line["cmd"] == "release-surface-size" && line["surface"] == 7) {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "no release after a busy channel closed: {lines:?}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }

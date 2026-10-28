@@ -253,6 +253,7 @@ test("a sent prompt's row has exactly one Copy, the one under its bubble; tool a
     expect(copies("selection-1")[0]!.closest(".cv-user__actions")).not.toBeNull();
     expect(row("selection-2").querySelector(".acpmux-row__copy")).toBeNull();
     expect(row("selection-3").querySelector(".acpmux-row__copy")).not.toBeNull();
+    expect(row("selection-3").getAttribute("data-floating-copy")).toBe("true");
     expect(row("selection-4").querySelector(".cv-user__bubble")).toBeNull();
     expect(row("selection-4").querySelector(".acpmux-row__copy")).not.toBeNull();
   } finally {

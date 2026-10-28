@@ -7,9 +7,10 @@ import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// The Update Ready card's look and preview (Leo 2026-10-20): Automatic Updates is a themed
-/// switch at the end of its row (Debug Settings brings the checkbox back), Restart to Update is
+/// switch in front of its label (Debug Settings brings the checkbox back), Restart to Update is
 /// the app's primary button, a click on the card pins its changelog preview open and taller, and
 /// Debug Settings "Simulate pending update" shows the newest published notes, even on the newest build.
 @MainActor @Suite(.serialized) struct UpdateReadyCardStyleTests {
@@ -70,7 +71,7 @@ import Testing
         #expect(await eventually { !card.notesAreShown }, "the second click left the preview open")
     }
 
-    @Test func automaticUpdatesIsAThemedSwitchAtTheEndOfItsRow() throws {
+    @Test func automaticUpdatesIsAThemedSwitchInFrontOfItsLabel() throws {
         #expect(SidebarTunables.updateCardAutomaticControl.defaultValue == .switchControl)
         let control = SidebarUpdateToggle(frame: NSRect(x: 0, y: 0, width: 180, height: SidebarUpdateToggle.height))
         control.configure(title: "Automatic Updates", isOn: true)
@@ -78,7 +79,9 @@ import Testing
         control.updateLayer()
         let track = try #require(control.layer?.sublayers?.first)
         let knob = try #require(control.layer?.sublayers?.dropFirst().first)
-        #expect(track.frame.maxX == control.bounds.maxX, "the switch is not at the end of the row")
+        // The switch on the left, then the label (Leo 2026-10-22: "he preferred the checkbox on the left").
+        #expect(track.frame.minX == 0, "the switch is not at the start of the row")
+        #expect(control.label.frame.minX >= track.frame.maxX + Metrics.space2, "the label is not after the switch")
         #expect(track.backgroundColor == control.performWithTheme { Palette.accentFill.cgColor })
         #expect(knob.frame.midX > track.frame.midX, "an on switch has its knob at the leading end")
         #expect(control.accessibilitySubrole() == .switch)

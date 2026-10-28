@@ -5,7 +5,7 @@ import CmuxNextServer
 import SwiftUI
 
 /// Hosts the Machines section: follows the machine registry and each machine's last check, opens a
-/// workspace on a machine through `workspace.newOnMachine` and the Add Machine card through `machine.add`.
+/// workspace on a machine through `workspace.newOnMachine` and Add Device through `device.add`.
 final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     let model = MachineSectionModel()
     private let machines: MachineRegistry
@@ -19,7 +19,7 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
         let registry = services.registry
         let hosting = NSHostingView(rootView: MachineSectionListView(model: model, newWorkspace: { id in
             registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string(id)]))
-        }, addMachine: { registry.perform("machine.add") }))
+        }, addMachine: { registry.perform("device.add") }))
         hosting.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hosting)
         NSLayoutConstraint.activate([
@@ -41,9 +41,9 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { observation?.cancel() }
+        observation?.cancel()
     }
 
     func refresh() {

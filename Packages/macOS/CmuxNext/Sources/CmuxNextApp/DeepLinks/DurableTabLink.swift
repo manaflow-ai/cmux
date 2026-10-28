@@ -70,7 +70,7 @@ enum DurableTabLink {
                 do {
                     let pane = fallback?.daemon === daemon ? fallback?.pane : nil
                     try await connection.state.reopenClosed(tab: id, fallbackPane: pane)
-                    await daemon.store.applied(through: await connection.eventSequence())
+                    await daemon.appliedThroughReply(on: connection, after: "reopen linked tab")
                     return .reopened
                 } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
                     return .notInHistory

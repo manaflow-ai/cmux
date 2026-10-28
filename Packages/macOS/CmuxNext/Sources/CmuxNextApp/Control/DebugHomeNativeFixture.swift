@@ -1,5 +1,6 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
+import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextSettings
 
@@ -15,6 +16,12 @@ extension InternalPageID {
 @MainActor
 final class DebugHomeNativeFixture: InternalPageProvider {
     private var fixtures: [String: HomeNativeFixture] = [:]
+    /// The app's made-ahead file picker, for each fixture's "+".
+    private let openPanel: MadeAheadOpenPanel
+
+    init(openPanel: MadeAheadOpenPanel) {
+        self.openPanel = openPanel
+    }
     /// The open fixture whose transcript is `view`.
     func fixture(showing view: HomeNativeTranscriptView) -> HomeNativeFixture? { fixtures.values.first { $0.shows(view) } }
     /// The next page shows the attachment fixture (`{"attachments": true}`).
@@ -25,7 +32,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     var symbol: String { "bubble.left.and.bubble.right" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let fixture = HomeNativeFixture(attachments: nextAttachments)
+        let fixture = HomeNativeFixture(attachments: nextAttachments, openPanel: openPanel)
         nextAttachments = false
         fixtures[key] = fixture
         return fixture.container
@@ -80,6 +87,11 @@ final class DebugHomeNativeFixture: InternalPageProvider {
             // A click on the first shown link with this prefix (a Chief subagent's `cmux://chief/`).
             let url = view.debugClickLink(prefix: params["prefix"]?.stringValue ?? "https://")
             return .object(["ok": .bool(url != nil), "url": url.map { .string($0) } ?? .null])
+        case "fixture_typing":
+            guard let fixture = (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.fixture(showing: view) else {
+                return .object(["error": .string("no mock Home fixture is shown")])
+            }
+            return .object(["ok": .bool(fixture.debugTyping(params["on"]?.boolValue ?? true))])
         case "typing":
             // The typing bubble's body in window points (bottom-left origin) and the window's size,
             // for a pixel check of a window snapshot (scripts/cmux-next/home-typing-still.py).
@@ -211,7 +223,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     static func open(services: AppServices, attachments: Bool = false, fresh: Bool = false) -> JSONValue {
-        if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture()) }
+        if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel)) }
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextAttachments = attachments
         let view = fresh ? services.pages.openNew(.homeNativeFixture, in: services.windows.active, focus: true)
             : services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)

@@ -80,6 +80,8 @@ pub(super) fn draw_question_card(
     }
     let other = item["allowsOther"].as_bool().unwrap_or(false);
     let keys = match (multi, other) {
+        _ if item["input"] == "number" => "type a number · Enter confirms · Esc leaves",
+        _ if options.is_empty() => "type your answer · Enter confirms · Esc leaves",
         (true, true) => "digits/Space toggle · type for Other · Enter confirms · Esc leaves",
         (true, false) => "digits/Space toggle · Enter confirms · Esc leaves",
         (false, true) => "digit picks · type for Other · Enter confirms · Esc leaves",

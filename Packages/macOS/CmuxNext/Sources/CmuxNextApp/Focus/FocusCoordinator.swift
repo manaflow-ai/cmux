@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextFocus
+import CmuxNextSignposts
 
 /// Applies reducer effects to the real world (AppKit, WebKit, CEF, layout,
 /// registry context). `FocusEffectApplier` in the app; a recorder in tests.
@@ -39,6 +40,11 @@ final class FocusCoordinator {
     private(set) var isApplying = false
     /// The last events, newest last (for `debug.focus`).
     private(set) var recent: [String] = []
+    /// The pane a Close Tab press is aimed at after a close emptied a pane (``PaneCloseAim``).
+    private(set) var closeAim = PaneCloseAim()
+    /// Calls its body with the time (system uptime) the frame carrying this turn's changes is
+    /// presented: the next Core Animation commit plus one refresh of `window`'s screen. Tests pass their own.
+    var framePresented: @MainActor (NSWindow?, @escaping @MainActor (TimeInterval) -> Void) -> Void = FocusCoordinator.nextFramePresented
     private static let recentLimit = 32
 
     /// What the coordinator did, for the input journal and the invariant
@@ -80,6 +86,7 @@ final class FocusCoordinator {
         DebugPaneFocus.began(self)
         defer {
             if reduced.pane != paneBefore, reduced.pane != nil { DebugPaneFocus.shown(self, in: window) } else { DebugPaneFocus.dropped(self) }
+            if reduced.pane != paneBefore { paneMoved(from: paneBefore) }
         }
         // The settled observer can send or reduce a pending topology: what it queued runs too. The
         // queue holds this event, so the drain runs at least once, and it ends when the queue is empty.
@@ -179,6 +186,33 @@ final class FocusCoordinator {
         for entry in pending {
             if let topology = entry.build() { send(.topology(topology)) }
         }
+    }
+
+    /// Stamps the focused pane's move with the presentation of the frame that shows it (``closeAim``).
+    private func paneMoved(from before: String?) {
+        let serial = closeAim.paneMoved(from: before, to: reduced.pane)
+        framePresented(window) { [weak self] time in self?.closeAim.presented(serial, at: time) }
+    }
+
+    /// `press` closed the last tab of `pane` (``PaneCloseAim/paneEmptied(_:by:)``).
+    func noteEmptied(_ pane: String, by press: PaneCloseAim.Press) {
+        closeAim.paneEmptied(pane, by: press)
+    }
+
+    /// Whether `press` is aimed at a pane a close emptied, not at the focused pane (``PaneCloseAim``).
+    func aimsAtEmptiedPane(_ press: PaneCloseAim.Press) -> Bool {
+        let focused = currentState().pane
+        return closeAim.aimsAtEmptiedPane(press, focused: focused)
+    }
+
+    /// ``framePresented`` in the app. A commit reaches the screen at the display's next refresh, so
+    /// the frame is presented one refresh interval after it (the interval of `window`'s screen, at
+    /// its highest rate; 60 Hz without a screen). A boundary that missed the turn's commit fires
+    /// after the next wake, later than the real commit: presses before it count as unseen.
+    static func nextFramePresented(_ window: NSWindow?, _ body: @escaping @MainActor (TimeInterval) -> Void) {
+        let rate = window?.screen?.maximumFramesPerSecond ?? 60
+        let refresh = 1 / Double(max(rate, 1))
+        CommitBoundary().after { _ in body(ProcessInfo.processInfo.systemUptime + refresh) }
     }
 
     /// Starts a user intent that lands later (split, new tab). Pass the

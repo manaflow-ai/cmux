@@ -2,8 +2,8 @@ name: cmux-next crash-class rules
 
 # The crash classes found by the socket action sweep (cx-t7hu, cx-bpcj,
 # cx-050n): isolated deinits, task locals bound outside a task, and
-# synchronous NSWorkspace opens. The cmux-next checks job, which runs the full
-# check-concurrency.sh without blocking, is skipped for feat-cmux-next, so this
+# synchronous NSWorkspace opens. The full check-concurrency.sh also blocks
+# through the cmux-next checks job's final outcome aggregate. This narrower
 # blocking Linux check runs on every pull request and push that touches
 # CmuxNext Sources or the rules (about ten seconds, no build). It also runs
 # the unrecognized-selector rule (scripts/cmux-next/check-objc-selectors.py):
@@ -16,6 +16,7 @@ on:
       - "Packages/macOS/CmuxNext/Package.swift"
       - "scripts/cmux-next/check-concurrency.sh"
       - "scripts/cmux-next/check-main-actor-work.py"
+      - "scripts/cmux-next/swift_scope.py"
       - "tests/test_check_concurrency_generic_deinit.py"
       - "scripts/ci/crash-class-gate.sh"
       - "scripts/ci/pr_owned_findings.py"
@@ -33,6 +34,7 @@ on:
       - "Packages/macOS/CmuxNext/Package.swift"
       - "scripts/cmux-next/check-concurrency.sh"
       - "scripts/cmux-next/check-main-actor-work.py"
+      - "scripts/cmux-next/swift_scope.py"
       - "tests/test_check_concurrency_generic_deinit.py"
       - "scripts/ci/crash-class-gate.sh"
       - "scripts/ci/pr_owned_findings.py"

@@ -27,8 +27,16 @@ public struct SidebarTeamRow: View {
         self.isSelected = isSelected
     }
 
+    /// The gap from the avatar column to the name.
+    public static let avatarGap: CGFloat = 12
+    /// The name's x in the drawer: the side margin, the avatar column, the gap.
+    /// The drawer's section label and Invite to team start here too.
+    public static var textLeading: CGFloat {
+        theme.metrics.sideMargin + theme.metrics.teamAvatar + avatarGap
+    }
+
     public var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: Self.avatarGap) {
             TeamAvatar(name: name, colorHex: colorHex, emoji: emoji, size: theme.metrics.teamAvatar, transparent: transparent)
             VStack(alignment: .leading, spacing: 5) {
                 Text(name)

@@ -5,8 +5,14 @@
 // (all of them after Show more), its running subagents and chats named one per line with the ended
 // ones folded into one row (and that row open), a busy chat's seventeen running past "Show more", the
 // running lines' wave held mid-sweep, its finished tasks open (a background Bash only the transcript
-// knows among them), a Cloud chat before its first usage report, and the panel over the chat
-// (Overlay). Light and dark come from the gallery's theme switch.
+// knows among them), a Cloud chat before its first usage report, a chat with little to show (the
+// card ends at its content) beside a busy one (the card stops at its ceiling and scrolls), and the
+// panel over the chat (Overlay). Light and dark come from the gallery's theme switch.
+// A subagent's own panel (Leo, 2026-10-21: "subagent should have its own instance of it like it might
+// have different env worktree context bg tasks outputs and diffs etc"): one working in a Claude
+// worktree of its own, its environment, tokens, background test run and diffs its own, under three
+// ways to say whose panel it is (the head's title, the one drawn; a path; a card); one sharing the
+// chat's checkout; and the chat's panel beside them, its Subagents listing it.
 import type { ComponentProps, CSSProperties } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play, PlayContext } from "../../../gallery/play";
@@ -14,16 +20,31 @@ import { WAVE_CLASS, WAVE_KEYFRAMES } from "../../../ui/wave";
 import { activity, assistant, chat, CONTEXT_BREAKDOWN, CWD, tool } from "../../../gallery/fixtures/acpmux";
 import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
+import { createWorkflowAdapter } from "../summary/foldWorkflows";
 import { sessionSummary } from "../summary/sessionSummary";
+import { workflowFixture, type WorkflowFixtureStage } from "../summary/workflowFixture";
 import { ChatInspector, InspectorPanel, type InspectorPlacement } from "./ChatInspector";
+import { SubagentBanner, SubagentTitle, type SubagentHeaderVariant } from "./SubagentScopeHeader";
+import { subagentSummary, type SubagentScope } from "./subagentScope";
 import { outputArtifacts } from "./OutputsSection";
 import { DEFAULT_SECTIONS } from "./inspectorState";
 
 type Props = ComponentProps<typeof ChatInspector> & {
   placement?: InspectorPlacement;
   transcript?: boolean;
+  /// Its own head with the close button, as the chat draws it.
+  closable?: boolean;
+  /// Gallery-only chrome choices for the Session Info surface.
+  chrome?: "title" | "close" | "compact-close";
+  /// A subagent's panel: whose it is, said the `header` way.
+  scope?: Pick<SubagentScope, "agent" | "parent" | "onBack">;
+  header?: SubagentHeaderVariant;
   /// A gallery-only palette for the Context breakdown's categories (ContextSection.css tones).
   tones?: CSSProperties;
+  /// Gallery-only: a different height ceiling, for comparison with the shipped full-room one.
+  ceiling?: string;
+  /// Gallery-only: panel width used by narrow workflow layout states.
+  panelWidth?: number;
 };
 
 const edit = (path: string, oldText: string | undefined, newText: string) =>
@@ -45,7 +66,7 @@ const made = sessionSummary(local.rows);
 const TRANSCRIPT = [
   "Make the Inspector glass, and its cards bordered with no fill.",
   "The panel paints the chat's page color, so nothing behind it shows. I'll give it the shared glass and drop the cards' fill.",
-  '<aside className="ui-glass acpmux-chat-inspector">\n  {sections}\n</aside>',
+  '<aside className="ui-glass ui-glass-floats acpmux-chat-inspector">\n  {sections}\n</aside>',
   "Check it over a long transcript in light and dark.",
   "Over the transcript the text frosts under the panel and the cards keep only their hairline.",
   "export const tries = 3;\nexport const backoff = 200;\nexport async function retry() {}",
@@ -70,12 +91,34 @@ function Transcript() {
   );
 }
 
-function GalleryInspector({ placement = "overlay", transcript = false, tones, ...props }: Props) {
+function GalleryInspector({
+  placement = "overlay",
+  transcript = false,
+  closable = false,
+  chrome = "close",
+  scope,
+  header = "title",
+  tones,
+  ceiling,
+  panelWidth = 320,
+  ...props
+}: Props) {
   return (
     <div className="acpmux-shell" style={{ display: "flex", justifyContent: "flex-end", height: "100%", ...tones }}>
+      {ceiling ? <style>{`.acpmux-chat-inspector[data-placement]{max-height:${ceiling}}`}</style> : null}
       {transcript ? <Transcript /> : null}
-      <InspectorPanel width={320} placement={placement}>
-        <ChatInspector {...props} />
+      <InspectorPanel
+        width={panelWidth}
+        placement={placement}
+        chrome={chrome}
+        // The head draws only with a close: as in the chat pane.
+        onClose={scope || closable ? () => undefined : undefined}
+        title={scope && header === "title" ? <SubagentTitle scope={scope} /> : undefined}
+      >
+        <ChatInspector
+          {...props}
+          banner={scope && header !== "title" ? <SubagentBanner scope={scope} variant={header} /> : undefined}
+        />
       </InspectorPanel>
     </div>
   );
@@ -228,12 +271,32 @@ const transcriptTasks: NonNullable<Props["transcriptTasks"]> = [
 const summary = {
   ...local.summary!,
   usage: { used: 94_000, size: 200_000 },
+  // At most 16 of the chats it started run at once (acpmux's default).
+  subsessionLimits: { maxRunning: 16, maxRunningSource: "default" as const },
   branch: "feat/next-inspector",
   mcpServers: [
     { name: "github", status: "connected" as const },
     { name: "linear", status: "failed" as const },
     { name: "sentry", status: "pending" as const },
   ],
+};
+
+// Icon-bearing section heads belong to the Environment rows' text column. The ordinary
+// section titles intentionally start at the icon column instead.
+const checkTopBlockAlignment: Play = async (ctx) => {
+  const rect = (selector: string) => ctx.find({ selector }).getBoundingClientRect();
+  const environment = '[data-section="environment"] .acpmux-chat-inspector-row__name';
+  await ctx.waitFor(() => ctx.document.querySelector(environment));
+  const labelLeft = rect(environment).left;
+  for (const section of ["context", "connectors"]) {
+    const title = rect(`[data-section="${section}"] .acpmux-chat-inspector-section__title`);
+    if (Math.abs(title.left - labelLeft) > 0.5)
+      throw new Error(`${section} label starts ${title.left - labelLeft}px from the Environment text column`);
+  }
+  const iconLeft = rect('[data-section="environment"] .acpmux-chat-inspector-row > svg').left;
+  const heading = rect('[data-section="changes"] .acpmux-chat-inspector-section__title');
+  if (Math.abs(heading.left - iconLeft) > 0.5)
+    throw new Error("The heading-only Changes section moved from the icon column");
 };
 
 const full: Props = {
@@ -257,6 +320,8 @@ const full: Props = {
   onOpenOutput: () => undefined,
   onOpenSubagent: () => undefined,
   onSaveEnvironment: () => undefined,
+  onSetRunningLimit: async () => undefined,
+  onReconnectMcp: async () => undefined,
   remoteControl: { on: false, set: () => undefined },
 };
 
@@ -281,8 +346,68 @@ const busySessions: StartedSession[] = LANES.map((title, index) => ({
 }));
 const busy: Props = { ...full, agents: busyAgents, sessions: busySessions };
 
-/// A chat in ~/Projects that worked across several projects, as Claude Code desktop lists them.
+/// A chat running a Claude workflow (Labs `workflowLabs`): its events fed through the real subagent
+/// fold (summary/workflowFixture.ts), so Background tasks shows what the fold keeps
+/// (inspector/WorkflowTasks.tsx). The workflow's node leaves Subagents for Background tasks.
+const workflowProps = (
+  stage: WorkflowFixtureStage,
+  workflowAgentRowVariant?: Props["workflowAgentRowVariant"],
+  panelWidth = 320,
+  modelOverride?: string,
+): Props => {
+  const nodes = workflowFixture(stage);
+  const workflowList = createWorkflowAdapter()(nodes, "gallery-chat").map((workflow) =>
+    modelOverride
+      ? {
+          ...workflow,
+          agents: workflow.agents.map((agent) =>
+            agent.index === 4 ? { ...agent, model: modelOverride, startedAt: Date.now() - 204_000 } : agent,
+          ),
+        }
+      : workflow,
+  );
+  return {
+    summary,
+    machineName: "Studio",
+    repository: "manaflow-ai/cmux",
+    agents: nodes,
+    workflows: workflowList,
+    onStopWorkflow: async () => undefined,
+    onOpenSubagent: () => undefined,
+    onOpenWorkflowAgent: () => undefined,
+    workflowAgentRowVariant,
+    panelWidth,
+    onSaveEnvironment: () => undefined,
+    remoteControl: { on: true, set: () => undefined },
+  };
+};
+
+const assertNarrowWorkflowLayout: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-agent__button") !== null);
+  const panel = ctx.find({ selector: ".acpmux-chat-inspector" }).getBoundingClientRect();
+  if (Math.abs(panel.width - 260) > 1) throw new Error(`expected a 260px panel, got ${panel.width}px`);
+  const name = ctx.find({ selector: ".acpmux-workflow-agent__name" }).getBoundingClientRect();
+  const model = ctx.find({ selector: ".acpmux-workflow-agent__model" }).getBoundingClientRect();
+  const state = ctx.find({ selector: ".acpmux-workflow-agent__state" }).getBoundingClientRect();
+  const time = ctx
+    .find({ selector: ".acpmux-workflow-agent .acpmux-chat-inspector-task__time" })
+    .getBoundingClientRect();
+  if (name.width < 24) throw new Error(`workflow agent name collapsed at ${name.width}px`);
+  if (model.right > state.left + 0.5) throw new Error("workflow model overlaps the state column");
+  if (state.right > time.left + 0.5) throw new Error("workflow state overlaps the elapsed-time column");
+};
+/// Opens the workflow's `n`th phase (from 1).
+const openPhase =
+  (n: number): Play =>
+  async (ctx) => {
+    await ctx.click({ selector: `.acpmux-workflow-phase:nth-child(${n}) .acpmux-workflow-phase__head` });
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-phase__agents") !== null);
+  };
+
+/// A chat in a lane checkout of cmux that worked across several folders: Environment lists only its
+/// project (chatFolders.ts).
 const PROJECTS = "/Users/you/Projects";
+const SCRATCHPAD = "/private/tmp/agent-501/-Users-you-Projects/7f3e/scratchpad";
 const touched = (path: string) =>
   tool(`Read ${path}`, "read", "completed", { locations: [{ path: `${PROJECTS}/${path}` }] });
 const projectRows = [
@@ -293,11 +418,19 @@ const projectRows = [
       touched("agent-pane-reference/README.md"),
       touched("cmuxterm-hq/build-fleet/FLEET-AND-CI.md"),
       touched("leo-workspace/NOW.md"),
-      touched("glaeda/main.go"),
+      touched("ci-daemon/main.go"),
     ],
     6,
   ),
 ];
+
+const environmentProps = (): Props => ({
+  ...full,
+  summary: { ...summary, cwd: `${PROJECTS}/checkouts/cmux/next-env-folders`, branch: "you/next-env-folders" },
+  rows: projectRows,
+  onOpenFolder: () => undefined,
+  remoteControl: undefined,
+});
 
 /// What a chat produced, as Claude Code desktop's Outputs lists it: a ledger page it rendered and a
 /// Markdown plan its reply drew, each opening in the side panel.
@@ -317,6 +450,78 @@ const producedRows = [
   assistant("Here is the plan:\n\n```markdown\n# Inspector rollout\n\n- Context\n- Outputs\n```\n", 2),
 ];
 
+/// A subagent in a Claude worktree of its own: it read and edited files there, ran the tests in the
+/// background (still running), and its result named the worktree and branch.
+const TREE = `${CWD}/.claude/worktrees/agent-a3f9c2`;
+const inTree = (path: string, oldText: string | undefined, newText: string) =>
+  tool(`Edit ${path}`, "edit", "completed", { diffs: [{ path: `${TREE}/${path}`, oldText, newText }] });
+const subagentRows = [
+  activity(
+    [
+      tool("Read src/net/fetch.ts", "read", "completed", { locations: [{ path: `${TREE}/src/net/fetch.ts` }] }),
+      inTree("src/net/fetch.ts", "export const timeout = 5_000;\n", "export const timeout = 15_000;\n"),
+      inTree("src/net/timeout.test.ts", undefined, "test('waits 15s', () => {});\n"),
+      tool("Run bun test --watch src/net", "execute", "in_progress", {
+        command: "bun test --watch src/net",
+        inputSummary: JSON.stringify({ command: "bun test --watch src/net", run_in_background: true }),
+      }),
+    ],
+    3,
+  ),
+  assistant("Raised the timeout to 15 s and added a test; the watcher runs in the worktree.", 1),
+];
+const worktreeAgent: Subagent = {
+  id: "agent-timeouts",
+  parent: null,
+  name: "Fix the timeouts",
+  task: "Raise the fetch timeout in a worktree",
+  kind: "general-purpose",
+  state: "running",
+  startedAt: started - 240_000,
+  action: "Running bun test",
+  tokens: 48_200,
+  toolUses: 14,
+  isolated: true,
+  worktree: { path: TREE, branch: "worktree-agent-a3f9c2" },
+};
+const scopeOf = (agent: Subagent) => ({ agent, parent: "Add retries to the fetch helper", onBack: () => undefined });
+/// The subagent's panel: its own rows, environment and progress; nothing of the chat's.
+const subagentPanel: Props = {
+  summary: subagentSummary(summary, worktreeAgent, subagentRows),
+  machineName: "Studio",
+  repository: "manaflow-ai/cmux",
+  made: sessionSummary(subagentRows, "manaflow-ai/cmux"),
+  transcriptTasks: sessionSummary(subagentRows).backgroundTasks,
+  rows: subagentRows,
+  agent: worktreeAgent,
+  onOpenUrl: () => undefined,
+  onOpenOutput: () => undefined,
+  onStopProcess: async () => undefined,
+  scope: scopeOf(worktreeAgent),
+};
+/// An Explore subagent in the chat's own checkout: its folder and branch are the chat's.
+const sharedAgent: Subagent = {
+  id: "agent-explore",
+  parent: null,
+  name: "Explore the retry callers",
+  task: "Find every caller of fetchWithRetry",
+  kind: "Explore",
+  state: "completed",
+  startedAt: started - 600_000,
+  endedAt: started - 420_000,
+  tokens: 21_400,
+  toolUses: 9,
+};
+const sharedRows = [
+  activity(
+    [
+      tool("Read src/net/fetch.ts", "read", "completed", { locations: [{ path: `${CWD}/src/net/fetch.ts` }] }),
+      tool("Read src/api/client.ts", "read", "completed", { locations: [{ path: `${CWD}/src/api/client.ts` }] }),
+    ],
+    9,
+  ),
+  assistant("fetchWithRetry has three callers: client.ts, upload.ts and the webhook relay.", 7),
+];
 /// A Claude Code chat with its /context breakdown, Context open and the long sections folded so the
 /// card shows whole.
 const breakdownProps: Props = {
@@ -346,34 +551,129 @@ export default componentEntry<Props>({
     "agent-session/acpmux/inspector/chatFolders.ts",
     "agent-session/acpmux/inspector/ChildSessionRows.tsx",
     "agent-session/acpmux/inspector/ChangesSection.tsx",
+    "agent-session/acpmux/inspector/ConnectorsSection.tsx",
     "agent-session/acpmux/inspector/ContextSection.tsx",
     "agent-session/acpmux/inspector/PullRequestGlyph.tsx",
     "agent-session/acpmux/inspector/EnvironmentSection.tsx",
     "agent-session/acpmux/inspector/InspectorSection.tsx",
     "agent-session/acpmux/inspector/OutputsSection.tsx",
     "agent-session/acpmux/inspector/ServersSection.tsx",
+    "agent-session/acpmux/inspector/SubagentLimitStepper.tsx",
     "agent-session/acpmux/inspector/SubagentsSection.tsx",
+    "agent-session/acpmux/inspector/SubagentScopeHeader.tsx",
+    "agent-session/acpmux/inspector/subagentScope.ts",
     "agent-session/acpmux/inspector/TasksSection.tsx",
+    "agent-session/acpmux/inspector/WorkflowTasks.tsx",
+    "agent-session/acpmux/summary/foldWorkflows.ts",
     "agent-session/acpmux/subagents/AgentLine.tsx",
   ],
   load: async () => GalleryInspector,
   variants: {
-    full: {
-      note: "A chat on this Mac with every section: its environment with Save and Remote Control, 47% of the context window, one connector to reconnect, eight pull requests across three repositories (five shown, then Show more), a dev server on :5173, three running subagents and two running chats named one per line with the 40 done · 1 failed row under them, background tasks (one only the transcript knows, without Stop) with four finished, and its outputs.",
-      props: full,
-    },
-    "environment-folders": {
-      note: "Environment for a chat in ~/Projects/cmux that worked across six projects: the machine with Save, its folder with its parent, each other project it touched (each opens in Files), the repository and the branch (each links to GitHub).",
+    "subagents-done": {
+      note: "A busy chat with Environment, Context, Outputs and 31 completed subagents: four static harness avatars beside the count, opening the named list.",
       props: {
         ...full,
-        summary: { ...summary, cwd: `${PROJECTS}/cmux`, branch: "leo/next-backgrounds-batch" },
-        rows: projectRows,
-        onOpenFolder: () => undefined,
-        remoteControl: undefined,
+        agents: agents.slice(3, 34).map((agent, index) => ({
+          ...agent,
+          state: "completed",
+          harness: index % 2 ? "codex" : "claude",
+        })),
+        sessions: [],
+      },
+    },
+    full: {
+      note: "A chat on this Mac with every section, shipped layout (glance): no section is a box. Where it runs: the machine with Save, folder, repository, branch and Remote Control, then Context (47%) and Connectors (1 to reconnect) as one row each. A hairline, then what it made: eight pull requests across three repositories (five shown, then Show more) and its outputs. A hairline, then what it runs: three running subagents and two running chats with the 40 done · 1 failed row, and Background tasks, the dev server on :5173 first, then the commands (one only the transcript knows, without Stop) and four finished.",
+      props: full,
+      play: checkTopBlockAlignment,
+    },
+    "workflow-running": {
+      note: "Chosen: the live workflow row keeps the agent name above its truncating model label, puts its current action beneath, and keeps state and elapsed time aligned on the right. Running work uses a spinner; finished and failed work use status marks; queued work uses an outline.",
+      props: workflowProps("running"),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+      },
+    },
+    "workflow-finished": {
+      note: "Labs: the same workflow finished. 1 finished; Workflow · Finished · 7 agents · 432k tokens; each phase N/N with its dots, no Stop and no Up next. Critique opened: its agents with a check and how long each took.",
+      props: workflowProps("finished"),
+      play: openPhase(2),
+    },
+    "workflow-agent-row-compact": {
+      note: "Alternative (gallery only): a compact one-line workflow agent row keeps the action inline with the name for the highest density.",
+      props: workflowProps("running", "compact"),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+      },
+    },
+    "workflow-agent-row-detail": {
+      note: "Chosen workflow agent row: name, model and action each have their own line so the name remains readable at narrow widths; state and elapsed time stay aligned on the right.",
+      props: workflowProps("running", "detail"),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+      },
+    },
+    "workflow-agent-row-grid": {
+      note: "Alternative (gallery only): a grid workflow agent row gives state, name, model and elapsed time fixed columns, with the action spanning below.",
+      props: workflowProps("running", "grid"),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task") !== null);
+      },
+    },
+    "workflow-agent-row-narrow": {
+      note: "Narrow-width check: at 260px the longest supported model label truncates while the running agent name stays visible and state plus elapsed time keep separate columns.",
+      props: workflowProps("running", "detail", 260, "anthropic/claude-sonnet-5-5"),
+      play: assertNarrowWorkflowLayout,
+    },
+    "layout-glance": {
+      note: "Chosen (Leo, 2026-10-22: \"this session rail is tmi and too many boxes?\"). Eight cards became three blocks with a hairline between them and no box: the Environment's rows with no title, Context and Connectors one row each; Changes and Outputs; Subagents and Background tasks, the Servers card's row now heading Background tasks. Least ink of the three while every section and click stays; the rows line up under the panel's title.",
+      props: full,
+    },
+    "layout-glance-open": {
+      note: "The shipped layout with Context and Connectors opened in place: each row opens into its token counts or its servers, still with no box.",
+      props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
+    },
+    "layout-rules": {
+      note: "Alternative (not shipped): no boxes, every section keeps its title (Environment's too) with a hairline between each. Clear, but seven titles and seven rules still read as a stack of parts.",
+      props: { ...full, layout: "rules" },
+    },
+    "layout-groups": {
+      note: "Alternative (not shipped): the same three blocks as the shipped layout, each one hairline card (three boxes in place of eight). Groups well, but it is still boxes in a box.",
+      props: { ...full, layout: "groups" },
+    },
+    "chrome-close-only": {
+      note: "Chosen: the side panel has no title row, matching Codex and Claude desktop. Its close control floats at the top edge while the first Environment row starts below it, so the panel's content gets the space instead of repeating Session Info.",
+      props: { ...full, closable: true, chrome: "close" },
+    },
+    "chrome-title": {
+      note: "Alternative: the current titled treatment, with Session Info above the rows and the close control in that head. Clear, but it spends a full row repeating the panel name.",
+      props: { ...full, closable: true, chrome: "title" },
+    },
+    "chrome-compact-close": {
+      note: "Alternative: a compact control-only head keeps a close row without a title. It removes the repeated name, but still reserves a full strip before the Environment rows.",
+      props: { ...full, closable: true, chrome: "compact-close" },
+    },
+    "environment-folders": {
+      note: "Shipped (Leo, 2026-10-27: \"why are these files being shown to me in the first place\"): a chat in a lane checkout of cmux that worked across six folders. Environment lists only its project, by its repository's name (cmux, not the checkout's folder name), the full path only on hover; then the repository and the branch, each a link to GitHub. No folder its tool calls touched. The project opens in Files as a tab right of the chat.",
+      props: environmentProps(),
+    },
+    "environment-branch-chip": {
+      note: "Alternative (not shipped): the branch as a quiet chip at the end of the project's row, with no branch row. One row shorter, but the branch is no longer a link to GitHub and a long branch name crowds the project's name.",
+      props: { ...environmentProps(), projectRowLook: "branch" },
+    },
+    "environment-parent": {
+      note: "Alternative (not shipped): the project's name with its parent folder after it, as the Environment drew every folder before. The path text is what Leo asked not to see; the tooltip carries it in the shipped row.",
+      props: { ...environmentProps(), projectRowLook: "parent" },
+    },
+    "environment-scratchpad": {
+      note: "Shipped: Leo's chat, run in a harness's scratchpad under /private/tmp, whose commands cd'd into a worktree. Before, Environment listed the scratchpad with its path and the worktree, and offered Save. Now only the machine: no folder row and no Save (a scratch folder is never a project).",
+      props: {
+        ...environmentProps(),
+        summary: { ...summary, cwd: SCRATCHPAD, branch: undefined, worktree: undefined },
+        repository: undefined,
       },
     },
     "context-connectors-open": {
-      note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
+      note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status, the failed one with Reconnect.",
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
     },
     "context-breakdown": {
@@ -417,7 +717,7 @@ export default componentEntry<Props>({
       },
     },
     "row-hover": {
-      note: "The pointer on a pull request's row: a faint tint of the text inside the card's padding, with the card's radius less that padding, never a solid fill and never past the card's edge. Every row in the panel hovers the same way.",
+      note: "The pointer on a pull request's row: a faint tint of the text inside the body's padding, with the row radius, never a solid fill and never past the panel's edge. Every row in the panel hovers the same way.",
       props: full,
       play: async (ctx) => {
         await ctx.waitFor(() => /already on base/.test(text(ctx)));
@@ -430,6 +730,36 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /40 done · 1 failed/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-inspector-subagents__list") !== null);
+      },
+    },
+    "subagent-limit": {
+      note: 'Subagents with the chat\'s own running limit of 2: two of the chats it started run, a third waits for a slot ("1 queued"), with Reset back to the inherited limit and − / + beside it.',
+      props: {
+        ...full,
+        summary: { ...summary, subsessionLimits: { maxRunning: 2, maxRunningSource: "session" } },
+        sessions: [
+          ...sessions.slice(1),
+          { sessionId: "child-4", title: "Profile the sidebar", state: "running", createdAt: started - 300_000 },
+          {
+            sessionId: "child-5",
+            title: "Audit the strings",
+            state: "idle",
+            waitsForSlot: true,
+            createdAt: started - 200_000,
+          },
+        ],
+      },
+    },
+    "subagent-limit-hidden-default": {
+      note: "A chat that never started a subagent or a chat, at acpmux's default running limit: no Subagents card at all.",
+      props: { summary, machineName: "Studio", onSetRunningLimit: async () => undefined },
+    },
+    "subagent-limit-set-no-rows": {
+      note: "No subagents or chats yet, but the settings set the running limit to 4: Subagents shows only that limit, with − and +.",
+      props: {
+        summary: { ...summary, subsessionLimits: { maxRunning: 4, maxRunningSource: "settings" } },
+        machineName: "Studio",
+        onSetRunningLimit: async () => undefined,
       },
     },
     "subagents-busy": {
@@ -479,12 +809,67 @@ export default componentEntry<Props>({
         sections: { ...DEFAULT_SECTIONS, changes: false, subagents: false, tasks: false, servers: false },
       },
     },
+    "fits-content": {
+      note: "A chat with little to show, over a 900px pane: Environment and Context only. The card ends right after Context, with the body's 10px under it and no fixed or minimum height: the ceiling (the room under the header) is only a maximum (Leo, 2026-10-22: \"the card should just end when there's no more content to show\").",
+      props: {
+        summary: { ...summary, mcpServers: [] },
+        machineName: "Studio",
+        repository: "manaflow-ai/cmux",
+        onSaveEnvironment: () => undefined,
+        closable: true,
+      },
+    },
+    ceiling: {
+      note: "Chosen. A busy coordinator over the same 900px pane: the card uses the full room under the header, less its 8px inset at the foot, and only then does its body scroll; it still floats over the chat with its own edge (Leo, 2026-10-26: \"you still haven't done the full-length thing. It's still just this constrained height for, like, no reason at all\").",
+      props: { ...busy, closable: true },
+    },
+    "ceiling-capped": {
+      note: 'Before, for comparison: the old ceiling, the smallest of 560px and 80% of the room under the header, so a busy card stopped with room left and scrolled (Leo: "this constrained height for, like, no reason at all").',
+      props: {
+        ...busy,
+        closable: true,
+        ceiling:
+          "min(560px, calc((100% - var(--acpmux-inspector-top, 0px)) * 0.8), calc(100% - var(--acpmux-inspector-top, 0px) - var(--acpmux-inspector-inset)))",
+      },
+    },
+    "ceiling-most": {
+      note: "Alternative: 90% of the room under the header, leaving a band of the chat under the card.",
+      props: { ...busy, closable: true, ceiling: "calc((100% - var(--acpmux-inspector-top, 0px)) * 0.9)" },
+    },
     push: {
       note: "Settings > Agent Chat > Inspector set to Push: the panel sits beside the chat and narrows it, instead of lying over it with a shadow. It is glass there too, with its left hairline as its only edge.",
       props: { ...full, placement: "push" },
     },
+    "subagent-parent": {
+      note: "The chat's own panel while a subagent works in a worktree: the chat's folder, branch, context, pull requests and tasks, and its Subagents list, which opens each subagent's own panel.",
+      props: { ...full, agents: [worktreeAgent, { ...sharedAgent }, ...agents.slice(3, 8)] },
+    },
+    "subagent-title": {
+      note: "Chosen. A subagent's own panel, the head naming it: back, then Subagent · Fix the timeouts. Its Environment is its worktree (agent-a3f9c2) and branch, not the chat's; Context is its 48.2K tokens and 14 tool uses; Background tasks its own watcher; Outputs the two files it edited in the worktree. No Connectors, chats or Save: those are the chat's.",
+      props: { ...subagentPanel, header: "title" },
+    },
+    "subagent-crumb": {
+      note: "Alternative: the head keeps Inspector, and the body's first line is a path, the chat's name (back) › Subagent · Fix the timeouts.",
+      props: { ...subagentPanel, header: "crumb" },
+    },
+    "subagent-card": {
+      note: "Alternative: a bordered card above the sections, the agent glyph, Subagent · Fix the timeouts with its task under it, and Back to the chat.",
+      props: { ...subagentPanel, header: "card" },
+    },
+    "subagent-shared-checkout": {
+      note: "A subagent in the chat's own checkout (an Explore run): its folder and branch are the chat's, its context its own tokens and tool uses, and it made no outputs.",
+      props: {
+        summary: subagentSummary(summary, sharedAgent, sharedRows),
+        machineName: "Studio",
+        repository: "manaflow-ai/cmux",
+        made: sessionSummary(sharedRows, "manaflow-ai/cmux"),
+        rows: sharedRows,
+        agent: sharedAgent,
+        scope: scopeOf(sharedAgent),
+      },
+    },
     "glass-over-transcript": {
-      note: "The panel over a busy transcript: liquid glass, never opaque, so the prompts, replies and code under it frost through; its cards are hairline borders with no fill. Under Reduce Transparency the panel is the opaque theme surface.",
+      note: "The panel over a busy transcript: liquid glass, never opaque, so the prompts, replies and code under it frost through; no section is a box, only a hairline between its three blocks. Under Reduce Transparency the panel is the opaque theme surface.",
       props: { ...full, transcript: true },
     },
   },

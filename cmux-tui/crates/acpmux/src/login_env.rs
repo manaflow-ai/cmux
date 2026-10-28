@@ -430,6 +430,31 @@ pub fn agent_path() -> Option<OsString> {
     joined.or(path)
 }
 
+/// A profile's, preset's or session's own PATH `own`, then every
+/// [`agent_path`] directory it does not list, each directory once. A PATH a
+/// preset saved (the Chief's built-in subagent preset takes the daemon's PATH
+/// when it is installed, which can be before the login import, or a launchd
+/// start's bare `/usr/bin:/bin:/usr/sbin:/sbin`) must not hide the login
+/// PATH's tools: the harness is looked up on this PATH (`claude`), and so is
+/// every tool it runs.
+pub fn with_agent_path(own: &str) -> String {
+    let login = agent_path();
+    let login =
+        login.iter().flat_map(std::env::split_paths).map(|p| p.to_string_lossy().into_owned());
+    merge_paths(own.split(':').map(str::to_owned).chain(login))
+}
+
+/// The non-empty entries of `dirs`, first occurrence kept, joined with `:`.
+fn merge_paths(dirs: impl Iterator<Item = String>) -> String {
+    let mut merged: Vec<String> = Vec::new();
+    for dir in dirs {
+        if !dir.is_empty() && !merged.contains(&dir) {
+            merged.push(dir);
+        }
+    }
+    merged.join(":")
+}
+
 /// The app's bundled `cmux` (BundledCLIEnvironment.swift).
 pub const BUNDLED_CLI_ENV: &str = "CMUX_BUNDLED_CLI_PATH";
 
@@ -731,6 +756,9 @@ pub fn apply_tokio_for(
             None => cmd.env_remove(AGENT_USER_ZDOTDIR_ENV),
         };
     }
+    if let Some(browser) = agent_browser_env() {
+        cmd.env("BROWSER", browser);
+    }
 }
 
 /// The fixed login-derived subset a remote-origin harness may receive.
@@ -763,6 +791,43 @@ pub fn apply_std_for(
             None => cmd.env_remove(AGENT_USER_ZDOTDIR_ENV),
         };
     }
+    if let Some(browser) = agent_browser_env() {
+        cmd.env("BROWSER", browser);
+    }
+}
+
+/// The app's URL opener next to its bundled CLI (`<Resources>/bin/cmux-open-url`,
+/// scripts/cmux-next/url-open), by the bare name an agent finds first on [`agent_path`].
+const URL_OPENER: &str = "cmux-open-url";
+
+/// The `BROWSER` an agent gets: the app's URL opener, as the app's terminals get
+/// (BundledCLIEnvironment.swift), so a sign-in or device-code page a tool opens
+/// (`gh auth login`, `aws sso login`, Python's webbrowser, `open <url>`) lands in a
+/// cmux browser tab and not in the default browser. Set before the agent's shells
+/// run the user's files, so a `.zprofile` that sets `BROWSER=open` only when it is
+/// unset (prezto's stock one) keeps it. `None` when this daemon already has a
+/// `BROWSER` or the person added `BROWSER` to `loginEnvAllow` (theirs wins), or
+/// without a bundled CLI whose bin dir holds an executable opener (an older app).
+pub fn agent_browser_env() -> Option<&'static str> {
+    if std::env::var_os("BROWSER").is_some_and(|v| !v.is_empty()) || extra_exact("BROWSER") {
+        return None;
+    }
+    let bin = std::env::var_os(BUNDLED_CLI_ENV)
+        .map(PathBuf::from)
+        .filter(|cli| cli.is_absolute())
+        .and_then(|cli| cli.parent().map(std::path::Path::to_path_buf))?;
+    is_executable(&bin.join(URL_OPENER)).then_some(URL_OPENER)
+}
+
+#[cfg(unix)]
+fn is_executable(path: &std::path::Path) -> bool {
+    use std::os::unix::fs::PermissionsExt as _;
+    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable(path: &std::path::Path) -> bool {
+    path.is_file()
 }
 
 /// The app's agent zsh layer, `<Resources>/cmux-cli-path/zsh-agent`, next to

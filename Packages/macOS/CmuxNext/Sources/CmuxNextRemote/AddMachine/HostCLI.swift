@@ -42,6 +42,15 @@ public struct HostCLI: Sendable {
         return Data(result.stdout.utf8)
     }
 
+    /// The stdout of one short `cmux-tui <arguments>` run that prints JSON (`device list --json`,
+    /// `device remove ID --yes --json`); nil when it failed or passed `deadline`.
+    public func json(_ arguments: [String], deadline: Duration = .seconds(20), label: String) async -> Data? {
+        guard let result = try? await SSHProcessRunner.run([binary.path] + arguments, environment: await Self.grouped(environment()),
+                                                           deadline: deadline, label: label, stop: Self.stop),
+              result.status == 0 else { return nil }
+        return Data(result.stdout.utf8)
+    }
+
     /// The stdout lines of `cmux-tui <arguments>` (an `acp host enroll|doctor --json` run). A run that
     /// exits non-zero ends the stream with ``HostCLIStop``; a run whose report says not ok exits
     /// non-zero too, after its report line.
@@ -90,20 +99,22 @@ public struct HostCLI: Sendable {
         let stdoutEnded = ExitLatch()
         stdout.fileHandleForReading.readabilityHandler = { handle in
             // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty {
+            switch handle.readReady() {
+            case .bytes(let data): for line in lines.append(data) { continuation.yield(line) }
+            case .retry: return
+            case .end:
                 handle.readabilityHandler = nil
                 for line in lines.flush() { continuation.yield(line) }
                 stdoutEnded.finish(0)
-                return
             }
-            for line in lines.append(data) { continuation.yield(line) }
         }
         stderr.fileHandleForReading.readabilityHandler = { handle in
             // concurrency-allow: readabilityHandler runs on Foundation's pipe queue, never main; data is ready.
-            let data = handle.availableData
-            if data.isEmpty { handle.readabilityHandler = nil; return }
-            _ = errors.append(data)
+            switch handle.readReady() {
+            case .bytes(let data): _ = errors.append(data)
+            case .retry: return
+            case .end: handle.readabilityHandler = nil
+            }
         }
         process.terminationHandler = { finished in
             let status = finished.terminationStatus

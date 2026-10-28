@@ -37,8 +37,8 @@ export const CATALOG: AcpmuxSnapshot["catalog"] = [
     id: "codex",
     name: "Codex",
     models: [
-      { id: "gpt-6-astra", name: "GPT-6-Astra", efforts: GPT_EFFORTS, fast: true },
-      { id: "gpt-6-luna", name: "GPT-6-Luna", efforts: GPT_EFFORTS, fast: true },
+      { id: "gpt-6-astra", name: "GPT-6-Astra", efforts: GPT_EFFORTS, fast: true, inlineFast: true },
+      { id: "gpt-6-luna", name: "GPT-6-Luna", efforts: GPT_EFFORTS, fast: true, inlineFast: true },
       { id: "gpt-5.6-sol", name: "GPT-5.6-Sol", efforts: GPT_EFFORTS, fast: false },
     ],
   },
@@ -244,3 +244,33 @@ export const CONTEXT_BREAKDOWN: AcpmuxContextBreakdown = {
   totalTokens: 171_400,
   maxTokens: 400_000,
 };
+
+/// What `acpmux host ls` lists on a Mac with a fleet (`_acpmux/status` peers as the relay passes
+/// them): four of the person's own (one offline), two numbered VM pools (three reconnecting, one in
+/// its handshake) and a cmux Cloud machine. 21 machines.
+export function fleetPeers(): Pick<AcpmuxSnapshot, "peers" | "peerKinds" | "peerConnected" | "peerStates"> {
+  const names = [
+    "build-mini",
+    "desk-linux",
+    "gpu-box",
+    "home-server",
+    ...Array.from({ length: 6 }, (_, index) => `agent-vm-${index + 1}`),
+    ...Array.from({ length: 10 }, (_, index) => `codex-vm-${index + 1}`),
+    "Cloud machine",
+  ];
+  const state = (name: string) =>
+    name === "gpu-box"
+      ? "offline"
+      : /^agent-vm-[3-5]$/.test(name)
+        ? "reconnecting"
+        : name === "agent-vm-6"
+          ? "degraded"
+          : "connected";
+  const by = <T>(value: (name: string) => T) => Object.fromEntries(names.map((name) => [name, value(name)]));
+  return {
+    peers: names,
+    peerKinds: by((name) => (name === "Cloud machine" ? "cloud" : "ssh")),
+    peerConnected: by((name) => state(name) === "connected" || state(name) === "degraded"),
+    peerStates: by(state),
+  };
+}

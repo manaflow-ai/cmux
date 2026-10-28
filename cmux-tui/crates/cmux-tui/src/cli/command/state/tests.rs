@@ -623,3 +623,21 @@ fn workspace_notes_task_lane_unread_mark_and_closed_ids() {
         ("workspace.close".into(), json!({"workspace": WS, "report_closed_ids": true}))
     );
 }
+
+/// tab-attention-v1: `cmux attention request|clear --tab` is `tab.update
+/// {attention}`, the one path the app and MCP use too.
+#[test]
+fn attention_request_and_clear_send_tab_update() {
+    assert_eq!(
+        sent(&["attention", "request", "--tab", TAB, "--reason", " Confirm GitHub access "]),
+        ("tab.update".into(), json!({"tab": TAB, "attention": "Confirm GitHub access"}))
+    );
+    assert_eq!(
+        sent(&["attention", "clear", "--tab", TAB]),
+        ("tab.update".into(), json!({"tab": TAB, "attention": null}))
+    );
+    assert!(rejects(&["attention", "request", "--tab", TAB]).contains("--reason"));
+    assert!(rejects(&["attention", "request", "--tab", TAB, "--reason", "  "]).contains("empty"));
+    assert!(rejects(&["attention", "clear"]).contains("--tab"));
+    assert!(rejects(&["attention", "clear", "--tab", "ws_1"]).contains("not an id"));
+}

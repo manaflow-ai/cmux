@@ -3,8 +3,8 @@ import CmuxNextDesign
 import CmuxNextIcons
 import os
 
-// The marks of the space switcher (cx-5k3r): each space's icon, emoji or
-// initial in its color, the compact dots, and the "+".
+// The marks of the space switcher (cx-5k3r): each space's icon or emoji,
+// colored dots, the compact dots, and the "+".
 extension ProfileBarView {
     /// The mark's opacity: the current space full, others clearly dimmer.
     static func markAlpha(active: Bool, hovered: Bool) -> CGFloat { active ? 1 : (hovered ? 0.9 : 0.7) }
@@ -51,25 +51,12 @@ extension ProfileBarView {
                         fraction: color.alphaComponent)
             return
         }
-        if let initial = Self.initial(of: profile.name) {
-            // No icon: the space's initial in its color (one weight for every
-            // state, so a switch never resizes it).
-            let font = NSFont.systemFont(ofSize: Metrics.smallIconSize - 1, weight: .semibold)
-            let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
-            let size = initial.size(withAttributes: attributes)
-            initial.draw(at: NSPoint(x: (rect.midX - size.width / 2).rounded(), y: (rect.midY - size.height / 2).rounded()),
-                         withAttributes: attributes)
-            return
-        }
+        // A named space without an explicit icon stays a colored dot; its name
+        // remains available from the tooltip and context menu.
         color.setFill()
         let diameter = Metrics.roomDotDiameter
         NSBezierPath(ovalIn: NSRect(x: rect.midX - diameter / 2, y: rect.midY - diameter / 2,
                                     width: diameter, height: diameter)).fill()
-    }
-
-    /// The first letter of a space's name, uppercased; nil for an empty name.
-    static func initial(of name: String) -> String? {
-        name.trimmingCharacters(in: .whitespacesAndNewlines).first.map { String($0).uppercased() }
     }
 
     /// The space's color, softened toward the strip a little so it sits in

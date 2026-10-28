@@ -74,7 +74,7 @@ proc = subprocess.Popen(sys.argv[1:], start_new_session=True)
 def forward(signum, _frame):
     try:
         os.killpg(proc.pid, signum)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         pass
     raise ForwardedSignal(signum)
 
@@ -93,7 +93,7 @@ except ForwardedSignal as forwarded:
     except subprocess.TimeoutExpired:
         try:
             os.killpg(proc.pid, signal.SIGKILL)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass
         proc.wait()
     raise SystemExit(128 + forwarded.signum)

@@ -22,6 +22,9 @@ class SidebarRowView: NSView {
         }
     }
 
+    /// The move whose tuck fade this tab line runs (`RowMotion.tuck`), so an older move's end leaves a newer one's.
+    var tuckMove: Int?
+
     /// The row shows as selected, the one source of its AXSelected. A row with more
     /// selection state overrides it and calls `updateAccessibilitySelection()` when that changes.
     var showsSelection: Bool { isSelected }
@@ -80,6 +83,8 @@ class SidebarRowView: NSView {
         fadesNextHover = false
         // A row parked mid-move does not finish that move when it comes back (cx-bqm6).
         layer?.removeAllAnimations()
+        layer?.zPosition = 0 // a tab line parked mid-tuck (`RowMotion.tuck`) draws in order again
+        tuckMove = nil
         clipsToBounds = false
         targetSize = nil
         alphaValue = 1
@@ -143,6 +148,8 @@ class SidebarRowView: NSView {
     /// The leading icon the row's view draws now for debug.sidebar_rows `icon`
     /// (`symbol`, `swatch`, `emoji`, `favicon`, `agentMark`); nil when it draws none.
     var debugIcon: String? { nil }
+    /// The row draws the archived look (plans/cmux-next/archiving-DESIGN.md).
+    var debugArchived: Bool { false }
     /// The address of the favicon the row draws (a link row), for proofs.
     var debugIconAddress: String? { nil }
 

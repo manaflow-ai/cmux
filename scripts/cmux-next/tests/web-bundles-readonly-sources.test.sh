@@ -25,6 +25,7 @@ git_q -C "$ROOT" worktree add --detach "$src" HEAD || fail "cannot add a scratch
 # The scripts under test come from this checkout, committed or not.
 for f in scripts/cmux-next/build-web-bundles.sh scripts/cmux-next/build-pages-web.sh \
   scripts/cmux-next/build-optchat-inspector-web.sh scripts/cmux-next/web-bundle-key.py \
+  scripts/check-webviews-bun-version.sh \
   webviews/scripts/pages/gen-strings.mjs .gitignore; do
   cp "$ROOT/$f" "$src/$f"
 done

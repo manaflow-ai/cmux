@@ -89,7 +89,8 @@ public final class SidebarMirror {
                 ref = SidebarDocWorkspaceRef(sessionID: session, workspaceID: workspace)
             }
             return SidebarDocRow(key: key, kind: text(row.kind) ?? "item", section: section, parent: text(row.parent), depth: Int(row.depth),
-                                 item: text(row.item), dimmed: row.flags & 1 != 0, ref: ref) // 1: CMUX_SIDEBAR_ROW_DIMMED
+                                 // CMUX_SIDEBAR_ROW_DIMMED 1, CMUX_SIDEBAR_ROW_ARCHIVED 4.
+                                 item: text(row.item), dimmed: row.flags & 1 != 0, archived: row.flags & 4 != 0, ref: ref)
         }
     }
 

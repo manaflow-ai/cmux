@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextFilesUI
 
 /// The right sidebar's Find section and the Find pane's view: a search field
 /// over the focused terminal's folder and one row per matching line. Return
@@ -41,9 +42,9 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { observation?.cancel() }
+        observation?.cancel()
     }
 
     /// Searches the focused terminal's folder each time the section shows (again, when it changed).
@@ -123,12 +124,12 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     }
 
     private var selected: RipgrepMatch? {
-        let row = table.clickedRow >= 0 ? table.clickedRow : table.selectedRow
-        return row >= 0 && row < results.count ? results[row] : nil
+        guard let row = table.clickedRowIfValid ?? table.selectedRowIfValid, row < results.count else { return nil }
+        return results[row]
     }
 
     @objc private func openClicked() {
-        guard table.clickedRow >= 0 else { return }
+        guard table.clickedRowIfValid != nil else { return }
         openSelected()
     }
 

@@ -33,6 +33,19 @@ class GateTests(unittest.TestCase):
                 {"name": "c", "p95": None, "budget": 8.33}]
         self.assertEqual(pb.over_budget(rows), ["a"])
 
+    def test_incomplete_rows_fails_for_missing_current_and_manifest_families(self):
+        rows = [{"name": "panes.split.4x2.frame", "p95": None},
+                {"name": "home.scroll.frame", "p95": 8.0}]
+        baseline = {"panes.split.4x2.frame": 8.0}
+        manifest = {"panes": [r"panes\..*\.frame"], "home": [r"home\.typing\.key_dispatch", r"home\.scroll\.frame"]}
+        missing = pb.incomplete_rows(rows, baseline, manifest, ["panes", "home"])
+        self.assertEqual([item["name"] for item in missing], ["panes.split.4x2.frame", r"home\.typing\.key_dispatch"])
+
+    def test_incomplete_rows_is_empty_for_measured_manifest(self):
+        rows = [{"name": "panes.split.4x2.frame", "p95": 8.0}]
+        self.assertEqual(pb.incomplete_rows(rows, {"panes.split.4x2.frame": 8.0},
+                                             {"panes": [r"panes\..*\.frame"]}, ["panes"]), [])
+
 
 class MappingTests(unittest.TestCase):
     def test_stat_shapes(self):

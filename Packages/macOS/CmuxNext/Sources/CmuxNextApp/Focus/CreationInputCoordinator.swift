@@ -89,6 +89,14 @@ final class CreationInputCoordinator {
         guard let buffer = buffers[shell.windowNumber] else { return false }
         // A close key (Cmd-W) acts now on what it closes; held, it ran later with the other keys.
         let closes = controller.map { Self.closes(event, in: shell, controller: $0, router: router) } ?? false
+        // A close of a pending creation of this hold (the focus it asked for is still on its way):
+        // the keys typed for it go with it, the others keep waiting in order, and the close runs now
+        // (TabLifecycle cancels the creation). Nothing is run into whatever has the focus first.
+        if closes, let controller, case .tab(let tab)? = controller.focus.state.expectation?.key, buffer.isCreating(tab: tab) {
+            _ = buffer.cancel(tab: tab)
+            scheduleFlush(in: shell)
+            return false
+        }
         // Focus left the content (a sidebar or bar field) or the hold lets this key go: the held
         // keys go on first, then this one (into a hold a replayed key opened, if it keeps it).
         guard kind == .content, controller != nil, buffer.holds(event, limit: holdLimit, expiring: true, closes: closes) else {
@@ -99,14 +107,48 @@ final class CreationInputCoordinator {
         }
         // A pending creation's early view has the keyboard: held keys first, then this one.
         if let controller, case .terminal(_, let tab) = controller.focus.state.resolved, buffer.takesKeysEarly(tab: tab), Self.responderTakesKeys(controller, window: shell) {
-            for held in buffer.take() { replaying = true; NSApp.sendEvent(held); replaying = false }
+            let held = buffer.take(), opened = buffer.openedCount
+            for (index, key) in held.enumerated() {
+                replaying = true
+                NSApp.sendEvent(key)
+                replaying = false
+                // A key run again started another creation: the rest, and this key, wait for it, in order.
+                if buffer.openedCount != opened {
+                    buffer.prepend(held.dropFirst(index + 1))
+                    buffer.capture(event)
+                    return true
+                }
+            }
             return false
         }
         buffer.capture(event)
         return true
     }
 
-    func giveBack(_ bytes: Data = Data()) { GivenBackInput.shared.deliver(adding: bytes, to: router?.services?.cache.terminals.values.first { $0.session.model.isFocused && $0.gate == nil }.map { $0.session.sendBytes }) }
+    /// Keys the daemon gave back from terminal `terminalID`, a creation that did not take them: they
+    /// wait for a focused terminal of the window that showed that terminal, never another window's.
+    /// Keys from a terminal no window shows any more are dropped (never typed into a guess).
+    func giveBack(_ bytes: Data, terminal terminalID: String) {
+        GivenBackInput.shared.deliver(adding: bytes, window: window(ofCreatingTerminal: terminalID), to: nil)
+        giveBack()
+    }
+
+    /// Hands held give-back keys to the focused terminal (the key window's), when it is in their window.
+    func giveBack() {
+        guard let services = router?.services else { return }
+        let focused = services.cache.terminals.values.first { $0.session.model.isFocused && $0.gate == nil }
+        let window = focused?.session.view.window.flatMap { services.windows.owner(of: $0)?.state.id }
+        GivenBackInput.shared.deliver(window: window, to: focused.map { $0.session.sendBytes })
+    }
+
+    /// The cmux window showing the view of terminal `terminalID`, still being created.
+    private func window(ofCreatingTerminal terminalID: String) -> String? {
+        guard let services = router?.services,
+              let entry = services.cache.terminals.values.first(where: { $0.io.creatingTerminalID == terminalID }),
+              let window = entry.session.view.window else { return nil }
+        return services.windows.owner(of: window)?.state.id
+    }
+
     /// A focus settle in `window`: the keys may go on (in a new turn, after the focus queue).
     func focusDidSettle(in window: NSWindow?) {
         giveBack()

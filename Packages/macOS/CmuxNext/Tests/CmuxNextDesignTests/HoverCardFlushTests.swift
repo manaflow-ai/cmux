@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Lawrence 2026-10-19: "For hover on tab card there is a gap in between ... such that there is no
 /// gap in between." A card at rest touches its target: no empty band for the pointer to cross
@@ -66,13 +67,13 @@ import Testing
         #expect(gap > -1 / r.scale - 0.001, "the card overlaps its tab by \(-gap) pt, more than a pixel")
     }
 
-    /// A sidebar card stands `rowGap` off its row (Leo 2026-10-20), on a device pixel.
+    /// A `.beside` card stands one device pixel off its target (the row cards' gap, Lawrence 2026-10-21).
     @Test(arguments: [0, 0.5] as [CGFloat])
     func aCardBesideARowStandsOffItsTrailingEdge(fraction: CGFloat) {
         let r = Self.cardFrame(.beside) { parent in
             CGRect(x: parent.frame.minX + 10, y: parent.frame.maxY - 100, width: 200 + fraction, height: 40)
         }
-        let off = r.card.minX - r.anchor.maxX - HoverCardEscapeGeometry.rowGap
+        let off = r.card.minX - r.anchor.maxX - HoverCardEscapeGeometry.edgeGap(scale: r.scale)
         #expect(off <= 0.001, "the card sits \(off) pt past the row's gap")
         #expect(off > -1 / r.scale - 0.001, "the card sits \(-off) pt inside the row's gap, more than a pixel")
         #expect(abs(r.card.maxY - r.anchor.maxY) < 0.5, "the card is not top-aligned with its row")
@@ -90,7 +91,7 @@ import Testing
         let aboveGap = above.y - anchor.maxY
         #expect(aboveGap <= 0.001 && aboveGap > -1 / scale - 0.001, "above at @\(scale)x: \(aboveGap) pt")
         let beside = HoverCardPanel.origin(for: .beside, anchor: anchor, size: size, scale: scale)
-        let besideGap = beside.x - anchor.maxX - HoverCardEscapeGeometry.rowGap
+        let besideGap = beside.x - anchor.maxX - HoverCardEscapeGeometry.edgeGap(scale: scale)
         #expect(besideGap <= 0.001 && besideGap > -1 / scale - 0.001, "beside at @\(scale)x: \(besideGap) pt")
     }
 }

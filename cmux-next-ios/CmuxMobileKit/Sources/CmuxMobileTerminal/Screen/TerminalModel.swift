@@ -1,4 +1,6 @@
 #if os(iOS)
+import CmuxMobileArtifacts
+import CmuxMobileDesign
 import Foundation
 import Observation
 import UIKit
@@ -33,8 +35,12 @@ public final class TerminalModel {
     /// Focus asked for before the composer was on screen (a new tab).
     var composerFocusOnAppear = false
     public internal(set) var attachments: [ComposerAttachment] = []
-    var showPhotoPicker = false
-    var showFileImporter = false
+    var showPhotoPicker = false {
+        didSet { updateCovered() }
+    }
+    var showFileImporter = false {
+        didSet { updateCovered() }
+    }
     /// Sends one attachment to the Mac and returns its path there (the
     /// link's `upload` service). Nil hides the attachment menu: without a
     /// Mac to receive them there is nothing honest to attach.
@@ -51,8 +57,13 @@ public final class TerminalModel {
     }
     /// The terminal surface is first responder (keys go straight to the PTY).
     var surfaceFocused = false
-    /// The terminal or its composer has focus: the key bar shows (SPEC M4).
+    /// The terminal or its composer has focus.
     var inputFocused: Bool { surfaceFocused || composerFocused }
+    /// The composer is shown (classic cmux iOS: open by default, closed with
+    /// the compose key for this page's life).
+    public internal(set) var composerPresented = true
+    /// Hide Toolbar took the key row and the composer away until the next terminal tap.
+    public internal(set) var chromeHidden = false
     /// Attachments are being sent; the composer waits.
     public internal(set) var isUploading = false
     /// Why the last send with attachments failed (shown over the composer).
@@ -66,7 +77,10 @@ public final class TerminalModel {
     // Artifacts
     public internal(set) var artifacts: [TerminalArtifact] = []
     public var showArtifacts = false {
-        didSet { if showArtifacts, !oldValue { reconcileArtifactsWithScreen() } }
+        didSet {
+            if showArtifacts, !oldValue { reconcileArtifactsWithScreen() }
+            updateCovered()
+        }
     }
     var artifactPath: [TerminalArtifact] = []
     /// Previews of HTML and Markdown show their source.
@@ -127,6 +141,33 @@ public final class TerminalModel {
         self.connectionState = session.connectionState
         joystickEngine.send = { [weak self] direction in self?.joystick(direction) }
         collector = TerminalArtifactCollector { [weak self] list in self?.artifacts = list }
+        sizeClaimer = TerminalSizeClaimer(clock: ContinuousClock()) { [weak self] claims in
+            self?.session.setClaimsSize(claims)
+        }
+    }
+
+    // MARK: Size claim (PROTOCOL.md, "Terminal size claims")
+
+    /// Tells the session when this phone's size should count on the Mac:
+    /// only while the page is on screen, settled and taking input, the app is
+    /// in the foreground and no sheet covers it.
+    @ObservationIgnored private var sizeClaimer: TerminalSizeClaimer<ContinuousClock>!
+
+    /// The page is on screen, settled and taking input (true), or not: off
+    /// screen, behind another tab, zoomed out to the grid, mid-swipe.
+    public func setPageShown(_ shown: Bool) {
+        sizeClaimer.set(pageShown: shown)
+    }
+
+    /// The app is in the foreground (false: background, locked).
+    public func setAppActive(_ active: Bool) {
+        sizeClaimer.set(appActive: active)
+    }
+
+    /// A sheet of the page's own covers it (Files and Links, the photo
+    /// picker, the file importer).
+    private func updateCovered() {
+        sizeClaimer?.set(covered: showArtifacts || showPhotoPicker || showFileImporter)
     }
 
     /// The Mac's output after an attach is drawn: a held last frame (a cold
@@ -195,6 +236,8 @@ public final class TerminalModel {
             break
         case .inputNotSent:
             composerNotice = TerminalConnectionState.inputNotSentNotice
+        case .hostGrid, .hostGridOwner:
+            break
         }
     }
 
@@ -239,13 +282,12 @@ public final class TerminalModel {
     static let reconcileInterval: CFTimeInterval = 0.5
     @ObservationIgnored private var lastReconcile: CFTimeInterval = 0
 
-    var composerPlaceholder: String {
-        directTyping ? "Typing into terminal" : "Send to \(programName)"
-    }
+    /// Classic cmux iOS's placeholder (iMessage's): the field is a message to the program.
+    let composerPlaceholder = "Message"
 
     // MARK: Actions
 
-    /// The always-visible keyboard button: hide, or show for the last input target.
+    /// The key row's keyboard key: hide, or show for the last input target.
     public func toggleKeyboard() {
         if keyboardVisible {
             controller?.hideKeyboard()
@@ -401,6 +443,12 @@ public final class TerminalModel {
         attachments.append(attachment)
     }
 
+    /// A tapped attachment, before sending: every attachment opens full screen, to swipe between.
+    func previewAttachment(_ id: ComposerAttachment.ID) {
+        let request = FilePreviewRequest(files: attachments.map(\.localFile), startingAt: id.uuidString)
+        controller?.presentFilePreview(request)
+    }
+
     func removeAttachment(_ id: ComposerAttachment.ID) {
         attachments.removeAll { $0.id == id }
         if attachments.isEmpty { attachmentError = nil }
@@ -412,22 +460,77 @@ public final class TerminalModel {
 
     func keyBar(_ key: KeyBarKey) {
         guard let surface = controller?.surface else { return }
+        // Keys that leave the terminal (classic: paste, zoom, compose, hide)
+        // first turn off an armed modifier, so it cannot linger unseen.
+        let resetsModifiers: Bool = switch key {
+        case .paste, .zoomOut, .zoomIn, .composer, .hideChrome, .launcher: true
+        default: false
+        }
+        if resetsModifiers { surface.input.sticky.reset() }
         switch key {
         case .escape: surface.sendKey(usage: TerminalHIDUsage.escape)
         case .tab: surface.sendKey(usage: TerminalHIDUsage.tab)
-        case .shiftTab: surface.sendKey(usage: TerminalHIDUsage.tab, mods: .shift)
-        case .control: surface.tapSticky(.control)
-        case .alternate: surface.tapSticky(.alternate)
+        case .returnKey: surface.sendKey(usage: TerminalHIDUsage.enter)
+        case .control, .alternate, .command, .shift:
+            if let modifier = key.modifier { surface.tapSticky(modifier) }
         case .up: surface.sendKey(usage: TerminalHIDUsage.up)
         case .down: surface.sendKey(usage: TerminalHIDUsage.down)
         case .left: surface.sendKey(usage: TerminalHIDUsage.left)
         case .right: surface.sendKey(usage: TerminalHIDUsage.right)
+        case .home: surface.sendKey(usage: TerminalHIDUsage.home)
+        case .end: surface.sendKey(usage: TerminalHIDUsage.end)
+        case .pageUp: surface.sendKey(usage: TerminalHIDUsage.pageUp)
+        case .pageDown: surface.sendKey(usage: TerminalHIDUsage.pageDown)
         case .chord(let letter): surface.sendControl(letter)
         case .symbol(let text): surface.perform(surface.input.insertText(text))
+        case .launcher(let launcher):
+            // Typed with its Return in one go, as classic sent its bytes.
+            surface.perform([.text(launcher.command)])
+            if launcher.pressesReturn { surface.sendKey(usage: TerminalHIDUsage.enter) }
         case .paste: surface.paste(nil)
-        case .hideKeyboard: controller?.hideKeyboard()
+        case .zoomOut, .zoomIn: zoom(larger: key == .zoomIn)
+        case .composer: composeKeyTapped()
+        case .hideChrome: setChromeHidden(true)
         }
         sticky = surface.input.sticky
+    }
+
+    /// The key row's zoom keys: one point smaller or larger, saved as the
+    /// terminal's font size (the surface follows the preference).
+    private func zoom(larger: Bool) {
+        let defaults = UserDefaults.standard
+        let size = CmuxMobilePreferences.terminalFontSize(defaults)
+        let next = TerminalFontZoom(sizes: CmuxMobilePreferences.terminalFontSizes).step(size, larger: larger)
+        guard next != size else { return }
+        defaults.set(next, forKey: CmuxMobilePreferences.Key.terminalFontSize)
+    }
+
+    /// The compose key (classic cmux iOS's `ComposerDockState`): open and
+    /// focus, reveal and focus, or close only a shown, focused composer.
+    func composeKeyTapped() {
+        let dock = ComposerDockState(chromeHidden: chromeHidden, composerPresented: composerPresented,
+                                     fieldFocused: composerFocused)
+        switch dock.intentForComposeKeyTap() {
+        case .openComposer, .revealAndFocusComposer:
+            setChromeHidden(false)
+            composerPresented = true
+            focusComposer()
+        case .closeComposer:
+            // The keyboard stays up and keys go to the terminal (classic hands
+            // first responder over instead of dropping the keyboard).
+            composerPresented = false
+            controller?.focusTerminal()
+        }
+        controller?.dockChanged()
+    }
+
+    /// Hide Toolbar: the key row, the composer and the keyboard go away until
+    /// the next terminal tap. The composer and its draft stay as they were.
+    func setChromeHidden(_ hidden: Bool) {
+        guard chromeHidden != hidden else { return }
+        chromeHidden = hidden
+        if hidden { controller?.hideKeyboard() }
+        controller?.dockChanged()
     }
 
     /// The composer is about to insert `text`. With ctrl or alt on, the key
@@ -474,6 +577,11 @@ public struct ComposerAttachment: Identifiable, Sendable {
 
     struct Unreadable: Error, LocalizedError {
         var errorDescription: String? { "its contents couldn't be read on this iPhone" }
+    }
+
+    /// The attachment as the file preview reads it.
+    public var localFile: LocalFile {
+        LocalFile(id: id.uuidString, name: name, data: data, isImage: kind == .image, fileURL: fileURL)
     }
 
     func contents() throws -> Data {

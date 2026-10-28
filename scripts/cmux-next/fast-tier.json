@@ -8,6 +8,7 @@
     {"name": "matrix entries", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "ModelMatrixTests", "owner": "op-next-split", "bead": "cx-gkyi1"},
     {"name": "pane zoom motion", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "PaneZoomMotionTests", "owner": "op-next-newtab", "bead": "cx-v0v8k"},
     {"name": "cef previous log", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "CEFProfileStorageLogTests", "owner": "cx-gallery-feed", "bead": "cx-urd.2"},
-    {"name": "subagent pane focus", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "AgentSubagentPanesFocusTests", "owner": "op-next-agent-pane"}
+    {"name": "subagent pane focus", "kind": "swift", "package": "Packages/macOS/CmuxNext", "filter": "AgentSubagentPanesFocusTests", "owner": "op-next-agent-pane"},
+    {"name": "perf completeness", "kind": "script", "path": "scripts/cmux-next/tests/test_perf_completeness.py", "owner": "perf"}
   ]
 }

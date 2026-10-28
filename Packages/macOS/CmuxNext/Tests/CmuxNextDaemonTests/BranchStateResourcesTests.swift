@@ -62,8 +62,8 @@ struct BranchStateResourcesTests {
         try await BranchDaemonHarness.with(sessionEvents: true) { h in
             let store = h.store
             try await store.waitUntil("state resources served", timeout: .seconds(20)) { store.servesStateResources }
-            #expect(await store.supports(DaemonCapabilities.shared.workspaceDescription))
-            #expect(await store.supports(DaemonCapabilities.shared.workspaceStatus))
+            #expect(await store.supports(DaemonCapability.workspaceDescription.rawValue))
+            #expect(await store.supports(DaemonCapability.workspaceStatus.rawValue))
             let created = try await h.connection.state.createWorkspace(name: "notes", ephemeral: false, terminal: false, focus: true)
             let id = created.workspaceID
             try await h.connection.state.updateWorkspace(id, description: .set("Ship it\n- notes"), taskStatus: .set(.needsAttention))
@@ -123,7 +123,7 @@ struct BranchStateResourcesTests {
         try await BranchDaemonHarness.with(sessionEvents: true) { h in
             let store = h.store
             try await store.waitUntil("state resources served", timeout: .seconds(20)) { store.servesStateResources }
-            #expect(h.identity.supports(DaemonCapabilities.shared.tabMarkUnread))
+            #expect(h.identity.supports(DaemonCapability.tabMarkUnread.rawValue))
             let created = try await h.connection.state.createWorkspace(name: "mark-unread", ephemeral: false, terminal: true, focus: true)
             let tab = try #require(created.tabID)
             @MainActor func model() -> TabModel? {
@@ -170,7 +170,7 @@ struct BranchStateResourcesTests {
         try await BranchDaemonHarness.with(sessionEvents: true) { h in
             let store = h.store
             try await store.waitUntil("state resources served", timeout: .seconds(20)) { store.servesStateResources }
-            #expect(await h.connection.identity?.supports(DaemonCapabilities.shared.stash) == true, "the same-tree daemon serves stash-v1")
+            #expect(await h.connection.identity?.supports(DaemonCapability.stash.rawValue) == true, "the same-tree daemon serves stash-v1")
             let state = h.connection.state
             let older = StateResourceClient.StashImportGroup(name: "reading", pages: [
                 .init(url: "https://example.com/a", title: "A"),

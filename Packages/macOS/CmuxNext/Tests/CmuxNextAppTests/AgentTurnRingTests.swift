@@ -3,7 +3,6 @@ import AppKit
 import CmuxNextBridge
 @testable import CmuxNextDaemon
 import CmuxNextDesign
-@testable import CmuxNextLayout
 import Testing
 
 /// An agent chat in the GUI rings its pane when its turn ends, as a terminal agent's notification
@@ -11,7 +10,7 @@ import Testing
 /// acpmux reads a turn that ends in a shown chat at once (cx-n8ou), so no notification marks it;
 /// the app keeps the ring until the person goes into the pane. Leo (2026-10-21): "the model
 /// response does a double blue ring pulse", agreed not to be the default, so the ring is opt-in
-/// (`AgentTurnRing`, Debug Settings) and a hairline in the pane border color when on.
+/// (`notifications.attention.agentChats`) and themed like every attention ring.
 @MainActor @Suite(.serialized)
 struct AgentTurnRingTests {
     @Test func aTurnThatStopsWorkingReportsItsEnd() {
@@ -27,45 +26,31 @@ struct AgentTurnRingTests {
         #expect(ended == ["s1"], "the watch closing rang a chat")
     }
 
+    /// Leo (2026-10-21): no blinky on turn end for the GUI by default. An agent chat's pane rings
+    /// only with `notifications.attention.agentChats` on; off, a finished turn leaves no mark, and
+    /// turning it off clears a ring already showing.
     @Test func aFinishedTurnRingsNothingByDefault() throws {
         _ = NSApplication.shared
-        #expect(AgentTurnRing.tunable.defaultValue == false, "the agent turn ring is on by default")
+        #expect(AttentionSettings().agentChatRing == .none, "agent chat panes ring by default")
         var chat = TabSnapshot(surface: SurfaceID(rawValue: 1), kind: .conversation, cwd: nil)
         chat.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:ring", session: "s1", harness: "claude"))
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: [chat])])
         let store = DaemonStore()
         store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "w", screens: [screen])]))
         let workspace = try #require(store.workspaces.first)
+        let design = DesignSettings.shared
+        let before = design.attention
+        defer { design.attention = before }
+        design.attention = AttentionSettings()
         let service = NotificationCenterService()
-        service.agentTurnEnded(session: "s1", in: store.workspaces, rings: AgentTurnRing.tunable.defaultValue)
+        service.agentTurnEnded(session: "s1", in: store.workspaces)
+        #expect(service.agentFinished.isEmpty, "a finished turn was recorded for a ring by default")
         #expect(service.attentionMarks(for: workspace).isEmpty, "a finished reply rang its pane by default")
-        service.agentTurnEnded(session: "s1", in: store.workspaces, rings: true)
-        let mark = try #require(service.attentionMarks(for: workspace).values.first, "the opt-in ring did not ring")
-        #expect(mark.hairline, "the opt-in ring is not the hairline")
-    }
-
-    /// On, the ring is one device pixel in the pane border color with no glow, never the
-    /// notification blue, and keeps that look through its dismiss flash.
-    @Test func theOptInRingIsANeutralHairline() {
-        _ = NSApplication.shared
-        Motion.reduceMotionOverride = false
-        defer { Motion.reduceMotionOverride = nil }
-        let view = PaneOverlayView()
-        view.setFrameSize(NSSize(width: 400, height: 300))
-        func update(_ mark: AttentionMark?, readByEntry: Bool) {
-            view.update(showsRing: false, dim: 0, focusRing: FocusRingSettings(), border: PaneOverlayView.Border(shows: false),
-                        attention: mark, attentionSettings: AttentionSettings(), readByEntry: readByEntry, animated: true)
-        }
-        update(AttentionMark(generation: 1 << 62, hairline: true), readByEntry: false)
-        #expect(view.attentionLayer.borderColor != Palette.notificationBlue.cgColor, "the agent turn ring is blue")
-        #expect(view.attentionLayer.borderWidth <= 1, "the agent turn ring is wider than a hairline")
-        #expect(view.attentionGlowColor == nil, "the agent turn ring glows")
-        update(nil, readByEntry: true)
-        #expect(view.attentionLayer.borderColor != Palette.notificationBlue.cgColor, "the dismiss flash turned blue")
-        // A notification's ring after it is the classic blue ring again.
-        update(AttentionMark(generation: 9), readByEntry: false)
-        #expect(view.attentionLayer.borderColor == Palette.notificationBlue.cgColor)
-        #expect(view.attentionLayer.borderWidth == AttentionSettings().width)
+        design.attention.agentChatRing = .ring
+        service.agentTurnEnded(session: "s1", in: store.workspaces)
+        #expect(service.attentionMarks(for: workspace).count == 1, "the opt-in ring did not ring")
+        design.attention.agentChatRing = .none
+        #expect(service.attentionMarks(for: workspace).isEmpty, "turning agent chat rings off left the ring")
     }
 
     private static func chatTab() throws -> (NotificationCenterService, WorkspaceModel, TabModel) {
@@ -86,8 +71,19 @@ struct AgentTurnRingTests {
         #expect(service.attentionMarks(for: workspace).count == 1, "the finished chat's pane has no ring")
     }
 
-    @Test func focusAloneKeepsTheRingAndAClickBlinksItOut() throws {
+    /// The default `focus` (https://github.com/manaflow-ai/cmux/issues/25662): selecting the pane
+    /// reads its finished turn, and the ring does not come back.
+    @Test func focusClearsTheRingWithTheDefaultSettings() throws {
         let (service, workspace, tab) = try Self.chatTab()
+        service.interacted(.focus, tab: tab)
+        #expect(service.attentionMarks(for: workspace).isEmpty, "selecting the pane left the ring")
+        service.interacted(.focus, tab: tab)
+        #expect(service.attentionMarks(for: workspace).isEmpty, "the ring came back")
+    }
+
+    @Test func underTheClickModeFocusKeepsTheRingAndAClickBlinksItOut() throws {
+        let (service, workspace, tab) = try Self.chatTab()
+        service.preferences.dismissal = .click
         service.interacted(.focus, tab: tab)
         #expect(service.attentionMarks(for: workspace).count == 1, "focus cleared the ring")
         service.interacted(.click, tab: tab)

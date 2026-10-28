@@ -27,8 +27,6 @@ final class SidebarListView: NSView {
     /// Each group and the groups under it, in document order (`reload`): a section lists a subgroup
     /// after its parent, not inside it, so a parent's card reads its members through this.
     var groupSubtrees: [GroupID: [GroupID]] = [:]
-    /// Where a held drag's drop goes: inside a group or between rows at a level (nested-groups prototype).
-    var nestedDropIndicator: SidebarNestedDropIndicatorView?
     /// The rails before the nested-groups prototype (a capture's "before"); off draws the subtree rails.
     var legacyNestedRails = false
     var sections: [SectionID: SidebarSection] = [:]
@@ -83,6 +81,9 @@ final class SidebarListView: NSView {
     /// Workspace hover card (title, cwd, CPU and memory).
     let hoverCard = WorkspaceHoverCardController()
     var press: Press?
+    /// The workspace whose tabs the last click folded or opened: a double-click's second press puts them back
+    /// before it renames the row.
+    var lastTabFold: WorkspaceID?
     let middleClick = SidebarMiddleClick()
     var drag: Drag?
     /// Rows kept invisible while a lifted view stands in for them.
@@ -185,7 +186,11 @@ final class SidebarListView: NSView {
         faviconObserver = NotificationCenter.default.addObserver(forName: SidebarModel.itemFaviconsChanged, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { // main-proof: observer on queue: .main
                 guard let self else { return }
-                for row in self.displayed.rows { if case .item = row.key, let view = self.rowViews[row.key] { self.configure(view, row: row, animated: false) } }
+                // The realized link rows only: a launch's favicons arrive one by one, and each visited every row.
+                for (key, view) in self.rowViews {
+                    guard case .item = key, let row = self.displayed.row(for: key) else { continue }
+                    self.configure(view, row: row, animated: false)
+                }
             }
         }
     }

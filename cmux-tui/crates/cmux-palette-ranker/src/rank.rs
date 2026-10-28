@@ -33,6 +33,8 @@ pub(crate) struct Prepared {
     pub ids: Vec<Option<Vec<char>>>,
     /// Each row's shortcut strokes, from its keycaps.
     pub shortcuts: Vec<Option<Vec<Stroke>>>,
+    /// Each row's handles, lowercased.
+    pub handles: Vec<Vec<String>>,
 }
 
 impl Prepared {
@@ -53,8 +55,35 @@ impl Prepared {
                 .iter()
                 .map(|entry| shortcut::parse_keycaps(&entry.keycaps))
                 .collect(),
+            handles: entries
+                .iter()
+                .map(|entry| {
+                    entry
+                        .handles
+                        .iter()
+                        .map(|handle| js_trim(handle).to_lowercase())
+                        .filter(|handle| !handle.is_empty())
+                        .collect()
+                })
+                .collect(),
         }
     }
+}
+
+/// Whether `query` (trimmed, lowercased, one word) names one of `handles`: the whole handle
+/// (`a612`), or, for an all-digit query, the handle's digits after its letters (`612`).
+fn names_handle(handles: &[String], query: &str) -> bool {
+    if query.is_empty() || query.chars().any(char::is_whitespace) {
+        return false;
+    }
+    let digits = query.chars().all(|c| c.is_ascii_digit());
+    handles.iter().any(|handle| {
+        handle == query
+            || (digits && {
+                let number = handle.trim_start_matches(char::is_alphabetic);
+                number.len() < handle.len() && number == query
+            })
+    })
 }
 
 fn row(index: usize) -> RankedRow {
@@ -296,6 +325,8 @@ struct Scored {
     chord: bool,
     lifted: bool,
     aliased: bool,
+    /// The query is one of the row's handles: first of all enabled rows.
+    handle: bool,
     highlights: Vec<usize>,
 }
 
@@ -326,6 +357,8 @@ pub(crate) fn rank(
         .map(|hidden| hidden.iter().map(String::as_str).collect())
         .unwrap_or_default();
     let aliased = aliased_actions(request.aliases.as_ref(), raw);
+    // A query that may name a row's handle (`a612`, `612`).
+    let handle_query = js_trim(raw).to_lowercase();
     // A query that names a shortcut ("cmd i", "⌥⇧K"); plain words parse to nothing.
     let chord = shortcut::parse_query(raw);
     let names_shortcut = |index: usize| {
@@ -340,32 +373,51 @@ pub(crate) fn rank(
             if !shown_while_typing(entry, gated, raw) {
                 continue;
             }
-            let Some(found) = entry_tier(
+            let handle = names_handle(&prepared.handles[index], &handle_query);
+            let found = entry_tier(
                 entry,
                 prepared.ids[index].as_deref(),
                 &query,
                 &prepared.fields[index],
                 allows_typo,
-            ) else {
-                continue;
+            );
+            let (found, highlights) = match found {
+                Some(found) => {
+                    let highlights =
+                        highlights_for(found.query.get(), &prepared.fields[index][0].text);
+                    (found, highlights)
+                }
+                None if handle => (
+                    tier::TierMatch {
+                        tier: match_tier::HANDLE,
+                        query: tier::QueryRef::Original(&query),
+                    },
+                    Vec::new(),
+                ),
+                None => continue,
             };
+            let tier_reached = if handle { match_tier::HANDLE } else { found.tier };
             let key = entry.frecency_key.as_deref().filter(|key| !key.is_empty());
-            if key.is_some_and(|key| hidden.contains(key)) && !title_is_query(&entry.title, raw) {
+            if key.is_some_and(|key| hidden.contains(key))
+                && !handle
+                && !title_is_query(&entry.title, raw)
+            {
                 continue;
             }
             // Whole-title rows tie on quality, so the provider order decides.
-            let quality =
-                if found.tier >= match_tier::WHOLE_TITLE - 1 && title_is_query(&entry.title, raw) {
-                    MAXIMUM_QUALITY
-                } else {
-                    match_quality(found.query.get(), &prepared.fields[index])
-                };
+            let quality = if handle
+                || (found.tier >= match_tier::WHOLE_TITLE - 1 && title_is_query(&entry.title, raw))
+            {
+                MAXIMUM_QUALITY
+            } else {
+                match_quality(found.query.get(), &prepared.fields[index])
+            };
             if found.tier >= match_tier::SUBSTRING {
                 strong += 1;
             }
             let enabled = entry.is_enabled != Some(false);
             // Saturating: an extreme rank bias must not wrap (or panic) the score.
-            let mut score = (found.tier * TIER_SCALE + quality)
+            let mut score = (tier_reached * TIER_SCALE + quality)
                 .saturating_add(entry.rank_bias.unwrap_or(0))
                 .saturating_add(frecency_boost(store, key, now));
             if !enabled {
@@ -374,7 +426,7 @@ pub(crate) fn rank(
             scored.push(Scored {
                 index,
                 score,
-                tier: found.tier,
+                tier: tier_reached,
                 enabled,
                 demoted: entry.demoted == Some(true),
                 exact_name: entry.demoted == Some(true) && title_is_query(&entry.title, raw),
@@ -382,7 +434,8 @@ pub(crate) fn rank(
                 chord: names_shortcut(index),
                 lifted: false,
                 aliased: enabled && entry.action_id.as_ref().is_some_and(|id| aliased.contains(id)),
-                highlights: highlights_for(found.query.get(), &prepared.fields[index][0].text),
+                handle: enabled && handle,
+                highlights,
             });
         }
         strong
@@ -434,6 +487,7 @@ pub(crate) fn rank(
                 chord: names_shortcut(index),
                 lifted: false,
                 aliased: true,
+                handle: false,
                 highlights: Vec::new(),
             });
         }
@@ -463,6 +517,7 @@ pub(crate) fn rank(
                 chord: true,
                 lifted: false,
                 aliased: false,
+                handle: false,
                 highlights: Vec::new(),
             });
         }
@@ -485,8 +540,9 @@ pub(crate) fn rank(
             let (left_starts, right_starts) =
                 (starts.contains(&left.index), starts.contains(&right.index));
             right
-                .aliased
-                .cmp(&left.aliased)
+                .handle
+                .cmp(&left.handle)
+                .then(right.aliased.cmp(&left.aliased))
                 .then((right.chord && right.enabled).cmp(&(left.chord && left.enabled)))
                 .then(right_starts.cmp(&left_starts))
                 .then_with(|| {
@@ -502,6 +558,7 @@ pub(crate) fn rank(
             right
                 .enabled
                 .cmp(&left.enabled)
+                .then(right.handle.cmp(&left.handle))
                 .then(right.aliased.cmp(&left.aliased))
                 .then(right.chord.cmp(&left.chord))
                 .then(right.lifted.cmp(&left.lifted))

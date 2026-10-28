@@ -157,6 +157,9 @@ impl Hub {
             note = Some(fresh_note(&parent_meta.harness));
             Made::Fresh
         } else {
+            // The idle pass never ends the parent's harness under its session/fork (`idle.rs`).
+            self.touch(session);
+            let _using = session.harness_use.read().await;
             let child = self.child_for(session).await?;
             // An agent that does not offer session/fork (Kimi, DeepSeek) answers it
             // with a bare internal error: refuse with the reason instead.
@@ -221,10 +224,19 @@ impl Hub {
             name,
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
+            spawn_argv: None,
             family: parent_meta.family.clone(),
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
             cwd,
+            // A fork is a new chat. Its parent transcript is authorized through parent_id; it
+            // must not inherit the parent's historical native session ids as its own.
+            previous_agent_session_ids: Vec::new(),
+            // The id was produced by this fork's actual harness, not by the parent's creation
+            // family (which can be stale after a profile switch).
+            agent_session_family: new_sid
+                .as_ref()
+                .map(|_| if is_claude { "claude".to_owned() } else { "non-claude".to_owned() }),
             agent_session_id: new_sid,
             status: SessionStatus::Idle,
             created_at: now,
@@ -232,12 +244,19 @@ impl Hub {
             last_seq: 0,
             parent_id: Some(session.id.clone()),
             fork_seq: Some(fork_seq),
+            fork_parent_verified: Some(true),
             agent_info: parent_meta.agent_info.clone(),
             agent_capabilities: parent_meta.agent_capabilities.clone(),
             steering: parent_meta.steering,
+            html_previews: parent_meta.html_previews,
             // The chat's own mode, model and effort, which the fork's agent is told again when it
             // loads (`replay_config`): an agent may answer session/fork with its defaults
             // instead (Codex), and the fork would then run another model than the chat.
+            // A mode cmux set on the chat stays cmux's on its fork, which runs it too; the fork's
+            // agent gets the mark back once it is put in that mode (`restore_mode_mark`).
+            mode_set_by_cmux: parent_meta.mode_set_by_cmux.clone().filter(|mode| {
+                crate::web_modes::mode_of(&parent_meta).as_deref() == Some(mode.as_str())
+            }),
             modes: parent_meta
                 .modes
                 .clone()
@@ -248,25 +267,33 @@ impl Hub {
                 .or_else(|| res.get("configOptions").cloned().filter(|v| !v.is_null())),
             models: parent_meta.models.clone(),
             permission_policy: parent_meta.permission_policy.clone(),
+            policy_source: parent_meta.policy_source.clone(),
             title: None,
             title_source: None,
             title_prompt: None,
             title_asking: false,
             title_failures: 0,
+            title_thin: false,
             last_prompt: parent_meta.last_prompt.clone(),
             preview: parent_meta.preview.clone(),
             event_count: 0,
             turn_count,
             usage: None,
+            context_breakdown: None,
+            // The account's limits, which the fork shares.
+            usage_limits: parent_meta.usage_limits.clone(),
             available_commands: parent_meta.available_commands.clone(),
+            goal: None,
             permission_rules: None,
             tags: Default::default(),
             unread: false,
             claude_unstored: false,
+            hibernated_ms: 0,
             claude_profile: None,
             last_turn: None,
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
+            vm_boundary: parent_meta.vm_boundary,
             // Never inherited: the fork request sets its own or runs without one.
             session_env,
             workspace_id,
@@ -287,6 +314,8 @@ impl Hub {
             },
             git_branch: git.branch,
             git_head: git.head,
+            // Read for the fork's own folder when its agent starts.
+            worktree: None,
             // The fork's own spend. Claude Code restores the parent's running cost into a
             // whole-chat fork; a fork through an earlier turn has no known baseline.
             totals: None,
@@ -299,6 +328,9 @@ impl Hub {
             // A fork is the person's new chat, never a sub-session of the parent's parent.
             subsession: None,
             subsession_limits: Default::default(),
+            // A fork is the person's branch of the chat, never a spawn (`lineage.rs`).
+            lineage: None,
+            subagent_retry_open: false,
         };
         let new = self.make_session(meta);
         match made {
@@ -308,7 +340,15 @@ impl Hub {
             Made::Copy(_) | Made::Agent(..) => {}
         }
         self.store.save(&new.meta()).map_err(|e| RpcError::internal(e.to_string()))?;
-        self.sessions.lock().unwrap().insert(id.clone(), new.clone());
+        // The fork copies transcript records, never the parent's reported Git branch.
+        self.restore_git_branch(&new, new.meta().git_branch);
+        {
+            let mut sessions = self.sessions.lock().unwrap();
+            sessions.insert(id.clone(), new.clone());
+            super::admission::claim(&id);
+        }
+        // Indexed again once published (`transfer.rs` `import_into`).
+        self.child_tags.note(&new);
         // Copy the transcript-relevant history so attach replays it.
         // Read one record at a time; only these kinds are parsed.
         const COPIED: &[&str] = &[

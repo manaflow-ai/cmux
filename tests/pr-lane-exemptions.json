@@ -11,29 +11,17 @@
       "tests": [
         "tests/test_cmux_cua_build_cache_safety.py",
         "tests/test_cmux_cua_compat_contract.py",
-        "tests/test_cmux_cua_helper_identity.py",
         "tests/test_cmux_cua_mcp_smoke.py",
         "tests/test_issue_10926_watcher_pid_reuse_guard.py",
         "tests/test_issue_13343_claude_integration_toggle.py",
         "tests/test_issue_13766_terminal_history.py",
         "tests/test_issue_15066_zsh_watcher_sleep.py",
-        "tests/test_issue_2448_shell_claude_wrapper_dispatch.py",
-        "tests/test_issue_6714_zsh_shim_noclobber.py",
-        "tests/test_issue_7028_claude_shim_persistence.py",
         "tests/test_issue_8093_ghostty_ssh_binary_path.py",
         "tests/test_issue_8953_zsh_prompt_wrap_guard.py",
         "tests/test_issue_9075_shell_socket_reports.py",
-        "tests/test_issue_9356_bash_shim_noclobber.py",
         "tests/test_nushell_integration_hooks.py",
         "tests/test_nushell_shim_path_refront.py",
-        "tests/test_shell_cli_shim_private_dir.py",
-        "tests/test_shell_first_prompt_spawns.py",
-        "tests/test_shell_git_branch_stale_cwd.py",
-        "tests/test_shell_git_config_remote_url_parsing.py",
-        "tests/test_shell_no_git_watch.py",
-        "tests/test_shell_pr_watch_private_state.py",
-        "tests/test_shell_welcome_banner_startup.py",
-        "tests/test_stress_cli_socket_api.py"
+        "tests/test_shell_cli_shim_private_dir.py"
       ]
     },
     {

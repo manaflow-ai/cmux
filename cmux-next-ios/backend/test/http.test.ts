@@ -4,7 +4,7 @@ import { call, DEV_PROJECT, PROD_PROJECT, register, token } from "./helpers.ts"
 describe("HTTP API", () => {
   it("health is public", async () => {
     const r = await call("GET", "/v1/health", undefined)
-    expect(r).toMatchObject({ status: 200, json: { ok: true, version: "0.12.0", stackProjects: [DEV_PROJECT, PROD_PROJECT] } })
+    expect(r).toMatchObject({ status: 200, json: { ok: true, version: "0.14.0", stackProjects: [DEV_PROJECT, PROD_PROJECT] } })
     expect(r.json).toHaveProperty("colo")
   })
 

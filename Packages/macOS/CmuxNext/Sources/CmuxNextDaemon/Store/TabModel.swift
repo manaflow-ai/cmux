@@ -19,7 +19,7 @@ public final class TabModel: Identifiable {
     public internal(set) var terminalIncarnation: TerminalIncarnation?
     /// Public terminal id (`term_…`) used by `attach-identity-v1`.
     public internal(set) var terminalResourceID: ResourceID?
-    public internal(set) var kind: TabKind
+    public internal(set) var kind: TabKind { didSet { refreshUnread() } }
     public internal(set) var name: String?
     /// The title as the program or page set it, raw (a terminal's OSC 0/2, a page's `<title>`).
     /// Views show ``displayTitle``; reading this one redraws on every spinner frame.
@@ -38,7 +38,7 @@ public final class TabModel: Identifiable {
     /// A kept tab's keep-layout record (`end-terminals-keep-layout-v1`): its terminal ended at
     /// Quit's End Sessions, Keep Layout and this launch restarts it.
     public internal(set) var relaunch: TabRelaunch?
-    public internal(set) var notification: TabNotification?
+    public internal(set) var notification: TabNotification? { didSet { refreshUnread() } }
     public internal(set) var url: String?
     public internal(set) var pinned: Bool
     /// The page a pinned browser tab was pinned on (Back to Pinned Page).
@@ -136,7 +136,7 @@ public final class TabModel: Identifiable {
     public internal(set) var remote: RemoteTerminalRef?
     /// What a `.conversation` tab shows (`TabSnapshot.conversation`). Stored and observed: a
     /// chat picked in an open tab changes only this, and the control snapshot must hear it (cx-sy3w1).
-    public internal(set) var conversation: ConversationTabRef?
+    public internal(set) var conversation: ConversationTabRef? { didSet { refreshUnread() } }
     /// The app an app tab shows (`TabSnapshot.app`), observed like ``conversation``.
     public internal(set) var app: AppTabRef?
     /// Last snapshot, for fields the record does not surface. Views should
@@ -158,7 +158,7 @@ public final class TabModel: Identifiable {
 
     /// The notification this client acknowledged that the tree still shows
     /// unread (the ack's round trip). A newer notification is not covered.
-    public private(set) var readingNotification: NotificationID?
+    public private(set) var readingNotification: NotificationID? { didSet { refreshUnread() } }
 
     /// Shows the tab's unread notification read now, before the daemon's
     /// `ack-tab-notifications` answers. The tree's echo settles it.
@@ -177,6 +177,24 @@ public final class TabModel: Identifiable {
     private func settleReadingNotification() {
         guard let reading = readingNotification else { return }
         if notification?.notification != reading || notification?.unread != true { readingNotification = nil }
+    }
+
+    /// What this tab adds to its pane's unread count (``UnreadTally``), as last counted.
+    @ObservationIgnored private(set) var unreadMark: UnreadTally.Mark = .none
+    /// The pane that counts this tab (the last one whose tabs held it).
+    @ObservationIgnored weak var unreadPane: PaneModel?
+
+    private func currentUnreadMark() -> UnreadTally.Mark {
+        guard hasUnread else { return .none }
+        return .unread(conversation: kind == .conversation ? conversation?.conversation : nil)
+    }
+
+    /// A field the unread count reads changed: recounts the pane when what the tab adds changed.
+    private func refreshUnread() {
+        let mark = currentUnreadMark()
+        guard mark != unreadMark else { return }
+        unreadMark = mark
+        unreadPane?.recountUnread()
     }
 
     /// Whether the tab shows as unread: an unread notification or the manual mark.
@@ -244,7 +262,8 @@ public final class TabModel: Identifiable {
         remote = s.remote
         conversation = s.conversation
         app = s.app
-        #if DEBUG
+        unreadMark = currentUnreadMark()
+        #if DEBUG || CMUX_BENCH_HOOKS
         // A traced new terminal's tab reached the store (its `tab-added`, or a resync's snapshot).
         if NewTerminalTrace.shared.isArmed, let terminal = s.terminalID {
             NewTerminalTrace.shared.tabAdded(terminal: terminal.rawValue, surface: s.surface.rawValue)

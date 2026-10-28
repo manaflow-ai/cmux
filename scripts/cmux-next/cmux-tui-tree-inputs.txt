@@ -34,6 +34,7 @@ blob backend/catalog/cloud-operations.json
 blob backend/packages/home-core/conformance/conversation-cases.json
 blob backend/packages/home-core/conformance/conversation-import-cases.json
 blob backend/packages/home-core/conformance/conversation-search-cases.json
+blob docs/remote-agents-and-cloud.md
 blob mux/packages/brain/conformance/chief-cases.json
 blob plans/cmux-next/action-surfaces.json
 # Not plans/cmux-next/spec-proposals/visuals/design-tokens.json: cmux-theme-tokens
@@ -44,6 +45,7 @@ blob schemas/agent-url-policy/vectors.json
 blob schemas/chief-cmux-target/vectors.json
 blob schemas/automation-input/vectors.json
 blob schemas/automation-lease/vectors.json
+blob schemas/deeplinks/agent-link.json
 blob schemas/chief-home/vectors.json
 blob schemas/ghostty-shell-features/vectors.json
 blob schemas/link-token/keyset-vectors.json

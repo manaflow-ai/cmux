@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CoreGraphics
 public import Foundation
 
@@ -21,19 +22,34 @@ public nonisolated struct IconPack: Sendable, Decodable {
         self = try JSONDecoder().decode(IconPack.self, from: data)
     }
 
-    /// The pack shipped in this module's bundle, loaded once; empty when the
-    /// bundle is missing or unreadable, so every icon falls back to SF Symbols.
-    public static let bundled: IconPack = {
-        guard let data = IconResources.json(named: "cmux-icons") else {
-            return IconPack(icons: [:])
-        }
+    /// The pack shipped in this module's bundle, with the family overlay (``useOverlay(_:)``) laid
+    /// over it; empty when the bundle is missing or unreadable, so every icon falls back to SF Symbols.
+    public static var bundled: IconPack { overlayName.withLock { $0 } == nil ? shipped : overlaid }
+
+    /// Debug Settings `icons.family` (the App sets it at launch, before the first icon draws):
+    /// nil draws the shipped pack; a name lays `cmux-icons-<name>.json` over it.
+    public static func useOverlay(_ name: String?) {
+        overlayName.withLock { $0 = name }
+    }
+
+    private static let overlayName = Mutex<String?>(nil)
+    private static let shipped: IconPack = load("cmux-icons") ?? IconPack(icons: [:])
+    private static let overlaid: IconPack = {
+        guard let name = overlayName.withLock({ $0 }), let overlay = load("cmux-icons-\(name)") else { return shipped }
+        var pack = shipped
+        pack.icons.merge(overlay.icons) { _, drawn in drawn }
+        return pack
+    }()
+
+    private static func load(_ resource: String) -> IconPack? {
+        guard let data = IconResources.json(named: resource) else { return nil }
         do {
             return try IconPack(data: data)
         } catch {
-            IconResources.logger.error("cmux-icons.json did not decode: \(String(describing: error), privacy: .public)")
-            return IconPack(icons: [:])
+            IconResources.logger.error("\(resource, privacy: .public).json did not decode: \(String(describing: error), privacy: .public)")
+            return nil
         }
-    }()
+    }
 
     public func drawing(for name: IconName) -> IconDrawing? {
         icons[name.rawValue]

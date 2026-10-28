@@ -64,6 +64,7 @@
   font-weight: 400;
   font-size: var(--text-detail);
   color: var(--cv-text-muted);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-subagents__time,
 .cv-subagent__time {
@@ -83,25 +84,6 @@
   background: var(--cv-card-fill);
   box-shadow: 0 0 0 1px var(--cv-card-ring);
   color: var(--cv-text);
-}
-.cv-subagent-avatar__dot {
-  position: absolute;
-  right: -1px;
-  bottom: -1px;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  box-shadow: 0 0 0 2px var(--cv-card-fill);
-  background: var(--cv-text-muted);
-}
-.cv-subagent-avatar[data-state="running"] .cv-subagent-avatar__dot {
-  background: var(--agent-accent);
-}
-.cv-subagent-avatar[data-state="completed"] .cv-subagent-avatar__dot {
-  background: var(--agent-success, var(--cv-text-muted));
-}
-.cv-subagent-avatar[data-state="failed"] .cv-subagent-avatar__dot {
-  background: var(--agent-danger);
 }
 /* A listed subagent: one 48px line inside the list's border. */
 .cv-subagent {
@@ -194,7 +176,7 @@ button.cv-subagent > :last-child {
 }
 .cv-subagent__stop[data-state="failed"],
 .cv-subagent__stop[data-state="failed"]:hover:not(:disabled) {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 /* The child view's first line (model.ts: 44px): a 28px "Subagent of" chip centred on a rule,
    8px above and below. A click goes back to the parent's view. */
@@ -229,6 +211,7 @@ button.cv-subagent > :last-child {
   color: var(--cv-text-muted);
   cursor: pointer;
   user-select: none;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-subagent-of__pill:hover {
   color: var(--cv-text);
@@ -294,6 +277,7 @@ button.cv-subagent > :last-child {
    the column's leading edge. Its list opens upward over the transcript, as a popover does. */
 .acpmux-agents-pill {
   all: unset;
+  cursor: pointer;
   box-sizing: border-box;
   height: 30px;
   padding: 0 12px 0 10px;
@@ -310,8 +294,8 @@ button.cv-subagent > :last-child {
   font-size: var(--text-control);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  cursor: default;
   user-select: none;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-agents-pill:hover,
 .acpmux-agents-pill[aria-expanded="true"] {
@@ -339,6 +323,7 @@ button.cv-subagent > :last-child {
   font-family: var(--cv-font);
   font-size: var(--text-control);
   line-height: 18px;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 .acpmux-agents-list ul {
   margin: 0;
@@ -354,9 +339,11 @@ button.cv-subagent > :last-child {
   color: var(--agent-muted);
   font-size: var(--text-detail);
   font-weight: 600;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-agents-list__row {
   all: unset;
+  cursor: pointer;
   box-sizing: border-box;
   width: 100%;
   height: 44px;
@@ -366,7 +353,6 @@ button.cv-subagent > :last-child {
   gap: 10px;
   border-radius: 8px;
   color: var(--agent-muted);
-  cursor: default;
 }
 /* An agent another one spawned sits under it, moved in a step per level (AgentsPill.tsx). */
 .acpmux-agents-list__row[data-depth="1"] {
@@ -410,14 +396,16 @@ button.cv-subagent > :last-child {
 }
 .acpmux-agents-list__state {
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-agents-list__row[data-status="failed"] .acpmux-agents-list__state {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .acpmux-agents-list__time {
   flex: none;
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* A subagent's own pane: where the chat's composer would be, the line naming the chat that takes
    messages (SubagentPaneFooter.tsx). */
@@ -429,15 +417,19 @@ button.cv-subagent > :last-child {
   color: var(--cv-text-muted);
   text-align: center;
   user-select: none;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 /* ---------- The tray of running work above the composer (SubagentTray.tsx) ---------- */
 /* The user bubble's tinted glass (conversation.css .cv-user__bubble): the theme's text at a low
    strength over the backdrop, never a solid fill, with the composer's hairline rim. Its rows are
-   the summary card's (AgentLine.tsx, summary.css), so a subagent reads the same in both. */
+   the summary card's (AgentLine.tsx, summary.css), so a subagent reads the same in both.
+   No padding: a line's hover fills it to the tray's own edges, which round it (one inset, never a
+   pill inside the strip; Leo 2026-10-21). */
 .acpmux-running-tray {
   box-sizing: border-box;
-  padding: 2px;
+  padding: 0;
+  overflow: hidden;
   border-radius: 10px;
   background: color-mix(in srgb, var(--agent-text) 8%, transparent);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
@@ -445,26 +437,66 @@ button.cv-subagent > :last-child {
   font-family: var(--cv-font);
   font-size: var(--text-control);
   line-height: 18px;
+  letter-spacing: var(--text-control--letter-spacing);
 }
-/* Past five lines the list scrolls in place; the stack never scrolls the transcript. */
+/* A column that never scrolls itself (Leo 2026-10-25: the header "disappears for some reason at
+   the top"): the header and View all are pinned, and only the list between them scrolls. In a
+   short pane the list gives up its height first, down to nothing; the header never does. */
+.acpmux-running-tray {
+  display: flex;
+  flex-direction: column;
+}
+.acpmux-running-tray__head,
+.acpmux-running-tray__finished {
+  flex: none;
+}
+/* Past five lines (eight in the `tall` look, trayPanel.experiment.ts) the list scrolls in place;
+   the stack never scrolls the transcript. */
 .acpmux-running-tray__list {
-  max-height: calc(5 * 28px);
+  --acpmux-tray-lines: 5;
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: calc(var(--acpmux-tray-lines) * 28px);
   margin: 0;
   padding: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   list-style: none;
 }
+.acpmux-running-tray[data-look="tall"] .acpmux-running-tray__list {
+  --acpmux-tray-lines: 8;
+}
+/* The `sectioned` look: a hairline between what runs and what ended, and ended lines dim. */
+.acpmux-running-tray[data-look="sectioned"] li:not([data-finished]) + li[data-first-finished] {
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
+}
+.acpmux-running-tray[data-look="sectioned"] li[data-finished] .acpmux-summary-agent__name {
+  color: var(--agent-muted);
+}
+/* View all under the list's last line, across the tray's width, with its own divider. */
+.acpmux-running-tray__list + .acpmux-running-tray__finished {
+  border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
+}
 .acpmux-running-tray__head > svg {
   flex: none;
   color: var(--agent-muted);
 }
 /* Under the header's divider the first line keeps the tray's 2px gap, as the last keeps its rim's. */
-.acpmux-running-tray__head + .acpmux-running-tray__list {
+.acpmux-running-tray__head + .acpmux-running-tray__fold > .acpmux-running-tray__list {
   padding-top: 2px;
+}
+.acpmux-running-tray__head + .acpmux-running-tray__fold {
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
 }
-/* The one folded line of what ended ("3 subagents done"), dim beside what runs. */
+/* The list and View all, in the box the shared fold sizes (conversation/fold.ts `useFold`): it gives
+   up its height in a short pane as the list did, and the list in it still scrolls alone. */
+.acpmux-running-tray__fold {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+/* The overflow control for ended cards, dim beside what runs. */
 .acpmux-running-tray__finished {
   color: var(--agent-muted);
 }
@@ -489,6 +521,36 @@ button.cv-subagent > :last-child {
 }
 .acpmux-agent-line > .acpmux-chat-inspector-stop {
   margin: 0 4px 0 2px;
+}
+/* Quiet at rest: no line, header or button in the tray has a fill or a corner of its own. Hover is
+   the composer chips' wash (--acpmux-pill-hover, the text at 11% over the glass, never opaque) on
+   the whole line, its stop button included, and only on a line that opens something; with the
+   hand, as a link. A line with nothing to open (a disabled button) has no hover at all. Its stop
+   button only brightens: a fill of its own would be a box inside the line's. */
+.acpmux-running-tray .acpmux-summary-row,
+.acpmux-running-tray .acpmux-summary-link:is(:hover, :active),
+.acpmux-running-tray :is(.acpmux-chat-inspector-stop, .cv-subagent__stop):is(:hover, :active) {
+  border-radius: 0;
+  background: none;
+}
+.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):hover,
+.acpmux-running-tray .acpmux-running-tray__head:hover {
+  background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
+}
+.acpmux-running-tray :is(.acpmux-agent-line__button, .acpmux-running-tray__head, .acpmux-chat-inspector-stop):enabled {
+  cursor: pointer;
+}
+/* What the line is ("Command", "Subagent"), dim before its name. */
+.acpmux-agent-line__kind {
+  margin-right: 6px;
+  color: var(--agent-muted);
+}
+/* A line that opens something ends in a chevron. */
+.acpmux-agent-line__chevron {
+  flex: none;
+  display: inline-flex;
+  margin-left: -2px;
+  color: var(--agent-muted);
 }
 /* Running work's icon is the theme's accent, never a brand color. */
 .acpmux-agent-line .acpmux-lineage__icon[data-state="running"],
@@ -515,8 +577,51 @@ button.cv-subagent > :last-child {
 .acpmux-agent-card__task {
   color: var(--agent-muted, var(--cmux-text-secondary));
 }
+
+/* An expanded background command keeps its bounded tail in the row; only this disclosed row
+   polls process/tail, and the terminal action remains in the same compact surface. */
+.acpmux-running-tray__tail {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0 8px 8px 24px;
+  min-width: 0;
+}
+.acpmux-running-tray__tail pre {
+  flex: 1 1 240px;
+  max-height: calc(var(--text-detail--line-height) * 10);
+  min-width: 0;
+  margin: 0;
+  overflow: auto;
+  color: var(--agent-muted);
+  font-family: var(--cv-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.acpmux-running-tray__tail button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  border: 0;
+  padding: 4px 8px;
+  color: var(--agent-muted);
+  background: transparent;
+  cursor: pointer;
+}
+.acpmux-running-tray__tail button:hover,
+.acpmux-running-tray__tail button:focus-visible {
+  color: var(--agent-text);
+}
+.acpmux-running-tray[data-placement="after-latest-message"] {
+  flex: none;
+  margin: 0 var(--cv-inset) 8px;
+}
 .acpmux-agent-card__state[data-status="failed"] {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 .acpmux-agent-card__task {
   display: -webkit-box;
@@ -531,7 +636,7 @@ button.cv-subagent > :last-child {
   cursor: default;
 }
 .cv-subagent-done[data-state="failed"] {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 /* The line and, on hover or focus, its Restart (SubagentDoneLine.tsx), the hover row's compact
    button (conversation/MessageActions.tsx): hidden, it keeps its room, so pointing moves nothing. */
@@ -560,4 +665,72 @@ button.cv-subagent > :last-child {
 .cv-subagent-done-row:hover .cv-subagent-done__actions,
 .cv-subagent-done__actions:focus-within {
   opacity: 1;
+}
+
+/* ---------- The tray's motion (trayMotion.tsx, Leo 2026-10-26: "following along with the exact
+   same things as everything else") ---------- */
+/* The card's entrance and its kept copy's exit. Shipped: the new message's own (the gallery's other
+   arms, trayMotion.experiment.ts, live in gallery/fixtures/trayMotionArms.css only): a live transcript row's cv-enter (conversation.css) on the same
+   tokens, and what leaves on --agent-motion-out. */
+.acpmux-running-tray {
+  --acpmux-tray-enter: cv-enter var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+  --acpmux-tray-leave: acpmux-tray-leave var(--agent-motion-out, 80ms) var(--ui-exit-ease, ease-in) both;
+}
+/* The bottom stack's own rise-on-mount (bottomStack.css) played on every mount, a chat switch too:
+   the tray enters only when it appears in a chat that showed without it. */
+.acpmux-dock > .acpmux-running-tray:not([data-tray-enter]) {
+  animation: none;
+}
+.acpmux-running-tray[data-tray-enter],
+.acpmux-dock > .acpmux-running-tray[data-tray-enter] {
+  transform-origin: bottom center;
+  animation: var(--acpmux-tray-enter);
+}
+:is(.acpmux-dock, *) > .acpmux-running-tray.acpmux-running-tray--ghost {
+  z-index: var(--layer-raised);
+  transform-origin: bottom center;
+  animation: var(--acpmux-tray-leave);
+}
+/* Inside the leaving copy nothing else animates: a line rising in or a tick holds where it was drawn
+   (trayMotion.tsx copies those values), and spinners stop. */
+.acpmux-running-tray--ghost * {
+  animation: none !important;
+}
+@keyframes acpmux-tray-leave {
+  to {
+    opacity: 0;
+    translate: 0 4px;
+  }
+}
+/* Words that tick (trayMotion.tsx `Tick`): the old and the new share one cell; the old leave up as the
+   new rise in, on the message tokens. Reduce Motion's stylesheet cuts both to a frame. */
+.acpmux-tick {
+  display: inline-grid;
+  grid-template-columns: minmax(0, auto);
+  overflow: hidden;
+}
+.acpmux-tick > span {
+  grid-area: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-tick__in {
+  animation: acpmux-tick-in var(--agent-motion-in, 120ms) var(--agent-ease-out, ease-out) both;
+}
+.acpmux-tick__out {
+  animation: acpmux-tick-out var(--agent-motion-out, 80ms) var(--ui-exit-ease, ease-in) both;
+}
+@keyframes acpmux-tick-in {
+  from {
+    opacity: 0;
+    translate: 0 0.4em;
+  }
+}
+@keyframes acpmux-tick-out {
+  to {
+    opacity: 0;
+    translate: 0 -0.4em;
+  }
 }

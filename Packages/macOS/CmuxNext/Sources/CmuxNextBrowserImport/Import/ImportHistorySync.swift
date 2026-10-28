@@ -26,6 +26,10 @@ public actor ImportHistorySync {
     private var timers: [String: DemandTimer] = [:]
     /// Each watched database's files (size and change time) at its last read.
     private var lastRead: [String: [Int64]] = [:]
+    /// `browser.import.enabled` off: nothing is watched or read again; the saved pages stay.
+    public private(set) var isPaused = false
+    /// Runs between a read's save and its hand-on (tests: pause sync in that window).
+    var afterSave: (@Sendable () async -> Void)?
 
     /// `grants`: the folder grants reads need (nil: folders are read directly).
     public init(store: ImportedDataStore, grants: BrowserFolderGrants?, delay: Duration = .seconds(20),
@@ -43,7 +47,10 @@ public actor ImportHistorySync {
     /// Watches every synced source of the store: new ones start (and read
     /// once), ones no longer synced stop.
     public func reconcile() async {
+        guard !isPaused else { return endAll() }
         let records = await store.syncedSources()
+        // Paused while the store answered: watch nothing.
+        guard !isPaused else { return endAll() }
         let keys = Set(records.map(\.sourceKey))
         for key in watches.keys where !keys.contains(key) { end(key) }
         for record in records {
@@ -56,6 +63,13 @@ public actor ImportHistorySync {
             }
             changed(key)
         }
+    }
+
+    /// Stops every watch while `paused` (browser import is off) and starts them again after.
+    public func setPaused(_ paused: Bool) async {
+        guard paused != isPaused else { return }
+        isPaused = paused
+        await reconcile()
     }
 
     /// At launch: hands every profile's saved pages to `deliver` (the omnibar
@@ -131,6 +145,10 @@ public actor ImportHistorySync {
         for key in watches.keys { end(key) }
     }
 
+    private func endAll() {
+        for key in Array(watches.keys) { end(key) }
+    }
+
     private func end(_ key: String) {
         watches.removeValue(forKey: key)?.cancel()
         timers.removeValue(forKey: key)?.cancel()
@@ -152,10 +170,26 @@ public actor ImportHistorySync {
         // A Preferences or Cookies write also wakes the folder watch: nothing to read then.
         let stamp = HistoryFileWatch.stamp(watch.file)
         guard stamp != lastRead[key], let record = await store.syncedSources().first(where: { $0.sourceKey == key }) else { return }
+        // Paused (browser import turned off) or rewatched while the store answered: read nothing.
+        guard isCurrent(watch, key) else { return }
         guard let pages = try? BrowserImporter.readHistory(record.browser.family, file: watch.file, limit: limit),
               let saved = try? await store.replaceHistory(key, with: pages) else { return }
-        lastRead[key] = stamp
+        await afterSave?()
+        // Only a watch still current records the read: paused or rewatched meanwhile, the next
+        // watch's catch-up read must not take this stamp as already read.
+        if isCurrent(watch, key) { lastRead[key] = stamp }
+        // What was saved is handed on either way: the store has it now, so no later read reports
+        // it as new, and the omnibar would never see it.
         if !saved.changed.isEmpty { await deliver(saved.record.targetProfileID, saved.changed, []) }
+    }
+
+    /// `watch` is still the one for `key` and sync is not paused.
+    func setAfterSave(_ hook: (@Sendable () async -> Void)?) {
+        afterSave = hook
+    }
+
+    private func isCurrent(_ watch: HistoryFileWatch, _ key: String) -> Bool {
+        !isPaused && watches[key] === watch
     }
 }
 

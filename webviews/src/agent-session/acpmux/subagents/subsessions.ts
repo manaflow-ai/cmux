@@ -8,6 +8,7 @@
 // a small store fed from the session list, so a card never redraws its turn when a session changes.
 import { createContext, useContext, useSyncExternalStore } from "react";
 import type { StringKey, Translate } from "../i18n";
+import type { RetryState } from "./retryState";
 import { cloudHost, type AcpmuxSessionEntry, type SessionWaiting } from "../sessionList";
 
 /// What a sub-session is doing: its turn runs, it waits on the person (a permission or a question),
@@ -27,6 +28,22 @@ export type SubsessionInfo = {
   doing?: string;
   /// What it waits on the person for, while it does and acpmux says.
   waiting?: SessionWaiting;
+  /// It waits for a run slot (its parent runs `maxRunning` already): it has not started.
+  slot?: true;
+  /// Its model, as acpmux names it.
+  model?: string;
+  /// Its thinking effort, as acpmux names it.
+  effort?: string;
+  /// Its parent session id, from the proven `startedBy` link.
+  parent?: string;
+  /// The latest bounded message text from the session summary.
+  lastMessage?: string;
+  /// acpmux's retry of its failed turn, while one waits (retryState.ts).
+  retry?: RetryState;
+  /// acpmux settles, starts or runs its failed turn's retry: no Retry meanwhile.
+  retryDeciding?: true;
+  /** Why its turn failed, while it is failed (acpmux's `lane.error`). */
+  error?: string;
 };
 
 /// What a sub-session waiting on the person waits for, in one line: a question (and its first
@@ -41,7 +58,7 @@ export function waitingLine(t: Translate, waiting: SessionWaiting): string {
 /// Each state's word.
 export const SUBSESSION_STATE_LABEL: Record<SubsessionState, StringKey> = {
   working: "subsession.state.working",
-  input: "home.needsInput",
+  input: "subsession.state.input",
   failed: "subagents.state.failed",
   done: "subagents.state.completed",
 };
@@ -75,6 +92,15 @@ export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
     ...(entry.queued ? { queued: entry.queued } : {}),
     ...(state === "working" && entry.doing ? { doing: entry.doing } : {}),
     ...(state === "input" && entry.waitingOn ? { waiting: entry.waitingOn } : {}),
+    ...(entry.waitsForSlot ? { slot: true as const } : {}),
+    ...(entry.model ? { model: entry.model } : {}),
+    ...(entry.effort ? { effort: entry.effort } : {}),
+    ...(entry.startedBy ? { parent: entry.startedBy } : {}),
+    ...(entry.lastMessage ? { lastMessage: entry.lastMessage } : {}),
+    // Read through retryState.ts ``sessionRetry``, which ignores them on a row that isn't failed.
+    ...(entry.retry ? { retry: entry.retry } : {}),
+    ...(entry.retryDeciding ? { retryDeciding: true as const } : {}),
+    ...(state === "failed" && !entry.retry && entry.laneError ? { error: entry.laneError } : {}),
   };
 }
 
@@ -124,14 +150,17 @@ export class SubsessionStore {
 
   private entries = new Map<string, AcpmuxSessionEntry>();
   /// Every listed chat's id by its names (its name, its short name; not its title, which can be
-  /// "New chat"), and its harness by id: another agent's message names its sender, which a card
-  /// opens and marks with its harness. Their readers have their own listeners, so a chat's name
-  /// changing never tells a sub-session card.
+  /// "New chat"), and by id its harness and the other machine it runs on: another agent's message
+  /// names its sender, which a card marks with its harness and opens, its tooltip naming that
+  /// machine. Their readers have their own listeners, so a chat's name changing never tells a
+  /// sub-session card.
   private named = new Map<string, string>();
   private harnesses = new Map<string, string>();
+  private hosts = new Map<string, string>();
   /// Where each listed chat works, by id: its folder and the other machine it runs on, for the
   /// files its messages name (IncomingMessageCard.tsx), read with the same listeners.
   private places = new Map<string, SenderPlace>();
+  private ids = new Set<string>();
   private namedKey = "";
   private readonly nameListeners = new Set<() => void>();
 
@@ -153,17 +182,33 @@ export class SubsessionStore {
         const name = entry[field]?.trim();
         if (name && !named.has(name)) named.set(name, entry.sessionId);
       }
-    for (const entry of sessions) if (entry.harness) harnesses.set(entry.sessionId, entry.harness);
+    // A chat on another machine is listed as `<peer>/<name>` (acpmux hub/peers.rs); its message
+    // signs with the bare name ("[chief-ui] ..."), which finds it after every chat's full name.
+    for (const entry of live) {
+      const name = entry.name?.trim();
+      const bare = entry.peer && name?.startsWith(`${entry.peer}/`) ? name.slice(entry.peer.length + 1) : undefined;
+      if (bare && !named.has(bare)) named.set(bare, entry.sessionId);
+    }
+    const hosts = new Map<string, string>();
     const places = new Map<string, SenderPlace>();
     for (const entry of sessions) {
+      if (entry.harness) harnesses.set(entry.sessionId, entry.harness);
       const host = cloudHost(entry);
+      if (host) hosts.set(entry.sessionId, host);
       const cwd = entry.cwd?.trim();
       if (cwd || host) places.set(entry.sessionId, { ...(cwd && { cwd }), ...(host && { host }) });
     }
-    const namedKey = JSON.stringify([[...named], [...harnesses], [...places]]);
+    const namedKey = JSON.stringify([
+      [...named],
+      [...harnesses],
+      [...places],
+      sessions.map((entry) => entry.sessionId),
+    ]);
     const renamed = namedKey !== this.namedKey;
     this.named = named;
+    this.ids = new Set(sessions.map((entry) => entry.sessionId));
     this.harnesses = harnesses;
+    this.hosts = hosts;
     if (renamed) this.places = places;
     this.namedKey = namedKey;
     if (renamed) for (const listener of this.nameListeners) listener();
@@ -202,8 +247,18 @@ export class SubsessionStore {
     return this.named.get(name.trim());
   }
 
+  /// Whether the list has chat `sessionId` (any listed chat, not only a sub-session).
+  has(sessionId: string): boolean {
+    return this.ids.has(sessionId);
+  }
+
   harness(sessionId: string): string | undefined {
     return this.harnesses.get(sessionId);
+  }
+
+  /// The other machine listed chat `sessionId` runs on; undefined for this Mac's.
+  host(sessionId: string): string | undefined {
+    return this.hosts.get(sessionId);
   }
 
   /// Where listed chat `sessionId` works: its folder, and the other machine it runs on.
@@ -224,7 +279,13 @@ export class SubsessionStore {
 
 /// Where the cards read sessions from, and how a click opens one beside this chat. Absent (a
 /// gallery stage, a test), a card draws its name without its state and without a link.
-export type Subsessions = { store: SubsessionStore; open(sessionId: string): void };
+export type Subsessions = {
+  store: SubsessionStore;
+  open(sessionId: string): void;
+  /// Opens the chat that sent this one a message (its received line's chip): any listed chat, not
+  /// only this chat's family; `open` when absent.
+  openSender?(sessionId: string): void;
+};
 export const SubsessionContext = createContext<Subsessions | null>(null);
 
 const EMPTY = new SubsessionStore();
@@ -249,13 +310,19 @@ export function useSenderPlace(sessionId: string | undefined): SenderPlace | und
 }
 
 /// The chat a message's sender is: its own id when the message gives one, else the listed chat
-/// with its name (a message `acpmux send` sent from a shell names its sender only), and that chat's
-/// harness. Undefined while the list has neither.
-export function useSenderChat(name: string, sessionId: string | undefined): { sessionId?: string; harness?: string } {
+/// with its name (a message `acpmux send` sent from a shell names its sender only, a chat on
+/// another machine its bare name), that chat's harness and the other machine it runs on. Undefined
+/// while the list has neither.
+export function useSenderChat(
+  name: string,
+  sessionId: string | undefined,
+): { sessionId?: string; harness?: string; host?: string } {
   const store = useContext(SubsessionContext)?.store ?? EMPTY;
   const readId = () => sessionId ?? store.find(name);
   const id = useSyncExternalStore(store.subscribeNames, readId, readId);
   const readHarness = () => (id ? store.harness(id) : undefined);
   const harness = useSyncExternalStore(store.subscribeNames, readHarness, readHarness);
-  return { ...(id && { sessionId: id }), ...(harness && { harness }) };
+  const readHost = () => (id ? store.host(id) : undefined);
+  const host = useSyncExternalStore(store.subscribeNames, readHost, readHost);
+  return { ...(id && { sessionId: id }), ...(harness && { harness }), ...(host && { host }) };
 }

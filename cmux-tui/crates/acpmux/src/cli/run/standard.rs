@@ -1,11 +1,14 @@
 //! Owns the primary session and prompt command dispatch arms.
 
 use super::*;
+use std::sync::Arc;
 
 pub(super) fn handles(cmd: &Command) -> bool {
     matches!(
         cmd,
-        Command::Wait { .. }
+        Command::Dispatch(..)
+            | Command::Briefs(..)
+            | Command::Wait { .. }
             | Command::Ensure { .. }
             | Command::Continue(..)
             | Command::History { .. }
@@ -23,6 +26,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Ls { .. }
             | Command::New(..)
             | Command::Send { .. }
+            | Command::Deliver { .. }
             | Command::Chats(..)
             | Command::Process(..)
             | Command::Worktree(..)
@@ -34,6 +38,8 @@ pub(super) fn handles(cmd: &Command) -> bool {
 
 pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> Result<()> {
     match cmd {
+        Command::Dispatch(args) => dispatch(connect(true).await?, args, json_out).await,
+        Command::Briefs(cmd) => briefs(connect(true).await?, cmd, json_out).await,
         Command::Wait {
             sessions,
             timeout,
@@ -62,7 +68,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             )
             .await
         }
-        Command::Ensure { name, model, preset, host, cwd, policy, effort } => {
+        Command::Ensure { name, model, preset, host, cwd, policy, effort, tags } => {
             orchestrate::ensure(
                 connect(true).await?,
                 &name,
@@ -72,6 +78,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 cwd,
                 policy,
                 effort,
+                tags,
                 json_out,
             )
             .await
@@ -288,14 +295,23 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             Ok(())
         }
+        Command::New(args) if args.parent.is_some() => super::parent::run(*args, json_out).await,
         Command::New(args) => {
+            let args = *args;
             // Checked before connecting, so the error needs no daemon.
             let launch = launch::Launch::prepare(&args)?;
-            let cwd = match &launch.worktree {
-                Some((_, repo)) => repo.clone(),
-                None => new_session_cwd(args.host.as_deref(), args.cwd.clone())?,
-            };
             let client = connect(true).await?;
+            let host = match crate::cli::place::auto_work(args.host.as_deref()) {
+                Some(work) => {
+                    crate::cli::place::resolve(&client, work, launch.name.as_deref(), launch.reuse)
+                        .await?
+                }
+                None => args.host.clone(),
+            };
+            let cwd = match &launch.worktree {
+                Some((_, repo)) => Some(repo.clone()),
+                None => new_session_cwd(host.as_deref(), args.cwd.clone())?,
+            };
             let mut meta = json!({});
             if let Some(spec) = &args.model {
                 let (h, m) = orchestrate::split_target(spec);
@@ -307,8 +323,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(p) = &args.preset {
                 meta["preset"] = json!(p);
             }
-            if let Some(h) = &args.host {
+            if let Some(h) = &host {
                 meta["peer"] = json!(h);
+            }
+            if args.force_admit {
+                meta["forceAdmit"] = json!(true);
             }
             if let Some(n) = &launch.name {
                 meta["name"] = json!(n);
@@ -321,6 +340,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);
+            }
+            meta["argv"] = json!(crate::cli::entry::original_args());
+            if let Some(prompt) = &launch.file_prompt {
+                meta["promptFileText"] = json!(prompt);
+            }
+            if !args.tags.is_empty() {
+                meta["tags"] = orchestrate::parse_tags(&args.tags)?;
             }
             // A detached launch only queues its prompt, with --json too. Known
             // before the create (a prompt file or words make the first prompt).
@@ -353,7 +379,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A session of this name already running is the one asked for:
             // found before the create, or after losing the create to another
             // launcher with the same name.
-            let key = launch.name.as_ref().map(|n| match &args.host {
+            let key = launch.name.as_ref().map(|n| match &host {
                 Some(h) => format!("{h}/{n}"),
                 None => n.clone(),
             });
@@ -366,7 +392,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 reused = launch::existing(&client, key).await?;
             }
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
-            p["cwd"] = json!(cwd);
+            if let Some(cwd) = &cwd {
+                p["cwd"] = json!(cwd);
+            }
             let v = match reused.clone() {
                 Some(info) => info,
                 None => match if ephemeral || probe {
@@ -389,6 +417,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 },
             };
             let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
+            // Started past this host's lane cap: a warning, never a refusal (`hub/admission.rs`).
+            if reused.is_none()
+                && let Some(w) =
+                    v.pointer("/_meta/acpmux/admission/warning").and_then(Value::as_str)
+            {
+                eprintln!("acpmux: warning: {w}");
+            }
             let name = v
                 .pointer("/_meta/acpmux/name")
                 .or_else(|| v.get("name"))
@@ -398,7 +433,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             // A failed sidebar step only warns: the prompt is still sent.
             let show = || {
                 if let Some(group) = &args.group {
-                    let title = launch.title.as_deref().unwrap_or(&name);
+                    // Only explicit names opt into the app's predecessor-row reuse.
+                    // Generated names can be identical on independent peers.
+                    let title =
+                        launch.name.as_ref().map(|_| launch.title.as_deref().unwrap_or(&name));
                     if let Err(e) = launch::show_in_group(&id, title, group) {
                         eprintln!("acpmux: {e:#}");
                     }
@@ -417,7 +455,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     .filter(|_| !lost_race && launch::never_prompted(info));
                 if let Some(text) = &first {
                     let prompt = PromptId::new(args.prompt_id.clone());
-                    queue_prompt(client, &id, text, false, None, &prompt).await?;
+                    let accepted = queue_prompt(client, &id, text, false, None, &prompt).await?;
+                    if !json_out {
+                        warn_host_pressure(&accepted);
+                    }
                 }
                 show();
                 if json_out {
@@ -448,12 +489,26 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 if let Some(w) = v.pointer("/_meta/acpmux/worktree") {
                     info["worktree"] = w.clone();
                 }
+                if let Some(a) = v.pointer("/_meta/acpmux/admission") {
+                    info["admission"] = a.clone();
+                }
                 print_json(&info);
             } else if !one_shot {
-                println!("created {name} ({})", &id[..8.min(id.len())]);
+                let folder = v.pointer("/_meta/acpmux/cwd").and_then(Value::as_str);
+                let line =
+                    crate::cli::session_folder::created_line(&name, &id, host.as_deref(), folder);
+                println!("{line}");
                 if let Some(w) = v.pointer("/_meta/acpmux/worktree") {
                     let g = |k: &str| w.get(k).and_then(Value::as_str).unwrap_or_default();
                     println!("  worktree {} on {} from {}", g("root"), g("branch"), g("base"));
+                }
+                // Before it works: an allow it asks for is the app's alone.
+                if on_permission == OnPermission::Wait
+                    && let Ok(info) =
+                        client.request(method::MUX_INFO, json!({"sessionId": id})).await
+                    && let Some(note) = crate::question_answer::app_allow_note(&info, &name)
+                {
+                    eprintln!("{note}");
                 }
             }
             if let Some(text) = first {
@@ -464,6 +519,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         on_permission,
                         stall_secs: args.stall,
                         retries: args.retries,
+                        steer: false,
                     };
                     show();
                     let outcome = collect_reply(client.clone(), &id, &text, opts, &prompt).await;
@@ -474,9 +530,11 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     }
                     let r = outcome?;
                     if json_out {
-                        print_json(
-                            &json!({"sessionId": id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": ephemeral}),
-                        );
+                        let mut out = json!({"sessionId": id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": ephemeral});
+                        if let Some(a) = v.pointer("/_meta/acpmux/admission") {
+                            out["admission"] = a.clone();
+                        }
+                        print_json(&out);
                     } else {
                         println!("{}", r.reply);
                     }
@@ -485,7 +543,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 if args.detach {
                     // The prompt is queued before the sidebar step, so a
                     // session never runs without its instructions.
-                    queue_prompt(client, &id, &text, false, None, &prompt).await?;
+                    let accepted = queue_prompt(client, &id, &text, false, None, &prompt).await?;
+                    if !json_out {
+                        warn_host_pressure(&accepted);
+                    }
                     show();
                     return Ok(());
                 }
@@ -494,6 +555,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     on_permission,
                     stall_secs: args.stall,
                     retries: args.retries,
+                    steer: false,
                 };
                 show();
                 return stream_prompt(
@@ -529,84 +591,179 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             from,
             status,
             supersede,
+            attach,
         } => {
-            let client = connect(true).await?;
             if let Some(delivery) = status {
+                let client = connect(true).await?;
                 return super::send_async::status(&client, &delivery, json_out).await;
             }
             let session = session.ok_or_else(|| anyhow!("a session is required"))?;
             let mut prompt_id = PromptId::new(prompt_id);
-            prompt_id.from_agent = from;
+            prompt_id.from_agent = from.or_else(crate::cli::sender::of_this_process);
+            prompt_id.cli_host = crate::cli::sender::person_host(prompt_id.from_agent.is_some());
             let superseding = supersede.is_some();
             prompt_id.supersede = supersede;
-            // A message (--no-wait) steers; a send that waits for its reply queues.
-            let steer = send_steers(steer, no_steer, no_wait);
+            // An agent's send and a message (--no-wait) steer; the person's waiting send queues.
+            let agent = crate::cli::sender::from_an_agent(prompt_id.from_agent.is_some());
+            let mut steer = send_steers(steer, no_steer, no_wait, agent);
             let text = arg_or_stdin(&prompt)?;
-            if no_wait {
-                return super::send_async::queue(
-                    &client,
-                    &session,
+            // A target nobody here resolves goes to the configured relay, if any (`send_relay.rs`).
+            let relay = crate::cli::send_relay::configured();
+            let relaying = relay.is_some();
+            let relay_from = crate::cli::send_relay::sender(prompt_id.from_agent.as_deref(), |k| {
+                std::env::var(k).ok()
+            });
+            let (relay_session, relay_text, attaching) =
+                (session.clone(), text.clone(), !attach.is_empty());
+            let sent = async move {
+                let client = connect(true).await?;
+                // Any size and number: inline when they fit one message with the text, else uploaded
+                // to the chat first and named by reference (`attach.rs`).
+                if !attach.is_empty() {
+                    prompt_id.attachments = crate::attach::blocks_for(&client, &session, &text, &attach, &|line| {
+                        eprintln!("{line}");
+                    })
+                    .await
+                        .map_err(|e| crate::cli::send_relay::attach_error(e, relaying, &session))?;
+                }
+                // A sub-session's send to its parent waits for the parent's turn to end, as its
+                // send_message does (`hub/subsession_send.rs`), --steer or not.
+                if steer && to_parent(&client, &session).await {
+                    steer = false;
+                }
+                if no_wait {
+                    announce_machine_wake(&client, &session).await;
+                    return super::send_async::queue(
+                        &client,
+                        &session,
+                        &text,
+                        steer,
+                        &prompt_id,
+                        superseding,
+                        json_out,
+                    )
+                    .await;
+                }
+                let id = resolve_id(&client, &session).await?;
+                let on_permission = OnPermission::parse(&on_permission)?;
+                // Never refuse: report what the prompt queues behind.
+                let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
+                announce_machine_wake_value(&info);
+                let running = info.get("status").and_then(Value::as_str) == Some("running")
+                    || info.get("turn").map(|t| !t.is_null()).unwrap_or(false);
+                let pending = info.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0);
+                let queued = info.get("queued").and_then(Value::as_u64).unwrap_or(0);
+                let behind =
+                    json!({"permissions": pending, "turns": if running { 1 + queued } else { queued }});
+                // As the hub decides: a running turn of an agent that steers, pending permission or not.
+                let steers_now = steer && running && steering(&info);
+                if (running || pending > 0) && !steers_now {
+                    let mut parts = Vec::new();
+                    if pending > 0 {
+                        parts.push(format!(
+                            "{pending} pending permission{}",
+                            if pending == 1 { "" } else { "s" }
+                        ));
+                    }
+                    if running {
+                        parts.push(format!(
+                            "{} running turn{}",
+                            1 + queued,
+                            if queued == 0 { "" } else { "s" }
+                        ));
+                    }
+                    eprintln!("queued behind {}", parts.join(" and "));
+                }
+                // Before its first turn: an allow it asks for is the app's alone.
+                if !(quiet || json_out)
+                    && on_permission == OnPermission::Wait
+                    && info.get("turnCount").and_then(Value::as_u64) == Some(0)
+                    && let Some(note) = crate::question_answer::app_allow_note(&info, &session)
+                {
+                    eprintln!("{note}");
+                }
+                let opts = CollectOpts { timeout, on_permission, stall_secs: stall, retries: 0, steer };
+                if quiet || json_out {
+                    let r = collect_reply(client, &id, &text, opts, &prompt_id).await?;
+                    if json_out {
+                        print_json(
+                            &json!({"sessionId": id, "reply": r.reply, "stopReason": r.stop_reason, "queuedBehind": behind, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied}),
+                        );
+                    } else {
+                        println!("{}", r.reply);
+                    }
+                    return Ok(());
+                }
+                stream_prompt(
+                    client,
+                    &id,
                     &text,
                     steer,
-                    &prompt_id,
-                    superseding,
+                    quiet,
                     json_out,
+                    opts,
+                    suppress_reads,
+                    &prompt_id,
                 )
-                .await;
+                .await
             }
-            let id = resolve_id(&client, &session).await?;
-            let on_permission = OnPermission::parse(&on_permission)?;
-            // Never refuse: report what the prompt queues behind.
-            let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
-            let running = info.get("status").and_then(Value::as_str) == Some("running")
-                || info.get("turn").map(|t| !t.is_null()).unwrap_or(false);
-            let pending = info.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0);
-            let queued = info.get("queued").and_then(Value::as_u64).unwrap_or(0);
-            let behind =
-                json!({"permissions": pending, "turns": if running { 1 + queued } else { queued }});
-            // As the hub decides: a running turn of an agent that steers, pending permission or not.
-            let steers_now = steer && running && steering(&info);
-            if (running || pending > 0) && !steers_now {
-                let mut parts = Vec::new();
-                if pending > 0 {
-                    parts.push(format!(
-                        "{pending} pending permission{}",
-                        if pending == 1 { "" } else { "s" }
-                    ));
+            .await;
+            match (sent, relay) {
+                (Err(e), Some(relay)) if crate::cli::send_relay::no_such_session(&e) => {
+                    crate::cli::send_relay::send(
+                        &relay,
+                        &relay_session,
+                        &relay_text,
+                        relay_from.as_deref(),
+                        attaching,
+                        json_out,
+                    )
                 }
-                if running {
-                    parts.push(format!(
-                        "{} running turn{}",
-                        1 + queued,
-                        if queued == 0 { "" } else { "s" }
-                    ));
-                }
-                eprintln!("queued behind {}", parts.join(" and "));
+                (sent, _) => sent,
             }
-            let opts = CollectOpts { timeout, on_permission, stall_secs: stall, retries: 0 };
-            if quiet || json_out {
-                let r = collect_reply(client, &id, &text, opts, &prompt_id).await?;
-                if json_out {
-                    print_json(
-                        &json!({"sessionId": id, "reply": r.reply, "stopReason": r.stop_reason, "queuedBehind": behind, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied}),
-                    );
-                } else {
-                    println!("{}", r.reply);
-                }
-                return Ok(());
+        }
+        Command::Deliver { target, prompt, id, audience } => {
+            if !target.starts_with("reports:") {
+                return Err(anyhow!("--target must start with reports:"));
             }
-            stream_prompt(
-                client,
-                &id,
-                &text,
-                steer,
-                quiet,
-                json_out,
-                opts,
-                suppress_reads,
-                &prompt_id,
-            )
-            .await
+            if !matches!(audience.as_str(), "leo" | "coordinator" | "silent") {
+                return Err(anyhow!("--audience must be leo, coordinator, or silent"));
+            }
+            let text = arg_or_stdin(&prompt)?;
+            let sender = std::env::var("ACPMUX_SESSION_ID")
+                .map_err(|_| anyhow!("acpmux deliver must run from an attached agent session"))?;
+            let id = id.unwrap_or_else(|| format!("report-{}", uuid::Uuid::now_v7()));
+            let client = connect(true).await?;
+            // The daemon only accepts a sender identity that is bound to this
+            // connection. `deliver` is a session-local CLI, so attach before
+            // the quiet write. Keep the view hidden so attaching does not mark
+            // the agent seen or publish a visible status event.
+            client
+                .request(
+                    method::MUX_ATTACH,
+                    json!({"sessionId": sender, "limit": 0, "visible": false}),
+                )
+                .await?;
+            let value = client
+                .request(
+                    method::MUX_MAIL_SEND,
+                    json!({
+                        "id": id,
+                        "sender": sender,
+                        "target": target,
+                        "body": text,
+                        "metadata": {"audience": audience, "kind": "report"},
+                    }),
+                )
+                .await?;
+            if json_out {
+                print_json(&value);
+            } else {
+                let message_id =
+                    value.pointer("/message/id").and_then(Value::as_str).unwrap_or("?");
+                println!("delivered {message_id} to reports basket (woke=false)");
+            }
+            Ok(())
         }
         Command::Chats(cmd) => crate::cli::chats::run(cmd, json_out).await,
         Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
@@ -700,13 +857,157 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
     }
 }
 
-/// Whether `acpmux send` steers: `--steer` always, `--no-steer` never, else a message sent
-/// with `--no-wait` does (inter-session messages land in the running turn instead of waiting
-/// minutes for it to end), while a send that waits for its reply queues: a steer is answered
-/// `steered` as soon as the agent reads it, before the reply. A steer never stops a turn: the
-/// agent reads it at its next tool boundary, and to an agent that does not steer it queues.
-fn send_steers(steer: bool, no_steer: bool, no_wait: bool) -> bool {
-    !no_steer && (steer || no_wait)
+async fn announce_machine_wake(client: &Arc<crate::client::Client>, session: &str) {
+    if !machine_wake_enabled() {
+        return;
+    }
+    if let Ok(info) = client.request(method::MUX_INFO, json!({"sessionId": session})).await {
+        announce_machine_wake_value(&info);
+    }
+}
+
+fn announce_machine_wake_value(info: &Value) {
+    if machine_wake_enabled() && crate::machine_wake::has_paused_lease(info) {
+        eprintln!("Waking machine…");
+    }
+}
+
+fn machine_wake_enabled() -> bool {
+    crate::config::Config::load()
+        .ok()
+        .and_then(|config| config.machine_wake)
+        .is_some_and(|config| config.enabled)
+}
+
+async fn dispatch(client: Arc<Client>, args: DispatchArgs, json_out: bool) -> Result<()> {
+    let brief = if args.brief.as_os_str() == "-" {
+        arg_or_stdin(&[])?
+    } else {
+        std::fs::read_to_string(&args.brief)?
+    };
+    let mut obj = serde_json::Map::from_iter([
+        ("brief".into(), json!(brief)),
+        ("host".into(), json!(args.host)),
+    ]);
+    for (key, value) in [
+        ("title", args.title),
+        ("to", args.to),
+        ("stopCondition", args.stop_condition),
+        ("model", args.model),
+        ("preset", args.preset),
+        ("policy", args.policy),
+    ] {
+        if let Some(value) = value {
+            obj.insert(key.into(), json!(value));
+        }
+    }
+    if let Some(cwd) = args.cwd {
+        obj.insert("cwd".into(), json!(cwd));
+    }
+    let v = client.request(crate::rpc::method::MUX_DISPATCH, Value::Object(obj)).await?;
+    if json_out {
+        print_json(&v);
+    } else {
+        if let Some(warning) = v.get("warning").and_then(Value::as_str) {
+            eprintln!("warning: {warning}");
+        }
+        if let Some(host) = v.get("suggestedHost").and_then(Value::as_str) {
+            eprintln!("suggestion: dispatch the next brief to {host}");
+        }
+        let b = v.get("brief").unwrap_or(&v);
+        println!(
+            "sent brief {:?} → {} on {}",
+            b.get("title").and_then(Value::as_str).unwrap_or("brief"),
+            b.get("to").and_then(Value::as_str).unwrap_or("agent"),
+            b.get("host").and_then(Value::as_str).unwrap_or("local")
+        );
+    }
+    Ok(())
+}
+
+async fn briefs(client: Arc<Client>, cmd: BriefsCmd, json_out: bool) -> Result<()> {
+    let v =
+        match cmd {
+            BriefsCmd::Ls { status, limit } => {
+                client
+                    .request(crate::rpc::method::MUX_BRIEFS, json!({"status":status,"limit":limit}))
+                    .await?
+            }
+            BriefsCmd::Steer { brief_id, text } => {
+                client
+                    .request(
+                        crate::rpc::method::MUX_STEER,
+                        json!({"briefId":brief_id,"text":arg_or_stdin(&text)?}),
+                    )
+                    .await?
+            }
+            BriefsCmd::Report { brief_id, summary, status } => client
+                .request(
+                    crate::rpc::method::MUX_REPORT,
+                    json!({"briefId":brief_id,"summary":arg_or_stdin(&summary)?,"status":status}),
+                )
+                .await?,
+        };
+    if json_out {
+        print_json(&v);
+        return Ok(());
+    }
+    if let Some(rows) = v.get("briefs").and_then(Value::as_array) {
+        for b in rows {
+            println!(
+                "{:<24} {:<9} {}",
+                b.get("briefId").and_then(Value::as_str).unwrap_or("?"),
+                b.get("status").and_then(Value::as_str).unwrap_or("?"),
+                b.get("title").and_then(Value::as_str).unwrap_or("")
+            );
+        }
+    } else {
+        println!(
+            "{}",
+            v.get("brief")
+                .and_then(|b| b.get("status"))
+                .and_then(Value::as_str)
+                .unwrap_or("updated")
+        );
+    }
+    Ok(())
+}
+
+/// Whether `acpmux send` steers: `--steer` always, `--no-steer` never, else an agent's send
+/// (`agent`: `--from`, `ACPMUX_FROM`, or one in an acpmux session) and a message sent with
+/// `--no-wait` do, so inter-session messages land in the running turn instead of waiting
+/// minutes for it to end (Leo, 2026-10-25: "I don't know why these things are queued up").
+/// The person's send that waits for its reply queues, as Cmd-Return does. A send that waits
+/// and steers answers with the reply of the turn it went into (`steer_reply.rs`). A steer never
+/// stops a turn: the agent reads it at its next tool boundary, and to an agent that does not
+/// steer it queues.
+fn send_steers(steer: bool, no_steer: bool, no_wait: bool, agent: bool) -> bool {
+    !no_steer && (steer || no_wait || agent)
+}
+
+/// Whether the session `target` names is the parent of the acpmux session this send runs in
+/// (its `startedBy`). Only a sub-session asks which session `target` is.
+async fn to_parent(client: &crate::client::Client, target: &str) -> bool {
+    let Some(own) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|v| !v.trim().is_empty()) else {
+        return false;
+    };
+    let info =
+        |key: &str| client.request(method::MUX_INFO, json!({"sessionId": key, "waitLogs": false}));
+    let Some(parent) = info(&own).await.ok().as_ref().and_then(started_by) else {
+        return false;
+    };
+    if target == parent {
+        return true;
+    }
+    let Ok(key) = orchestrate::expand_session_key(target) else { return false };
+    info(&key)
+        .await
+        .is_ok_and(|t| t.get("sessionId").and_then(Value::as_str) == Some(parent.as_str()))
+}
+
+/// The session that started the one `info` describes, if one did.
+fn started_by(info: &Value) -> Option<String> {
+    info.get("startedBy").and_then(Value::as_str).filter(|p| !p.is_empty()).map(str::to_owned)
 }
 
 /// The agent of the session `info` describes takes a prompt mid-turn.
@@ -716,13 +1017,32 @@ fn steering(info: &Value) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::send_steers;
+    use super::{send_steers, started_by};
+    use serde_json::json;
 
     #[test]
-    fn send_steers_messages_by_default_and_queues_waiting_sends() {
-        assert!(send_steers(false, false, true), "--no-wait steers by default");
-        assert!(!send_steers(false, true, true), "--no-steer opts out");
-        assert!(!send_steers(false, false, false), "a send that waits queues");
-        assert!(send_steers(true, false, false), "--steer steers a waiting send");
+    fn send_steers_messages_by_default_and_queues_the_persons_waiting_sends() {
+        assert!(send_steers(false, false, true, false), "--no-wait steers by default");
+        assert!(!send_steers(false, true, true, false), "--no-steer opts out");
+        assert!(!send_steers(false, false, false, false), "the person's send that waits queues");
+        assert!(send_steers(true, false, false, false), "--steer steers a waiting send");
+    }
+
+    /// Leo, 2026-10-25: "I don't know why these things are queued up." An agent's send steers
+    /// whether or not it waits for the reply; `--no-steer` still queues it.
+    #[test]
+    fn an_agents_send_steers_by_default_even_when_it_waits() {
+        assert!(send_steers(false, false, false, true), "an agent's waiting send steers");
+        assert!(send_steers(false, false, true, true), "and so does its --no-wait send");
+        assert!(!send_steers(false, true, false, true), "--no-steer opts out");
+        assert!(!send_steers(false, true, true, true), "--no-steer opts out with --no-wait too");
+    }
+
+    #[test]
+    fn a_sub_session_names_the_parent_that_started_it() {
+        let child = json!({"sessionId": "child", "startedBy": "p"});
+        assert_eq!(started_by(&child).as_deref(), Some("p"));
+        assert_eq!(started_by(&json!({"sessionId": "root", "startedBy": null})), None);
+        assert_eq!(started_by(&json!({"sessionId": "old"})), None);
     }
 }

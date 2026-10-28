@@ -27,9 +27,9 @@ export type AgentEvent =
   | { kind: "delta"; text: string } // streaming assistant text
   | { kind: "assistant"; text: string } // full assistant message (non-streaming providers)
   | { kind: "thinking"; text: string } // streaming reasoning text
-  | { kind: "tool-start"; toolId: string; name: string; detail?: string }
-  | { kind: "tool-update"; toolId: string; name?: string; detail?: string; out?: string }
-  | { kind: "tool-end"; toolId: string; name?: string; detail?: string; ok?: boolean }
+  | { kind: "tool-start"; toolId: string; name: string; detail?: string; description?: string }
+  | { kind: "tool-update"; toolId: string; name?: string; detail?: string; description?: string; out?: string }
+  | { kind: "tool-end"; toolId: string; name?: string; detail?: string; description?: string; ok?: boolean }
   | { kind: "done"; stats?: string }
   | { kind: "files-changed"; files: ChangedFile[] }
   // `prompt`: the prompt a failed send carried, which never reached the agent.

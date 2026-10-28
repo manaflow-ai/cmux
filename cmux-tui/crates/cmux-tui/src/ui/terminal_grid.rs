@@ -353,8 +353,10 @@ struct PaletteResolver<'a> {
     default_bg: Rgb,
 }
 
-pub(crate) fn resolved_cursor_color(frame: &SurfaceRenderFrame) -> Rgb {
-    frame.frame.cursor_color.unwrap_or(frame.frame.default_colors.1)
+/// The cursor color the inner application authored, or `None` to keep the
+/// host terminal's own cursor color.
+pub(crate) fn resolved_cursor_color(frame: &SurfaceRenderFrame) -> Option<Rgb> {
+    frame.frame.cursor_color
 }
 
 impl<'a> PaletteResolver<'a> {
@@ -380,16 +382,26 @@ impl<'a> PaletteResolver<'a> {
         }
     }
 
+    /// The default foreground stays unset (`Color::Reset`) so the host
+    /// terminal's own foreground applies.
     fn resolve_fg(&self, spec: ColorSpec) -> Color {
-        self.resolve(spec, self.default_fg)
+        match spec {
+            ColorSpec::Default => Color::Reset,
+            other => self.resolve(other, self.default_fg),
+        }
     }
 
+    /// The default background stays unpainted (`Color::Reset`) so the host
+    /// terminal's own background shows through, notably over ssh.
     fn resolve_bg(&self, spec: ColorSpec) -> Color {
-        self.resolve(spec, self.default_bg)
+        match spec {
+            ColorSpec::Default => Color::Reset,
+            other => self.resolve(other, self.default_bg),
+        }
     }
 
     fn blank_style(&self) -> Style {
-        Style::default().fg(rgb_color(self.default_fg)).bg(rgb_color(self.default_bg))
+        Style::default().fg(Color::Reset).bg(Color::Reset)
     }
 }
 
@@ -817,11 +829,11 @@ mod tests {
         let overridden = [false; 256];
         let resolver = resolver(&colors, &overridden);
 
-        assert_eq!(resolver.resolve_fg(ColorSpec::Default), Color::Rgb(0x11, 0x22, 0x33));
-        assert_eq!(resolver.resolve_bg(ColorSpec::Default), Color::Rgb(0x44, 0x55, 0x66));
+        assert_eq!(resolver.resolve_fg(ColorSpec::Default), Color::Reset);
+        assert_eq!(resolver.resolve_bg(ColorSpec::Default), Color::Reset);
         assert_eq!(
             resolver.blank_style(),
-            Style::default().fg(Color::Rgb(0x11, 0x22, 0x33)).bg(Color::Rgb(0x44, 0x55, 0x66))
+            Style::default().fg(Color::Rgb(0x11, 0x22, 0x33)).bg(Color::Reset)
         );
     }
 
@@ -969,11 +981,11 @@ mod tests {
         let render = render_frame_with_defaults(foreground, background, Some(cursor));
         let colors = PaletteResolver::from_frame(&render);
 
-        assert_eq!(colors.resolve_fg(ColorSpec::Default), Color::Rgb(0x11, 0x22, 0x33));
-        assert_eq!(colors.resolve_bg(ColorSpec::Default), Color::Rgb(0x44, 0x55, 0x66));
-        assert_eq!(resolved_cursor_color(&render), cursor);
+        assert_eq!(colors.resolve_fg(ColorSpec::Default), Color::Reset);
+        assert_eq!(colors.resolve_bg(ColorSpec::Default), Color::Reset);
+        assert_eq!(resolved_cursor_color(&render), Some(cursor));
         let implicit_cursor = render_frame_with_defaults(foreground, background, None);
-        assert_eq!(resolved_cursor_color(&implicit_cursor), foreground);
+        assert_eq!(resolved_cursor_color(&implicit_cursor), None);
 
         let mut terminal = RatatuiTerminal::new(TestBackend::new(4, 2)).unwrap();
         terminal
@@ -993,8 +1005,8 @@ mod tests {
         // the cursor. Cells outside that frame intentionally use the foreign
         // viewport chrome styling, which is covered below.
         let cell = &terminal.backend().buffer()[(1, 0)];
-        assert_eq!(cell.fg, Color::Rgb(0x11, 0x22, 0x33));
-        assert_eq!(cell.bg, Color::Rgb(0x44, 0x55, 0x66));
+        assert_eq!(cell.fg, Color::Reset);
+        assert_eq!(cell.bg, Color::Reset);
         assert_eq!(cell.symbol(), " ");
     }
 

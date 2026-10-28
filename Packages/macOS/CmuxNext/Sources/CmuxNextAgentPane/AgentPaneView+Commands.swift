@@ -1,13 +1,24 @@
+import CmuxNextSettings
 import Foundation
 
 /// The dispatcher commands the app sends the page: Continue in, Create checkpoint, the chat's
 /// keyboard actions and the grouped-permission actions.
 extension AgentPaneView {
+    /// Toggles Session Info through the same page callback as the header button.
+    public func toggleSessionInfo() { send("toggleSessionInfo") }
+
     /// Opens the frontend's Continue In… chooser. The chooser owns target selection and
     /// preparation; native actions do not create a second handoff pipeline.
     public func showContinueIn() { send("continueIn") }
     /// Archive Chat (Ctrl-Cmd-A, cx-ncc.72): the page archives the chat the way its menu's Archive does.
     public func archiveChat() { send("archiveChat") }
+    /// Stop Agent Turn: the palette, keyboard and composer button use the same guarded stop path.
+    public func stopTurn() {
+        guard let session = model.sessionId else { return }
+        let json = JSONValue.string(session).compactText
+        deliver([AgentPageEvent(kind: "stopTurn", value: .string(session))],
+                scripts: ["window.cmuxAcpmuxBridge?.command?.(\"stopTurn\",\(json));"])
+    }
     private func send(_ command: String) {
         deliver([.command(command)], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"\(command)\");"])
     }

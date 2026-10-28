@@ -78,7 +78,10 @@ pub(super) fn agent_sender(provenance: Option<&Value>, declared: Option<&str>) -
     }
     let p = provenance?;
     let kind = p.get("kind").and_then(Value::as_str);
-    if !matches!(kind, Some("agent_message" | super::subsessions::PROVENANCE_KIND)) {
+    if !matches!(
+        kind,
+        Some("agent_message" | super::subsessions::PROVENANCE_KIND | super::lane_reports::KIND)
+    ) {
         return None;
     }
     let field = |k: &str| p.get(k).and_then(Value::as_str).filter(|v| !v.trim().is_empty());
@@ -246,8 +249,12 @@ impl Hub {
         turn_id: &str,
         digest: &DigestTurn,
     ) -> Vec<Part> {
-        // A slash command (`/compact`) runs only as a turn's first words: it goes in alone.
-        if head.agent.is_none() || super::forum::slash_command(&head.blocks).is_some() {
+        // A slash command (`/compact`) runs only as a turn's first words: it goes in alone. So does
+        // a message with uploaded files: its turn reads and checks them (`prompt_uploads.rs`).
+        if head.agent.is_none()
+            || super::forum::slash_command(&head.blocks).is_some()
+            || crate::prompt_uploads::any(&head.blocks)
+        {
             return Vec::new();
         }
         let mut bytes = blocks_bytes(&head.blocks);
@@ -266,6 +273,7 @@ impl Hub {
                 }
                 let joins = q.run.agent.is_some()
                     && super::forum::slash_command(&q.run.blocks).is_none()
+                    && !crate::prompt_uploads::any(&q.run.blocks)
                     && !unclaimed.iter().any(|(id, _)| *id == q.prompt_id)
                     && !q.steer
                     && !q.sent_now
@@ -392,11 +400,13 @@ mod tests {
     fn run(text: &str, agent: Option<&str>, provenance: Option<Value>) -> Arc<PromptRun> {
         Arc::new(PromptRun {
             blocks: vec![json!({"type": "text", "text": text})],
+            display_parts: None,
             control: Control::default(),
             trust_gate: false,
             provenance,
             agent: agent.map(str::to_owned),
             supersede: None,
+            full_access_device: None,
         })
     }
 

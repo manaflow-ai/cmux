@@ -11,6 +11,8 @@ public struct StreamedBrowserPage: View {
     var insets: EdgeInsets
     var reportScroll: @MainActor (CGFloat) -> Void
     @State private var keyboard = false
+    /// The keyboard rose because the page focused a field (it goes when the field does).
+    @State private var raisedForField = false
     @Environment(\.openURL) private var openURL
 
     /// What the page says when the Mac cannot stream browser tabs.
@@ -69,6 +71,20 @@ public struct StreamedBrowserPage: View {
             model.setVisible(true)
             model.reconnect()
         }
+        // The page focused a field: the keyboard rises (and goes again when the page
+        // blurs a field it raised it for); the page lays out above it, and Chromium
+        // keeps the focused field in view as its viewport shrinks.
+        .onChange(of: model.field) { _, after in
+            // A field gained focus (a new one too, after the person lowered the keyboard).
+            if after != nil, !keyboard {
+                keyboard = true
+                raisedForField = true
+            } else if after == nil, raisedForField {
+                keyboard = false
+                raisedForField = false
+            }
+        }
+        .onChange(of: keyboard) { _, shown in if !shown { raisedForField = false } }
         .onDisappear { model.setVisible(false) }
     }
 
@@ -172,23 +188,33 @@ struct StreamedBrowserOverlay: View {
     }
 }
 
-/// The grid card: the last frame, else a globe.
+/// The grid card: the last frame, else a globe (an iPhone for a simulator tab).
 public struct StreamedBrowserCard: View {
     let model: StreamedBrowserModel
+    let placeholder: String
+    /// A simulator's frame is shown whole and centred; a page's fills the width from the top.
+    let fit: Bool
 
-    public init(model: StreamedBrowserModel) { self.model = model }
+    public init(model: StreamedBrowserModel, placeholder: String = "globe", fit: Bool = false) {
+        self.model = model
+        self.placeholder = placeholder
+        self.fit = fit
+    }
 
     public var body: some View {
         ZStack(alignment: .top) {
             Color(uiColor: .systemBackground)
-            if let image = model.snapshot?.image {
+            if fit, let image = model.snapshot?.image {
+                Color.black
+                Image(decorative: image, scale: 1).resizable().interpolation(.medium).scaledToFit()
+            } else if let image = model.snapshot?.image {
                 GeometryReader { geo in
                     Image(decorative: image, scale: 1).resizable().interpolation(.medium)
                         .frame(width: geo.size.width,
                                height: geo.size.width * CGFloat(image.height) / CGFloat(max(1, image.width)))
                 }
             } else {
-                Image(systemName: "globe")
+                Image(systemName: placeholder)
                     .font(.system(size: 72, weight: .light))
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -212,6 +238,7 @@ struct StreamSurface: UIViewRepresentable {
 
     func updateUIView(_ view: StreamView, context: Context) {
         view.reportScroll = reportScroll
+        view.fieldChanged()
         if keyboard, !view.isFirstResponder {
             // Not in a window yet, or focus held elsewhere: the button comes back.
             if !view.becomeFirstResponder() {
@@ -382,6 +409,63 @@ final class StreamView: UIView, UIKeyInput {
 
     override var canBecomeFirstResponder: Bool { true }
 
+    /// Hardware keys sent to the page, by press: their key-up goes on release (so a
+    /// held arrow repeats on the Mac), and UIKit never sees half of them.
+    private var heldKeys: [ObjectIdentifier: StreamedHardwareKey] = [:]
+
+    private static func modifiers(_ flags: UIKeyModifierFlags) -> RemoteBrowserWire.Modifiers {
+        var modifiers: RemoteBrowserWire.Modifiers = []
+        if flags.contains(.shift) { modifiers.insert(.shift) }
+        if flags.contains(.control) { modifiers.insert(.control) }
+        if flags.contains(.alternate) { modifiers.insert(.option) }
+        if flags.contains(.command) { modifiers.insert(.command) }
+        return modifiers
+    }
+
+    /// A hardware keyboard's arrows, Escape, Home/End and shortcuts go to the page
+    /// directly (the text path never sees them); everything else types as usual.
+    /// Command-V stays the edit menu's Paste (`paste(_:)`: the phone's clipboard).
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        var rest = Set<UIPress>()
+        for press in presses {
+            guard let key = press.key else { rest.insert(press); continue }
+            let modifiers = Self.modifiers(key.modifierFlags)
+            if modifiers == .command, key.keyCode == .keyboardV {
+                rest.insert(press)
+            } else if let hardware = StreamedHardwareKey(usage: key.keyCode.rawValue,
+                                                         characters: key.charactersIgnoringModifiers,
+                                                         modifiers: modifiers) {
+                heldKeys[ObjectIdentifier(press)] = hardware
+                model.input(hardware.events(model.wire)[0])
+            } else {
+                rest.insert(press)
+            }
+        }
+        if !rest.isEmpty { super.pressesBegan(rest, with: event) }
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        super.pressesEnded(releaseHeld(presses), with: event)
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        super.pressesCancelled(releaseHeld(presses), with: event)
+    }
+
+    /// Sends the key-up of each held key and returns the presses that were not ours.
+    private func releaseHeld(_ presses: Set<UIPress>) -> Set<UIPress> {
+        var rest = Set<UIPress>()
+        for press in presses {
+            if let hardware = heldKeys.removeValue(forKey: ObjectIdentifier(press)) {
+                model.input(hardware.events(model.wire)[1])
+            } else {
+                rest.insert(press)
+            }
+        }
+        return rest
+    }
+
+
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
         if became { keyboardChanged?(true) }
@@ -408,6 +492,17 @@ final class StreamView: UIView, UIKeyInput {
     var smartQuotesType: UITextSmartQuotesType { get { .no } set {} }
     var smartDashesType: UITextSmartDashesType { get { .no } set {} }
     var keyboardType: UIKeyboardType { get { .default } set {} }
+    /// A password field on the page: iOS neither suggests nor learns what is typed.
+    var isSecureTextEntry: Bool { get { model.field?.inputType == "password" } set {} }
+    private var secure = false
+
+    /// The focused field changed: the keyboard's traits follow it (secure entry).
+    func fieldChanged() {
+        let now = isSecureTextEntry
+        guard now != secure else { return }
+        secure = now
+        if isFirstResponder { reloadInputViews() }
+    }
 
     func insertText(_ text: String) {
         for event in StreamedBrowserKey.typed(text, wire: model.wire) { model.input(event) }

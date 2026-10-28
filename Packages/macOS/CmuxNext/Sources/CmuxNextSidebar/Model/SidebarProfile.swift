@@ -17,7 +17,7 @@ public nonisolated struct SidebarProfile: Hashable, Sendable, Identifiable {
     public var color: GroupColor?
     /// An SF Symbol name or one emoji shown instead of the dot, or a stored image or SVG asset.
     public var icon: String?
-    /// The stored asset `icon` names, drawn as is once read (nil while it loads: the initial).
+    /// The stored asset `icon` names, drawn as is once read (nil while it loads: the dot).
     public var image: SidebarFavicon?
 
     public init(id: ProfileKey, name: String, color: GroupColor? = nil, icon: String? = nil, image: SidebarFavicon? = nil) {

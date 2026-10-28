@@ -24,7 +24,7 @@ struct TerminalFontZoomRelaunchTests {
 
     /// A daemon handshake that serves state resources (tab records).
     private static func identity() throws -> DaemonIdentity {
-        let json = #"{"app":"cmux-tui","protocol":1,"session":"font-zoom-relaunch-test","generation":"g1","capabilities":["\#(DaemonCapabilities.shared.stateResources)"]}"#
+        let json = #"{"app":"cmux-tui","protocol":1,"session":"font-zoom-relaunch-test","generation":"g1","capabilities":["\#(DaemonCapability.stateResources.rawValue)"]}"#
         return try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
     }
 

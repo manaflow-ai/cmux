@@ -32,6 +32,8 @@ extension DaemonStore {
     /// exactly holds the intent's result even when another event of the
     /// batch needs a resync.
     private func applyEvent(_ event: DaemonEvent, sequence: UInt64?, envelope: DaemonEventEnvelope? = nil) -> Followup {
+        // Before it applies: the workspace it names is found while the records still hold it (a close).
+        noteSnapshotTouch(event)
         let followup = applyState(event, envelope: envelope)
         if let transaction = event.clientTransactionID {
             confirm(transaction)
@@ -47,9 +49,12 @@ extension DaemonStore {
     /// Events superseded by the last snapshot are skipped.
     @discardableResult
     public func apply(batch: [DaemonEventEnvelope]) -> Followup {
+        // A staged script batch keeps the events of the workspaces it touches (DaemonStore+Stage.swift).
+        let batch = stage?.passing(batch, in: self) ?? batch
+        guard !batch.isEmpty else { return .none }
         // An observer that applies events while this batch applies is an
         // update cycle (idle-wakeups.md): counted, logged in debug builds.
-        updateCycles.run { applyBatch(batch) }
+        return updateCycles.run { applyBatch(batch) }
     }
 
     private func applyBatch(_ batch: [DaemonEventEnvelope]) -> Followup {
@@ -94,6 +99,8 @@ extension DaemonStore {
     }
 
     func advanceAppliedSequence(to sequence: UInt64) {
+        // Not past an event a stage still holds: nothing it holds counts as applied yet.
+        let sequence = stage?.cappedSequence(sequence) ?? sequence
         guard sequence > appliedSequence else { return }
         appliedSequence = sequence
         // Intents first, so waiters see the visible state without them.

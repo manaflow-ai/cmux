@@ -158,18 +158,15 @@ import UniformTypeIdentifiers
         var backdrop = WindowBackdrop(backgroundOpacity: 0.5, backgroundBlur: 0)
         backdrop.selection = .system(path: fixture.path("Sonoma.heic"))
         view.apply(backdrop, tint: .black)
-        let art = try #require(view.subviews.first?.layer)
-        try await Self.until { art.contents != nil }
+        // The art view by name: the inactive wash sits below it (c5ccab1e907), so it is not the
+        // first subview.
+        let art = try #require(view.artView.layer)
+        await view.artLoad?.value
         #expect(try Self.red(try #require(art.contents as? NSImage)) > 200)
 
         view.appearance = NSAppearance(named: .darkAqua)
         view.viewDidChangeEffectiveAppearance()
-        try await Self.until { (art.contents as? NSImage).map { (try? Self.red($0)) ?? 255 < 50 } ?? false }
+        await view.artLoad?.value
         #expect(try Self.red(try #require(art.contents as? NSImage)) < 50)
-    }
-
-    static func until(_ condition: () -> Bool) async throws {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
     }
 }

@@ -4,6 +4,7 @@
 // with what it does now and its queue, waiting on a question or a permission, failed, done), a
 // message sent to one with how it was delivered, a wait's replies, and calls still running. The
 // summary card's Subagents list shows the same sub-sessions (summary/SubagentStatusList.tsx).
+import { avatarsChanged, UPLOADED_AVATAR } from "../../../gallery/fixtures/agentAvatar";
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, session, summary, tool, user, SESSION_ID } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxSessionEntry } from "../sessionList";
@@ -15,6 +16,56 @@ const call = (name: string, args: unknown, output?: string, status = "completed"
     inputSummary: JSON.stringify(args),
     ...(output !== undefined && { output }),
   });
+
+/// The cmux server's shape for the same call (cli/mcp/upstream.rs), as Claude Code recorded one on
+/// 2026-10-24: `mcp__cmux__subsessions_<tool>`, its output the structured result's JSON.
+const viaCmux = (name: string, args: unknown, result?: unknown, status = "completed") =>
+  tool(`mcp__cmux__subsessions_${name}`, "other", status, {
+    inputSummary: JSON.stringify(args),
+    ...(result !== undefined && { output: JSON.stringify(result) }),
+  });
+
+/// A recorded `start_session` request: a lane's brief, Markdown with quotes and blank lines.
+const BRIEF = [
+  "You are **net-retries**, a Claude Opus lane started by the coordinator. Use subagents if useful.",
+  "",
+  'The ask, word for word: "the retry banner still flickers when the network comes back".',
+  "",
+  "STEP 1 (read-only): find where `RetryBanner` decides to show, and why it shows twice.",
+  "STEP 2: fix it in `src/net/retry.ts`, with a test.",
+  "",
+  "- Done when: the banner shows once per outage.",
+  "- Stop after the PR is open.",
+].join("\n");
+
+/// Its recorded result, with the started session's row (hub/subsessions.rs `subsession_row`).
+const startedResult = (id: string, shortName: string, harness: string) => ({
+  depth: 1,
+  harness,
+  mode: "bypassPermissions",
+  name: `claude-sr2/${shortName}`,
+  // The started session's row, its other fields left out.
+  session: {
+    children: 0,
+    depth: 1,
+    doing: `Working on: You are ${shortName}…`,
+    harness,
+    sessionId: id,
+    state: "working",
+  },
+  sessionId: id,
+  shortName,
+  turnId: `${id}-turn`,
+  waitsForSlot: false,
+});
+
+/// A recorded `wait_for_sessions` result: a finished review's reply (Markdown) and one still running.
+const REVIEW_REPLY = [
+  "**Verdict: SHIP** at `bffefae`. No blocking issues; one comment posted on the PR.",
+  "",
+  "- Only one of `tabs`, `workspace` or `workspaces` is accepted.",
+  "- A replay is checked first, ids are deduped, and the name is trimmed.",
+].join("\n");
 
 const started = (shortName: string, id: string) =>
   call(
@@ -55,6 +106,14 @@ const CHILDREN: AcpmuxSessionEntry[] = [
   child("sub-deps", "deps", { lane: "input", indicator: "input", status: "waiting", waitingOn: { on: "permission" } }),
   child("sub-bench", "bench", { lane: "failed", indicator: "failed" }),
   child("sub-lint", "lint", { unread: true }),
+  child("sub-retries", "net-retries", {
+    harness: "claude",
+    lane: "working",
+    indicator: "working",
+    status: "running",
+    doing: "Read src/net/RetryBanner.tsx",
+  }),
+  child("sub-review", "review", { harness: "codex" }),
   child("sub-fixture", "fixture", {
     startedBy: "sub-tests",
     lane: "working",
@@ -78,6 +137,66 @@ export default agentPaneEntry({
   height: 560,
   covers: ["agent-session/acpmux/conversation/SubsessionCallCard.tsx"],
   variants: {
+    recorded: {
+      note: "A recorded start_session through the cmux server (mcp__cmux__subsessions_start_session): the sub-session's card with its harness, model, live state (the working spinner) and what it does now, Open chat, and its prompt as Markdown cut to three lines with Show prompt. The call's JSON is behind Raw.",
+      snapshot: withChildren(
+        [
+          user("Start a lane for the retry banner.", 3),
+          activity(
+            [
+              viaCmux(
+                "start_session",
+                { name: "net-retries", harness: "claude", model: "opus", cwd: "/tmp/lanes", prompt: BRIEF },
+                startedResult("sub-retries", "net-retries", "claude"),
+              ),
+            ],
+            2.8,
+          ),
+          assistant("Started net-retries.", 2.5),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "recorded-wait": {
+      note: "A recorded wait_for_sessions through the cmux server: review done with its last reply as Markdown (cut to three lines, Show more), net-retries still working.",
+      snapshot: withChildren(
+        [
+          user("Wait for the review.", 2),
+          activity(
+            [
+              viaCmux(
+                "wait_for_sessions",
+                { sessionIds: ["sub-review", "sub-retries"], timeoutSeconds: 50 },
+                {
+                  sessions: [
+                    {
+                      children: 0,
+                      depth: 1,
+                      harness: "codex",
+                      indicator: "done",
+                      lastReply: REVIEW_REPLY,
+                      sessionId: "sub-review",
+                      shortName: "review",
+                      state: "idle",
+                    },
+                    {
+                      depth: 1,
+                      harness: "claude",
+                      sessionId: "sub-retries",
+                      shortName: "net-retries",
+                      state: "working",
+                    },
+                  ],
+                },
+              ),
+            ],
+            1.8,
+          ),
+          assistant("The review says SHIP; net-retries is still working.", 1.5),
+        ],
+        { isWorking: true },
+      ),
+    },
     started: {
       note: "Five sub-sessions started, each with its state now: tests working (what it does under it, 2 queued), docs waiting on a question (its prompt after), deps waiting for permission, bench failed, lint done. A name opens that chat beside this one.",
       snapshot: withChildren(
@@ -97,6 +216,22 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    avatars: {
+      note: "Sub-sessions whose person uploaded an avatar (the chat menu's Set Avatar…): each card draws it in place of the harness mark (a synthetic picture).",
+      snapshot: withChildren(
+        [
+          user(prompt, 6),
+          activity([started("tests", "sub-tests"), started("docs", "sub-docs"), started("lint", "sub-lint")], 5.8),
+          assistant("Started three sub-sessions; I'll collect their reports.", 5.5),
+        ],
+        { isWorking: true },
+      ),
+      native: { "agent.avatar": { src: UPLOADED_AVATAR } },
+      play: async (ctx) => {
+        avatarsChanged(ctx.document, ["sub-tests", "sub-docs", "sub-lint"]);
+        await ctx.waitFor(() => ctx.document.querySelectorAll("img.cv-agent-avatar").length >= 3);
+      },
     },
     messages: {
       note: "Messages to sub-sessions and how each was delivered: read at its next step (a working one), queued at a position, or a turn of its own (an idle one).",

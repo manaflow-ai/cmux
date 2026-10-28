@@ -67,7 +67,7 @@ struct CloudMove {
         if case .show(let shown) = left { return perform(tab: tab, invocation: invocation) { try await reshow(shown, tab: tab, invocation: invocation) } }
         guard let record = tab.agentSession else { throw ActionFailure(message: CloudMoveStrings.notAChat) }
         let tabs = services.agentTabs
-        guard services.machines.daemon(forTab: tab).isLocal, record.host != tabs.chiefHost,
+        guard services.machines.daemon(forTab: tab).isLocal, !record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix),
               !record.host.hasPrefix(MachineRegistry.registryHostPrefix) else {
             throw ActionFailure(message: CloudMoveStrings.alreadyRemote)
         }
@@ -111,7 +111,7 @@ struct CloudMove {
     /// A stop: records what Retry does for tab `tabID` and offers it on the toast.
     private func stopped(_ error: any Error, tab tabID: String, toast toastID: String, invocation: ActionInvocation) -> ActionWorkFailure {
         // Any other error keeps the Retry a stop saved before (a move pinned to its machine).
-        let failure = (error as? Failure) ?? Failure(message: (error as? ActionFailure)?.message ?? CloudMoveStrings.moveFailed(String(describing: error)),
+        let failure = (error as? Failure) ?? Failure(message: (error as? ActionFailure)?.message ?? CloudMoveStrings.moveFailed(CloudStrings.errorText(error)),
                                                      retry: services.cloud.moveRetries[tabID])
         services.cloud.logger.error("cloud move failed: \(failure.message, privacy: .public)")
         services.cloud.moveRetries[tabID] = failure.retry
@@ -154,9 +154,15 @@ struct CloudMove {
             toast("cloud-move-" + tab.id, CloudMoveStrings.moving, duration: .seconds(600))
         }
         let remote = try await sync(folder, to: machineSocket, machine: name, cli: cli, retry: again)
+        // The Cloud API's answer for this app on the link in use, read now and never kept: the
+        // machine takes the chat only on `owner`, never on its own record (its agents can write it).
+        // The answer is bound to the link process it came from (`--to-pid`): the pump sends it
+        // only over a connection that process serves, so a link replaced meanwhile gets none.
+        let ownerPID = await machine.link?.ownerPID
         let moved: CloudMoveCLI.Answer
         do {
-            moved = try await cli.agentMove(from: localSocket, surface: tab.surface.rawValue, to: machineSocket, cwd: remote.chat)
+            moved = try await cli.agentMove(from: localSocket, surface: tab.surface.rawValue, to: machineSocket, cwd: remote.chat,
+                                            vmKind: ownerPID == nil ? "none" : "owner", toPID: ownerPID)
         } catch {
             // Timed out or didn't run to its answer: the move may have committed, and a rerun resolves it.
             services.cloud.logger.error("cloud move: link agent move: \(String(describing: error), privacy: .public)")
@@ -201,7 +207,7 @@ struct CloudMove {
         do {
             try await show(shown.session, harness: shown.harness, on: machine, in: shown.folder, name: shown.name, key: shown.key)
         } catch {
-            throw Failure(message: CloudMoveStrings.tabFailed(machine.machine.title, String(describing: error)), retry: .show(shown))
+            throw Failure(message: CloudMoveStrings.tabFailed(machine.machine.title, CloudStrings.errorText(error)), retry: .show(shown))
         }
         // Reopen Closed never offers it.
         do {
@@ -221,7 +227,7 @@ struct CloudMove {
                 last = try await cli.syncPush(socket: socket, local: folder.root, remote: remote.folder)
             } catch {
                 // Timed out or didn't launch: nothing moved yet, so Retry runs the move again on this machine.
-                throw Failure(message: CloudMoveStrings.syncFailed(machine, String(describing: error)), retry: retry)
+                throw Failure(message: CloudMoveStrings.syncFailed(machine, CloudStrings.errorText(error)), retry: retry)
             }
             if last.ok { return remote }
             // Not this machine's home (an image without the work user): the next root.

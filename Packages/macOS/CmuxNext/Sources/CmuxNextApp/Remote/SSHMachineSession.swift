@@ -1,9 +1,11 @@
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextSidebar
 import CmuxNextWorkspaceRepair
 import Foundation
 import Observation
+import CmuxNextWakeups
 
 /// One SSH machine: its saved route, its link (`SSHMachineLink`), and the
 /// daemon connection over the link socket. Like `CloudMachineSession`, the
@@ -46,11 +48,12 @@ final class SSHMachineSession {
     @ObservationIgnored private var statusTask: Task<Void, Never>?
     @ObservationIgnored private var startupTask: Task<Void, Never>?
 
+    /// - Parameter mainWork: The app's main-thread scheduler (the local daemon's), for the machine's event batches.
     init(host: SSHHost, binary: URL, paths: SSHPaths, environment: @escaping @Sendable () async -> [String: String],
-         machineID: String? = nil) {
+         machineID: String? = nil, mainWork: MainWorkScheduler) {
         self.host = host
         self.machineID = machineID ?? host.machineID
-        daemon = DaemonService(machineID: self.machineID)
+        daemon = DaemonService(machineID: self.machineID, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
         // The actor reports each status change; only the latest matters.
         let (statuses, continuation) = AsyncStream.makeStream(of: SSHConnectionMachine.Status.self, bufferingPolicy: .bufferingNewest(8))
         link = SSHMachineLink(host: host, binary: binary, paths: paths, environment: environment) { continuation.yield($0) }

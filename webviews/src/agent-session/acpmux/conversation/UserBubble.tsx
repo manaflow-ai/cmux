@@ -1,8 +1,7 @@
 // A prompt's bubble, with its action row under its right edge (Leo's spec, after Claude Code
-// desktop's): the read receipt (one check once acpmux has it, two once the agent read it, "Read by
-// Claude Code" on hover), the prompt's age ("3 days ago"; "Oct 18, 2026, 10:16 PM" above it on
-// hover), a dot, then Copy, Retry and Fork from here, each naming itself on hover, then cmux's Edit
-// where the chat can fork before the prompt, then More (its right-click menu). No Pin here: an
+// desktop's): the prompt's age ("3 days ago"; "Oct 18, 2026, 10:16 PM" above it on
+// hover), then Copy, Edit, Retry and Fork from here, each naming itself on hover. The ellipsis
+// is gone; its menu remains on right-click. No Pin here: an
 // answer's row has it. Fork hides where the harness cannot fork there (cx-ncc.60, Claude parity;
 // Leo, GUI push 2026-10-20/21). The row shows on hover or keyboard focus only, its height kept, so
 // nothing moves when it appears. Edit opens the prompt in place; Send forks the chat through the
@@ -20,25 +19,24 @@ import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
 import { DeliveryMark } from "./PromptDelivery";
-import { ChevronLeft, ChevronRight, ImageIcon, Pencil } from "./icons";
+import { ChevronLeft, ChevronRight, ImageIcon, Pencil, Spinner } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
-import {
-  ForkButton,
-  MessageCopy,
-  MessageDot,
-  MessageMore,
-  MessageTime,
-  PromptRetry,
-  ReadReceipt,
-  ROW_ICON,
-} from "./MessageActions";
+import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
+import { ForkButton, forkWithFeedback, MessageCopy, MessageTime, PromptRetry, ROW_ICON } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
-/// `pending` is a waiting steer's clock and Send now (PendingSteer.tsx): it sits beside the bubble's
-/// left edge, on the bubble's own row, so it takes no line of its own (Leo, 2026-10-21).
-export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: string; pending?: ReactNode }) {
+/// A waiting steer replaces the hover actions with queue controls until delivery is accepted.
+export function UserBubble({
+  row,
+  text,
+  pending,
+}: {
+  row: AcpmuxRow;
+  text: string;
+  pending?: (actions: ReactNode) => ReactNode;
+}) {
   const t = useT();
   const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
   const branch = branches?.of.get(row.id);
@@ -48,6 +46,26 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
   const own = promptTurns?.get(row.id);
   const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
   const resend = row.resend ?? row.text ?? text;
+  // Only a recorded companion relation or an exact retained original path proves that a
+  // file belongs to an image. An unrelated file after an image must remain visible on replay.
+  const originals = new Set(
+    row.retryAttachments?.flatMap((file) => (file.kind === "image" && file.originalPath ? [file.originalPath] : [])),
+  );
+  const recorded = row.inlineParts?.flatMap((part): FileAttachmentInfo[] =>
+    part.kind === "file" &&
+    part.companionOf === undefined &&
+    !part.mimeType?.startsWith("video/") &&
+    !originals.has(attachmentPath(part.uri) ?? "")
+      ? [{ ...part, path: attachmentPath(part.uri) }]
+      : [],
+  );
+  const files = recorded?.length
+    ? recorded
+    : row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
+        file.kind === "link" && !file.mimeType.startsWith("video/")
+          ? [{ ...file, size: file.mimeType || file.size > 0 ? file.size : undefined }]
+          : [],
+      );
   // A prompt that went out with an image as `data:` text (before the composer stopped making them)
   // reads each one as its name: a bubble never draws base64 (inlineImages.ts, Leo 2026-10-20).
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
@@ -73,6 +91,13 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
   return (
     <>
       {row.images && row.images.length > 0 && <SentImages images={row.images} />}
+      {Boolean(files?.length) && (
+        <div className="cv-user__files">
+          {files!.map((file, index) => (
+            <FileAttachment key={index} file={file} />
+          ))}
+        </div>
+      )}
       {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
           bubble under them read as a lost message; Leo 2026-10-21). */}
       {text.trim() && (
@@ -80,11 +105,13 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
           <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
           {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
           {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
-          {pending}
         </div>
       )}
-      {text && !row.failed && !row.queued && (
-        <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
+      {!row.failed && !row.queued && (text || pending) && (
+        <UserFooter
+          className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}
+          pending={pending}
+        >
           {branch && branches && (
             <span className="cv-user__versions">
               <button
@@ -101,6 +128,7 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
                 className="cv-user__version-count"
                 aria-label={t("message.versionCount", { index: branch.index + 1, total: branch.sessions.length })}
               >
+                {branches.running?.has(branch.sessions[branch.index] ?? "") && <Spinner size={12} loading />}
                 {branch.index + 1}/{branch.sessions.length}
               </span>
               <button
@@ -115,13 +143,8 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
               </button>
             </span>
           )}
-          <ReadReceipt row={row} />
           <MessageTime at={row.at} className="cv-user__time" />
-          <MessageDot />
           <MessageCopy text={row.text ?? text} />
-          {/* Not while it is still on its way: a second send would duplicate it. */}
-          {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
-          {forkThrough !== undefined && <ForkButton onFork={() => fork!(forkThrough)} />}
           {through !== undefined && (
             <button
               type="button"
@@ -133,11 +156,27 @@ export function UserBubble({ row, text, pending }: { row: AcpmuxRow; text: strin
               <Pencil size={ROW_ICON} />
             </button>
           )}
-          <MessageMore rowId={row.id} />
-        </div>
+          {/* Not while it is still on its way: a second send would duplicate it. */}
+          {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
+          {forkThrough !== undefined && (
+            <ForkButton onFork={() => forkWithFeedback(forkThrough, () => fork!(forkThrough))} />
+          )}
+        </UserFooter>
       )}
     </>
   );
+}
+
+function UserFooter({
+  className,
+  pending,
+  children,
+}: {
+  className: string;
+  pending?: (actions: ReactNode) => ReactNode;
+  children: ReactNode;
+}) {
+  return <div className={className}>{pending ? pending(children) : children}</div>;
 }
 
 /// A prompt's images, each opening the image viewer; IncomingMessageCard shows another agent's.

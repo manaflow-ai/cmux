@@ -7,8 +7,8 @@ extension AppActionContext {
     var roomStore: DaemonStore { services.machines.local.store }
 
     func requireRooms() throws {
-        guard services.machines.local.supports(DaemonCapabilities.shared.profiles) else {
-            throw ActionFailure(message: services.machines.local.missingCapabilityMessage(DaemonCapabilities.shared.profiles))
+        guard services.machines.local.supports(DaemonCapability.profiles.rawValue) else {
+            throw ActionFailure(message: services.machines.local.missingCapabilityMessage(DaemonCapability.profiles.rawValue))
         }
     }
 
@@ -41,40 +41,70 @@ extension AppActionContext {
     }
 }
 
-/// `space.setDefaults` arguments: `cwd` (a directory, `~` expanded) and
-/// `env` (a JSON object of strings). Both named and empty clears the
-/// defaults; a run that names neither sets nothing (the handler asks).
+/// `space.setDefaults` arguments: `cwd` (an absolute directory, `~` expanded) and
+/// `env` (a JSON object of strings). A named argument replaces its field and an
+/// empty one clears it; a field the run does not name keeps the space's value, so
+/// `--cwd X` alone keeps the environment. Both named and empty clears the
+/// defaults; a run that names neither sets nothing (the handler asks). A value
+/// that is not text, or a relative `cwd` (the socket makes a bare `--cwd` the
+/// string "true"), is refused rather than clearing or setting a bad directory.
 enum RoomDefaultsArguments {
     /// Whether the run names `cwd` or `env`, even empty.
     static func names(_ invocation: ActionInvocation) -> Bool {
         invocation["cwd"] != nil || invocation["env"] != nil
     }
 
-    /// `invocation` plus the space's current `env`, so the palette's answer
-    /// (which supplies only `cwd`) keeps the environment it does not show.
-    static func keepingEnv(of defaults: ProfileDefaults?, _ invocation: ActionInvocation) -> ActionInvocation {
-        var invocation = invocation
-        if let env = defaults?.env, !env.isEmpty,
-           let data = try? JSONSerialization.data(withJSONObject: env, options: [.sortedKeys]),
-           let text = String(data: data, encoding: .utf8) {
-            invocation.arguments["env"] = .string(text)
+    /// The fields a run names, parsed: nil leaves a field as the space has it. Nonisolated: the
+    /// defaults run applies it off the main actor, to the defaults the daemon holds.
+    nonisolated struct Patch: Sendable, Equatable {
+        /// `.some(nil)` clears the directory.
+        var cwd: String??
+        var env: [String: String]?
+
+        /// Clear Space Terminal Defaults…: both fields cleared.
+        static let clear = Patch(cwd: .some(nil), env: [:])
+
+        /// `current` with the named fields replaced.
+        func applied(to current: ProfileDefaults?) -> ProfileDefaults {
+            var defaults = current ?? ProfileDefaults()
+            if let cwd { defaults.cwd = cwd }
+            if let env { defaults.env = env }
+            return defaults
         }
-        return invocation
     }
 
-    static func parse(_ invocation: ActionInvocation) throws -> ProfileDefaults {
-        var defaults = ProfileDefaults()
-        if let cwd = invocation["cwd"]?.stringValue?.trimmingCharacters(in: .whitespaces), !cwd.isEmpty {
-            defaults.cwd = (cwd as NSString).expandingTildeInPath
+    /// The run's named fields; throws on a value that is not text or a relative `cwd`.
+    static func patch(_ invocation: ActionInvocation) throws -> Patch {
+        try Patch(cwd: invocation["cwd"].map(directory), env: invocation["env"].map(environment))
+    }
+
+    /// The space's defaults after this run: `current` with the named fields replaced.
+    static func merged(_ invocation: ActionInvocation, into current: ProfileDefaults?) throws -> ProfileDefaults {
+        try patch(invocation).applied(to: current)
+    }
+
+    private static func text(_ value: ActionValue) throws -> String {
+        guard let text = value.stringValue else { throw ActionFailure.invalidTarget(RoomStrings.defaultsMustBeText) }
+        return text.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// The directory `value` names; nil when empty (clear it).
+    private static func directory(_ value: ActionValue) throws -> String? {
+        let text = try text(value)
+        guard !text.isEmpty else { return nil }
+        let path = (text as NSString).expandingTildeInPath
+        guard path.hasPrefix("/") else { throw ActionFailure.invalidTarget(RoomStrings.cwdMustBeAbsolute) }
+        return path
+    }
+
+    private static func environment(_ value: ActionValue) throws -> [String: String] {
+        let text = try text(value)
+        guard !text.isEmpty else { return [:] }
+        guard let data = text.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              object.values.allSatisfy({ $0 is String }) else {
+            throw ActionFailure.invalidTarget(RoomStrings.envMustBeObject)
         }
-        if let text = invocation["env"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty {
-            guard let data = text.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  object.values.allSatisfy({ $0 is String }) else {
-                throw ActionFailure.invalidTarget(RoomStrings.envMustBeObject)
-            }
-            defaults.env = object.compactMapValues { $0 as? String }
-        }
-        return defaults
+        return object.compactMapValues { $0 as? String }
     }
 }

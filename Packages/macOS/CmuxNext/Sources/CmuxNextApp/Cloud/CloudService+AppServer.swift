@@ -1,7 +1,8 @@
 import AppKit
 import CmuxNextCloud
+import CmuxNextCloudUI
+import CmuxNextCompat
 import CmuxNextDaemon
-import CmuxNextHomeEngine
 import CmuxNextSidebar
 import Foundation
 
@@ -25,36 +26,64 @@ extension CloudService {
         return machines
     }
 
-    /// One `cloud.machine.create` through ``CloudMachineCreateFlow``.
-    func appServerCreate(name: String?, startedByPerson: Bool, askedBy: String?, onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
+    /// One `cloud.machine.create` (or `cloud.environment.boot` for `environment`) through ``CloudMachineCreateFlow``.
+    func appServerCreate(name: String?, startedByPerson: Bool, askedBy: String?, environment: String? = nil,
+                         onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
+        let flow = try await appServerFlow(onSent: onSent)
+        let record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, gate: createGate, environment: environment)
+        guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "the create answered no machine") }
+        return machine
+    }
+
+    /// A money or destructive Cloud op a person started in this app (`cloud.environment.build`,
+    /// `.delete`) through the same approval loop as a create; `confirm` is its native confirmation.
+    func appServerApprovedCall(_ op: String, args: JSONValue, confirm: @MainActor () async -> Bool) async throws -> JSONValue {
+        try await appServerFlow(onSent: {}).approvedCall(op, args: args, confirm: confirm)
+    }
+
+    /// The team's Cloud environments for the New Cloud Workspace dialog; none when the list fails
+    /// (the dialog then offers only a new one).
+    func appServerEnvironmentOptions() async -> [CloudWorkspaceSetupWizard.EnvironmentOption] {
+        guard let answer = try? await appOps("cloud.environment.list", .object([:]), nil, .script) else { return [] }
+        return (answer["environments"]?.arrayValue ?? []).compactMap { value in
+            guard let id = value["id"]?.stringValue, let name = value["name"]?.stringValue else { return nil }
+            return CloudWorkspaceSetupWizard.EnvironmentOption(id: id, name: name)
+        }
+    }
+
+    /// Saves a new environment (`cloud.environment.set`) for the New Cloud Workspace dialog; its id.
+    func appServerSaveEnvironment(_ new: CloudWorkspaceSetupWizard.NewEnvironment) async throws -> String {
+        let args: JSONValue = .object(["name": .string(new.name), "repo": .string(new.repo.spec), "setup_script": .string(new.setupScript)])
+        let answer = try await appOps("cloud.environment.set", args, UUID().uuidString, .user)
+        guard let id = answer["environment"]?["id"]?.stringValue else {
+            throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.environment.set answered no environment")
+        }
+        return id
+    }
+
+    /// The approval-aware flow every person-confirmed app-server op runs through.
+    private func appServerFlow(onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachineCreateFlow {
         let approvals = CloudApprovalAnswer(call: sessionCall())
         let ops = appOps
         // The team the relay's create bills: the install token's team claim,
         // captured now, when the person starts or confirms this create.
-        let team = Self.team(ofToken: try await installIdentity.installToken()) ?? ""
+        let team = MacInstallIdentity.team(ofToken: try await installIdentity.installToken()) ?? ""
         let flow = CloudMachineCreateFlow(
             run: { op, args, key, origin in
                 await onSent()
                 return try await ops(op, args, key, origin)
             },
             confirm: { [weak self] prompt in await self?.confirmCreate?(prompt) ?? false },
-            approve: { request, params in
-                try await approvals.approve(request: request, op: "cloud.machine.create", params: try JSONEncoder().encode(params), team: team)
+            approve: { request, op, params in
+                try await approvals.approve(request: request, op: op, params: try JSONEncoder().encode(params), team: team)
             },
             pause: { attempt in
                 // wakeup-allow: bounded same-key retry of a retryable approval.pending after the person approved (cx-t2rz)
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
             }
         )
-        let record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy)
-        guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.create answered no machine") }
-        return machine
+        return flow
     }
-
-    /// The `team` claim of an install token (the owner's own token over
-    /// TLS; read for consistency, never trusted as a credential). Nil when
-    /// the token is not a JWT with a team.
-    nonisolated static func team(ofToken token: String) -> String? { HomeCloudLease.team(ofJWT: token) }
 
     /// POSTs to the API Worker as the signed-in person (Stack session), the
     /// way the feed does; used only to answer a G8 approval after the
@@ -89,10 +118,20 @@ extension CloudPresenter {
     /// Confirms a Cloud machine create: true only for the person's click on Create; no window answers
     /// false. An agent's or a script's request waits in the sidebar's card (`asks`), the backend's hold in a sheet.
     /// `chatOpen` says whether an agent chat is still open: a card its asking chat had goes, a no, when the chat closes.
-    @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?, chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true }) async -> Bool {
-        let (intro, machine) = switch prompt {
-        case .agentRequest(let machine): (CloudStrings.createRequestDetail, machine)
-        case .approval(_, let machine): (CloudStrings.createConfirmApproval, machine)
+    @MainActor static func confirmCreate(_ prompt: CloudMachineCreateFlow.Prompt, in window: NSWindow?, asks: SidebarAsks?, chatOpen: @escaping @MainActor @Sendable (String) -> Bool = { _ in true },
+                                         openPricing: @MainActor (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }) async -> Bool {
+        if case .upgrade(let need) = prompt {
+            // No window or sidebar to show the card in: nothing is opened without the person's click.
+            guard let asks, window != nil else { return false }
+            let upgrade = await asks.ask(CloudStrings.upgradeTitle, detail: CloudStrings.upgradeDetail(need.reason), symbol: "cloud", yes: CloudStrings.upgradeButton, no: CloudStrings.notNow)
+            if upgrade { openPricing(StaticURL.pricing.url) }
+            return upgrade
+        }
+        let intro: String, machine: CloudMachineCreateFlow.Machine
+        switch prompt {
+        case .agentRequest(let asked): (intro, machine) = (CloudStrings.createRequestDetail, asked)
+        case .approval(_, let held): (intro, machine) = (CloudStrings.createConfirmApproval, held)
+        case .upgrade: return false // answered above
         }
         let lines = (machine.name.map { [CloudStrings.createConfirmName($0)] } ?? []) + (machine.sizeShown ? [CloudStrings.createConfirmSize(cpu: machine.cpu, memoryGB: machine.memoryMB / 1024, diskGB: machine.diskMB / 1024)] : [])
         if case .agentRequest = prompt, let asks { return window != nil ? await asks.ask(CloudStrings.createConfirmTitle, detail: intro, lines: lines, symbol: "cloud", yes: CloudStrings.createConfirmButton, no: CloudStrings.cancel, asker: machine.askedBy, present: chatOpen) : false }

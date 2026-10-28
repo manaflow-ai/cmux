@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxTheme
 public import Observation
 import CmuxNextCompat
+public import CmuxNextDesignTokens
 
 /// A non-view object (controller, layer owner) that caches resolved theme
 /// colors and must refresh them on a theme change. Views need nothing: the
@@ -20,9 +21,12 @@ public protocol ThemeResponsive: AnyObject {
 /// and appearance handlers re-resolve, and (4) calls registered
 /// `ThemeResponsive` objects (non-view owners of resolved colors). Views
 /// never branch on the theme themselves.
+///
+/// The app's store is the one ``ThemeScope/app`` roots on (`ThemeScope.app.store`); the
+/// composition root (`AppServices.themeStore`) hands that reference to the App's owners, and a
+/// scope reads its tree's store as ``ThemeScope/store``. Tests make their own (`ThemeStore()`).
 @Observable
 public final class ThemeStore {
-    public static let shared = ThemeStore(publishesGlobally: true)
 
     public private(set) var tokens: ThemeTokens
     public private(set) var input: ThemeInput
@@ -40,6 +44,12 @@ public final class ThemeStore {
     public private(set) var machineColors = MachineColorOverrides.none
 
     @ObservationIgnored private let publishesGlobally: Bool
+    /// The root scope of this store's tree (``ThemeScope/app`` for the app's store): it tells its
+    /// subtree after a change.
+    @ObservationIgnored weak var root: ThemeScope?
+    /// Bumped when any theme scope's shown picture or tuning changes (``ThemeScope/shownWindowOpacity``
+    /// readers observe it).
+    @ObservationIgnored package let backdropRevision = BackdropRevision()
     /// The Ghostty config's colors reached the windows once: later changes are color changes that
     /// animate (`ColorTransition.current` is instant until then, so launch never fades in).
     @ObservationIgnored public private(set) var hasAppliedConfig = false
@@ -51,10 +61,14 @@ public final class ThemeStore {
         publishesGlobally = false
     }
 
-    private init(publishesGlobally: Bool) {
+    /// The app's store: a change repaints every window. Only ``ThemeScope/app`` makes one.
+    init(publishesGlobally: Bool) {
         input = .ghosttyDefault
         tokens = .fallback
         self.publishesGlobally = publishesGlobally
+        // The app's store comes first at launch (ThemeBridge.start): the UI font (Inter) is
+        // registered and its page script read off the main thread before chrome or a page needs them.
+        if publishesGlobally { BundledFonts.prepareInBackground() }
     }
 
     /// The appearance that matches the theme, for windows and panels.
@@ -78,7 +92,7 @@ public final class ThemeStore {
             // the store's observers (Settings' Ghostty preview); nothing repaints.
             if input != previous {
                 generation += 1
-                if publishesGlobally { ThemeScope.app.storeDidChange() }
+                if publishesGlobally { root?.storeDidChange() }
             }
             return false
         }
@@ -92,7 +106,7 @@ public final class ThemeStore {
             // surfaces switch at once). Not the first config of the launch: windows show it as
             // their first colors.
             ThemeRepaint.batch {
-                ThemeScope.app.storeDidChange()
+                root?.storeDidChange()
                 for window in NSApp?.windows ?? [] { refresh(window, crossfade: !firstConfig) }
             }
         }
@@ -123,7 +137,7 @@ public final class ThemeStore {
         // Rose Pine) while an overridden scope's theme still differs, so scopes re-derive anyway.
         if !apply(input), publishesGlobally {
             ThemeRepaint.batch {
-                ThemeScope.app.storeDidChange()
+                root?.storeDidChange()
                 repaintAll(crossfade: true)
             }
         }
@@ -139,7 +153,7 @@ public final class ThemeStore {
         generation += 1
         if publishesGlobally {
             ThemeRepaint.batch {
-                ThemeScope.app.accentSourceDidChange()
+                root?.accentSourceDidChange()
                 repaintAll(crossfade: true)
             }
         }

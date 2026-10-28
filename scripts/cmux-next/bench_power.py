@@ -202,7 +202,8 @@ def wipe_state(bundle: str):
                    "Caches", "WebKit", "HTTPStorages", "Saved Application State", "Preferences"):
         folder = os.path.join(library, parent)
         for name in os.listdir(folder) if os.path.isdir(folder) else []:
-            if name.startswith(bundle_id):
+            # This bundle's own entries only: another tag can start with this one's name.
+            if name == bundle_id or name.startswith(bundle_id + "."):
                 path = os.path.join(folder, name)
                 shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) else os.remove(path)
     shutil.rmtree(os.path.join(library, "Application Support/cmux/tags", tag), ignore_errors=True)

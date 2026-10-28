@@ -225,7 +225,8 @@ Rules, and how they improve on the references:
   visible text such as card descriptions, heading anchors and table cells; the
   corpus README lists the per-page sizes.
 - **Printing** a snapshot prints its diff against the previous snapshot of the
-  same tab when the diff is shorter than the tree; for a tree over 2,048
+  same document in the tab (a navigation to a new document starts over: a diff
+  between two documents says nothing) when the diff is shorter than the tree; for a tree over 2,048
   characters the diff must be at least 30% shorter, because a diff that is
   most of a large page reads worse than the page. `.tree` and `.diff` are
   always available and always complete; what prints is at most `maxChars`

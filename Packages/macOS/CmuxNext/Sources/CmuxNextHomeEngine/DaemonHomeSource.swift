@@ -172,7 +172,7 @@ public nonisolated final class DaemonHomeSource: HomeSource {
     /// The owner's thread read; a daemon from before `conversation-thread-v1` scans history.
     public func thread(of conversation: ConversationID, root: MessageID, after afterSeq: Seq, limit: Int) async throws -> ThreadPage {
         let connection = try requireConnection()
-        guard await connection.identity?.supports(DaemonCapabilities.shared.conversationThread) == true else {
+        guard await connection.identity?.supports(DaemonCapability.conversationThread.rawValue) == true else {
             return try await scanThread(of: conversation, root: root, after: afterSeq, limit: limit)
         }
         let page = try await Self.mapped {
@@ -217,7 +217,7 @@ public nonisolated final class DaemonHomeSource: HomeSource {
         // A daemon from before conversation-threads-v1 does not move the
         // sender's cursor: move it here, so my own sends never count as unread.
         if case .sendMessage = intent.op, let seq = result.seq, !result.replayed,
-           await connection.identity?.supports(DaemonCapabilities.shared.conversationThreads) != true {
+           await connection.identity?.supports(DaemonCapability.conversationThreads.rawValue) != true {
             readThrough(seq, in: mapped.conversation, on: connection)
         }
         return HomeOpResult(rev: result.rev, replayed: result.replayed, conversation: ConversationID(mapped.conversation))

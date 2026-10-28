@@ -106,7 +106,7 @@ extension PaletteModel {
     /// off the main actor. An empty query shows its last rank or its
     /// unranked rows at once (`searchEmpty`); for a real query the rows on
     /// screen stay until its result lands.
-    func search(_ state: PageState) {
+    func search(_ state: PageState) { // perf-hot: 4ms palette-key (every query key; ranking stays off main)
         let generation = state.generation
         switch state.kind {
         case .textInput(let spec):
@@ -176,37 +176,53 @@ extension PaletteModel {
     }
 
     /// A page that finds its own rows for the query (`queryResults`): the
-    /// newest query's task replaces the one before, and its rows land with
-    /// the typed words highlighted in their titles.
-    func searchQueryResults(_ state: PageState, results: @escaping @MainActor (String) async -> [PaletteItem], generation: Int) {
+    /// newest query's stream replaces the one before, and each of its answers
+    /// lands with the typed words highlighted in their titles. The rows are
+    /// final (Return no longer waits, the spinner stops) when the stream ends.
+    func searchQueryResults(_ state: PageState, results: @escaping @MainActor (String) -> AsyncStream<[PaletteItem]>,
+                            generation: Int) {
         searchGeneration += 1
         let searchID = searchGeneration
         let query = state.query
         searchTask?.cancel()
         // The search field's spinner while the page looks (Search All Windows reads every terminal first).
+        state.answeringSearch = searchID
         if state === current { isLoading = true }
+        let answers = results(query)
         searchTask = Task { [weak self, weak state] in
-            let items = await results(query)
+            // However this search ends, it no longer answers the page (a newer one may).
+            defer { if state?.answeringSearch == searchID { state?.answeringSearch = nil } }
+            let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
+            var last: [PaletteResultSection]?
+            for await items in answers {
+                guard !Task.isCancelled, let self, let state, searchID == self.searchGeneration else { return }
+                let sections = Self.querySections(items, words: words)
+                last = sections
+                self.deliver(sections, to: state, generation: generation, complete: false)
+            }
             guard !Task.isCancelled, let self, let state, searchID == self.searchGeneration else { return }
             self.searchTask = nil
-            let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
-            // One block per section, in the order the sections first appear.
-            var sections: [PaletteResultSection] = []
-            for item in items {
-                let row = PaletteRow(item: item, highlights: Self.wordHighlights(in: item.title, words: words), score: 0)
-                if let index = sections.firstIndex(where: { $0.section == item.section }) {
-                    sections[index] = PaletteResultSection(section: item.section, rows: sections[index].rows + [row])
-                } else {
-                    sections.append(PaletteResultSection(section: item.section, rows: [row]))
-                }
-            }
+            state.answeringSearch = nil
             if state === self.current { self.isLoading = false }
-            self.deliver(sections, to: state, generation: generation)
+            self.deliver(last ?? [], to: state, generation: generation)
             if self.pendingClose {
                 self.pendingClose = false
                 self.handle(.closeItem)
             }
         }
+    }
+
+    /// One block per section, in the order the sections first appear (linear: a search
+    /// can return thousands of terminal lines, and copying a section per row was quadratic).
+    static func querySections(_ items: [PaletteItem], words: [String]) -> [PaletteResultSection] {
+        var order: [PaletteSection] = []
+        var rowsBySection: [PaletteSection: [PaletteRow]] = [:]
+        for item in items {
+            let row = PaletteRow(item: item, highlights: wordHighlights(in: item.title, words: words), score: 0)
+            if rowsBySection[item.section] == nil { order.append(item.section) }
+            rowsBySection[item.section, default: []].append(row)
+        }
+        return order.map { PaletteResultSection(section: $0, rows: rowsBySection[$0] ?? []) }
     }
 
     /// Scalar offsets of every case-insensitive occurrence of `words` in `title`.
@@ -244,14 +260,16 @@ extension PaletteModel {
     /// for the level's current generation and keeps or moves the selection.
     /// `provisional` rows stand in until the ranked rows of the same
     /// generation land (`PaletteNavEvent.results`).
-    func deliver(_ sections: [PaletteResultSection], to state: PageState, generation: Int, provisional: Bool = false) {
+    /// `complete` false: more rows of the same generation follow (a `queryResults` stream reads on).
+    func deliver(_ sections: [PaletteResultSection], to state: PageState, generation: Int, provisional: Bool = false,
+                 complete: Bool = true) {
         guard pages[state.levelID] === state, state.generation == generation else { return }
         state.lastSections = sections
         state.awaitsRank = provisional
         if !provisional { recordShownDeferredItems(sections, on: state) }
         if shownLevelID == state.levelID { display(sections) }
         send(.results(levelID: state.levelID, generation: generation, rows: navRows(sections), replace: true,
-                      isFinal: !provisional && state.pendingProviders.isEmpty, emptyQuerySelection: state.emptyQuerySelection,
+                      isFinal: complete && !provisional && state.pendingProviders.isEmpty, emptyQuerySelection: state.emptyQuerySelection,
                       provisional: provisional))
     }
 

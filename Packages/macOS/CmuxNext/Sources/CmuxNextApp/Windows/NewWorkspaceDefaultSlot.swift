@@ -94,7 +94,7 @@ enum NewWorkspacePlacements {
     /// `windowID` (nil: the window that lists it): now when it is mirrored,
     /// else once the daemon reports it. `then` runs after, with the sidebar.
     static func expect(_ id: String, in windowID: String?, slot: WorkspaceSlot? = nil, byDefault: NewWorkspaceDefaultSlot?,
-                       then: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = nil, windows: WindowManager) {
+                       then: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)? = nil, windows: WindowManager) {
         guard slot != nil || byDefault != nil || then != nil else { return }
         windows.pendingPlacements[id] = PendingPlacement(window: windowID, slot: slot, byDefault: byDefault, then: then)
         if windows.services.machines.workspace(id: id) != nil { windows.applyPendingPlacements(live: [id]) }
@@ -104,4 +104,13 @@ enum NewWorkspacePlacements {
     static func home(_ machines: MachineRegistry) -> String? {
         machines.local.store.workspaces.first { $0.kind == SidebarMapping.homeKind }?.id
     }
+
+    /// The index a group formed for a new workspace takes (`createGroup`'s `index`, New Workspace in
+    /// New Group): first under `workspaces.newPlacement` `top` (the default), else last (`Int.max`).
+    /// The same rule as the Chief's subagent groups (`new_group_index` in optchat-chief workspaces.rs).
+    static func newGroupIndex(_ services: AppServices) -> Int {
+        newGroupIndex(for: services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback)
+    }
+
+    static func newGroupIndex(for placement: NewWorkspacePlacement) -> Int { placement == .top ? 0 : .max }
 }

@@ -56,13 +56,6 @@ PATH_OWNERS = {
     "scripts/whats-new/validate.py": frozenset(("release-notary",)),
     "scripts/whats-new/community.py": frozenset(("release-notary",)),
     "scripts/cmux-next/release-notes.py": frozenset(("release-notary",)),
-    # test_nightly_next_visual_smoke.py imports the judge and reads the scenes,
-    # the driver and the gate.
-    "scripts/cmux-next/visual-smoke/visual_check.py": frozenset(("release-notary",)),
-    "scripts/cmux-next/visual-smoke/scenes.json": frozenset(("release-notary",)),
-    "scripts/cmux-next/visual-smoke/drive.py": frozenset(("release-notary",)),
-    "scripts/cmux-next/visual-smoke/gate.sh": frozenset(("release-notary",)),
-
     # test_ci_runner_capability_resolver.py reads the capability map, the
     # resolver it imports, the reusable workflow that publishes the map, and
     # the one workflow wired to consume it.
@@ -74,6 +67,8 @@ PATH_OWNERS = {
     # workflow's runs-on against .github/runners.json.
     "scripts/ci/runner_routing_table.py": frozenset(("ci",)),
 
+    # test_ci_upload_artifact_retention.py reads its allowlist.
+    "tests/upload_artifact_retention_allowlist.json": frozenset(("ci",)),
     ".github/workflows/ci-health-report.yml": frozenset(("ci",)),
     ".github/workflows/ci-queue-janitor.yml": frozenset(("ci",)),
     ".github/workflows/required-checks-drift.yml": frozenset(("ci",)),

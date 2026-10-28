@@ -145,6 +145,8 @@ def check_verdicts():
         deferred_path = "actions/artifacts"
         merge_path = f"commits/{merge}"
         merge_commit = {merge_path: commit(merge, [base, head], f"Merge {head} into {base}")}
+        dispatch_path = "actions/workflows/cmux-next.yml/runs"
+        no_dispatch = (200, {"total_count": 0, "workflow_runs": []})
         script = preflight_step["run"]
         cases = [
             ("a lane push whose branch moved is superseded", "push", lane, head,
@@ -194,6 +196,31 @@ def check_verdicts():
              {ref_path: (200, {"object": {"sha": newer}})}, "false"),
             ("a pull request run is never superseded here", "pull_request_target", lane, head,
              {ref_path: (200, {"object": {"sha": newer}})}, "false"),
+            # cp/, lane/ and perf/ agent branches publish only a head an open pull request has (2026-10-26).
+            ("a lane/ head no open pull request has is superseded", "push", "refs/heads/lane/x", head,
+             {pulls_path: (200, []), dispatch_path: no_dispatch,
+              "git/ref/heads/lane/x": (200, {"object": {"sha": head}})}, "true"),
+            ("a cp/ head whose only pull request closed is superseded", "push", "refs/heads/cp/x", head,
+             {pulls_path: (200, [pull(7, head, state="closed")]), dispatch_path: no_dispatch,
+              "git/ref/heads/cp/x": (200, {"object": {"sha": head}})}, "true"),
+            ("a perf/ head of a fork's pull request is superseded", "push", "refs/heads/perf/x", head,
+             {pulls_path: (200, [pull(7, head, repo="someone/cmux")]), dispatch_path: no_dispatch,
+              "git/ref/heads/perf/x": (200, {"object": {"sha": head}})}, "true"),
+            # A cmux-next dispatch on the branch (#22303) probes this exact tree with no base fallback.
+            ("a lane/ head a cmux-next dispatch asked for runs", "push", "refs/heads/lane/x", head,
+             {pulls_path: (200, []), dispatch_path: (200, {"total_count": 1, "workflow_runs": [{"id": 9}]}),
+              "git/ref/heads/lane/x": (200, {"object": {"sha": head}})}, "false"),
+            ("a lane/ push runs when the dispatch lookup fails", "push", "refs/heads/lane/x", head,
+             {pulls_path: (200, []), dispatch_path: (502, {})}, "false"),
+            ("a lane/ head an open pull request has runs", "push", "refs/heads/lane/x", head,
+             {pulls_path: (200, [pull(7, head)]), "git/ref/heads/lane/x": (200, {"object": {"sha": head}})}, "false"),
+            ("a lane/ head of an open pull request is still superseded once the branch moved", "push",
+             "refs/heads/lane/x", head,
+             {pulls_path: (200, [pull(7, head)]), "git/ref/heads/lane/x": (200, {"object": {"sha": newer}})}, "true"),
+            ("a lane/ push runs when the pull request lookup fails", "push", "refs/heads/lane/x", head,
+             {pulls_path: (502, {})}, "false"),
+            ("an other agent branch keeps its own rule", "push", lane, head,
+             {pulls_path: (200, []), ref_path: (200, {"object": {"sha": head}})}, "false"),
         ]
         for why, event, ref, sha, routes, want in cases:
             api.reset(routes)
@@ -246,6 +273,52 @@ def check_verdicts():
         api.reset({ref_path: (200, {"object": {"sha": newer}})})
         got = run_check(api, repo, daemon_step["run"], "pull_request_target", lane, head, {"KEY": KEY})
         _check(got == "false" and api.requests == [], f"daemon tests: a pull request run is never superseded ({got!r})")
+        # A lane/ head that asks for the daemon tests keeps its run without a pull request.
+        git(repo, "commit", "-q", "--allow-empty", "-m", "opt in\n\nCmux-Daemon-Tests: run")
+        opted = git(repo, "rev-parse", "HEAD")
+        api.reset({f"commits/{opted}/pulls": (200, []), "git/ref/heads/lane/x": (200, {"object": {"sha": opted}})})
+        got = run_check(api, repo, script, "push", "refs/heads/lane/x", opted)
+        _check(got == "false", f"tree-preflight: a lane/ head with Cmux-Daemon-Tests: run keeps its run ({got!r})")
+        _check(not any("/pulls" in r for r in api.requests),
+               f"tree-preflight: an opted-in lane/ head asks no pull request lookup ({api.requests})")
+
+        # With CMUX_TUI_REF_REMOTE (the workflow sets it) a branch head is read
+        # over git, never GET git/ref, and a moved cp/, lane/ or perf/ branch is
+        # superseded before any API lookup.
+        for name in ("preflight", "daemon tests"):
+            job, step_id = ("tree-preflight", "stale") if name == "preflight" else ("cmux-next-daemon-tests", "current")
+            want = "${{ github.server_url }}/${{ github.repository }}.git"
+            _check(step(job, step_id).get("env", {}).get("CMUX_TUI_REF_REMOTE") == want,
+                   f"{name}: the superseded check reads branch heads over git")
+        with tempfile.TemporaryDirectory() as tmp:
+            remote = os.path.join(tmp, "remote.git")
+            subprocess.run(["git", "init", "-q", "--bare", remote], check=True)
+            git(repo, "push", "-q", remote, f"{head}:refs/heads/lane/moved", f"{head}:refs/heads/lane/current",
+                f"{head}:refs/heads/codex/current", f"{base}:refs/heads/codex/moved")
+            git(remote, "update-ref", "refs/heads/lane/moved", base)
+            over_git = {"CMUX_TUI_REF_REMOTE": f"file://{remote}"}
+            git_cases = [
+                ("a moved lane/ branch is superseded with no API call", "refs/heads/lane/moved", {}, "true", []),
+                ("a current lane/ head with an open pull request runs, asking only the pull request",
+                 "refs/heads/lane/current", {pulls_path: (200, [pull(7, head)])}, "false", [pulls_path]),
+                ("a current lane/ head no pull request has is still superseded", "refs/heads/lane/current",
+                 {pulls_path: (200, []), dispatch_path: no_dispatch}, "true", [pulls_path, dispatch_path]),
+                ("a deleted lane/ branch still asks its pull requests", "refs/heads/lane/gone",
+                 {pulls_path: (200, []), dispatch_path: no_dispatch}, "true", [pulls_path, dispatch_path]),
+                ("an other branch at its head runs with no API call", "refs/heads/codex/current", {}, "false", []),
+                ("an other branch that moved is superseded with no API call", "refs/heads/codex/moved", {}, "true", []),
+                ("a deleted other branch keeps its run", "refs/heads/codex/gone", {}, "false", []),
+            ]
+            for why, ref, routes, want, asked in git_cases:
+                api.reset(routes)
+                got = run_check(api, repo, script, "push", ref, head, over_git)
+                _check(got == want, f"over git: {why} ({got!r}, want {want!r})")
+                paths = [r.split("?")[0].removeprefix(f"/repos/{REPO}/") for r in api.requests]
+                _check(paths == asked, f"over git: {why} asks exactly {asked} ({paths})")
+            api.reset({})
+            got = run_check(api, repo, script, "push", "refs/heads/codex/current", head,
+                            {"CMUX_TUI_REF_REMOTE": f"file://{tmp}/missing.git"})
+            _check(got == "false", f"over git: an unreadable remote keeps the run ({got!r})")
     api.server.shutdown()
 
 
@@ -321,11 +394,24 @@ def check_wiring():
     _check(preflight["permissions"].get("pull-requests") == "read",
            "tree-preflight can read a pin's pull request")
     _check(preflight["outputs"].get("stale") == "${{ steps.stale.outputs.stale }}", "tree-preflight exports stale")
+    _check("needs.tree-preflight.outputs.stale != 'true'" in str(all_jobs["tree-owner-wait"].get("if", "")),
+           "a superseded push skips tree-owner-wait")
+    # A cp/, lane/ or perf/ run may turn out superseded and then hands nothing off, so the same-commit
+    # election never makes one the owner another run waits for.
+    inspect_run = str(step("tree-preflight", "inspect")["run"])
+    election = inspect_run[inspect_run.index("same_sha_json="):]
+    _check('[[ "$candidate_branch" == cp/* || "$candidate_branch" == lane/* || "$candidate_branch" == perf/* ]] && continue'
+           in election, "the same-commit election never elects a cp/, lane/ or perf/ run")
 
     daemon = all_jobs["cmux-next-daemon-tests"]
     steps = daemon["steps"]
     index = next(i for i, s in enumerate(steps) if s.get("id") == "current")
-    _check(index == 1, "the daemon tests re-check right after the checkout")
+    # Only the checkout and the read token's mint (the re-check's API reads go
+    # out as the glaeda-route App) come before it.
+    before = [s.get("id") or str(s.get("uses", "")).split("@")[0] for s in steps[:index]]
+    _check(before == ["actions/checkout", "read-token"], "the daemon tests re-check right after the checkout")
+    _check(str(steps[index - 1].get("if")) == "github.event_name == 'push' && vars.GLAEDA_ROUTE_APP_ID != ''",
+           "the re-check's read token is minted only for a push re-check")
     current = steps[index]
     _check(str(current.get("if")) == "github.event_name == 'push'", "only push runs re-check")
     for later in steps[index + 1:]:

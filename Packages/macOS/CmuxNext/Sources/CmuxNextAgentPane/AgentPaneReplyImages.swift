@@ -28,7 +28,8 @@ public nonisolated enum AgentPaneReplyError: String, Error, Equatable, Sendable 
 }
 
 /// Reply images as the page may draw them (decision D5): a `data:` URL, because the page's CSP
-/// loads no other image. A local file must be inside the session's folders and at most
+/// loads no other image. A local file must be inside the session's folders or the chat's read-only
+/// image roots and at most
 /// ``maximumBytes``; a raster image is decoded first, so bytes that only claim to be an image
 /// never reach the page; an SVG is rebuilt without script, event handlers, foreign content or
 /// links out (``AgentPaneSVGSanitizer``). A web image is always decoded and re-encoded as PNG. A PDF
@@ -72,7 +73,10 @@ nonisolated struct AgentPaneReplyImages {
             guard let clean = AgentPaneSVGSanitizer.sanitize(data) else { return .failure(.imageFailed) }
             return .success("data:image/svg+xml;base64," + clean.base64EncodedString())
         }
-        return raster(data, reencode: false)
+        // PNGs may carry a wide-gamut profile and transparent pixels. Normalize them through a
+        // bounded sRGB thumbnail before the page or its image viewer sees the bytes; CEF's
+        // file:// ImageDocument otherwise paints some large RGBA files as a solid black page.
+        return raster(data, reencode: url.pathExtension.lowercased() == "png")
     }
 
     /// The first page of the PDF at `url` on white, at most ``thumbnailSide`` on its longest side,
@@ -115,14 +119,16 @@ nonisolated struct AgentPaneReplyImages {
     }
 
     /// `data` as a raster data URL: kept as it is when the page draws its type and `reencode` is
-    /// false, else decoded (at most ``maximumSide``) and written again as PNG.
+    /// false, else decoded (at most ``maximumSide``), converted to sRGB and written again as PNG.
     static func raster(_ data: Data, reencode: Bool) -> Result<String, AgentPaneReplyError> {
         guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
               let type = CGImageSourceGetType(source) as String?, CGImageSourceGetCount(source) > 0,
               nativeTypes[type] != nil || decodedTypes.contains(type),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
-              width > 0, height > 0, width.multipliedReportingOverflow(by: height).partialValue <= maximumPixels
+              width > 0, height > 0,
+              !width.multipliedReportingOverflow(by: height).overflow,
+              width.multipliedReportingOverflow(by: height).partialValue <= maximumPixels
         else { return .failure(.imageFailed) }
         if !reencode, let mime = nativeTypes[type] {
             // Decode once, so a file that is not really this type is refused.
@@ -137,20 +143,37 @@ nonisolated struct AgentPaneReplyImages {
             kCGImageSourceShouldCacheImmediately: true,
         ]
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return .failure(.imageFailed) }
+        // Draw into an explicit sRGB bitmap so Display-P3/extended profiles and unusual source
+        // bitmap layouts cannot turn the browser's image surface black. Preserve alpha; the
+        // WebKit file preview supplies the page background when a PNG has transparent pixels.
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: colorSpace,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return .failure(.imageFailed)
+        }
+        context.clear(CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        guard let normalized = context.makeImage() else { return .failure(.imageFailed) }
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(output, UTType.png.identifier as CFString, 1, nil) else {
             return .failure(.imageFailed)
         }
-        CGImageDestinationAddImage(destination, image, nil)
+        CGImageDestinationAddImage(destination, normalized, nil)
         guard CGImageDestinationFinalize(destination) else { return .failure(.imageFailed) }
         return .success("data:image/png;base64," + (output as Data).base64EncodedString())
     }
 }
 
-/// Rebuilds an SVG file without what could run or load anything: `script`, `foreignObject` and
-/// embedded documents, every `on*` attribute, `style` attributes with `url(`, and any `href`
-/// that is not a fragment (`#id`). No DTD or entity is read. The page draws the result only as
-/// an `<img>`, where WebKit runs no script and loads nothing either; this is the second wall.
+/// Rebuilds an SVG file without what could run, load or link anything: `script`, `foreignObject`
+/// and embedded documents, every `on*` attribute, any attribute or `<style>` whose CSS could
+/// reach outside (``reachesOut(_:)``), and any `href` that is not a fragment (`#id`). An `<a>` becomes a plain
+/// `<g>`: its content still draws, but nothing in the image is a link (media-safety R7). Only SVG
+/// elements are kept (an XHTML `<img>` loads its `src` even inside an SVG), written without a prefix
+/// under the root's own `xmlns`; an attribute keeps only the `xlink:` namespace or `xml:space` and
+/// `xml:lang` (never `xml:base`, which would point a fragment reference outside). No DTD,
+/// entity or processing instruction is read. The page draws the result only as an `<img>`, where
+/// WebKit runs no script and loads nothing either; this is the second wall.
 nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
     private static let droppedElements: Set<String> = [
         "script", "foreignobject", "iframe", "object", "embed", "audio", "video", "handler", "listener", "set", "animate",
@@ -158,10 +181,16 @@ nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
 
     private var output = ""
     private var skipping = 0
-    /// Inside a `<style>` element: its text keeps no `@import` and no `url(` that is not `url(#`.
-    private var inStyle = false
+    /// The text of the `<style>` being read, kept or dropped whole at its end: a reference the
+    /// parser splits (around an entity) is judged as one. An element inside a style is dropped.
+    private var style: String?
     private var sawRoot = false
     private var failed = false
+    /// The namespace each prefix names (`""` for the default), one scope per open element.
+    private var scopes: [[String: String]] = []
+
+    private static let svgNamespace = "http://www.w3.org/2000/svg"
+    private static let xlinkNamespace = "http://www.w3.org/1999/xlink"
 
     static func sanitize(_ data: Data) -> Data? {
         let delegate = AgentPaneSVGSanitizer()
@@ -178,62 +207,114 @@ nonisolated final class AgentPaneSVGSanitizer: NSObject, XMLParserDelegate {
             .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
     }
 
-    private static func keeps(_ name: String, _ value: String) -> Bool {
+    /// The attributes only a link has; an `<a>` rebuilt as a `<g>` drops them.
+    private static let linkAttributes: Set<String> = ["target", "download", "ping", "rel", "hreflang", "referrerpolicy", "type"]
+
+    private static func keeps(_ name: String, _ value: String, link: Bool = false) -> Bool {
         let lower = name.lowercased()
         if lower.hasPrefix("on") { return false }
-        if lower == "href" || lower.hasSuffix(":href") { return value.hasPrefix("#") }
-        if lower == "style" || lower == "filter" || lower == "mask" || lower == "clip-path" || lower == "fill" || lower == "stroke" {
-            let compact = value.lowercased().filter { !$0.isWhitespace }
-            return !compact.contains("url(") || compact.contains("url(#")
-        }
-        return true
+        if lower == "href" || lower.hasSuffix(":href") { return !link && value.hasPrefix("#") }
+        if link, linkAttributes.contains(lower) { return false }
+        return !reachesOut(value)
+    }
+
+    /// A qualified name's prefix (`""` for none) and local name.
+    private static func split(_ name: String) -> (prefix: String, local: String) {
+        guard let colon = name.firstIndex(of: ":") else { return ("", name) }
+        return (String(name[..<colon]), String(name[name.index(after: colon)...]))
+    }
+
+    /// The namespace `prefix` names in the open elements. An SVG with no default `xmlns` still reads
+    /// as SVG; an undeclared prefix names none.
+    private func namespace(of prefix: String) -> String? {
+        if let uri = scopes.reversed().lazy.compactMap({ $0[prefix] }).first { return uri }
+        return prefix.isEmpty ? Self.svgNamespace : nil
+    }
+
+    /// The name an attribute is written under, nil when it is dropped: no namespace declaration (the
+    /// root declares SVG and XLink itself), and of the prefixed ones only XLink, `xml:space` and `xml:lang`.
+    private func attributeName(_ name: String) -> String? {
+        let (prefix, local) = Self.split(name)
+        if prefix.isEmpty { return name == "xmlns" ? nil : name }
+        if prefix == "xml" { return ["space", "lang"].contains(local) ? name : nil }
+        if prefix == "xmlns" { return nil }
+        return namespace(of: prefix) == Self.xlinkNamespace ? "xlink:" + local : nil
+    }
+
+    /// Whether CSS `text` could reach outside the image. Any backslash is refused, not decoded (a
+    /// CSS escape spells `url(` or `@import` as it likes: `u\72l(`); comments are dropped before
+    /// the check, so none splits a word. Then an `@import`, an `image-set(` or `src(` (each takes
+    /// a bare string), or a `url(` that is not a fragment (`url(#id)`), quoted or not.
+    private static func reachesOut(_ text: String) -> Bool {
+        if text.contains("\\") { return true }
+        let bare = text.replacingOccurrences(of: #"/\*[\s\S]*?(\*/|$)"#, with: "", options: .regularExpression)
+        let compact = bare.lowercased().filter { !$0.isWhitespace && $0 != "\"" && $0 != "'" }
+        if ["@import", "image-set(", "src("].contains(where: { compact.contains($0) }) { return true }
+        return compact.components(separatedBy: "url(").dropFirst().contains { !$0.hasPrefix("#") }
+    }
+
+    /// Ends the `<style>` being read: its text, unless its CSS could reach outside.
+    private func endStyle() {
+        guard let text = style else { return }
+        style = nil
+        if !Self.reachesOut(text) { output += Self.escape(text) }
     }
 
     func parser(_ parser: XMLParser, didStartElement elementName: String, namespaceURI: String?, qualifiedName: String?,
                 attributes: [String: String] = [:]) {
-        let local = (elementName.split(separator: ":").last.map(String.init) ?? elementName).lowercased()
-        if !sawRoot {
-            guard local == "svg" else {
+        var scope: [String: String] = [:]
+        for (name, value) in attributes {
+            if name == "xmlns" { scope[""] = value } else if name.hasPrefix("xmlns:") { scope[String(name.dropFirst(6))] = value }
+        }
+        scopes.append(scope)
+        let (prefix, local) = Self.split(elementName)
+        let svg = namespace(of: prefix) == Self.svgNamespace, root = !sawRoot
+        if root {
+            guard local.lowercased() == "svg", svg else {
                 failed = true
                 parser.abortParsing()
                 return
             }
             sawRoot = true
         }
-        if skipping > 0 || Self.droppedElements.contains(local) {
+        if skipping > 0 || style != nil || !svg || Self.droppedElements.contains(local.lowercased()) {
             skipping += 1
             return
         }
-        output += "<" + elementName
-        for (name, value) in attributes.sorted(by: { $0.key < $1.key }) where Self.keeps(name, value) {
-            output += " \(name)=\"\(Self.escape(value))\""
+        let link = local.lowercased() == "a"
+        output += "<" + (link ? "g" : local)
+        if root { output += " xmlns=\"\(Self.svgNamespace)\" xmlns:xlink=\"\(Self.xlinkNamespace)\"" }
+        var written: Set<String> = []
+        for (name, value) in attributes.sorted(by: { $0.key < $1.key }) {
+            guard let kept = attributeName(name), Self.keeps(kept, value, link: link), written.insert(kept).inserted else { continue }
+            output += " \(kept)=\"\(Self.escape(value))\""
         }
         output += ">"
-        inStyle = local == "style"
+        if local == "style" { style = "" }
         if output.utf8.count > AgentPaneReplyImages.maximumBytes { failed = true; parser.abortParsing() }
     }
 
     func parser(_ parser: XMLParser, didEndElement elementName: String, namespaceURI: String?, qualifiedName: String?) {
+        if !scopes.isEmpty { scopes.removeLast() }
         if skipping > 0 {
             skipping -= 1
             return
         }
-        inStyle = false
-        output += "</\(elementName)>"
+        endStyle()
+        let local = Self.split(elementName).local
+        output += "</\(local.lowercased() == "a" ? "g" : local)>"
     }
 
-    private func styleText(_ text: String) -> String {
-        guard inStyle else { return text }
-        let compact = text.lowercased().filter { !$0.isWhitespace }
-        let linksOut = compact.contains("@import") || compact.components(separatedBy: "url(").dropFirst().contains { !$0.hasPrefix("#") }
-        return linksOut ? "" : text
+    private func text(_ text: String) {
+        guard skipping == 0 else { return }
+        if style != nil { style? += text } else { output += Self.escape(text) }
     }
 
     func parser(_ parser: XMLParser, foundCharacters string: String) {
-        if skipping == 0 { output += Self.escape(styleText(string)) }
+        text(string)
     }
 
     func parser(_ parser: XMLParser, foundCDATA CDATABlock: Data) {
-        if skipping == 0 { output += Self.escape(styleText(String(decoding: CDATABlock, as: UTF8.self))) }
+        text(String(decoding: CDATABlock, as: UTF8.self))
     }
 }

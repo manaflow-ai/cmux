@@ -176,7 +176,7 @@ enum RowDraw {
         guard case let .part(p) = spec.kind, p.outgoing else { return false }
         switch p.part {
         case .text: return true
-        case let .attachment(a): return !["image", "video"].contains(a.kind)
+        case let .attachment(a): return !["image", "video"].contains(a.kind) && !HomeFileCard.isCard(a) // cmux: file cards are neutral (#26395)
         case let .custom(c): return CustomRows.needsFill(c, outgoing: true)
         default: return false
         }
@@ -468,6 +468,8 @@ enum PartRenderer {
             TextDraw.line(d, font: HomeFonts.monospacedDigit(ofSize: 11, weight: .regular), color: fg, x: body.maxX - 36, // HomeFonts (cx-qpqs)
                           baseline: body.midY + 4, in: ctx)
         default:
+            // cmux: a file is a neutral card with its type's icon and kind (HomeFileCard, #26395).
+            if HomeFileCard.isCard(a) { HomeFileCard.draw(ctx, a, shape: shape, body: body); return }
             fillBubble(ctx, shape, outgoing: p.outgoing, windowY: windowY)
             let fg: UIColor = p.outgoing ? Fixture.outgoingText : Fixture.incomingText  // cmux: themed (white by default)
             let icon = CGRect(x: body.minX + 10, y: body.minY + 10, width: 28, height: 36)
@@ -598,7 +600,7 @@ enum PartRenderer {
         let box = CGRect(x: rightEdge - pv.box.width, y: top, width: pv.box.width, height: pv.box.height)
         drawQuoteBubble(ctx, pv, box: box)
         if pv.count >= 2 {
-            let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
+            let f = HomeFonts.system(ofSize: 10, weight: .bold) // HomeFonts (cx-qpqs)
             let s = Strings.replies(pv.count)
             let w = TextDraw.width(s, font: f, kern: RowDraw.captionKern)
             TextDraw.line(s, font: f, color: Fixture.repliesTint, x: rightEdge - 6 - w, baseline: box.maxY + (pv.isText ? 13.75 : 12.75), in: ctx, // cmux: themed link tint
@@ -613,15 +615,25 @@ enum PartRenderer {
     /// `ThreadPreview.quoteOpacity` so the text does not show the fill through it. Replaces the 1 pt outline with
     /// blue or gray text and a full-size tail on a 24 pt body, which did not match the quoted message.
     static func drawQuoteBubble(_ ctx: CGContext, _ pv: ThreadPreview, box: CGRect) {
-        let out = pv.outgoing
+        var out = pv.outgoing
+        // cmux: a quoted file card keeps the card's neutral fill on either side (HomeFileCard, #26395).
+        if case let .attachment(a) = pv.part, HomeFileCard.isCard(a) { out = false }
         let fill = out ? Fixture.outgoing : Fixture.incoming
-        let ink = out ? Fixture.outgoingText : Fixture.incomingText
-        let shape = BubblePath.balloon(frame: box, row: pv.shapeRow)
+        // cmux (2026-10-27, Lawrence's 5:54 PM reference): my root is an outlined blue bubble with blue text,
+        // not a faded fill; the Chief's root keeps its gray fill.
+        let ink = out ? Fixture.outgoing : Fixture.incomingText
+        let shape = BubblePath.balloon(frame: out ? box.insetBy(dx: 0.5, dy: 0.5) : box, row: pv.shapeRow)
         ctx.saveGState()
-        ctx.setAlpha(ThreadPreview.quoteOpacity)
+        ctx.setAlpha(out ? 1 : ThreadPreview.quoteOpacity)
         ctx.beginTransparencyLayer(in: box.insetBy(dx: -2, dy: -2), auxiliaryInfo: nil)
-        fill.setFill()
-        shape.fill()
+        if out {
+            fill.setStroke()
+            shape.lineWidth = 1
+            shape.stroke()
+        } else {
+            fill.setFill()
+            shape.fill()
+        }
         if pv.isThumbnail, case let .attachment(a) = pv.part {
             ctx.saveGState()
             shape.addClip()

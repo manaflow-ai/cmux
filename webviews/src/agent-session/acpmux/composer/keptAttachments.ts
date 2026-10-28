@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { type ComposerAttachment, MAX_ATTACHMENTS } from "../attachments";
+import type { ComposerAttachment } from "../attachments";
+import { holdWebSwap } from "../../../pages/shared/webSwap";
 
 /// Where the host keeps each chat's unsent chips (AgentPaneDraftAttachments.swift), so reopening
 /// the chat, restoring it from the archive or relaunching after a crash brings them back with the
@@ -16,8 +17,15 @@ export type KeptAttachments = {
 export const KEPT_ATTACHMENTS_SETTLE_MS = 300;
 
 /// The chips a chat keeps: a shell run's chip stays with its page (its output fills when the prompt goes).
+/// A video's poster and frames stay too: the host reads them again when the chip comes back
+/// (composer/videoAttachments.ts), so a draft write never carries them.
 export function keptChips(attachments: readonly ComposerAttachment[]): ComposerAttachment[] {
-  return attachments.filter((chip) => !chip.shellRun);
+  return attachments.flatMap((chip) => {
+    if (chip.shellRun) return [];
+    if (!chip.video) return [chip];
+    const { video: _video, ...kept } = chip;
+    return [kept];
+  });
 }
 
 type Pending = { sessionId: string; chips: ComposerAttachment[]; timer: ReturnType<typeof setTimeout> };
@@ -43,17 +51,29 @@ export function useKeptAttachments(
   carry.current = carrying;
   /// A chat was read on this page before: the page's first chat keeps what it was opened with.
   const readOne = useRef(false);
+  /// Writes sent and not answered yet.
+  const inFlight = useRef(0);
+  /// Each chat's newest write, and the chats whose newest write the host refused (with what it held).
+  const lastWrite = useRef(new Map<string, number>());
+  const refused = useRef(new Map<string, ComposerAttachment[]>());
+  /// What a web update's reload would bring back (pages/shared/webSwap.ts).
+  const shown = useRef({ sessionId, attachments, readFor, store });
+  shown.current = { sessionId, attachments, readFor, store };
 
-  const send = (sessionId: string, chips: ComposerAttachment[]) => {
+  /// Writes chat `sessionId`'s chips: the shown chat's (`shownChat`) also says what the host holds now.
+  const write = (sessionId: string, chips: ComposerAttachment[], sent: ComposerAttachment[], shownChat: boolean) => {
     if (!store) return;
-    // Only chips still here keep their "already sent": one sent, then put back, goes again in full.
-    const had = written.current.sessionId === sessionId ? written.current.stored : new Set<string>();
-    const stored = new Set(chips.filter((chip) => had.has(chip.id)).map((chip) => chip.id));
-    written.current = { sessionId, ids: signature(chips), stored };
-    const sent = chips.map((chip) => (chip.data && stored.has(chip.id) ? { ...chip, data: undefined } : chip));
-    const write = ++sequence.current;
+    const n = ++sequence.current;
+    lastWrite.current.set(sessionId, n);
+    inFlight.current += 1;
     const settle = (held: Set<string>, failed = false) => {
-      if (write !== sequence.current || written.current.sessionId !== sessionId) return;
+      inFlight.current -= 1;
+      // Only the chat's newest write says what the host keeps for it.
+      if (lastWrite.current.get(sessionId) !== n) return;
+      // A refused write goes again on the next ask, even once another chat shows.
+      if (failed) refused.current.set(sessionId, chips);
+      else refused.current.delete(sessionId);
+      if (!shownChat || written.current.sessionId !== sessionId) return;
       written.current.stored = held;
       // A refused write holds nothing: the same chips coming back go again.
       if (failed) written.current.ids = "\u0000refused";
@@ -63,6 +83,17 @@ export function useKeptAttachments(
       () => settle(new Set(), true),
     );
   };
+  const send = (sessionId: string, chips: ComposerAttachment[]) => {
+    if (!store) return;
+    // Only chips still here keep their "already sent": one sent, then put back, goes again in full.
+    const had = written.current.sessionId === sessionId ? written.current.stored : new Set<string>();
+    const stored = new Set(chips.filter((chip) => had.has(chip.id)).map((chip) => chip.id));
+    written.current = { sessionId, ids: signature(chips), stored };
+    const sent = chips.map((chip) => (chip.data && stored.has(chip.id) ? { ...chip, data: undefined } : chip));
+    write(sessionId, chips, sent, true);
+  };
+  const writeNow = useRef(write);
+  writeNow.current = write;
   const flush = () => {
     const next = pending.current;
     if (!next) return;
@@ -72,6 +103,8 @@ export function useKeptAttachments(
   };
   const flushNow = useRef(flush);
   flushNow.current = flush;
+  const sendNow = useRef(send);
+  sendNow.current = send;
 
   useEffect(() => {
     if (!sessionId || !store) return;
@@ -84,13 +117,18 @@ export function useKeptAttachments(
       .catch(() => [])
       .then((kept) => {
         if (!current) return;
-        const back = Array.isArray(kept) ? kept : [];
-        written.current = { sessionId, ids: signature(back), stored: new Set(back.map((chip) => chip.id)) };
+        const read = Array.isArray(kept) ? kept : [];
+        written.current = { sessionId, ids: signature(read), stored: new Set(read.map((chip) => chip.id)) };
+        // This chat's last write was refused: what the page showed then comes back with it, and goes
+        // again (the swap's hold resends a refused write) until the host keeps it.
+        const unkept = refused.current.get(sessionId);
+        const back = unkept ? [...read, ...unkept.filter((chip) => !read.some((k) => k.id === chip.id))] : read;
+        if (unkept) written.current.ids = "\u0000refused";
         const keep = keepHeld || !readOne.current;
         readOne.current = true;
         setAttachments((held) => {
           const others = keep ? held.filter((chip) => !back.some((k) => k.id === chip.id)) : [];
-          return back.length || others.length !== held.length ? [...back, ...others].slice(0, MAX_ATTACHMENTS) : held;
+          return back.length || others.length !== held.length ? [...back, ...others] : held;
         });
         setReadFor(sessionId);
       });
@@ -122,6 +160,41 @@ export function useKeptAttachments(
     };
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- send is this render's; the timer sends what this render held.
   }, [sessionId, store, readFor, attachments]);
+
+  // WEB-SWAP: a web update reloads the page only once the host holds every chip as shown, with
+  // its contents: a chip still resting, in flight, refused or not read back yet waits for it.
+  useEffect(
+    () =>
+      holdWebSwap(() => {
+        const { sessionId, attachments, readFor, store } = shown.current;
+        if (attachments.some((chip) => chip.shellRun)) return "composer.shell-run";
+        // A write resting or in flight (a removal's empty list too): what a reload reads back is not known yet.
+        if (pending.current || inFlight.current) return "composer.attachments-unsaved";
+        // Another chat's refused write: it goes again now, in full, once per ask.
+        let other = false;
+        for (const [chat, chips] of refused.current) {
+          if (chat === sessionId) continue;
+          writeNow.current(chat, chips, chips, false);
+          other = true;
+        }
+        if (other) return "composer.attachments-unsaved";
+        const chips = keptChips(attachments);
+        // The host's chips not read back yet: a page that reloads now reads them then.
+        if (sessionId && store && readFor !== sessionId) return "composer.attachments-unread";
+        if (!sessionId || !store) return chips.length ? "composer.attachments-unkept" : null;
+        const kept = written.current;
+        const behind =
+          kept.sessionId !== sessionId ||
+          kept.ids !== signature(chips) ||
+          chips.some((chip) => chip.data && !kept.stored.has(chip.id));
+        if (!behind) return null;
+        // The host refused the last write: it goes again now, once per ask, so a passing refusal
+        // does not hold the update for good. (A host that keeps fewer bytes than shown holds it.)
+        if (kept.ids === "\u0000refused") sendNow.current(sessionId, chips);
+        return "composer.attachments-unsaved";
+      }),
+    [],
+  );
 
   // A page closing or going away (its tab closed, the chat archived) with a write still resting
   // sends it now: the web page may be gone before React unmounts anything.

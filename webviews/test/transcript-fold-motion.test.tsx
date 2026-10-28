@@ -29,7 +29,13 @@ let token = 190;
 let reduce = false;
 /// `ends` runs the animation's onfinish as the browser does, outside React: React commits what it
 /// sets only after the caller's `act` (the frame the animation let go of the box paints first).
-type Animated = { keyframes: Keyframe[]; options: KeyframeAnimationOptions; finish: () => void; ends: () => void };
+type Animated = {
+  keyframes: Keyframe[];
+  options: KeyframeAnimationOptions;
+  finish: () => void;
+  ends: () => void;
+  cancel: () => void;
+};
 let animations: Animated[] = [];
 
 beforeEach(() => {
@@ -60,12 +66,19 @@ beforeEach(() => {
     keyframes: Keyframe[],
     options: KeyframeAnimationOptions,
   ) {
-    const animation = { onfinish: null as null | (() => void), cancel() {} };
+    const animation = {
+      onfinish: null as null | (() => void),
+      oncancel: null as null | (() => void),
+      cancel() {
+        animation.oncancel?.();
+      },
+    };
     animations.push({
       keyframes,
       options,
       finish: () => act(() => animation.onfinish?.()),
       ends: () => animation.onfinish?.(),
+      cancel: () => act(() => animation.cancel()),
     });
     return animation;
   };
@@ -233,6 +246,34 @@ test("a close holds its box shut until React removes the body, so it never flash
     expect(box.style.overflow).toBe("hidden");
   });
   expect(container.querySelector(".cv-fold")).toBeNull();
+});
+
+test("a motion policy cancellation finishes a closing tool call instead of leaving its body mounted", () => {
+  render(<ToolRow item={tool("cancelled")} />);
+  click();
+  animations[0]!.finish();
+  click();
+  expect(container.querySelector(".cv-tool-output-card")).not.toBeNull();
+  animations[1]!.cancel();
+  expect(container.querySelector(".cv-tool-output-card")).toBeNull();
+});
+
+test("a move token that becomes zero settles the active fold even when fade motion remains", async () => {
+  render(<ToolRow item={tool("policy-change")} />);
+  click();
+  animations[0]!.finish();
+  click();
+  expect(container.querySelector(".cv-tool-output-card")).not.toBeNull();
+  const box = container.querySelector<HTMLElement>(".cv-fold")!;
+  document.documentElement.style.setProperty("--agent-motion-in", "80ms");
+  token = 0;
+  document.documentElement.style.setProperty("--agent-motion-move", "0ms");
+  await act(async () => {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  });
+  expect(box.style.height).toBe("0px");
+  expect(box.style.opacity).toBe("0");
+  expect(container.querySelector(".cv-tool-output-card")).toBeNull();
 });
 
 test("a fold reopened as its close ends opens from its own size, not the pinned one", () => {

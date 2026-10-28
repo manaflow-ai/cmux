@@ -103,7 +103,7 @@ public final class HomeInboxSource {
     private enum Read: Sendable { case unsupported, reply(HomeInboxRequest.Response), failed }
 
     private static func read(_ connection: DaemonConnection, owners: [String]) async -> Read {
-        guard await connection.identity?.supports(DaemonCapabilities.shared.homeInbox) == true else { return .unsupported }
+        guard await connection.identity?.supports(DaemonCapability.homeInbox.rawValue) == true else { return .unsupported }
         guard let reply = try? await connection.request(HomeInboxRequest(owners: owners)) else { return .failed }
         return .reply(reply)
     }

@@ -5,6 +5,7 @@
 //! the same command again gives the same session and worktree: a named
 //! session that already runs is reused (its first prompt is not sent again).
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -76,17 +77,8 @@ impl Launch {
             }
         };
         let file_prompt = args.prompt_file.as_deref().map(read_prompt_file).transpose()?;
-        if args.group.is_some() && name.is_none() {
-            bail!("--group needs --name, so a second run finds the same sidebar row");
-        }
         if args.reuse && name.is_none() {
             bail!("--reuse needs --name: the session to reuse is found by it");
-        }
-        if let (Some(_), Some(host)) = (&args.group, &args.host) {
-            bail!(
-                "--group shows a session of this machine only: leave it off with --host {host}; \
-                 the app cannot yet open another machine's session in a sidebar group"
-            );
         }
         if args.report_to.is_some()
             && file_prompt.is_none()
@@ -190,6 +182,16 @@ const MAX_PROMPT_FILE: u64 = 1 << 20;
 
 /// The prompt file's text, read at call time; a missing or empty file fails.
 fn read_prompt_file(path: &Path) -> Result<String> {
+    read_prompt_file_with(path, std::io::stdin().lock())
+}
+
+/// Read a prompt file, using `stdin` when `path` names the already-open fd 0.
+/// Keeping the reader injectable lets tests cover the fd-0 paths without replacing the process stdin.
+fn read_prompt_file_with<R: Read>(path: &Path, stdin: R) -> Result<String> {
+    if is_stdin_path(path) {
+        return read_prompt_reader(path, stdin);
+    }
+
     let abs =
         if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir()?.join(path) };
     let len = std::fs::metadata(&abs)
@@ -198,10 +200,31 @@ fn read_prompt_file(path: &Path) -> Result<String> {
     if len > MAX_PROMPT_FILE {
         bail!("--prompt-file {} is {len} bytes, more than 1 MiB", abs.display());
     }
-    let text = std::fs::read_to_string(&abs)
+    let file = std::fs::File::open(&abs)
         .map_err(|e| anyhow::anyhow!("--prompt-file {}: {e}", abs.display()))?;
+    read_prompt_reader(&abs, file)
+}
+
+fn is_stdin_path(path: &Path) -> bool {
+    matches!(
+        path.to_str(),
+        Some("-") | Some("/dev/stdin") | Some("/proc/self/fd/0") | Some("/dev/fd/0")
+    )
+}
+
+fn read_prompt_reader<R: Read>(path: &Path, reader: R) -> Result<String> {
+    let mut bytes = Vec::with_capacity((MAX_PROMPT_FILE + 1) as usize);
+    reader
+        .take(MAX_PROMPT_FILE + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| anyhow::anyhow!("--prompt-file {}: {e}", path.display()))?;
+    if bytes.len() as u64 > MAX_PROMPT_FILE {
+        bail!("--prompt-file {} is more than 1 MiB", path.display());
+    }
+    let text = String::from_utf8(bytes)
+        .map_err(|e| anyhow::anyhow!("--prompt-file {}: {e}", path.display()))?;
     if text.trim().is_empty() {
-        bail!("--prompt-file {} is empty", abs.display());
+        bail!("--prompt-file {} is empty", path.display());
     }
     Ok(text)
 }
@@ -292,17 +315,34 @@ fn workspace_key(id: &str) -> String {
 }
 
 /// Shows session `id` in the cmux app's sidebar group `group` through the
-/// app's `agent open` action (`cmux agent open`), named `title`.
-pub(super) fn show_in_group(id: &str, title: &str, group: &str) -> Result<()> {
+/// app's `agent open` action (`cmux agent open`), optionally named `title`.
+/// Unnamed launches omit the title so a peer's generated session name cannot
+/// accidentally match another session's workspace in the same group.
+/// A remote create returns the ID mirrored by the local daemon. Open that
+/// ID here, without `--host`: the workspace belongs to this Mac and its
+/// acpmux forwards the chat to the peer. This also avoids a name lookup in
+/// the app's peer inventory, which may not have seen the new session yet.
+pub(super) fn show_in_group(id: &str, title: Option<&str>, group: &str) -> Result<()> {
     let key = workspace_key(id);
-    let out = std::process::Command::new("cmux")
-        .args(["agent", "open", id, "--name", title, "--key", &key, "--group", group])
-        .output()
-        .context("--group runs `cmux agent open`; no cmux CLI on PATH")?;
+    let mut args = vec!["agent", "open", id];
+    if let Some(title) = title {
+        args.extend(["--name", title]);
+    }
+    args.extend(["--key", &key, "--group", group]);
+    let retry = std::iter::once("cmux")
+        .chain(args.iter().copied())
+        .map(crate::harness_health::channel::quote)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let out = std::process::Command::new("cmux").args(args).output().with_context(|| {
+        format!(
+            "the session was created, but --group could not run cmux; put the running Mac app's \
+             bundled CLI on PATH, then retry on that Mac: {retry}"
+        )
+    })?;
     if !out.status.success() {
         bail!(
-            "the session runs, but the cmux app did not show it: `cmux agent open {id} --name {title:?} \
-             --key {key} --group {group:?}`: {}",
+            "the session runs, but the cmux app did not show it: {retry}: {}",
             String::from_utf8_lossy(&out.stderr).trim()
         );
     }
@@ -348,6 +388,39 @@ mod tests {
         // One worktree, one session: the name is the worktree's.
         assert_eq!(session_name("Lane_A").unwrap(), session_name("lane-a").unwrap());
         assert!(session_name("//").is_err());
+    }
+
+    #[test]
+    fn a_remote_session_can_join_a_group_without_an_explicit_name() {
+        let prepared = launch(&[
+            "--host",
+            "gcp-codex-lane-2",
+            "-m",
+            "codex",
+            "--group",
+            "Remote demo",
+            "-d",
+            "say hi",
+        ]);
+        assert!(prepared.name.is_none());
+        assert!(!prepared.reuse);
+    }
+
+    #[test]
+    fn a_named_remote_group_launch_keeps_reuse_and_its_title() {
+        let prepared = launch(&[
+            "--host",
+            "peer",
+            "--group",
+            "Remote demo",
+            "--name",
+            "Remote task",
+            "--reuse",
+            "-d",
+        ]);
+        assert_eq!(prepared.name.as_deref(), Some("remote-task"));
+        assert_eq!(prepared.title.as_deref(), Some("Remote task"));
+        assert!(prepared.reuse);
     }
 
     #[test]
@@ -425,6 +498,20 @@ mod tests {
         let brief = dir.join("brief.md");
         std::fs::write(&brief, "do it\n").unwrap();
         assert_eq!(read_prompt_file(&brief).unwrap(), "do it\n");
+        let oversized = dir.join("oversized.md");
+        std::fs::write(&oversized, vec![b'x'; (MAX_PROMPT_FILE + 1) as usize]).unwrap();
+        assert!(read_prompt_file(&oversized).unwrap_err().to_string().contains("more than 1 MiB"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn stdin_prompt_paths_read_from_the_already_open_stdin() {
+        for path in ["-", "/dev/stdin", "/proc/self/fd/0", "/dev/fd/0"] {
+            assert_eq!(
+                read_prompt_file_with(Path::new(path), std::io::Cursor::new("do it\n")).unwrap(),
+                "do it\n",
+                "{path}"
+            );
+        }
     }
 }

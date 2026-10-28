@@ -11,6 +11,7 @@ import {
   overflowMenuItems,
   sourceMenuModel,
   toolbarPillButtons,
+  type OverflowCapabilities,
   type OverflowMenuItemId,
   type PillButtonId,
   type SourceTarget,
@@ -22,11 +23,12 @@ import type { DiffSource } from "../diff/generated/protocol";
 import {
   type SelectSessionSource,
   diffSourceRepoRoot,
+  hideWhitespaceAvailable,
   repoSelectionWithActiveSource,
   sourceSelectionWithActiveRepo,
   validDiffSource,
 } from "./session";
-import { splitFits, type AppAction, type AppState, type DiffViewerLayout } from "./state";
+import { nextDiffViewerLayout, type AppAction, type AppState, type DiffViewerLayout } from "./state";
 
 export function Toolbar({
   activeSessionSource,
@@ -59,6 +61,7 @@ export function Toolbar({
     <header id="toolbar">
       <SourceControls
         activeSessionSource={activeSessionSource}
+        hideWhitespace={state.options.hideWhitespace}
         items={state.items}
         label={label}
         onNavigate={onNavigate}
@@ -82,6 +85,7 @@ export function Toolbar({
  * menu rows the reference viewer has, then the remaining view options.
  */
 export function DiffPill({
+  capabilities = NO_HOST_CAPABILITIES,
   dispatch,
   externalURL,
   label,
@@ -91,6 +95,8 @@ export function DiffPill({
   onSetOption,
   state,
 }: {
+  /** Which "..." rows this host and source can apply (toolbar-model.ts); none by default. */
+  capabilities?: OverflowCapabilities;
   dispatch: React.Dispatch<AppAction>;
   externalURL: string | null;
   label: DiffViewerLabelResolver;
@@ -118,7 +124,7 @@ export function DiffPill({
         onSetOption("collapsed", !state.options.collapsed);
         return;
       case "layout":
-        onSetLayout(state.options.layout === "split" ? "unified" : "split");
+        onSetLayout(nextDiffViewerLayout(state.options.layout));
         return;
       case "files":
         dispatch({ type: "set-files-visible", visible: !state.filesVisible });
@@ -128,25 +134,36 @@ export function DiffPill({
   const onMenuItem = (id: OverflowMenuItemId) => {
     switch (id) {
       case "load-full-files":
-        onSetOption("expandUnchanged", !state.options.expandUnchanged);
+        // Loads the files' sides; the gaps' chevrons then show more lines, a click at a time.
+        onSetOption("loadFullFiles", !state.options.loadFullFiles);
         return;
       case "word-diffs":
         onSetOption("wordDiffs", !state.options.wordDiffs);
         return;
+      case "hide-whitespace":
+        // Reloads the diff (App.tsx setOption): the sidecar leaves white space changes out.
+        onSetOption("hideWhitespace", !state.options.hideWhitespace);
+        return;
+      case "hide-imports":
+        // Reloads the diff (App.tsx setOption): the page leaves import-only hunks out.
+        onSetOption("hideImports", !state.options.hideImports);
+        return;
       case "copy-git-apply":
         onCopyGitApply();
         return;
+      case "rich-preview":
+        // No reload: the Preview buttons show or hide.
+        onSetOption("richPreview", !state.options.richPreview);
+        return;
       default:
-        // Rich preview, Hide white space and Hide imports have nothing the viewer
-        // can apply yet; their rows are unavailable (NO_HOST_CAPABILITIES).
         return;
     }
   };
   return (
     <FloatingToolbar
-      buttons={toolbarPillButtons({ ...state, splitFits: splitFits(state.viewerWidth) })}
+      buttons={toolbarPillButtons(state)}
       label={label}
-      menuItems={overflowMenuItems(state.options, NO_HOST_CAPABILITIES)}
+      menuItems={overflowMenuItems(state.options, capabilities, state.whitespaceHidden)}
       menuOpen={state.optionsOpen}
       onButton={onButton}
       onCloseMenu={() => dispatch({ type: "set-options-open", open: false })}
@@ -155,6 +172,7 @@ export function DiffPill({
         <ViewOptionsMenuRows
           externalURL={externalURL}
           label={label}
+          onSetLayout={onSetLayout}
           onSetOption={onSetOption}
           onToggleHideViewed={() =>
             dispatch({ type: "set-file-filter", filter: { hideViewed: !state.fileFilter.hideViewed } })
@@ -170,12 +188,14 @@ export function DiffPill({
 function ViewOptionsMenuRows({
   externalURL,
   label,
+  onSetLayout,
   onSetOption,
   onToggleHideViewed,
   state,
 }: {
   externalURL: string | null;
   label: DiffViewerLabelResolver;
+  onSetLayout: (layout: DiffViewerLayout) => void;
   onSetOption: (key: keyof DiffViewerOptions, value: any) => void;
   onToggleHideViewed: () => void;
   state: AppState;
@@ -216,6 +236,31 @@ function ViewOptionsMenuRows({
         onClick={() => onSetOption("lineNumbers", !state.options.lineNumbers)}
       />
       <div className="menu-item menu-segment">
+        <Icon name="auto" />
+        <span className="menu-label">{label("layout")}</span>
+        <span className="menu-segment-controls">
+          {(
+            [
+              { value: "auto", icon: "auto", label: label("layoutAuto") },
+              { value: "split", icon: "split", label: label("layoutSplit") },
+              { value: "unified", icon: "unified", label: label("layoutUnified") },
+            ] as const
+          ).map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className="segment-button"
+              title={option.label}
+              aria-label={option.label}
+              aria-pressed={state.options.layout === option.value}
+              onClick={() => onSetLayout(option.value)}
+            >
+              <Icon name={option.icon} />
+            </button>
+          ))}
+        </span>
+      </div>
+      <div className="menu-item menu-segment">
         <Icon name="bars" />
         <span className="menu-label">{label("indicatorStyle")}</span>
         <span className="menu-segment-controls">
@@ -245,6 +290,7 @@ function ViewOptionsMenuRows({
 function SourceControls({
   activeSessionSource,
   children,
+  hideWhitespace,
   items,
   label,
   onNavigate,
@@ -256,6 +302,7 @@ function SourceControls({
   activeSessionSource: DiffSource | null;
   /** Controls after the source and base pills (the jump-to-file button). */
   children?: React.ReactNode;
+  hideWhitespace: boolean;
   items: DiffItem[];
   label: DiffViewerLabelResolver;
   onNavigate: (url: string) => void;
@@ -314,6 +361,7 @@ function SourceControls({
       {sourceModel.selected?.id === "uncommitted" ? null : (
         <BaseControl
           activeSessionSource={activeSessionSource}
+          hideWhitespace={hideWhitespace}
           label={label}
           onNavigate={onNavigate}
           onSelectSessionSource={onSelectSessionSource}
@@ -333,6 +381,7 @@ function SourceControls({
  */
 function BaseControl({
   activeSessionSource,
+  hideWhitespace,
   label,
   onNavigate,
   onSelectSessionSource,
@@ -340,6 +389,7 @@ function BaseControl({
   transport,
 }: {
   activeSessionSource: DiffSource | null;
+  hideWhitespace: boolean;
   label: DiffViewerLabelResolver;
   onNavigate: (url: string) => void;
   onSelectSessionSource: SelectSessionSource;
@@ -382,6 +432,9 @@ function BaseControl({
     return (
       <BranchBasePicker
         key={branchPickerStateKey(picker)}
+        ignoreWhitespace={
+          hideWhitespace && hideWhitespaceAvailable(payload, { kind: "branch", repoRoot: picker.repoRoot })
+        }
         label={label}
         onNavigate={onNavigate}
         onBranchSessionOpened={(session) =>

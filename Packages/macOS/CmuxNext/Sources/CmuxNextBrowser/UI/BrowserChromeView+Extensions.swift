@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextIcons
 
@@ -43,13 +44,10 @@ extension BrowserChromeView {
     }
 
     public func presentExtensionsMenu(for id: String? = nil) {
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
-            MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
-                guard let self else { return }
-                if let id { self.showExtensionItemMenu(id) } else { self.showExtensionsMenu() }
-            }
+        MainRunLoopBlock.perform { [weak self] in
+            guard let self else { return }
+            if let id { self.showExtensionItemMenu(id) } else { self.showExtensionsMenu() }
         }
-        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 
     /// Runs an extension's toolbar action anchored to its button (or the

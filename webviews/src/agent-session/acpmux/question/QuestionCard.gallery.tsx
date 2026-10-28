@@ -24,11 +24,12 @@ type Props = {
   question: AgentQuestion;
   onReply(reply: QuestionReply): void | Promise<unknown>;
   otherText?: string;
+  look?: "compact" | "inset" | "quiet";
 };
 
 /// The card sits where the agent pane puts it: inside .acpmux-shell (which defines the card tokens,
 /// the amber input color among them) and the bottom ask stack.
-function QuestionCardInPane({ otherText, ...props }: Props) {
+function QuestionCardInPane({ otherText, look, ...props }: Props) {
   const pane = useRef<HTMLDivElement>(null);
   // A variant with `otherText` picks Other on the first question and types it, as a person does.
   useEffect(() => {
@@ -37,9 +38,12 @@ function QuestionCardInPane({ otherText, ...props }: Props) {
     // After the mount's effects, so the card's own update runs as it does for a click.
     const timer = setTimeout(() => {
       root.querySelector<HTMLElement>(".acpmux-question-other-choice")?.click();
-      const field = root.querySelector<HTMLInputElement>(".acpmux-question-other input");
+      const field = root.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+        ".acpmux-question-other :is(input, textarea)",
+      );
       if (!field) return;
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(field, otherText);
+      const prototype = field.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(field, otherText);
       field.dispatchEvent(new Event("input", { bubbles: true }));
     }, 0);
     return () => clearTimeout(timer);
@@ -47,7 +51,8 @@ function QuestionCardInPane({ otherText, ...props }: Props) {
   return (
     <div
       ref={pane}
-      className="acpmux-shell"
+      className="acpmux-shell acpmux-question-visual-gallery"
+      data-question-look={look}
       style={{ flexDirection: "column", justifyContent: "flex-end", paddingTop: 16 }}
     >
       <div className="acpmux-permission">
@@ -88,6 +93,26 @@ const answeredBySession: AgentQuestion = {
       selections: { q0: { optionIDs: ["OAuth 2.0"] } },
       respondent: { displayName: "lead-planner", isRemote: false, isSession: true },
     },
+  },
+};
+
+/// How an unanswered ask ended, as its record says (record.ts `cancelReason`).
+const skipped: AgentQuestion = {
+  ...(cancelled as unknown as AgentQuestion),
+  state: { kind: "cancelled", reason: "skipped" },
+};
+const stopped: AgentQuestion = {
+  ...(cancelled as unknown as AgentQuestion),
+  state: { kind: "cancelled", reason: "stopped" },
+};
+
+/// Answered from the person's phone through the feed (`answeredBy {device, feedItem}`): the record
+/// names an install, not a device, so the line says another device.
+const answeredElsewhere: AgentQuestion = {
+  ...(answeredCollapsed as unknown as AgentQuestion),
+  state: {
+    kind: "answered",
+    answer: { selections: { q0: { optionIDs: ["OAuth 2.0"] } }, respondent: { isRemote: true } },
   },
 };
 
@@ -171,6 +196,36 @@ const hoverRow =
   (ctx) =>
     ctx.hover({ selector: `.acpmux-question-row[data-row="${row}"]` });
 
+/// The highlight stays inside the card, and moving it never shifts the question or footer.
+/// Runs in the real React gallery with trusted browser input in the matrix runner.
+const checkInsetRows: Play = async (ctx) => {
+  const card = ctx.find({ selector: ".acpmux-question" });
+  const row = ctx.find({ selector: '.acpmux-question-row[data-row="1"]' });
+  const prompt = ctx.find({ selector: ".acpmux-question-prompt" });
+  const actions = ctx.find({ selector: ".acpmux-question-actions" });
+  const box = card.getBoundingClientRect();
+  const rowBox = row.getBoundingClientRect();
+  if (rowBox.left < box.left + 5 || rowBox.right > box.right - 5)
+    throw new Error("The row highlight must be inset from both card edges.");
+  for (const target of card.querySelectorAll(".acpmux-question-row")) {
+    const rect = target.getBoundingClientRect();
+    if (rect.height < 36 || target.scrollWidth > target.clientWidth + 1)
+      throw new Error("Question choices need a full click target without horizontal overflow.");
+  }
+  const before = [box, prompt.getBoundingClientRect(), actions.getBoundingClientRect()];
+  await ctx.hover({ selector: '.acpmux-question-row[data-row="1"]' });
+  await ctx.press("ArrowDown");
+  const after = [card, prompt, actions].map((node) => node.getBoundingClientRect());
+  if (
+    before.some((rect, i) =>
+      ["x", "y", "width", "height"].some(
+        (key) => Math.abs((rect[key as keyof DOMRect] as number) - (after[i]![key as keyof DOMRect] as number)) > 0.5,
+      ),
+    )
+  )
+    throw new Error("Question layout moved while its highlight changed.");
+};
+
 export default componentEntry({
   id: "agent-pane.question-card",
   title: "Agent question card",
@@ -180,7 +235,7 @@ export default componentEntry({
   widths: { narrow: 420, normal: 640, wide: 820 },
   anchors: [{ selector: ".acpmux-question" }],
   covers: ["agent-session/acpmux/question/QuestionCard.tsx#QuestionCard"],
-  styles: () => import("../styles.css"),
+  styles: () => Promise.all([import("../styles.css"), import("./QuestionCard.gallery.css")]),
   load: async () => QuestionCardInPane,
   experiment: {
     definition: questionPreviewLayout,
@@ -190,6 +245,19 @@ export default componentEntry({
     ],
   },
   variants: {
+    "visual-compact": {
+      ...variant(pendingSingle, "Compact rules: tighter rows and footer, with full-width hairlines."),
+      props: { ...variant(pendingSingle, "").props, look: "compact" },
+    },
+    "visual-inset": {
+      ...variant(pendingSingle, "Recommended: inset row highlights, quiet separators, compact footer."),
+      props: { ...variant(pendingSingle, "").props, look: "inset" },
+      play: checkInsetRows,
+    },
+    "visual-quiet": {
+      ...variant(pendingSingle, "Quiet list: no header strip or row separators; the prompt leads the list."),
+      props: { ...variant(pendingSingle, "").props, look: "quiet" },
+    },
     "pending-single": variant(
       pendingSingle,
       "A Claude Code AskUserQuestion: the Needs your input pill, the question as the header, radio rows, Skip and Submit.",
@@ -198,6 +266,10 @@ export default componentEntry({
       folderTrust,
       "An agent's sub-session waits in an untrusted folder: Trust folder or Not now. Trust lets the start go on by itself.",
     ),
+    "folder-trust-picked": {
+      ...variant(folderTrust, "Trust folder clicked: the row is chosen and nothing is sent until Submit (or ⌘↩)."),
+      play: (ctx) => ctx.click({ selector: '.acpmux-question-row[data-row="0"]' }),
+    },
     "pending-multi": variant(pendingMulti, "A multi-select ask: checkbox rows."),
     "pending-other-typing": variant(pendingOther, "Other turned into an inline text field."),
     "pending-with-preview": variant(
@@ -230,6 +302,7 @@ export default componentEntry({
       },
       play: async (ctx) => {
         await ctx.click({ selector: '.acpmux-question-row[data-row="0"]' });
+        await ctx.click({ selector: ".acpmux-question-submit" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-question-error"));
       },
     },
@@ -247,7 +320,13 @@ export default componentEntry({
     ),
     cancelled: variant(
       cancelled,
-      "Skipped, declined, cancelled or stopped with the turn: one muted line, Not answered, and the question.",
+      "Ended unanswered where the record can't say how (no reject option): one muted line, Not answered, and the question.",
+    ),
+    skipped: variant(skipped, "The person pressed Skip: the line says Skipped."),
+    stopped: variant(stopped, "The turn was stopped (or the chat closed) before an answer: the line says so."),
+    "answered-elsewhere": variant(
+      answeredElsewhere,
+      "Answered on the person's phone through the feed, which names an install, not a device: another device.",
     ),
     "pending-2-other-typed": variant(
       pendingTwo,

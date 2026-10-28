@@ -11,7 +11,9 @@ extension ScreenContentView {
     /// Advances springs by `dt` with the frame's motion `policy`. Returns
     /// true while anything still moves. A screen at rest (a drag frame that
     /// moved nothing, a still pointer) does no work.
-    func step(_ dt: Double, policy: MotionPolicy = Motion.panes.policy) -> Bool {
+    func step(_ dt: Double, policy: MotionPolicy = Motion.panes.policy) -> Bool { // perf-hot: 4ms motion-frame
+        // A released resize drag ends for the pane contents in the frame its layout lands.
+        defer { if resizeGesture == .landing { finishResizeGestureIfLanded() } }
         guard hasMotion || reportScrollOnSettle else {
             scrollRidesFrames = false
             return false
@@ -68,8 +70,13 @@ extension ScreenContentView {
         guard leadsFrame else { return }
         leadsFrame = false
         let frameSpring = policy.spring(motionState.frameSpring), appear = policy.spring(.appear)
-        for key in Array(paneFrames.keys) { _ = paneFrames[key]?.advance(dt, parameters: frameSpring, alphaParameters: appear) }
-        for key in Array(dividerFrames.keys) { _ = dividerFrames[key]?.advance(dt, parameters: frameSpring) }
+        // The same springs `step` uses: unsettled (no edge lands alone), each pane on its zoom spring token.
+        for key in Array(paneFrames.keys) {
+            let token = zoomMotion.spring(for: key, fallback: motionState.frameSpring)
+            _ = paneFrames[key]?.advanceUnsettled(dt, parameters: token == motionState.frameSpring ? frameSpring : policy.spring(token),
+                                                  alphaParameters: appear)
+        }
+        for key in Array(dividerFrames.keys) { _ = dividerFrames[key]?.advanceUnsettled(dt, parameters: frameSpring) }
         if scrollRidesFrames {
             if !isUserScrolling { _ = scroll.advance(dt, parameters: frameSpring, epsilon: 0.25) }
             _ = stepRows(dt, spring: frameSpring)
@@ -77,16 +84,69 @@ extension ScreenContentView {
         applyPresentation()
     }
 
+    /// Frame ticks a strip pan keeps after its last event: a trackpad sends about one event per
+    /// frame, and a gap of a frame or two must not drop the window's display link (an idle
+    /// scheduler drops its link, and the next event would make a new one). About 67 ms at 120 Hz.
+    static let panTickTail = 8
+
+    /// Shows a strip pan event: now when this display frame shows no pan yet, else at the frame's
+    /// tick (``displayFrameBegan()``), so a burst of events costs one presentation (one layout
+    /// pass and commit of the moved panes) per frame. The frame's first event still shows in its
+    /// own turn, so a pan of about one event per frame shows each event as soon as before.
+    func presentPan() {
+        panTicksLeft = Self.panTickTail
+        if panPresentedInFrame {
+            panPresentationPending = true
+        } else {
+            panPresentedInFrame = true
+            applyPresentation()
+        }
+        // The tick that opens the next frame (and shows a waiting event).
+        context.requestFrames()
+    }
+
+    /// A display frame began (the layout's frame tick, before its springs step): the pan events
+    /// that waited in the last frame show now. Returns true while a pan in progress keeps the frame
+    /// ticks (``panTickTail`` frames after its last event).
+    func displayFrameBegan() -> Bool {
+        panPresentedInFrame = false
+        if panPresentationPending { applyPresentation() }
+        guard panTicksLeft > 0, isUserScrolling else {
+            panTicksLeft = 0
+            return false
+        }
+        panTicksLeft -= 1
+        return true
+    }
+
+    /// Sets `frame`'s target (opaque); without animation it snaps there. During a pointer gesture (a divider drag)
+    /// only a frame the gesture retargets snaps: a spring already running elsewhere (a close landing in another
+    /// column) keeps going (M3). Reduce Motion snaps every frame.
+    func place(_ frame: inout AnimatedFrame, at target: CGRect, animated: Bool) {
+        let retargeted = frame.targetRect != target
+        frame.setTarget(target, alpha: 1)
+        if !animated, retargeted || !context.model.isGestureActive || context.reduceMotion { frame.snap() }
+    }
+
     /// New dock columns' panes still growing in from their screen edge (their frames).
     var growingDocks: [AnimatedFrame] { PaneArrival.growing(arriving, frames: paneFrames, in: geometry, docks: newDockColumns) }
     /// Lays every pane out at the rect its spring presents this frame (live, as a window resize
     /// is: the host, its tab strip and its terminal or page take that size now), then clips each
     /// host by the docks and by the panes in front of it.
-    func applyPresentation() {
+    ///
+    /// Work per frame is O(what changed): a host whose placed frame, alpha, clip and covers are as
+    /// they were is not touched, nor is a divider that kept its frame, and a pass that changed
+    /// nothing asks for no overlay sync and no hover refresh (`PaneMotionBench`, perf-lead issue 3).
+    /// `force`: a structural or style change; everything is re-placed and the overlay syncs.
+    func applyPresentation(force: Bool = false) { // perf-hot: 4ms motion-frame
+        // Every presentation shows the latest pan: no pan event waits after it.
+        panPresentationPending = false
         let strip = stripShift, restStrip = geometry.viewShift(offset: isUserScrolling ? scroll.value : scroll.target)
         let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks), zooming = zoomMotion.pane
         var clips: [(host: PaneHostView, scrolls: Bool)] = []
+        var changed = force
         let scale = self.scale
+        let laysOutNow = window != nil && bounds.width >= 1 && bounds.height >= 1
         for (pane, frame) in paneFrames {
             guard let host = context.hosts[pane], host.superview === self else { continue }
             let scrolls = geometry.scrolls(pane: pane)
@@ -96,47 +156,94 @@ extension ScreenContentView {
             let placed = frame.rect.pixelEdges(scale).offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
             // Before the frame moves: chrome that re-checks itself on the move reads the rest.
             let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStrip : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
-            host.restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
-            host.restSize = rest.size
+            let restOffset = CGVector(dx: rest.minX - placed.minX, dy: rest.minY - placed.minY)
+            if host.restOffset != restOffset { host.restOffset = restOffset }
+            // A new rest size (a split's new pane has none before its first one) on a running spring.
+            let restChanged = host.restSize != rest.size
+            if host.restSize != rest.size { host.restSize = rest.size }
             // On a spring until the frame it lands at is laid out (`PaneHostView.isOnLayoutSpring`).
             let springing = frame.rect != frame.targetRect
             if springing { host.isOnLayoutSpring = true }
             defer { if !springing { host.isOnLayoutSpring = false } }
-            if host.frame != placed {
+            if host.frame.size != placed.size {
                 host.frame = placed
                 // Its tab strip and content lay out in this frame's step, with the frame: never a
-                // layout pass behind it (`PaneContentView.layout` sizes the strip).
-                host.layoutSubtreeIfNeeded()
+                // layout pass behind it (`PaneContentView.layout` sizes the strip). Only at a real size in a
+                // window: before the root is placed (a new window's content builds its layout first) the
+                // frames come from an empty viewport, and laying every pane out there broke Auto Layout
+                // constraints in each one (4.77 s for moveWorkspaceToNewWindow in STRESS); the window's
+                // layout pass lays them out once the root has its size.
+                if laysOutNow, placed.width >= 1, placed.height >= 1 { host.layoutSubtreeIfNeeded() }
+                changed = true
+            } else if host.frame.origin != placed.origin {
+                // A pane that only moves (the strip camera, a column opening beside it) keeps its
+                // size: no layout of its strip or content, no terminal resize.
+                host.frame = placed
+                changed = true
             }
-            (host.alphaValue, host.isDocked) = (frame.alpha.value, !scrolls)
+            // A spring that starts or retargets (a press during the motion) to a new size: the content
+            // hears the size it will rest at now, once (a terminal sends its final grid at the start).
+            if restChanged, springing { host.announceRest() }
+            if host.alphaValue != frame.alpha.value {
+                host.alphaValue = frame.alpha.value
+                changed = true
+            }
+            if host.isDocked == scrolls { host.isDocked = !scrolls }
             // The zooming pane is above the docks (`rank`) until it lands: the strip's dock clip does not cut it.
             zoomMotion.track(pane, frame)
             clips.append((host, scrolls && pane != zoomMotion.pane))
         }
         // A zoom that landed gives its pane back its place in the stacking order (`rank`).
-        if zoomMotion.pane != zooming { ensureStacking() }
+        if zoomMotion.pane != zooming {
+            ensureStacking()
+            changed = true
+        }
         // Once every frame is placed: a pane is clipped by the panes in front of it, the panes a
-        // zoom covers too (they stay where they were, opaque, `zoomMotion.covered`).
+        // zoom covers too (they stay where they were, opaque, `zoomMotion.covered`). A host whose
+        // clip inputs did not change keeps its clip without recomputing it.
         let above = panesAbove()
-        for (host, scrolls) in clips { clipToStrip(host, scrolls: scrolls, clip: clip, above: above) }
-        for host in coveredHosts { clipToStrip(host, scrolls: false, clip: nil, above: above) }
+        for (host, scrolls) in clips {
+            if clipToStrip(host, scrolls: scrolls, clip: clip, above: above, force: force) { changed = true }
+        }
+        for host in coveredHosts {
+            if clipToStrip(host, scrolls: false, clip: nil, above: above, force: force) { changed = true }
+        }
+        var dividersChanged = force
         for (kind, frame) in dividerFrames {
             guard let view = dividerViews[kind] else { continue }
             let scrolls = self.scrolls(kind)
-            view.frame = frame.rect.pixelEdges(scale).offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: kind), dy: -rowOffset(of: kind))
-            view.alphaValue = frame.alpha.value
+            let placed = frame.rect.pixelEdges(scale).offsetBy(dx: (scrolls ? strip : 0) - areaOffset(of: kind), dy: -rowOffset(of: kind))
+            let shownArea = areaWindow(of: kind), clips: [CGRect?] = [uncovered, shownArea]
+            guard force || view.frame != placed || view.alphaValue != frame.alpha.value || view.placedClips != clips else { continue }
+            dividersChanged = true
+            if view.frame != placed { view.frame = placed }
+            if view.alphaValue != frame.alpha.value { view.alphaValue = frame.alpha.value }
+            view.placedClips = clips
             // A strip divider under a docked column must not take its clicks, nor one scrolled out of its area.
             let hidden = (scrolls && !geometry.dock.isEmpty && view.frame.intersection(uncovered).width < 0.5)
-                || areaWindow(of: kind).map { !$0.contains(CGPoint(x: view.frame.midX, y: view.frame.midY)) } == true
+                || shownArea.map { !$0.contains(CGPoint(x: view.frame.midX, y: view.frame.midY)) } == true
             if view.isHidden != hidden { view.isHidden = hidden }
             // Shown, its cursor and click catcher still stop at a dock and at its area's window.
             var pointerClip: CGRect? = scrolls && !geometry.dock.isEmpty ? uncovered : nil
-            if let area = areaWindow(of: kind) { pointerClip = pointerClip.map { $0.intersection(area) } ?? area }
+            if let area = shownArea { pointerClip = pointerClip.map { $0.intersection(area) } ?? area }
             view.cursorClip = pointerClip
         }
         updateScrollbar()
-        refreshDividerHover()
-        context.overlayNeedsSync()
+        // A pan with the finger down is layout motion too (hasMotion leaves user gestures out): motion-time content
+        // (divider catcher panels, page windows) waits for the landing. The landing frame's advanceFrame clears it.
+        let gesturing = isUserScrolling || rowScrolls.values.contains(where: \.state.isGestureActive)
+            || areaScrolls.values.contains(where: \.state.isGestureActive)
+        if gesturing, changed {
+            userMotionActive = true
+            context.userMotionStepped()
+        } else if !gesturing, userMotionActive {
+            // The gesture ended: a fling springs on (advanceFrame ends the motion when it lands), else it ends now.
+            userMotionActive = false
+            if !hasMotion { context.userMotionEnded() }
+        }
+        // The handles moved under a still pointer, or the panes did (a zoom covers handles).
+        if dividersChanged || changed { refreshDividerHover() }
+        if dividersChanged || changed { context.overlayNeedsSync() }
     }
     /// Divider hover from the pointer and the current frames (`ScreenDividers`).
     func refreshDividerHover() { ScreenDividers(screen: self).refreshHover() }

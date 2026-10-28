@@ -56,8 +56,15 @@ enum BrowserHandlers {
         })
         // Classic's Design Mode (plans/cmux-next/design-mode-DESIGN.md): highlights become cards in
         // an agent chat. The toolbar shows the mode (BrowserPageModes); a new document starts with it off.
-        registry.bind("toggleBrowserDesignMode", run: { invocation in
+        registry.bind("toggleBrowserDesignMode", unavailable: {
+            let alreadyOn = context.services.cache.browsers.values.contains { $0.chrome.toolbarButtons.modes.designMode }
+            return BrowserPageTunables.uiPointer.value || alreadyOn ? nil :
+                "UI pointer picker is off. Turn it on in Debug Settings > Browser Page Loading."
+        }, run: { invocation in
             let entry = try context.page(invocation)
+            guard BrowserPageTunables.uiPointer.value || entry.chrome.toolbarButtons.modes.designMode else {
+                throw ActionFailure(message: "UI pointer picker is off. Turn it on in Debug Settings > Browser Page Loading.")
+            }
             guard let key = context.services.cache.key(of: entry.tab) else { return }
             context.services.designMode.toggle(entry, key: key)
         })
@@ -130,7 +137,7 @@ enum BrowserHandlers {
     /// new split in one daemon `split {tab}` call.
     private static func bindSplits(into registry: ActionRegistry, context: AppActionContext) {
         for (id, direction) in [("splitBrowserRight", SplitDirection.right), ("splitBrowserDown", .down)] {
-            registry.bind(ActionID(rawValue: id), requires: DaemonCapabilities.shared.frontendBrowserTabs, daemon: context.daemon, run: { invocation in
+            registry.bindEffect(ActionID(rawValue: id), requires: DaemonCapability.frontendBrowserTabs.rawValue, daemon: context.daemon, effect: { invocation in
                 try splitBrowser(from: try context.pane(invocation), direction: direction, byPerson: invocation.origin == .user,
                                  context: context)
             })
@@ -143,8 +150,12 @@ enum BrowserHandlers {
     /// focus. The split follows the one tool-split rule (`AppServices.toolSplit`,
     /// cx-yihq), as Split Right does: refused without room, and from the docked
     /// chat a person's browser is a tab in the strip.
+    ///
+    /// Returns what the caller hands the registry (``ActionRegistry/settle(_:of:_:)``, or a bound handler's
+    /// return): the tab open and the split are one waiting effect (`daemonEcho`: nothing shows until the daemon
+    /// answers, debt until a provisional browser split exists), and its failure is reported, not only logged.
     static func splitBrowser(from pane: PaneController, direction: SplitDirection, url: URL? = nil, profile: String? = nil,
-                             byPerson: Bool, context: AppActionContext) throws {
+                             byPerson: Bool, context: AppActionContext) throws -> ActionEffect {
         let handle = pane.pane.handle, model = pane.pane
         let browserTabs = context.services.cache.browserTabs
         if let refusal = browserTabs.refusal(for: url) { throw ActionFailure(message: refusal) }
@@ -154,21 +165,24 @@ enum BrowserHandlers {
         case .refused(let reason):
             throw ActionFailure(message: reason)
         case .tab(let strip):
-            return try browserTab(in: strip, url: url, profile: profile, context: context)
+            try browserTab(in: strip, url: url, profile: profile, context: context)
+            return .done
         case .besideDock(let dock):
-            // Home's pinned dock alone: the daemon makes a browser tab aimed at it in a new column right of it.
+            // Home's pinned dock alone: a browser tab aimed at it opens in a new column right of it
+            // (the daemon's reroute, or PaneBrowserTabOpener's move while the dock takes tabs).
             _ = dock.newBrowserTab(url: url, profile: profile)
-            return
+            return .done
         }
         if let refusal = browserTabs.refusal(in: model) { throw ActionFailure(message: refusal) }
         // The split goes to the pane's own machine (cx-2cob); `refusal` named a disconnected one.
         let daemon = context.services.daemon(for: model)
         let connection = try daemon.isLocal ? context.requireConnection() : daemon.connection ?? context.requireConnection()
         // The default engine (never refused: no engine is requested).
-        guard case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else { return }
+        guard case .open(let choice) = browserTabs.resolve(requested: nil, url: url) else { return .done }
         let intent = pane.workspace?.beginFocusIntent()
         let address = url?.absoluteString ?? context.services.newTabAddress(for: choice)
-        Task {
+        // action-wait-allow: no provisional browser split exists yet (a tab opened in the source pane, then moved by the daemon's split); its failure is now reported.
+        return .waiting(.daemonEcho) {
             do {
                 let surface = try await browserTabs.open(choice, in: model, url: address, profile: profile)
                 try await connection.split(handle, direction: direction, movingTab: surface)
@@ -177,8 +191,10 @@ enum BrowserHandlers {
                 // source pane before the move: land only in the new pane.
                 pane.workspace?.expectFocus(on: surface, target: url == nil ? .addressBar : .content, awayFrom: pane.paneKey,
                                             generation: intent)
+                return nil
             } catch {
                 context.daemon.logger.error("split-browser failed: \(String(describing: error), privacy: .public)")
+                return ActionWorkFailure("split-browser", error)
             }
         }
     }
@@ -221,7 +237,8 @@ enum BrowserHandlers {
                 }, openInSplit: { [weak chrome = entry.chrome] url in
                     // A refused split (no room, cx-yihq) says why on the page instead of doing nothing.
                     do {
-                        try splitBrowser(from: pane, direction: .right, url: url, profile: profile, byPerson: true, context: context)
+                        let effect = try splitBrowser(from: pane, direction: .right, url: url, profile: profile, byPerson: true, context: context)
+                        context.registry.settle(effect, of: "browserLinkHintsNewSplit", ActionInvocation())
                     } catch let failure as ActionFailure {
                         chrome?.showNotice(failure.message)
                     } catch {}

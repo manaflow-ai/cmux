@@ -1,4 +1,6 @@
 import CmuxHomeCore
+import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextChiefPetWiring
 import CmuxNextHome
 import CmuxNextHomeEngine
@@ -32,7 +34,7 @@ extension HomeService {
     }
     func recipientLook(_ recipient: HomeRecipient) -> HomeRecipientLook {
         chiefRoster.look(recipient, rows: homeStore.rows, avatars: chiefFaces,
-                         fallback: HomeHostView.defaultTileAvatar(mascot: services.settings?.snapshot.homeChiefPetMascot),
+                         fallback: HomeHostView.defaultTileAvatar(picture: services.characterPicture(of: nil)),
                          harnesses: directory.chiefHarnesses)
     }
 
@@ -53,6 +55,42 @@ extension HomeService {
     /// goes to this Mac's Chief owner, Claude to the signed-in account's cloud Chiefs.
     func createChief(named name: String, backend: ChiefBackend = .claude) async -> HomeComposeOutcome {
         backend.createsOnThisMac ? await createLocalChief(named: name, backend: backend) : await createCloudChief(named: name)
+    }
+
+    /// Headless action path: returns the exact durable record created by this
+    /// invocation, so concurrent Home actions cannot cross their result ids.
+    func createChiefForAction(named name: String, backend: ChiefBackend) async -> HomeActionChiefResult {
+        if backend.createsOnThisMac {
+            guard let connection else { return .failure(.offline) }
+            do {
+                let made = try await HomeLocalChiefCreator(connection: connection, me: Self.localUser)
+                    .create(name: name, backend: backend)
+                pendingSelection = made.conversation
+                refreshChiefHarnesses()
+                return .success(HomeChiefRecord(id: made.chief, name: name, isDefault: false, rev: 0,
+                                                mainConversation: made.conversation.rawValue, placed: true))
+            } catch let error as DaemonError {
+                switch error {
+                case .notConnected, .connectionClosed, .daemonShutdown: return .failure(.offline)
+                case .command(_, let message, let code, _, _): return .failure(.refused(message.isEmpty ? code ?? "" : message))
+                default: return .failure(.refused(error.description))
+                }
+            } catch {
+                return .failure(.refused(String(describing: error)))
+            }
+        }
+        do {
+            let record = try await directory.createChief(named: name)
+            if !record.placed { await hostedChief.enableBrain(of: record.id) }
+            pendingSelection = record.mainConversation.map { ConversationID($0) }
+            return .success(record)
+        } catch FeedServiceError.signedOut {
+            return .failure(.offline)
+        } catch FeedServiceError.owner(let code, let message) {
+            return .failure(.refused(code == "policy.denied" || code == "validation.invalid" ? message : code))
+        } catch {
+            return .failure(.refused(""))
+        }
     }
 
     /// `chief.create` on the signed-in account's cloud Chiefs (the default engine).
@@ -108,7 +146,7 @@ extension HomeService {
                            chief: { [weak self] in
             guard let self, let chief = TopHomePageView.chief(self) else { return nil }
             return ConversationID(chief)
-        })
+        }, chiefNames: { [weak self] in self?.chiefNames ?? [:] })
     }
 
     /// The Home sidebar's data source (the vendored MessagesLab sidebar reads it):
@@ -122,9 +160,10 @@ extension HomeService {
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
             chiefAvatars: { [weak self] in self?.chiefFaces ?? [:] },
-            defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(mascot: self?.services.settings?.snapshot.homeChiefPetMascot) },
+            defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(picture: self?.services.characterPicture(of: nil)) },
             chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] },
-            chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() })
+            chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() },
+            chiefNames: { [weak self] in self?.chiefNames ?? [:] })
         source.onSelect = { [weak self] id in self?.pendingSelection = id }
         // The unread indicator outside Home reads `groupMuting`: a mark set in a page's own source reaches it.
         source.onMarksChanged = { [weak self] in self?.groupMuting.reloadMarks() }
@@ -158,18 +197,93 @@ extension HomeService {
         }
     }
 
+    /// The record name of the Chief whose conversation is `conversation` (issue 26393): a cloud
+    /// Chief's `chief.list` entry, a Chief of this Mac its registry name from `home-inbox`; nil
+    /// for a conversation that is no Chief's own (a group, a DM with a person) or a Chief with no name.
+    func chiefRecord(of conversation: ConversationID) -> String? {
+        if let cloud = directory.chiefs.first(where: { $0.mainConversation == conversation.rawValue }),
+           let name = HomeChiefNames.trimmed(cloud.name) { return name }
+        return HomeChiefNames.localRecord(of: conversation, in: homeInbox.rows)
+    }
+
+    /// Each Chief's one name by its conversation, for the list's tiles (``chiefName(of:)``).
+    var chiefNames: [ConversationID: String] {
+        var records = HomeChiefNames.localRecords(homeInbox.rows)
+        for chief in directory.chiefs {
+            guard let conversation = chief.mainConversation, let name = HomeChiefNames.trimmed(chief.name) else { continue }
+            records[ConversationID(conversation)] = name
+        }
+        return chiefRenames.all(records)
+    }
+
+    /// The name `conversation`'s Chief shows everywhere: the list's tile, the chat header, the
+    /// settings card, the tab strip, banners and Send Message… (its record's, or a rename being
+    /// saved); nil when it is no Chief's, and the conversation's title shows.
+    func chiefName(of conversation: ConversationID) -> String? {
+        chiefRenames.name(of: conversation, record: chiefRecord(of: conversation))
+    }
+
+    /// Renames conversation `conversation` from its header card. A Chief's own conversation renames
+    /// the Chief's record, and the new name shows on every surface at once while it is saved, then
+    /// the record decides; a refused save shows the record's name again. A cloud Chief renames its
+    /// account record (UserDO renames its conversation after); a Chief of this Mac its registry
+    /// record, whose owner retitles the Chief's own conversation. Any other conversation with a
+    /// Chief (a group, a channel) is renamed itself. Nil when saved, else why not.
+    func renameChief(conversation: String, to name: String) async -> HomeChiefRenameFailure? {
+        let id = ConversationID(conversation)
+        if isCloudConversation(id) {
+            return await renamingRecord(id, to: name) { await self.directory.renameChief(conversation: conversation, to: name) }
+        }
+        guard let connection else { return .noConnection }
+        // The owner's row says whether this is a Chief's own conversation; before its first answer, the store's row.
+        let row = homeInbox.rows?.first { $0.id == conversation }
+        let isChiefs = row.map { $0.kind == "chief" } ?? (homeStore.rows.first { $0.id == id }?.kind == .chief)
+        guard isChiefs, let chief = row?.chief ?? homeStore.summary(id).flatMap({ Self.soleChief(of: $0.participants) }) else {
+            return await HomeConversationRename(conversation: conversation, name: name).send(over: connection)
+        }
+        return await renamingRecord(id, to: name) { await HomeLocalChiefRename(chief: chief, name: name).send(over: connection) }
+    }
+
+    /// Runs `save` with `name` shown for `id` meanwhile (only for a Chief with a record); a refusal
+    /// rolls it back, a save that lands keeps it until the record leaves the names it replaced.
+    private func renamingRecord(_ id: ConversationID, to name: String,
+                                save: () async -> HomeChiefRenameFailure?) async -> HomeChiefRenameFailure? {
+        guard chiefRecord(of: id) != nil else { return await save() }
+        chiefRenames.rename(id, to: name, record: chiefRecord(of: id))
+        let failure = await save()
+        if failure != nil {
+            chiefRenames.rollBack(id, name: name)
+        } else {
+            settleRename(id)
+        }
+        return failure
+    }
+
+    /// Drops `id`'s shown rename once its record moves past the names it replaced (the save's echo,
+    /// or anyone's rename since); event-driven, it ends then.
+    private func settleRename(_ id: ConversationID) {
+        // task-owner: one saved rename; Observation of the Chief's record, ends when the rename is settled
+        // (or with the service, if the save's echo never comes: the rename then keeps showing, as saved)
+        Task { [weak self] in
+            for await record in ObservationStream({ self?.chiefRecord(of: id) }) {
+                guard let self else { return }
+                // No record read (the list reconnecting) settles nothing: the saved name keeps showing.
+                guard record != nil else { continue }
+                chiefRenames.settle(id, record: record)
+                if !chiefRenames.isPending(id) { return }
+            }
+        }
+    }
+
     /// Each listed Chief's avatar as its Home row, header and bubbles draw it: its own picture or
     /// text, else the picture of its own pet character (``ChiefMascotPicks``), so a character picked
     /// for one Chief never shows on another.
     var chiefFaces: [String: HomeChiefAvatar] {
-        let picks = services.chiefMascotPicks, snapshot = services.settings?.snapshot
         var chiefs = Set(homeStore.rows.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
         #if DEBUG
         chiefs.formUnion(debugChiefs)
         #endif
-        return Self.chiefFaces(chiefs: chiefs, own: directory.chiefAvatars) {
-            ChiefPetSettingsRows.avatarURL(of: picks.mascot(of: $0, in: snapshot))
-        }
+        return Self.chiefFaces(chiefs: chiefs, own: directory.chiefAvatars) { services.characterPicture(of: $0) }
     }
 
     /// `own` (each Chief's own avatar), with each other Chief in `chiefs` wearing the `picture` of its character.
@@ -186,4 +300,9 @@ extension HomeService {
         let chiefs = participants.filter(\.isChief)
         return chiefs.count == 1 ? chiefs[0].id.rawValue : nil
     }
+}
+
+enum HomeActionChiefResult {
+    case success(HomeChiefRecord)
+    case failure(HomeComposeOutcome)
 }

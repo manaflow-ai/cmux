@@ -8,13 +8,15 @@ public import Foundation
 /// page's `hostEvents.ts` runs the same `cmuxAcpmuxBridge` function with `value`.
 public nonisolated struct AgentPageEvent: Equatable, Sendable {
     /// `theme`, `shortcuts`, `preview`, `sessionStatus`, `editedFiles`, `customization`, `registry`, `dictation`, `revealTurn`,
-    /// `command`, `focusLocation` or `transport`.
+    /// `command`, `stopTurn`, `focusLocation` or `transport`.
     public let kind: String
     public let value: JSONValue
+    let deliveryID: UInt64?
 
-    public init(kind: String, value: JSONValue = .null) {
+    public init(kind: String, value: JSONValue = .null, deliveryID: UInt64? = nil) {
         self.kind = kind
         self.value = value
+        self.deliveryID = deliveryID
     }
 
     /// The stream event: `{kind, value}`.

@@ -10,4 +10,5 @@
   font-family: var(--cv-font);
   font-size: var(--text-caption);
   line-height: 18px;
+  letter-spacing: var(--text-caption--letter-spacing);
 }

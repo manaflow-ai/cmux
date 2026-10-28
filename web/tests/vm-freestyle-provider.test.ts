@@ -1334,3 +1334,18 @@ describe("FreestyleProvider scoped SSH identities", () => {
     await expect(provider.revokeSSHIdentity("ident-9")).rejects.toBeInstanceOf(ProviderError);
   });
 });
+
+describe("strict destroy", () => {
+  const providerWith = (error: FreestyleApiError) => new FreestyleProvider({
+    client: () => ({ vms: { ref: () => ({ delete: async () => { throw error; } }) } } as unknown as Freestyle),
+  });
+
+  test("only Freestyle's own NOT_FOUND counts as gone; any other 404 is an error", async () => {
+    const notFound = new FreestyleApiError(404, { code: "NOT_FOUND", message: "no such vm" });
+    const route = new FreestyleApiError(404, { code: "ROUTE_NOT_FOUND", message: "no route" });
+    await expect(providerWith(notFound).destroy("vm-1", undefined, { strict: true })).resolves.toBeUndefined();
+    await expect(providerWith(route).destroy("vm-1", undefined, { strict: true })).rejects.toBeInstanceOf(ProviderError);
+    // Without strict the existing idempotent behavior holds.
+    await expect(providerWith(route).destroy("vm-1")).resolves.toBeUndefined();
+  });
+});

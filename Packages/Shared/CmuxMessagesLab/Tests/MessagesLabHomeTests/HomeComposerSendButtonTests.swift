@@ -150,6 +150,29 @@ import Testing
         #expect(text == "   ", "nothing to send: the text stays")
     }
 
+    /// Lawrence 2026-10-23: "make right and bottom padding the same". The drawn disc (24 pt in the
+    /// 28 pt hit target) sat 5.5 pt from the field's right edge and 3.5 pt from its bottom. Measured
+    /// in the real view, in the host's coordinates, for a one-line and a many-line draft.
+    @Test func theDiscHasTheSameGapToTheFieldsRightAndBottomEdges() async throws {
+        let h = try await makeHarness()
+        defer { close(h) }
+        let maybeCompose = h.view.controller.demo?.compose
+        try #require(maybeCompose != nil)
+        let compose = maybeCompose!
+        let found = Self.find(h.view)
+        try #require(found != nil)
+        let button = found!
+        let inset = (ComposeSendButton.target - ComposeSendButton.diameter) / 2
+        for text in ["a", "\nline two\nline three\nline four"] {
+            await type(h, text)
+            let field = compose.fieldRect
+            let disc = button.frame.insetBy(dx: inset, dy: inset)
+            let right = field.maxX - disc.maxX, bottom = field.maxY - disc.maxY
+            #expect(abs(right - bottom) < 0.25, "right gap \(right) pt, bottom gap \(bottom) pt (field \(field), disc \(disc))")
+            #expect(right > 0 && bottom > 0, "the disc is inside the field")
+        }
+    }
+
     /// Multi-line: the button stays on the last line's bottom-right while the field grows and then
     /// scrolls, never covers the text, and the first character never rewraps the field.
     @Test func multiLineKeepsTheButtonPinnedWithNoLayoutShift() async throws {
