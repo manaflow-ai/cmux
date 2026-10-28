@@ -196,10 +196,9 @@ function toolFindings(tool: Tool): Finding[] {
   const scanPlain = pullRequestSourceCommand(command);
   const calls = scanPlain
     .split("\n")
-    .filter((part) => isPullRequestCommand(part) && !/(?:^|\s)(?:--help|-h)(?=\s|$)/.test(part))
-    .join("\n");
+    .filter((part) => isPullRequestCommand(part) && !/(?:^|\s)(?:--help|-h)(?=\s|$)/.test(part));
   const found: Finding[] = [];
-  if (CREATE.test(calls)) {
+  if (CREATE.test(calls.join("\n"))) {
     const title = TITLE.exec(command);
     const text = title ? (title[1] ?? title[2] ?? title[3])?.replace(/\\(.)/g, "$1") : undefined;
     for (const match of (tool.output ?? "").matchAll(PR_URL))
@@ -211,62 +210,62 @@ function toolFindings(tool: Tool): Finding[] {
       });
     // Continue scanning the same successful shell for later commands separated by &&/;.
   }
-  let issueCall = false;
-  for (const match of calls.matchAll(ISSUE_CALL)) {
-    issueCall = true;
-    const action = match[1]!;
-    const target = callTarget(match[2] ?? "");
-    const targets = target
-      ? [target]
-      : action === "create"
-        ? [...(tool.output ?? "").matchAll(ISSUE_URL)].map((match) => ({
-            ref: { kind: "full" as const, repo: match[1]! },
-            number: Number(match[2]),
-          }))
-        : [];
-    for (const target of targets)
+  // Preserve execution order across gh and broker lifecycle commands.
+  for (const call of calls) {
+    for (const match of call.matchAll(ISSUE_CALL)) {
+      const action = match[1]!;
+      const target = callTarget(match[2] ?? "");
+      const targets = target
+        ? [target]
+        : action === "create"
+          ? [...(tool.output ?? "").matchAll(ISSUE_URL)].map((match) => ({
+              ref: { kind: "full" as const, repo: match[1]! },
+              number: Number(match[2]),
+            }))
+          : [];
+      for (const target of targets)
+        found.push({
+          how: ISSUE_MUTATING.has(action) ? "touched" : "mentioned",
+          ...target,
+          ...(ISSUE_MUTATING.has(action) ? { changed: true } : {}),
+          kind: "issue",
+          title: outputTitle(tool),
+        });
+    }
+    for (const match of call.matchAll(BROKER_CALL)) {
+      const target = callTarget(match[2] ?? "");
+      if (!target) continue;
+      const issue = match[1]!.startsWith("issue-");
       found.push({
-        how: ISSUE_MUTATING.has(action) ? "touched" : "mentioned",
-        ...target,
-        ...(ISSUE_MUTATING.has(action) ? { changed: true } : {}),
-        kind: "issue",
-        title: outputTitle(tool),
+        how: "touched",
+        ref: target.ref,
+        number: target.number,
+        changed: true,
+        kind: issue ? "issue" : "pullRequest",
+        ...(outputTitle(tool) ? { title: outputTitle(tool) } : {}),
       });
-  }
-  for (const match of calls.matchAll(BROKER_CALL)) {
-    const target = callTarget(match[2] ?? "");
-    if (!target) continue;
-    const issue = match[1]!.startsWith("issue-");
-    issueCall ||= issue;
-    found.push({
-      how: "touched",
-      ref: target.ref,
-      number: target.number,
-      changed: true,
-      kind: issue ? "issue" : "pullRequest",
-      ...(outputTitle(tool) ? { title: outputTitle(tool) } : {}),
-    });
-    const state = !issue && SETTLES[match[1]!.slice(3)];
-    if (state) found.push({ how: "settle", ...target, state, at: tool.endedAt ?? tool.startedAt });
-  }
-  for (const match of calls.matchAll(CALL)) {
-    const action = match[1] ?? match[2];
-    const target = callTarget(match[3] ?? "");
-    if (!target) continue;
-    const titleMatch = action === "edit" ? TITLE.exec(tool.command ?? "") : undefined;
-    const title =
-      outputTitle(tool) ??
-      (titleMatch ? (titleMatch[1] ?? titleMatch[2] ?? titleMatch[3])?.replace(/\\(.)/g, "$1") : undefined);
-    found.push({
-      how: "touched",
-      ref: target.ref,
-      number: target.number,
-      ...(match[0].startsWith("gh-merge-green") || (action && MUTATING.has(action)) ? { changed: true } : {}),
-      ...(title ? { title } : {}),
-    });
-    const state = match[0].startsWith("gh-merge-green") ? "merged" : SETTLES[action ?? ""];
-    if (state)
-      found.push({ how: "settle", ref: target.ref, number: target.number, state, at: tool.endedAt ?? tool.startedAt });
+      const state = !issue && SETTLES[match[1]!.slice(3)];
+      if (state) found.push({ how: "settle", ...target, state, at: tool.endedAt ?? tool.startedAt });
+    }
+    for (const match of call.matchAll(CALL)) {
+      const action = match[1] ?? match[2];
+      const target = callTarget(match[3] ?? "");
+      if (!target) continue;
+      const titleMatch = action === "edit" ? TITLE.exec(tool.command ?? "") : undefined;
+      const title =
+        outputTitle(tool) ??
+        (titleMatch ? (titleMatch[1] ?? titleMatch[2] ?? titleMatch[3])?.replace(/\\(.)/g, "$1") : undefined);
+      found.push({
+        how: "touched",
+        ref: target.ref,
+        number: target.number,
+        ...(match[0].startsWith("gh-merge-green") || (action && MUTATING.has(action)) ? { changed: true } : {}),
+        ...(title ? { title } : {}),
+      });
+      const state = match[0].startsWith("gh-merge-green") ? "merged" : SETTLES[action ?? ""];
+      if (state)
+        found.push({ how: "settle", ref: target.ref, number: target.number, state, at: tool.endedAt ?? tool.startedAt });
+    }
   }
   for (const match of scanPlain.matchAll(PR_URL))
     found.push({ how: "touched", ref: { kind: "full", repo: match[1]! }, number: Number(match[2]) });

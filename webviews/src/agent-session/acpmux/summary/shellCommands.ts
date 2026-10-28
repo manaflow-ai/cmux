@@ -32,10 +32,10 @@ export function shellCommands(text: string): string[] {
         result = compound(runs, depth + 1).status;
       }
       if (first.negate) result = invert(result);
-      if (operator === "&&" && status === false) {
-        /* skipped: status stays false */
-      } else if (operator === "||" && status === true) {
-        /* skipped: status stays true */
+      if (operator === "&&") {
+        status = status === false || result === false ? false : status === true && result === true ? true : undefined;
+      } else if (operator === "||") {
+        status = status === true || result === true ? true : status === false && result === false ? false : undefined;
       } else status = result;
       operator = ";";
       if (at === previous) at++;
