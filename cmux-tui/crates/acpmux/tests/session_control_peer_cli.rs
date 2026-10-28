@@ -221,30 +221,37 @@ async fn lifecycle_commands_use_peer_stable_ids_and_refuse_ambiguous_names() {
     let mut cc = client(c.clone()).await;
     let stop_id = new_session(&mut cb, &root, "remote-stop").await;
     let resume_id = new_session(&mut cb, &root, "remote-resume").await;
+    let resume_by_id = new_session(&mut cb, &root, "resume-by-id").await;
     let retry_id = new_session(&mut cb, &root, "remote-retry").await;
     let _same_local = new_session(&mut cb, &root, "local-ambiguous").await;
     let _peer_ambiguous = new_session(&mut cb, &root, "peer-ambiguous").await;
     let _ = new_session(&mut cc, &root, "peer-ambiguous").await;
 
-    // Make a held queue and a failed turn before mirroring the peer rows.
-    cb.send(
-        method::SESSION_PROMPT,
-        json!({"sessionId": resume_id, "prompt": [{"type": "text", "text": "until-cancel"}]}),
-    )
-    .await;
-    cb.wait(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
-    for (prompt_id, text) in [("p-f", "fail-streamed: boom"), ("p-a", "queued")] {
-        cb.send(method::SESSION_PROMPT, json!({"sessionId": resume_id, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id}}})).await;
-        cb.wait("_acpmux/prompt_accepted", |p| p["promptId"] == prompt_id && p["queued"] == true)
-            .await;
-    }
-    cb.send(method::SESSION_CANCEL, json!({"sessionId": resume_id})).await;
-    cb.wait(method::MUX_EVENT, |p| p["sessionId"] == resume_id && p["kind"] == "queue_paused")
+    // Hold both queues before mirroring the peer rows: exercise real resume by name and id.
+    for id in [&resume_id, &resume_by_id] {
+        cb.send(
+            method::SESSION_PROMPT,
+            json!({"sessionId": id.as_str(), "prompt": [{"type": "text", "text": "until-cancel"}]}),
+        )
         .await;
-    assert_eq!(
-        cb.call(method::MUX_INFO, json!({"sessionId": resume_id})).await["queuePaused"],
-        true
-    );
+        cb.wait(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+        for (prompt_id, text) in [("p-f", "fail-streamed: boom"), ("p-a", "queued")] {
+            cb.send(method::SESSION_PROMPT, json!({"sessionId": id.as_str(), "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id}}})).await;
+            cb.wait("_acpmux/prompt_accepted", |p| {
+                p["promptId"] == prompt_id && p["queued"] == true
+            })
+            .await;
+        }
+        cb.send(method::SESSION_CANCEL, json!({"sessionId": id.as_str()})).await;
+        cb.wait(method::MUX_EVENT, |p| {
+            p["sessionId"] == id.as_str() && p["kind"] == "queue_paused"
+        })
+        .await;
+        assert_eq!(
+            cb.call(method::MUX_INFO, json!({"sessionId": id.as_str()})).await["queuePaused"],
+            true
+        );
+    }
     cb.send(method::SESSION_PROMPT, json!({"sessionId": retry_id, "prompt": [{"type": "text", "text": "fail-once: retry"}], "_meta": {"acpmux": {"promptId": "retry"}}})).await;
     cb.wait(method::MUX_EVENT, |p| p["sessionId"] == retry_id && p["kind"] == "turn_error").await;
 
@@ -338,10 +345,12 @@ async fn lifecycle_commands_use_peer_stable_ids_and_refuse_ambiguous_names() {
         false
     );
 
-    // The same resume target is addressable by stable id after its queue drains.
+    // A stable id resumes another held queue on the same peer.
     let (ok, stdout, stderr) =
-        cli(&root, &socket, &["--json", "session", "resume", &resume_id]).await;
+        cli(&root, &socket, &["--json", "session", "resume", &resume_by_id]).await;
     assert!(ok, "{stdout}{stderr}");
+    let resumed: Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(resumed["resumed"], true, "{stdout}{stderr}");
     let (ok, stdout, stderr) =
         cli(&root, &socket, &["--json", "session", "stop", "remote-start"]).await;
     assert!(ok, "{stdout}{stderr}");
