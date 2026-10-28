@@ -5,6 +5,7 @@
 //! Object. Synchronous, no threads, no clock, no randomness: time and seeds
 //! come in each call's context, and JSON crosses the boundary.
 
+mod cron;
 pub mod ledger;
 pub mod prompt;
 mod record;
