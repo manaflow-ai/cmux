@@ -61,7 +61,9 @@ function loadCases() {
     all.push({ id: `ae-${t.id}`, area: "agent-evals", kind: "guard", source: "tests/agent-evals/tasks.mjs", prompt: t.prompt, setup: t.setup, expect: { state: t.checks } });
   }
   const ids = arg("case", null)?.split(",");
-  return all.filter((c) => !ids || ids.includes(c.id));
+  // App-tier cases need a cmux app (browser, Markdown): skipped unless --tier app.
+  const tier = arg("tier", "headless");
+  return all.filter((c) => (!ids || ids.includes(c.id)) && (ids || tier === "all" || (c.tier ?? "headless") === tier));
 }
 
 // ---------- the request the harness would send ----------
