@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextDesign
 import CmuxNextSettings
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -15,7 +16,7 @@ import Testing
 /// fades in while it slides a few points away from its target on the `.panel` spring, and fades
 /// out without moving. These tests show both cards in real windows and compare what each one
 /// actually animates, so the two cannot drift apart again.
-@MainActor @Suite(.serialized) struct UpdateCardHoverParityTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct UpdateCardHoverParityTests {
     /// The highlights page, measured and drawn (as the App's React surface reports it).
     final class Highlights: SidebarSurfaceIsland {
         let view = NSView(frame: NSRect(x: 0, y: 0, width: 340, height: 120))
@@ -34,7 +35,9 @@ import Testing
 
         func tearDown() {
             card.hideNotes()
-            for child in window.childWindows ?? [] { child.orderOut(nil) }
+            for child in window.childWindows ?? [] { child.close() }
+            // The sidebar's one hover card window, where the highlights showed (no longer a child once faded out).
+            card.hoverCards()?.cardWindow?.close()
             window.close()
         }
     }
@@ -108,7 +111,7 @@ import Testing
         try #require(!h.card.isHidden, "the staged update shows no card")
 
         let workspace = workspaceCardEntrance(in: h.window)
-        defer { workspace.panel.orderOut(nil) }
+        defer { workspace.panel.close() }
         #expect(workspace.played.slideFrom != nil, "the workspace card played no entrance to compare with")
 
         h.card.highlights = Highlights()
@@ -124,7 +127,7 @@ import Testing
         defer { h.tearDown() }
         try #require(!h.card.isHidden, "the staged update shows no card")
         let workspace = workspaceCardEntrance(in: h.window)
-        defer { workspace.panel.orderOut(nil) }
+        defer { workspace.panel.close() }
 
         h.card.highlights = Highlights()
         h.card.showNotes()

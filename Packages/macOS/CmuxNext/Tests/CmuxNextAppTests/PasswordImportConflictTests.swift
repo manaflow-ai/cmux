@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -16,7 +17,7 @@ import Testing
 ///   Move to Trash offer for the plaintext file.
 /// - A second CSV import right after the first leaves the first file's
 ///   offer up beside its own (cx-dwg.8, #20029 review nit).
-@MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1)), .closesItsWindows)
 struct PasswordImportConflictTests {
     private static let csv = "name,url,username,password\nexample,https://example.com/login,someone,throwaway-1\n"
 

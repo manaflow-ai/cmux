@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextTerminal
 import Foundation
+import CmuxNextTestSupport
 import GhosttyNextKit
 import Testing
 import CmuxNextFocus
@@ -15,7 +16,7 @@ import CmuxNextFocusUI
 ///   Sidebar on Cmd-B) runs that keybind; no menu item takes it first.
 /// - With the default config nothing changes: Cmd-Z and Cmd-Shift-Z are Edit > Undo and Redo,
 ///   Cmd-A is Select All (the menu takes them, not Ghostty), and Cmd-Q is Quit.
-@MainActor @Suite(.serialized) struct MenuKeyRoutingTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct MenuKeyRoutingTests {
     @MainActor private final class Probe: NSObject {
         var runs: [String] = []
         @objc func undo(_ sender: Any?) { runs.append("undo") }

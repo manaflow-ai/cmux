@@ -2,12 +2,13 @@ import AppKit
 @testable import CmuxNextBrowser
 @testable import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Testing
 
 /// Leo, 2026-10-12: cmux-next's tooltips were macOS's stock yellow-gray bubble ("Default" on the
 /// sidebar's space tile). Controls hand their tooltip to the app's themed one instead: no AppKit
 /// `toolTip`, while VoiceOver still reads the same text as the control's help.
-@MainActor @Suite(.serialized) struct ThemedTooltipTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct ThemedTooltipTests {
     @Test func controlsUseTheThemedTooltipNotAppKits() {
         let views: [(NSView, String)] = [
             (SidebarIconButton(icon: .actionClose, label: "Close Workspace"), "Close Workspace"),
@@ -26,6 +27,7 @@ import Testing
                           input: ThemeInput(background: ThemeRGB(hex: 0x2B1650), foreground: ThemeRGB(hex: 0xF4E3FF)), animated: false)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 300, height: 200), styleMask: [.titled],
                               backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         let button = NSButton(title: "", target: nil, action: nil)
         button.frame = NSRect(x: 20, y: 20, width: 80, height: 24)
         window.contentView?.addSubview(button)
@@ -36,7 +38,11 @@ import Testing
         #expect(button.accessibilityHelp() == "New Tab")
 
         let presenter = Self.instantPresenter()
-        defer { presenter.timing = nil }
+        defer {
+            presenter.timing = nil
+            Self.closeTooltip(presenter)
+            window.close()
+        }
         let tracker = try #require(TooltipTracker.whole(of: button))
         presenter.dismiss()
         // The hover delay is TooltipHoverIntentTests'; here it is zero, so the tooltip shows on enter.
@@ -63,12 +69,12 @@ import Testing
         button.themedToolTip = nil
         #expect(presenter.shown == nil)
         #expect(!panel.isVisible || panel.isFadingOut)
-        window.orderOut(nil)
     }
 
     @Test func theDeepestTooltipUnderThePointerShowsAndRegionsWin() throws {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 300, height: 200), styleMask: [.titled],
                               backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         let header = NSView(frame: NSRect(x: 0, y: 100, width: 300, height: 28))
         let add = NSButton(frame: NSRect(x: 270, y: 2, width: 24, height: 24))
         header.addSubview(add)
@@ -77,6 +83,11 @@ import Testing
         add.themedToolTip = "New Workspace"
         let presenter = Self.instantPresenter()
         presenter.dismiss()
+        defer {
+            presenter.timing = nil
+            Self.closeTooltip(presenter)
+            window.close()
+        }
 
         // The pointer comes straight onto the button: whichever enter arrives last, the button's shows.
         presenter.enter(try #require(TooltipTracker.whole(of: add)))
@@ -93,8 +104,6 @@ import Testing
         #expect(presenter.shown?.text == "Default")
         presenter.dismiss()
         #expect(presenter.shown == nil)
-        presenter.timing = nil
-        window.orderOut(nil)
     }
 
     /// Review of #19902: with no hover delay, scrolling a list under a resting pointer flashed each
@@ -103,6 +112,7 @@ import Testing
     @Test func rowsPassingUnderAScrollDoNotFlashTheirTooltips() async throws {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 300, height: 200), styleMask: [.titled],
                               backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
         let first = NSButton(frame: NSRect(x: 0, y: 100, width: 300, height: 28))
         let second = NSButton(frame: NSRect(x: 0, y: 72, width: 300, height: 28))
         window.contentView?.addSubview(first)
@@ -114,7 +124,8 @@ import Testing
         defer {
             presenter.dismiss()
             presenter.timing = nil
-            window.orderOut(nil)
+            Self.closeTooltip(presenter)
+            window.close()
         }
 
         presenter.enter(try #require(TooltipTracker.whole(of: first)))
@@ -135,6 +146,12 @@ import Testing
         #expect(Self.near(low, NSPoint(x: 874, y: 36)), "\(low)")
         let high = TooltipPresenter.origin(for: size, below: NSRect(x: 100, y: 500, width: 40, height: 20), on: screen)
         #expect(Self.near(high, NSPoint(x: 60, y: 474)), "\(high)")
+    }
+
+    /// The shared presenter's tooltip window closes (it shows again, reopened, on the next hover).
+    static func closeTooltip(_ presenter: TooltipPresenter) {
+        presenter.dismiss()
+        presenter.panel.close()
     }
 
     /// The shared presenter with no hover delay (the delay and warm group are TooltipHoverIntentTests').
