@@ -269,3 +269,15 @@ fn dropping_the_bridge_removes_its_socket() {
     drop(bridge);
     assert!(fs::symlink_metadata(&path).is_err(), "the socket file stayed");
 }
+
+#[test]
+fn a_browser_message_over_the_limit_is_dropped_and_the_next_one_still_reads() {
+    let mut input = io::Cursor::new(b"0123456789\0ok\0".to_vec());
+    let mut buf = Vec::new();
+    // Over the 4-byte limit: skipped whole, never buffered past the limit.
+    assert_eq!(next_browser_message(&mut input, &mut buf, 4).unwrap(), BrowserMessage::TooLarge);
+    assert!(buf.len() <= 4 + (1 << 16));
+    assert_eq!(next_browser_message(&mut input, &mut buf, 4).unwrap(), BrowserMessage::Whole);
+    assert_eq!(buf, b"ok");
+    assert_eq!(next_browser_message(&mut input, &mut buf, 4).unwrap(), BrowserMessage::End);
+}
