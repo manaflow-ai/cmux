@@ -1,6 +1,7 @@
 import CmuxNextWakeups
 import CoreServices
 public import Foundation
+import CmuxNextCompat
 
 /// What changed in a watched folder.
 public enum FolderChange: Sendable, Equatable {
@@ -61,7 +62,7 @@ public struct FolderWatcher: FolderWatching {
         let standard = folder.standardizedFileURL
         // SAFETY: realpath reads the NUL-terminated copy of the path made for the call and, given no buffer, returns
         // a NUL-terminated path it allocated, read once here and freed once on return.
-        guard let resolved = unsafe realpath(standard.path, nil) else { return standard }
+        guard let resolved = unsafe blockingRealpath(standard.path, nil) else { return standard }
         defer { unsafe free(resolved) }
         return URL(fileURLWithPath: unsafe String(cString: resolved), isDirectory: true)
     }

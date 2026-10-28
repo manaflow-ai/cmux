@@ -47,8 +47,8 @@ public final class BackdropCatalogStore {
         catalog = BackdropCatalog(bundledOnly: ())
         self.mainWork = mainWork
         build = {
-            BackdropCatalog(systemDirectory: systemDirectory, fileManager: FileManager(),
-                            assets: AppleWallpaperAssets(folders: assetFolders, fileManager: FileManager()),
+            BackdropCatalog(systemDirectory: systemDirectory,
+                            assets: AppleWallpaperAssets(folders: assetFolders),
                             userImages: userImages, aerials: aerials)
         }
         folders = [systemDirectory, systemDirectory.appendingPathComponent(".wallpapers"), aerials] + assetFolders

@@ -251,9 +251,9 @@ public nonisolated struct HomeChiefFiles: Sendable {
         let copy = directory.appendingPathComponent("\(pathKey(file.path))-\(file.deletingPathExtension().lastPathComponent)-\(stamp).png")
         if FileManager.default.fileExists(atPath: copy.path) { return copy }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        guard let destination = CGImageDestinationCreateWithURL(copy as CFURL, UTType.png.identifier as CFString, 1, nil) else { return nil }
+        guard let destination = blockingImageDestination(url: copy as CFURL, type: UTType.png.identifier as CFString, count: 1) else { return nil }
         CGImageDestinationAddImage(destination, square, nil)
-        return CGImageDestinationFinalize(destination) ? copy : nil
+        return blockingImageDestinationFinalize(destination) ? copy : nil
     }
 
     func writeAvatar(_ text: String) {

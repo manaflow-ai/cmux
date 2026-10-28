@@ -2,6 +2,7 @@ import CmuxNextAgentActivity
 import CmuxNextAgentPane
 import CmuxNextWakeups
 import Foundation
+import CmuxNextCompat
 
 /// Files the person drops or pastes into a chat whose agent runs on an ssh peer (acpmux peering:
 /// this Mac's acpmux mirrors the chat, named `huge-blue/<name>`) that the composer can't attach as
@@ -69,7 +70,7 @@ struct AgentPeerUploads {
                 return AgentPaneReply.success(reply)
             case .chunk(let token, let offset, let data):
                 guard var stage = stages[token], stage.target.session == target.session, stage.received == offset, offset + data.count <= stage.size, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
-                do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
+                do { let handle = try FileHandle.blockingForWriting(to: stage.file); try handle.blockingSeekToEnd(); try handle.blockingWrite(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
                 stage.received += data.count; stage.expires = Date().addingTimeInterval(stageLifetime); stages[token] = stage
                 armExpiry(expiry, work: work)
                 return AgentPaneReply.success(["offset": stage.received])
