@@ -196,6 +196,7 @@ impl Provider {
         let run: Source = Box::new(move |claims, _filter| {
             let mut typed = source(claims);
             let (tx, rx) = mpsc::channel(1);
+            // supervise-allow: one subscription's encoder; its end, a panic included, drops `tx`, which ends that subscription only.
             tokio::spawn(async move {
                 while let Some(data) = typed.recv().await {
                     let Ok(value) = serde_json::to_value(data) else { return };

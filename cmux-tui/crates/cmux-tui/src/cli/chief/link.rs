@@ -188,6 +188,7 @@ impl Link {
         let _ = self.reader.get_ref().set_read_timeout(None);
         let handle = EventsHandle::of(self.writer.as_ref())?;
         let mut reader = self.reader;
+        // supervise-allow: this CLI run's event reader; it ends with the stream, and a panic drops `sink`, so the run sees its input end.
         std::thread::Builder::new()
             .name("chief-events".into())
             .spawn(move || {
@@ -248,6 +249,7 @@ impl Link {
         let handle = EventsHandle::of(self.writer.as_ref())?;
         let mut reader = self.reader;
         let conversation = conversation.to_owned();
+        // supervise-allow: this CLI run's event reader; it ends with the stream, and a panic drops `sink`, so the run sees its input end.
         std::thread::Builder::new()
             .name("chief-cloud-events".into())
             .spawn(move || {
