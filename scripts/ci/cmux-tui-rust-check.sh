@@ -17,6 +17,9 @@
 # rb-testhost: fmt, clippy and tests of cmux-tui/crates/cmux-remote-browser-testhost
 # (its own workspace), then its release binary at .build/artifacts/cmux-remote-browser-testhost
 # (macOS arm64; fetch it with --artifact) for the remote tab's GUI proofs.
+# vm-cli: clippy and tests of the cmux VM API operator CLI (workers/cmux-vm/cli, its own
+# workspace and lockfile), then its release binary at .build/artifacts/cmux-vm (macOS arm64;
+# fetch it with --artifact) to drive a preview or staging cmux VM API from a developer Mac.
 # screen: clippy and tests of cmux-screen (its own workspace: the WebRTC screen host and
 # cmux-tailnet, which links libtailscale built with Go; a pinned Go 1.27.1 is fetched into
 # .build/go-1.27.1 when the host has none), then a release build of both binaries. No fmt
@@ -47,7 +50,7 @@ MSG
 fi
 mode="${1:-}"
 filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|optchat-chief|screen) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|optchat-chief|screen [TEST_FILTER]" >&2; exit 2 ;; esac
+case "$mode" in fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|terminal|rd-host|rd-bench|rb-testhost|vm-cli|optchat-chief|screen [TEST_FILTER]" >&2; exit 2 ;; esac
 # The crates the terminal mode tests; every other mode's tests take the whole workspace.
 terminal_crates=(ghostty-vt ghostty-vt-sys cmux-pty cmux-terminal-sizing cmux-terminal-client cmux-encode)
 test_scope=(--workspace)
@@ -801,6 +804,21 @@ if [[ "$mode" == rb-testhost ]]; then
   step "rb-testhost test" cargo test --locked ${no_fail_fast[@]+"${no_fail_fast[@]}"} ${filter:+"$filter"}
   step "rb-testhost release build" cargo build --locked --release
   step "rb-testhost artifact" copy_testhost
+  finish
+fi
+copy_vm_cli() {
+  mkdir -p "$root/.build/artifacts"
+  cp "$CARGO_TARGET_DIR/release/cmux-vm" "$root/.build/artifacts/cmux-vm" || return 1
+  ls -l "$root/.build/artifacts/cmux-vm"
+}
+if [[ "$mode" == vm-cli ]]; then
+  export CARGO_TARGET_DIR="$root/.build/cmux-vm-cli-target"
+  cd "$root/workers/cmux-vm/cli"
+  warm_target_guard
+  step "vm-cli clippy" cargo clippy --locked --workspace --all-targets -- -D warnings
+  step "vm-cli test" cargo test --locked --workspace ${no_fail_fast[@]+"${no_fail_fast[@]}"} ${filter:+"$filter"}
+  step "vm-cli release build" cargo build --locked --release -p cmux-vm
+  step "vm-cli artifact" copy_vm_cli
   finish
 fi
 if [[ "$mode" == fmt || "$mode" == all ]] && [[ "$shard_i" == 1 ]]; then

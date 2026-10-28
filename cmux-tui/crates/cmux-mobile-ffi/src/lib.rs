@@ -15,6 +15,8 @@
 //!
 //! [`ownership`] binds the `cmux.wire/1` stream mirror (object-sync phase 1).
 
+#![forbid(unsafe_code)]
+
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
 

@@ -1,0 +1,9 @@
+{
+  "appearance": {
+    "surfaces": {
+      "docks": {
+        "opacity": 0.5
+      }
+    }
+  }
+}

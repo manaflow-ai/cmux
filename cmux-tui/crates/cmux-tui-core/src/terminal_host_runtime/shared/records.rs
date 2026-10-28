@@ -58,6 +58,7 @@ pub fn validate_terminal_host_record(
             || record.supports_shell_activity
             || record.supports_trace_control
             || record.supports_input_flow
+            || record.supports_thread_qos
         {
             anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
         }
@@ -92,6 +93,9 @@ pub fn validate_terminal_host_record(
         }
         if record.record_version < HOST_RECORD_VERSION && record.supports_input_flow {
             anyhow::bail!("pre-v4 terminal-host record advertises input flows");
+        }
+        if record.record_version < HOST_RECORD_VERSION && record.supports_thread_qos {
+            anyhow::bail!("pre-v4 terminal-host record advertises thread QoS");
         }
         let nonce = decode_lower_hex_array::<HOST_START_NONCE_LEN>(
             &record.host_start_nonce,
@@ -214,10 +218,12 @@ pub(crate) fn wait_for_terminal_host_record_removals() {
 
 /// Remove a discovery record only after the process-lifetime proof says
 /// the exact recorded host is dead. A live or ambiguous record is always
-/// retained for a later adoption attempt.
+/// retained for a later adoption attempt. The host's crash sidecar goes to
+/// `panic_log` before it is removed.
 pub fn remove_stale_terminal_host_record(
     record_path: &Path,
     expected: &TerminalHostRecord,
+    panic_log: Option<&HostPanicLog>,
 ) -> anyhow::Result<bool> {
     let _removal = RECORD_REMOVAL.lock().unwrap_or_else(PoisonError::into_inner);
     if terminal_host_record_liveness(record_path, expected)? != TerminalHostLiveness::Dead {
@@ -235,7 +241,7 @@ pub fn remove_stale_terminal_host_record(
     let endpoint = PathBuf::from(&current.endpoint);
     files::remove_file(record_path)?;
     let _ = files::remove_file(proof);
-    sys::remove_terminal_loss_signals(record_path);
+    sys::remove_terminal_loss_signals(record_path, panic_log);
     sys::remove_released_pty_lock(record_path, &current.terminal_id, &current.incarnation);
     if files::symlink_metadata(&endpoint).is_ok_and(|metadata| sys::is_endpoint_file(&metadata)) {
         let _ = files::remove_file(endpoint);
@@ -388,10 +394,12 @@ pub fn terminal_host_exit_record(
 
 /// Acknowledge only the exact sidecar already committed to the registry.
 /// A mismatched replacement is retained for reconciliation rather than
-/// deleting evidence from another incarnation.
+/// deleting evidence from another incarnation. The host's crash sidecar goes
+/// to `panic_log` before it is removed.
 pub fn acknowledge_terminal_host_exit_record(
     record_path: &Path,
     expected: &TerminalHostExitRecord,
+    panic_log: Option<&HostPanicLog>,
 ) -> anyhow::Result<bool> {
     let bytes = match files::read(record_path) {
         Ok(bytes) => bytes,
@@ -406,7 +414,7 @@ pub fn acknowledge_terminal_host_exit_record(
     files::remove_file(record_path)?;
     // The terminal ended with a recorded exit: its signal breadcrumbs
     // (`<id>.signals`, same stem as `<id>.exit`) are no longer evidence.
-    sys::remove_terminal_loss_signals(record_path);
+    sys::remove_terminal_loss_signals(record_path, panic_log);
     sys::remove_released_pty_lock(record_path, &current.terminal_id, &current.incarnation);
     if let Some(parent) = record_path.parent() {
         sys::sync_dir(parent)?;

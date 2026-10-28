@@ -346,7 +346,8 @@ async fn run_prompt(
 ) -> Result<&'static str, String> {
     let mut prompt = prompt_text(blocks, options.last_block);
     if options.instructions
-        && let Ok(text) = std::fs::read_to_string(std::path::Path::new(cwd).join("AGENTS.md"))
+        && let Ok(text) =
+            tokio::fs::read_to_string(std::path::Path::new(cwd).join("AGENTS.md")).await
         && !text.trim().is_empty()
     {
         prompt = format!("{text}\n\n{prompt}");

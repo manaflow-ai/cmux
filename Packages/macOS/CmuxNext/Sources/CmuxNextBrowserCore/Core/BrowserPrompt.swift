@@ -29,7 +29,8 @@ public final class BrowserPrompt: Identifiable {
     public var dismissalResponse: BrowserPromptResponse {
         switch kind {
         // Closing the tab refuses the waiting downloads and remembers nothing.
-        case .permission(.automaticDownloads), .permission(.location), .permission(.notifications): .cancel
+        case .permission(.automaticDownloads), .permission(.location), .permission(.notifications),
+             .permission(.capabilities): .cancel
         case .permission: .deny
         case .alert: .accept
         // A tab closed without asking (quit, a replaced page) leaves the page.

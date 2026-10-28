@@ -121,6 +121,7 @@ public final class AgentPermissionRequests {
         let probe = probe
         let changes = probe.changes()
         // task-owner: follows the shown request's grant; finish() and a newer Continue cancel it.
+        // main-hop-allow: the person's Continue, userBlocking rest (p06 rule 2): each step awaits the main-actor PermissionProbe's async grant reads, and the follower resumes on main once per probe change
         watch = Task { [weak self] in
             guard let self else { return }
             if await advance(id) { return }
@@ -153,6 +154,7 @@ public final class AgentPermissionRequests {
 
     private func startTimeout(_ id: String, after timeout: Duration) {
         // The request's one deadline; finish() cancels it.
+        // timer-class-allow: the request's timeout runs on the injected clock the request suites step (AgentPermissionRequestsTests); a MainDeadline wakes on uptime only, and this one fires at most once per request
         let timer = DemandTimer(owner: "agent-permissions.request-timeout", clock: clock)
         timer.scheduleOnMain(after: timeout) { [weak self] in self?.finish(id, .timedOut) }
         timeouts[id] = timer

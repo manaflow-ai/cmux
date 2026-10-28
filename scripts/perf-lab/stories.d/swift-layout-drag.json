@@ -1,0 +1,19 @@
+{
+  "id": "swift-layout-drag",
+  "tier": "builder",
+  "description": "LayoutDragBench: a split divider and a column edge dragged through the real layout path (360 moves at 120 Hz per gesture), wall and main-thread CPU per move and the live layout intents, stub pane content.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-layout-drag", "--filter", "LayoutDragBench", "--env", "CMUX_DRAG_BENCH=1"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.layout_drag\\.(split|column)\\.(frame|main_cpu)", "unit": "ms", "better": "lower"},
+    {"name": "swift\\.layout_drag\\.(split|column)\\.live_intents", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/LayoutDragBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "PL-motion-core",
+  "component": "Layout>Drag",
+  "hot_paths": ["drag-frame"]
+}

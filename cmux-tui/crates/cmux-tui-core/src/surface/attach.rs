@@ -16,7 +16,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
-        let mut term = pty.term.lock().unwrap();
+        let mut term = pty.term.lock().recover_poison();
         let dead = pty.dead.load(Ordering::Acquire);
         let exited = dead
             && pty.host_connection_state.load(Ordering::Acquire)
@@ -46,9 +46,9 @@ impl Surface {
         if exited || pty.dead.load(Ordering::Acquire) {
             drop(tap);
         } else {
-            let mut taps = pty.taps.lock().unwrap();
+            let mut taps = pty.taps.lock().recover_poison();
             if taps.is_empty() {
-                *pty.last_attach_colors.lock().unwrap() =
+                *pty.last_attach_colors.lock().recover_poison() =
                     Some(Box::new(TerminalColors::from_pty_output(&term, defaults)));
             }
             taps.push(tap);
@@ -73,7 +73,7 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             return Err(ghostty_vt::Error::InvalidValue);
         };
-        let mut term = pty.term.lock().unwrap();
+        let mut term = pty.term.lock().recover_poison();
         let dead = pty.dead.load(Ordering::Acquire);
         let exited = dead
             && pty.host_connection_state.load(Ordering::Acquire)
@@ -95,7 +95,7 @@ impl Surface {
         let _ = pty.build_frame_locked(&mut term, generation, false)?;
         let (tap, stream) = RenderTap::pair(&pty.render);
         let (initial, registered) = {
-            let mut render = pty.render.lock().unwrap();
+            let mut render = pty.render.lock().recover_poison();
             let initial = if exited {
                 render.final_attach_initial(&term)?
             } else {

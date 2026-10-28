@@ -80,7 +80,7 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "terminal-io": (0x03, "Terminal input, output streams, screen reads and terminal requests to the frontend.", (
         "send", "send-key", "paste-image", "read-screen", "read-scrollback", "wait-for", "copy",
         "clear-history", "vt-state", "scroll-surface", "snapshot-request", "terminal-history",
-        "terminal-read-range", "terminal-events", "attach-surface", "subscribe",
+        "terminal-read-range", "terminal-events", "attach-surface", "cancel-stream", "subscribe",
         "mint-terminal-renderer", "mint-terminal-renderer-by-terminal", "get-cell-pixels",
         "set-cell-pixels", "url-open", "url-open-*", "terminal-clipboard-*",
     )),
@@ -159,7 +159,8 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
 EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "terminal-stream-events": (0xC0, "Content of an attach stream: output, render state, frames and sizes.", (
         "output", "render-delta", "render-state", "frame", "browser-state", "vt-state", "resized",
-        "colors-changed", "detached", "overflow", "scroll-changed", "size-state",
+        "colors-changed", "detached", "overflow", "scroll-changed", "size-state", "stream-end",
+        "input-failed",
     )),
     "mux-events": (0xC1, "The mux tree: workspaces, screens, panes, tabs, surfaces and their state.", (
         "layout-changed", "tree-changed", "empty", "pane-*", "tab-*", "screen-*", "workspace-*",
@@ -171,6 +172,7 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "daemon-events": (0xC2, "Clients, daemon lifetime, settings, pairing and machine state.", (
         "client-*", "daemon-shutdown", "config-reload-requested", "keybindings-changed",
         "settings-changed", "pairing-*", "machine-usage-changed", "activity-changed",
+        "server-diagnostic-site",
     )),
     "agent-events": (0xC3, "Agents and the agent inventory.", ("agent-*",)),
     "personal-events": (0xC4, "Personal profiles, bookmarks and history.", (
@@ -262,7 +264,9 @@ RELEASES_SLOT: dict[str, str] = {
 EVENT_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": ("output", "render-delta", "render-state", "frame"),
     "bulk": ("surface-output", "loopback-data", "loopback-eof"),
-    "background": ("machine-usage-changed", "activity-changed", "agent-inventory-changed"),
+    "background": (
+        "machine-usage-changed", "activity-changed", "agent-inventory-changed", "server-diagnostic-site",
+    ),
 }
 
 # Ordering --------------------------------------------------------------------
@@ -340,6 +344,8 @@ MEMORY = (
     "browser-host-provider",
     # Admits a snapshot on the stream's gate (collapse and 500 ms throttle).
     "snapshot-request",
+    # Ends one attach stream of this connection and removes its view.
+    "cancel-stream",
     # Agent chat attachments and what they send to acpmux, which keeps the
     # session and the folder trust itself; children also records the chats
     # the tab may file. agent-session-start binds the tab, a journaled write.
