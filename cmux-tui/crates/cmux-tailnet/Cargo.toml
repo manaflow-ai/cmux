@@ -15,3 +15,6 @@ base64.workspace = true
 rustls.workspace = true
 reqwest = { workspace = true, features = ["blocking"] }
 libc = "0.2"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros", "time"] }

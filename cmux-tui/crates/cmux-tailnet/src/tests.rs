@@ -60,3 +60,13 @@ fn certificate_is_requested_as_an_in_memory_pair() {
             .starts_with("GET /localapi/v0/cert/example.test.ts.net?type=pair HTTP/1.1")
     );
 }
+
+#[test]
+fn local_api_can_drop_on_a_tokio_worker() {
+    let api = crate::localapi::LocalApi::new("127.0.0.1:1", "private-password").unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    runtime.block_on(async move {
+        drop(api);
+        tokio::task::yield_now().await;
+    });
+}

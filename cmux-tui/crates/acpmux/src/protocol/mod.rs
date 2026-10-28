@@ -149,6 +149,11 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("catalog.get", Request),
         untyped("catalog.refresh", Request),
         untyped("catalog.changed", Notification),
+        // Embedded tailnet controls (also report not_built in unsupported builds).
+        untyped(method::MUX_TAILNET_LOGIN, Request),
+        untyped(method::MUX_TAILNET_LOGOUT, Request),
+        untyped(method::MUX_TAILNET_START, Request),
+        untyped(method::MUX_TAILNET_STATE, Request),
         // Sessions.
         untyped(method::MUX_STATUS, Request),
         request::<SessionsParams, SessionsResult>(method::MUX_SESSIONS),

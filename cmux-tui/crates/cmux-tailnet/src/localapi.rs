@@ -2,6 +2,9 @@
 //! process knows the password for (`tailscale_loopback`).
 
 use std::io::{BufRead, BufReader, Read};
+use std::sync::OnceLock;
+use std::sync::mpsc::{self, Sender};
+use std::thread;
 use std::time::Duration;
 
 use base64::Engine;
@@ -16,8 +19,59 @@ const NOTIFY_NO_PRIVATE_KEYS: u64 = 1 << 4;
 pub(crate) struct LocalApi {
     base: String,
     authorization: String,
-    agent: reqwest::blocking::Client,
+    agent: ClientOwner,
 }
+
+/// `reqwest::blocking::Client` owns a Tokio runtime. Dropping it on a Tokio
+/// worker panics, so all final clients go through one ordinary thread.
+struct ClientOwner {
+    client: Option<reqwest::blocking::Client>,
+    drop_tx: Sender<reqwest::blocking::Client>,
+}
+
+impl ClientOwner {
+    fn client(&self) -> Result<&reqwest::blocking::Client> {
+        self.client.as_ref().ok_or_else(|| Error("LocalAPI client is unavailable".into()))
+    }
+}
+
+impl Drop for ClientOwner {
+    fn drop(&mut self) {
+        let Some(client) = self.client.take() else { return };
+        if let Err(error) = self.drop_tx.send(client) {
+            // The process-global worker only exits at process teardown. If it
+            // is unavailable during teardown, keep the client from dropping
+            // on the caller's runtime thread rather than panic there.
+            let _ = thread::Builder::new()
+                .name("cmux-tailnet-client-drop".into())
+                .spawn(move || drop(error.0));
+        }
+    }
+}
+
+fn drop_sender() -> Result<Sender<reqwest::blocking::Client>> {
+    if let Some(sender) = CLIENT_DROP_SENDER.get() {
+        return Ok(sender.clone());
+    }
+    let (sender, receiver) = mpsc::channel();
+    thread::Builder::new()
+        .name("cmux-tailnet-client-drop".into())
+        .spawn(move || {
+            while let Ok(client) = receiver.recv() {
+                drop(client);
+            }
+        })
+        .map_err(|_| Error("could not start LocalAPI client cleanup".into()))?;
+    match CLIENT_DROP_SENDER.set(sender.clone()) {
+        Ok(()) => Ok(sender),
+        Err(_) => CLIENT_DROP_SENDER
+            .get()
+            .cloned()
+            .ok_or_else(|| Error("LocalAPI cleanup worker unavailable".into())),
+    }
+}
+
+static CLIENT_DROP_SENDER: OnceLock<Sender<reqwest::blocking::Client>> = OnceLock::new();
 
 impl LocalApi {
     pub(crate) fn new(addr: &str, cred: &str) -> Result<Self> {
@@ -31,7 +85,11 @@ impl LocalApi {
             .connect_timeout(Duration::from_secs(10))
             .build()
             .map_err(|_| Error("could not create LocalAPI client".into()))?;
-        Ok(Self { base: format!("http://{addr}"), authorization: format!("Basic {token}"), agent })
+        Ok(Self {
+            base: format!("http://{addr}"),
+            authorization: format!("Basic {token}"),
+            agent: ClientOwner { client: Some(agent), drop_tx: drop_sender()? },
+        })
     }
 
     fn request(
@@ -42,6 +100,7 @@ impl LocalApi {
     ) -> Result<reqwest::blocking::Response> {
         let mut request = self
             .agent
+            .client()?
             .request(method, format!("{}{path}", self.base))
             .header("Sec-Tailscale", "localapi")
             .header("Authorization", &self.authorization);
