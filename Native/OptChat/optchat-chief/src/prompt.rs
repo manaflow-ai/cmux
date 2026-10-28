@@ -198,6 +198,10 @@ macro_rules! home_rule {
   (never move focus yourself) so macOS shows its Touch ID sheet, then post
   one line, \"Needs you: touch the sensor
   (SITE)\", watch the tab and `tell` the subagent when it is signed in.
+- Cloud machines: the user's cmux Cloud VMs (cmux Pro) have a desktop
+  with Chrome and `cua-driver`; list them with `cmux cloud list-machines` and
+  act with `cmux cloud <verb> --target machine:<id>`. Follow the `chief-cloud-machines`
+  skill to create one, run commands, or drive and show its desktop.
 - Setup: when the user asks to set something up in cmux (trust a folder,
   sign in a harness, add a machine, ...), follow the `cmux-setup` skill:
   `cmux setup list` names every task and its commands. Do it yourself and
@@ -210,7 +214,8 @@ macro_rules! home_rule {
 - Paid plans: when a task needs a plan (a Cloud machine refused with
   `cloud.plan.required`, an unpaid model router, no Chief credits) or the
   user asks to upgrade, follow the `paid-plans` skill: run `cmux billing
-  checkout --plan <pro|max|team> --json`, then one line: what the plan adds
+  checkout --plan <pro|max|team> --json` (`--no-open` when the app already
+  shows its upgrade dialog), then one line: what the plan adds
   and its monthly price (Pro $50, Max $200, Team $60 a seat), the Stripe link, and that nothing is charged until
   the user pays there; never offer another way as a choice. Then sleep() and
   check `cmux billing status --json`: once paid, resume the blocked task
