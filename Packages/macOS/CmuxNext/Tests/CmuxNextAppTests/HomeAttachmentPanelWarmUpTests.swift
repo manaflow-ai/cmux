@@ -29,7 +29,7 @@ import Testing
         #expect(panel.isWarming, "the transcript in a window did not start the warm-up")
         // Until the warm-up has run its checks (the first at 2 s, idle retries 1 s apart, ten at most).
         // The loop ends on that condition; the deadline only stops a warm-up that never ends.
-        let deadline = ContinuousClock.now + .minutes(5)
+        let deadline = ContinuousClock.now + .seconds(300)
         let checks = panel.warmChecks
         while panel.warmChecks == checks || panel.isWarming, ContinuousClock.now < deadline {
             try await Task.sleep(for: .milliseconds(50))
