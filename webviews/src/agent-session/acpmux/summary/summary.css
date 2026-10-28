@@ -121,6 +121,7 @@
 .acpmux-chat-gallery-image:focus-visible{outline:2px solid var(--agent-accent-soft);outline-offset:2px}
 .acpmux-chat-gallery-title{display:block;padding:8px;border:var(--cmux-hairline, .5px) solid var(--agent-border);border-radius:8px;color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing)}
 html[data-pr-dock="tight"] .acpmux-pr-dock{gap:4px}
+.acpmux-pr-fallback{display:flex;min-width:0;padding-inline:var(--cv-inset)}
 /* Links share the message's existing line; the popover is portaled out of transcript flow. */
 .acpmux-pr-dock {
   position: relative;

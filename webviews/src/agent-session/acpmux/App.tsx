@@ -355,7 +355,7 @@ import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderSta
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
-import { RowPullRequests, pullRequestRow, useTranscriptPullRequests } from "./summary/PullRequestDock";
+import { PullRequestDock, RowPullRequests, pullRequestRow, useTranscriptPullRequests } from "./summary/PullRequestDock";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
@@ -2151,6 +2151,9 @@ export function VirtualTranscript({
   const t = useT();
   const pullRequests = useTranscriptPullRequests(pullRequestRows ?? sourceRows ?? rows, githubRepository);
   const prRow = pullRequests.length ? pullRequestRow(rows) : undefined;
+  // A successful tool can open a PR before any reply exists, even if the turn stops there.
+  // Keep its links above the composer until a message can host them inline.
+  const fallbackPullRequests = pullRequests.length > 0 && prRow === undefined;
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.span("vt.renders", 1);
@@ -4164,13 +4167,20 @@ export function VirtualTranscript({
           </div>
         </TranscriptContext>
       </div>
-      {afterLatest && (
+      {(afterLatest || fallbackPullRequests) && (
         <div
           className="acpmux-transcript-after-latest"
           // The dock is absolute over the stage. Keep an after-latest tray in flow above its
           // measured room so the composer never covers the expansion or its live tail.
           style={dockHeight > 0 ? { marginBottom: dockHeight } : undefined}
         >
+          {fallbackPullRequests && (
+            <div className="acpmux-pr-fallback">
+              <RowPullRequests.Provider value={pullRequests}>
+                <PullRequestDock />
+              </RowPullRequests.Provider>
+            </div>
+          )}
           {afterLatest}
         </div>
       )}
