@@ -155,9 +155,9 @@ final class PaneToolbar {
         // A zoomed pane keeps the zoom button's room whichever tab is selected (a chat shows none).
         let zoomRoom = zoomed && !pinned.contains(Self.zoom.rawValue) ? 1 : 0
         let buttons = shownButtons()
-        let creation = paneTarget == nil ? [] : Self.creationActions.compactMap(item)
-        view.show(creation + buttons.compactMap(item), more: shown, lit: zoomed && shown,
-                  reserving: creation.count + (kinds.isEmpty ? 0 : max(reservedPins + zoomRoom, buttons.count) + 1))
+        // The new-terminal and new-browser buttons are not shown: the + and the "…" menu offer them (Lawrence 2026-10-27: too many buttons).
+        view.show(buttons.compactMap(item), more: shown, lit: zoomed && shown,
+                  reserving: kinds.isEmpty ? 0 : max(reservedPins + zoomRoom, buttons.count) + 1)
     }
 
     /// The pinned actions the tab can run, in the user's order, as buttons before "…".

@@ -73,6 +73,7 @@ fn agent_move(mac: &Machine, surface: u64, to: &Machine, cwd: &Path, pump: &Path
             .arg(&to.socket)
             .arg("--cwd")
             .arg(cwd)
+            .args(["--vm-kind", "owner"])
             .arg("--state-dir")
             .arg(pump),
     )

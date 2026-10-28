@@ -1296,6 +1296,7 @@ export function NewTabScreen(props: Props) {
       )}
       {allChats && props.loadChatsPage && props.onOpenChat && (
         <AllChatsList
+          scrollParent=".nt-screen"
           load={props.loadChatsPage}
           onOpen={props.onOpenChat}
           active={activeCards.map((card) => ({
@@ -1540,7 +1541,7 @@ export function NewTabScreen(props: Props) {
           <>
             {/* Claude Code desktop's new-session screen (Leo 2026-10-19): the free space over the
                 composer holds, centered, the environment card and the suggested actions card, then the
-                recent chats; it scrolls on its own, so nothing in it ever moves the composer. */}
+                recent chats; the whole page scrolls together when its content exceeds the pane. */}
             <div className="nt-stage">
               {/* Minimal keeps its headline over the stage when widgets are on (Default has none). */}
               {headline}

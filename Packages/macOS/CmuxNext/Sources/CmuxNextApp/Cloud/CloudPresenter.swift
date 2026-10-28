@@ -68,6 +68,16 @@ enum CloudPresenter {
         present(spec, in: window) { answer in done(answer?.button == "confirm") }
     }
 
+    /// Offers cmux Pro after a refusal Pro lifts, with the server's `message` (its
+    /// localized reason) as the body; `closed(true)` only for the person's click on
+    /// Upgrade. False when nothing was shown (no window); `closed` then never runs.
+    static func offerPro(_ message: String?, in window: NSWindow?, closed: @escaping (Bool) -> Void) -> Bool {
+        guard window != nil else { return false }
+        confirm(CloudStrings.proRequiredTitle, message ?? CloudStrings.proRequiredBody, button: CloudStrings.proRequiredUpgrade,
+                identifier: "cmux.dialog.cloud.proRequired", in: window, done: closed)
+        return true
+    }
+
     static func copy(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
@@ -97,7 +107,7 @@ enum CloudPresenter {
         if provider == .claude {
             body = String(format: String(localized: "cloud.credentialRecovery.claudeDisclosure", defaultValue: "cmux will run claude setup-token in a visible local terminal, then install the resulting one-year login on this owner VM for %@.", table: "CloudCredentialRecovery", bundle: .module), teamName)
         } else {
-            body = String(localized: "cloud.credentialRecovery.codexDisclosure", defaultValue: "cmux will start a fresh Codex device login in a visible local terminal for this VM. Codex refresh credentials are never copied between VMs; Codex requires a separate sign-in for each VM.", table: "CloudCredentialRecovery", bundle: .module)
+            body = codexBrokerDisclosure
         }
         let spec = CmuxDialogSpec(
             title: String(format: String(localized: "cloud.credentialRecovery.title", defaultValue: "Set up %@ on %@?", table: "CloudCredentialRecovery", bundle: .module), providerName, session.machine.title),
@@ -125,10 +135,17 @@ enum CloudPresenter {
                 await services?.openLocalProviderLogin(line) ?? false
             })
         do {
-            try await transfer.run(api: services.cloud.api,
-                                   currentTeamID: { services.cloud.auth.teamID },
-                                   currentUserID: { services.cloud.auth.user?.id },
-                                   confirmed: true, refresh: true)
+            if provider == .codex {
+                let scope = CloudCodexBrokerScope(userID: userID, teamID: teamID)
+                try await services.cloud.codexBroker.run(
+                    machineID: session.machineID, scope: scope, confirmed: true, forceRefresh: true,
+                    presentDeviceCode: { prompt in await presentCodexDeviceCode(prompt, in: window) })
+            } else {
+                try await transfer.run(api: services.cloud.api,
+                                       currentTeamID: { services.cloud.auth.teamID },
+                                       currentUserID: { services.cloud.auth.user?.id },
+                                       confirmed: true, refresh: true)
+            }
             guard services.cloud.auth.user?.id == userID, services.cloud.auth.teamID == teamID,
                   let (currentTab, _) = services.locateTab(chat),
                   currentTab.agentSession?.session == request.sessionID,
@@ -147,6 +164,54 @@ enum CloudPresenter {
             CloudPresenter.failure(error, in: window)
             return false
         }
+    }
+
+    static let codexBrokerDisclosure = String(localized: "cloud.credentialRecovery.codexBroker", defaultValue: "cmux uses Codex sign-in on this Mac when needed; an existing broker login is refreshed without another sign-in. Only short-lived access moves to this owner VM. The refresh token stays on this Mac. Keep cmux running on this Mac to renew Codex access.", table: "CloudCodex", bundle: .module)
+
+    static let codexDeviceCodeIdentifier = "cmux.dialog.cloud.codexDeviceCode"
+
+    @MainActor static func presentCodexDeviceCode(_ prompt: CloudCodexLoginPrompt, in window: NSWindow) async -> Bool {
+        await presentCodexDeviceCode(prompt, in: .window(window), center: .shared,
+                                     open: { NSWorkspace.shared.openInBackground($0) })
+    }
+
+    @MainActor static func presentCodexDeviceCode(_ prompt: CloudCodexLoginPrompt, in scope: CmuxDialogScope,
+                                                 center: CmuxDialogCenter, open: (URL) -> Void) async -> Bool {
+        let spec = codexDeviceDialogSpec(code: prompt.userCode)
+        // wakeup-allow: every iteration suspends for a user answer; only Open sign-in repeats it, and cancellation dismisses the dialog.
+        while !Task.isCancelled {
+            let answers = AsyncStream.makeStream(of: CmuxDialogAnswer.self, bufferingPolicy: .bufferingNewest(1))
+            let dialogID = center.present(spec, in: scope) { answer in
+                answers.continuation.yield(answer)
+                answers.continuation.finish()
+            }
+            defer { answers.continuation.finish(); center.dismiss(dialogID) }
+            let answer = await withTaskCancellationHandler {
+                var iterator = answers.stream.makeAsyncIterator()
+                return await iterator.next()
+            } onCancel: {
+                // task-owner: one-shot cancellation hop dismisses this dialog; the continuation then releases it.
+                Task { @MainActor in center.dismiss(dialogID) }
+            }
+            guard !Task.isCancelled, let answer, !answer.isDismissal else { return false }
+            if answer.button == "open" { open(prompt.verificationURL) }
+            else { return answer.button == "signedIn" }
+        }
+        return false
+    }
+
+    @MainActor static func codexDeviceDialogSpec(code: String) -> CmuxDialogSpec {
+        CmuxDialogSpec(
+            title: String(localized: "cloud.codexDevice.title", defaultValue: "Sign in to Codex", table: "CloudCodex", bundle: .module),
+            lines: [
+                String(format: String(localized: "cloud.codexDevice.code", defaultValue: "Use Codex sign-in on this Mac. Enter this one-time code: %@", table: "CloudCodex", bundle: .module), code),
+                String(localized: "cloud.codexDevice.scope", defaultValue: "Only short-lived access moves to the VM; the refresh token stays on this Mac. Keep cmux running on this Mac to renew Codex access.", table: "CloudCodex", bundle: .module),
+            ],
+            buttons: [
+                .cancel(String(localized: "cloud.codexDevice.cancel", defaultValue: "Cancel", table: "CloudCodex", bundle: .module)),
+                CmuxDialogButton(id: "open", title: String(localized: "cloud.codexDevice.open", defaultValue: "Open sign-in", table: "CloudCodex", bundle: .module), role: .default),
+                CmuxDialogButton(id: "signedIn", title: String(localized: "cloud.codexDevice.signedIn", defaultValue: "I signed in", table: "CloudCodex", bundle: .module), role: .normal),
+            ], identifier: codexDeviceCodeIdentifier)
     }
 
     /// Use the same installed CLI and user as the credentials. Old/root-layout machines fail
