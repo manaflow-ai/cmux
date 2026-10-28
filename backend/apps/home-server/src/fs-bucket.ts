@@ -131,9 +131,12 @@ export class FsBucket {
     return join(this.root, MULTIPART_DIR, checkUploadId(uploadId))
   }
 
-  /** A stored part is `<id>.part.<n>`, with its etag in `<id>.part.<n>.json` once it is whole. */
+  /**
+   * An upload is its record `<id>.json` plus its own parts directory `<id>/`, so closing it touches
+   * only its own parts. A stored part is `<id>/part.<n>`, with its etag in `<id>/part.<n>.json` once it is whole.
+   */
   private partPath(uploadId: string, partNumber: number) {
-    return `${this.multipartPath(uploadId)}.part.${partNumber}`
+    return join(this.multipartPath(uploadId), `part.${partNumber}`)
   }
 
   private multipartMetaPath(uploadId: string) {
@@ -245,6 +248,7 @@ export class FsBucket {
     // The part streams to a temp file and replaces any earlier upload of that number only once
     // whole; its etag record is written last, so completion never trusts a half-written part.
     const tmp = `${partPath}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`
+    mkdirSync(dirname(partPath), { recursive: true })
     try {
       const { etag, size } = await writeStream(tmp, bodyStream(value))
       rmSync(`${partPath}.json`, { force: true })
@@ -260,11 +264,8 @@ export class FsBucket {
   /** Aborting an upload that already closed is a no-op; one minted for another key is refused. */
   async abortMultipart(key: string, uploadId: string): Promise<void> {
     if (!this.readMultipart(key, uploadId)) return
-    const dir = join(this.root, MULTIPART_DIR)
     // Parts first, then the record, so a crash midway leaves an upload that can still be aborted.
-    for (const name of readdirSync(dir, { withFileTypes: true })) {
-      if (name.isFile() && name.name.startsWith(uploadId + ".part.")) rmSync(join(dir, name.name), { force: true })
-    }
+    rmSync(this.multipartPath(uploadId), { recursive: true, force: true })
     rmSync(this.multipartMetaPath(uploadId), { force: true })
   }
 
