@@ -426,7 +426,7 @@ async function runFreestyle(args: { manifest: string; galleryDir: string; output
     const failures: string[] = [];
     await Promise.allSettled(vms.map(async ({ vm, shard }) => {
       await vm.fs.writeTextFile(`${remoteRoot}/runner.ts`, source, { mode: 0o644 });
-      for (const module of ["geometry-collector.ts", "geometry.ts"]) await vm.fs.writeTextFile(`${remoteRoot}/${module}`, await readFile(join(import.meta.dir, module), "utf8"), { mode: 0o644 });
+      for (const module of ["geometry-collector.ts", "geometry.ts", "geometry-containers.ts"]) await vm.fs.writeTextFile(`${remoteRoot}/${module}`, await readFile(join(import.meta.dir, module), "utf8"), { mode: 0o644 });
       await vm.fs.writeTextFile(`${remoteRoot}/package.json`, packageJson, { mode: 0o644 });
       await vm.fs.writeTextFile(`${remoteRoot}/manifest.json`, manifest, { mode: 0o644 });
       for (const file of galleryFiles) {

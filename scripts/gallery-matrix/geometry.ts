@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { PNG } from "pngjs";
 import { createHash } from "node:crypto";
+import { checkContainerRule, validateContainerRule, type ContainerRule } from "./geometry-containers";
 
 export const GEOMETRY_SCHEMA_VERSION = 1 as const;
 
@@ -31,6 +32,11 @@ export type GeometryElement = {
   role?: string;
   label?: string;
   group?: string;
+  /** Measured parent identity; nesting depth never changes column membership. */
+  containerId?: string;
+  part?: string;
+  /** DOM text range bounds are not a glyph baseline. */
+  rectSource?: "element" | "text-range";
   rect: Rect;
   style?: GeometryStyle;
   control?: boolean;
@@ -61,6 +67,7 @@ export type GeometryArtifact = {
 
 type CommonRule = { id: string; group: string; tolerancePx: number; minCount?: number; source?: GeometrySource; appliesTo?: string[] };
 export type GeometryRule =
+  | ContainerRule
   | (CommonRule & { kind: "peer-alignment"; axis: "x" | "y"; measure: "start" | "center" | "end" })
   | (CommonRule & { kind: "peer-size"; dimension: "width" | "height" })
   | (CommonRule & { kind: "spacing"; axis: "x" | "y"; tokensPx: number[] })
@@ -79,6 +86,7 @@ export type GeometryConfig = {
   rules: GeometryRule[];
   /** Existing debt is explicit and bounded. New findings always fail. */
   acceptedFindings?: Record<string, AcceptedFinding>;
+  coverageGaps?: string[];
 };
 
 export type GeometryFinding = {
@@ -104,6 +112,7 @@ export type GeometryReport = {
   findings: GeometryFinding[];
   errors: string[];
   passed: boolean;
+  coverageGaps: string[];
 };
 
 const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
@@ -155,6 +164,7 @@ export function parseConfig(value: unknown, file = "geometry config"): GeometryC
   for (const rule of rules) {
     if (!rule || typeof rule.id !== "string" || ids.has(rule.id) || typeof rule.group !== "string" || !finite(rule.tolerancePx) || rule.tolerancePx < 0 || (rule.minCount !== undefined && (!Number.isInteger(rule.minCount) || rule.minCount < 1))) throw new Error(`${file}: every rule needs a unique id/group/tolerancePx`);
     ids.add(rule.id);
+    if (validateContainerRule(rule, file)) continue;
     if (rule.appliesTo !== undefined && (!Array.isArray(rule.appliesTo) || rule.appliesTo.length === 0 || rule.appliesTo.some((value) => typeof value !== "string" || !value))) throw new Error(`${file}: invalid appliesTo`);
     if (rule.source !== undefined && !["dom-rect", "ax-frame", "view-frame"].includes(rule.source)) throw new Error(`${file}: invalid source`);
     if ((rule.kind === "peer-alignment" || rule.kind === "spacing") && !["x", "y"].includes(rule.axis)) throw new Error(`${file}: invalid axis`);
@@ -169,7 +179,8 @@ export function parseConfig(value: unknown, file = "geometry config"): GeometryC
   }
   const accepted = item.acceptedFindings;
   if (accepted !== undefined && (!accepted || typeof accepted !== "object" || Object.values(accepted as object).some((value) => !value || typeof value !== "object" || !finite((value as AcceptedFinding).maxDeltaPx) || typeof (value as AcceptedFinding).reason !== "string"))) throw new Error(`${file}: acceptedFindings entries need maxDeltaPx/reason`);
-  return { schemaVersion: GEOMETRY_SCHEMA_VERSION, revision: revision as GeometryConfig["revision"], required: required as GeometryConfig["required"], rules, acceptedFindings: accepted as GeometryConfig["acceptedFindings"] };
+  if (item.coverageGaps !== undefined && (!Array.isArray(item.coverageGaps) || item.coverageGaps.some((gap) => typeof gap !== "string" || !gap))) throw new Error(`${file}: invalid coverageGaps`);
+  return { schemaVersion: GEOMETRY_SCHEMA_VERSION, coverageGaps: item.coverageGaps as string[] | undefined, revision: revision as GeometryConfig["revision"], required: required as GeometryConfig["required"], rules, acceptedFindings: accepted as GeometryConfig["acceptedFindings"] };
 }
 
 function measure(rect: Rect, axis: "x" | "y", point: "start" | "center" | "end"): number {
@@ -188,6 +199,11 @@ function pushFinding(findings: GeometryFinding[], rule: GeometryRule, artifact: 
 
 function lintRule(findings: GeometryFinding[], rule: GeometryRule, artifact: GeometryArtifact): void {
   if (rule.appliesTo && !rule.appliesTo.includes(artifact.capture.caseId)) return;
+  const containerFindings = checkContainerRule(rule, artifact);
+  if (containerFindings) {
+    for (const finding of containerFindings) pushFinding(findings, rule, artifact, finding.ids, finding.message, finding.observed, finding.expected, finding.delta);
+    return;
+  }
   const elements = artifact.elements.filter((element) => element.group === rule.group);
   const minCount = rule.minCount ?? 2;
   if (elements.length < minCount) {
@@ -340,6 +356,6 @@ export async function lintGeometry(artifacts: Array<{ file: string; artifact: Ge
       if (source) await writeCrop(source.file, finding, source.artifact, reportDir);
     }
   }
-  return { schemaVersion: GEOMETRY_SCHEMA_VERSION, revision: config.revision, artifacts: artifacts.length, findings, errors, passed: errors.length === 0 && findings.every((finding) => finding.accepted === true) };
+  return { schemaVersion: GEOMETRY_SCHEMA_VERSION, coverageGaps: config.coverageGaps ?? [], revision: config.revision, artifacts: artifacts.length, findings, errors, passed: errors.length === 0 && findings.every((finding) => finding.accepted === true) };
 }
 

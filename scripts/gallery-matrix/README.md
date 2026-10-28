@@ -129,3 +129,18 @@ The same bounded command works on a fleet test worker after building the gallery
 CMUX_GALLERY_IN_VM=1 bun geometry-audit.ts --gallery-dir /path/to/gallery \
   --output-dir /path/to/evidence --expected-sha FULL_SOURCE_SHA
 ```
+
+Geometry rules support repeated row/header containers. Collect each container with a stable ID and
+associate every matching visible child with its nearest measured parent (`containerId`). A global
+`peer-alignment` rule with `axis: x, measure: end` checks one trailing column across every nesting
+depth. `container-center` checks each marker against its own row; `exclusive-parts` rejects a spinner
+and a hover control visible in the same row. `container-peer-alignment` compares actions within each
+header, so repeated headers cannot accidentally compare different vertical positions or hide a
+missing action. Native rules must declare their required evidence source; native view frames do not
+satisfy an `ax-frame` rule.
+
+For mixed text/icon controls, collect both the control rectangles and the visible marker/text
+ranges. `measurement: text-range` records `DOMRange` bounds as `rectSource: text-range`; those bounds
+are **not** a text baseline. Unmeasured glyph baselines stay in `coverageGaps`, which is preserved in
+the JSON report. Invisible elements, including opacity-zero ancestors, are excluded by the browser's
+visibility check; missing required peers fail the rule.

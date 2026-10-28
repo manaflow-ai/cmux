@@ -198,6 +198,7 @@ jobs:
           cd ../scripts/gallery-matrix
           bun install --frozen-lockfile
           ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+          bun test geometry.test.ts geometry-audit.test.ts geometry-containers.test.ts geometry-collector.test.ts
           bun geometry-audit.ts --gallery-dir "$RUNNER_TEMP/gallery" --output-dir "$RUNNER_TEMP/geometry" --expected-sha "$(git rev-parse HEAD)"
       - name: Upload geometry evidence and findings
         if: ${{ always() }}
