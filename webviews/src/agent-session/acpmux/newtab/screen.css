@@ -602,17 +602,22 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
    the composer at the foot of the page, full width of the column. The stage centers its cards
    while they fit. When content grows, the whole page scrolls together. */
 .nt-screen[data-layout="stage"] {
+  /* The band under the composer: the page's bottom padding, and where the composer sticks (below). */
+  --nt-stage-foot: 16px;
   overflow: auto;
   gap: 0;
   padding-top: 0;
-  padding-bottom: 16px;
+  padding-bottom: var(--nt-stage-foot);
 }
 /* With Claude Code's split the quiet row ends the page, a few px over its bottom edge as in the chat
    pane (the row's own margin, composerLocation.css): the page adds no band under it. The template
    dots (a widget, off by default, App.tsx) sit absolutely at the page's foot, 2 px up and 24 px
    tall: with them on, the page keeps their room under the row (less the row's 4 px margin). */
-.nt-screen[data-layout="stage"]:has(.nt-foot) { padding-bottom: 0; }
-.acpmux-main:has(> .nt-style) .nt-screen[data-layout="stage"]:has(.nt-foot) { padding-bottom: 22px; }
+.nt-screen[data-layout="stage"]:has(.nt-foot) { --nt-stage-foot: 0px; }
+/* The template dots sit in the page's dots row (PageDots.tsx) beside the look dots, which keep no band. */
+.acpmux-main:has(> .nt-page-dots > .nt-style:not(.nt-look-dots)) .nt-screen[data-layout="stage"]:has(.nt-foot) {
+  --nt-stage-foot: 22px;
+}
 .nt-screen[data-layout="stage"] .nt-stage {
   flex: 1 0 auto;
   min-height: 0;
@@ -762,6 +767,12 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-screen[data-layout="stage"] .nt-composer {
   flex: none;
   width: 100%;
+  /* The page scrolls as one (above), but the composer keeps its place at the foot: content that
+     grows over it (a chat landing, a long list, a long draft, a live resize) scrolls under it,
+     never pushes it below the fold (new-tab-composer-still, new-tab-live-resize). */
+  position: sticky;
+  bottom: var(--nt-stage-foot, 0px);
+  z-index: var(--layer-raised);
 }
 /* A chat row's hover card (Leo 2026-10-19): a floating glass hover card (desktop.css
    .ui-card.ui-glass) offset from the row (Tooltip's gap), clamped to the window by the positioner,
