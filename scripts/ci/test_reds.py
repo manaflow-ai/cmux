@@ -87,6 +87,9 @@ TRUNCATED = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*(?:no \"Test run with
                        # the hang watchdog (hung_test_watchdog.py) and run_with_timeout.py
                        r".*\b(?:timed out after|made no progress|stopped by SIG[A-Z]+|stalled|[Hh]ung test|"
                        r"[Cc]ancelled test|[Tt]imeout))|^This log was truncated", re.I)
+# package-test-lane.sh suite: a suite the lane named whose tests did not run (all skipped, or skipped for a missing
+# same-tree cmux-tui) is no result: never a base red, whatever the base shows.
+NO_RESULT = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*.*\brequired tests did not run\b")
 # scripts/ci/run-webviews-tests.sh: one `START file` and one `PASS|FAIL|TIMEOUT file ...` line per Bun test file.
 # A TIMEOUT is a file the wrapper killed at its hard limit: cut short. Bun's own panic is a crash.
 BUN_STARTED = re.compile(r"^START (\S+\.[cm]?[jt]sx?) \(hard limit")
@@ -281,7 +284,7 @@ def read(log: str | None) -> Result:
                 signals.append(number)
         if crashed and ("$s" in text or re.match(r"^\s*\d+\s+\S+\s+0x[0-9a-f]+ ", text)):
             stack.append(text)
-        if TRUNCATED.search(text):
+        if TRUNCATED.search(text) or NO_RESULT.search(text):
             why = re.sub(r"^##\[error\]|^::error[^:]*::", "", text).strip()
             result.truncated.append(why[:200])
     unfinished = started - {m.group(1) for text in lines for m in [FINISHED.search(text)] if m}

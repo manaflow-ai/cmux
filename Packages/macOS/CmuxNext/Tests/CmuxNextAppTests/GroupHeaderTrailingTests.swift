@@ -9,7 +9,8 @@ import Testing
 /// default. All we care about is the loading." A collapsed group header shows only its loading
 /// spinner on the right by default: no member count, no unread count, no other status. And the
 /// header's trailing items close up: with nothing loading the spinner leaves no hole, and the
-/// spinner sits right beside the chevron at rest and right beside the + and more on hover.
+/// spinner takes the chevron's place at rest. Leo 2026-10-28 ("If you're hovering over a workspace or whatever,
+/// just don't show the spinner"): a hover hides it at once, and the chevron, more and + show in its place.
 /// Lawrence msg 11983 ("make sure sidebar has blue, orange/yellow for needs attention, and red for
 /// errors") adds the members' most urgent state: red, then orange, then the blue unread dot.
 @MainActor @Suite(.serialized) struct GroupHeaderTrailingTests {
@@ -132,36 +133,24 @@ import Testing
         #expect(!Self.isHidden(chevron, in: header), "the chevron does not show at rest with nothing loading")
     }
 
-    /// On hover the spinner slides left (a translation, `MotionFade.hoverReveal`) to make room
-    /// for the chevron, more and +; the chevron comes back.
-    @Test func onHoverTheSpinnerSlidesLeftForTheChevron() throws {
-        Motion.reduceMotionOverride = false
+    /// On hover the spinner hides at once (no fade beside the controls) and the chevron comes back on its column,
+    /// with or without Reduce Motion; when the hover ends the spinner takes the column again.
+    @Test(arguments: [false, true])
+    func onHoverTheSpinnerHidesForTheChevron(_ reduceMotion: Bool) throws {
+        Motion.reduceMotionOverride = reduceMotion
         defer { Motion.reduceMotionOverride = nil }
         let (header, _) = try Self.header(activity: .working, unread: .none)
         Self.hover(header, false)
-        let rest = try #require(Self.spinner(header))
+        try #require(Self.spinner(header) != nil, "no spinner at rest")
         Self.hover(header, true)
-        let hovered = try #require(Self.spinner(header))
-        #expect(hovered.midX < rest.midX - 1, "the spinner did not move left on hover")
+        #expect(Self.spinner(header) == nil, "the spinner shows beside the hover controls")
         let chevron = try #require(Self.chevronView(header))
         #expect(!Self.isHidden(chevron, in: header), "the chevron does not come back on hover")
-        let slot = try #require(Self.views(StatusIndicatorView.self, in: header).first?.superview)
-        let slide = try #require(slot.layer?.animation(forKey: "position") as? CABasicAnimation, "the spinner jumped instead of sliding")
-        let from = try #require((slide.fromValue as? NSValue)?.pointValue), to = try #require((slide.toValue as? NSValue)?.pointValue)
-        #expect(from.x > to.x && from.y == to.y, "the slide is not a move to the left: \(from) to \(to)")
-        #expect(slide.duration > 0, "the slide takes no time")
-    }
-
-    @Test func reduceMotionMovesTheSpinnerAtOnce() throws {
-        Motion.reduceMotionOverride = true
-        defer { Motion.reduceMotionOverride = nil }
-        let (header, _) = try Self.header(activity: .working, unread: .none)
+        let column = SidebarStyle.trailingColumnCenterX(rowWidth: header.bounds.width)
+        #expect(abs(chevron.frame.midX - column) <= 0.5, "the chevron is not on the column on hover")
         Self.hover(header, false)
-        Self.hover(header, true)
-        let slot = try #require(Self.views(StatusIndicatorView.self, in: header).first?.superview)
-        #expect(slot.layer?.animation(forKey: "position") == nil, "the spinner slides under Reduce Motion")
-        let spinner = try #require(Self.spinner(header))
-        #expect(spinner.maxX <= header.addButton.frame.minX, "the spinner did not make room for + under Reduce Motion")
+        let spinner = try #require(Self.spinner(header), "the spinner stayed hidden after the hover")
+        #expect(abs(spinner.midX - column) <= 0.5, "the spinner came back at \(spinner.midX), not on the column at \(column)")
     }
 
     /// The opt-in member count reads as a detail: smaller than the name, regular weight, lighter ink.
@@ -183,16 +172,16 @@ import Testing
         #expect(countAlpha < nameAlpha, "the count's ink (alpha \(countAlpha)) is not lighter than the name's (\(nameAlpha))")
     }
 
-    @Test func theSpinnerSitsBesideTheButtonsOnHover() throws {
+    /// A loading header on hover: the chevron, more and + close up with no hole where the spinner was.
+    @Test func theButtonsCloseUpOnHover() throws {
         let (header, _) = try Self.header(activity: .working, unread: .none)
         Self.hover(header, true)
-        let spinner = try #require(Self.spinner(header))
+        #expect(Self.spinner(header) == nil, "the spinner shows beside the hover controls")
         let chevron = try Self.chevron(header)
         let more = header.moreButton.frame, add = header.addButton.frame
         #expect(chevron.minX - more.maxX <= Self.neighbourGap, "a gap between the more button and the chevron")
         #expect(more.minX - add.maxX <= Self.neighbourGap, "a gap between + and the more button")
-        #expect(add.minX - spinner.maxX <= Self.neighbourGap && spinner.maxX <= add.minX,
-                "the spinner ends at \(spinner.maxX), not beside + at \(add.minX)")
+        #expect(header.titleFrame.maxX <= add.minX, "the name runs under +")
     }
 
     /// Nothing loading and no hover: the name may run up to the chevron; no empty slot is kept.
