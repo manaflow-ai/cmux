@@ -98,7 +98,6 @@ test("the first nonempty child thought settles reply Sources without rescanning 
   expect(sessionSummary(fold.views().a!, "acme/app")).toBe(live);
   think("Checking the next step");
   const settled = sessionSummary(fold.views().a!, "acme/app");
-  console.log("DEBUG_CHILD_SOURCES", JSON.stringify(settled));
   expect(settled.sources.map((source) => source.url)).toEqual([
     "https://example.com/guide",
     "https://github.com/acme/app/issues/7",

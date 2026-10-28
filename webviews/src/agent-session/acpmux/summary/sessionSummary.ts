@@ -140,19 +140,6 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
     if (!prior || (source.kind === "pullRequest" && prior.source.kind !== "pullRequest"))
       seen.set(key, { source, order, sequence: sequence++ });
   };
-  for (const pr of pullRequests)
-    if (!pr.changed && !pr.opened) {
-      const ambiguous = pr.mentioned && !pr.kind;
-      add(
-        {
-          // GitHub redirects /issues/N to the PR when N is a PR; a bare number proves neither kind.
-          url: ambiguous ? `https://github.com/${pr.repo}/issues/${pr.number}` : pr.url,
-          label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
-          kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
-        },
-        pr.firstTouched ?? pr.touched ?? Number.MAX_SAFE_INTEGER,
-      );
-    }
   // Match canonical GitHub links after removing query and fragment suffixes. Keep a separate
   // identity set so an issue-form link for a PR the chat changed cannot resurrect it as a Source.
   const knownPullRequests = new Map(pullRequests.map((pr) => [pr.url, pr]));
@@ -203,6 +190,21 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
   // Producer revisions keep streamed replies out of this settled scan.
   for (const [rowIndex, row] of rows.entries())
     if (row.kind === "assistant" && !row.streaming) addUrls(row.text ?? "", rowIndex);
+  // Add shorthand-only references after transcript URLs have been encountered, so a URL earlier
+  // in the same reply keeps its position while PR evidence still promotes an issue-form link.
+  for (const pr of pullRequests)
+    if (!pr.changed && !pr.opened) {
+      const ambiguous = pr.mentioned && !pr.kind;
+      add(
+        {
+          // GitHub redirects /issues/N to the PR when N is a PR; a bare number proves neither kind.
+          url: ambiguous ? `https://github.com/${pr.repo}/issues/${pr.number}` : pr.url,
+          label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
+          kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
+        },
+        pr.firstTouched ?? pr.touched ?? Number.MAX_SAFE_INTEGER,
+      );
+    }
   return [...seen.values()].sort((a, b) => a.order - b.order || a.sequence - b.sequence).map(({ source }) => source);
 }
 
