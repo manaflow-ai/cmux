@@ -22,6 +22,8 @@ import Testing
 
         func close() {
             for controller in services.windows.controllers { controller.window?.close() }
+            // What the app opened for its windows while the test ran (their overlay panels).
+            AppHarnessWindows.closeThoseThisTestOpened()
         }
     }
 

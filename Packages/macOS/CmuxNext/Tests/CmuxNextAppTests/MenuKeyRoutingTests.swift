@@ -41,6 +41,8 @@ import CmuxNextFocusUI
             io.finish()
             terminalWindow.close()
             for controller in services.windows.controllers { controller.window?.close() }
+            // What the app opened for its window while the test ran (its overlay panel).
+            AppHarnessWindows.closeThoseThisTestOpened()
         }
     }
 
