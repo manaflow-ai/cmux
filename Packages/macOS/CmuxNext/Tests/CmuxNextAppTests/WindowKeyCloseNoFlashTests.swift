@@ -3,11 +3,10 @@ import AppKit
 import CmuxNextDesign
 import Testing
 
-/// The close key of a window that closes as a whole (Settings, Page Info, a browser popup, DevTools, a
-/// kindless closable window: `WindowKeyTable`'s `.closeWindow`) called `performClose(nil)`: AppKit's close
-/// button flash, a nested event-tracking run loop of about 100 ms on the key turn (as Close Window did on
-/// main windows, v2.2.4-opt, handoff/v224-gate-triage.md). It closes in the key's turn now; a window class
-/// with its own close (DevTools hides its inspector) keeps it.
+/// The close key of a window that closes as a whole closes it with `closeWithoutButtonFlash` (its proof is the
+/// live diag-close-stall journey, handoff/v224-gate-triage.md: in a test process AppKit skips the button flash,
+/// so a nested-loop test passed on the base and was removed). This pins the rule the new path keeps: a window
+/// class with its own close (DevTools hides its inspector) keeps it on the key.
 @MainActor @Suite(.serialized) struct WindowKeyCloseNoFlashTests {
     final class OwnCloseWindow: NSWindow, WindowKeyClosing {
         var ownCloses = 0
@@ -20,24 +19,6 @@ import Testing
                        backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         return window
-    }
-
-    private static func nestedRunLoops(during body: () -> Void) -> Int {
-        var entries = 0
-        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.entry.rawValue, true, 0) { _, _ in entries += 1 }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
-        defer { CFRunLoopRemoveObserver(CFRunLoopGetMain(), observer, .commonModes) }
-        body()
-        return entries
-    }
-
-    @Test func aPlainWindowClosesInTheKeysTurnWithNoNestedRunLoop() {
-        let window = Self.window(NSWindow.self)
-        window.orderFront(nil)
-        defer { window.close() }
-        let entries = Self.nestedRunLoops { WindowKeyTable.closeFromKey(window) }
-        #expect(entries == 0, "the close key ran \(entries) nested run loop(s) (the close button's flash)")
-        #expect(!window.isVisible, "the window did not close in the key's turn")
     }
 
     @Test func aWindowWithItsOwnCloseKeepsIt() {
