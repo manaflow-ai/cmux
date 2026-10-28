@@ -505,6 +505,10 @@ export function ComposerContext({
                   ? [
                       { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
                       { id: "cloud", label: t(CONTEXT_LABELS.newCloudMachine), onSelect: () => onConnect("cloud") },
+                      // Add Device, as the environment picker's last row (Leo, 2026-10-26: "buttons ...
+                      // able to send you to the nicest easiest places"): the one add that makes the
+                      // machine a place a chat can start (its agent daemon installed and peered).
+                      { id: "addMachine", label: t("composer.addMachine"), onSelect: () => onConnect("addMachine") },
                     ]
                   : undefined
               }

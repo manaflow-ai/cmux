@@ -68,6 +68,7 @@ import { useWidgetEditing, WidgetEditBar, WidgetFrame } from "./WidgetEditing";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { AmbientWidgets } from "./AmbientWidgets";
+import { runCloudMachine } from "../cloudMachines";
 import type { NewTabWeather } from "./ambient";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { Icon } from "../icons/Icon";
@@ -140,6 +141,9 @@ export type NewTabScreenActions = {
   /// The location row's machine list opened, and every few seconds while it stays open: the host
   /// reads acpmux's machines again (`_acpmux/status`).
   onRefreshMachines?(): void;
+  /// Reconnects acpmux peer `id` now (`_acpmux/peer_reconnect`): a down machine's button on the
+  /// machines widget was pressed (AmbientWidgets.tsx). The pick goes on; the send waits for the link.
+  onReconnectMachine?(id: string): void;
   /// With `environments`, New Worktree beside the folder: the host makes a worktree of `cwd` and
   /// this resolves to the folder the chat starts in (startFolder.tsx newWorktree); rejects with the
   /// host's reason.
@@ -1444,6 +1448,12 @@ export function NewTabScreen(props: Props) {
   // The ambient widgets (weather, machines): their own row under the field, so they never move it;
   // with the stage, whose composer sits at the foot, the row is in the stage, after the widgets. The
   // edit mode does not frame or move them; Settings turns them on and off.
+  // Where the next chat goes: a saved environment's machine, else the picked machine.
+  const nextMachine = environment
+    ? environment.kind === "ssh" && environment.host
+      ? environment.host
+      : "local"
+    : (machine?.peer ?? "local");
   const ambient = (
     <AmbientWidgets
       {...(widgets.has("weather") && props.weather ? { weather: props.weather } : {})}
@@ -1451,6 +1461,27 @@ export function NewTabScreen(props: Props) {
       snapshot={snapshot}
       localName={props.machineName ?? t("composer.thisMac")}
       now={at}
+      // The machines are buttons: a press starts the next chat there (a down one reconnects as it
+      // is picked), resumes or opens an account Cloud machine, and Add Machine… opens Add Device.
+      buttons={{
+        // None reads pressed while Sandboxed is the run (a VM of its own).
+        current: props.runMode?.mode === "sandboxed" ? "" : nextMachine,
+        onPick: (id) => {
+          // A machine is a pick of its own: Sandboxed would send elsewhere, so the run goes back to
+          // Persistent. Pressing the machine the next chat already goes to keeps its folder and its
+          // saved environment.
+          if (props.runMode?.mode === "sandboxed") props.runMode.onMode("persistent");
+          if (id === nextMachine) return field.current?.focus();
+          pickMachine(id === "local" ? undefined : { peer: id });
+        },
+        onReconnect: (id) => props.onReconnectMachine?.(id),
+        // A Cloud machine is a machine too: Persistent again, as the picker's Cloud rows do.
+        onCloudMachine: (cloudMachine) => {
+          if (props.runMode?.mode === "sandboxed") props.runMode.onMode("persistent");
+          void runCloudMachine(cloudMachine);
+        },
+        ...(props.onConnect ? { onAddMachine: () => props.onConnect!("addMachine") } : {}),
+      }}
     />
   );
   const extras = <NewTabExtras widgets={widgets} now={at} />;
