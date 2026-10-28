@@ -1853,7 +1853,21 @@ export class AcpmuxDirectClient {
             generation === this.selectionGeneration &&
             this.selectedSessionId === sessionId
           )
-            this.dropUnread(sessionId);
+            this.dropUnread(sessionId, keptThrough > 0);
+          else if (
+            !kept &&
+            resumeAfter > 0 &&
+            this.lastSeq > resumeAfter &&
+            generation === this.selectionGeneration &&
+            this.selectedSessionId === sessionId
+          ) {
+            // A reconnect keeps the rows it read before, but not the records the failed attach
+            // streamed past them: the next one resumes from what was read, so a gap the chat ran
+            // on past while the socket was down is still read (`fetchMissedEvents`).
+            this.events = this.events.filter((event) => event.seq <= resumeAfter);
+            this.rebuildKeepingLiveState();
+            this.emit();
+          }
           if (!kept) throw error;
         }
         const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
@@ -2188,19 +2202,21 @@ export class AcpmuxDirectClient {
     } catch (error) {
       if (mine !== this.copyAttaches) return;
       if (await this.keepPeerCopy(sessionId, generation, error)) return;
-      if (generation === this.selectionGeneration && this.selectedSessionId === sessionId) this.dropUnread(sessionId);
+      if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
+        this.dropUnread(sessionId, false);
     } finally {
       this.releaseSnapshots(hold);
     }
   }
 
   /// The chat's attach failed: nothing on screen was read from it, so nothing stays. A tail drawn
-  /// from the host or the Mac's copy goes, and so do the live records the attach streamed before it
-  /// failed (`eventStream`): `apply` took them and moved `lastSeq` past them, and the next attach
-  /// would resume after them, as if the history before them had been read. The cursors go with
-  /// them (`rebuild`), so that attach reads the chat from nothing; the pane says it could not.
-  private dropUnread(sessionId: string): void {
-    forgetTail(sessionId);
+  /// from the host or the Mac's copy goes (`drewTail`), and so do the live records the attach
+  /// streamed before it failed (`eventStream`): `apply` took them and moved `lastSeq` past them,
+  /// and the next attach would resume after them, as if the history before them had been read.
+  /// The cursors go with them (`rebuild`), so that attach reads the chat from nothing; the pane
+  /// says it could not. A cold attach drew no tail, so the host's (another tab's) is kept.
+  private dropUnread(sessionId: string, drewTail: boolean): void {
+    if (drewTail) forgetTail(sessionId);
     this.peerCopy = undefined;
     this.copyLive = undefined;
     this.events = [];
@@ -2265,7 +2281,9 @@ export class AcpmuxDirectClient {
         // Mac's copy is drawn if it has one.
         const mine = ++this.copyAttaches;
         void this.attach(sessionId, generation, 0).catch(async (error: unknown) => {
-          if (mine === this.copyAttaches) await this.keepPeerCopy(sessionId, generation, error);
+          if (mine !== this.copyAttaches || (await this.keepPeerCopy(sessionId, generation, error))) return;
+          if (generation === this.selectionGeneration && this.selectedSessionId === sessionId && this.lastSeq > 0)
+            this.dropUnread(sessionId, false);
         });
       }
       return;
@@ -6092,7 +6110,7 @@ export class AcpmuxDirectClient {
         generation === this.selectionGeneration &&
         this.selectedSessionId === sessionId
       )
-        this.dropUnread(sessionId);
+        this.dropUnread(sessionId, keptThrough > 0);
       throw error;
     } finally {
       this.releaseSnapshots(hold);

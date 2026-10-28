@@ -1530,7 +1530,8 @@ test("a cold open whose attach fails keeps none of the records that came before 
   const second = new Daemon();
   second.down = false;
   second.peer = undefined;
-  second.log = turn(1, 45, "log");
+  // The chat ran on to 50; the page holds 48..50.
+  second.log = turn(1, 50, "log");
   const sockets = [first, second];
   resetKeptTailsForTests();
   const drawn: AcpmuxSnapshot[] = [];
@@ -1555,15 +1556,15 @@ test("a cold open whose attach fails keeps none of the records that came before 
   await flush();
   expect(opening.lastSeq).toBe(0);
   expect(text(drawn.at(-1))).not.toContain("stray");
-  // The next open reads the chat from nothing: its page is not taken as following 41 and 42.
+  // The next open reads the chat from nothing: no gap is read after 41 and 42 as if they were.
   await opening.open();
   await flush();
   const asked = second.asked.filter((message) => message.method === "_acpmux/events");
   expect(asked.some((message) => message.params?.afterSeq === 42)).toBe(false);
   const shown = text(drawn.at(-1));
   expect(shown).not.toContain("stray");
-  for (const seq of [43, 44, 45]) expect(count(shown, ` ${seq}. `)).toBe(1);
-  expect(opening.lastSeq).toBe(45);
+  for (const seq of [48, 49, 50]) expect(count(shown, ` ${seq}. `)).toBe(1);
+  expect(opening.lastSeq).toBe(50);
 });
 
 test("a cold select refused as down with no copy keeps none of the records that came before it failed", async () => {
@@ -1579,9 +1580,8 @@ test("a cold select refused as down with no copy keeps none of the records that 
   await flush();
   expect((client as unknown as { lastSeq: number }).lastSeq).toBe(0);
   expect(text(tab.last())).not.toContain("stray");
-  // Nothing of the failed attach is kept as the chat's tail either: the machine back reads it whole.
+  // The machine back: its page is read, and none of the failed attach's records shows.
   await client.select(OTHER);
-  expect(keptTail(SESSION)).toBeUndefined();
   daemon.down = false;
   daemon.log = turn(1, 45, "log");
   await client.select(SESSION);
@@ -1589,4 +1589,57 @@ test("a cold select refused as down with no copy keeps none of the records that 
   const shown = text(tab.last());
   expect(shown).not.toContain("stray");
   for (const seq of [43, 44, 45]) expect(count(shown, ` ${seq}. `)).toBe(1);
+});
+
+test("a reconnect whose attach fails keeps the rows it read, but not the records the attach streamed past them", async () => {
+  const first = new Daemon();
+  first.down = false;
+  first.peer = undefined;
+  first.log = turn(1, 10, "log");
+  // The socket was down while the chat ran on to 1002, which come live before the attach fails.
+  const failing = new Daemon();
+  failing.down = false;
+  failing.peer = undefined;
+  failing.beforeAttach = [record(1001, "stray 1001. "), record(1002, "stray 1002. ")];
+  failing.failAttach = 1;
+  const back = new Daemon();
+  back.down = false;
+  back.peer = undefined;
+  back.log = [...turn(1, 10, "log"), ...turn(1001, 1005, "log")];
+  const sockets = [first, failing, back];
+  resetKeptTailsForTests();
+  const drawn: AcpmuxSnapshot[] = [];
+  const Client = AcpmuxDirectClient as unknown as new (...args: unknown[]) => AcpmuxDirectClient;
+  const client = new Client(
+    {
+      protocolVersion: 1,
+      transport: "acpmux-websocket",
+      endpoint: "ws://peer.invalid/",
+      token: "t",
+      sessionId: SESSION,
+    },
+    (snapshot: AcpmuxSnapshot) => {
+      if (snapshot.type === "snapshot") drawn.push(snapshot);
+    },
+    undefined,
+    () => sockets.shift() as unknown as WebSocket,
+  );
+  live.push(client);
+  const opening = client as unknown as { open(): Promise<void>; lastSeq: number };
+  await opening.open();
+  await flush();
+  expect(opening.lastSeq).toBe(10);
+  await expect(opening.open()).rejects.toThrow();
+  await flush();
+  expect(opening.lastSeq).toBe(10);
+  expect(text(drawn.at(-1))).toContain("log 10.");
+  expect(text(drawn.at(-1))).not.toContain("stray");
+  // Its page (1003..1005) does not follow 10, so the records between are read after 10.
+  await opening.open();
+  await flush();
+  const asked = back.asked.filter((message) => message.method === "_acpmux/events");
+  expect(asked.some((message) => message.params?.afterSeq === 10)).toBe(true);
+  const shown = text(drawn.at(-1));
+  expect(shown).not.toContain("stray");
+  for (const seq of [10, 1001, 1002, 1005]) expect(count(shown, ` ${seq}. `)).toBe(1);
 });
