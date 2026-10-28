@@ -187,11 +187,19 @@ public final class ConversationTextEffectLayer: CALayer {
     }
 
     /// Shared by the main thread (`update`, `cachedRendering`) and the
-    /// detached prefetch and render-ahead tasks (`prepare`). `NSCache` is
-    /// thread-safe and the SDK declares it `Sendable`, so the compiler checks
-    /// this constant; its keys never change after init and `Rendering`
-    /// guards its own mutable state.
-    private static let renderings: NSCache<RenderingKey, Rendering> = {
+    /// detached prefetch and render-ahead tasks (`prepare`). Apple documents
+    /// `NSCache` as safe to add to, remove from and query on any thread with
+    /// no lock of the caller's, but the SDK does not mark it `Sendable` (Swift
+    /// 6 rejects the plain constant), so the argument is written here instead:
+    /// - the cache's own state sits behind NSCache's internal lock;
+    /// - every `RenderingKey` is immutable: `let` fields, and its string is a
+    ///   fresh `NSAttributedString(attributedString:)` copy nobody mutates;
+    ///   `hash` and `isEqual` only read;
+    /// - every `Rendering` is immutable glyphs plus loops behind its own lock;
+    /// - two threads that miss the same key both render and both store, which
+    ///   is extra work, not a race: each keeps the `Rendering` it holds.
+    // crash-allow: NSCache is documented thread-safe and its keys and values are immutable or self-locked (argued above)
+    nonisolated(unsafe) private static let renderings: NSCache<RenderingKey, Rendering> = {
         let cache = NSCache<RenderingKey, Rendering>()
         cache.countLimit = 64
         return cache
