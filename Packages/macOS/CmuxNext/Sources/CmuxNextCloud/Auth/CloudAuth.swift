@@ -146,14 +146,13 @@ public final class CloudAuth {
         let sessionFactory: any HostBrowserAuthSessionFactory = useCaptureFixture
             ? CaptureFixtureBrowserAuthSessionFactory()
             : ASWebBrowserAuthSessionFactory(anchor: anchor)
-        let openExternalURL: @MainActor (URL) -> Bool = useCaptureFixture
-            ? { _ in false }
-            : { url in
-                // Whether a browser opens it (a database lookup); the open runs off the main thread (cx-050n).
-                guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { return false }
-                NSWorkspace.shared.openInBackground(url)
-                return true
-            }
+        let openExternalURL: @MainActor @Sendable (URL) -> Bool = { url in
+            guard !useCaptureFixture else { return false }
+            // Whether a browser opens it (a database lookup); the open runs off the main thread (cx-050n).
+            guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { return false }
+            NSWorkspace.shared.openInBackground(url)
+            return true
+        }
         #else
         let sessionFactory: any HostBrowserAuthSessionFactory = ASWebBrowserAuthSessionFactory(anchor: anchor)
         let openExternalURL: @MainActor (URL) -> Bool = { url in
