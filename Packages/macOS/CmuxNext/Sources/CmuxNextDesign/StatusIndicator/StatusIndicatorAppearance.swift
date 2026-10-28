@@ -34,6 +34,8 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
     public var staticShapes: Bool
     /// How agent work shows (Debug Settings `status.working`).
     public var workingLook: StatusWorkingLook
+    /// System Differentiate Without Color (Accessibility > Display).
+    public var differentiateWithoutColor: Bool
     /// Lowest opacity of the working dot's breath.
     public var breathLow: Double { 0.3 }
 
@@ -41,7 +43,7 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
                 arcLength: Double = 0.72, trackOpacity: Double = 0.22, dotScale: Double = 0.5, pulseLow: Double = 0.35,
                 nativeSteps: Int = 8, animatesLoops: Bool = true, spinnerPeriod: Double? = nil, pulsePeriod: Double? = nil,
                 terminalFontFamily: String? = nil, iconSet: StatusIconSet = .current, reduceMotion: Bool = false,
-                staticShapes: Bool = false, workingLook: StatusWorkingLook = .spinner) {
+                staticShapes: Bool = false, workingLook: StatusWorkingLook = .spinner, differentiateWithoutColor: Bool = false) {
         self.settings = settings
         self.styleOverride = styleOverride
         self.arcLength = arcLength
@@ -57,12 +59,16 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
         self.reduceMotion = reduceMotion
         self.staticShapes = staticShapes
         self.workingLook = workingLook
+        self.differentiateWithoutColor = differentiateWithoutColor
     }
 
     /// The static look (cx-sya4n): the setting says static, or Reduce Motion
     /// is on. Nothing animates and each state draws its own still shape in
     /// the same slot and size, whatever the icon set.
     public var isStatic: Bool { settings.animation == .static || reduceMotion }
+
+    /// The static look draws its shapes (``StatusIndicatorPlan/make``'s `staticShapes`).
+    public var drawsShapes: Bool { staticShapes }
 
     /// The style for a report that asked for `hint`: the Debug Settings
     /// override, else the hint, else the setting.

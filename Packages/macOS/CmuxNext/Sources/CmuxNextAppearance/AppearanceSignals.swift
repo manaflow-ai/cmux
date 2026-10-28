@@ -133,6 +133,8 @@ public final class AppearanceSignals {
 
     /// The system's Accessibility > Display options, as last read.
     public private(set) var display: DisplayOptions
+    /// Pins the display options (tests); nil reads the system's. ``refreshDisplayOptions()`` applies a change.
+    public var displayOverride: DisplayOptions?
     /// Pins Reduce Motion (tests, `debug.motion reduce`); nil follows the system and calm mode.
     public var reduceMotionOverride: Bool? {
         didSet {
@@ -204,7 +206,7 @@ public final class AppearanceSignals {
 
     /// Reads the display options again and tells the subscribers when they changed.
     public func refreshDisplayOptions() {
-        let options = readDisplay()
+        let options = displayOverride ?? readDisplay()
         guard options != display else { return }
         display = options
         settle([.displayOptions])

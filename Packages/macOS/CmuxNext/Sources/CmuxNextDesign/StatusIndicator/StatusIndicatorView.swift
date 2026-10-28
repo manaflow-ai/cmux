@@ -113,7 +113,7 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
 
     private func plan(_ config: StatusIndicatorConfig, animates: Bool) -> StatusIndicatorPlan {
         StatusIndicatorPlan.make(state, style: config.style(hint: styleHint), animates: animates, set: config.iconSet,
-                                 isStatic: config.isStatic, staticShapes: config.staticShapes,
+                                 isStatic: config.isStatic, staticShapes: config.drawsShapes,
                                  working: config.workingLook)
     }
 
