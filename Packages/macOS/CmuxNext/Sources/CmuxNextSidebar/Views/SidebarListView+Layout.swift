@@ -324,7 +324,7 @@ extension SidebarListViewComponents {
         case let (.section(id), view as SectionHeaderRowView):
             guard let section = sections[id] else { return }
             view.configure(section, row: row)
-        case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection))
+        case let (.emptySection(id), view as EmptySectionRowView): view.configure(pinned: id == .pinned || id == .custom(SidebarDocStore.pinnedSection), shortcut: model.newWorkspaceShortcut)
         case let (.emptyGroup(id), view as EmptyGroupRowView): view.configure(groupName: groups[id]?.name ?? model.group(id)?.name ?? "")
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
         case let (.status, view as StatusHeaderRowView): view.configure(row)

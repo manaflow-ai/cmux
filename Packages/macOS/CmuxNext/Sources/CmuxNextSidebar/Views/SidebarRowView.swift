@@ -218,10 +218,10 @@ final class EmptySectionRowView: SidebarRowView {
         [label, hint].forEach(addSubview)
     }
 
-    func configure(pinned: Bool) { // a document Pinned too (`.custom(sec_pinned)`, SidebarListView.configure)
+    func configure(pinned: Bool, shortcut: String?) { // a document Pinned too (`.custom(sec_pinned)`, SidebarListView.configure)
         label.setString(pinned ? Strings.pinnedEmpty : Strings.sectionEmpty)
         label.setFont(SidebarStyle.subtitleFont)
-        hint.setString(Strings.sectionEmptyHint)
+        hint.setString(Strings.sectionEmptyHint(shortcut: shortcut))
         hint.setFont(SidebarStyle.subtitleFont)
         hint.isHidden = pinned
         needsLayout = true
