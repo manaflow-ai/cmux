@@ -87,6 +87,8 @@ public final class GhosttyRuntime {
     let context = RuntimeCallbackContext()
     /// The tick on the app's board and its scheduler (``attach(to:holdsHiddenActions:)``); nil before that, and in tests.
     var ticks: GhosttyTickClass?
+    /// Paces the ticks to the display frame while output streams (``attach(to:holdsHiddenActions:)``); nil before that.
+    var tickPacer: GhosttyTickPacer?
     /// A hidden terminal's state actions wait for it to show (``attach(to:holdsHiddenActions:)``).
     var holdsHiddenActions = false
     let hostKeybindCache = HostKeybindCache()
