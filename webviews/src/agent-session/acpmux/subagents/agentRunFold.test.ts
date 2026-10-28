@@ -126,3 +126,83 @@ test("only the child record supplies harness, model, effort and host identity", 
   expect(fold.all()[0]!.model).toBeUndefined();
   expect(fold.all()[0]!.host).toBeUndefined();
 });
+
+const sessionStart = (id: string, style: "claude" | "cmux" | "codex" = "claude") => ({
+  sessionUpdate: "tool_call",
+  toolCallId: id,
+  title: style === "cmux" ? "mcp__cmux__subsessions_start_session" : "mcp__cmux-subsessions__start_session",
+  status: "in_progress",
+  rawInput:
+    style === "codex"
+      ? { server: "cmux-subsessions", tool: "start_session", arguments: { name: "fix", prompt: "Fix the flaky test" } }
+      : { name: "fix", prompt: "Fix the flaky test" },
+});
+
+for (const style of ["claude", "cmux", "codex"] as const) {
+  for (const shellFirst of [true, false]) {
+    test(`overlapping same-name shell and ${style} start_session keep the shell row (${shellFirst ? "shell" : "MCP"} first)`, () => {
+      const { fold, send } = folder();
+      const starts = [call("shell", PARENT_RUN, { run_in_background: true }), sessionStart("mcp", style)];
+      if (!shellFirst) starts.reverse();
+      for (const start of starts) expect(send(start)).toBe(false);
+      // The MCP call may complete before either child's first prompt is accepted (queued starts).
+      send({ sessionUpdate: "tool_call_update", toolCallId: "mcp", status: "completed" });
+      for (const [index, shortName] of ["fix", "fix-2"].entries()) {
+        expect(
+          child(fold, 10 + index, {
+            childSessionId: `child-${index}`,
+            event: "started",
+            shortName,
+            prompt: "Fix the flaky test",
+            harness: "codex",
+            model: `recorded-model-${index}`,
+          }),
+        ).toBeUndefined();
+      }
+      expect(fold.isRun("shell")).toBe(false);
+      expect(fold.all()).toEqual([]);
+    });
+  }
+}
+
+test("two background parent runs with the same name stay plain in either child order", () => {
+  for (const names of [
+    ["fix", "fix-2"],
+    ["fix-2", "fix"],
+  ]) {
+    const { fold, send } = folder();
+    for (const id of ["shell-a", "shell-b"]) {
+      expect(send(call(id, PARENT_RUN, { run_in_background: true }))).toBe(false);
+      expect(
+        send({
+          sessionUpdate: "tool_call_update",
+          toolCallId: id,
+          status: "completed",
+          content: text(`Command running in background with ID: ${id}. Output is being written to: /tmp/${id}.output.`),
+        }),
+      ).toBe(false);
+    }
+    for (const [index, shortName] of names.entries())
+      expect(
+        child(fold, 10 + index, {
+          childSessionId: `child-${index}`,
+          event: "started",
+          shortName,
+          prompt: "Fix the flaky test",
+          harness: "codex",
+        }),
+      ).toBeUndefined();
+    expect(fold.isRun("shell-a")).toBe(false);
+    expect(fold.isRun("shell-b")).toBe(false);
+    expect(fold.all()).toEqual([]);
+  }
+});
+
+test("an overlapping start stays ambiguous after the other shell call fails", () => {
+  const { fold, send } = folder();
+  send(call("shell-a", PARENT_RUN));
+  send(call("shell-b", PARENT_RUN));
+  send({ sessionUpdate: "tool_call_update", toolCallId: "shell-a", status: "failed" });
+  expect(child(fold, 5, { event: "started", shortName: "fix", harness: "codex" })).toBeUndefined();
+  expect(fold.all()).toEqual([]);
+});
