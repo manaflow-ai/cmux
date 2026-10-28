@@ -16,6 +16,59 @@ from pathlib import Path
 # Protocol frames/ranges, filename validation and terminal ACK buffers do not reject an
 # original: transfer loops split files at these boundaries. Never exempt a file/total cap.
 TRANSPORT_BOUNDS = {"MAX_CHUNK_BYTES", "MAX_RANGE_BYTES", "MAX_FRAME_BYTES", "MAX_MESSAGE_BYTES", "MAX_NAME_BYTES", "MAX_PENDING_INPUT_ACK_BYTES", "maximumUploadStageChunk", "maximumChunkBytes", "maximumFrameBytes", "maximumRangeBytes"}
+# Scope exceptions name an exact path AND symbol, never a directory or a wildcard.
+# Derived/protocol budgets stay. Legacy original-file limits are explicitly deferred
+# to the streaming follow-up split from #26409; they are not permission for new caps.
+RETAINED_BOUNDS = {
+    "Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/MobileImageAttachmentPreparer.swift": {
+        "maximumRawInputBytes": "Unused legacy declaration; outside native staged admission.",
+        "maximumEncodedBytes": "Downsampled PNG/JPEG representation budget, not the input file.",
+    },
+    "Packages/iOS/CmuxMobileShellModel/Sources/CmuxMobileShellModel/TaskComposerAttachment.swift": {
+        "maximumFileBytes": "Legacy mobile task admission; removal belongs to the streaming follow-up.",
+        "maximumTotalBytes": "Legacy mobile task batch quota; deferred with its upload transport.",
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneDraftAttachments.swift": {
+        "maximumBytes": "Inline draft persistence memory budget; file-reference persistence is separate.",
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift": {
+        "maximumWarmBytes": "New Tab warm-cache budget, unrelated to chat.upload decoding.",
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneUpload.swift": {
+        "maximumFileBytes": "Legacy whole-message inline upload; staged upload has separate admission.",
+        "maximumTotalBytes": "Legacy whole-message batch budget; staged batches do not use it.",
+        "maximumPeerFileBytes": "Legacy peer inline protocol budget; removal needs streaming integration.",
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentPeerUploads.swift": {
+        "maximumPeerFileBytes": "Legacy peer upload admission, deferred to the streaming follow-up.",
+        "maximumTotalBytes": "Legacy peer batch quota, deferred with its transport replacement.",
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudUploads.swift": {
+        "maximumFileBytes": "Cloud upload quota; removal waits for the streaming/multipart prerequisites.",
+        "maximumTotalBytes": "Cloud batch quota; deferred with the cloud streaming integration.",
+    },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextFloating/ChiefPet/ChiefAvatarUploads.swift": {
+        "maximumBytes": "Custom pet-avatar image format budget; not a chat attachment.",
+        "maximumGIFBytes": "Custom pet-avatar GIF budget; not a chat attachment.",
+    },
+    "cmux-tui/crates/cmux-conversation/src/attachments.rs": {
+        "MAX_ATTACHMENT_BYTES": "Conversation admission; removal requires disk-backed cloud uploads.",
+        "MAX_POSTER_BYTES": "Derived video-poster representation budget.",
+        "MAX_PREVIEW_IMAGE_BYTES": "Derived image-preview representation budget.",
+    },
+    "cmux-tui/crates/cmux-tui/src/link/access_cli/uploads.rs": {
+        "MAX_FILE_BYTES": "Cloud CLI upload quota; deferred with the cloud transport integration.",
+    },
+    "webviews/src/agent-session/acpmux/attachments.ts": {
+        "MAX_IMAGE_BYTES": "Model image representation budget; larger previews are downsampled.",
+        "MAX_DOCUMENT_BYTES": "Inline PDF protocol-frame budget; larger originals use file links.",
+        "MAX_TEXT_BYTES": "Inline prompt-text budget; larger originals use file links.",
+        "MAX_AUDIO_BYTES": "Inline audio protocol-frame budget; not native staged file admission.",
+    },
+    "webviews/src/pages/home-channels/attachmentService.ts": {
+        "MAX_ATTACHMENT_BYTES": "Home original admission; removal requires streaming and multipart upload.",
+    },
+}
 FORBIDDEN = re.compile(r"\b(?:MAX_[A-Z0-9_]*BYTES|maximum\w*(?:File|Bytes|Stage)\w*)\b")
 EXCLUDED = {".git", ".build", "node_modules", "dist", "fixtures", "generated", "tests", "test", "__tests__", "vendor", "target", "build", "third_party"}
 SOURCE_SUFFIXES = {".swift", ".rs", ".ts", ".tsx", ".js", ".mjs"}
@@ -120,7 +173,8 @@ def violations(root: Path) -> list[str]:
         for index, token in enumerate(tokens):
             finding = None
             if FORBIDDEN.fullmatch(token[0]) and token[0] not in TRANSPORT_BOUNDS:
-                finding = token[0]
+                if token[0] not in RETAINED_BOUNDS.get(path.relative_to(root).as_posix(), {}):
+                    finding = token[0]
             elif token[0] in COMPARISONS:
                 left = operand(tokens, index - 1, -1)
                 right = operand(tokens, index + 1, 1)

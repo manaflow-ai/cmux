@@ -25,6 +25,16 @@ class AttachmentCapsGuardTests(unittest.TestCase):
             found = guard.violations(root)
             self.assertEqual(len(found), expected, found)
 
+    def test_retained_bounds_only_apply_to_the_named_path_and_symbol(self):
+        for relative, symbols in guard.RETAINED_BOUNDS.items():
+            for name, reason in symbols.items():
+                with self.subTest(path=relative, name=name):
+                    self.assertTrue(reason.strip())
+                    self.check_source(f"let {name} = 1", 0, relative)
+                    self.check_source(f"let {name} = 1", 1, "new/uploads/service.swift")
+            self.check_source("let maximumNewFileBytes = 1", 1, relative)
+            self.check_source("guard size <= 1_048_576 else { return failure() }", 1, relative)
+
     def test_camel_case_file_and_stage_caps(self):
         for name in ("maximumFileSize", "maximumUploadBytes", "maximumUploadStageFile", "maximumStagedBytes"):
             with self.subTest(name=name):
