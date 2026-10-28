@@ -3,9 +3,10 @@
 # Ghostty source before cargo builds libghostty-vt, retrying a failed fetch:
 # a DNS flake (UnknownHostName, cmux-tui-artifacts run 37401272899) failed a
 # macOS build. Zig checks every package against its build.zig.zon hash.
-# Each attempt has a deadline: a stalled download hung the fetch for 58 minutes
-# (cmux-tui publisher run 40630560459). A hung attempt is killed with every
-# process it started, its scratch is cleared, and the next attempt runs.
+# An attempt that stops making progress is stopped: a stalled download hung the
+# fetch for 58 minutes (cmux-tui publisher run 40630560459). A stopped attempt
+# is killed with every process it started, cut-short archives are removed, and
+# the next attempt runs. A slow fetch that keeps progressing is left alone.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$ROOT/scripts/ci/fetch-ghostty-zig-packages.sh"
@@ -22,13 +23,18 @@ count=$(( $(cat "$count_file" 2>/dev/null || echo 0) + 1 ))
 echo "$count" > "$count_file"
 [ "$*" = "build --fetch=all" ] || { echo "unexpected zig args: $*" >&2; exit 2; }
 [ "$(pwd -P)" = "${FAKE_ZIG_DIR:?}" ] || { echo "zig ran in $(pwd -P)" >&2; exit 2; }
+if [ -e "$FAKE_CACHE/p/N-bad.tar.gz" ]; then
+  # Zig unpacks a cached archive without checking it.
+  echo "error: unable to unpack tarball to temporary directory: ReadFailed" >&2
+  exit 1
+fi
 if [ "$count" -le "${FAKE_ZIG_HANGS:-0}" ]; then
-  # What a stalled download leaves: an unfinished unpack (Zig 0.16 stages it
-  # in zig-pkg/.tmp-*, older Zig in the cache's tmp/) and a cut-short archive.
-  mkdir -p "$FAKE_CACHE/tmp/partial-$count" "zig-pkg/.tmp-$count"
-  echo half > "$FAKE_CACHE/tmp/partial-$count/data"
+  # What a stalled download leaves: an unfinished unpack and a cut-short archive.
+  mkdir -p "zig-pkg/.tmp-$count"
   echo half > "zig-pkg/.tmp-$count/data"
   echo half > "$FAKE_CACHE/p/N-cut-$count.tar.gz"
+  # Another job on the machine finishes a download meanwhile.
+  echo whole | gzip > "$FAKE_CACHE/p/N-other-$count.tar.gz"
   sleep 600 &
   echo "$!" >> "${FAKE_ZIG_CHILDREN:?}"
   wait
@@ -38,6 +44,11 @@ if [ "$count" -le $(( ${FAKE_ZIG_HANGS:-0} + ${FAKE_ZIG_FAILURES:-0} )) ]; then
   echo "error: unable to connect to server: UnknownHostName" >&2
   exit 1
 fi
+# A slow download that keeps arriving: a new piece every second.
+for i in $(seq 1 "${FAKE_ZIG_SLOW:-0}"); do
+  mkdir -p zig-pkg/.tmp-slow; echo "$i" > "zig-pkg/.tmp-slow/$i"; sleep 1
+done
+rm -rf zig-pkg/.tmp-slow
 mkdir -p "$FAKE_CACHE/p/N-done"
 if [ "${FAKE_ZIG_ORPHAN:-0}" = 1 ]; then
   # A downloader that outlives zig, holding the step's output open.
@@ -49,17 +60,20 @@ chmod +x "$TMP/bin/zig"
 run() { # <hangs> <failures> -> status in $status, seconds in $elapsed
   rm -rf "$TMP/count" "$TMP/children" "$TMP/cache/tmp"/* "$TMP/cache/p"/* "$TMP/src/zig-pkg"
   : > "$TMP/children"
-  # Packages an earlier run finished, which a killed attempt must not touch.
+  # Packages an earlier run finished, which a stopped attempt must not touch.
   mkdir -p "$TMP/src/zig-pkg/N-old"
-  echo whole > "$TMP/cache/p/N-old.tar.gz"
-  touch -t 202001010000 "$TMP/cache/p/N-old.tar.gz"
+  echo whole | gzip > "$TMP/cache/p/N-old.tar.gz"
   # Another job's download in progress: the global tmp/ is shared on a reused machine.
   mkdir -p "$TMP/cache/tmp/other-job"
+  if [ "${PRE_CUT:-0}" = 1 ]; then
+    head -c 4096 /dev/urandom | gzip | head -c 100 > "$TMP/cache/p/N-bad.tar.gz"
+  fi
   status=0
   local start=$SECONDS
   env -u ZIG_GLOBAL_CACHE_DIR PATH="$TMP/bin:$PATH" FAKE_ZIG_COUNT="$TMP/count" FAKE_ZIG_HANGS="$1" FAKE_ZIG_FAILURES="$2" \
     FAKE_ZIG_CHILDREN="$TMP/children" FAKE_ZIG_DIR="$(cd "$TMP/src" && pwd -P)" FAKE_CACHE="$TMP/cache" \
-    CMUX_ZIG_FETCH_ATTEMPTS=3 CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT=2 CMUX_ZIG_FETCH_RETRY_DELAY=0 \
+    CMUX_ZIG_FETCH_ATTEMPTS=3 CMUX_ZIG_FETCH_STALL_TIMEOUT=2 CMUX_ZIG_FETCH_SAMPLE=1 \
+    CMUX_ZIG_FETCH_ATTEMPT_TIMEOUT="${ATTEMPT_TIMEOUT:-60}" CMUX_ZIG_FETCH_RETRY_DELAY=0 \
     "$SCRIPT" "$TMP/src" >"$TMP/out" 2>&1 || status=$?
   elapsed=$((SECONDS - start))
 }
@@ -81,19 +95,39 @@ run 0 5
 [ "$(cat "$TMP/count")" = 3 ] || fail "the attempts are not bounded"
 grep -q "UnknownHostName" "$TMP/out" || fail "the fetch error was hidden"
 
-# A hung first attempt is killed on its deadline, with its child, and the
-# second attempt succeeds.
+# A cut-short archive already in the cache fails the fetch (ReadFailed); it is
+# removed and the retry succeeds.
+PRE_CUT=1 run 0 0
+[ "$status" = 0 ] || fail "a cut-short cached archive was not cleared for the retry"
+[ "$(cat "$TMP/count")" = 2 ] || fail "expected 2 attempts around a cut-short archive, got $(cat "$TMP/count")"
+[ ! -e "$TMP/cache/p/N-bad.tar.gz" ] || fail "the cut-short archive was left in the cache"
+[ -e "$TMP/cache/p/N-old.tar.gz" ] || fail "clearing a cut-short archive removed a whole one"
+
+# A hung first attempt is stopped once it makes no progress, with its child,
+# and the second attempt succeeds.
 run 1 0
 [ "$status" = 0 ] || fail "a hung fetch then a success did not pass"
 [ "$(cat "$TMP/count")" = 2 ] || fail "expected 2 fetch attempts after one hang, got $(cat "$TMP/count")"
-grep -q "timed out after 2s (attempt 1 of 3)" "$TMP/out" || fail "the timeout was not reported"
+grep -q "attempt 1 of 3 was stopped: it made no download progress for 2s; retrying" "$TMP/out" || fail "the stall was not reported"
 children_gone || fail "the hung attempt's child process outlived its deadline"
 [ -d "$TMP/cache/tmp/other-job" ] || fail "clearing a hung attempt removed another job's download from the shared tmp/"
 [ -z "$(ls -d "$TMP/src/zig-pkg"/.tmp-* 2>/dev/null)" ] || fail "the hung attempt's partial unpack was left in zig-pkg/"
 [ ! -e "$TMP/cache/p/N-cut-1.tar.gz" ] || fail "the hung attempt's cut-short archive was left in the cache"
+[ -e "$TMP/cache/p/N-other-1.tar.gz" ] || fail "clearing a hung attempt removed another job's whole archive written during it"
 [ -d "$TMP/src/zig-pkg/N-old" ] && [ -e "$TMP/cache/p/N-old.tar.gz" ] || fail "clearing a hung attempt removed a finished package"
 [ -d "$TMP/cache/p/N-done" ] || fail "the second attempt did not fetch"
-(( elapsed < 20 )) || fail "one 2 s hang took ${elapsed}s"
+(( elapsed < 20 )) || fail "one 2 s stall took ${elapsed}s"
+
+# A slow fetch that keeps progressing runs past the stall timeout and passes.
+FAKE_ZIG_SLOW=6 run 0 0
+[ "$status" = 0 ] || fail "a slow but progressing fetch was stopped"
+[ "$(cat "$TMP/count")" = 1 ] || fail "a slow but progressing fetch was retried"
+
+# A fetch that keeps progressing but never ends is stopped at the attempt limit.
+FAKE_ZIG_SLOW=600 ATTEMPT_TIMEOUT=3 run 0 0
+[ "$status" != 0 ] || fail "a fetch past its attempt limit passed"
+grep -q "attempt 3 of 3 was stopped: it ran past its 3s limit; giving up" "$TMP/out" || fail "the attempt limit was not reported"
+(( elapsed < 40 )) || fail "three 3 s attempts took ${elapsed}s"
 
 # A child that outlives a successful zig is stopped, and the fetch passes.
 FAKE_ZIG_ORPHAN=1 run 0 0
@@ -105,9 +139,9 @@ children_gone || fail "a child zig left running outlived the fetch"
 run 5 0
 [ "$status" != 0 ] || fail "three hung fetches passed"
 [ "$(cat "$TMP/count")" = 3 ] || fail "expected 3 attempts for three hangs, got $(cat "$TMP/count")"
-grep -q "attempt 3 of 3 timed out after 2s; giving up" "$TMP/out" || fail "three hangs did not end with a clear error"
+grep -q "attempt 3 of 3 was stopped: it made no download progress for 2s; giving up" "$TMP/out" || fail "three hangs did not end with a clear error"
 children_gone || fail "a hung attempt's child process outlived its deadline"
 [ ! -e "$TMP/cache/p/N-done" ] || fail "a hung fetch left a package that looks complete"
-(( elapsed < 40 )) || fail "three 2 s hangs took ${elapsed}s"
+(( elapsed < 40 )) || fail "three 2 s stalls took ${elapsed}s"
 
-echo "PASS: Ghostty Zig packages are fetched with bounded, deadlined retries"
+echo "PASS: Ghostty Zig packages are fetched with bounded, progress-deadlined retries"
