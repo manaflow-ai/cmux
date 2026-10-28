@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { existsSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { FsBucket, FsBucketError } from "../src/fs-bucket.ts"
@@ -174,6 +174,9 @@ describe("self-hosted attachment bucket", () => {
       writeFileSync(join(root, ".multipart", "stray"), "s")
       writeFileSync(join(root, ".multipart", "stray.meta.json"), JSON.stringify({ etag: "e", size: 1, uploaded: 0 }))
       symlinkSync(join(root, "missing"), join(root, ".multipart", "dangling"))
+      // A file no key could have written (a backslash in its name) is skipped, not listed under a key get would refuse.
+      writeFileSync(join(root, "home", "v1", "odd\\name"), "o")
+      writeFileSync(join(root, "home", "v1", "odd\\name.meta.json"), JSON.stringify({ etag: "e", size: 1, uploaded: 0 }))
 
       expect((await bucket.list()).objects.map((o) => o.key)).toEqual(["home/v1/.multipart/b", "home/v1/a"])
       expect((await bucket.list({ prefix: "home/" })).objects.map((o) => o.key)).toEqual(["home/v1/.multipart/b", "home/v1/a"])
@@ -212,6 +215,98 @@ describe("self-hosted attachment bucket", () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+  it("refuses keys with '.', '..' or empty segments, backslashes or absolute paths, so no key reaches outside the root or into .multipart", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const root = join(parent, "bucket")
+      const bucket = new FsBucket(root)
+      const open = await bucket.createMultipartUpload("home/v1/open")
+      const record = `.multipart/${open.uploadId}.json`
+      const refused = [
+        `./${record}`,
+        "./.multipart/x",
+        "a/../.multipart/x",
+        "./a",
+        "a/./b",
+        "a/.",
+        "a/..",
+        "..",
+        ".",
+        "",
+        "a//b",
+        "a/",
+        "/a",
+        "../outside",
+        "a/../../outside",
+        `../${"bucket"}/a`,
+        join(parent, "outside"),
+        "a\\b",
+        "..\\outside",
+        ".multipart\\x",
+        "a\u0000b"
+      ]
+      for (const key of refused) {
+        await expect(bucket.put(key, "{}"), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.get(key), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.head(key), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.delete(key), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.delete(["fine", key]), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.createMultipartUpload(key), key).rejects.toThrow(/invalid object key/)
+        expect(() => bucket.resumeMultipartUpload(key, open.uploadId), key).toThrow(/invalid object key/)
+      }
+      // Nothing landed beside the root, and inside it only the open upload exists.
+      expect(readdirSync(parent)).toEqual(["bucket"])
+      expect(readdirSync(root)).toEqual([".multipart"])
+      expect(readFileSync(join(root, record), "utf8")).toBe(JSON.stringify({ key: "home/v1/open" }))
+
+      // Dots inside a segment, dotfiles and an inner .multipart segment are ordinary keys.
+      for (const key of ["home/v1/.multipart/b", ".hidden", "a/.b", "a..b", "...", "a/b..", "v1.2/file.txt"]) {
+        await bucket.put(key, key)
+        expect(await new Response((await bucket.get(key))!.body!).text()).toBe(key)
+        expect((await bucket.head(key))?.key).toBe(key)
+        await bucket.delete(key)
+        expect(await bucket.head(key)).toBeNull()
+      }
+      await open.abort()
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
+    }
+  })
+  it("refuses to overwrite an open upload's record through a key that normalizes into .multipart, so the upload can't be redirected", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      const victim = await bucket.createMultipartUpload("home/v1/victim", { httpMetadata: { contentType: "image/png" } })
+      const part = await victim.uploadPart(1, "victim bytes")
+      const recordPath = join(root, ".multipart", `${victim.uploadId}.json`)
+      const original = readFileSync(recordPath, "utf8")
+
+      // The attack: rewrite the record so the upload names another object, then finish it as that object.
+      const forged = JSON.stringify({ key: "home/v1/target", contentType: "text/html" })
+      for (const key of [`./.multipart/${victim.uploadId}.json`, `a/../.multipart/${victim.uploadId}.json`, `./.multipart/./${victim.uploadId}.json`]) {
+        await expect(bucket.put(key, forged), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.delete(key), key).rejects.toThrow(/invalid object key/)
+      }
+      expect(readFileSync(recordPath, "utf8")).toBe(original)
+
+      const redirected = bucket.resumeMultipartUpload("home/v1/target", victim.uploadId)
+      await expect(redirected.uploadPart(2, "attacker")).rejects.toThrow(/NoSuchUpload/)
+      await expect(redirected.complete([part])).rejects.toThrow(/NoSuchUpload/)
+      await expect(redirected.abort()).rejects.toThrow(/NoSuchUpload/)
+      expect(await bucket.head("home/v1/target")).toBeNull()
+      expect(readFileSync(recordPath, "utf8")).toBe(original)
+
+      // The real upload is untouched and still completes as its own object.
+      const done = await bucket.resumeMultipartUpload("home/v1/victim", victim.uploadId).complete([part])
+      expect(done.key).toBe("home/v1/victim")
+      expect(done.httpMetadata.contentType).toBe("image/png")
+      expect(await new Response((await bucket.get("home/v1/victim"))!.body!).text()).toBe("victim bytes")
+      expect(await bucket.head("home/v1/target")).toBeNull()
+      expect(readdirSync(join(root, ".multipart"))).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
   it("keeps an upload's custom metadata on the object it completes, as R2 does, so a caller can recognise its own completed upload", async () => {
     const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
     try {
@@ -225,6 +320,30 @@ describe("self-hosted attachment bucket", () => {
       await bucket.put("home/v1/plain", "x", { customMetadata: { from: "put" } })
       await bucket.put("home/v1/bare", "y")
       expect([(await bucket.head("home/v1/plain"))?.customMetadata, (await bucket.head("home/v1/bare"))?.customMetadata]).toEqual([{ from: "put" }, {}])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+  it("aborts every open upload under a key prefix, parts and record, and leaves other prefixes' uploads and stored objects alone", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      const gone = [await bucket.createMultipartUpload("home/v1/conv_a/one"), await bucket.createMultipartUpload("home/v1/conv_a/two")]
+      for (const upload of gone) await upload.uploadPart(1, "a part")
+      const kept = await bucket.createMultipartUpload("home/v1/conv_b/one")
+      const keptPart = await kept.uploadPart(1, "b part")
+      // A prefix match is by key, not by path segment: conv_ab is not under conv_a/.
+      const sibling = await bucket.createMultipartUpload("home/v1/conv_ab/one")
+      await sibling.uploadPart(1, "ab part")
+      await bucket.put("home/v1/conv_a/stored", "stored")
+      expect(await bucket.abortMultipartUploads("home/v1/conv_a/")).toBe(2)
+      expect(readdirSync(join(root, ".multipart")).sort()).toEqual([kept.uploadId, `${kept.uploadId}.json`, sibling.uploadId, `${sibling.uploadId}.json`].sort())
+      for (const upload of gone) await expect(upload.uploadPart(2, "late")).rejects.toThrow(/NoSuchUpload/)
+      expect(await new Response((await bucket.get("home/v1/conv_a/stored"))!.body!).text()).toBe("stored")
+      await kept.complete([keptPart])
+      expect(await bucket.abortMultipartUploads("home/v1/conv_a/")).toBe(0)
+      // A bucket that never had an upload has nothing to abort.
+      expect(await new FsBucket(join(root, "fresh")).abortMultipartUploads("home/")).toBe(0)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

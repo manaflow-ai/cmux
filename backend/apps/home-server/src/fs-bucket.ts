@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto"
 import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
-import { open } from "node:fs/promises"
-import { dirname, join, relative, sep } from "node:path"
+import { open, opendir } from "node:fs/promises"
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path"
 
 /** What the attachment code reads back from a stored object (the R2 subset it uses). */
 interface StoredMeta {
@@ -42,11 +42,31 @@ export interface FsObject {
 /** Open multipart uploads live here, under the root but outside the key space. */
 const MULTIPART_DIR = ".multipart"
 
-/** Keys are paths under the root; `..`, absolute paths and the internal multipart directory are refused. */
-const safeKey = (key: string) => {
-  const parts = typeof key === "string" ? key.split("/") : []
-  if (!key || key.startsWith("/") || parts[0] === MULTIPART_DIR || parts.some((p) => p === ".." || p === "")) throw new Error("invalid object key")
-  return key
+const invalidKey = () => new Error("invalid object key")
+
+/**
+ * The one way a key becomes a path. A key is "/"-separated segments, none of them empty, "." or
+ * "..", with no backslash, NUL or leading "/"; its normalized form must be itself, must resolve
+ * strictly inside `root`, and must not start with the internal multipart directory (an inner
+ * `.multipart` segment is an ordinary name).
+ */
+const keyPath = (root: string, key: string): string => {
+  if (typeof key !== "string" || key === "" || key.startsWith("/") || /[\\\0]/.test(key)) throw invalidKey()
+  if (key.split("/").some((p) => p === "" || p === "." || p === "..")) throw invalidKey()
+  const normalized = posix.normalize(key)
+  if (normalized !== key || isAbsolute(normalized) || normalized.split("/")[0] === MULTIPART_DIR) throw invalidKey()
+  const inside = relative(resolve(root), resolve(root, normalized))
+  if (!inside || inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside) || inside.split(sep)[0] === MULTIPART_DIR) throw invalidKey()
+  return join(root, normalized)
+}
+
+const isKey = (root: string, key: string) => {
+  try {
+    keyPath(root, key)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** Multipart failures named as R2 (and S3) name them, so callers can tell them apart. */
@@ -113,7 +133,7 @@ export class FsBucket {
   }
 
   private path(key: string) {
-    return join(this.root, safeKey(key))
+    return keyPath(this.root, key)
   }
 
   private meta(key: string): StoredMeta | null {
@@ -156,6 +176,7 @@ export class FsBucket {
 
   /** The open upload `uploadId`, only when it was minted for `key`; R2 answers NoSuchUpload otherwise. */
   private readMultipart(key: string, uploadId: string): MultipartMeta | null {
+    this.path(key)
     const path = this.multipartMetaPath(uploadId)
     if (!existsSync(path)) return null
     const meta = JSON.parse(readFileSync(path, "utf8")) as MultipartMeta
@@ -186,7 +207,7 @@ export class FsBucket {
   }
 
   async createMultipartUpload(key: string, options: ObjectOptions = {}): Promise<FsMultipartUpload> {
-    safeKey(key)
+    this.path(key)
     const uploadId = Array.from(randomBytes(16), (byte) => byte.toString(16).padStart(2, "0")).join("")
     mkdirSync(join(this.root, MULTIPART_DIR), { recursive: true })
     writeFileSync(this.multipartMetaPath(uploadId), JSON.stringify({ key, ...metadataOf(options) } satisfies MultipartMeta))
@@ -194,7 +215,7 @@ export class FsBucket {
   }
 
   resumeMultipartUpload(key: string, uploadId: string): FsMultipartUpload {
-    safeKey(key)
+    this.path(key)
     checkUploadId(uploadId)
     return new FsMultipartUpload(this, uploadId, key)
   }
@@ -281,6 +302,36 @@ export class FsBucket {
     rmSync(this.multipartMetaPath(uploadId), { force: true })
   }
 
+  /**
+   * Aborts every open upload whose key starts with `prefix`; answers how many. R2 ends abandoned
+   * uploads by a bucket lifecycle rule and its binding cannot list them; this bucket has no
+   * lifecycle, so the owner calls this when it deletes a conversation's storage, and an upload no
+   * slot names (a lost slot, a failed expiry abort) does not stay on disk. Streams the directory:
+   * memory stays bounded whatever the number of open uploads.
+   */
+  async abortMultipartUploads(prefix: string): Promise<number> {
+    const dir = join(this.root, MULTIPART_DIR)
+    if (!existsSync(dir)) return 0
+    let aborted = 0
+    for await (const entry of await opendir(dir)) {
+      const id = /^([0-9a-f]{32})\.json$/.exec(entry.name)?.[1]
+      if (!entry.isFile() || !id) continue
+      const record = this.multipartMetaPath(id)
+      let meta: MultipartMeta
+      try {
+        meta = JSON.parse(readFileSync(record, "utf8")) as MultipartMeta
+      } catch (error) {
+        // Closed by another request since the directory was read.
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue
+        throw error
+      }
+      if (typeof meta.key !== "string" || !meta.key.startsWith(prefix)) continue
+      await this.abortMultipart(meta.key, id)
+      aborted++
+    }
+    return aborted
+  }
+
   async head(key: string): Promise<FsObject | null> {
     const meta = this.meta(key)
     return meta ? this.object(key, meta) : null
@@ -324,6 +375,8 @@ export class FsBucket {
         if (statSync(p).isDirectory()) walk(p)
         else if (!name.endsWith(".meta.json") && !name.includes(".tmp-")) {
           const key = relative(this.root, p).split(sep).join("/")
+          // A file no key could have written (a backslash in its name, say) is not an object.
+          if (!isKey(this.root, key)) continue
           const meta = this.meta(key)
           if (meta && (!options.prefix || key.startsWith(options.prefix))) out.push(this.object(key, meta))
         }
