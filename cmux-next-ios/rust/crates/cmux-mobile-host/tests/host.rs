@@ -892,6 +892,36 @@ async fn services_over_wireguard_turn_tls_with_udp_blocked() {
     assert!(turn.stream_connections() >= 1, "the phone never connected to TURN over TLS");
 }
 
+/// A phone attachment has no size cap (Leo, 2026-10-26: "WE NEED ARBITARRILY LARGE FILES
+/// OF ANY TYPE"): a file just past the old 100 MiB default, streamed in chunks, is saved
+/// whole. The test never holds the file in memory; it checks the saved length.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_upload_past_the_old_100_mib_cap_is_saved_whole() {
+    const CHUNK: usize = 256 * 1024;
+    let size: u64 = 100 * 1024 * 1024 + 1;
+    let fixture = fixture(FakeOptions::default()).await;
+    let connected = connect(&fixture, TransportKind::WireGuard).await.expect("dial");
+    let mut upload =
+        connected.link.open("upload", serde_json::json!({"name": "big.bin", "size": size})).await.unwrap();
+    let chunk = Bytes::from(vec![0x5a_u8; CHUNK]);
+    let mut sent: u64 = 0;
+    while sent < size {
+        let take = usize::try_from(size - sent).unwrap_or(CHUNK).min(CHUNK);
+        if upload.send(chunk.slice(..take)).await.is_err() {
+            break;
+        }
+        sent += take as u64;
+    }
+    let (reply, code) = drain(&mut upload).await;
+    assert_eq!(code, "eof", "{}", String::from_utf8_lossy(&reply));
+    assert_eq!(sent, size);
+    let reply: serde_json::Value = serde_json::from_slice(&reply).unwrap();
+    assert_eq!(reply["size"].as_u64(), Some(size));
+    let path = std::path::PathBuf::from(reply["path"].as_str().unwrap());
+    assert!(path.starts_with(&fixture.uploads), "{path:?}");
+    assert_eq!(std::fs::metadata(&path).unwrap().len(), size);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn dials_without_a_stamped_user_are_refused() {
     let fixture = fixture(FakeOptions { omit_from_user_id: true, ..FakeOptions::default() }).await;
