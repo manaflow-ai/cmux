@@ -16,8 +16,8 @@ pub(crate) const FILE: &str = "audit.jsonl";
 /// Appends `entry` (an object) with a `ts` field to the log in `dir`.
 pub(crate) fn append_in(dir: &Path, entry: &Value) -> anyhow::Result<()> {
     let path = dir.join(FILE);
-    if std::fs::metadata(&path).is_ok_and(|m| m.len() >= ROTATE_BYTES) {
-        let _ = std::fs::rename(&path, dir.join(format!("{FILE}.1")));
+    if cmux_blocking::fs::metadata(&path).is_ok_and(|m| m.len() >= ROTATE_BYTES) {
+        let _ = cmux_blocking::fs::rename(&path, dir.join(format!("{FILE}.1")));
     }
     let mut line = entry.clone();
     if let Some(map) = line.as_object_mut() {
@@ -29,8 +29,8 @@ pub(crate) fn append_in(dir: &Path, entry: &Value) -> anyhow::Result<()> {
     options.append(true).create(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut file =
-        options.open(&path).with_context(|| format!("cannot open {}", path.display()))?;
+    let mut file = crate::blocking::fs::open_with(&options, &path)
+        .with_context(|| format!("cannot open {}", path.display()))?;
     cmux_tui_core::platform::restrict_file(&path)?;
     file.write_all(&bytes)?;
     Ok(())
