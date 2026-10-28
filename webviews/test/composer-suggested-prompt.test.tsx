@@ -423,3 +423,46 @@ test("the + menu renders and dispatches host command-palette extensions", async 
   await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
   expect(called).toEqual(["palette.openBrowser"]);
 });
+
+test("the + menu keeps host sections separate and stays open for an unsupported action", async () => {
+  await render(fresh([]), undefined, undefined, undefined, [
+    {
+      id: "browser",
+      section: "tools",
+      name: "Browser",
+      description: "Control browser",
+      icon: "browser",
+      keywords: [],
+      action: { kind: "command", id: "palette.browser" },
+    },
+    {
+      id: "chat",
+      section: "sessions",
+      name: "Recent chat",
+      description: "Open chat",
+      icon: "agent.chat",
+      keywords: [],
+      action: { kind: "command", id: "palette.chat" },
+    },
+    {
+      id: "tab",
+      section: "tabs",
+      name: "Open tab",
+      description: "Attach tab",
+      icon: "browser",
+      keywords: [],
+      action: { kind: "command", id: "palette.tab" },
+    },
+  ]);
+  const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+  await act(async () => plus.click());
+  expect([...host.querySelectorAll(".acpmux-menu-header")].map((node) => node.textContent)).toEqual([
+    "Add",
+    "Search tools",
+    "Sessions",
+    "Open Tabs",
+  ]);
+  const row = host.querySelector<HTMLElement>('[data-value="browser"]')!;
+  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true })));
+  expect(host.querySelector('[data-value="browser"]')).toBeTruthy();
+});

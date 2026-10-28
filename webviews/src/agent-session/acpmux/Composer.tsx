@@ -1915,7 +1915,16 @@ export function Composer({
                   entries.length
                     ? [
                         {
-                          title: section === "add" ? t(COMPOSER_LABELS.add) : t("files.search"),
+                          title:
+                            section === "add"
+                              ? t(COMPOSER_LABELS.add)
+                              : section === "tools"
+                                ? t("summary.tools.search")
+                                : section === "sessions"
+                                  ? t("sidebar.sessions")
+                                  : section === "tabs"
+                                    ? (t as unknown as (key: string) => string)("newTab.openTabs")
+                                    : t("files.search"),
                           choices: entries.map((entry): Choice => ({
                             id: entry.id,
                             name: entry.name,
@@ -1944,7 +1953,7 @@ export function Composer({
                           onPick: (id: string) => {
                             const entry = entries.find((row) => row.id === id);
                             if (!entry) return;
-                            runComposerPlusAction(entry.action, {
+                            const handled = runComposerPlusAction(entry.action, {
                               command: (action, modeId) => {
                                 if (action === "composer.attachFiles") chooser.current?.click();
                                 else if (action === "composer.attachScreenshot" || action === "composer.attachWindow") {
@@ -1970,6 +1979,7 @@ export function Composer({
                               extension: onPlusCommand,
                               slash: pickFromPlus,
                             });
+                            return handled ? undefined : "keep";
                           },
                         },
                       ]
