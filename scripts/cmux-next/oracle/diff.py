@@ -8,7 +8,7 @@ Usage:
 
 A run directory holds the two files the runner writes:
 
-  receipt.json       {"runId", "sha", "host": {"name", "os", "osVersion", "arch"},
+  receipt.json       {"runId", "sha", "host": {"name", "os", "osVersion", "arch", "display"},
                       "cases": {"<suite>/<case>": {"result": "Pass|Failure|Crash|Timeout|Skip|Slow|Flaky",
                                                     "host"?: {...}}}}
   checkpoints.jsonl  one line per checkpoint, snapshots already canonical (normalize.py):
@@ -19,9 +19,13 @@ Canonical JSON holds finite numbers only: NaN, Infinity or an overflowing float 
 NaN != NaN would report a snapshot as divergent with itself.
 
 A is the base (or the old arm), B is the head (or the new arm). By default (`same-host`) the two runs
-must come from the same host and OS (plans/cmux-next/chrome-parity/p15-oracle.md section 3F.1);
-otherwise the run is refused with `host-mismatch` and exit 3, because timing and platform values
-would differ for reasons that are not the change. This is the CQ rule of comparing "(with patch)"
+must come from the same host, OS version and display (plans/cmux-next/chrome-parity/p15-oracle.md
+section 3F.1, task p15-oracle-008); otherwise the run is refused with `host-mismatch` and exit 3,
+because timing, platform and layout values would differ for reasons that are not the change. The
+display is the runner's description of the main display (oracle.py host_info: points, pixels,
+refresh and the display count; "none" on a host with no display), since window frames, the
+windows facet and the backing scale follow it. A field one side did not record is refused too:
+same host must be proved, so a receipt written before a field existed does not compare. This is the CQ rule of comparing "(with patch)"
 and "(without patch)" under the same config (chromium/src base/test/launcher/test_launcher.cc and
 the recipe's retry-without-patch step). Platform parity (3F.4, task p15-oracle-114) passes
 `--host-policy same-arch-any-os`, which requires only the same arch; divergence.json records the
@@ -84,7 +88,7 @@ from typing import Any, Iterator
 SCHEMA = "oracle-divergence-v1"
 CHECKPOINT_ORDER = {"before": 0, "turn": 1, "settled": 2}
 RESULTS = {"Pass", "Failure", "Crash", "Timeout", "Skip", "Slow", "Flaky"}
-HOST_KEYS = ("name", "os", "osVersion", "arch")
+HOST_KEYS = ("name", "os", "osVersion", "arch", "display")
 RULE_KEYS = {"pointer", "reason", "case", "step", "checkpoint", "task"}
 EXPLAINED_SAMPLES_PER_RULE = 3
 DEFAULT_HOST_POLICY = "same-host"
@@ -845,7 +849,8 @@ def main(argv: list[str] | None = None) -> int:
 # ---------------------------------------------------------------------------
 # Self test (synthetic runs). Also loaded by selftest.py.
 
-HOST = {"name": "aws-m4pro-5", "os": "macos", "osVersion": "26.1", "arch": "arm64"}
+HOST = {"name": "aws-m4pro-5", "os": "macos", "osVersion": "26.1", "arch": "arm64",
+        "display": "1920 x 1080 @ 60.00Hz (3840 x 2160 px), 1 display"}
 
 
 def _snapshot(**overrides: Any) -> dict[str, Any]:
@@ -1086,6 +1091,38 @@ class DiffSelfTest(unittest.TestCase):
         code, _ = self.run_diff(a, b)
         self.assertEqual(code, EXIT_HOST_MISMATCH)
 
+    def test_display_mismatch_refused(self) -> None:
+        a = self.write_run("a", {"c/x": [("s", "settled", {"v": 1})]})
+        b = self.write_run("b", {"c/x": [("s", "settled", {"v": 1})]},
+                           host={**HOST, "display": "1600 x 1000 @ 120.00Hz (1600 x 1000 px), 2 displays"})
+        code, doc = self.run_diff(a, b)
+        self.assertEqual(code, EXIT_HOST_MISMATCH)
+        self.assertEqual(len(doc["mismatched"]["c/x"]), 1)
+        self.assertTrue(doc["mismatched"]["c/x"][0].startswith("display ("))
+
+    def test_receipt_without_display_refused(self) -> None:
+        old = {key: value for key, value in HOST.items() if key != "display"}
+        a = self.write_run("a", {"c/x": [("s", "settled", {"v": 1})]}, host=old)
+        b = self.write_run("b", {"c/x": [("s", "settled", {"v": 1})]})
+        code, doc = self.run_diff(a, b)
+        self.assertEqual(code, EXIT_HOST_MISMATCH)
+        self.assertEqual(doc["mismatched"], {"c/x": ["display (not recorded)"]})
+        code, _ = self.run_diff(a, b, "--host-policy", "same-arch-any-os")
+        self.assertEqual(code, EXIT_OK)
+
+    def test_paired_shards_on_two_hosts_compare_case_by_case(self) -> None:
+        # Shard 0 of both sides ran on one mini, shard 1 of both on another: each case is paired.
+        five, six = HOST, {**HOST, "name": "aws-m4pro-6"}
+        points = {"c/x": [("s", "settled", {"v": 1})], "c/y": [("s", "settled", {"v": 1})]}
+        hosts = {"c/x": five, "c/y": six}
+        a = self.write_run("a", points, host=None, case_hosts=hosts)
+        b = self.write_run("b", points, host=None, case_hosts=hosts)
+        self.assertEqual(self.run_diff(a, b)[0], EXIT_OK)
+        crossed = self.write_run("crossed", points, host=None, case_hosts={"c/x": five, "c/y": five})
+        code, doc = self.run_diff(a, crossed)
+        self.assertEqual(code, EXIT_HOST_MISMATCH)
+        self.assertEqual(sorted(doc["mismatched"]), ["c/y"])
+
     def test_unrecorded_host_refused(self) -> None:
         a = self.write_run("a", {}, host=None)
         b = self.write_run("b", {})
@@ -1267,7 +1304,7 @@ class DiffSelfTest(unittest.TestCase):
         self.assertIn("index 0 is step 's' and 't'", doc["error"])
 
     def test_host_policy_for_platform_parity(self) -> None:
-        linux = {"name": "cmux-orchestrator-1", "os": "linux", "osVersion": "7.0", "arch": "arm64"}
+        linux = {"name": "cmux-orchestrator-1", "os": "linux", "osVersion": "7.0", "arch": "arm64", "display": "none"}
         a = self.write_run("a", {"c/x": [("s", "settled", {"v": 1})]})
         b = self.write_run("b", {"c/x": [("s", "settled", {"v": 1})]}, host=linux)
         code, doc = self.run_diff(a, b)

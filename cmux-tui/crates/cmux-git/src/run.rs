@@ -114,10 +114,12 @@ fn run(
         stop(&mut child);
         return Err(GitFailure::Unavailable("git output pipes are missing".to_string()));
     };
+    // supervise-allow: joined below in this function on every path; a panic reads as empty output.
     let stdout = thread::spawn(move || match keep {
         Some(keep) => drain_records(stdout, max_stdout, keep),
         None => drain(stdout, max_stdout),
     });
+    // supervise-allow: joined below in this function on every path; a panic reads as empty output.
     let stderr = thread::spawn(move || drain(stderr, MAX_STDERR_BYTES));
     let status = match child.wait_timeout(deadline) {
         Ok(Some(status)) => status,

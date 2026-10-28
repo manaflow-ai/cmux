@@ -338,9 +338,11 @@ extension AppControl {
             .mainActor("debug.chromium_host") { [weak services] call in
                 let controller = services?.windows.controllers.first
                 let pane = (call.params["pane"]?.stringValue ?? controller?.focus.state.pane).flatMap { controller?.content?.paneController(key: $0) }
-                let fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
+                var fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
                                                  over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue == true,
                                                  idleExitSeconds: call.params["idle_exit_s"]?.doubleValue)
+                // Host mode's input route (feature chromiumHostInputRing, p01-process-042), without building the engine.
+                if let route = services?.cache.chromium.built?.hostInputReport { fields["input_route"] = route }
                 return .value(JSONValue(foundation: fields) ?? .null)
             },
             .async("debug.chromium_host.measure") { call in

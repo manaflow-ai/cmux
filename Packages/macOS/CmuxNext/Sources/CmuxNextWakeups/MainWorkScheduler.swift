@@ -74,6 +74,9 @@ public final class MainWorkScheduler {
     public nonisolated let wakeUps: MainWakeUpQueue
     /// The idle class's periods and queue (``postIdle(owner:maxDelay:node:file:line:_:)``).
     public let idle: IdleScheduler
+    /// A layout plan applied in this run loop turn and not committed yet (``PlanApplyTurn``): the layout
+    /// notes it, the in-process CEF pump starts no slice inside it.
+    public let planApplies: PlanApplyTurn
     /// The CPU-time budget of hidden nodes' work, on the budget's clock: every ``MainTaskQueue`` and
     /// ``MainDeadline`` on this scheduler charges its hidden runs to this one pool.
     public let hiddenBudget: CPUTimeBudgetPool
@@ -138,6 +141,7 @@ public final class MainWorkScheduler {
         self.frames = frames
         self.startup = startup
         causes = ObservationCauses(budget: budget)
+        planApplies = PlanApplyTurn(turns: budget.turns)
         let wakeUps = sharedWakeUps ?? MainWakeUpQueue(energy: EnergyPolicySource())
         let energy = wakeUps.energy
         self.energy = energy
