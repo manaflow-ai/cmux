@@ -488,15 +488,40 @@ struct AgentRestoreLiveOwnerAdmissionTests {
         #expect(!validator.currentProcess(process, matches: snapshot, hermesSessionValidation: .cachedSnapshot))
     }
 
-    @Test("Hook-backed Claude resume titles survive index revalidation")
-    func claudeResumeTitleSurvivesIndexRevalidation() throws {
+    @Test("A fresh hook keeps a title-resumed Claude session live", arguments: ["--resume", "-r"])
+    func claudeResumeTitleKeepsFreshHookSessionLive(selector: String) throws {
         let fixture = try makeFixture(
             kind: .claude,
             ownerState: .live,
-            launchSessionArguments: ["--resume", "validate ubn fix"],
+            launchSessionArguments: [selector, "validate ubn fix"],
             scopedProcess: true
         )
         defer { fixture.cleanup() }
+        let entry = try #require(fixture.index.entryForStablePanel(
+            workspaceId: fixture.ownerWorkspaceID,
+            panelId: fixture.ownerSurfaceID,
+            revalidateProcessEvidence: false
+        ))
+        #expect(entry.processLiveness == .running)
+        #expect(entry.snapshot.sessionId == fixture.sessionID)
+    }
+
+    @Test("A cached hook cannot authenticate a changed or ambiguous Claude session", arguments: [
+        ["--session-id", "11111111-2222-3333-4444-555555555555"],
+        ["--resume", "validate ubn fix"],
+    ])
+    func cachedClaudeHookRequiresCurrentSessionIdentity(currentArguments: [String]) throws {
+        let fixture = try makeFixture(
+            kind: .claude,
+            ownerState: .live,
+            scopedProcess: true
+        )
+        defer { fixture.cleanup() }
+        #expect(fixture.index.entryForStablePanel(
+            workspaceId: fixture.ownerWorkspaceID,
+            panelId: fixture.ownerSurfaceID,
+            revalidateProcessEvidence: false
+        )?.processLiveness == .running)
         let identity = try #require(AgentPIDProcessIdentity(pid: pid_t(fixture.processID)))
         let revalidated = fixture.index.revalidatingCachedProcesses(
             against: CmuxTopProcessSnapshot(
@@ -507,7 +532,7 @@ struct AgentRestoreLiveOwnerAdmissionTests {
             processArgumentsProvider: { processID in
                 guard processID == fixture.processID else { return nil }
                 return CmuxTopProcessArguments(
-                    arguments: fixture.agent.launchCommand?.arguments ?? [],
+                    arguments: [fixture.executable] + currentArguments,
                     environment: [
                         "CMUX_WORKSPACE_ID": fixture.ownerWorkspaceID.uuidString,
                         "CMUX_SURFACE_ID": fixture.ownerSurfaceID.uuidString,
@@ -523,7 +548,7 @@ struct AgentRestoreLiveOwnerAdmissionTests {
                 workspaceId: fixture.ownerWorkspaceID,
                 panelId: fixture.ownerSurfaceID,
                 revalidateProcessEvidence: false
-            )?.processLiveness == .running
+            )?.processLiveness == .exited
         )
     }
 
