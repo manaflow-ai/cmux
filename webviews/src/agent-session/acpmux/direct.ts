@@ -3899,10 +3899,10 @@ export class AcpmuxDirectClient {
         row.subagents?.some(
           (agent, index) =>
             agent.id !== previous?.[index]?.id ||
-            agent.state !== previous[index]?.state ||
-            agent.name !== previous[index]?.name,
+            agent.state !== previous?.[index]?.state ||
+            agent.name !== previous?.[index]?.name,
         );
-      this.rows.set(row.id, row, changed);
+      this.rows.set(row.id, row, changed ?? false);
     }
   }
 
