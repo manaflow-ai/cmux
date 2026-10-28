@@ -185,14 +185,17 @@ fn secure_origin(raw: &str) -> Result<String, String> {
         || url.password().is_some()
         || url.query().is_some()
         || url.fragment().is_some()
+        || !matches!(url.path(), "" | "/")
     {
-        return Err("the cmux API URL must have a host and no user, query or fragment".into());
+        return Err(
+            "the cmux API URL must be a bare origin (no user, path, query or fragment)".into()
+        );
     }
     let local = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
     if url.scheme() != "https" && !(url.scheme() == "http" && local) {
         return Err("the cmux API is not https: a credential never goes over plain http".into());
     }
-    Ok(raw.trim_end_matches('/').to_owned())
+    Ok(url.origin().ascii_serialization())
 }
 
 /// One minted session (the server's `value`).

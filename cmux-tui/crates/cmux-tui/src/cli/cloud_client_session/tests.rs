@@ -312,6 +312,7 @@ fn the_configured_api_url_carries_no_secret_and_is_never_echoed() {
         "https://u:s3cret@api.example",
         "https://api.example/#s3cret",
         "http://api.example/s3cret",
+        "https://api.example/s3cret",
     ] {
         let error = secure_origin(bad).unwrap_err();
         assert!(!error.contains("s3cret"), "{error}");
