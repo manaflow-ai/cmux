@@ -170,7 +170,25 @@
      /// The message format of this row (Message.format).
      var format: MessageFormat? { markdownFormat ? .markdown : nil }
      /// The drawn body: lines after a hard newline are 15.5 pt apart, so the
-@@ -858,6 +918,8 @@
+@@ -491,7 +551,8 @@
+             case "voiceMemo": return (CGSize(width: 196, height: 36), nil)
+             case "contact": return (CGSize(width: 250, height: 56), nil)
+             // File and audio rows (measured): 275 x 89.5, icon centred.
+-            default: return (CGSize(width: 275, height: 89.5), nil)
++            // cmux: a file card is as wide as its text needs (HomeFileCard, #26395).
++            default: return (HomeFileCard.size(a, maxWidth: m.maxTextWidth + 2 * Fixture.bubblePadX), nil)
+             }
+         case let .location(lat, lon, _, _):
+             // A map snapshot (macOS 26): 500 pt wide, caption inside; its
+@@ -693,6 +754,7 @@
+         case let .text(t, runs): h.combine(t); h.combine(runs.count); for r in runs { h.combine(r.start); h.combine(r.length); h.combine(r.style) }
+         case let .link(url, title, site, image, theme): h.combine(url); h.combine(title); h.combine(site); h.combine(image); h.combine(theme)
+         case let .attachment(a): h.combine(a.kind); h.combine(a.asset); h.combine(a.poster); h.combine(a.width); h.combine(a.height)
++            h.combine(a.fileName); h.combine(a.byteSize); h.combine(a.mimeType) // cmux: a file card's width follows its text (#26395)
+         default: return 0
+         }
+         return h.finalize()
+@@ -858,6 +920,8 @@
                       previousRow: RowSpec.Kind? = nil, width: CGFloat = Metrics.current.width, exact: Range<Int>? = nil,
                       scale: CGFloat = Fixture.renderScale, threadCounts: [ID: Int]? = nil) -> [RowSpec] {
          let me = s.me
@@ -179,7 +197,7 @@
          var rows: [RowSpec] = []
          var span = (range ?? 0..<loaded.count).clamped(to: 0..<loaded.count) // a range from an older window stays inside
          // The host's streaming bubbles with text (ask 11, HostHooks.swift) follow the newest message as the messages
-@@ -989,6 +1051,19 @@
+@@ -989,6 +1053,19 @@
                  let lastOfGroup = next.map { next in next.senderId != m.senderId || next.date.timeIntervalSince(m.date) >= groupGap
                      || next.retractedAt != nil || next.replyTo != m.replyTo
                      || thread(next, at: idx + 1) != thread(m, at: idx) } ?? true
@@ -199,7 +217,7 @@
                  for (pi, part) in m.parts.enumerated() {
                      // A streaming bubble (past the loaded messages) is always measured: it draws now.
                      let measured = MeasureCache.shared.size(m, pi, width: width, estimate: idx < loaded.count && (exact.map { !$0.contains(idx) } ?? false), scale: scale)
-@@ -1015,7 +1090,9 @@
+@@ -1015,7 +1092,9 @@
                                        tail: lastOfGroup && pi == m.parts.count - 1, reactions: reactions,
                                        myReaction: reactions.firstIndex { $0.senderId == me }, failed: failed,
                                        size: size, text: tl, connectorRoot: pi == 0 ? connector : nil, markdown: measured.markdown,
@@ -210,7 +228,7 @@
                      rows.append(RowSpec(key: "part:\(m.id):\(pi)", kind: .part(row), gap: g, height: size.height,
                                          width: width, estimated: measured.estimated))
                  }
-@@ -1024,7 +1101,8 @@
+@@ -1024,7 +1103,8 @@
                                          gap: 1, height: 14))
                  }
                  if case .failed = m.status {
@@ -220,7 +238,7 @@
                                          gap: 1, height: 14))
                  }
                  if !threadMode, let n = replyCount[m.id], n >= 2, m.replyTo == nil {
-@@ -1043,17 +1121,24 @@
+@@ -1043,17 +1123,24 @@
              }
              prev = m; prevIndex = idx
          }
@@ -250,7 +268,7 @@
          rows = rows.map { var r = $0; r.width = width; return r } // no index writes
          return rows
      }
-@@ -1118,6 +1203,8 @@
+@@ -1118,6 +1205,8 @@
      }
  
      private static func isText(_ p: Part?) -> Bool { if case .text = p { return true } else { return false } }
@@ -259,7 +277,7 @@
  
      /// "Read <time>" under my latest read message; "Delivered" under my
      /// latest delivered message when it is newer.
-@@ -1145,7 +1232,7 @@
+@@ -1145,7 +1234,7 @@
  enum Format {
      private static let timeFormatter: DateFormatter = {
          let f = DateFormatter()
@@ -268,7 +286,7 @@
          f.timeZone = Instant.zone
          f.dateFormat = "h:mm\u{202F}a"
          return f
-@@ -1164,7 +1251,7 @@
+@@ -1164,7 +1253,7 @@
      private static let calendar: Calendar = { var c = Calendar(identifier: .gregorian); c.timeZone = Instant.zone; return c }()
      private static func formatter(_ f: String) -> DateFormatter {
          let d = DateFormatter()
@@ -277,7 +295,7 @@
          d.timeZone = Instant.zone
          d.dateFormat = f
          return d
-@@ -1214,7 +1301,8 @@
+@@ -1214,7 +1303,8 @@
  enum MessagesLabLocalization {
      private final class Token {}
      private static let lock = NSLock()
@@ -287,7 +305,7 @@
      static var bundle: Bundle {
          get { lock.lock(); defer { lock.unlock() }; return current }
          set { lock.lock(); current = newValue; lock.unlock() }
-@@ -1255,7 +1343,8 @@
+@@ -1255,7 +1345,8 @@
          default: return MessagesLabLocalization.string("file.kind.document", "Document")
          }
      }

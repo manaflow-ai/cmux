@@ -480,6 +480,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         Command::Host(PeerCmd::SelfUpdate { channel }) => {
             crate::cli::hosts::self_update(&channel, json_out).await
         }
+        // A file of this machine's; the daemon, when it runs, only reloads it.
+        Command::Host(PeerCmd::Approvals { cmd }) => {
+            crate::cli::host_approvals::run(cmd, json_out).await
+        }
         // A file of this person's: no daemon needed.
         Command::Host(PeerCmd::Hold { name, reason, until, release }) => {
             crate::cli::hosts::hold(name, reason, until, release, json_out)
@@ -615,6 +619,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 }
                 PeerCmd::Hold { name, reason, until, release } => {
                     return crate::cli::hosts::hold(name, reason, until, release, json_out);
+                }
+                PeerCmd::Approvals { cmd } => {
+                    return crate::cli::host_approvals::run(cmd, json_out).await;
                 }
                 PeerCmd::Update { name, all, binary_dir, if_idle, keep_newer } => {
                     // Run from a session, `--if-idle` never waits on that session's own turn.
