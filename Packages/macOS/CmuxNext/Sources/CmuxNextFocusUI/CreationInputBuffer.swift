@@ -37,6 +37,8 @@ public final class CreationInputBuffer {
     /// A creation of this hold still waits for its reply: until then its keys never expire.
     public var hasPendingCreation: Bool { !pending.isEmpty }
     public var isEmpty: Bool { events.isEmpty }
+    /// How many keys it holds.
+    public var count: Int { events.count }
     /// How many creations this hold opened: a key run again that opened another one changes it.
     public var openedCount: Int { nextID }
 

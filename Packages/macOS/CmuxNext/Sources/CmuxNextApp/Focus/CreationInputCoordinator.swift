@@ -151,6 +151,12 @@ final class CreationInputCoordinator {
         return claims[window.windowNumber] != nil
     }
 
+    /// How many keys `window`'s hold keeps now (tests).
+    func heldCount(in window: NSWindow?) -> Int {
+        guard let window else { return 0 }
+        return buffers[window.windowNumber]?.count ?? 0
+    }
+
     /// Whether `window`'s keys wait in a creation hold now (tests, `debug.focus`).
     func isHolding(in window: NSWindow?) -> Bool {
         guard let window else { return false }
