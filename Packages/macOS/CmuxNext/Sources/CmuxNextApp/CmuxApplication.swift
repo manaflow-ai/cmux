@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
@@ -147,6 +148,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         if let inputQueueing, let dispatchedNanos, Self.measuresQueueing(event.type, synthetic: currentEventIsSynthetic) {
             inputQueueing.noteInputDispatch(eventTimestamp: event.timestamp, dispatchedNanos: dispatchedNanos)
         }
+        Self.noteInputWindow(event)
         Self.deliverObserveStage(event, tap: inputTap, frameInput: frameInput)
         let previous = handlingSendEvent
         handlingSendEvent = true
@@ -298,6 +300,15 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 }
 
 extension CmuxApplication {
+    /// The main-job census's input window (`CMUX_NEXT_MAIN_JOB_CENSUS=input`, Debug and bench builds,
+    /// sequence-manager S6): the main jobs that ran while `event` waited for this dispatch.
+    static func noteInputWindow(_ event: NSEvent) {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard scopesDispatch(event.type), event.timestamp > 0, let ring = MainJobRing.installed(), ring.continuous else { return }
+        ring.noteInputDispatch(eventNanos: UInt64(event.timestamp * 1_000_000_000), dispatchNanos: ring.now)
+        #endif
+    }
+
     /// The tap's stages around AppKit's dispatch of `event`: its intercepts, then `superSend`
     /// (`-[NSApplication sendEvent:]`, where AppKit's local monitors run) unless an intercept
     /// consumed the event, then its after-dispatch observers. Intercepts and local monitors run in
