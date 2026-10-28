@@ -658,6 +658,7 @@ impl RemoteSession {
         }
         self.emit(MuxEvent::Status("event subscription overflowed; resubscribing".to_string()));
         let session = self.clone();
+        // supervise-allow: one subscription recovery; a panic ends that recovery only.
         let spawn =
             std::thread::Builder::new().name("remote-resubscribe".into()).spawn(move || {
                 loop {

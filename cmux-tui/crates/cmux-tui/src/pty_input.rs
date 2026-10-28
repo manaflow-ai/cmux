@@ -1034,6 +1034,7 @@ fn spawn_surface_operation(
     let worker_pending = pending.clone();
     let worker_queue = queue.clone();
     let worker_failure = on_failure.clone();
+    // supervise-allow: one surface operation; a panic ends that operation only.
     let spawn = cmux_threads::spawn(
         "mux-surface-operation",
         cmux_tui_core::thread_qos::ThreadType::Interactive.qos(),
