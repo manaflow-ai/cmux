@@ -1,0 +1,330 @@
+import Foundation
+
+/// A workspace's panes as its Mac lays them out (cmux-tui `list-workspaces`: screens, each
+/// with a split tree of panes, each pane with its tabs). The phone shows one tab at a time;
+/// the Panes page reads this to show which tabs share a pane and to act on panes as the
+/// Mac's pane menus do (verify/parity-mac.md, Panes).
+public struct WorkspaceLayout: Hashable, Sendable {
+    public struct Pane: Identifiable, Hashable, Sendable {
+        /// The Mac's pane id (what `split`, `zoom-pane`, `close-pane` and the rest name).
+        public var id: Int
+        /// The name the person gave the pane on the Mac (Rename Pane…), empty when none.
+        public var name: String
+        /// The tabs the phone lists, in the pane's order on the Mac.
+        public var tabIDs: [String]
+        /// The tab the pane shows on the Mac, when the phone lists it.
+        public var activeTabID: String?
+        /// The pane is its screen's focused pane on the Mac.
+        public var isFocused: Bool
+        /// The pane is zoomed on the Mac (it fills its screen there).
+        public var isZoomed: Bool
+
+        public init(id: Int, name: String = "", tabIDs: [String], activeTabID: String? = nil,
+                    isFocused: Bool = false, isZoomed: Bool = false) {
+            self.id = id
+            self.name = name
+            self.tabIDs = tabIDs
+            self.activeTabID = activeTabID
+            self.isFocused = isFocused
+            self.isZoomed = isZoomed
+        }
+    }
+
+    /// Side by side (`right`: a vertical divider) or stacked (`down`).
+    public enum Axis: String, Hashable, Sendable {
+        case horizontal = "right"
+        case vertical = "down"
+    }
+
+    /// The Mac's split tree (`layout`): a pane, a split of two nodes, or a stack of panes
+    /// of which one is shown.
+    public indirect enum Node: Hashable, Sendable {
+        case pane(Int)
+        /// `ratio` is the first node's share.
+        case split(id: Int, axis: Axis, ratio: Double, first: Node, second: Node)
+        case stack([Int], expanded: Int)
+
+        /// Every pane in the node, in tree order.
+        public var paneIDs: [Int] {
+            switch self {
+            case .pane(let id): [id]
+            case .split(_, _, _, let first, let second): first.paneIDs + second.paneIDs
+            case .stack(let panes, _): panes
+            }
+        }
+
+        /// The cells along `axis`: the Mac's `SplitNode.cellCount(along:)`.
+        func cellCount(along axis: Axis) -> Int {
+            switch self {
+            case .pane, .stack: 1
+            case .split(_, let own, _, let first, let second):
+                own == axis ? first.cellCount(along: axis) + second.cellCount(along: axis) : 1
+            }
+        }
+
+        /// Each split with the ratio that gives every cell of its same-axis chain an equal
+        /// share (the Mac's `SplitNode.equalizedRatio(for:)`), outermost first.
+        public var equalizedRatios: [EqualizedSplit] {
+            switch self {
+            case .pane, .stack: return []
+            case .split(let id, let axis, let ratio, let first, let second):
+                let a = Double(first.cellCount(along: axis))
+                let b = Double(second.cellCount(along: axis))
+                return [EqualizedSplit(split: id, ratio: ratio, equalized: a / (a + b))]
+                    + first.equalizedRatios + second.equalizedRatios
+            }
+        }
+
+        /// The directions `pane` has a neighbor in, read from its splits: a pane in a side by
+        /// side split's first half has one to its right, in the second half one to its left.
+        func neighbors(of pane: Int) -> Set<PaneSwap> {
+            guard case .split(_, let axis, _, let first, let second) = self else { return [] }
+            if first.paneIDs.contains(pane) {
+                return first.neighbors(of: pane).union([axis == .horizontal ? .right : .down])
+            }
+            if second.paneIDs.contains(pane) {
+                return second.neighbors(of: pane).union([axis == .horizontal ? .left : .up])
+            }
+            return []
+        }
+    }
+
+    /// One split's ratio now and the ratio Equalize Splits gives it.
+    public struct EqualizedSplit: Hashable, Sendable {
+        public var split: Int
+        public var ratio: Double
+        public var equalized: Double
+
+        public init(split: Int, ratio: Double, equalized: Double) {
+            self.split = split
+            self.ratio = ratio
+            self.equalized = equalized
+        }
+
+        /// The split already has its equal share (the daemon keeps float32 ratios).
+        public var isEqual: Bool { abs(ratio - equalized) < 0.001 }
+    }
+
+    public struct Screen: Identifiable, Hashable, Sendable {
+        public var id: Int
+        public var name: String
+        /// The screen the workspace shows on the Mac.
+        public var isActive: Bool
+        /// Its panes in the order the Mac lists them (tree order).
+        public var panes: [Pane]
+        /// The whole screen's split tree, nil when the Mac sent none.
+        public var root: Node?
+        /// The trees Equalize Splits evens out, as the Mac's does: each viewport column's
+        /// (each of its rows' when it has rows), else the screen's own tree.
+        public var equalizable: [Node]
+
+        public init(id: Int, name: String = "", isActive: Bool, panes: [Pane], root: Node?, equalizable: [Node]? = nil) {
+            self.id = id
+            self.name = name
+            self.isActive = isActive
+            self.panes = panes
+            self.root = root
+            self.equalizable = equalizable ?? root.map { [$0] } ?? []
+        }
+
+        /// The splits Equalize Splits would change.
+        public var unequalSplits: [EqualizedSplit] { equalizable.flatMap(\.equalizedRatios).filter { !$0.isEqual } }
+        /// The screen has a divider at all (Equalize Splits has something to even out).
+        public var hasSplits: Bool { equalizable.contains { !$0.equalizedRatios.isEmpty } }
+    }
+
+    public var screens: [Screen]
+
+    public init(screens: [Screen]) {
+        self.screens = screens
+    }
+
+    /// The screen the workspace shows on the Mac (its first when none is marked).
+    public var activeScreen: Screen? { screens.first(where: \.isActive) ?? screens.first }
+    public var panes: [Pane] { screens.flatMap(\.panes) }
+
+    public func pane(_ id: Int) -> Pane? { panes.first { $0.id == id } }
+    public func pane(holding tabID: String) -> Pane? { panes.first { $0.tabIDs.contains(tabID) } }
+    public func screen(of pane: Int) -> Screen? { screens.first { $0.panes.contains { $0.id == pane } } }
+
+    /// "Pane 2" for an unnamed pane: its place on its screen, as the Mac's Focus Pane 1…9 counts.
+    public func title(of pane: Pane) -> String {
+        if !pane.name.isEmpty { return pane.name }
+        let index = screen(of: pane.id)?.panes.firstIndex { $0.id == pane.id } ?? 0
+        return "Pane \(index + 1)"
+    }
+
+    /// The directions Swap Pane can go from `pane` (a neighbor on that side).
+    public func swapDirections(of pane: Int) -> [PaneSwap] {
+        let found = screen(of: pane)?.root?.neighbors(of: pane) ?? []
+        return PaneSwap.allCases.filter(found.contains)
+    }
+
+    /// The other panes of `pane`'s screen, the places Move Tab to Pane… offers.
+    public func otherPanes(than pane: Int) -> [Pane] {
+        (screen(of: pane)?.panes ?? []).filter { $0.id != pane }
+    }
+}
+
+/// The Mac's Split Right / Down / Left / Up (`PaneActionCatalog`, `LayoutActionCatalog`): a new
+/// pane beside the pane with a new terminal in it. The daemon splits right or down; a left or
+/// up split then swaps the two panes, as the Mac's fork to the left does.
+public enum PaneSplit: String, CaseIterable, Hashable, Sendable {
+    case right, down, left, up
+
+    public var title: String {
+        switch self {
+        case .right: "Split Right"
+        case .down: "Split Down"
+        case .left: "Split Left"
+        case .up: "Split Up"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .right: "rectangle.split.2x1"
+        case .down: "rectangle.split.1x2"
+        case .left: "rectangle.lefthalf.inset.filled"
+        case .up: "rectangle.tophalf.inset.filled"
+        }
+    }
+
+    /// The `split` command's `dir`.
+    public var daemonDirection: String { self == .right || self == .left ? "right" : "down" }
+    /// The new pane goes before the old one: the daemon's split, then a swap of the two.
+    public var swapsAfter: Bool { self == .left || self == .up }
+}
+
+/// The Mac's Swap Pane Left / Right / Up / Down (`swap-pane {pane, dir}`).
+public enum PaneSwap: String, CaseIterable, Hashable, Sendable {
+    case left, right, up, down
+
+    public var title: String {
+        switch self {
+        case .left: "Swap Pane Left"
+        case .right: "Swap Pane Right"
+        case .up: "Swap Pane Up"
+        case .down: "Swap Pane Down"
+        }
+    }
+
+    public var systemImage: String { "arrowshape.\(rawValue)" }
+}
+
+/// Move Tab to New Split's side (`move-tab-to-split {edge}`), the Mac's `direction` argument.
+public enum TabSplitEdge: String, CaseIterable, Hashable, Sendable {
+    case right, left, up, down
+
+    /// `move-tab-to-split`'s `edge`.
+    public var daemonEdge: String {
+        switch self {
+        case .right: "right"
+        case .left: "left"
+        case .up: "top"
+        case .down: "bottom"
+        }
+    }
+
+    public var title: String {
+        switch self {
+        case .right: "To the Right"
+        case .left: "To the Left"
+        case .up: "Above"
+        case .down: "Below"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .right: "rectangle.righthalf.inset.filled"
+        case .left: "rectangle.lefthalf.inset.filled"
+        case .up: "rectangle.tophalf.inset.filled"
+        case .down: "rectangle.bottomhalf.inset.filled"
+        }
+    }
+}
+
+/// Where Fork Conversation opens the copy (the Mac's `AgentForkDestination`, less New Window).
+public enum ChatForkDestination: String, CaseIterable, Hashable, Sendable, Identifiable {
+    case right, left, up, down, tab, workspace
+    public var id: String { rawValue }
+
+    /// The choice in the phone's Fork Conversation list.
+    public var title: String {
+        switch self {
+        case .right: "To the Right"
+        case .left: "To the Left"
+        case .up: "Above"
+        case .down: "Below"
+        case .tab: "In a New Tab"
+        case .workspace: "In a New Workspace"
+        }
+    }
+
+    /// The Mac's action title (`palette.forkAgentConversation…`).
+    public var macTitle: String {
+        switch self {
+        case .right: "Fork Conversation to the Right"
+        case .left: "Fork Conversation to the Left"
+        case .up: "Fork Conversation Above"
+        case .down: "Fork Conversation Below"
+        case .tab: "Fork Conversation to New Tab"
+        case .workspace: "Fork Conversation to New Workspace"
+        }
+    }
+
+    /// A split destination's side: the fork opens as a tab beside the chat, then moves there
+    /// (`move-tab-to-split`), as the Mac's `openFork` does.
+    public var splitEdge: TabSplitEdge? {
+        switch self {
+        case .right: .right
+        case .left: .left
+        case .up: .up
+        case .down: .down
+        case .tab, .workspace: nil
+        }
+    }
+}
+
+/// What Undo Layout Change did (`undo-layout`, `layout-undo-v1`).
+public enum LayoutUndoOutcome: Hashable, Sendable {
+    case undone
+    /// The change made panes; undoing it closes `closing` panes. The same request with this
+    /// `revision` and `confirm_close` commits it.
+    case needsConfirmation(revision: UInt64, closing: Int)
+}
+
+/// The Mac's pane and layout actions, on the workspace's Mac (verify/parity-mac.md, Panes).
+@MainActor
+public protocol WorkspacePaneBackend: AnyObject {
+    /// Whether panes can be changed on `macID` now.
+    func canEditPanes(on macID: String) -> Bool
+    /// Split Right / Down / Left / Up: a new pane beside `pane` with a new terminal in it,
+    /// returned once the Mac lists it.
+    func split(_ pane: Int, _ direction: PaneSplit, in workspace: Workspace) async throws -> WorkspaceTab
+    /// New Pane (Auto Layout) (`new-pane`) or New Column (`new-pane-right`), from `pane`'s column.
+    func newPane(from pane: Int, column: Bool, in workspace: Workspace) async throws -> WorkspaceTab
+    /// Toggle Pane Zoom.
+    func toggleZoom(_ pane: Int, in workspace: Workspace) async throws
+    /// Swap Pane Left / Right / Up / Down.
+    func swap(_ pane: Int, _ direction: PaneSwap, in workspace: Workspace) async throws
+    /// Rename Pane… (an empty name clears it).
+    func renamePane(_ pane: Int, to name: String, in workspace: Workspace) async throws
+    /// Close Pane: the pane and its tabs; each terminal no other tab shows ends, as a closed tab's does.
+    func closePane(_ pane: Int, in workspace: Workspace) async throws
+    /// Equalize Splits on the workspace's shown screen; the number of splits it changed.
+    func equalizeSplits(in workspace: Workspace) async throws -> Int
+    /// Undo Layout Change on the workspace's shown screen. `revision`: the confirmation of an
+    /// undo that closes panes, from an earlier `.needsConfirmation`.
+    func undoLayout(in workspace: Workspace, confirming revision: UInt64?) async throws -> LayoutUndoOutcome
+    /// Move Tab to New Split: a new pane on `edge` of the tab's pane, holding the tab.
+    func moveTab(_ tab: WorkspaceTab, toNewSplit edge: TabSplitEdge, in workspace: Workspace) async throws
+    /// Move Tab to New Column: a new viewport column right of the tab's, holding the tab.
+    func moveTabToNewColumn(_ tab: WorkspaceTab, in workspace: Workspace) async throws
+    /// Move Tab to Pane…: the end of another pane's tabs.
+    func moveTab(_ tab: WorkspaceTab, toPane pane: Int, in workspace: Workspace) async throws
+    /// Fork Conversation to `destination`: a copy of the chat beside it, in a new tab, or in a
+    /// new workspace; returned once the Mac lists it there.
+    func forkAgentChat(_ tab: WorkspaceTab, to destination: ChatForkDestination, in workspace: Workspace) async throws -> WorkspaceTab
+}

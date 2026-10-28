@@ -141,10 +141,14 @@ public struct DaemonTree: Sendable {
             var blocked = false
             var observed: Date?
             var focusOrder = 0
+            var layoutScreens: [WorkspaceLayout.Screen] = []
             for case let screen as [String: Any] in ws["screens"] as? [Any] ?? [] {
                 let activePane = screen["active_pane"] as? Int
                 if screen["active"] as? Bool == true, let activePane { panes[key] = activePane }
+                var layoutPanes: [WorkspaceLayout.Pane] = []
                 for case let pane as [String: Any] in screen["panes"] as? [Any] ?? [] {
+                    var paneTabIDs: [String] = []
+                    var paneActiveTab: String?
                     focusOrder = max(focusOrder, pane["focused_at"] as? Int ?? 0)
                     if panes[key] == nil, let id = pane["id"] as? Int { panes[key] = id }
                     let paneTabs = pane["tabs"] as? [[String: Any]] ?? []
@@ -181,7 +185,19 @@ public struct DaemonTree: Sendable {
                         if let pinned = tab["pinned"] as? Bool { mapped.pinned = pinned }
                         if let group = tab["group"] as? String { mapped.group = groups[group] ?? WorkspaceTab.TabGroupRef(id: group) }
                         tabs.append(mapped)
+                        paneTabIDs.append(id)
+                        if pane["active_tab"] as? Int == index { paneActiveTab = id }
                     }
+                    if let paneID = pane["id"] as? Int, pane["dead"] as? Bool != true {
+                        layoutPanes.append(WorkspaceLayout.Pane(
+                            id: paneID, name: pane["name"] as? String ?? "", tabIDs: paneTabIDs, activeTabID: paneActiveTab,
+                            isFocused: paneID == activePane, isZoomed: paneID == screen["zoomed_pane"] as? Int))
+                    }
+                }
+                if let screenID = screen["id"] as? Int {
+                    layoutScreens.append(WorkspaceLayout.Screen(
+                        id: screenID, name: screen["name"] as? String ?? "", isActive: screen["active"] as? Bool == true,
+                        panes: layoutPanes, root: Self.node(screen["layout"]), equalizable: Self.equalizable(screen)))
                 }
             }
             let source = activeTab ?? (ws["screens"] as? [[String: Any]])?.first.flatMap { ($0["panes"] as? [[String: Any]])?.first?["tabs"] as? [[String: Any]] }?.first
@@ -218,6 +234,7 @@ public struct DaemonTree: Sendable {
             workspace.isHome = isHome
             workspace.hasCustomTitle = (ws["title"] as? String).map { !$0.isEmpty && $0 != ws["name"] as? String } ?? false
             workspace.isPinned = legacyPinned.contains(key)
+            workspace.layout = layoutScreens.isEmpty ? nil : WorkspaceLayout(screens: layoutScreens)
             if isHome { home.append(workspace) } else { result.append(workspace) }
         }
         self.legacyPinned = legacyPinned
@@ -232,6 +249,38 @@ public struct DaemonTree: Sendable {
         workspaceNumbers = numbers
         self.groupPanes = groupPanes
         notificationMarkers = markers
+    }
+
+    /// One node of a screen's split tree (`layout`: `leaf`, `split`, `stack`), nil when unreadable.
+    static func node(_ value: Any?) -> WorkspaceLayout.Node? {
+        guard let node = value as? [String: Any] else { return nil }
+        switch node["type"] as? String {
+        case "leaf":
+            return (node["pane"] as? Int).map(WorkspaceLayout.Node.pane)
+        case "split":
+            guard let id = node["split"] as? Int, let axis = WorkspaceLayout.Axis(rawValue: node["dir"] as? String ?? ""),
+                  let first = Self.node(node["a"]), let second = Self.node(node["b"]) else { return nil }
+            return .split(id: id, axis: axis, ratio: (node["ratio"] as? NSNumber)?.doubleValue ?? 0.5, first: first, second: second)
+        case "stack":
+            let panes = node["panes"] as? [Int] ?? []
+            guard !panes.isEmpty else { return nil }
+            return .stack(panes, expanded: node["expanded"] as? Int ?? panes[0])
+        default:
+            return nil
+        }
+    }
+
+    /// The trees Equalize Splits evens out on a screen, as the Mac's `equalizeSplits`: with
+    /// viewport columns, each column's tree (each row's, for a column with rows, whose own
+    /// `layout` is only their compat chain); else the screen's tree.
+    static func equalizable(_ screen: [String: Any]) -> [WorkspaceLayout.Node] {
+        guard let columns = screen["columns"] as? [[String: Any]], !columns.isEmpty else {
+            return node(screen["layout"]).map { [$0] } ?? []
+        }
+        return columns.flatMap { column -> [WorkspaceLayout.Node] in
+            if let rows = column["rows"] as? [[String: Any]], !rows.isEmpty { return rows.compactMap { node($0["layout"]) } }
+            return node(column["layout"]).map { [$0] } ?? []
+        }
     }
 
     /// A pane's `tab_groups` (`tab-groups-v1`) by group id.

@@ -1,0 +1,195 @@
+import CmuxMobileModel
+import Foundation
+
+/// The Mac's pane and layout actions from a phone (verify/parity-mac.md, Panes). Every line is
+/// one the `daemon` lane already takes (DaemonLanePolicy, cmux-mobile-host `policy.rs`):
+/// `split {pane, dir}`, `new-pane {pane}`, `new-pane-right {pane}`, `zoom-pane {pane, mode}`,
+/// `swap-pane {pane, dir|target}`, `rename-pane {pane, name}`, `close-pane {pane}`,
+/// `set-split-ratio {split, ratio, transaction}`, `undo-layout {pane, revision, confirm_close}`,
+/// `move-tab-to-split {surface, pane, edge}`, `move-tab-to-column {surface, pane}` and
+/// `move-tab {surface, pane, index}`. A new pane's terminal is the Mac's own new terminal (the
+/// login shell; the phone names no program, folder or environment).
+extension LiveWorkspaceCreationBackend: WorkspacePaneBackend {
+    public func canEditPanes(on macID: String) -> Bool { canEditTabs(on: macID) }
+
+    /// The daemon client, once the pane is one of `workspace`'s on the Mac now.
+    private func client(for pane: Int, in workspace: Workspace) throws -> DaemonClient {
+        guard canManage(on: workspace.macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
+        guard layout(of: workspace)?.pane(pane) != nil else {
+            throw WorkspaceCreationError("That pane is no longer on the Mac.", isForPerson: true)
+        }
+        return client
+    }
+
+    /// The workspace's panes as the Mac listed them last.
+    private func layout(of workspace: Workspace) -> WorkspaceLayout? {
+        sync.tree?.workspaces.first { $0.id == workspace.id }?.layout ?? sync.tree?.homeWorkspaces.first { $0.id == workspace.id }?.layout
+    }
+
+    /// Sends `command`, then reads the tab the reply names (`surface`) from a fresh list.
+    private func openTab(_ client: DaemonClient, _ command: String, _ params: sending [String: Any]) async throws -> WorkspaceTab {
+        do {
+            let reply = try await client.request(command, params: params)
+            guard let surface = (try WorkspaceSync.check(reply)["data"] as? [String: Any])?["surface"] as? Int else {
+                throw WorkspaceCreationError("The Mac didn't say which tab it opened")
+            }
+            let id = DaemonTree.tabID(surface: surface)
+            let tree = try await sync.listNow()
+            guard let tab = (tree.workspaces + tree.homeWorkspaces).flatMap(\.tabs).first(where: { $0.id == id }) else {
+                throw WorkspaceCreationError("The new tab didn't appear on the Mac")
+            }
+            return tab
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
+    public func split(_ pane: Int, _ direction: PaneSplit, in workspace: Workspace) async throws -> WorkspaceTab {
+        let client = try client(for: pane, in: workspace)
+        let tab = try await openTab(client, "split", ["pane": pane, "dir": direction.daemonDirection])
+        guard direction.swapsAfter else { return tab }
+        // The daemon puts the new pane right of or below the old one; Split Left / Up then
+        // swaps the two (the Mac's fork to the left does the same).
+        guard let created = sync.tree?.tabPlaces[tab.id]?.pane else { throw WorkspaceCreationError("The Mac doesn't list the new pane") }
+        try await run(client, "swap-pane", ["pane": pane, "target": created])
+        return tab
+    }
+
+    public func newPane(from pane: Int, column: Bool, in workspace: Workspace) async throws -> WorkspaceTab {
+        let client = try client(for: pane, in: workspace)
+        return try await openTab(client, column ? "new-pane-right" : "new-pane", ["pane": pane])
+    }
+
+    public func toggleZoom(_ pane: Int, in workspace: Workspace) async throws {
+        try await run(client(for: pane, in: workspace), "zoom-pane", ["pane": pane, "mode": "toggle"])
+    }
+
+    public func swap(_ pane: Int, _ direction: PaneSwap, in workspace: Workspace) async throws {
+        try await run(client(for: pane, in: workspace), "swap-pane", ["pane": pane, "dir": direction.rawValue])
+    }
+
+    public func renamePane(_ pane: Int, to name: String, in workspace: Workspace) async throws {
+        try await run(client(for: pane, in: workspace), "rename-pane", ["pane": pane, "name": name])
+    }
+
+    /// `close-pane`, then `close-terminal` for each of its terminals no other tab shows, as the
+    /// phone's Close Tab ends a closed tab's terminal (the phone has no undo for it).
+    public func closePane(_ pane: Int, in workspace: Workspace) async throws {
+        let client = try client(for: pane, in: workspace)
+        let tabs = (sync.tree?.tabPlaces ?? [:]).filter { $0.value.pane == pane }.map(\.key)
+        let terminals = sync.tree?.terminalsEndedByClosing(tabs) ?? []
+        do {
+            try WorkspaceSync.check(await client.request("close-pane", params: ["pane": pane]))
+            await end(terminals, on: client)
+            _ = try? await sync.listNow()
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+    }
+
+    /// The Mac's Equalize Splits on the shown screen: each split of its trees gets the ratio
+    /// that gives every cell of its chain an equal share. One `transaction` for the whole
+    /// change, so one Undo Layout Change takes it back.
+    public func equalizeSplits(in workspace: Workspace) async throws -> Int {
+        guard canManage(on: workspace.macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
+        guard let screen = layout(of: workspace)?.activeScreen, screen.hasSplits else {
+            throw WorkspaceCreationError("This workspace has no splits to equalize.", isForPerson: true)
+        }
+        let splits = screen.unequalSplits
+        let transaction = Int.random(in: 1...Int(Int32.max))
+        do {
+            for split in splits {
+                try WorkspaceSync.check(await client.request("set-split-ratio", params: Self.ratioParams(split, transaction: transaction)))
+            }
+            if !splits.isEmpty { _ = try? await sync.listNow() }
+        } catch let error as DaemonReplyError {
+            throw WorkspaceCreationError(error.message)
+        }
+        return splits.count
+    }
+
+    nonisolated static func ratioParams(_ split: WorkspaceLayout.EqualizedSplit, transaction: Int) -> sending [String: Any] {
+        ["split": split.split, "ratio": split.equalized, "transaction": transaction]
+    }
+
+    /// `undo-layout` on the shown screen (named by its focused pane). An undo that closes
+    /// panes comes back as a question first; its `revision` with `confirm_close` commits it.
+    public func undoLayout(in workspace: Workspace, confirming revision: UInt64?) async throws -> LayoutUndoOutcome {
+        guard canManage(on: workspace.macID), let client = sync.daemon else { throw WorkspaceCreationError("Not connected") }
+        guard let screen = layout(of: workspace)?.activeScreen,
+              let pane = (screen.panes.first(where: \.isFocused) ?? screen.panes.first)?.id else {
+            throw WorkspaceCreationError("The Mac hasn't listed this workspace's panes yet")
+        }
+        var params: [String: Any] = ["pane": pane]
+        if let revision {
+            params["revision"] = revision
+            params["confirm_close"] = true
+        }
+        do {
+            let reply = try WorkspaceSync.check(await client.request("undo-layout", params: params))
+            let outcome = try Self.undoOutcome(reply)
+            if outcome == .undone { _ = try? await sync.listNow() }
+            return outcome
+        } catch let error as DaemonReplyError {
+            switch error.code {
+            case "layout-undo-unavailable": throw WorkspaceCreationError("There's no layout change to undo.", isForPerson: true)
+            case "layout-undo-stale": throw WorkspaceCreationError("The layout changed on the Mac. Try Undo Layout Change again.", isForPerson: true)
+            default: throw WorkspaceCreationError(error.message)
+            }
+        }
+    }
+
+    /// The reply's one complete variant (`undone:true`, or `confirmation_required` with the
+    /// revision and the panes it closes); anything else is a protocol error.
+    nonisolated static func undoOutcome(_ reply: [String: Any]) throws -> LayoutUndoOutcome {
+        let data = reply["data"] as? [String: Any] ?? [:]
+        if data["undone"] as? Bool == true, data["confirmation_required"] as? Bool != true { return .undone }
+        if data["undone"] as? Bool == false, data["confirmation_required"] as? Bool == true,
+           let revision = (data["revision"] as? NSNumber)?.uint64Value, let closes = data["closes_panes"] as? [Any] {
+            return .needsConfirmation(revision: revision, closing: closes.count)
+        }
+        throw WorkspaceCreationError("The Mac's undo reply wasn't readable")
+    }
+
+    public func moveTab(_ tab: WorkspaceTab, toNewSplit edge: TabSplitEdge, in workspace: Workspace) async throws {
+        let (client, surface) = try target(tab, in: workspace)
+        guard let place = sync.tree?.tabPlaces[tab.id] else { throw WorkspaceCreationError("The Mac doesn't list this tab") }
+        // The daemon splits a tab out only of a pane that keeps another tab.
+        guard (sync.tree?.tabPlaces ?? [:]).values.contains(where: { $0.pane == place.pane && $0.index != place.index }) else {
+            throw WorkspaceCreationError("This is the pane's only tab. Split the pane instead.", isForPerson: true)
+        }
+        try await run(client, "move-tab-to-split", ["surface": surface, "pane": place.pane, "edge": edge.daemonEdge])
+    }
+
+    public func moveTabToNewColumn(_ tab: WorkspaceTab, in workspace: Workspace) async throws {
+        let (client, surface) = try target(tab, in: workspace)
+        guard let place = sync.tree?.tabPlaces[tab.id] else { throw WorkspaceCreationError("The Mac doesn't list this tab") }
+        try await run(client, "move-tab-to-column", ["surface": surface, "pane": place.pane])
+    }
+
+    /// `move-tab` to the end of `pane`'s tabs (its insertion point past the last).
+    public func moveTab(_ tab: WorkspaceTab, toPane pane: Int, in workspace: Workspace) async throws {
+        let (client, surface) = try target(tab, in: workspace)
+        guard layout(of: workspace)?.pane(pane) != nil else {
+            throw WorkspaceCreationError("That pane is no longer on the Mac.", isForPerson: true)
+        }
+        guard sync.tree?.tabPlaces[tab.id]?.pane != pane else { return }
+        let count = (sync.tree?.tabPlaces ?? [:]).values.filter { $0.pane == pane }.count
+        try await run(client, "move-tab", ["surface": surface, "pane": pane, "index": count])
+    }
+
+    /// Fork Conversation to a destination, as the Mac's `openFork`: the copy opens as a tab
+    /// beside the chat, then moves to a new split on that side (`move-tab-to-split`) or to a
+    /// new workspace (`move-tab-to-new-workspace`, named as the Mac names one).
+    public func forkAgentChat(_ tab: WorkspaceTab, to destination: ChatForkDestination, in workspace: Workspace) async throws -> WorkspaceTab {
+        let copy = try await forkAgentChat(tab, in: workspace)
+        guard let home = sync.tree?.workspaces.first(where: { ws in ws.tabs.contains { $0.id == copy.id } })
+            ?? sync.tree?.homeWorkspaces.first(where: { ws in ws.tabs.contains { $0.id == copy.id } }) else { return copy }
+        if let edge = destination.splitEdge {
+            try await moveTab(copy, toNewSplit: edge, in: home)
+        } else if destination == .workspace {
+            _ = try await moveTab(copy, from: home, toWorkspace: nil)
+        }
+        return sync.tree.flatMap { tree in (tree.workspaces + tree.homeWorkspaces).flatMap(\.tabs).first { $0.id == copy.id } } ?? copy
+    }
+}

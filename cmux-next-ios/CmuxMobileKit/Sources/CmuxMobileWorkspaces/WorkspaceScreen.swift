@@ -77,6 +77,20 @@ public struct WorkspaceScreen: View {
             .toolbar(.hidden, for: .navigationBar)
             .toolbar(.hidden, for: .tabBar)
             .background(InteractivePopEnabler())
+            // Panes: the Mac's panes of this workspace, pushed over it (swipe back returns).
+            .navigationDestination(isPresented: Binding(get: { source.showsPanes }, set: { source.showsPanes = $0 })) {
+                PanesScreen(source: source)
+            }
+            // Fork Conversation…: where the copy of the chat opens (the Mac's fork destinations).
+            .confirmationDialog("Fork Conversation", isPresented: Binding(
+                get: { source.forkingTab != nil },
+                set: { shown in if !shown { source.forkingTab = nil } }
+            ), titleVisibility: .visible, presenting: source.forkingTab) { tab in
+                ForEach(ChatForkDestination.allCases) { destination in
+                    Button(destination.title) { Task { await source.fork(tab.id, to: destination) } }
+                }
+                Button("Cancel", role: .cancel) {}
+            }
             .onAppear {
                 source.exit = { dismiss() }
                 source.opened()
@@ -118,8 +132,9 @@ public struct WorkspaceScreen: View {
             }
             .modifier(TabMoveAndGroupSheets(source: source, groupName: $groupName))
             // Closing a tab with a running program asks first (Codex QA F9).
+            // While Panes is pushed, its own copy of this question shows (this screen is under it).
             .alert(source.pendingClose?.title ?? "", isPresented: Binding(
-                get: { source.pendingClose != nil },
+                get: { source.pendingClose != nil && !source.showsPanes },
                 set: { shown in if !shown { source.resolvePendingClose(false) } }
             )) {
                 // The Mac's close question's button ("Close").

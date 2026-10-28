@@ -16,7 +16,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     let sync: WorkspaceSync
     private let link: LinkController
     /// Starts the agent session behind a new agent tab (nil: no agent tabs).
-    private weak var acpmux: AcpmuxHub?
+    private(set) weak var acpmux: AcpmuxHub?
 
     /// The capabilities each Mac's `version` service reported (nil: not known yet).
     public var capabilities: @MainActor (String) -> Set<String>? = { _ in nil }
@@ -472,7 +472,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     /// `close-terminal` for each terminal a phone close ended (`terminalsEndedByClosing`),
     /// after its tabs closed. A refusal leaves the reap to the daemon: the tabs are closed.
-    private func end(_ terminals: [DaemonTree.TerminalRef], on client: DaemonClient) async {
+    func end(_ terminals: [DaemonTree.TerminalRef], on client: DaemonClient) async {
         for terminal in terminals {
             do {
                 try WorkspaceSync.check(await client.request("close-terminal", params: Self.closeParams(terminal)))
@@ -844,7 +844,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         try await run(client, "close-surface", ["surface": surface])
     }
 
-    private func target(_ tab: WorkspaceTab, in workspace: Workspace) throws -> (DaemonClient, Int) {
+    func target(_ tab: WorkspaceTab, in workspace: Workspace) throws -> (DaemonClient, Int) {
         guard canManage(on: workspace.macID), let client = sync.daemon else {
             throw WorkspaceCreationError("Not connected")
         }
@@ -854,7 +854,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         return (client, surface)
     }
 
-    private func run(_ client: DaemonClient, _ command: String, _ params: sending [String: Any]) async throws {
+    func run(_ client: DaemonClient, _ command: String, _ params: sending [String: Any]) async throws {
         do {
             try WorkspaceSync.check(await client.request(command, params: params))
             _ = try? await sync.listNow()

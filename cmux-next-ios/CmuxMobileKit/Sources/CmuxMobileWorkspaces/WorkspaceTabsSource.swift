@@ -35,7 +35,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     @ObservationIgnored let creator: WorkspaceCreator?
     /// Leaves the workspace (back to the list).
     @ObservationIgnored public var exit: @MainActor () -> Void = {}
-    @ObservationIgnored private var surfaces: [String: AgentChatSurface] = [:]
+    @ObservationIgnored var surfaces: [String: AgentChatSurface] = [:]
     /// Created with their tabs (never during a view update); each model is
     /// itself observable, so toolbar state follows the page.
     @ObservationIgnored private var browsers: [String: BrowserTabModel] = [:]
@@ -91,7 +91,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         return store.teams.flatMap(\.macs).first { $0.id == macID }?.name ?? "Mac"
     }
 
-    private func workspaceTab(_ id: String) -> WorkspaceTab? {
+    func workspaceTab(_ id: String) -> WorkspaceTab? {
         workspace?.tabs.first { $0.id == id }
     }
 
@@ -406,7 +406,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// How long a toast stays (a UI timeout, not synchronization).
     static let noticeLifetime: Duration = .seconds(4)
 
-    private func show(_ text: String) {
+    func show(_ text: String) {
         toastText = text
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: Self.noticeLifetime)
@@ -430,7 +430,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     /// "this Mac" / "your Mac" in a phone-written line, as the Mac's name.
-    private func named(_ text: String) -> String {
+    func named(_ text: String) -> String {
         text.replacingOccurrences(of: "your Mac", with: macName).replacingOccurrences(of: "this Mac", with: macName)
     }
 
@@ -490,7 +490,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     /// The new-tab option being created on the Mac ("New Claude Chat"), or nil.
-    public private(set) var pendingTabTitle: String?
+    public internal(set) var pendingTabTitle: String?
     /// A tab the Mac just created and this phone made active: the screen leaves the
     /// grid for it, then clears this.
     public var openedTab: TabsKitTab.ID?
@@ -746,6 +746,23 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
     }
 
+    // MARK: Panes (verify/parity-mac.md, Panes; actions in WorkspaceTabsSource+Panes.swift)
+
+    /// The Panes page is pushed over the workspace.
+    public var showsPanes = false
+    /// The pane whose name the person is editing (Rename Pane…).
+    public var renamingPane: WorkspaceLayout.Pane?
+    /// An Undo Layout Change that closes panes, waiting for the person's yes.
+    public var pendingLayoutUndo: PendingLayoutUndo?
+    /// The chat whose fork destination the person is picking (Fork Conversation…).
+    public var forkingTab: WorkspaceTab?
+
+    public struct PendingLayoutUndo: Hashable, Identifiable {
+        public let revision: UInt64
+        public let closing: Int
+        public var id: UInt64 { revision }
+    }
+
     // MARK: Move to another workspace, pins, groups, chat menu (verify/parity-mac.md)
 
     /// The tab whose destination the person is picking (Move Tab to Workspace…).
@@ -883,7 +900,11 @@ public final class WorkspaceTabsSource: TabsDataSource {
     private func chatItems(_ tab: WorkspaceTab) -> [TabsKitMenuItem] {
         guard canEditTabs else { return [] }
         return [
-            TabsKitMenuItem(title: "Fork", systemImage: "arrow.triangle.branch") { [weak self] in Task { await self?.fork(tab.id) } },
+            // The Mac's Fork Conversation destinations (AgentActionCatalog): beside the chat,
+            // in a new tab, or in a new workspace.
+            TabsKitMenuItem(id: "fork-conversation", title: "Fork Conversation…", systemImage: "arrow.triangle.branch") { [weak self] in
+                self?.forkingTab = tab
+            },
             TabsKitMenuItem(title: "Archive", systemImage: "archivebox") { [weak self] in Task { await self?.archive(tab.id) } },
         ]
     }
@@ -999,7 +1020,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// A refusal: the phone's or the Mac's own sentence when it is written for the person,
     /// else one short line ("Couldn't fork Claude.").
-    private func show(_ error: any Error, doing verb: String, _ title: String) {
+    func show(_ error: any Error, doing verb: String, _ title: String) {
         if let error = error as? WorkspaceCreationError, error.isForPerson {
             show(named(error.message))
         } else {
@@ -1076,6 +1097,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     public func pageMenu(for kit: TabsKitTab) -> [[TabsKitMenuItem]] {
         guard let workspace, let tab = workspaceTab(kit.id) else { return [] }
         let edit = editItems(tab) + groupItems(tab) + moveItems(tab) + savedGroupItems(tab)
+        let panes = panesItems()
         let close = TabsKitMenuItem(title: "Close Tab", systemImage: "xmark", isDestructive: true) { [weak self] in Task { _ = await self?.close(kit.id) } }
         let leave = TabsKitMenuItem(title: "All Workspaces", systemImage: "square.stack.3d.up") { [weak self] in self?.exit() }
         switch tab.kind {
@@ -1097,6 +1119,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     : []) + [
                     TabsKitMenuItem(title: "Continue in…", systemImage: "arrow.triangle.branch") { surface.parityRoute = .handoff },
                 ] + chatItems(tab),
+                panes,
                 edit,
                 [leave],
                 [
@@ -1117,7 +1140,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 }] : []
             // Files and Links, Paste, Clear | Copy Directory | Close Tab: no
             // "All Workspaces" (Back leaves the workspace; design/terminal P1).
-            return [restart, own, [copy], edit, [close]].filter { !$0.isEmpty }
+            return [restart, own, [copy], panes, edit, [close]].filter { !$0.isEmpty }
         case .browser:
             let model = browser(tab)
             return [
@@ -1125,6 +1148,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     TabsKitMenuItem(title: "Copy Link", systemImage: "link", isEnabled: model.url != nil) { UIPasteboard.general.url = model.url },
                     TabsKitMenuItem(title: "Reload", systemImage: "arrow.clockwise") { model.reloadOrStop() },
                 ],
+                panes,
                 edit,
                 [leave],
                 [close],
@@ -1136,6 +1160,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     TabsKitMenuItem(title: "Home", systemImage: "circle", isEnabled: model != nil) { model?.pressButton("home") },
                     TabsKitMenuItem(title: "Lock", systemImage: "lock", isEnabled: model != nil) { model?.pressButton("lock") },
                 ],
+                panes,
                 edit,
                 [leave],
                 [close],
