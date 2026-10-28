@@ -490,3 +490,95 @@ test("run step history reads past ten pages and stops on a nonadvancing cursor",
   await stuckStore.loadRunSteps({ ...stuckRun, rev: stuckRevision });
   expect(stuckRequests).toHaveLength(4);
 });
+
+for (const { revision, timestamp, previousStatus } of [
+  { revision: 0, timestamp: 5, previousStatus: "done" as const },
+  { revision: 2, timestamp: 5, previousStatus: "done" as const },
+  { revision: 0, timestamp: 0, previousStatus: "running" as const },
+  { revision: 0, timestamp: 0, previousStatus: "done" as const },
+]) {
+  test(`reload refreshes unchanged-count report: rev ${revision}, time ${timestamp}, ${previousStatus} to done`, async () => {
+    const latest = { ...run(1, "m1"), rev: revision, updatedAt: timestamp };
+    const fake = client([message(1)], [latest]);
+    const store = new HomeChannelsStore(fake.api as never);
+    store.runs.setSteps(
+      { ...latest, rev: revision === 0 ? 0 : 1, updatedAt: timestamp === 0 ? 0 : 2, status: previousStatus },
+      [
+        {
+          id: "report:a1:1:0",
+          seq: 1,
+          rev: 1,
+          at: 2,
+          kind: "note",
+          text: "old report",
+          attachments: [],
+          links: [],
+        },
+      ],
+      true,
+    );
+    const stop = store.subscribe(() => {});
+    try {
+      await store.start();
+      await waitForReport(store);
+      expect(fake.calls.filter((call) => call.op === HomeOps.run)).toHaveLength(1);
+      expect(store.runs.get("chief-conv", "chief", "r1")?.complete).toBe(true);
+    } finally {
+      stop();
+    }
+  });
+}
+
+test("Cloud history finds an old long run for a loaded reply after crossing the message cutoff", async () => {
+  const reply = { ...message(130), clientMessageId: "old-turn" };
+  const oldRun = { ...run(1, "outside-window"), turn: "old-turn" };
+  const all = [...Array.from({ length: 29 }, (_, index) => message(101 + index)), reply];
+  const allRuns = [oldRun, ...Array.from({ length: 25 }, (_, index) => run(50 + index, "outside-window"))];
+  const fake = client(all, allRuns);
+  const api = {
+    ...fake.api,
+    async call<R>(op: string, raw: unknown): Promise<R> {
+      if (op === HomeOps.runs && (raw as { turns?: string[] })?.turns) return { runs: [], hasMore: false } as R;
+      return fake.api.call<R>(op, raw);
+    },
+  };
+  const store = new HomeChannelsStore(api as never);
+  const stop = store.subscribe(() => {});
+  try {
+    await store.start();
+    await waitForReport(store);
+    expect(fake.calls.some((call) => call.op === HomeOps.runs && call.params.beforeStartedAt !== undefined)).toBe(true);
+    expect(store.runs.forReply(reply)?.steps[0]?.text).toBe("[a1] report");
+  } finally {
+    stop();
+  }
+});
+
+test("a failed unversioned read retries on a later history page but not repeated card loads", async () => {
+  const all = Array.from({ length: 130 }, (_, index) => message(index + 1));
+  const allRuns: Run[] = [];
+  const fake = client(all, allRuns);
+  let attempts = 0;
+  const api = {
+    ...fake.api,
+    async call<R>(op: string, raw: unknown): Promise<R> {
+      if (op === HomeOps.run && ++attempts === 1) throw new Error("temporary owner disconnect");
+      return fake.api.call<R>(op, raw);
+    },
+  };
+  const store = new HomeChannelsStore(api as never);
+  const stop = store.subscribe(() => {});
+  try {
+    await store.start();
+    const summary = { ...run(1, "m1"), rev: 0 };
+    allRuns.push(summary);
+    await store.loadRunSteps(summary);
+    await store.loadRunSteps(summary);
+    expect(attempts).toBe(1);
+    await store.loadOlder();
+    await waitForReport(store);
+    expect(attempts).toBe(2);
+  } finally {
+    stop();
+  }
+});

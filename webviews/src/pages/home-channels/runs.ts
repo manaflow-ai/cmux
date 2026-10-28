@@ -161,7 +161,9 @@ export class RunBook {
   /** Summaries the owner listed: kept steps stay; a newer summary replaces an older one. */
   setRuns(runs: readonly HomeRun[]): void {
     let changed = false;
-    for (const run of runs) changed = this.put(run, [], false) || changed;
+    // Some Cloud owners expose neither revision nor update time. Only a fresh summary lookup
+    // invalidates those cached steps; live events and repeated card loads do not trigger retries.
+    for (const run of runs) changed = this.put(run, [], false, run.rev === 0 && run.updatedAt === 0) || changed;
     if (changed) this.bump();
   }
 
@@ -177,7 +179,7 @@ export class RunBook {
     if (changed) this.bump();
   }
 
-  private put(run: HomeRun, steps: readonly HomeRunStep[], complete: boolean): boolean {
+  private put(run: HomeRun, steps: readonly HomeRunStep[], complete: boolean, invalidateComplete = false): boolean {
     const key = this.key(run.conversation, run.author, run.id);
     const current = this.runs.get(key);
     const newer = !current || newerRun(run, current.run);
@@ -187,10 +189,18 @@ export class RunBook {
       const held = merged.get(step.id);
       if (!held || newerStep(step, held)) merged.set(step.id, step);
     }
+    const latest = newer ? run : current!.run;
+    // A summary can advance an existing step without changing the step count. Only a full read
+    // of this revision can make it complete again; Cloud summaries without rev use updatedAt.
+    const unchanged =
+      !invalidateComplete &&
+      current !== undefined &&
+      latest.rev === current.run.rev &&
+      latest.updatedAt === current.run.updatedAt;
     const entry: RunEntry = {
-      run: newer ? run : current!.run,
+      run: latest,
       steps: [...merged.values()].sort((a, b) => a.seq - b.seq),
-      complete: ((current?.complete ?? false) || complete) && merged.size >= (newer ? run : current!.run).stepCount,
+      complete: (((current?.complete ?? false) && unchanged) || (complete && newer)) && merged.size >= latest.stepCount,
       hasMessages: (current?.hasMessages ?? false) || steps.some((step) => stepMessage(step) !== undefined),
     };
     this.runs.set(key, entry);
