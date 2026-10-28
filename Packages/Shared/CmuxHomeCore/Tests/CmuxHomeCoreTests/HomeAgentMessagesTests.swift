@@ -131,6 +131,17 @@ struct HomeAgentMessagesTests {
         #expect(rows.map(\.plainText) == ["question", "[agent_mux → a1]\nplease check", "[a1 → agent_mux]\nchecked", "done"])
     }
 
+    @Test func reportFragmentsWithTheSameTimestampKeepTheirStepSequence() {
+        var book = HomeAgentMessages()
+        let fragments = (0..<12).reversed().map { index in
+            HomeAgentRun.Message(id: "report:a1:\(index)", sequence: UInt64(index + 1), revision: 1,
+                                 peer: "a1", outgoing: false, text: "fragment \(index)", date: date)
+        }
+        _ = book.apply(run(revision: 1, messages: fragments))
+        let rows = book.inserting(into: [question()], summary: nil)
+        #expect(rows.dropFirst().map(\.plainText) == (0..<12).map { "[a1 → agent_mux]\nfragment \($0)" })
+    }
+
     @MainActor @Test func closeCancelsHydrationAndRejectsLateReports() async {
         let store = HomeStore(source: MockHomeSource(options: .immediate))
         store.start()
