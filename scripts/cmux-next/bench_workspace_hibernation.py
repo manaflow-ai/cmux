@@ -203,6 +203,13 @@ def run(argv: list[str]) -> int:
         report["made"] = len(made)
         time.sleep(45)  # test script: pages load and freeze, the app settles
         awake = phase(pid, bundle, sock, "awake", len(made), report)
+        phases = (surfaces(sock).get("hibernation") or {}).get("page_phases") or {}
+        counted = {}
+        for entry in made:
+            name = phases.get(entry["page"], "gone")
+            counted[name] = counted.get(name, 0) + 1
+        report["page_phases_before"] = counted
+        print(f"PERF-WSHIB-PAGE-PHASES before={json.dumps(counted)}", flush=True)
         started = time.monotonic()
         refused = 0
         for entry in made:
