@@ -149,6 +149,33 @@ test("a recording made in another chat is not attached to the one the pane shows
   root = undefined;
 });
 
+test("a short recording made in another chat waits in that chat's draft; a long one is not kept there", async () => {
+  const { keepRecordingWithChat } = await import("../src/agent-session/acpmux/composer/keptAttachments");
+  const drafts = new Map<string, unknown[]>([["chat-a", [{ id: "typed", kind: "text", name: "notes.txt" }]]]);
+  const kept = {
+    read: async (session: string) => (drafts.get(session) ?? []) as never[],
+    write: async (session: string, chips: unknown[]) => {
+      drafts.set(session, chips);
+      return null;
+    },
+  };
+  expect(await keepRecordingWithChat({ ...clip, session: "chat-a" }, "Voice recording", "chat-a", kept)).toBe(true);
+  expect(drafts.get("chat-a")).toMatchObject([{ id: "typed" }, { kind: "audio", data: clip.data }]);
+  expect(drafts.has("chat-b")).toBe(false);
+  const long = {
+    mimeType: "audio/wav",
+    path: "/tmp/cmux-dictation/a/Recording.wav",
+    byteCount: 9_600_044,
+    session: "chat-a",
+  };
+  expect(await keepRecordingWithChat(long, "Voice recording", "chat-a", kept)).toBe(false);
+  expect(drafts.get("chat-a")).toHaveLength(2);
+  const { translate } = await import("../src/agent-session/acpmux/i18n");
+  expect(translate(recordingLeftOutNotice("otherChat"), {}, "en")).toBe(
+    "This voice recording was made in another chat, so it wasn't attached here.",
+  );
+});
+
 test("a cancelled session attaches nothing", async () => {
   const { deliverDictation } = await import("../src/agent-session/acpmux/dictation");
   const pane = await mount(true);

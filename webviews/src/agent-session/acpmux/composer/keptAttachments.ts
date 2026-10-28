@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { ComposerAttachment } from "../attachments";
+import { type ComposerAttachment, recordingAttachment } from "../attachments";
+import type { DictationRecording } from "../dictationText";
+import { appendAttachments } from "./attachmentIntake";
 import { holdWebSwap } from "../../../pages/shared/webSwap";
 
 /// Where the host keeps each chat's unsent chips (AgentPaneDraftAttachments.swift), so reopening
@@ -214,3 +216,24 @@ export function useKeptAttachments(
 }
 
 const signature = (chips: readonly ComposerAttachment[]) => chips.map((chip) => chip.id).join("\n");
+
+/// A recording that closed after the pane moved on from chat `session`, the chat it was made in. It
+/// is never attached to the chat the pane shows (an auto-send there would send it to the wrong chat).
+/// One that fits a prompt (an audio block, readable by any chat) joins that chat's kept chips, so
+/// it is back with that chat's draft; a long one's file stays on this Mac, where that chat's own
+/// upload may not reach it. Answers whether it was kept.
+export async function keepRecordingWithChat(
+  audio: DictationRecording,
+  name: string,
+  session: string,
+  kept: KeptAttachments | undefined,
+): Promise<boolean> {
+  const clip = audio.path ? undefined : recordingAttachment(audio, name, false);
+  if (!clip || !kept) return false;
+  try {
+    await kept.write(session, appendAttachments(await kept.read(session).catch(() => []), [clip]));
+    return true;
+  } catch {
+    return false;
+  }
+}

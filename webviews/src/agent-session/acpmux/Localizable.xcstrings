@@ -21778,6 +21778,138 @@
         }
       }
     },
+    "dictation.recordingOtherChat": {
+      "comment": "Agent pane: notice when a dictation recording finished after the pane moved to another chat; it is not attached to the chat now shown (a short one is kept with the chat it was made in)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم إنشاء هذا التسجيل الصوتي في دردشة أخرى، لذا لم يُرفق هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj glasovni snimak napravljen je u drugom razgovoru, pa nije priložen ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne stemmeoptagelse blev lavet i en anden chat, så den blev ikke vedhæftet her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Sprachaufnahme wurde in einem anderen Chat gemacht und wurde daher hier nicht angehängt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This voice recording was made in another chat, so it wasn't attached here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta grabación de voz se hizo en otro chat, así que no se adjuntó aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cet enregistrement vocal a été fait dans une autre discussion : il n’a pas été joint ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa registrazione vocale è stata fatta in un'altra chat, quindi non è stata allegata qui."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この音声録音は別のチャットで作成されたため、ここには添付されませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការថតសំឡេងនេះត្រូវបានធ្វើនៅក្នុងការជជែកផ្សេង ដូច្នេះវាមិនត្រូវបានភ្ជាប់នៅទីនេះទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 음성 녹음은 다른 채팅에서 만들어져 여기에 첨부되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dette taleopptaket ble laget i en annen chat, så det ble ikke lagt ved her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "To nagranie głosowe powstało w innym czacie, więc nie zostało tu załączone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta gravação de voz foi feita em outro chat, então não foi anexada aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта голосовая запись сделана в другом чате, поэтому она не прикреплена здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เสียงที่อัดไว้นี้ถูกสร้างในแชตอื่น จึงไม่ได้แนบไว้ที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ses kaydı başka bir sohbette yapıldı, bu yüzden buraya eklenmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей голосовий запис зроблено в іншому чаті, тому його не прикріплено тут."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản ghi âm này được tạo trong một cuộc trò chuyện khác, nên không được đính kèm ở đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此语音录音是在另一个聊天中录制的，因此未附加到这里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此語音錄音是在另一個聊天中錄製的，因此未附加到這裡。"
+          }
+        }
+      }
+    },
     "dictation.recordingTooLong": {
       "comment": "Agent pane: notice when a dictation session's audio is left out because it ran past two minutes or past the size cap",
       "extractionState": "manual",

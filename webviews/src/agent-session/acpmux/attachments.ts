@@ -653,8 +653,9 @@ export async function remoteRecordingAttachment(
 /// host's inline clip), its file stays on this Mac for a chat that runs elsewhere, or the host could
 /// not save it (`writeFailed`: a full disk, a folder it cannot write).
 export function recordingLeftOutNotice(
-  reason: "tooLong" | "tooLarge" | "narrowband" | "elsewhere" | "writeFailed",
+  reason: "tooLong" | "tooLarge" | "narrowband" | "elsewhere" | "writeFailed" | "otherChat",
 ): StringKey {
+  if (reason === "otherChat") return "dictation.recordingOtherChat";
   if (reason === "elsewhere") return "dictation.recordingElsewhere";
   if (reason === "writeFailed") return "dictation.recordingNotSaved";
   return reason === "narrowband" ? "dictation.recordingNarrowband" : "dictation.recordingTooLong";

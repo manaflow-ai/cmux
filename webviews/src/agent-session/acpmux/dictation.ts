@@ -118,6 +118,10 @@ export function useDictation(
   attachAudio.current = audio?.attach;
   const omitAudio = useRef(audio?.omitted);
   omitAudio.current = audio?.omitted;
+  const shownChat = useRef(audio?.chat);
+  shownChat.current = audio?.chat;
+  const audioElsewhere = useRef(audio?.elsewhere);
+  audioElsewhere.current = audio?.elsewhere;
   const acceptsAudio = audio?.accepts === true;
   /// A session that ends after the chat moved to a harness without audio keeps its words only.
   const acceptsAudioNow = useRef(acceptsAudio);
@@ -150,7 +154,12 @@ export function useDictation(
       applied = isActive(update.state) ? update : null;
       // The recording joins the composer before the words do, so an auto-send takes both.
       if (update.state === "idle" && !update.cancelled && acceptsAudioNow.current) {
-        if (update.audio) attachAudio.current?.(update.audio);
+        // A recording made in a chat the pane has left (it closed after the switch) is that chat's:
+        // never attached here, where an auto-send would send it to the wrong chat.
+        const madeIn = update.audio?.session;
+        if (update.audio && madeIn !== undefined && shownChat.current && madeIn !== shownChat.current())
+          audioElsewhere.current?.(update.audio, madeIn);
+        else if (update.audio) attachAudio.current?.(update.audio);
         else if (update.audioOmitted) omitAudio.current?.(update.audioOmitted);
       }
       // A session the shortcut started writes where the user will type, as undoable edits.

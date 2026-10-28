@@ -252,7 +252,11 @@ final class AgentPaneDictation {
 
     /// One of the session's updates, for the page. A long recording on it is issued to `chat`, the
     /// chat its session was started in (``recordingChat``), whatever the pane shows now.
+    /// The recording names that chat too (`audio.session` on the page), so the page attaches it only
+    /// while it shows that chat.
     func deliver(_ update: DictationUpdate, recordedIn chat: String?) {
+        var update = update
+        update.audio?.chat = chat
         if let file = update.audio?.file {
             issued.append((file, chat))
             if issued.count > Self.issuedRecordingLimit { issued.removeFirst(issued.count - Self.issuedRecordingLimit) }

@@ -135,7 +135,7 @@ import {
   recordingLeftOutNotice,
   remoteRecordingAttachment,
 } from "./attachments";
-import type { KeptAttachments } from "./composer/keptAttachments";
+import { type KeptAttachments, keepRecordingWithChat } from "./composer/keptAttachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
@@ -6592,6 +6592,14 @@ function AcpmuxPane() {
       }
     },
     omitted: (reason) => directClient.current?.notice(translate(recordingLeftOutNotice(reason))),
+    // A recording that closed after the pane moved to another chat is the chat's it was made in:
+    // never attached here (auto-send would send it to this chat). A short one waits in that chat's
+    // draft; either way this chat says it was not attached.
+    chat: () => sessionIdRef.current,
+    elsewhere: (audio, session) => {
+      directClient.current?.notice(translate(recordingLeftOutNotice("otherChat")));
+      void keepRecordingWithChat(audio, translate("dictation.recording"), session, keptAttachments);
+    },
   });
   /// Why the host could not hand this pane acpmux (not installed, a daemon that will not start),
   /// in the host's words; cleared once a handshake succeeds.
