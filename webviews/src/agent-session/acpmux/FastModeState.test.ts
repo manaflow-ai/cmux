@@ -6,6 +6,7 @@ test("tiered Fast mode treats every non-off tier as on and toggles to off", () =
   expect(fastModeIsOn(option)).toBe(true);
   expect(nextFastModeValue(option)).toBe("off");
   expect(nextFastModeValue({ ...option, currentValue: "off" }, "ultrafast")).toBe("ultrafast");
+  expect(nextFastModeValue({ ...option, currentValue: "off" }, "ultrafast", ["off", "fast"])).toBe("fast");
 });
 
 test("an unset Fast mode is off and toggles to its first on value", () => {

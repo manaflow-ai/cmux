@@ -1515,7 +1515,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   type="button"
                   className={`acpmux-mp-fast ${modelRow} ${rowFill(false)} justify-between`}
                   aria-pressed={fastModeIsOn(fastMode)}
-                  onClick={() => fastMode.onPick(nextFastModeValue(fastMode, fastMode.lastOnValue))}
+                  onClick={() => fastMode.onPick(nextFastModeValue(fastMode, fastMode.lastOnValue, fastMode.values))}
                 >
                   <span>{fastMode.name}</span>
                   <span className="text-detail text-dim">

@@ -14,7 +14,7 @@ import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
 import type { SpeedSection } from "./EffortPicker";
 import { pendingSpeed } from "./pendingSpeed";
-import { fastModeIsOn } from "./fastModeState";
+import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker, pickerFaceHarness } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
@@ -425,6 +425,7 @@ export function ComposerPickers({
           offValue: fastOff.value,
           onLabel: fastOn.name ?? fastOn.value,
           offLabel: fastOff.name ?? fastOff.value,
+          values: fastOption.options.map((option) => option.value),
           lastOnValue:
             fastOption.currentValue && fastOption.currentValue !== fastOff.value ? fastOption.currentValue : undefined,
           onPick: (value: string) => onEffort(fastOption.id, value),
@@ -902,11 +903,7 @@ export function ComposerPickers({
           checked: fastModeIsOn(fastMode),
           onChange: (on) =>
             fastMode.onPick(
-              on
-                ? fastMode.currentValue && fastMode.currentValue !== fastMode.offValue
-                  ? fastMode.currentValue
-                  : (lastFastValue.current ?? fastMode.onValue)
-                : fastMode.offValue,
+              on ? nextFastModeValue(fastMode, lastFastValue.current, fastMode.values) : fastMode.offValue,
             ),
         }
       : undefined;

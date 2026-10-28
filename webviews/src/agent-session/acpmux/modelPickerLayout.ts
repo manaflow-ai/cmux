@@ -41,6 +41,7 @@ export type ModelPickerProps = {
     onLabel: string;
     offLabel: string;
     lastOnValue?: string;
+    values?: readonly string[];
     onPick(value: string): void;
   };
   /** Refreshes the host-backed model catalog; the host owns transport and live events. */
