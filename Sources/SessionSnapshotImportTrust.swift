@@ -395,7 +395,7 @@ enum SessionSnapshotImportTrust {
             }
         }
         let result = results.last ?? fallbackLayout()
-        guard result.isEmpty else { return result.layout }
+        guard result.isEmpty else { return result }
         let fallback = unusedFallbackPanelIDs()
         return BoundedLayoutResult(
             layout: .pane(SessionPaneLayoutSnapshot(
