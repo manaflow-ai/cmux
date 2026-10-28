@@ -17,6 +17,9 @@ let package = Package(
     products: [
         .library(name: "CmuxConversationCore", targets: ["CmuxConversationCore"]),
         .library(name: "CmuxConversationUI", targets: ["CmuxConversationUI"]),
+        // The bubble outline alone (CoreGraphics), for surfaces that draw a
+        // transcript without the chat UI (the notification content extension).
+        .library(name: "CmuxConversationGeometry", targets: ["CmuxConversationGeometry"]),
         .library(name: "CmuxConversationMacUI", targets: ["CmuxConversationMacUI"]),
     ],
     targets: [

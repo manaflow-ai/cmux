@@ -796,6 +796,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_no_github_hosted_macos.py
 
+      - name: Validate runs-on label resolution stays on Blacksmith Linux
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_runs_on_labels.py
+
       - name: Validate agent pane frame pacing summary
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_frame_pacing_summary.py

@@ -27,6 +27,43 @@ public struct PushOutbox: Sendable {
 
     func file(_ id: UUID) -> URL { directory.appendingPathComponent("\(id.uuidString).json") }
 
+    /// What the long look's "+" picked for one notification, waiting for its
+    /// Reply (the system text field), which the app delegate receives.
+    var staged: URL { directory.appendingPathComponent("staged", isDirectory: true) }
+
+    func stagedFile(_ requestID: String) -> URL {
+        let key = Data(requestID.utf8).base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "=", with: "")
+        return staged.appendingPathComponent(String(key.prefix(200)) + ".json")
+    }
+
+    /// Stages `names` (files in `attachments`) for the notification `requestID`; none clears it.
+    public func stage(_ names: [String], for requestID: String) throws {
+        let url = stagedFile(requestID)
+        guard !names.isEmpty else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        try FileManager.default.createDirectory(at: staged, withIntermediateDirectories: true)
+        try JSONEncoder().encode(names).write(to: url, options: Data.WritingOptions.pushFile)
+    }
+
+    /// Takes what was staged for `requestID`: plain file names that still exist,
+    /// while fresh (`maxAge`); nothing when another process took it first.
+    public func takeStaged(for requestID: String, now: Date = Date()) -> [String] {
+        let url = stagedFile(requestID)
+        let claimed = staged.appendingPathComponent(UUID().uuidString + ".taken")
+        guard (try? FileManager.default.moveItem(at: url, to: claimed)) != nil else { return [] }
+        defer { try? FileManager.default.removeItem(at: claimed) }
+        let date = (try? claimed.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+        guard now.timeIntervalSince(date) < Self.maxAge,
+              let names = (try? Data(contentsOf: claimed)).flatMap({ try? JSONDecoder().decode([String].self, from: $0) }) else { return [] }
+        return names.filter { name in
+            (name as NSString).lastPathComponent == name && !name.hasPrefix(".")
+                && FileManager.default.fileExists(atPath: attachments.appendingPathComponent(name).path)
+        }
+    }
+
     public struct Refused: Error, Equatable, Sendable {}
 
     /// Queues `reply` for the app. Text into a terminal is refused: the outbox
@@ -76,13 +113,32 @@ public struct PushOutbox: Sendable {
         }
     }
 
-    /// Deletes attachments older than `maxAge` (their reply expired unsent).
+    /// Brings a picked file into `attachments` as `name` (moved when `move`, else
+    /// copied) and dates it now: a copy or a move keeps the original's date, and
+    /// `pruneAttachments` ages files by it, so a document last edited days ago
+    /// would be pruned before its reply is sent.
+    public func adopt(_ source: URL, as name: String, move: Bool, now: Date = Date()) throws {
+        guard (name as NSString).lastPathComponent == name, !name.hasPrefix(".") else { throw Refused() }
+        try FileManager.default.createDirectory(at: attachments, withIntermediateDirectories: true)
+        let target = attachments.appendingPathComponent(name)
+        if move {
+            try FileManager.default.moveItem(at: source, to: target)
+        } else {
+            try FileManager.default.copyItem(at: source, to: target)
+        }
+        try FileManager.default.setAttributes([.modificationDate: now], ofItemAtPath: target.path)
+    }
+
+    /// Deletes attachments, and stages of notifications never replied to, older
+    /// than `maxAge` (their reply expired unsent).
     public func pruneAttachments(now: Date = Date()) {
         let keys: [URLResourceKey] = [.contentModificationDateKey]
-        guard let files = try? FileManager.default.contentsOfDirectory(at: attachments, includingPropertiesForKeys: keys) else { return }
-        for url in files {
-            let date = (try? url.resourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast
-            if now.timeIntervalSince(date) >= Self.maxAge { try? FileManager.default.removeItem(at: url) }
+        for folder in [attachments, staged] {
+            guard let files = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys) else { continue }
+            for url in files {
+                let date = (try? url.resourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast
+                if now.timeIntervalSince(date) >= Self.maxAge { try? FileManager.default.removeItem(at: url) }
+            }
         }
     }
 
@@ -146,16 +202,23 @@ public struct PushSnapshot: Codable, Sendable, Equatable {
         }
     }
 
+    /// The `session` key of a Mac's Chief conversation (its pushes carry the
+    /// turn's session, not the conversation).
+    public static let chiefSession = "chief"
+
     public var mac: String
     public var session: String
     public var title: String?
+    /// Chief's avatar text (an emoji or initials), as Home and the chat draw it.
+    public var avatar: String?
     public var messages: [Message]
     public var updatedAt: Date
 
-    public init(mac: String, session: String, title: String? = nil, messages: [Message], updatedAt: Date = Date()) {
+    public init(mac: String, session: String, title: String? = nil, avatar: String? = nil, messages: [Message], updatedAt: Date = Date()) {
         self.mac = mac
         self.session = session
         self.title = title
+        self.avatar = avatar
         self.messages = messages
         self.updatedAt = updatedAt
     }
@@ -189,7 +252,8 @@ public struct PushSnapshotStore: Sendable {
         snapshot.messages = snapshot.messages.suffix(Self.maxMessages).map {
             PushSnapshot.Message(role: $0.role, text: String($0.text.prefix(Self.maxCharacters)))
         }
-        if let old = load(mac: snapshot.mac, session: snapshot.session), old.messages == snapshot.messages, old.title == snapshot.title { return }
+        if let old = load(mac: snapshot.mac, session: snapshot.session), old.messages == snapshot.messages, old.title == snapshot.title,
+           old.avatar == snapshot.avatar { return }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try JSONEncoder().encode(snapshot).write(to: file(mac: snapshot.mac, session: snapshot.session),
