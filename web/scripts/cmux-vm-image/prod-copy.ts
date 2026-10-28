@@ -1,0 +1,108 @@
+/**
+ * The production copy of a dev image: what cloud-vm-image-bake.yml (mode prod-copy) bakes and
+ * cloud-vm-image-promote.yml (channel production) promotes. Freestyle snapshots belong to one
+ * account, so production boots its own copy, baked on the production account from the same lock
+ * with the same flags and recorded as names.production on the dev image's history entry
+ * (promote-record.ts --production-copy; scripts/cmux-next/release/promote-lib.ts reads it).
+ *
+ * Usage (from web/):
+ *   bun scripts/cmux-vm-image/prod-copy.ts plan --dev-snapshot <sh-id>
+ *     Prints `FLAGS --prod-copy [--agent-tools] [--team-vm]` and `VAR <var>` for bake.ts. Refuses an
+ *     entry that is not a PASSED CI bake, one whose lock differs from this checkout's lock, a dev tree
+ *     bake, an unknown flag, and an entry that already records names.production. No provider access.
+ *   bun scripts/cmux-vm-image/prod-copy.ts account-check
+ *     Refuses a dev account key (FREESTYLE_API_KEY or FREESTYLE_API_KEY_FILE): a key that resolves the
+ *     dev channel's snapshot name to its recorded id is the dev account's. Read-only, one GET.
+ */
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { SNAPSHOT_ID } from "./cleanup";
+import { argValue, freestyleApiKey } from "./guest";
+import { lockDigest } from "./lock";
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+const DEV = "images/cmux-vm/channels/dev.json";
+const LOCK = "images/cmux-vm/inputs.lock.json";
+/** bake.ts flags a production copy may repeat; --dev-tree and anything else is refused. */
+const COPYABLE = ["--agent-tools", "--team-vm"] as const;
+
+type Json = Record<string, unknown>;
+export type CopyPlan = { flags: string[]; var: "CLOUD_FREESTYLE_SNAPSHOT" | "TEAM_VM_SNAPSHOT"; lockSha256: string };
+
+const readDev = (root: string): Json => JSON.parse(readFileSync(path.join(root, DEV), "utf8")) as Json;
+
+/** The bake.ts flags a CI candidate recorded: `images/cmux-vm/bake.ts --a --b (CI run N)`. */
+export function recordedFlags(bake: unknown): string[] | undefined {
+  if (typeof bake !== "string") return undefined;
+  const m = bake.match(/^images\/cmux-vm\/bake\.ts((?: --[a-z-]+)*) \(CI run [0-9]+\)$/);
+  return m ? m[1]!.split(" ").filter(Boolean) : undefined;
+}
+
+/** Throws unless the dev history entry can be copied to production; returns the copy's bake flags. */
+export function planCopy(root: string, devSnapshot: string): CopyPlan {
+  if (!SNAPSHOT_ID.test(devSnapshot)) throw new Error(`--dev-snapshot ${JSON.stringify(devSnapshot)} is not a snapshot id`);
+  const history = readDev(root).history;
+  if (!Array.isArray(history)) throw new Error(`${DEV} has no history array`);
+  const entry = (history as Json[]).find((h) => h.snapshot_id === devSnapshot);
+  if (!entry) throw new Error(`${devSnapshot} is not in ${DEV} history; only a recorded dev image gets a production copy`);
+  const flags = recordedFlags(entry.bake);
+  const lock = lockDigest(readFileSync(path.join(root, LOCK), "utf8"));
+  const v = entry.var;
+  const names = entry.names as Json | undefined;
+  const problems = [
+    (entry.smoke as Json | undefined)?.result !== "PASSED" && `its smoke is ${JSON.stringify((entry.smoke as Json | undefined)?.result)}, not "PASSED"`,
+    typeof entry.run !== "number" && "it is not a CI bake (no run recorded)",
+    !flags && `its bake ${JSON.stringify(entry.bake)} is not a CI bake record`,
+    flags?.includes("--dev-tree") && "it is a dev tree bake (dev snapshots only)",
+    flags?.some((f) => !(COPYABLE as readonly string[]).includes(f)) && `its bake flags ${flags.join(" ")} are not all copyable (${COPYABLE.join(", ")})`,
+    v !== "CLOUD_FREESTYLE_SNAPSHOT" && v !== "TEAM_VM_SNAPSHOT" && `its var ${JSON.stringify(v)} is not CLOUD_FREESTYLE_SNAPSHOT or TEAM_VM_SNAPSHOT`,
+    flags && (v === "TEAM_VM_SNAPSHOT") !== flags.includes("--team-vm") && `its var ${String(v)} and its bake flags disagree about --team-vm`,
+    entry.lock_sha256 !== lock && `its lock_sha256 ${JSON.stringify(entry.lock_sha256)} is not this checkout's ${LOCK} (${lock}): the copy would bake other inputs`,
+    names?.production !== undefined && "it already records names.production",
+  ].filter((p): p is string => typeof p === "string");
+  if (problems.length) throw new Error(`refusing a production copy of ${devSnapshot}: ${problems.join("; ")}`);
+  return { flags: ["--prod-copy", ...flags!], var: v as CopyPlan["var"], lockSha256: lock };
+}
+
+/** Throws when `resolve` (one account's view) finds the dev channel's snapshot under its recorded id: that is the dev key. */
+export async function accountCheck(root: string, resolve: (name: string) => Promise<string | undefined>): Promise<string> {
+  const dev = readDev(root);
+  const name = dev.snapshot;
+  const id = dev.snapshot_id;
+  if (typeof name !== "string" || !/^cmuxnp-dev-vmimg-[a-z0-9-]+$/.test(name) || typeof id !== "string" || !SNAPSHOT_ID.test(id)) {
+    throw new Error(`${DEV} has no dev snapshot name and id to check the key against; refusing`);
+  }
+  if ((await resolve(name)) === id) throw new Error(`the Freestyle key resolves the dev channel's ${name} to ${id}: it is the dev account's key, not production's; refusing`);
+  return `account check passed: ${name} is not ${id} on this account`;
+}
+
+/** `GET /v5/snapshots/{slug}`: the id, or undefined on 404. The key is read here and never printed. */
+export async function freestyleResolve(name: string, env: Record<string, string | undefined> = process.env): Promise<string | undefined> {
+  const key = freestyleApiKey(env);
+  const base = env.FREESTYLE_API_URL?.trim() || "https://api.freestyle.sh";
+  const response = await fetch(`${base}/v5/snapshots/${encodeURIComponent(name)}`, { headers: { authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(20_000) });
+  if (response.status === 404) return undefined;
+  if (!response.ok) throw new Error(`Freestyle GET /v5/snapshots/${name}: HTTP ${response.status}`);
+  return ((await response.json()) as { id?: string }).id;
+}
+
+// Bun-only `import.meta.main` is not in TypeScript's ImportMeta type (promote-record.ts).
+if (process.argv[1] !== undefined && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const command = process.argv[2];
+  try {
+    if (command === "plan") {
+      const plan = planCopy(REPO_ROOT, argValue("--dev-snapshot") ?? "");
+      console.log(`FLAGS ${plan.flags.join(" ")}`);
+      console.log(`VAR ${plan.var}`);
+    } else if (command === "account-check") {
+      console.log(await accountCheck(REPO_ROOT, (name) => freestyleResolve(name)));
+    } else {
+      console.error("usage: prod-copy.ts plan --dev-snapshot <sh-id> | account-check");
+      process.exit(2);
+    }
+  } catch (error) {
+    console.error(`prod-copy: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+}
