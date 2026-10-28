@@ -5,7 +5,9 @@ extension ChromiumPageHostBridge {
     /// microtask checkpoint as one call (a JSON array of several, up to ``maximumPostCharacters``):
     /// on the page channel when `channelEvent` is set and its relay takes the post, else on the
     /// binding, which the document then keeps, so its posts stay in order. Posts made before either
-    /// exists wait in the page and go out once one does. Ends with ``pushReceiverScript``.
+    /// exists wait in the page, never on a timer and never dropped: they leave when the binding arrives (V8's
+    /// `Runtime.addBinding` sets the global, which a setter here sees) or when the relay fires
+    /// ``readyEvent(for:)``, and with the next post in any case. Ends with ``pushReceiverScript``.
     ///
     /// - Parameters:
     ///   - handlers: Extra handler names whose messages need no reply.
@@ -14,6 +16,7 @@ extension ChromiumPageHostBridge {
         let names = ([PageHostTrust.handlerName] + handlers).map(ChromiumPageHostWire.jsonString).joined(separator: ", ")
         let replying = ChromiumPageHostWire.jsonString(PageHostTrust.handlerName)
         let event = channelEvent.map(ChromiumPageHostWire.jsonString) ?? "null"
+        let readyEvent = channelEvent.map { ChromiumPageHostWire.jsonString(readyEvent(for: $0)) } ?? "null"
         return """
         (() => {
           if (globalThis.__cmuxPageHostInstalled) return;
@@ -29,7 +32,6 @@ extension ChromiumPageHostBridge {
           const pending = new Map();
           const queue = [];
           let next = 1;
-          let retries = 0;
           let waiting = false;
           let bindingUsed = false;
           const viaChannel = (text) => channelEvent !== null && !bindingUsed
@@ -52,18 +54,35 @@ extension ChromiumPageHostBridge {
             }
             return true;
           };
-          const drain = () => {
-            if (flush() || ++retries > 400) { waiting = false; return; }
-            setTimeout(drain, 5);
-          };
+          // One drain per task: a post queues it at the task's microtask checkpoint, a transport's arrival runs it
+          // at once. A drain that finds no transport leaves the queue as it is; the next arrival or post drains it.
+          const drain = () => { waiting = false; flush(); };
           const send = (text) => {
             queue.push(text);
             if (waiting) return;
             waiting = true;
-            retries = 0;
             // At the task's microtask checkpoint (a promise reaction where `queueMicrotask` is missing).
             if (typeof queueMicrotask === "function") queueMicrotask(drain); else Promise.resolve().then(drain);
           };
+          // The binding's arrival: V8's Runtime.addBinding installs it with a Set on the global, which this
+          // setter sees; it puts the function back as a plain property and drains. A binding there already needs
+          // none.
+          if (typeof globalThis.\(bindingName) !== "function") {
+            try {
+              Object.defineProperty(globalThis, "\(bindingName)", {
+                configurable: true,
+                get() { return undefined; },
+                set(fn) {
+                  Object.defineProperty(globalThis, "\(bindingName)", { value: fn, writable: true, configurable: true, enumerable: true });
+                  if (queue.length) flush();
+                },
+              });
+            } catch (_) {}
+          }
+          // The relay's arrival: it fires its ready event once it listens.
+          if (\(readyEvent) !== null && typeof document !== "undefined") {
+            document.addEventListener(\(readyEvent), () => { if (queue.length) flush(); });
+          }
           const resolve = (seq, reply, from) => {
             if (from !== undefined && from !== doc) return;
             const done = pending.get(seq);

@@ -158,6 +158,7 @@ nonisolated struct CEFDocumentScripts: Equatable, Sendable {
           event.preventDefault();
           event.stopImmediatePropagation();
         }, true);
+        document.dispatchEvent(new Event('\(pageHostReadyEvent)'));
         """
     }
 
