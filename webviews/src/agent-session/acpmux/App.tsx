@@ -2546,14 +2546,26 @@ export function VirtualTranscript({
             // A late size change (a font loading) must not paint a frame of overlap first. Sizes
             // that did not change render nothing: a synchronous render here for nothing was the
             // "ResizeObserver loop completed with undelivered notifications" while streaming.
-            // A disclosure's height animation already changed this frame's layout. Place the
-            // rows below that one before paint too, or their old tops overlap its growing body.
-            // Only a row whose disclosure is moving gets this synchronous path; token
-            // resizes keep React's normal batch instead of forcing a commit for every chunk.
-            if (changesDrawn(drawnRef.current, pendingDrawn.current)) {
-              if (targets.some(heightFoldInFlight)) flushSync(flushDrawn);
-              else flushDrawn();
-            } else pendingDrawn.current = new Map();
+            // While the view follows the latest row the rows are placed before paint, and measured
+            // again after each render until they hold: that render also commits a streaming reply's
+            // next reveal step, which the observer (a target at the same depth once a frame) would
+            // report a frame late. The observer fires only when a row's size changes (a streaming
+            // reply: once a new line, not once a chunk). Batched (#24602), the render landed after
+            // the paint whenever the main thread was busy: the frame drew the reply a line taller
+            // over the live line under it, and the view a line short (agent-pane-stream-jitter's
+            // settle, 23px on the CI runner). A reader scrolled up keeps the batch; a disclosure's
+            // height animation is placed before paint too, or the rows below overlap its body.
+            if (!changesDrawn(drawnRef.current, pendingDrawn.current)) pendingDrawn.current = new Map();
+            else if (followingRef.current || targets.some(heightFoldInFlight)) {
+              for (let pass = 0; pass < 3; pass += 1) {
+                if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
+                  pendingDrawn.current = new Map();
+                  break;
+                }
+                acpmuxPerf.timed("flush.drawn", () => flushSync(flushDrawn));
+                measure();
+              }
+            } else flushDrawn();
           }),
     [reportDrawn, flushDrawn],
   );
