@@ -174,7 +174,9 @@ extension SidebarListViewComponents {
         let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
         // Without motion the rows that leave park first (as they would after the loop), so the rows that
         // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
-        if !animate, !adopting {
+        // RowMotion also snaps when sidebar movement is disabled (Reduce Motion or the sidebar switch),
+        // even though `animate` is true. Park leaving views before that snap realizes replacements too.
+        if (!animate || !Motion.sidebar.animatesMovement), !adopting {
             // An animated apply removes a leaving row from `rowViews` but keeps it in the list until its
             // close finishes. A no-motion reload can arrive before that completion and otherwise leave the
             // old, still-visible row's spring running beside a newly realized row for the same key.

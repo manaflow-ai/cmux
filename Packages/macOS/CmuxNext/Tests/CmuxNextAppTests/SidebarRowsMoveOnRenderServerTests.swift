@@ -248,6 +248,27 @@ struct SidebarRowsMoveOnRenderServerTests {
         #expect(list.rowViews.values.allSatisfy { $0.closingEnd == nil }, "a returned row still belongs to its earlier close")
     }
 
+    /// Reduce Motion takes RowMotion's snap branch while `reload(animated:)` still reports an animated apply.
+    /// The leaving row must be recycled before the same key is realized again in that effective snap path.
+    @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
+        await SidebarInsertWhileDisplayAsleepTests.animatesHere()
+    })
+    func reduceMotionReloadRecyclesAClosingRowBeforeReusingItsKey() throws {
+        let (model, list, _, restore) = try Self.sidebar(Self.grouped((1...8).map { "w\($0)" }))
+        defer { restore() }
+        model.sections = Self.grouped(["new"] + (1...7).map { "w\($0)" })
+        list.reload(animated: true)
+        try #require(!Self.springing(list).isEmpty, "the first change did not start a row move")
+
+        Motion.reduceMotionOverride = true
+        model.sections = Self.grouped(["new"] + (1...8).map { "w\($0)" })
+        list.reload(animated: true)
+
+        #expect(Self.springing(list).isEmpty, "still springing after Reduce Motion snap: \(Self.springing(list))")
+        #expect(Self.offSlot(list).isEmpty, "not at slots after Reduce Motion snap: \(Self.offSlot(list))")
+        #expect(list.rowViews.values.allSatisfy { $0.closingEnd == nil }, "a returned row still belongs to its earlier close")
+    }
+
     /// Reduce Motion turned on mid-move: the next change snaps, the earlier move's springs with it.
     @Test(.enabled("needs an awake display and animations on, or every insert snaps anyway") {
         await SidebarInsertWhileDisplayAsleepTests.animatesHere()
