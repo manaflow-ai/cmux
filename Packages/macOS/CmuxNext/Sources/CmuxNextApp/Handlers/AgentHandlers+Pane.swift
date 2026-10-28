@@ -70,6 +70,11 @@ extension AgentHandlers {
             return .failure(ActionWorkFailure(refusal: .unavailable, reason: WorkspaceVerbStrings.machineNotConnected))
         }
         var routed = invocation
+        if case .local = destination.route {
+            let local = invocation.target.map { AgentChatPlacement.resolve($0, services: context.services)?.daemon.isLocal == true }
+                ?? context.services.activeDaemon.isLocal
+            guard local else { return .failure(ActionWorkFailure(refusal: .unavailable, reason: WorkspaceVerbStrings.noMachine)) }
+        }
         if case .peer(let peer) = destination.route {
             // A peer does not need a cmux workspace daemon. The tab stays in the requested
             // local pane while the Environment picker's chat.new path starts it on the peer.
@@ -120,7 +125,16 @@ extension AgentHandlers {
                       let session = services.machines.session(machine) else {
                     return .failure(ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected))
                 }
-                try await CloudHandlers.attached(session, invocation)
+                let account = services.cloud.account
+                if session.daemon.connection == nil { session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
+                let connected = await CloudMove.holds(within: CloudStartSession.connectWait) {
+                    session.resumeFailure != nil || (session.daemon.connection != nil && AgentTabStore.registryHost(of: session.daemon) != nil)
+                }
+                guard connected, session.resumeFailure == nil, services.cloud.account == account,
+                      services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines,
+                      services.machines.session(machine) === session else {
+                    return .failure(ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected))
+                }
                 let anchor: (id: String, pane: PaneModel)
                 if let target = invocation.target {
                     guard let placement = AgentChatPlacement.resolve(target, services: services),
@@ -133,14 +147,17 @@ extension AgentHandlers {
                     anchor = (first.id, first.pane)
                 }
                 var requested = seed(for: invocation)
+                if let workspace = session.daemon.store.workspaces.first(where: { $0.id == anchor.id }) {
+                    requested.cwd = AgentChatPlacement(pane: anchor.pane, workspace: workspace, daemon: session.daemon).cwd(requested.cwd)
+                }
                 // This tab's native remote host already routes to the Cloud machine. It must not
                 // also ask that machine's acpmux for a peer of the same name.
                 requested.host = nil
                 let pending = try services.agentTabs.open(in: anchor.pane.handle, of: session.daemon,
                                                           seed: AgentPaneSeedSource(requested))
                 let created = try await pending.value()
-                if invocation.allowsViewChange, let controller = services.paneController(for: anchor.pane) {
-                    controller.selectWhenReported(surface: created.surface)
+                if invocation.allowsViewChange {
+                    CloudHandlers.reveal(created.surface, in: anchor.pane, workspaceID: anchor.id, context)
                 }
                 return .success(["tab": .string(created.key), "pane": .string(anchor.pane.resourceID?.rawValue ?? anchor.pane.id),
                                  "workspace": .string(anchor.id)])

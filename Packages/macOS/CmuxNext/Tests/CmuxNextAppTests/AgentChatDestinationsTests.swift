@@ -10,7 +10,7 @@ import Testing
 @MainActor @Suite
 struct AgentChatDestinationsTests {
     static var source: AgentChatDestinations {
-        AgentChatDestinations(peers: {
+        AgentChatDestinations(localTitle: "This Mac", peers: {
             [AgentChatPeer(name: "dev-box", isSSH: true, connected: true, state: "connected"),
              AgentChatPeer(name: "build-box", isSSH: true, connected: true, state: "reconnecting"),
              AgentChatPeer(name: "cloud-peer", isSSH: false, connected: true, state: "connected")]
@@ -63,7 +63,7 @@ struct AgentChatDestinationsTests {
     }
 
     @Test func signingOutDropsTheAccountInventory() {
-        let rows = AgentChatDestinations.rows(peers: [], cloud: .init(signedIn: false, loaded: true,
+        let rows = AgentChatDestinations.rows(localTitle: "This Mac", peers: [], cloud: .init(signedIn: false, loaded: true,
             machines: [.init(id: "old-account", name: "Old account", stage: "ready")]))
         #expect(rows.map(\.id) == ["local"])
     }
