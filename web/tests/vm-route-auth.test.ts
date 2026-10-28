@@ -1112,14 +1112,37 @@ describe("VM REST auth", () => {
       new Request("https://cmux.test/api/vm", {
         method: "POST",
         headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", autosize: { taskKind: "chat" } }),
+        body: JSON.stringify({ provider: "freestyle", kind: "base", autosize: { taskKind: "chat" } }),
       }),
     );
 
     expect(response.status).toBe(200);
     const body = await response.json() as { sizePick?: { vcpus: number; memoryGb: number; pick: string; reason: string } };
     expect(body.sizePick).toEqual({ vcpus: 2, memoryGb: 4, pick: "sm", reason: "2 vCPU · 4 GB, picked for agent turns" });
-    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 4096 }));
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 4096, imageSize: expect.objectContaining({ name: "sm" }) }));
+  });
+
+  test("an explicit image keeps its own shape: no pick", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-autosize-image",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", autosize: { taskKind: "build", repo: { rootFiles: ["Cargo.toml"] } } }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { sizePick?: unknown }).sizePick).toBeUndefined();
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 8192 }));
   });
 
   test("autosize with a GPU is refused even beside an explicit memory size", async () => {

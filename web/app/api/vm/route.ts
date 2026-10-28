@@ -515,7 +515,7 @@ export async function POST(request: Request): Promise<Response> {
         // resize shape are separate contracts even when they currently match.
         ...createResourceFields(created.resourceReservation),
         ...(attach ? { attach } : {}),
-        ...sizePickFields(memory.pick, memoryMb),
+        ...sizePickFields(memory.pick, imageSelection.size),
       });
     },
   );
@@ -523,8 +523,8 @@ export async function POST(request: Request): Promise<Response> {
 
 /**
  * The size of a machine for a handed-off task (`autosize`), when the caller
- * sent no `memoryMb` (which stays the override) and the provider sizes its
- * machines. Measured runs are not recorded yet, so a pick reads the task and
+ * sent no `memoryMb` or `image` (which stay the override) and the provider
+ * sizes its machines. Measured runs are not recorded yet, so a pick reads the task and
  * the repo only.
  */
 function resolveCreateAutosize(
@@ -537,7 +537,8 @@ function resolveCreateAutosize(
   if (request === null || typeof request === "string") return { ok: true, pick: null };
   // A GPU is refused whatever else the request says: no machine would have one.
   if (request.gpu) return { ok: false, response: autosizeRefusalResponse("gpu_unavailable", "No cloud machine has a GPU yet.") };
-  if (candidate.memoryMb !== undefined || !vmCapabilitiesFor(provider).sizing) return { ok: true, pick: null };
+  // An explicit size or image is the caller's shape (an image boots at its own snapshot's size).
+  if (candidate.memoryMb !== undefined || candidate.image !== undefined || !vmCapabilitiesFor(provider).sizing) return { ok: true, pick: null };
   const result = pickMachineSize({
     taskKind: request.taskKind,
     repo: request.repo,
@@ -579,9 +580,9 @@ async function resolveCreateSize(
   return memory.ok ? { ...memory, pick: autosize.pick } : memory;
 }
 
-/** The auto-size pick in the hand-off's size fields; only when the server picked the size the machine got. */
-function sizePickFields(pick: AutosizePick | null, memoryMb: number) {
-  if (!pick || pick.size.memoryMb !== memoryMb) return {};
+/** The auto-size pick in the hand-off's size fields; only when the machine boots at the picked shape's snapshot. */
+function sizePickFields(pick: AutosizePick | null, booted: { readonly name: string } | null | undefined) {
+  if (!pick || booted?.name !== pick.pick) return {};
   return { sizePick: { vcpus: pick.vcpus, memoryGb: pick.memoryGb, pick: pick.pick, reason: pick.reason } };
 }
 

@@ -573,7 +573,8 @@ the ladder (`images/sizes.ts`) that the plan allows and that covers the task's m
 disk, with the fleet's grants (`TASK_NEEDS`) until the repo has measured runs, then p95 of their
 peaks plus 20%. The answer carries `sizePick: {vcpus, memoryGb, pick, reason}`, the hand-off's
 size fields (`backend/apps/api/src/handoffs`), e.g. reason "8 vCPU · 16 GB, picked for a Swift
-build". `memoryMb` stays the override; a provider without `sizing` gets no pick; `gpu` is refused
+build". `memoryMb` and `image` stay the override (an image boots at its own snapshot's size); a provider
+without `sizing` gets no pick; `gpu` is refused
 (`vm_gpu_unavailable`) until a provider has one.
 
 ## TLS edge: port previews and credential injection
