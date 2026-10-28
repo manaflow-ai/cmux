@@ -11,10 +11,11 @@
 use crate::agent_host::{self, sweep};
 use crate::cli::output::print_json;
 use crate::clock::{Clock, TokioClock};
+use crate::config::{Config, WebSocketConfig};
 use crate::daemon::connect;
 use crate::rpc::method;
 use anyhow::{Result, anyhow};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::time::Duration;
 
 /// How long a host left after the daemon exited gets between SIGTERM and
@@ -27,6 +28,13 @@ pub(crate) async fn run(end_agents: bool, json_out: bool) -> Result<()> {
 
 /// Stop and start the daemon while keeping hosted agents for handoff.
 pub(crate) async fn restart(json_out: bool) -> Result<()> {
+    // A daemon started with `--listen`/`--token` keeps those values only in
+    // memory for that run. Save the effective listener before stopping it so
+    // the detached start below reconnects to the same endpoint and token.
+    let client = connect(false).await?;
+    let status = client.request(method::MUX_STATUS, json!({})).await?;
+    preserve_restart_listener(&status)?;
+    drop(client);
     run_on(&*TokioClock::new(), false, json_out, true).await?;
     let client = crate::daemon::connect(true).await?;
     let status = client.request(method::MUX_STATUS, json!({})).await?;
@@ -39,6 +47,34 @@ pub(crate) async fn restart(json_out: bool) -> Result<()> {
         );
     }
     Ok(())
+}
+
+fn preserve_restart_listener(status: &Value) -> Result<()> {
+    let Some(listen) = status.get("listen").and_then(Value::as_str) else {
+        return Ok(());
+    };
+    let token = status
+        .get("webUrl")
+        .and_then(Value::as_str)
+        .and_then(|url| reqwest::Url::parse(url).ok())
+        .and_then(|url| {
+            url.query_pairs()
+                .find(|(key, _)| key == "token")
+                .map(|(_, value)| value.into_owned())
+        });
+    let mut config = Config::load()?;
+    let websocket = config.websocket.get_or_insert_with(|| WebSocketConfig {
+        listen: listen.to_owned(),
+        token: None,
+        allowed_origins: Vec::new(),
+        allowed_hosts: Vec::new(),
+        token_rotated: 0,
+    });
+    websocket.listen = listen.to_owned();
+    if let Some(token) = token {
+        websocket.token = Some(token);
+    }
+    config.save().map_err(|e| anyhow!("preserve daemon listener settings for restart: {e:#}"))
 }
 
 async fn run_on(clock: &dyn Clock, end_agents: bool, json_out: bool, quiet: bool) -> Result<()> {
