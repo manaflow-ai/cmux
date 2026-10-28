@@ -196,7 +196,11 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
         (window as unknown as { popupCalls: { method: string; params: { highlighted?: string } }[] }).popupCalls.at(-1)
           ?.params.highlighted === above,
       // The row above the last, past its separator.
-      String(items.findLastIndex((item, index) => index < items.length - 1 && !item.separator && !item.disabled)),
+      String(
+        items
+          .map((item, index) => (index < items.length - 1 && !item.separator && !item.disabled ? index : -1))
+          .reduce((last, index) => Math.max(last, index), -1),
+      ),
     );
     // Insert Mention picked in the host: its @ lands in the prompt, the panel ends.
     const mention = String(items.findIndex((item) => item.label === "Insert Mention"));
@@ -238,7 +242,7 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     const rows = await page.locator(`${list} [role=option]`).count();
     const calls = await popupCalls(page);
     expect(calls.find((call) => call.method === "popup.show")?.params).toMatchObject({ kind: "list", side });
-    const show = calls.findLast((call) => call.method === "popup.show" || call.method === "popup.update");
+    const show = calls.filter((call) => call.method === "popup.show" || call.method === "popup.update").at(-1);
     expect(show?.params.items as unknown[] | undefined).toHaveLength(rows);
     expect(rows).toBeGreaterThan(1);
     // The field keeps the keyboard; the host's highlight follows the arrows to the page's row.
