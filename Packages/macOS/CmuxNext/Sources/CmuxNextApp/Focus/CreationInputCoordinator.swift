@@ -7,7 +7,7 @@ import CmuxNextTerminal
 /// right after Cmd-D or Ctrl-` went to the old pane or tab: focus moves to the new one only after
 /// the reply, and the optimistic split's swap to the daemon's pane remounts its view. Every
 /// key-down of the window waits here, in order, until each creation resolved (its reply, or its
-/// failure: the request timeout is the only bound), the focus each one asked for landed or was
+/// failure: the request timeout, or for a shown pane its late-reply budget, is the only bound), the focus each one asked for landed or was
 /// replaced, and the focused terminal's view has the keyboard; then the keys run again through
 /// `NSApplication.sendEvent`, as typed (the key router, key equivalents and the menu included).
 ///
