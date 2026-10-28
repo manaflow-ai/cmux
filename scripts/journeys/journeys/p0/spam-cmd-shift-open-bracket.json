@@ -1,0 +1,161 @@
+{
+ "id": "spam-cmd-shift-open-bracket",
+ "priority": "P0",
+ "title": "Cmd-Shift-[ hammered and held moves the selection exactly once per press or repeat",
+ "why": "Tab cycling under key repeat must never skip, double or run on after the key-up.",
+ "source": "shortcut spam (handoff/input-principles.md, hold-shortcuts-ux.md, repeat-runoff.md 1; Lawrence 2026-10-28)",
+ "budget_seconds": 180,
+ "steps": [
+  {
+   "do": "new_terminal",
+   "via": "key",
+   "name": "jr-cmd-shift-open-bracket",
+   "as": "first"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "repeat": 4,
+   "gap": 0.2,
+   "mark": "tabs"
+  },
+  {
+   "do": "expect",
+   "title": "4 more terminal tabs in the pane",
+   "since": "tabs",
+   "timeout": 30,
+   "all": [
+    {
+     "daemon_pane_ready": {
+      "tabs": 5
+     }
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "spam_remember",
+   "as": "before-hammer"
+  },
+  {
+   "do": "hammer_key",
+   "key": "{",
+   "modifiers": [
+    "cmd"
+   ],
+   "presses": 20,
+   "within": 1.0,
+   "as": "hammered"
+  },
+  {
+   "do": "expect",
+   "title": "20 presses of Cmd-Shift-[ in 1 s moved the selection 20 tabs",
+   "since": "hammered",
+   "within": 1,
+   "timeout": 10,
+   "all": [
+    {
+     "spam_selected": {
+      "from": "before-hammer",
+      "by": -20
+     }
+    },
+    {
+     "spam_runs": {
+      "of": "hammered",
+      "ran": 20
+     }
+    }
+   ]
+  },
+  {
+   "do": "spam_remember",
+   "as": "before-hold"
+  },
+  {
+   "do": "hold_key",
+   "key": "{",
+   "modifiers": [
+    "cmd"
+   ],
+   "seconds": 2,
+   "as": "held"
+  },
+  {
+   "do": "expect",
+   "title": "held Cmd-Shift-[: one step per repeat that ran",
+   "since": "held",
+   "timeout": 10,
+   "all": [
+    {
+     "spam_selected": {
+      "from": "before-hold",
+      "by_runs": "held",
+      "sign": -1
+     }
+    }
+   ]
+  },
+  {
+   "do": "expect",
+   "title": "the selection stopped when Cmd-Shift-[ went up",
+   "since": "held",
+   "timeout": 5,
+   "settle": 1.5,
+   "all": [
+    {
+     "spam_unchanged": {
+      "since": "held_release"
+     }
+    }
+   ]
+  },
+  {
+   "do": "outwait_hold"
+  },
+  {
+   "do": "key",
+   "key": "`",
+   "modifiers": [
+    "control"
+   ],
+   "mark": "after"
+  },
+  {
+   "do": "focused_terminal",
+   "as": "after"
+  },
+  {
+   "do": "neutral_prompt"
+  },
+  {
+   "do": "type",
+   "text": "echo after-${nonce}-$((6*7))",
+   "enter": true,
+   "mark": "typed"
+  },
+  {
+   "do": "expect",
+   "title": "after the spam a new terminal answers, in the daemon and on screen",
+   "since": "typed",
+   "within": 3,
+   "timeout": 10,
+   "all": [
+    {
+     "daemon_line": "after-${nonce}-42"
+    },
+    {
+     "frame_text": "after-${nonce}-42"
+    }
+   ]
+  }
+ ]
+}

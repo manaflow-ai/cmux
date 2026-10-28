@@ -206,6 +206,17 @@ pane and tab changes since a mark), `window_unchanged` (negative: every other wi
 same page, workspace, rows, panes, tabs, focused pane and frame), `windows_open`, `windows_show`.
 The file's docstring has every field.
 
+`ext_spam.py` (group shortcut-spam, `journeys/p0/spam-*.json`) holds a shortcut down and hammers it (handoff
+input-principles.md, hold-shortcuts-ux.md, repeat-runoff.md). Keys go out on the system's schedule, one thread
+each, stamped with their scheduled time, so a main thread that falls behind sees a queue of old repeats as with a
+real held key; `debug.key {repeat: true}` sends an auto-repeat (the app's repeat gate reads that key as down).
+Steps: `spam_remember`, `hold_key` (one press, repeats every 33 ms from 250 ms, then the key is up; keeps the counts
+one frame after the key-up as `AS_release`), `hammer_key` (N physical presses within T seconds). Conditions:
+`spam_counts` (tabs, panes, the focused pane's tabs, workspaces against a remembered count, by a delta or by the
+runs a hold reported), `spam_unchanged` (negative: nothing changed after the key-up, with `settle`),
+`spam_selected` (the selection moved N places, for Ctrl-Tab and Cmd-Shift-[ ]), `spam_runs`. The docstring has
+every field. The 10x slow-motion clips need the Motion Inspector (cp/motion-inspector-N) in the build.
+
 `ext_window.py` (group window-pane-resize) adds pointer and window steps. Drags go through
 `debug.mouse`: a press, one drag event per 60 Hz frame with the button held, a release, so
 AppKit's live-resize tracking or the layout's divider drag reads them as it reads a person's drag.
