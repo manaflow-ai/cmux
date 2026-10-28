@@ -67,7 +67,9 @@ impl RemoteRows {
             .iter()
             .filter(|(_, r)| r.peer == peer && r.summary["status"] != "closed")
             .filter(|(_, r)| {
-                r.summary["stale"] != true || r.summary["lastSeen"] != json!(last_seen)
+                r.summary["status"] != "unreachable"
+                    || r.summary["stale"] != true
+                    || r.summary["lastSeen"] != json!(last_seen)
             })
             .map(|(k, _)| k.clone())
             .collect();
