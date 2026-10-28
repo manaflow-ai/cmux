@@ -1255,6 +1255,7 @@ impl Brain {
                 self.next_wake(),
                 self.next_unanswered_due(),
                 self.next_reply_due(),
+                self.next_outcome_due(),
             ]
             .into_iter()
             .flatten()
@@ -1266,6 +1267,7 @@ impl Brain {
                         self.on_timer();
                         self.fire_wakes_at(now_ms());
                         self.fire_reply_checks_at(now_ms());
+                        self.fire_outcome_checks_at(now_ms());
                         let now = (self.clock)();
                         self.deny_overdue_permissions_at(now);
                         continue;
