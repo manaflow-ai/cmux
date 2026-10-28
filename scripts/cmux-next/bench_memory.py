@@ -455,15 +455,22 @@ def tail(path: str, lines: int = 20) -> str:
     return ("\napp output:\n" + "\n".join(text)) if text else ""
 
 
-def exception_records(home: str) -> str:
-    """The app's own record of the exception it died on (AppRunMarker's `run.exception`), which
-    lives in the scratch HOME that a failed launch deletes: printed so the run says why."""
-    import glob
-    out = ""
-    for path in glob.glob(os.path.join(home, "Library", "Application Support", "cmux-next", "*", "run.exception")):
-        with open(path, errors="replace") as handle:
-            out += f"\n--- {path}\n{handle.read()[:4000]}"
-    return out
+def exception_records(bundle: str, since: float) -> str:
+    """The app's own record of the exception it died on (AppRunMarker's `run.exception`), written
+    since `since`. The app reads the account's real home (`homeDirectoryForCurrentUser`), not the
+    scratch HOME, so it is under ~/Library/Application Support/cmux-next/<bundle id>/."""
+    import pwd
+    try:
+        with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+            bundle_id = plistlib.load(handle).get("CFBundleIdentifier", "")
+    except OSError:
+        return ""
+    real_home = pwd.getpwuid(os.getuid()).pw_dir
+    path = os.path.join(real_home, "Library", "Application Support", "cmux-next", bundle_id, "run.exception")
+    if not bundle_id or not os.path.exists(path) or os.path.getmtime(path) < since:
+        return ""
+    with open(path, errors="replace") as handle:
+        return f"\n--- {path}\n{handle.read()[:4000]}"
 
 
 def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: bool | None = None):
@@ -502,6 +509,7 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as handle:
         json.dump(merged({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, config), handle)
     log_path = os.path.join(scratch, "app.log")
+    launched_at = time.time()
     if direct:
         env.setdefault("CMUX_NEXT_TEST_WINDOW_FRAME", "40,40,1400,900")
         with open(log_path, "a") as log:
@@ -533,7 +541,7 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
             ended = f"; the app process {child.pid} still runs, as {next((cmd for p, _, cmd in process_table() if p == child.pid), '?')[:200]!r}"
         raise SystemExit(f"bench-memory: the launched app opened no socket within 90 s "
                          f"(app pid {pid or 'none: it did not start'}{ended}; {state}: {seen}; "
-                         f"launch {'direct' if direct else 'open'})" + tail(log_path) + exception_records(home))
+                         f"launch {'direct' if direct else 'open'})" + tail(log_path) + exception_records(bundle, launched_at))
     except BaseException:
         end_bundle(bundle)
         shutil.rmtree(scratch, ignore_errors=True)
