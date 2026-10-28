@@ -115,6 +115,7 @@ pub(crate) fn stop_running() {
 fn lock_released_within(bound: Duration) -> bool {
     let Ok(Some(file)) = open_lock(false) else { return true };
     let (tx, rx) = mpsc::channel();
+    // supervise-allow: one-shot helper whose result comes back on a channel; a panic drops the sender, so the caller's wait ends with an error.
     std::thread::spawn(move || {
         let _ = tx.send(file.lock().is_ok());
     });
@@ -198,6 +199,7 @@ pub(crate) fn spawn_detached(exe: &Path) -> anyhow::Result<u32> {
 #[cfg(unix)]
 fn wait_ready(reader: std::io::PipeReader, log: &Path) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel();
+    // supervise-allow: one-shot helper whose result comes back on a channel; a panic drops the sender, so the caller's wait ends with an error.
     std::thread::spawn(move || {
         let mut line = String::new();
         let _ = std::io::BufRead::read_line(&mut std::io::BufReader::new(reader), &mut line);
