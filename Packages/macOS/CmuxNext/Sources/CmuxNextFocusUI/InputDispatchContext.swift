@@ -43,9 +43,16 @@ public final class InputDispatchContext {
         var expectsFrame = false
         /// The `expectsFrame` this discrete input last reported; nil before it reported.
         var reported: Bool?
+        /// Names this dispatch of `event` (``dispatchSerial``); a nested dispatch of the same event keeps it.
+        var serial: UInt64 = 0
     }
 
     private var stack: [Dispatch] = []
+    private var nextSerial: UInt64 = 0
+    /// The dispatch in progress, one number per dispatch of an event: a nested dispatch of the same event (the key
+    /// router's own inside `sendEvent`) has its outer one's, the same event dispatched again later (a replay) a new
+    /// one. Nil between dispatches.
+    public var dispatchSerial: UInt64? { stack.last?.serial }
     /// The inputs ``answering(input:_:)`` hands in, innermost last.
     private var answered: [TimeInterval] = []
     /// Discrete dispatches on ``stack``: while there is one, ``nestedRunLoopObserver`` is on the main run loop.
@@ -175,7 +182,9 @@ public final class InputDispatchContext {
         let isScroll = event.type == .scrollWheel
         if isScroll { scrollFrames.begin(phase: scrollFramePhase(of: event), eventTimestamp: event.timestamp) }
         let isDiscrete = Self.isDiscreteInput(event.type) && stack.last?.event !== event
-        stack.append(Dispatch(event: event, isScroll: isScroll, isDiscrete: isDiscrete))
+        let serial: UInt64
+        if let outer = stack.last, outer.event === event { serial = outer.serial } else { nextSerial &+= 1; serial = nextSerial }
+        stack.append(Dispatch(event: event, isScroll: isScroll, isDiscrete: isDiscrete, serial: serial))
         if isDiscrete { watchNestedRunLoops(opening: true) }
         defer { endDispatch() }
         return try body()

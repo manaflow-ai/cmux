@@ -43,6 +43,9 @@ extension ActionRegistry {
     /// inside its timing (`ActionRegistry+Preview`).
     private func performNow(_ id: ActionID, invocation: ActionInvocation, settle: () -> Void) -> Bool {
         if disabledFeature(for: id) != nil { return false }
+        // A key repeat after its key went up, or behind a newer repeat, runs nothing (`repeatGate`, any entrypoint).
+        if let repeatGate, invocation.origin == .user, let event = dispatchingInputEvent(), event.type == .keyDown, event.isARepeat,
+           !repeatGate(event) { return false }
         if let route = keyWindowRoute?(canonicalID(for: id), invocation) {
             guard case .run = route else { return route.perform { refuse($0) } }
             // A route run of an id nothing bound (rare) interns it here, once.

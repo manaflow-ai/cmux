@@ -6,6 +6,7 @@ import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextTerminal
 import CmuxNextFocus
+import CmuxNextInput
 import CmuxNextWakeups
 import CmuxNextPages
 import CmuxNextLaunch
@@ -59,6 +60,10 @@ final class KeyRouter: BrowserKeyRouting {
     let inputDispatch: InputDispatchContext
     /// The key whose binding runs now: a tab switch's or a pane focus move's input stage reads it.
     let keyInput = KeyInputScope()
+    /// Drops key repeats that would run a shortcut's action after the key went up, or as a backlog (``KeyRepeatGate``).
+    var repeats = KeyRepeatGate()
+    /// The repeat gate's last answer (``admitsRepeat(_:)``).
+    private var lastRepeatAnswer: (event: NSEvent, serial: UInt64?, admitted: Bool)?
     /// Notes what happens to the key `debug.key` dispatches (nil otherwise).
     var trace: ((String) -> Void)?
     /// The leader's which-key overlay, shown while Cmd-J waits.
@@ -337,6 +342,20 @@ final class KeyRouter: BrowserKeyRouting {
         // The key's own time starts a pane focus move's or a tab switch's input stage, as for a chord.
         keyInput.handling(input: event.timestamp) { run(candidate, context: context, window: controller.state.id) }
         return true
+    }
+
+    /// `ActionRegistry.repeatGate`: whether `event`, a repeat key-down about to run a person's action, may run it
+    /// (``KeyRepeatGate``). One dispatch asks once: a nested run in it (an action that performs another) gets the same
+    /// answer; the same event dispatched again later (a held key's replay) is a new dispatch and asks again.
+    func admitsRepeat(_ event: NSEvent) -> Bool {
+        let serial = inputDispatch.dispatchSerial
+        if let last = lastRepeatAnswer, last.event === event, last.serial == serial { return last.admitted }
+        let screen = NSApp.window(withWindowNumber: event.windowNumber)?.screen
+        let frame = 1 / Double(max(screen?.maximumFramesPerSecond ?? 60, 1))
+        let admitted = repeats.admits(event, frame: frame)
+        if !admitted { trace?("repeat gate: a key repeat after the key-up or behind a newer repeat runs nothing") }
+        lastRepeatAnswer = (event, serial, admitted)
+        return admitted
     }
 
     func run(_ candidate: Candidate, context: KeyContext, window: String) {

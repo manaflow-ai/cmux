@@ -93,7 +93,16 @@ enum DebugKey {
         // The client's send time when it sent `timestamp` (the probe counts the socket lane and the main-thread
         // wait, as a real key's wait in the event queue), else now; the reply returns the injection time too.
         let time = InjectedKeyTime(params: params)
-        guard let event = keyDown(press, at: time, windowNumber: window.windowNumber) else { return .object(["error": .string("bad key")]) }
+        // `repeat`: an auto-repeat of the key, which a journey or bench holds down. A slot has no physical key, so the
+        // repeat gate reads this key as held from its first repeat until `{up: true}` (its age and frame rules still
+        // apply), including a replay of a held repeat after this request returned.
+        if params["up"]?.boolValue == true {
+            services.keyRouter.repeats.held.remove(press.keyCode)
+            return .object(["up": .bool(true), "key_code": JSONValue(Int(press.keyCode))])
+        }
+        let isRepeat = params["repeat"]?.boolValue == true
+        guard let event = keyDown(press, at: time, windowNumber: window.windowNumber, isRepeat: isRepeat) else { return .object(["error": .string("bad key")]) }
+        if isRepeat { services.keyRouter.repeats.held.insert(event.keyCode) }
         // `dry_run`: what the key router would do with this key in the shell window's focus, run
         // nothing (shortcut sweeps: every app shortcut routes while a page has the keyboard).
         // Only the router's decision: no chord sequences, intercepts or focus-kind checks.
@@ -189,6 +198,10 @@ enum DebugKey {
         if handledBy == "app", let interception = services.keyRouter.lastInterception {
             report.merge(verdict(interception)) { _, new in new }
         }
+        // The repeat gate's drops so far (journeys and the shortcut-spam bench count runs per repeat).
+        let dropped = services.keyRouter.repeats.dropped
+        report["repeats_dropped"] = .object(["released": JSONValue(dropped.released), "stale": JSONValue(dropped.stale),
+                                             "same_frame": JSONValue(dropped.sameFrame)])
         return .object(report)
     }
 
@@ -224,10 +237,10 @@ enum DebugKey {
     /// The key-down `debug.key` dispatches for `press`, stamped with `time`'s event timestamp (the
     /// client's send time when the request had one, else the main thread's injection time).
     static func keyDown(_ press: (characters: String, keyCode: UInt16, flags: NSEvent.ModifierFlags), at time: InjectedKeyTime,
-                        windowNumber: Int) -> NSEvent? {
+                        windowNumber: Int, isRepeat: Bool = false) -> NSEvent? {
         NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: press.flags, timestamp: time.eventTimestamp,
                          windowNumber: windowNumber, context: nil, characters: press.characters,
-                         charactersIgnoringModifiers: press.characters, isARepeat: false, keyCode: press.keyCode)
+                         charactersIgnoringModifiers: press.characters, isARepeat: isRepeat, keyCode: press.keyCode)
     }
 
     /// One key's key-equivalent work (`key_equivalents`): where the window offered it (the focused surface
