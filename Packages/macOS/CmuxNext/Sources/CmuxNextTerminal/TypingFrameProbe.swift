@@ -130,6 +130,7 @@ enum TypingFrameProbe {
                 }
             }
             if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.contents(layer: ObjectIdentifier(layer)) }
+            TerminalShowRecord.layerGotFrame(layer, contents: contents, gate: gate)
         }
     }
     #endif
