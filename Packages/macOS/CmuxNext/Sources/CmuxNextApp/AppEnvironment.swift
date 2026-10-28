@@ -17,6 +17,8 @@ struct AppEnvironment: Sendable {
     let noActivate: Bool
     /// DEBUG showcase profile requested by `--showcase` or `CMUX_NEXT_SHOWCASE=1`.
     let showcase: Bool
+    /// Offline fixture used only by DEBUG capture launches.
+    let authCaptureFixture: Bool
     /// A PR capture slot's neutral shell home (``captureShellHome(_:)``): this run is under capture, so its
     /// terminals start their shells with that folder's rc files and its panes name the showcase Mac.
     var captureShellHome: String?
@@ -98,14 +100,18 @@ struct AppEnvironment: Sendable {
         let noActivate = environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
 #if DEBUG
         let showcase = environment["CMUX_NEXT_SHOWCASE"] == "1" || ProcessInfo.processInfo.arguments.contains("--showcase")
+        let authCaptureFixture = environment["CMUX_NEXT_AUTH_CAPTURE_FIXTURE"] == "1"
+            || ProcessInfo.processInfo.arguments.contains("--auth-capture-fixture")
 #else
         let showcase = false
+        let authCaptureFixture = false
 #endif
         let launch = LaunchIdentity.current()
         return AppEnvironment(
             launch: launch,
             noActivate: noActivate,
             showcase: showcase,
+            authCaptureFixture: authCaptureFixture,
             captureShellHome: captureShellHome(environment),
             testWindow: TestWindowPlacement.parse(environment, noActivate: noActivate),
             terminalEnvironment: terminalEnvironment(launch: launch, environment: environment).merging(openFiles?.childEnvironment ?? [:]) { $1 },
