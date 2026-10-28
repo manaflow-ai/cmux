@@ -141,7 +141,10 @@ const callText = (command: string) =>
 /// must scan the same executed command text or they will disagree about URLs from `if false` arms.
 const executedShellText = (command: string): string =>
   callText(command)
-    .replace(/\bif\s+false\b([\s\S]*?)\bfi\b/g, (_, body: string) => body.match(/\belse\b([\s\S]*)/)?.[1] ?? "")
+    .replace(
+      /\bif\s+false\b([\s\S]*?)\bfi\b/g,
+      (_, body: string) => body.match(/\b(?:else|elif)\b([\s\S]*)/)?.[1] ?? "",
+    )
     .replace(/\btrue\s*\|\|\s*([^;&|\n]+)/g, "true")
     .replace(/\bfalse\s*\|\|\s*/g, "")
     .replace(/\btrue\s*&&\s*/g, "")
