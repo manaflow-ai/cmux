@@ -129,6 +129,7 @@ enum DebugPages {
                 // Why a page may not paint: no window, a hidden view, or a window macOS reports
                 // as occluded (WebKit stops rendering updates for an occluded window).
                 members["in_window"] = .bool(page.window != nil)
+                // visibility-walk-allow: debug.page reports the view's own AppKit hidden state, the fact a node cannot show
                 members["view_hidden"] = .bool(page.isHiddenOrHasHiddenAncestor)
                 members["window_visible"] = .bool(page.window?.isVisible ?? false)
                 members["window_occluded"] = .bool(!(page.window?.occlusionState.contains(.visible) ?? false))
