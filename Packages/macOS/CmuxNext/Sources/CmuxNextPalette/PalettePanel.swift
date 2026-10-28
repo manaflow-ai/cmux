@@ -24,7 +24,8 @@ final class PalettePanel: ActiveAppKeyPanel {
         hasShadow = false
         isFloatingPanel = true
         level = .floating
-        hidesOnDeactivate = true
+        // Capture-only fixture: isolated capture slots intentionally never activate.
+        hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = false
         isMovable = false
         animationBehavior = .none
