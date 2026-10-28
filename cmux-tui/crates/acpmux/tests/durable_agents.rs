@@ -6,6 +6,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "durable_agents/retry_restore.rs"]
+mod retry_restore;
 #[path = "durable_agents/grant_cleared.rs"]
 mod grant_cleared;
 #[path = "durable_agents/idle_adopted.rs"]
