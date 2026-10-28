@@ -55,6 +55,8 @@ let package = Package(
             .library(name: "CmuxTerminalClientKit", targets: ["CmuxTerminalClientKit"]),
             .library(name: "CmuxTerminalClientModel", targets: ["CmuxTerminalClientModel"]),
         ],
+    // The FFI target keeps its shared state in CmuxSafeConcurrency's Mutex.
+    dependencies: modelOnly ? [] : [.package(path: "../CmuxSafeConcurrency")],
     targets: [
         // Pure Swift: result decoding and request shaping, testable without
         // the binary.
@@ -73,7 +75,11 @@ let package = Package(
             // The Swift face of the C ABI.
             .target(
                 name: "CmuxTerminalClientKit",
-                dependencies: ["CmuxTerminalClientModel", "CmuxTerminalClientFFI"],
+                dependencies: [
+                    "CmuxTerminalClientModel",
+                    "CmuxTerminalClientFFI",
+                    .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+                ],
                 swiftSettings: swiftSettings,
                 // What the static library needs from the system: Network for
                 // iroh's netdev backend (nw_*), CoreFoundation and

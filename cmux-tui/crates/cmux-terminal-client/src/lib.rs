@@ -101,6 +101,16 @@ pub struct CmuxWireGuardNet {
     net: Arc<WgNet>,
 }
 
+// The Swift wrappers (Packages/Shared/CmuxTerminalClient, TerminalClient.swift) call one handle from
+// several threads at once: every entry point but disconnect and free takes it as `&Self`, so both types
+// must be Sync, and those two move it to a teardown thread, so both must be Send. The Swift side's
+// `@unchecked Sendable` handle rests on this; the compiler holds it here.
+const _: () = {
+    const fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<CmuxTerminalClient>();
+    assert_send_sync::<CmuxWireGuardNet>();
+};
+
 /// Raw terminal output delivered to an embedding renderer instead of being
 /// decoded into text frames here.
 ///

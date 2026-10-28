@@ -1,5 +1,6 @@
 public import CmuxTerminalClientModel
 internal import CmuxTerminalClientFFI
+internal import CmuxSafeConcurrency
 public import Foundation
 import Dispatch
 
@@ -13,10 +14,19 @@ public enum TerminalClientError: Error, Sendable, CustomStringConvertible {
     }
 }
 
+/// A native handle (`CmuxTerminalClient *` or `CmuxWireGuardNet *`) that any
+/// thread may pass to the C ABI. The pointer never changes; the class that
+/// holds it owns the handle and frees it once, after its last use.
+// crash-allow: an immutable pointer to a Rust type that cmux-terminal-client's lib.rs asserts is Send + Sync; every entry point but disconnect and free takes it shared, and only the owning class's teardown frees it, once no call uses it (TerminalClientState drains its calls first).
+struct NativeHandle: @unchecked Sendable {
+    let raw: OpaquePointer
+}
+
 /// An in-process WireGuard tunnel. Shareable by any number of clients; keep it
 /// alive until every client that used it has been released.
-public final class WireGuardNet: @unchecked Sendable {
-    let raw: OpaquePointer
+public final class WireGuardNet: Sendable {
+    private let handle: NativeHandle
+    var raw: OpaquePointer { handle.raw }
 
     /// `wgQuickConfig` is wg-quick text with `PrivateKey` present. The text is
     /// parsed in memory and not written anywhere.
@@ -25,141 +35,136 @@ public final class WireGuardNet: @unchecked Sendable {
         guard let raw = cmux_wireguard_net_start(wgQuickConfig, &error, error.count) else {
             throw TerminalClientError.failed(String(cString: error))
         }
-        self.raw = raw
+        self.handle = NativeHandle(raw: raw)
     }
 
     deinit {
-        cmux_wireguard_net_free(raw)
+        cmux_wireguard_net_free(handle.raw)
     }
 }
 
-private final class TerminalClientState: @unchecked Sendable {
-    let raw: OpaquePointer
-    /// The installed output handler (the box the native callback is set to, or about to be).
-    private var outputBox: OutputBox?
-    /// The +1 the native client holds as its output callback's context, from the call that sets
-    /// the callback until the call that replaces or clears it has returned.
-    private var nativeOutputContext: Unmanaged<OutputBox>?
-    /// Most recently requested handler. A callback can request replacement
-    /// while the FFI is synchronously draining the old callback, so that
-    /// request is applied after the drain returns.
-    private var requestedOutputBox: OutputBox?
-    private var outputCallbackUpdateInFlight = false
-    private var outputCallbackDepth = 0
-    private var didDisconnect = false
-    private var activeFFIOperations = 0
-    private var disconnectFinalizationScheduled = false
-    private var rawDisconnected = false
+/// One client's link lifecycle and output-callback registration, shared by
+/// the callers' threads (the main actor, Cloud lifecycle tasks), the native
+/// output threads and the teardown task. Every mutable field is in `shared`,
+/// reached only inside `withLock`, and no lock is held across a native call.
+/// Nothing blocks waiting for the calls in flight to drain: the last one to
+/// finish after `disconnect` starts the teardown.
+private final class TerminalClientState: Sendable {
+    private struct Shared {
+        /// The installed output handler (the box the native callback is set to, or about to be).
+        var outputBox: OutputBox?
+        /// The +1 the native client holds as its output callback's context, from the call that sets
+        /// the callback until the call that replaces or clears it has returned.
+        var nativeOutputContext: Unmanaged<OutputBox>?
+        /// Most recently requested handler. A callback can request replacement
+        /// while the FFI is synchronously draining the old callback, so that
+        /// request is applied after the drain returns.
+        var requestedOutputBox: OutputBox?
+        var outputCallbackUpdateInFlight = false
+        var outputCallbackDepth = 0
+        var didDisconnect = false
+        var activeFFIOperations = 0
+        var teardownClaimed = false
+
+        /// True exactly once: after `disconnect`, when no native operation and
+        /// no output callback is running. The caller that gets it starts the teardown.
+        mutating func claimTeardown() -> Bool {
+            guard didDisconnect, !teardownClaimed, activeFFIOperations == 0, outputCallbackDepth == 0 else {
+                return false
+            }
+            teardownClaimed = true
+            return true
+        }
+    }
+
+    private let handle: NativeHandle
     /// Held so the tunnel outlives this client.
     private let wireGuard: WireGuardNet?
-    private let lock = NSCondition()
+    private let shared = Mutex(Shared())
 
     init(raw: OpaquePointer, wireGuard: WireGuardNet?) {
-        self.raw = raw
+        self.handle = NativeHandle(raw: raw)
         self.wireGuard = wireGuard
     }
 
     /// Schedules closure of the daemon link. Safe to call more than once.
     func disconnect() {
-        lock.lock()
-        guard !didDisconnect else {
-            lock.unlock()
-            return
+        let claimed = shared.withLock { shared -> Bool in
+            guard !shared.didDisconnect else { return false }
+            shared.didDisconnect = true
+            shared.requestedOutputBox = nil
+            return shared.claimTeardown()
         }
-        didDisconnect = true
-        requestedOutputBox = nil
-        let shouldFinalize = !disconnectFinalizationScheduled
-        disconnectFinalizationScheduled = true
-        lock.unlock()
-
-        guard shouldFinalize else { return }
-        // Drain native operations off the caller's thread. Cloud lifecycle
-        // methods run on the main actor, and a native operation may remain in
-        // flight until its timeout or callback returns.
-        let state = self
-        DispatchQueue.global(qos: .userInitiated).async {
-            // The C callback must return before its setter can be called from
-            // the same callback thread. The state remains alive until the
-            // drain completes, so its callback context stays valid.
-            state.finishDisconnect()
-        }
+        if claimed { scheduleTeardown() }
     }
 
-    private func finishDisconnect() {
-        lock.lock()
-        while activeFFIOperations > 0 || outputCallbackDepth > 0 {
-            lock.wait()
+    /// Closes the native link off the claiming thread. The claim can come from
+    /// the main actor (Cloud lifecycle methods), from an output callback (the
+    /// C callback must return before its setter can run on its thread) or from
+    /// the thread of the last native operation, which may have waited for its
+    /// timeout. The task keeps this state, and with it the callback context,
+    /// alive until the teardown is done.
+    private func scheduleTeardown() {
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            setNativeOutputCallback(handle.raw, to: nil)
+            shared.withLock { $0.outputBox = nil }
+            cmux_terminal_client_disconnect(handle.raw)
         }
-        guard !rawDisconnected else {
-            lock.unlock()
-            return
-        }
-        rawDisconnected = true
-        lock.unlock()
-
-        setNativeOutputCallback(raw, to: nil)
-        lock.lock()
-        outputBox = nil
-        lock.unlock()
-        cmux_terminal_client_disconnect(raw)
     }
 
     /// Points the native output callback at `box` (nil clears it). The native client takes a +1
     /// on `box` as the callback's context and drops the previous one only after the call returns,
     /// since the native client waits for callbacks already in flight before it returns. Never
-    /// called with `lock` held: the handler can request a deferred replacement.
+    /// called with the lock held: the handler can request a deferred replacement. Calls never
+    /// overlap: updates run one at a time inside `withConnectedFFI`, and the teardown only after
+    /// every such call has returned.
     private func setNativeOutputCallback(_ raw: OpaquePointer, to box: OutputBox?) {
         let next = box.map { Unmanaged.passRetained($0) }
         let callback: OutputCallback? = next == nil ? nil : outputTrampoline
         cmux_terminal_client_set_output_callback(raw, callback, next?.toOpaque())
-        lock.lock()
-        let previous = nativeOutputContext
-        nativeOutputContext = next
-        lock.unlock()
+        let previous = shared.withLock { shared -> Unmanaged<OutputBox>? in
+            let previous = shared.nativeOutputContext
+            shared.nativeOutputContext = next
+            return previous
+        }
         previous?.release()
     }
 
     func withConnectedFFI<Result>(
         _ operation: (OpaquePointer) throws -> Result
     ) throws -> Result {
-        lock.lock()
-        guard !didDisconnect else {
-            lock.unlock()
+        let entered = shared.withLock { shared -> Bool in
+            guard !shared.didDisconnect else { return false }
+            shared.activeFFIOperations += 1
+            return true
+        }
+        guard entered else {
             throw TerminalClientError.failed("Terminal client is disconnected")
         }
-        activeFFIOperations += 1
-        lock.unlock()
         defer {
-            lock.lock()
-            activeFFIOperations -= 1
-            if activeFFIOperations == 0 {
-                lock.broadcast()
+            let claimed = shared.withLock { shared -> Bool in
+                shared.activeFFIOperations -= 1
+                return shared.claimTeardown()
             }
-            lock.unlock()
+            if claimed { scheduleTeardown() }
         }
-        return try operation(raw)
+        return try operation(handle.raw)
     }
 
     func setOutputHandler(_ requested: OutputBox?) {
-        lock.lock()
-        guard !didDisconnect else {
-            lock.unlock()
-            return
+        let start = shared.withLock { shared -> (apply: Bool, afterCallback: Bool) in
+            guard !shared.didDisconnect else { return (false, false) }
+            shared.requestedOutputBox = requested
+            guard !shared.outputCallbackUpdateInFlight else { return (false, false) }
+            shared.outputCallbackUpdateInFlight = true
+            return (true, shared.outputCallbackDepth > 0)
         }
-        requestedOutputBox = requested
-        if outputCallbackUpdateInFlight {
-            lock.unlock()
-            return
-        }
-        outputCallbackUpdateInFlight = true
-        let deferUntilCallbackReturns = outputCallbackDepth > 0
-        lock.unlock()
-        if deferUntilCallbackReturns {
+        guard start.apply else { return }
+        if start.afterCallback {
             // The FFI waits for the active callback to return. Applying from
             // this callback would deadlock if the handler replaces itself.
-            let state = self
-            DispatchQueue.global(qos: .userInitiated).async {
-                state.applyOutputHandlerUpdates()
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
+                applyOutputHandlerUpdates()
             }
         } else {
             applyOutputHandlerUpdates()
@@ -167,52 +172,45 @@ private final class TerminalClientState: @unchecked Sendable {
     }
 
     func beginOutputCallback() {
-        lock.lock()
-        outputCallbackDepth += 1
-        lock.unlock()
+        shared.withLock { $0.outputCallbackDepth += 1 }
     }
 
     func endOutputCallback() {
-        lock.lock()
-        outputCallbackDepth = max(0, outputCallbackDepth - 1)
-        if outputCallbackDepth == 0 {
-            lock.broadcast()
+        let claimed = shared.withLock { shared -> Bool in
+            shared.outputCallbackDepth = max(0, shared.outputCallbackDepth - 1)
+            return shared.claimTeardown()
         }
-        lock.unlock()
+        if claimed { scheduleTeardown() }
     }
 
     private func abandonOutputHandlerUpdate() {
-        lock.lock()
-        // A failed update can race with disconnect after it has read the
-        // installed box but before `withConnectedFFI` enters the native call.
-        // The native client still holds that box's context until
-        // `finishDisconnect` clears the callback, so let that path drop it.
-        if !didDisconnect {
-            outputBox = nil
+        shared.withLock { shared in
+            // A failed update can race with disconnect after it has read the
+            // installed box but before `withConnectedFFI` enters the native call.
+            // The native client still holds that box's context until the
+            // teardown clears the callback, so let that path drop it.
+            if !shared.didDisconnect {
+                shared.outputBox = nil
+            }
+            shared.requestedOutputBox = nil
+            shared.outputCallbackUpdateInFlight = false
         }
-        requestedOutputBox = nil
-        outputCallbackUpdateInFlight = false
-        lock.unlock()
     }
 
     private func applyOutputHandlerUpdates() {
         while true {
-            lock.lock()
-            let installed = outputBox
-            let requested = requestedOutputBox
-            let unchanged =
-                (installed == nil && requested == nil)
-                || (installed != nil && requested != nil && installed! === requested!)
-            if unchanged {
-                outputCallbackUpdateInFlight = false
-                lock.unlock()
-                return
+            let step = shared.withLock { shared -> (done: Bool, installed: OutputBox?) in
+                if shared.outputBox === shared.requestedOutputBox {
+                    shared.outputCallbackUpdateInFlight = false
+                    return (true, nil)
+                }
+                return (false, shared.outputBox)
             }
-            lock.unlock()
+            if step.done { return }
 
-            if let installed {
+            if let installed = step.installed {
                 // The FFI waits for callbacks already in flight. Keep the
-                // context retained locally, and never hold `lock` across this
+                // context retained locally, and never hold the lock across this
                 // call because the handler can request a deferred replacement.
                 do {
                     try withConnectedFFI { raw in
@@ -222,19 +220,19 @@ private final class TerminalClientState: @unchecked Sendable {
                     abandonOutputHandlerUpdate()
                     return
                 }
-                lock.lock()
-                if outputBox === installed {
-                    outputBox = nil
+                shared.withLock { shared in
+                    if shared.outputBox === installed {
+                        shared.outputBox = nil
+                    }
                 }
-                lock.unlock()
             }
 
-            lock.lock()
-            let latest = requestedOutputBox
-            if let latest {
-                outputBox = latest
+            let latest = shared.withLock { shared -> OutputBox? in
+                if let latest = shared.requestedOutputBox {
+                    shared.outputBox = latest
+                }
+                return shared.requestedOutputBox
             }
-            lock.unlock()
 
             if let latest {
                 do {
@@ -251,7 +249,7 @@ private final class TerminalClientState: @unchecked Sendable {
 }
 
 /// One authenticated link to a cmux daemon with a persistent device identity.
-public final class TerminalClient: @unchecked Sendable {
+public final class TerminalClient: Sendable {
     private let state: TerminalClientState
 
     private init(raw: OpaquePointer, wireGuard: WireGuardNet?) {
@@ -318,16 +316,8 @@ public final class TerminalClient: @unchecked Sendable {
     /// Install before `attach`. Runs on library worker threads; hop to the
     /// main actor before touching UI.
     public func setOutputHandler(_ handler: (@Sendable (TerminalOutputEvent) -> Void)?) {
-        let requested = handler.map { OutputBox(handler: $0, owner: self) }
+        let requested = handler.map { OutputBox(handler: $0, state: state) }
         state.setOutputHandler(requested)
-    }
-
-    fileprivate func beginOutputCallback() {
-        state.beginOutputCallback()
-    }
-
-    fileprivate func endOutputCallback() {
-        state.endOutputCallback()
     }
 
     public func listTerminals(timeout: Duration = .seconds(15)) throws -> [TerminalSummary] {
@@ -472,16 +462,22 @@ public final class TerminalClient: @unchecked Sendable {
     }
 }
 
-final class OutputBox: @unchecked Sendable {
+/// One installed output handler; the native client holds a +1 on it as the
+/// output callback's context. It keeps the client's state alive while a
+/// callback runs, so the callback's begin and end always reach the state that
+/// drains them, even while the `TerminalClient` itself is going away. The
+/// state drops its references when the handler is replaced or the link is torn
+/// down, which ends the cycle.
+private final class OutputBox: Sendable {
     let handler: @Sendable (TerminalOutputEvent) -> Void
-    weak var owner: TerminalClient?
+    let state: TerminalClientState
 
     init(
         handler: @Sendable @escaping (TerminalOutputEvent) -> Void,
-        owner: TerminalClient
+        state: TerminalClientState
     ) {
         self.handler = handler
-        self.owner = owner
+        self.state = state
     }
 }
 
@@ -499,9 +495,8 @@ private let outputTrampoline: OutputCallback = { context, kind, bytes, length, c
     // holds it until the call that replaces or clears the callback has returned.
     guard let context else { return }
     let box = Unmanaged<OutputBox>.fromOpaque(context).takeUnretainedValue()
-    let owner = box.owner
-    owner?.beginOutputCallback()
-    defer { owner?.endOutputCallback() }
+    box.state.beginOutputCallback()
+    defer { box.state.endOutputCallback() }
     let data = (bytes != nil && length > 0) ? Data(bytes: bytes!, count: length) : Data()
     guard let event = TerminalOutputEvent(kind: kind, bytes: data, cols: cols, rows: rows) else { return }
     box.handler(event)

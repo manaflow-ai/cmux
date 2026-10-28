@@ -5,7 +5,7 @@ import Testing
 /// tasks and from the native library's output threads at once, so the state
 /// those threads share must be checked by the compiler. `@unchecked Sendable`
 /// switches that check off for a whole type: the client's state class kept
-/// eleven mutable fields behind a hand-held `NSCondition`, and nothing but
+/// nine mutable fields behind a hand-held `NSCondition`, and nothing but
 /// review kept a new field under the lock.
 ///
 /// Mutable state lives in a `Mutex` (CmuxSafeConcurrency), where it is reached
