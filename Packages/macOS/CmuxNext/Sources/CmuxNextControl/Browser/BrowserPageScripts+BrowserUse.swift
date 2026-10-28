@@ -45,22 +45,53 @@ extension BrowserPageScripts {
         """)
     }
 
-    /// Puts `files` (name, MIME type, base64 bytes) into the file input
-    /// `selector` through a `DataTransfer`, then fires `input` and `change`.
-    static func upload(_ selector: String, files: [(name: String, type: String, base64: String)]) -> String {
-        let list = files.map { "{ name: \(literal($0.name)), type: \(literal($0.type)), b64: \(literal($0.base64)) }" }
-            .joined(separator: ", ")
+    /// Starts a chunked upload into a file input. The chunks are appended by
+    /// ``uploadChunk`` and committed by ``finishUpload``; keeping the parts on
+    /// the page avoids putting an arbitrarily large file in one evaluation.
+    static func startUpload(_ selector: String, files: [(name: String, type: String)]) -> String {
         return wrap(find(selector) + """
         const W = (el.ownerDocument && el.ownerDocument.defaultView) || window;
         if (!(el instanceof W.HTMLInputElement) || String(el.type).toLowerCase() !== 'file') { return { error: 'Element is not a file input: ' + raw, code: 'not_file_input' }; }
+        el.__cmuxUpload = { files: [\(files.map { "{ name: \(literal($0.name)), type: \(literal($0.type)), parts: [] }" }.joined(separator: ", "))], at: cmuxAt(el) };
+        return { value: { started: true }, at: el.__cmuxUpload.at };
+        """)
+    }
+
+    /// Appends one base64 chunk to the file at `index` in a started upload.
+    static func uploadChunk(_ selector: String, index: Int, base64: String) -> String {
+        wrap(find(selector) + """
+        const state = el && el.__cmuxUpload;
+        if (!state || !state.files[\(index)]) { return { error: 'Upload is not active', code: 'upload_not_started' }; }
+        const bytes = Uint8Array.from(atob(\(literal(base64))), (c) => c.charCodeAt(0));
+        state.files[\(index)].parts.push(bytes);
+        return { value: { appended: bytes.byteLength } };
+        """)
+    }
+
+    /// Builds the files from their chunks, assigns them to the input and fires
+    /// the same events as the old single-evaluation fallback.
+    static func finishUpload(_ selector: String) -> String {
+        wrap(find(selector) + """
+        const W = (el.ownerDocument && el.ownerDocument.defaultView) || window;
+        const state = el && el.__cmuxUpload;
+        if (!state) { return { error: 'Upload is not active', code: 'upload_not_started' }; }
         const dt = new W.DataTransfer();
-        for (const f of [\(list)]) { const bytes = Uint8Array.from(atob(f.b64), (c) => c.charCodeAt(0));
-          dt.items.add(new W.File([bytes], f.name, { type: f.type })); }
+        for (const f of state.files) dt.items.add(new W.File(f.parts, f.name, { type: f.type }));
         el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
         el.files = dt.files;
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
+        delete el.__cmuxUpload;
         return { value: { files: Array.from(el.files).map((f) => f.name) }, at: cmuxAt(el) };
+        """)
+    }
+
+    /// Discards a partially streamed upload after an evaluation or file read
+    /// fails.
+    static func cancelUpload(_ selector: String) -> String {
+        wrap(find(selector) + """
+        if (el) delete el.__cmuxUpload;
+        return { value: { cancelled: true } };
         """)
     }
 }

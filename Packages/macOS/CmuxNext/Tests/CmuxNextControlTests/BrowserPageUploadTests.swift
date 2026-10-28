@@ -77,7 +77,7 @@ import Testing
     /// A button that opens the chooser takes the files, and a file past the page-script cap still goes:
     /// nothing is read, the chooser gets the path.
     @Test func aChooserTakesTheFilesWithNoSizeCapAndNoPageScript() async throws {
-        let (folder, paths) = try scratch(["big.bin"], bytes: BrowserPageService.uploadLimit + 1)
+        let (folder, paths) = try scratch(["big.bin"], bytes: 25 * 1024 * 1024 + 1)
         defer { try? FileManager.default.removeItem(at: folder) }
         let engine = ChooserEngine(chooser: "chosen")
         let router = install(engine)
@@ -94,7 +94,7 @@ import Testing
     }
 
     @Test func aFileInputWhosePageOpenedNoChooserGetsTheFilesThroughThePage() async throws {
-        let (folder, paths) = try scratch(["a.txt"])
+        let (folder, paths) = try scratch(["a.txt"], bytes: 25 * 1024 * 1024 + 1)
         defer { try? FileManager.default.removeItem(at: folder) }
         let engine = ChooserEngine(chooser: "withdrawn", fileInput: true)
         let router = install(engine)
@@ -102,7 +102,9 @@ import Testing
         _ = try await call(router, "browser.page.upload", ["selector": "#f", "files": .array(paths.map(JSONValue.string)), "timeout_ms": 500]).get()
 
         #expect(engine.uploads.first?.within == .milliseconds(500))
-        #expect(engine.scripts.count == 1 && engine.scripts[0].contains("new W.DataTransfer()"))
+        #expect(engine.scripts.count > 2, "the file is streamed in chunks instead of one capped script")
+        #expect(engine.scripts.first?.contains("__cmuxUpload") == true)
+        #expect(engine.scripts.last?.contains("new W.DataTransfer()") == true)
     }
 
     @Test func aClickThatOpensNoChooserOnAnythingElseIsAnError() async throws {
