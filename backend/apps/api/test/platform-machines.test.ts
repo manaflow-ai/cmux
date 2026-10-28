@@ -444,7 +444,7 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
   })
 
   it("recovers lost completed replies while disabled and fences pending creates before base retries", async () => {
-    // One caller for both scenarios: this file reserves users 160..179.
+    // Reuse one caller across these scenarios: this file reserves users 160..179.
     const c = caller()
     const { machine: source, stub } = await bootAndBind(c)
     const target = { vcpu: 2, memGiB: 4, diskGiB: 16 }
@@ -510,6 +510,59 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     await inDO(stub, async instance => {
       const row = instance.platformHost(c.team).ledger(`platform:${c.user}|platform-machine:${pendingName}:create`)
       expect(row).toMatchObject({ cancel: true })
+    })
+
+    // A resize already has a completed create. If delete admission is refused, the disabled
+    // wake must stop before CloudCore retries that resize and starts charging for more capacity.
+    await inDO(stub, async instance => {
+      instance.platformHost = instance.platformTestHost
+      const original = instance.platformTestDriver
+      instance.driverFor = async (...args: Array<unknown>) => {
+        const driver = await original(...args)
+        if (driver) driver.resize = async () => { throw new Error("provider unavailable before resize") }
+        return driver
+      }
+    })
+    const resizeName = nameOf()
+    const resizing = await rpc.create(c, resizeName, { vcpu: 4, memGiB: 8, diskGiB: 32 })
+    expect(resizing).toMatchObject({ ok: true })
+    const resizeId = resizing.value.id as string
+    const file = await bindFile(stub, resizeId)
+    const { body } = await bindBody(c, resizeId, file.json.bind_token)
+    expect(await stub.bindMachine(c.team, body)).toMatchObject({ ok: true })
+    await stub.fakeControl({ advance_ms: 10_000 })
+    await fireAlarm(stub)
+    await inDO(stub, async instance => {
+      expect(instance.platformTestHost(c.team).ledger(`platform:${c.user}|platform-machine:${resizeName}:resize`)).toMatchObject({ state: "pending" })
+      instance.driverFor = instance.platformTestDriver
+      const original = instance.platformTestHost
+      instance.platformHost = (team: string) => {
+        const host = original(team)
+        return {
+          ...host,
+          providerInfo: () => ({ ...host.providerInfo(), available: false }),
+          submit: (principal: unknown, f: { op: string }) => f.op === "cloud.machine.delete"
+            ? Promise.resolve({ frames: [{ t: "reject", code: "cloud.rate_limited", message: "delete admission deferred", retryable: true }] })
+            : host.submit(principal, f)
+        }
+      }
+    })
+    await stub.fakeControl({ advance_ms: 10_000 })
+    await fireAlarm(stub)
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 4, resizes: 0 })
+    await inDO(stub, async instance => {
+      expect(instance.platformTestHost(c.team).ledger(`platform:${c.user}|platform-machine:${resizeName}:resize`)).toMatchObject({ state: "pending" })
+      const original = instance.platformTestHost
+      instance.platformHost = (team: string) => {
+        const host = original(team)
+        return { ...host, providerInfo: () => ({ ...host.providerInfo(), available: false }) }
+      }
+    })
+    await stub.fakeControl({ advance_ms: 10_000 })
+    await fireAlarm(stub)
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 4, deletes: 4, resizes: 0, vms: [] })
+    await inDO(stub, async instance => {
+      expect(instance.platformTestHost(c.team).ledger(`platform:${c.user}|platform-machine:${resizeName}:resize`)).toMatchObject({ state: "cancelled" })
     })
   })
 
