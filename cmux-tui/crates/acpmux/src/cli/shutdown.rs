@@ -67,7 +67,7 @@ fn preserve_restart_listener(status: &Value) -> Result<()> {
     // Tagged/dev homes deliberately cannot claim the shared fixed port. A
     // restart cannot reapply that policy after stopping the explicit daemon,
     // so refuse before shutdown rather than silently moving the listener.
-    let shared_home = dirs::home_dir().map(|h| h.join(".acpmux")) == Some(crate::config::home());
+    let shared_home = crate::daemon::uses_shared_home();
     if crate::daemon::first_run_listen(shared_home, Some(listen)) != listen {
         return Err(anyhow!(
             "cannot restart a non-shared daemon on reserved listener {listen}; stop it manually and choose another port"
