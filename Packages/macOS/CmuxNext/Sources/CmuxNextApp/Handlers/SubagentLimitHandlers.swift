@@ -15,7 +15,7 @@ enum SubagentLimitHandlers {
             SubagentLimitFlow(
                 open: { [weak services] in
                     guard let services, let environment = QuitAgents.environment(services) else { return nil }
-                    return await AcpmuxPersonLine.open(environment)
+                    return await AcpmuxPersonLine.open(environment, deadlines: services.mainDeadlines)
                 },
                 present: { spec in await CmuxDialogCenter.shared.present(spec, in: window.map { .window($0) } ?? .app) },
                 setting: { [weak services] in

@@ -47,8 +47,10 @@ public nonisolated struct AgentPaneAskAnswer: Sendable, Equatable {
     /// Makes the answerer for the acpmux of `environment` (tests pass a fake).
     public typealias MakeAnswerer = @MainActor (AcpmuxEnvironment) -> any AgentAskAnswering
 
-    @MainActor func respond(in model: AgentPaneModel,
-                            answerer make: MakeAnswerer = { AcpmuxApprovalAnswerer(environment: $0) }) async -> [String: Any] {
+    /// `make` nil: the acpmux answerer, its person lines' limits on the model's deadlines.
+    @MainActor func respond(in model: AgentPaneModel, answerer make: MakeAnswerer? = nil) async -> [String: Any] {
+        let deadlines = model.deadlines
+        let make = make ?? { AcpmuxApprovalAnswerer(environment: $0, deadlines: deadlines) }
         let unsupported = AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.asks.answer")
         guard let socket = model.pendingAsksSocket, let local = AgentPanePendingAsks.localSession(session),
               model.sessionId.flatMap(AgentPanePendingAsks.localSession) != local else { return unsupported }

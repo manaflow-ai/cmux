@@ -155,6 +155,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         PeerApprovalsApp.install()
         DebugTimings.markLaunch("dfl.theme")
         let services = registerServices(launch: settingsRead)
+        // The approver's daemon registrations place their person line's limit on the app's deadlines.
+        AcpmuxMacApprover.shared.use(deadlines: services.mainDeadlines)
         DebugTimings.markLaunch("dfl.services")
         AppActions.bindAtLaunch(services, on: order.startup)  // critical `AppActions.bind`: keys work from the first frame
         services.palettes.bindRegistryActions()  // the palette itself is built after the first frame, or by the first palette key

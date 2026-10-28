@@ -3,6 +3,7 @@ import CryptoKit
 import os
 import Security
 import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// This Mac's approver key (peer-route approvals): the P-256 key the app signs a one-time Allow
 /// with for a prompt of a peer of this Mac's acpmux (a chat opened with `--host`, which this Mac's
@@ -73,6 +74,21 @@ public nonisolated final class AcpmuxMacApprover: Sendable {
 
     // lock carve-out: the key, loaded once off main (Keychain and enclave), read by each signing off main
     private let state: Mutex<State>
+    /// Where the registration's person line places its limit (``use(deadlines:)``); main actor only.
+    private let placer = DeadlinePlacer()
+
+    /// The app's one deadline placer, for the registration's person line (``register(_:)``).
+    @MainActor private final class DeadlinePlacer: Sendable {
+        nonisolated init() {}
+        var deadlines: MainDeadlineScheduler?
+    }
+
+    /// Gives the approver the app's one deadline placer (`AppServices.mainDeadlines`), which each
+    /// daemon registration's person line places its 5 s limit on. Before it, a connect registers
+    /// nothing (a test, or a host with no app).
+    @MainActor public func use(deadlines: MainDeadlineScheduler) {
+        placer.deadlines = deadlines
+    }
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.acpmux")
 
     /// A memory key (tests, and a DEV build's ``shared`` once configured).
@@ -164,8 +180,8 @@ public nonisolated final class AcpmuxMacApprover: Sendable {
     private static func registerNow(_ environment: AcpmuxEnvironment) async {
         AgentPanePeerApprovals.daemons[environment.socketPath] = ["ACPMUX_HOME": environment.home.path,
                                                                   "ACPMUX_SOCKET": environment.socketPath]
-        guard let identity = await shared.loadedIdentity() else { return }
-        guard let line = await AcpmuxPersonLine.open(environment) else { return }
+        guard let deadlines = shared.placer.deadlines, let identity = await shared.loadedIdentity() else { return }
+        guard let line = await AcpmuxPersonLine.open(environment, deadlines: deadlines) else { return }
         defer { line.close() }
         guard line.isPerson else { return }
         let name = await MacName().displayName()

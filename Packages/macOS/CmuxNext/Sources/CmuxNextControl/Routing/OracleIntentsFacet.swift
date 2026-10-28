@@ -67,8 +67,8 @@ public struct OracleIntentsFacet: OracleFacetProvider {
         case .renameScreen(let screen, _), .setScreenColor(let screen, _), .setScreenIcon(let screen, _),
              .setScreenPinned(let screen, _):
             store.screen(screen)?.resourceID?.rawValue
-        case .renameWorkspace(let key, _), .moveWorkspace(let key, _), .setWorkspaceGroup(let key, _),
-             .placeWorkspace(let key, _, _):
+        case .renameWorkspace(let key, _), .setWorkspaceColor(let key, _), .moveWorkspace(let key, _),
+             .setWorkspaceGroup(let key, _), .placeWorkspace(let key, _, _):
             store.workspace(key: key)?.resourceID?.rawValue
         case .createWorkspace(let provisional, _):
             store.workspace(key: provisional.key)?.resourceID?.rawValue
