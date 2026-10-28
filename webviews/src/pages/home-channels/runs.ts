@@ -4,6 +4,7 @@
 // work under the message it answers. Rows read one run each through `useRun` (an external store with
 // per-run versions), so a streaming run re-renders only its own card.
 import { useCallback, useSyncExternalStore } from "react";
+import { stepMessage } from "./runMessages";
 import type { HomeMessage, HomeRun, HomeRunChange, HomeRunStep } from "./types";
 
 export interface RunEntry {
@@ -12,6 +13,8 @@ export interface RunEntry {
   steps: readonly HomeRunStep[];
   /** Every step was read from the owner (not only the ones events brought). */
   complete: boolean;
+  /** Cached when steps arrive; timeline lookups never scan a run per render. */
+  hasMessages?: boolean;
 }
 
 const MAX_RUNS = 400;
@@ -86,7 +89,9 @@ export class RunBook {
       if (!entry) continue;
       const reply = turnKey(entry.run);
       const replied = reply !== undefined && this.replied.has(reply);
-      if (entry.run.status === "running" || (entry.run.status !== "done" && !replied)) out.push(entry);
+      // A silent Chief turn can still contain messages: keep them beside its question.
+      const messages = entry.hasMessages ?? false;
+      if (entry.run.status === "running" || ((entry.run.status !== "done" || messages) && !replied)) out.push(entry);
     }
     return out.sort((a, b) => a.run.startedAt - b.run.startedAt);
   }
@@ -166,7 +171,8 @@ export class RunBook {
     const entry: RunEntry = {
       run: newer ? run : current!.run,
       steps: [...merged.values()].sort((a, b) => a.seq - b.seq),
-      complete: (current?.complete ?? false) || complete,
+      complete: ((current?.complete ?? false) || complete) && merged.size >= (newer ? run : current!.run).stepCount,
+      hasMessages: (current?.hasMessages ?? false) || steps.some((step) => stepMessage(step) !== undefined),
     };
     this.runs.set(key, entry);
     if (entry.run.turn) this.byTurn.set(`${entry.run.conversation}\0${entry.run.turn}\0${entry.run.author}`, key);

@@ -613,7 +613,21 @@ impl Brain {
                 .collect(),
             delivered: false,
             started_ms: now_ms(),
-            turn: self.state.turn.as_ref().map(|t| t.key.clone()),
+            turn: self
+                .state
+                .turn
+                .as_ref()
+                .map(|t| t.key.clone())
+                .or_else(|| self.state.last_run.as_ref().map(|(_, run)| run.clone())),
+            conversation: match self.state.turn.as_ref() {
+                Some(turn) => turn.conversation.clone(),
+                None => self
+                    .state
+                    .last_run
+                    .as_ref()
+                    .map(|(conversation, _)| conversation.clone())
+                    .or_else(|| self.state.conversation.clone()),
+            },
             answers: match self.state.turn.as_ref() {
                 Some(turn) => turn.answers.clone(),
                 None => self.state.last_answers.clone(),
@@ -1495,6 +1509,7 @@ impl Brain {
     /// Queues each finished subagent's report of `spawn` as its own item
     /// (or updates the one still queued). A stopped run's is quiet.
     pub(super) fn deliver(&mut self, spawn: &str) {
+        self.show_reports(spawn);
         let Some(record) = self.state.spawns.get(spawn) else {
             return;
         };
@@ -1560,6 +1575,58 @@ impl Brain {
                     (self.log)(&format!("subagent {id}: queued its report"));
                     self.queue(text, source);
                 }
+            }
+        }
+    }
+
+    /// Display reports on arrival, including quiet reports, without waiting for another Chief turn.
+    /// The owner upserts stable step ids, so a redelivery updates the same row.
+    fn show_reports(&mut self, spawn: &str) {
+        let Some(record) = self.state.spawns.get(spawn) else {
+            return;
+        };
+        let Some(conversation) = record
+            .conversation
+            .clone()
+            .or_else(|| self.state.conversation.clone())
+        else {
+            return;
+        };
+        let mut run = match &record.turn {
+            Some(turn) => json!({"id": turn}),
+            None => json!({"id": format!("reports:{spawn}"), "status": "done",
+                "started_at": record.started_ms, "answers": record.answers}),
+        };
+        if record.turn.is_none()
+            && let Some((root, _)) = self.reply_thread(&conversation, &record.answers)
+        {
+            run["thread_root"] = json!(root);
+        }
+        let steps = record
+            .subs
+            .iter()
+            .filter(|s| s.status == SubStatus::Done)
+            .flat_map(|s| {
+                crate::run::report_notes(
+                    &s.id,
+                    s.session_id.as_deref().unwrap_or(""),
+                    s.run_ms,
+                    s.floor,
+                    s.report.as_deref().unwrap_or(""),
+                )
+            })
+            .collect();
+        let Some(daemon) = self.daemon.as_mut() else {
+            return;
+        };
+        for steps in crate::run::chunks(steps) {
+            if let Err(e) = daemon.run_append(&conversation, run.clone(), steps)
+                && !self.run_failed
+            {
+                self.run_failed = true;
+                (self.log)(&format!(
+                    "appending an agent report failed: {e}; later failures are not logged"
+                ));
             }
         }
     }

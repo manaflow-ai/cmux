@@ -179,7 +179,6 @@ test("a short message never erases its receipt's words, and a recipient named li
   expect(messageDelivery(done("Message not delivered to not"), say("hi", "not"))).toBe("failed");
 });
 
-
 test("Chief tell keeps the entire message and only recognizes its own tool", () => {
   const message = "Please verify the result. ".repeat(30) + "Keep this last sentence.";
   for (const name of ["tell", "optchat.tell", "mcp__optchat__tell"])

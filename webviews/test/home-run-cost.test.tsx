@@ -89,20 +89,44 @@ test("the run sheet labels its dollar figure as API prices and says what it is",
   expect(cost?.getAttribute("title")).toBe(strings.t("run.cost.hint"));
 });
 
-
 // Messages remain reachable when the run is folded and after unrelated tool steps.
 test("a folded Chief run keeps outgoing messages and incoming reports visible", async () => {
   const container = installDom();
   const text = "Please verify the result. ".repeat(30) + "Keep this last sentence.";
   const base = { at: 1, rev: 1, attachments: [], links: [] };
   const steps = [
-    { ...base, id: "tool:tell", seq: 1, kind: "tool", status: "done", tool: {
-      name: "mcp__optchat__tell", title: "Tell a1", input: { id: "a1", message: text }, files: [],
-    } },
-    { ...base, id: "report:a1:1:0", seq: 2, kind: "note", text: "[a1] Verified the result. All checks passed." },
-    ...[3, 4, 5, 6].map(seq => ({ ...base, id: `tool:${seq}`, seq, kind: "tool", status: "done", tool: {
-      name: "Bash", input: { command: "pwd" }, files: [],
-    } })),
+    {
+      ...base,
+      id: "tool:tell",
+      seq: 1,
+      kind: "tool",
+      status: "done",
+      tool: {
+        name: "mcp__optchat__tell",
+        title: "Tell a1",
+        input: { id: "a1", message: text },
+        files: [],
+      },
+    },
+    {
+      ...base,
+      id: "report:a1:1:0",
+      seq: 2,
+      kind: "note",
+      text: "[a1] Verified the result. All checks passed.",
+    },
+    ...[3, 4, 5, 6].map((seq) => ({
+      ...base,
+      id: `tool:${seq}`,
+      seq,
+      kind: "tool",
+      status: "done",
+      tool: {
+        name: "Bash",
+        input: { command: "pwd" },
+        files: [],
+      },
+    })),
   ];
   await render(container, <RunCard entry={{ run: { ...run, stepCount: steps.length } as never, steps: steps as never, complete: true }} strings={strings} onOpen={() => {}} onLoad={() => {}} />);
   expect(container.querySelector(".lg-run-toggle")?.getAttribute("aria-expanded")).toBe("false");
@@ -118,6 +142,53 @@ test("a folded Chief run keeps outgoing messages and incoming reports visible", 
 test("a folded restored Chief run loads its messages without opening", async () => {
   const container = installDom();
   const loaded: unknown[] = [];
-  await render(container, <RunCard entry={{ ...entry, complete: false }} strings={strings} onOpen={() => {}} onLoad={r => loaded.push(r.id)} />);
+  await render(
+    container,
+    <RunCard
+      entry={{ ...entry, complete: false }}
+      strings={strings}
+      onOpen={() => {}}
+      onLoad={(r) => loaded.push(r.id)}
+    />,
+  );
   expect(loaded).toEqual([run.id]);
+});
+
+test("a completed silent Chief run exposes messages beside its question after loading", async () => {
+  const { RunBook } = await import("../src/pages/home-channels/runs");
+  const book = new RunBook();
+  const silent = { ...run, answers: ["question"] } as never;
+  const question = { id: "question", conversation: "c1" } as never;
+  book.setRuns([silent]);
+  expect(book.liveFor(question)).toHaveLength(0);
+  book.setSteps(
+    silent,
+    [
+      {
+        id: "report:a1:1:0",
+        seq: 1,
+        rev: 1,
+        at: 1,
+        kind: "note",
+        text: "[a1] Verified.",
+        attachments: [],
+        links: [],
+      },
+    ],
+    true,
+  );
+  expect(book.liveFor(question)).toHaveLength(1);
+  book.noteMessages([{ conversation: "c1", author: "chief", clientMessageId: "t1" } as never]);
+  expect(book.liveFor(question)).toHaveLength(0);
+});
+
+
+test("a newer run summary invalidates loaded steps so missed reports can be restored", async () => {
+  const { RunBook } = await import("../src/pages/home-channels/runs");
+  const book = new RunBook();
+  const summary = { ...run, stepCount: 0 } as never;
+  book.setSteps(summary, [], true);
+  expect(book.get("c1", "chief", "r1")?.complete).toBe(true);
+  book.setRuns([{ ...run, rev: 2, stepCount: 1 } as never]);
+  expect(book.get("c1", "chief", "r1")?.complete).toBe(false);
 });
