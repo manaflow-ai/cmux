@@ -37,7 +37,7 @@
 //! then runs the normal ensure, which starts the new owner.
 
 use std::io;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::time::{Duration, Instant};
 
 use super::OwnerSpec;
@@ -232,7 +232,17 @@ fn probe(stream: Box<dyn cmux_tui_core::platform::transport::Stream>, deadline: 
         if let Err(error) = connection.get_ref().set_read_timeout(Some(remaining)) {
             return closed(&mut connection, &error);
         }
-        match connection.read_until(b'\n', &mut line) {
+        // A peer can keep sending bytes without a newline and never hit a
+        // socket timeout. Bound the whole response, including partial data
+        // retained across interrupted reads, just as identify does.
+        let available = (super::identify::RESPONSE_LIMIT + 2).saturating_sub(line.len());
+        match connection.by_ref().take(available as u64).read_until(b'\n', &mut line) {
+            Ok(_)
+                if line.len() > super::identify::RESPONSE_LIMIT || !line.ends_with(b"\n") =>
+            {
+                // Malformed input is not evidence authorizing replacement.
+                return Probe::Answered;
+            }
             Ok(_) if super::identify::is_refusal(&line) => return Probe::Refused,
             Ok(_) => return Probe::Answered,
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
