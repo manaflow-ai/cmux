@@ -231,15 +231,24 @@ fn names_this_host(host: &str) -> bool {
     matches!(host, "auto" | "local") || canonical(host) == canonical(crate::hub::host_label())
 }
 
-/// A brief row as `conn` may see it: a peer daemon's connection gets no `suggestedHost`, a peer
-/// of this host (a row it replays may be one a local caller dispatched).
-fn brief_for(conn: &Conn, mut row: Value) -> Value {
-    if conn.origin == Origin::Peer
-        && let Some(obj) = row.as_object_mut()
-    {
+/// A replayed brief row as `conn` may see it. A peer daemon's connection gets only a brief this
+/// host ran (`Hub::brief_ran_here`), without `suggestedHost`, a peer of this host. A row a peer
+/// ran names that peer in `host`, `target` and `to`: its id or key is refused as taken, the
+/// answer whichever peer ran it.
+fn brief_for(hub: &Hub, conn: &Conn, mut row: Value) -> Result<Value, RpcError> {
+    if conn.origin != Origin::Peer {
+        return Ok(row);
+    }
+    if !hub.brief_ran_here(&row) {
+        return Err(RpcError::invalid_params(
+            "another brief has this briefId or idempotencyKey; dispatch with new ones",
+        )
+        .with_data(json!({"reason": "dispatch.brief_taken"})));
+    }
+    if let Some(obj) = row.as_object_mut() {
         obj.remove("suggestedHost");
     }
-    row
+    Ok(row)
 }
 
 async fn dispatch_brief(
@@ -441,7 +450,7 @@ async fn dispatch_brief(
     .await?;
     super::trust_gate::check(hub, conn.origin, method::SESSION_NEW, &new_params, None).await?;
     if let Some(existing) = hub.briefs.claim(&id, idempotency) {
-        let existing = brief_for(conn, existing);
+        let existing = brief_for(hub, conn, existing)?;
         return Ok(
             json!({"brief":existing,"event":crate::hub::dispatch::event("dispatch", &existing),"replayed":true}),
         );

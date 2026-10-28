@@ -82,9 +82,11 @@ async fn fake_peer() -> u16 {
             tokio::spawn(async move {
                 let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { return };
                 while let Some(Ok(Ws::Text(text))) = ws.next().await {
-                    let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
+                    let Ok(Message::Request { id, method: m, params }) = Message::parse(&text)
+                    else {
                         continue;
                     };
+                    let p = params.unwrap_or_default();
                     let result = match m.as_str() {
                         method::INITIALIZE => json!({"protocolVersion": 1, "_meta": {"acpmux": {
                             "build": "older", "origin": "peer", "features": []}}}),
@@ -92,6 +94,10 @@ async fn fake_peer() -> u16 {
                         "_acpmux/host_health" => json!({"cpus": 64, "load": [1.0, 1.0, 1.0],
                             "disk": {"freeBytes": 500_u64 << 30, "totalBytes": 1000_u64 << 30},
                             "liveSessions": 0}),
+                        // The brief runs here: the row it answers names this peer.
+                        method::MUX_DISPATCH => json!({"brief": {"briefId": p["briefId"],
+                            "host": p["host"], "target": p["host"], "to": p["host"],
+                            "sessionId": "remote-session", "status": "running"}}),
                         _ => json!({}),
                     };
                     let reply = Message::ok(id, result).to_line();
@@ -186,6 +192,16 @@ async fn peer_dispatch_names_no_peer() {
         !replayed.to_string().contains("elsewhere"),
         "a replay named this host's peer: {replayed}"
     );
+
+    // Nor does a replay of a brief the unix socket dispatched to the peer: its id is taken.
+    let sent = call(&a, None, method::MUX_DISPATCH, dispatch("elsewhere")).await.unwrap();
+    assert_eq!(sent["brief"]["host"], "elsewhere", "{sent}");
+    let mut replay = dispatch("local");
+    replay["briefId"] = sent["brief"]["briefId"].clone();
+    let replayed = call(&a, Some(Origin::Peer), method::MUX_DISPATCH, replay).await;
+    let taken = replayed.expect_err("a peer was given the row of a brief this host's peer ran");
+    assert!(taken.contains("another brief has this briefId"), "{taken}");
+    assert!(!taken.contains("elsewhere"), "{taken}");
 
     // A host that is not this one gets one answer: a peer of this host, or no such peer.
     let far = call(&a, Some(Origin::Peer), method::MUX_DISPATCH, dispatch("elsewhere")).await;
