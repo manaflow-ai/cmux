@@ -49,7 +49,10 @@ struct AgentPaneSavedCoverRevealTests {
             continuation.yield(true)
             continuation.finish()
         }
-        return await stream.first { $0 } == true
+        for await revealed in stream {
+            if revealed { return true }
+        }
+        return false
     }
 
     @Test(.timeLimit(.minutes(1)), arguments: [false, true])
