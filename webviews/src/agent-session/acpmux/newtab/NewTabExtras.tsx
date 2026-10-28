@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { usePageInterval } from "../../../pages/shared/pageLifecycle";
+import { useEffect, useMemo, useState } from "react";
+import { pageClockFor } from "../../../ui/pageClock";
+import { useNow } from "../../../ui/useNow";
 import { useNt } from "./strings";
 
 const QUOTES = [
@@ -15,18 +16,17 @@ function dayIndex(now: number): number {
 
 export function NewTabExtras({ widgets, now }: { widgets: ReadonlySet<string>; now: number }) {
   const nt = useNt();
-  const [elapsed, setElapsed] = useState(0);
   const timerOn = widgets.has("timer");
-  // The stopwatch counts from when it was turned on. Its tick rests while the page is hidden and
-  // reads the time again when it shows, so the text is the one a page that never hid shows.
-  const started = useRef(0);
-  const update = () => setElapsed(Math.floor((Date.now() - started.current) / 1000));
+  // The stopwatch counts whole seconds from the second it was turned on, on the page's one clock
+  // (ui/pageClock.ts). It rests while the page is hidden and ticks once when it shows, so the text
+  // is the one a page that never hid shows.
+  const clock = pageClockFor();
+  const tick = useNow("second", { clock, enabled: timerOn });
+  const [started, setStarted] = useState<number>();
   useEffect(() => {
-    if (!timerOn) return;
-    started.current = Date.now();
-    setElapsed(0);
-  }, [timerOn]);
-  usePageInterval(update, timerOn ? 1000 : null, { catchUpOnShow: true });
+    setStarted(timerOn ? clock.now() : undefined);
+  }, [timerOn, clock]);
+  const elapsed = started === undefined ? 0 : Math.max(0, Math.floor((tick - started) / 1000));
   const quote = useMemo(() => QUOTES[dayIndex(now)]!, [now]);
   const hour = new Date(now).getHours();
   const warm = nt(hour < 12 ? "extra.morning" : hour < 18 ? "extra.afternoon" : "extra.evening");
