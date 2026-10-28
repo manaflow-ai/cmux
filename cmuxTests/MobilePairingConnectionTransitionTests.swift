@@ -1,3 +1,4 @@
+import CmuxCloud
 import CMUXMobileCore
 import Foundation
 import Testing
@@ -60,6 +61,8 @@ struct MobilePairingConnectionTransitionTests {
         let components = try #require(URLComponents(string: ready.attachURL))
         let ticket = try CmxPairingQRCode().decode(components)
         #expect(ticket.routes.map(\.endpoint) == [route.endpoint])
+        #expect(ticket.macDeviceID == MobileHostIdentity.deviceID())
+        #expect(ticket.macDisplayName == MobileHostIdentity.instanceDisplayName())
         #expect(ticket.authToken == nil)
 
         status.tailscaleIsRunning = false

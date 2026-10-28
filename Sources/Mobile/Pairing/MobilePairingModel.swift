@@ -369,13 +369,16 @@ final class MobilePairingModel {
         _ status: MobileHostServiceStatus,
         baselineConnectionCount: Int,
         macUserID: String? = nil,
+        macDeviceID: String = MobileHostIdentity.deviceID(),
+        macDisplayName: String? = MobileHostIdentity.instanceDisplayName(),
         pairingURLScheme: CmxPairingURLScheme? = CmxPairingURLSchemeResolver().resolved
     ) -> State {
         if status.tailscaleIsRunning,
            let plan = PairingRoutePlan.make(routes: status.tailscaleRoutes),
            let routes = try? MobileAttachTarget.canonicalTailscaleRoutes(from: status.tailscaleRoutes),
            let ticket = try? CmxAttachTicket(
-               workspaceID: "", terminalID: nil, macDeviceID: "", macDisplayName: "",
+               workspaceID: "", terminalID: nil, macDeviceID: macDeviceID,
+               macDisplayName: macDisplayName,
                macUserID: macUserID,
                macPairingCompatibilityVersion: CmxMobileDefaults.pairingCompatibilityVersion,
                routes: routes, expiresAt: nil, authToken: nil
