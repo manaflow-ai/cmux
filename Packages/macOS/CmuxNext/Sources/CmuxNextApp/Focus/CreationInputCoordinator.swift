@@ -256,6 +256,22 @@ final class CreationInputCoordinator {
             next.capture(event)
             return true
         }
+        // Every creation replied and what they asked for holds now (focus landed, the new terminal has the keyboard):
+        // the hold ends at this key, its held keys first, then this one goes on. A settle is not waited for: none may
+        // come after the terminal took the keyboard, and the keys then waited for the hold's bound
+        // (first-keys-proof item 2).
+        if buffer.isResolved {
+            flush(in: shell)
+            guard let next = buffers[shell.windowNumber] else {
+                // As any key after a hold: a person's keyboard claim still keeps it from the window (the Chief's box).
+                droppedLastKey = kind == .content && keepsFromWindow(event, in: shell)
+                return droppedLastKey
+            }
+            guard next === buffer else {
+                next.capture(event) // a held key run again started another creation: this one waits for it, in order
+                return true
+            }
+        }
         // A pending creation's early view has the keyboard: held keys first, then this one.
         if let controller, takesKeysEarly(buffer, controller: controller, window: shell) {
             guard deliverEarly(buffer) else {
