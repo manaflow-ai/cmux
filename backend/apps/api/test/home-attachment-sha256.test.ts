@@ -2,8 +2,8 @@ import { createHash } from "node:crypto"
 import { describe, expect, it } from "vitest"
 import { ResumableSha256 } from "../src/home-attachment-stream.ts"
 
-const MiB = 1024 * 1024
-const bytes = new Uint8Array(3 * MiB + 77).map((_, i) => (i * 31 + 7) % 256)
+const PIECE = 4096
+const bytes = new Uint8Array(3 * PIECE + 77).map((_, i) => (i * 31 + 7) % 256)
 const expected = (b: Uint8Array) => createHash("sha256").update(b).digest("hex")
 
 describe("Home attachments: SHA-256 carried between multipart pieces", () => {
@@ -17,11 +17,11 @@ describe("Home attachments: SHA-256 carried between multipart pieces", () => {
 
   it("resumes from the state stored after each whole piece, whatever the chunk sizes", () => {
     let state: string | null = null
-    for (let start = 0; start < bytes.length; start += MiB) {
+    for (let start = 0; start < bytes.length; start += PIECE) {
       const sha = new ResumableSha256(state)
-      const piece = bytes.subarray(start, Math.min(bytes.length, start + MiB))
-      for (let i = 0; i < piece.length; i += 1_000) sha.update(piece.subarray(i, i + 1_000))
-      if (start + MiB < bytes.length) state = sha.state()
+      const piece = bytes.subarray(start, Math.min(bytes.length, start + PIECE))
+      for (let i = 0; i < piece.length; i += 100) sha.update(piece.subarray(i, i + 100))
+      if (start + PIECE < bytes.length) state = sha.state()
       else expect(sha.digest()).toBe(expected(bytes))
     }
     const partial = new ResumableSha256(null)
