@@ -251,6 +251,7 @@ mod memory_tests {
                 .env(CHILD, size.to_string())
                 .output()
                 .unwrap();
+            print!("{}", String::from_utf8_lossy(&output.stdout));
             assert!(
                 output.status.success(),
                 "{}\n{}",

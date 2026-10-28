@@ -4,7 +4,7 @@
 //! machine, which the app then names in the chat.
 //!
 //! What may go: a regular file (canonical, so a symlink is judged by where
-//! it leads), whose name is not a secret file's or a dot
+//! it leads) of at most 1 GiB, whose name is not a secret file's or a dot
 //! file's, and that is either one a file request could share (in the home
 //! folder, outside `~/Library`, dot folders and credential folders:
 //! [`grants::shareable_item`]) or in `cmux-pastes` of this Mac's temporary
@@ -28,6 +28,8 @@ use crate::link::sync_cli;
 
 /// Files one call takes.
 const MAX_FILES: usize = 64;
+/// The largest file uploaded.
+const MAX_FILE_BYTES: u64 = 1 << 30;
 /// The folder of the temporary folder the app writes pastes to.
 const PASTES: &str = "cmux-pastes";
 /// The longest file name the machine holds.
@@ -66,6 +68,9 @@ fn uploadable(path: &Path) -> Result<(PathBuf, String), Failure> {
     let meta = std::fs::metadata(&canonical).map_err(|_| refused("it does not exist"))?;
     if !meta.is_file() {
         return Err(refused("only files can be uploaded"));
+    }
+    if meta.len() > MAX_FILE_BYTES {
+        return Err(refused("it is larger than 1 GiB"));
     }
     let name = canonical
         .file_name()

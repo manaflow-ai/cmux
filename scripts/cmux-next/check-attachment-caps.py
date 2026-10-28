@@ -31,7 +31,6 @@ ADMISSION_PATHS = {
     "webviews/src/agent-session/acpmux/attachments.ts",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift",
     "cmux-tui/crates/cmux-conversation/src/attachments.rs",
-    "cmux-tui/crates/cmux-tui/src/link/access_cli/uploads.rs",
 }
 # This cache budget is unrelated to chat-upload admission and is deliberately retained.
 RETAINED_BOUNDS = {
