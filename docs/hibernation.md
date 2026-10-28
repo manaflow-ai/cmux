@@ -80,7 +80,10 @@ instead:
 - Only the chat's own agent (its proven caller token) and the person reach a chat's tasks. A
   chat moved away and imported back is the same chat, and finds its tasks again.
 - A task runs while anything it started still holds its output, a process that left its group
-  (`setsid cmd &`) included, so it has no deadline; a stop ends it.
+  (`setsid cmd &`) included, so it has no deadline. A stop ends the task's group and, after its
+  grace, the runner's wait and the task's record. A process that left the group is never
+  signalled (only the task's own group is), so it keeps running after the stop, and its later
+  output is not kept.
 - The task runs under `bash -c` (`/bin/sh` where there is no bash), in the environment the
   chat's agent runs with: the daemon builds it the way it launched the agent, so a Codex chat's
   task sees what its own shell sees although Codex passes an MCP server only a few names.
