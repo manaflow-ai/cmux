@@ -65,7 +65,8 @@ static void window_census(void) {
     for (long index = 0; index < total; index++) {
         id window = at(windows, sel_registerName("objectAtIndex:"), (unsigned long)index);
         if (flag(window, sel_registerName("isVisible"))) visible++;
-        if (flag(window, sel_registerName("viewsNeedLayout"))) need_layout++;
+        id content = send(window, sel_registerName("contentView"));
+        if (content != nil && flag(content, sel_registerName("needsLayout"))) need_layout++;
         const char *name = object_getClassName(window);
         int slot = 0;
         while (slot < kinds && names[slot] != NULL && strcmp(names[slot], name) != 0) slot++;
