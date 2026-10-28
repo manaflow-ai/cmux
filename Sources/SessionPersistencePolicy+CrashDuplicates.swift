@@ -59,7 +59,7 @@ extension SessionPersistencePolicy {
                 let candidate = mergingCrashDuplicateWindows(result[index], window, fingerprints: &fingerprints)
                 // Restore caps each window independently. Combining divergent
                 // copies past that cap would turn preservation into truncation.
-                if candidate.tabManager.workspaces.count <= maxWorkspacesPerWindow {
+                if let candidate, candidate.tabManager.workspaces.count <= maxWorkspacesPerWindow {
                     result[index] = candidate
                     // Keep observed generations as evidence. The combined result
                     // cannot broaden duplicate identity beyond its inputs.
@@ -100,7 +100,13 @@ extension SessionPersistencePolicy {
     private nonisolated static func mergingCrashDuplicateWindows(
         _ lhs: SessionWindowSnapshot,
         _ rhs: SessionWindowSnapshot, fingerprints: inout CrashContentFingerprint
-    ) -> SessionWindowSnapshot {
+    ) -> SessionWindowSnapshot? {
+        // An ownership map cannot distinguish duplicate IDs already present
+        // within one input generation. Keep that ambiguous window intact.
+        for workspaces in [lhs.tabManager.workspaces, rhs.tabManager.workspaces] {
+            let ids = workspaces.compactMap(\.workspaceId)
+            guard Set(ids).count == ids.count else { return nil }
+        }
         let lhsEvidence = lhs.tabManager.workspaces.map { crashWorkspaceSignature($0, fingerprints: &fingerprints) }
         let rhsEvidence = rhs.tabManager.workspaces.map { crashWorkspaceSignature($0, fingerprints: &fingerprints) }
         let lhsIsRicher = lhsEvidence.reduce(0) { $0 + $1.fidelityScore } >=
@@ -119,8 +125,6 @@ extension SessionPersistencePolicy {
             case .supplemental(let index): return supplementalWorkspaces[index]
             }
         }
-        var preferredReplacements: [UUID: UUID] = [:]
-        var supplementalReplacements: [UUID: UUID] = [:]
         for (preferredIndex, supplementalIndex) in plan.matches {
             // A legacy richer copy may omit its runtime ID. A proven match
             // retains the other generation's ID so group/dock references survive.
@@ -128,12 +132,39 @@ extension SessionPersistencePolicy {
                 mergedWorkspaces[preferredIndex].workspaceId = preferredWorkspaces[preferredIndex].workspaceId
                     ?? supplementalWorkspaces[supplementalIndex].workspaceId
             }
+        }
+        // Divergent copies may share an old ID. Give each retained copy its
+        // own persisted identity before restore builds its dock-owner lookup.
+        var retainedIDs: Set<UUID> = []
+        let identitySelector = WorkspaceSessionRestoreIdentity()
+        for index in mergedWorkspaces.indices {
+            guard let id = mergedWorkspaces[index].workspaceId else { continue }
+            if !retainedIDs.insert(id).inserted {
+                mergedWorkspaces[index].workspaceId = identitySelector.freshWorkspaceId(reservingIn: &retainedIDs)
+            }
+        }
+        var preferredReplacements: [UUID: UUID] = [:]
+        var supplementalReplacements: [UUID: UUID] = [:]
+        for (index, selection) in plan.selections.enumerated() {
+            guard let keptID = mergedWorkspaces[index].workspaceId else { continue }
+            switch selection {
+            case .preferred(let source):
+                if let oldID = preferredWorkspaces[source].workspaceId { preferredReplacements[oldID] = keptID }
+            case .supplemental(let source):
+                if let oldID = supplementalWorkspaces[source].workspaceId { supplementalReplacements[oldID] = keptID }
+            }
+        }
+        for (preferredIndex, supplementalIndex) in plan.matches {
             guard let keptID = mergedWorkspaces[preferredIndex].workspaceId else { continue }
             if let oldID = preferredWorkspaces[preferredIndex].workspaceId { preferredReplacements[oldID] = keptID }
             if let oldID = supplementalWorkspaces[supplementalIndex].workspaceId { supplementalReplacements[oldID] = keptID }
         }
-        let replacements = preferredReplacements.merging(supplementalReplacements) { preferred, _ in preferred }
-        for index in mergedWorkspaces.indices {
+        for (index, selection) in plan.selections.enumerated() {
+            let replacements: [UUID: UUID]
+            switch selection {
+            case .preferred: replacements = preferredReplacements
+            case .supplemental: replacements = supplementalReplacements
+            }
             mergedWorkspaces[index].dock = remappingCrashDockOwnership(mergedWorkspaces[index].dock, replacements: replacements)
         }
         let preferredGroups = preferred.tabManager.workspaceGroups ?? []
@@ -151,7 +182,7 @@ extension SessionPersistencePolicy {
             keptWorkspaces: mergedWorkspaces, identityReplacements: supplementalReplacements
         ) ?? [])
         var merged = preferred
-        merged.dock = remappingCrashDockOwnership(preferred.dock, replacements: replacements)
+        merged.dock = remappingCrashDockOwnership(preferred.dock, replacements: preferredReplacements)
         merged.tabManager.workspaces = mergedWorkspaces
         merged.tabManager.workspaceGroups = groups.isEmpty ? nil : groups
         return merged

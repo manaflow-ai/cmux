@@ -8,6 +8,19 @@ import Testing
 #endif
 
 extension CrashDiagnosticSessionPolicyTests {
+    @Test("Ambiguous workspace identities inside one generation are not merged into another")
+    func crashMergeRetainsAmbiguousInputOwnership() throws {
+        var original = crashTestWindow([
+            crashTestWorkspace("api", agents: ["a"]), crashTestWorkspace("docs", agents: ["b"])
+        ])
+        original.tabManager.workspaces[1].workspaceId = original.tabManager.workspaces[0].workspaceId
+        let result = try #require(SessionPersistencePolicy.snapshotForLiveRestore(AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion, createdAt: 10, windows: [original, original]
+        )))
+        #expect(result.windows.count == 2)
+        #expect(result.windows.allSatisfy { $0.tabManager.workspaces.count == 2 })
+    }
+
     @Test("Retained copies have distinct workspace IDs and keep their own dock owners")
     func crashMergeRemapsRetainedWorkspaceCollisions() throws {
         var original = crashTestWindow([crashTestWorkspace("api", agents: ["a"])])
@@ -19,8 +32,17 @@ extension CrashDiagnosticSessionPolicyTests {
         )
         original.tabManager.workspaces[0].dock?.sourceWorkspaceIdsByPanelId = [panel.id: oldID]
         original.dock = original.tabManager.workspaces[0].dock
+        let firstGroup = UUID(), secondGroup = UUID()
+        original.tabManager.workspaces[0].groupId = firstGroup
+        original.tabManager.workspaceGroups = [SessionWorkspaceGroupSnapshot(
+            id: firstGroup, name: "first", isCollapsed: false, anchorWorkspaceId: oldID, anchorMemberIndex: 0
+        )]
         var replay = original
         replay.tabManager.workspaces[0].customDescription = "Keep this generation"
+        replay.tabManager.workspaces[0].groupId = secondGroup
+        replay.tabManager.workspaceGroups = [SessionWorkspaceGroupSnapshot(
+            id: secondGroup, name: "second", isCollapsed: false, anchorWorkspaceId: oldID, anchorMemberIndex: 0
+        )]
         let result = try #require(SessionPersistencePolicy.snapshotForLiveRestore(AppSessionSnapshot(
             version: SessionSnapshotSchema.currentVersion, createdAt: 10, windows: [original, replay]
         )))
@@ -33,6 +55,8 @@ extension CrashDiagnosticSessionPolicyTests {
         #expect(window.tabManager.workspaces[0].dock?.sourceWorkspaceIdsByPanelId == [panel.id: first])
         #expect(window.tabManager.workspaces[1].dock?.sourceWorkspaceIdsByPanelId == [panel.id: second])
         #expect(window.dock?.sourceWorkspaceIdsByPanelId == [panel.id: first])
+        #expect(window.tabManager.workspaceGroups?.first { $0.id == firstGroup }?.anchorWorkspaceId == first)
+        #expect(window.tabManager.workspaceGroups?.first { $0.id == secondGroup }?.anchorWorkspaceId == second)
     }
 
     @Test("Crash merging never moves preserved workspaces past the live restore limit", arguments: [false, true])

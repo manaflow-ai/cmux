@@ -324,14 +324,9 @@ extension TerminalController: ControlSystemContext {
                 imported.snapshot,
                 source: source
             )
-            // Count what restore will actually open: crash-diagnostic windows
-            // are dropped, crash-duplicate windows merged, and the window
-            // count is capped.
-            let windowCount = min(
-                SessionPersistencePolicy.snapshotForLiveRestore(snapshot)?.windows.count ?? 0,
-                SessionPersistencePolicy.maxWindowsPerSnapshot
-            )
-            guard appDelegate.restorePreviousSessionSnapshot(snapshot, shouldActivate: false) else {
+            // Restore prepares the snapshot once and reports the actual count.
+            let windowCount = appDelegate.restorePreviousSessionSnapshot(snapshot, shouldActivate: false)
+            guard windowCount > 0 else {
                 return .failed(
                     code: "invalid_state",
                     message: String(

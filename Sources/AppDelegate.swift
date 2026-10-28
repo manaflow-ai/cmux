@@ -4252,21 +4252,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         guard let snapshot = sessionSnapshotStore.loadReopenSessionSnapshot(fileURL: nil) else {
             return false
         }
-        return restorePreviousSessionSnapshot(snapshot, shouldActivate: shouldActivate)
+        return restorePreviousSessionSnapshot(snapshot, shouldActivate: shouldActivate) > 0
     }
 
     @discardableResult
     func restorePreviousSessionSnapshot(
         _ snapshot: AppSessionSnapshot,
         shouldActivate: Bool = true
-    ) -> Bool {
+    ) -> Int {
         guard let snapshot = SessionPersistencePolicy.snapshotForLiveRestore(snapshot) else {
-            return false
+            return 0
         }
         let snapshotWindows = Array(
             snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
         )
-        guard !snapshotWindows.isEmpty else { return false }
+        guard !snapshotWindows.isEmpty else { return 0 }
 
         (tabManager ?? mainWindowContexts.values.first?.tabManager)?
             .prepareLegacyWorkspaceCustomizationMigration(
@@ -4310,7 +4310,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             )
         }
 
-        return true
+        return createdWindowIds.count
     }
 
     private func applySessionWindowSnapshot(
