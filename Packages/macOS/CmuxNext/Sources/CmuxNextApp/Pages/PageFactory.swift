@@ -21,15 +21,14 @@ import CmuxNextWebUpdates
 /// that type's line budget is frozen).
 @MainActor
 struct PageFactory {
-    unowned let services: AppServices
+    let services: AppServices
 
     /// The React History page when Debug Settings `history.surface` is `web`, else nil (the
     /// Swift page). The tunable goes when the React page becomes the default (react-pages.md H3).
     func historyWebPage() -> PageWebView? {
         guard PageTunables.history.value == .web else { return nil }
         let routes = pageRoutes(for: .history)
-        guard let page = services.pageHostPool.claim(.history, routes: routes,
-                                                      window: services.windows.active?.window, focus: false)
+        guard let page = services.pagePreloads.claim(.history, routes: routes)
             ?? services.webUI.open(PageOpenRequest(descriptor: .history, routes: routes)) else { return nil }
         PageConnectionWatch(page: page, store: services.machines.local.store, on: services.mainWork).start()
         return page
@@ -97,10 +96,8 @@ struct PageFactory {
         let cloud = cloud ?? cloudPageProvider()
         native.forward = { op, params, context in try await cloud.call(op, params: params, context: context) }
         let routes = [PageRoute(prefix: "cmux.cloud.", provider: cloud), PageRoute(prefix: "cmux.app.", provider: native)]
-        let attributes = ["cloud-machines-layout": PageTunables.cloudMachinesLayout.value.rawValue]
-        let page = services.pageHostPool.claim(.cloud, routes: routes, route: route,
-                                               documentAttributes: attributes,
-                                               window: services.windows.active?.window, focus: false)
+        let attributes = PagePreloads.Page.cloud.documentAttributes  // the Cloud preload boots with the same
+        let page = services.pagePreloads.claim(.cloud, routes: routes, route: route, documentAttributes: attributes)
             ?? services.webUI.open(PageOpenRequest(descriptor: .cloud, routes: routes, route: route, documentAttributes: attributes))
         native.anchor = { [weak page] in page }
         if let page { PageConnectionWatch(page: page, store: services.machines.local.store, on: services.mainWork).start() }
@@ -241,17 +238,15 @@ struct PageFactory {
                           pair: { [weak services] in services?.registry.perform("server.showPanel") }))]
             + (images.map { [PageRoute(prefix: BackdropImagesPageProvider.prefix, provider: $0)] } ?? [])
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
-        let catalog = services.settingsWindow.backdropCatalog
+        let catalog = SettingsWindowService.backdropCatalog(of: services)
         let dynamicResources = SettingsBackdropThumbnails(choices: catalog.catalog.choices,
                                                           currentChoices: { catalog.catalog.choices },
                                                           userImages: SettingsWindowService.userImages, museum: museumArt,
                                                           iconPNG: { [weak services] icon in
                                                               await SettingsIconAssets.png(icon, owner: services?.machines.local)
                                                           }, memory: appCaches)
-        let page = services.pageHostPool.claim(.settings, routes: routes, route: route, options: Self.settingsEngineOptions,
-                                               surface: .settings,
-                                               dynamicResources: dynamicResources,
-                                               window: services.windows.active?.window, focus: false)
+        let page = services.pagePreloads.claim(.settings, routes: routes, route: route, surface: .settings,
+                                               dynamicResources: dynamicResources)
             ?? services.webUI.open(PageOpenRequest(descriptor: .settings, routes: routes, route: route,
                                                    options: Self.settingsEngineOptions, surface: .settings,
                                                    dynamicResources: dynamicResources))

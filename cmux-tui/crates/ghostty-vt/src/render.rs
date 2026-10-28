@@ -244,23 +244,35 @@ pub struct RenderState {
     next_frame_seq: u64,
 }
 
+// SAFETY: the three handles are owned only by this value, and reading after
+// `update` no longer touches the terminal; mutation goes through &mut self, so
+// moving the value to another thread is sound.
 unsafe impl Send for RenderState {}
 
 impl RenderState {
     pub fn new() -> Result<Self> {
         let mut raw: sys::GhosttyRenderState = ptr::null_mut();
+        // SAFETY: `raw` is a writable local; a null allocator selects the default.
         check(unsafe { sys::ghostty_render_state_new(ptr::null(), &mut raw) })?;
         let mut rows: sys::GhosttyRenderStateRowIterator = ptr::null_mut();
         if let Err(e) =
-            check(unsafe { sys::ghostty_render_state_row_iterator_new(ptr::null(), &mut rows) })
+            // SAFETY: `rows` is a writable local; a null allocator selects the default.
+            check(unsafe {
+                sys::ghostty_render_state_row_iterator_new(ptr::null(), &mut rows)
+            })
         {
+            // SAFETY: `raw` came from render_state_new above and nothing else owns it.
             unsafe { sys::ghostty_render_state_free(raw) };
             return Err(e);
         }
         let mut cells: sys::GhosttyRenderStateRowCells = ptr::null_mut();
         if let Err(e) =
-            check(unsafe { sys::ghostty_render_state_row_cells_new(ptr::null(), &mut cells) })
+            // SAFETY: `cells` is a writable local; a null allocator selects the default.
+            check(unsafe {
+                sys::ghostty_render_state_row_cells_new(ptr::null(), &mut cells)
+            })
         {
+            // SAFETY: both came from their _new calls above and nothing else owns them.
             unsafe {
                 sys::ghostty_render_state_row_iterator_free(rows);
                 sys::ghostty_render_state_free(raw);
@@ -285,6 +297,8 @@ impl RenderState {
 
     /// Snapshot the terminal's viewport into this render state.
     pub fn update(&mut self, terminal: &mut Terminal) -> Result<()> {
+        // SAFETY: `self.raw` is this RenderState's live handle and `terminal.raw()`
+        // the live terminal that `&mut Terminal` keeps unchanged for the call.
         check(unsafe { sys::ghostty_render_state_update(self.raw, terminal.raw()) })?;
         self.palette = terminal_palette(terminal.raw(), sys::GHOSTTY_TERMINAL_DATA_COLOR_PALETTE)?;
         self.default_palette =
@@ -368,6 +382,8 @@ impl RenderState {
 
     fn get<T: Default>(&self, data: sys::GhosttyRenderStateData) -> Result<T> {
         let mut out = T::default();
+        // SAFETY: `self.raw` is this RenderState's live handle, and every caller in
+        // this module names `T` as the type the header gives for `data`.
         check(unsafe {
             sys::ghostty_render_state_get(self.raw, data, &mut out as *mut T as *mut c_void)
         })?;
@@ -385,6 +401,8 @@ impl RenderState {
     /// Reset the global dirty flag after drawing a frame.
     pub fn set_clean(&mut self) {
         let value = sys::GHOSTTY_RENDER_STATE_DIRTY_FALSE;
+        // SAFETY: `self.raw` is this RenderState's live handle; OPTION_DIRTY reads a
+        // GhosttyRenderStateDirty from the live `value`.
         unsafe {
             sys::ghostty_render_state_set(
                 self.raw,
@@ -515,6 +533,8 @@ impl RenderState {
     /// the row index, the row's dirty flag, and its cells. Row dirty flags
     /// are cleared as part of the walk.
     pub fn walk_rows(&mut self, mut f: impl FnMut(usize, bool, &[Cell])) -> Result<()> {
+        // SAFETY: `self.raw` and `self.rows` are this RenderState's live handles;
+        // ROW_ITERATOR fills the iterator that `self.rows` points to.
         check(unsafe {
             sys::ghostty_render_state_get(
                 self.raw,
@@ -524,8 +544,11 @@ impl RenderState {
         })?;
 
         let mut row_index = 0usize;
+        // SAFETY: `self.rows` is live and was filled from this render state above.
         while unsafe { sys::ghostty_render_state_row_iterator_next(self.rows) } {
             let mut dirty = false;
+            // SAFETY: `self.rows` sits on a row (next returned true); ROW_DATA_DIRTY
+            // writes a bool.
             unsafe {
                 sys::ghostty_render_state_row_get(
                     self.rows,
@@ -534,6 +557,8 @@ impl RenderState {
                 );
             }
 
+            // SAFETY: `self.rows` sits on a row; ROW_DATA_CELLS fills the live
+            // `self.cells` iterator.
             check(unsafe {
                 sys::ghostty_render_state_row_get(
                     self.rows,
@@ -544,6 +569,7 @@ impl RenderState {
 
             // Reuse the row buffer (and each Cell's String capacity).
             let mut col = 0usize;
+            // SAFETY: `self.cells` is live and was filled for this row above.
             while unsafe { sys::ghostty_render_state_row_cells_next(self.cells) } {
                 if self.row_buf.len() <= col {
                     self.row_buf.push(Cell::default());
@@ -556,6 +582,8 @@ impl RenderState {
 
             if dirty {
                 let clean = false;
+                // SAFETY: `self.rows` sits on a row; ROW_OPTION_DIRTY reads a bool from the
+                // live `clean`.
                 unsafe {
                     sys::ghostty_render_state_row_set(
                         self.rows,
@@ -594,6 +622,8 @@ fn fill_cell(cells: sys::GhosttyRenderStateRowCells, cell: &mut Cell, grapheme_b
     cell.text.clear();
 
     let mut raw = sys::GhosttyCell::default();
+    // SAFETY: the caller passes a live cells iterator sitting on a cell;
+    // ROW_CELLS_DATA_RAW writes a GhosttyCell.
     let raw_ok = unsafe {
         sys::ghostty_render_state_row_cells_get(
             cells,
@@ -604,6 +634,7 @@ fn fill_cell(cells: sys::GhosttyRenderStateRowCells, cell: &mut Cell, grapheme_b
     cell.width = if raw_ok { cell_width(raw) } else { CellWidth::Narrow };
 
     let mut grapheme_len: u32 = 0;
+    // SAFETY: `cells` sits on a cell; GRAPHEMES_LEN writes a uint32_t.
     unsafe {
         sys::ghostty_render_state_row_cells_get(
             cells,
@@ -614,6 +645,8 @@ fn fill_cell(cells: sys::GhosttyRenderStateRowCells, cell: &mut Cell, grapheme_b
     if grapheme_len > 0 {
         grapheme_buf.clear();
         grapheme_buf.resize(grapheme_len as usize, 0);
+        // SAFETY: `cells` sits on a cell; GRAPHEMES_BUF writes `grapheme_len`
+        // uint32_t values, the length `grapheme_buf` was just resized to.
         let result = unsafe {
             sys::ghostty_render_state_row_cells_get(
                 cells,
@@ -630,6 +663,8 @@ fn fill_cell(cells: sys::GhosttyRenderStateRowCells, cell: &mut Cell, grapheme_b
 
     let mut style =
         sys::GhosttyStyle { size: size_of::<sys::GhosttyStyle>(), ..Default::default() };
+    // SAFETY: `cells` sits on a cell; ROW_CELLS_DATA_STYLE writes a GhosttyStyle
+    // whose `size` is set above.
     let style_ok = unsafe {
         sys::ghostty_render_state_row_cells_get(
             cells,
@@ -652,6 +687,8 @@ pub(crate) fn terminal_palette(
     data: sys::GhosttyTerminalData,
 ) -> Result<[Rgb; 256]> {
     let mut palette = [sys::GhosttyColorRgb::default(); 256];
+    // SAFETY: callers pass a live terminal and a palette kind; both palette kinds
+    // write GhosttyColorRgb[256], the size of `palette`.
     check(unsafe {
         sys::ghostty_terminal_get(terminal, data, palette.as_mut_ptr() as *mut c_void)
     })?;
@@ -664,14 +701,20 @@ pub(crate) fn read_grid_ref_cell(
     grapheme_buf: &mut Vec<u32>,
 ) -> Result<Cell> {
     let mut raw = sys::GhosttyCell::default();
+    // SAFETY: callers pass a grid ref read from a terminal with no mutation
+    // since; `raw` is a writable local.
     check(unsafe { sys::ghostty_grid_ref_cell(grid_ref, &mut raw) })?;
 
     let mut style =
         sys::GhosttyStyle { size: size_of::<sys::GhosttyStyle>(), ..Default::default() };
+    // SAFETY: `grid_ref` is still valid and `style` a writable GhosttyStyle with
+    // its `size` set.
     check(unsafe { sys::ghostty_grid_ref_style(grid_ref, &mut style) })?;
 
     let mut grapheme_len = 0usize;
     let query =
+        // SAFETY: `grid_ref` is still valid; a null buffer with length 0 only
+        // reports the count into `grapheme_len`.
         unsafe { sys::ghostty_grid_ref_graphemes(grid_ref, ptr::null_mut(), 0, &mut grapheme_len) };
     if query != sys::GHOSTTY_SUCCESS && query != sys::GHOSTTY_OUT_OF_SPACE {
         check(query)?;
@@ -681,6 +724,8 @@ pub(crate) fn read_grid_ref_cell(
     if grapheme_len > 0 {
         grapheme_buf.clear();
         grapheme_buf.resize(grapheme_len, 0);
+        // SAFETY: `grid_ref` is still valid; `grapheme_buf` is writable for
+        // `grapheme_buf.len()` codepoints.
         check(unsafe {
             sys::ghostty_grid_ref_graphemes(
                 grid_ref,
@@ -702,7 +747,9 @@ pub(crate) fn read_grid_ref_cell(
 
 fn style_color_spec(color: sys::GhosttyStyleColor) -> ColorSpec {
     match color.tag {
+        // SAFETY: the PALETTE tag says `palette` is the initialized arm.
         sys::GHOSTTY_STYLE_COLOR_PALETTE => ColorSpec::Palette(unsafe { color.value.palette }),
+        // SAFETY: the RGB tag says `rgb` is the initialized arm.
         sys::GHOSTTY_STYLE_COLOR_RGB => ColorSpec::Rgb(Rgb::from(unsafe { color.value.rgb })),
         _ => ColorSpec::Default,
     }
@@ -710,6 +757,8 @@ fn style_color_spec(color: sys::GhosttyStyleColor) -> ColorSpec {
 
 fn raw_cell_bg_spec(raw: sys::GhosttyCell) -> Option<ColorSpec> {
     let mut tag = sys::GHOSTTY_CELL_CONTENT_CODEPOINT;
+    // SAFETY: a GhosttyCell is a plain value; CONTENT_TAG writes a
+    // GhosttyCellContentTag into the local.
     let tag_ok = unsafe {
         sys::ghostty_cell_get(
             raw,
@@ -724,6 +773,8 @@ fn raw_cell_bg_spec(raw: sys::GhosttyCell) -> Option<ColorSpec> {
     match tag {
         sys::GHOSTTY_CELL_CONTENT_BG_COLOR_PALETTE => {
             let mut idx = 0;
+            // SAFETY: a GhosttyCell is a plain value; COLOR_PALETTE writes a
+            // GhosttyColorPaletteIndex, the type `idx` is inferred as.
             let color_ok = unsafe {
                 sys::ghostty_cell_get(
                     raw,
@@ -735,6 +786,7 @@ fn raw_cell_bg_spec(raw: sys::GhosttyCell) -> Option<ColorSpec> {
         }
         sys::GHOSTTY_CELL_CONTENT_BG_COLOR_RGB => {
             let mut rgb = sys::GhosttyColorRgb::default();
+            // SAFETY: a GhosttyCell is a plain value; COLOR_RGB writes a GhosttyColorRgb.
             let color_ok = unsafe {
                 sys::ghostty_cell_get(
                     raw,
@@ -750,6 +802,7 @@ fn raw_cell_bg_spec(raw: sys::GhosttyCell) -> Option<ColorSpec> {
 
 pub(crate) fn cell_width(raw: sys::GhosttyCell) -> CellWidth {
     let mut wide = sys::GHOSTTY_CELL_WIDE_NARROW;
+    // SAFETY: a GhosttyCell is a plain value; DATA_WIDE writes a GhosttyCellWide.
     let result = unsafe {
         sys::ghostty_cell_get(raw, sys::GHOSTTY_CELL_DATA_WIDE, &mut wide as *mut _ as *mut c_void)
     };
@@ -812,6 +865,8 @@ fn render_cell_color(
     data: sys::GhosttyRenderStateRowCellsData,
 ) -> Option<Rgb> {
     let mut rgb = sys::GhosttyColorRgb::default();
+    // SAFETY: callers pass a live cells iterator sitting on a cell and an
+    // FG_COLOR or BG_COLOR kind, which write a GhosttyColorRgb.
     let result = unsafe {
         sys::ghostty_render_state_row_cells_get(cells, data, &mut rgb as *mut _ as *mut c_void)
     };
@@ -892,6 +947,8 @@ fn row_to_runs(row: &[Cell]) -> Vec<StyledRun> {
 
 impl Drop for RenderState {
     fn drop(&mut self) {
+        // SAFETY: Drop runs once; each handle came from its _new call in `new`, is
+        // owned only by this value, and is freed once, children before the state.
         unsafe {
             sys::ghostty_render_state_row_cells_free(self.cells);
             sys::ghostty_render_state_row_iterator_free(self.rows);

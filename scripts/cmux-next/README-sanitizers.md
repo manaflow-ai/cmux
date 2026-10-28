@@ -41,10 +41,12 @@ Options:
    failures for their owners, not sanitizer findings, and they are not counted. A package that does
    not build at the base has no verdict: it is not run again, and the sweep exits 3.
 4. **One pass per mode.** `thread`, `address` and `undefined` set `CMUX_SWIFT_SANITIZE`; the lane
-   builds into `.build-sanitize-<mode>`. `coop-strict` sets `CMUX_SWIFT_TEST_COOP_STRICT=1`: the lane
-   gives `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1` (a cooperative pool of width 1) to each
-   `swift test` run under the hang watchdog, and not to the build, so code that blocks a Swift
-   concurrency thread hangs. Under a sanitizer the stall and total limits of the lane are 3x (thread)
+   builds into `.build-sanitize-<mode>`. `coop-strict` puts the sweep's own `swift` shim
+   (`.build/sanitizer-sweep/coop-strict-bin/swift`) first on `PATH`: it gives
+   `LIBDISPATCH_COOPERATIVE_POOL_STRICT=1` (a cooperative pool of width 1) to each `swift test`,
+   which the lane runs under the hang watchdog, and not to `swift build`, so code that blocks a
+   Swift concurrency thread hangs. The lane has no coop-strict knob of its own: the fleet runs
+   `package-test-lane.sh` only at its reviewed bytes (those on `main` or `feat-cmux-next`). Under a sanitizer the stall and total limits of the lane are 3x (thread)
    or 2x (address, undefined), as Chromium scales test timeouts in `base/test/test_timeouts.cc`.
 5. **Count.** `crash_signature.py` reads each target's output. Only the kind of the mode counts:
 
@@ -107,5 +109,4 @@ in `build/sanitizers/tsan_suppressions.cc`.
 ## Test
 
 `python3 -I scripts/cmux-next/tests/test_sanitizer_sweep.py` (stubbed lane, manifests and toolchain;
-runs on Linux) and `python3 tests/test_ci_package_lane_suite.py` (the lane's
-`CMUX_SWIFT_TEST_COOP_STRICT`).
+runs on Linux; `CoopStrictShimTests` runs the coop-strict `swift` shim against a fake `swift`).

@@ -18,7 +18,7 @@ struct MacScreenHubShareVoteTests {
     /// A host serving session `s1` whose shared screen is a hidden app node with one window under it.
     private func serving() -> (host: MacScreenHubHost, app: VisibilityNode, window: VisibilityNode, made: MadeHosts) {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file), mainWork: linklessMainWork())
+        let pages = MacScreenPages(store: MacScreenStore(file: file), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
         let hub = testHub()
         let host = pages.hubHost
         let app = VisibilityNode(root: "app", own: .hidden)
@@ -39,11 +39,11 @@ struct MacScreenHubShareVoteTests {
     }
 
     /// Sends `.viewerConnected` from the session's stream host and waits until the hub host handled it.
-    private func connect(_ host: MacScreenHubHost, _ made: MadeHosts) async throws {
+    private func connect(_ host: MacScreenHubHost, _ made: MadeHosts) throws {
         let stream = try #require(made.items.last)
         stream.onEvent?(.viewerConnected)
-        for _ in 0..<1_000 where host.session?.connected != true { await Task.yield() }
-        try #require(host.session?.connected == true, "the viewer's connection was not handled")
+        // The event reaches main as one posted visible task.
+        try #require(runMainLoop { host.session?.connected == true }, "the viewer's connection was not handled")
     }
 
     private func expectCapturedHidden(_ app: VisibilityNode, _ window: VisibilityNode) {
@@ -60,11 +60,12 @@ struct MacScreenHubShareVoteTests {
     @Test func aServedSessionVotesOnlyOnceAViewerConnects() async throws {
         let (host, app, window, made) = serving()
         #expect(!app.isCaptured, "a session nobody watches took a vote")
-        try await connect(host, made)
+        try connect(host, made)
         expectCapturedHidden(app, window)
         // A repeated connection notice keeps the one vote.
         made.items.last?.onEvent?(.viewerConnected)
-        for _ in 0..<50 { await Task.yield() }
+        let deadline = Date(timeIntervalSinceNow: 0.2)
+        _ = runMainLoop { Date() >= deadline }
         #expect(app.captureReasons == ["mac-screen.share"])
         host.closeAll()
         expectReleased(app, window)
@@ -72,17 +73,16 @@ struct MacScreenHubShareVoteTests {
 
     @Test func theViewerLeavingReleasesTheVote() async throws {
         let (host, app, window, made) = serving()
-        try await connect(host, made)
+        try connect(host, made)
         expectCapturedHidden(app, window)
         try #require(made.items.last).onEvent?(.viewerEnded)
-        for _ in 0..<1_000 where host.session != nil { await Task.yield() }
-        #expect(host.session == nil)
+        #expect(runMainLoop { host.session == nil })
         expectReleased(app, window)
     }
 
     @Test func stopSharingReleasesTheVote() async throws {
         let (host, app, window, made) = serving()
-        try await connect(host, made)
+        try connect(host, made)
         expectCapturedHidden(app, window)
         await host.stopSession()?.value
         #expect(host.session == nil)
@@ -91,7 +91,7 @@ struct MacScreenHubShareVoteTests {
 
     @Test func theHubEndingTheSessionReleasesTheVote() async throws {
         let (host, app, window, made) = serving()
-        try await connect(host, made)
+        try connect(host, made)
         expectCapturedHidden(app, window)
         host.sessionOver("s1")
         expectReleased(app, window)

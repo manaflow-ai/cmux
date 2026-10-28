@@ -24,6 +24,10 @@ public final class BrowserPopupWindows {
     /// tab's omnibar has); nil gives the popup a fresh engine.
     public var suggestionEngine: ((any BrowserTab) -> OmniboxSuggestionEngine?)?
 
+    /// The app's text input stage, which each popup window carries (``TextInputStageHosting``) so its omnibar
+    /// times its input method calls in the key's latency slot; nil leaves them untimed.
+    public var textInputStage: TextInputStage?
+
     /// `mainWork` is the app's one main-thread scheduler, for the popups' location bars; `inputTap`
     /// the app's one input tap, which each popup window carries (``InputTapHosting``).
     public init(contextMenus: BrowserContextMenuBuilder = .shared, mainWork: MainWorkScheduler, inputTap: InputEventTap?) {
@@ -86,7 +90,7 @@ public final class BrowserPopupWindows {
                                                      visibleFrame: visible, primaryHeight: primaryHeight,
                                                      chromeHeight: BrowserPopupWindow.chromeHeight)
         let window = BrowserPopupWindow(page: page, frame: frame, suggestionEngine: suggestionEngine?(page) ?? OmniboxSuggestionEngine(),
-                                        mainWork: mainWork, inputTap: inputTap)
+                                        mainWork: mainWork, inputTap: inputTap, textInputStage: textInputStage)
         let id = ObjectIdentifier(page)
         // A popup's own popups keep the cmux window of the first opener.
         let cmuxOpener = (opener as? BrowserPopupWindow).flatMap { entries[ObjectIdentifier($0.page)]?.opener } ?? opener
@@ -135,11 +139,12 @@ public final class BrowserPopupWindows {
             contextMenus.present(request, in: page.contentView, leading: hitItems?(request.target, entry.openerKey) ?? [])
         case .resizePopup(let request):
             resize(entry, to: request)
-        case .activate, .notice, .rerouteStore, .takeFocus, .unhandledKey, .verificationPageWaiting, .designMode, .protectedMediaUnavailable:
+        case .activate, .notice, .rerouteStore, .takeFocus, .unhandledKey, .verificationPageWaiting, .designMode, .protectedMediaUnavailable,
+             .contentFullscreen:
             // A popup has no tab to select, no chrome for notices or an
             // editable omnibar to take focus, one store, no page shortcuts, no prompt
             // bar for a verification code offer, and no tab to reopen in WebKit
-            // (its opener's engine holds `window.opener`).
+            // (its opener's engine holds `window.opener`), and no pane to zoom for a fullscreen page.
             break
         case .openURL, .adoptTab, .download, .openLocalFile, .webNotification:
             // A download joins the App's list through the opener's tab, a

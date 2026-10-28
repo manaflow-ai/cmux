@@ -7,6 +7,8 @@ use super::{Rgb, check, sys};
 /// This accepts Ghostty's hex, X11 name, `rgb:`, and `rgbi:` forms.
 pub fn parse_color(value: &str) -> Option<Rgb> {
     let mut color = sys::GhosttyColorRgb::default();
+    // SAFETY: `value` is readable for `value.len()` bytes and `color` is a
+    // writable local.
     check(unsafe { sys::ghostty_color_parse(value.as_ptr().cast(), value.len(), &mut color) })
         .ok()?;
     Some(color.into())
@@ -16,6 +18,8 @@ pub fn parse_color(value: &str) -> Option<Rgb> {
 pub fn parse_palette_entry(value: &str) -> Option<(u8, Rgb)> {
     let mut index = 0;
     let mut color = sys::GhosttyColorRgb::default();
+    // SAFETY: `value` is readable for `value.len()` bytes; `index` and `color`
+    // are writable locals.
     check(unsafe {
         sys::ghostty_color_parse_palette_entry(
             value.as_ptr().cast(),
