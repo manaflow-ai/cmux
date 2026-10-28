@@ -26,6 +26,7 @@ struct UnsentDraftTests {
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "compare the two retry policies"]))
 
         // The next run's tab, still without a session, opens as the chat with its draft.
+        await drafts.flush()
         let relaunched = AgentUnsentDrafts(file: file)
         let seed = try #require(relaunched.seed(for: "tab-1", session: nil))
         #expect(await seed.take()?.draft == "compare the two retry policies")
@@ -34,8 +35,10 @@ struct UnsentDraftTests {
 
         // The first prompt starts the chat's session: the tab's copy goes, and later text is acpmux's.
         _ = await model.respond(to: Self.request("chat.persistSession", ["sessionId": "s-1"]))
+        await drafts.flush()
         #expect(AgentUnsentDrafts(file: file).seed(for: "tab-1", session: nil) == nil)
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "later"]))
+        await drafts.flush()
         #expect(AgentUnsentDrafts(file: file).seed(for: "tab-1", session: nil) == nil)
         withExtendedLifetime(drafts) {}
     }

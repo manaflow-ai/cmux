@@ -217,7 +217,10 @@ nonisolated struct DraftStateMigrationTests {
         let chip = AgentPaneWakeState.Attachment(id: "B", kind: "link", name: "current", mimeType: "inode/directory", size: 0, path: "/tmp/current")
         let list = AgentPaneDraftAttachments.json([chip])
         try fixture.write("source/agent-draft-attachments/\(folder.lastPathComponent)/legacy", "older A")
-        if !createdAfterFailure { _ = await store.keep(list, for: "current") }
+        if !createdAfterFailure {
+            let saved = try JSONEncoder().encode(AgentPaneDraftAttachments.Saved(attachments: [chip], files: nil))
+            try fixture.write("destination/agent-draft-attachments/\(folder.lastPathComponent)/draft.json", String(decoding: saved, as: UTF8.self))
+        }
         failPublication(fixture)
         if createdAfterFailure { _ = await store.keep(list, for: "current") }
         #expect(FileManager.default.fileExists(atPath: folder.path))
@@ -227,12 +230,28 @@ nonisolated struct DraftStateMigrationTests {
         #expect(!FileManager.default.fileExists(atPath: folder.path), "a writer-cleared chat was imported again")
     }
 
+    @Test func anOwnershipWriteFailureDoesNotAcknowledgeOrDeleteCurrentAttachments() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let store = await AgentPaneDraftAttachments(directory: fixture.url("destination"))
+        let folder = try #require(await store.folder(for: "current"))
+        let chip = AgentPaneWakeState.Attachment(id: "B", kind: "link", name: "current", mimeType: "inode/directory", size: 0, path: "/tmp/current")
+        _ = await store.keep(AgentPaneDraftAttachments.json([chip]), for: "current")
+        let markers = fixture.url("destination/.owned-v1-agent-draft-attachments")
+        try? FileManager.default.removeItem(at: markers)
+        try fixture.write("destination/.owned-v1-agent-draft-attachments", "blocked metadata directory")
+        let reply = await store.keep(.array([]), for: "current")
+        #expect(reply == nil)
+        #expect(FileManager.default.fileExists(atPath: folder.path))
+        #expect(await store.attachments(for: "current").map(\.id) == ["B"])
+    }
+
     @Test func failedPublicationThenUnsentClearAndMoveKeepTheirOwnership() async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         try fixture.write("source/agent-unsent-drafts.json", #"{"cleared":"A","provisional":"A","real":"A"}"#)
         failPublication(fixture)
-        await MainActor.run {
+        let writer = await MainActor.run {
             let drafts = AgentUnsentDrafts(directory: fixture.url("destination"))
             drafts.set("B", for: "cleared")
             drafts.set("", for: "cleared")
@@ -241,7 +260,9 @@ nonisolated struct DraftStateMigrationTests {
             drafts.move("provisional", to: "real")
             #expect(!drafts.hasDraft("cleared") && !drafts.hasDraft("provisional"))
             #expect(drafts.seed(for: "cleared", session: nil) == nil)
+            return drafts
         }
+        await writer.flush()
         DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"))
         let drafts = try fixture.object("destination/agent-unsent-drafts.json")
         #expect(drafts["cleared"] as? String == "")
