@@ -249,7 +249,7 @@ final class SSHPTYRun: Sendable {
                 try? await Task.sleep(for: .seconds(3))
                 if !Task.isCancelled, !exit.done { kill(pid, SIGKILL) }
             }
-            await exit.wait()
+            await exit.ended()
             killer.cancel()
         }
         await cleanup.value
@@ -279,7 +279,7 @@ private final class ExitSignal: Sendable {
         for waiter in waiters { waiter.resume() }
     }
 
-    func wait() async {
+    func ended() async {
         await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
             let done = state.withLock { state -> Bool in
                 if !state.done { state.waiters.append(waiter) }

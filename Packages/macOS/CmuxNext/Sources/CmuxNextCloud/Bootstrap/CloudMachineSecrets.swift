@@ -285,6 +285,8 @@ public struct CloudMachineSecrets: Equatable, Sendable {
 
     public struct DeliveryFailed: Error, Equatable {
         public var reason: String
+
+        public init(reason: String) { self.reason = reason }
     }
 
     /// The receiver's error codes; any other answer is reported as `unexpected`, so nothing a
