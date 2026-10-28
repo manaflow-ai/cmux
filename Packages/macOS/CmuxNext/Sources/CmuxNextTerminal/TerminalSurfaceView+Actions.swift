@@ -57,7 +57,7 @@ extension TerminalSurfaceView {
         case .childExited:
             model.hasExited = true
         case .secureInput(let mode):
-            secureInput.apply(mode, for: ObjectIdentifier(self))
+            secureInput.apply(mode, for: secureInputKey.id)
         case .readOnly(let readOnly):
             model.isReadOnly = readOnly
         case .keySequence(let active):
