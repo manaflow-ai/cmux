@@ -159,3 +159,17 @@ fn an_action_the_mac_starts_ends_before_the_machine_stops_waiting_whichever_cloc
         }
     }
 }
+
+/// Review of the broker core at 939021a: `gh` took the daemon's env whole, so a token or a
+/// `GH_HOST` there was used instead of the Mac's keyring login on github.com.
+#[test]
+fn the_gh_the_broker_runs_gets_no_token_or_host_from_the_daemon() {
+    let mut gh = std::process::Command::new("gh");
+    login_env(&mut gh, None);
+    let envs: std::collections::HashMap<_, _> = gh.get_envs().collect();
+    let removed = ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
+    for k in removed.into_iter().chain(["GH_DEBUG", "DEBUG"]) {
+        assert_eq!(envs.get(std::ffi::OsStr::new(k)), Some(&None), "{k}");
+    }
+    assert_eq!(envs.get(std::ffi::OsStr::new("GH_HOST")), Some(&Some("github.com".as_ref())));
+}
