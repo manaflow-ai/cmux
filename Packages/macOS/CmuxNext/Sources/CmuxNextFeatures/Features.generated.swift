@@ -2231,7 +2231,7 @@ nonisolated extension Feature {
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,
-        defaults: FeatureDefaults(dev: true, nightly: true, release: true),
+        defaults: FeatureDefaults(dev: true, nightly: true, release: false),
         expires: "2026-12-20",
         params: [],
         stories: ["split-latency", "typing-flood-stress"],
