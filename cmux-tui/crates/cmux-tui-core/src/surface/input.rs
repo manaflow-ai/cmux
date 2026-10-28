@@ -476,7 +476,7 @@ impl Surface {
 }
 
 #[cfg(test)]
-mod focus_report_tests {
+mod shell_idle_focus_report_tests {
     use super::only_focus_reports;
 
     #[test]

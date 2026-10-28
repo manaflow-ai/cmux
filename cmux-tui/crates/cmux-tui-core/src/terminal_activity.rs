@@ -461,7 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn a_prompt_is_idle_only_after_its_foreground_check() {
+    fn shell_idle_a_prompt_is_idle_only_after_its_foreground_check() {
         let mut activity = ShellActivity::default();
         activity.observe(ShellMark::PromptStart, 1_000);
         assert_eq!(activity.prompt_since(), Some(1_000));
@@ -479,7 +479,7 @@ mod tests {
     }
 
     #[test]
-    fn input_ends_idle_until_the_next_prompt() {
+    fn shell_idle_input_ends_idle_until_the_next_prompt() {
         let mut activity = idle_at(1_000);
         assert!(activity.take_change());
         assert!(activity.note_input(), "published idle: the input asks for a publication");
@@ -497,7 +497,7 @@ mod tests {
     }
 
     #[test]
-    fn a_check_that_raced_a_mark_or_input_is_dropped() {
+    fn shell_idle_a_check_that_raced_a_mark_or_input_is_dropped() {
         let mut activity = ShellActivity::default();
         activity.observe(ShellMark::PromptStart, 1_000);
         let stale = activity.foreground_check_due().unwrap();
@@ -511,7 +511,7 @@ mod tests {
     }
 
     #[test]
-    fn a_running_command_is_never_idle() {
+    fn shell_idle_a_running_command_is_never_idle() {
         let mut activity = idle_at(1_000);
         activity.observe(ShellMark::CommandStart, 1_500);
         assert_eq!(activity.idle_since(), None);
@@ -519,7 +519,7 @@ mod tests {
     }
 
     #[test]
-    fn a_host_state_is_not_idle_until_its_next_prompt() {
+    fn shell_idle_a_host_state_is_not_idle_until_its_next_prompt() {
         let previous = idle_at(1_000);
         let mut restored = ShellActivity::default();
         restored.restore(previous.snapshot());
@@ -534,7 +534,7 @@ mod tests {
     }
 
     #[test]
-    fn same_program_matches_the_spawned_file_name_only() {
+    fn shell_idle_same_program_matches_the_spawned_file_name_only() {
         assert!(same_program("/bin/bash", "/bin/bash"));
         assert!(same_program("-bash", "/usr/bin/bash"));
         assert!(same_program("/bin/zsh", "zsh"));
