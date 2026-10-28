@@ -440,5 +440,5 @@
   padding-inline-start: calc(var(--ui-row-padding-inline) + 12px);
 }
 
-/* Search and selectable rows share one inset and row height, without list-wrapper padding. */
+/* Model rows own their inset; the list wrapper must not add a second inset. */
 .acpmux-mp-models { padding: 0; }
