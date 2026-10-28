@@ -55,7 +55,7 @@ test("a short output has neither a bottom fade nor a spurious measured expansion
 });
 
 test("an expanded viewport remeasures after its content or width fits", async () => {
-  const { window } = new JSDOM("<pre data-preview=\"all\"></pre>", { pretendToBeVisual: true });
+  const { window } = new JSDOM('<pre data-preview="all"></pre>', { pretendToBeVisual: true });
   const node = window.document.querySelector("pre")!;
   let height = 600;
   let viewport = 160;

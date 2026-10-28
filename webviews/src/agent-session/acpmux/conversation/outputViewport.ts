@@ -7,8 +7,9 @@ export function watchOutputViewport(node: HTMLElement, onOverflow: (overflow: bo
   let alive = true;
   const edge = () => {
     if (!alive) return;
-    const overflow = node.scrollHeight > node.clientHeight + 1;
-    node.toggleAttribute("data-more-below", overflow && node.scrollTop + node.clientHeight < node.scrollHeight - 1);
+    const height = node.scrollHeight;
+    const overflow = height > node.clientHeight + 1;
+    node.toggleAttribute("data-more-below", overflow && node.scrollTop + node.clientHeight < height - 1);
   };
   const measure = () => {
     if (!alive) return;
