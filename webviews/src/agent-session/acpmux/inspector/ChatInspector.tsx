@@ -600,19 +600,24 @@ function InspectorPresence({
       delete shell.dataset.inspectorChatPlacement;
       delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
+      shell.style.removeProperty("--acpmux-header-room");
       return;
     }
     shell.dataset.inspectorChatPlacement = push ? "push" : "overlay";
     if (suppressShiftTransition) shell.dataset.inspectorChatResizing = "true";
     else delete shell.dataset.inspectorChatResizing;
     shell.style.setProperty("--acpmux-chat-shift", `${chatShift}px`);
-  }, [shell, drawn, push, chatShift, suppressShiftTransition]);
+    // Push always narrows the transcript, not the header: native tabs reserve the tools at the
+    // pane's trailing edge. Reuse the measured room (excluding an artifact beside the chat).
+    if (paneWidth > 0) shell.style.setProperty("--acpmux-header-room", `${paneWidth}px`);
+  }, [shell, drawn, push, chatShift, paneWidth, suppressShiftTransition]);
   useLayoutEffect(() => {
     if (!shell) return;
     return () => {
       delete shell.dataset.inspectorChatPlacement;
       delete shell.dataset.inspectorChatResizing;
       shell.style.removeProperty("--acpmux-chat-shift");
+      shell.style.removeProperty("--acpmux-header-room");
     };
   }, [shell]);
   // A subagent's panel reads its own rows only: its replies, thoughts and tool calls.
