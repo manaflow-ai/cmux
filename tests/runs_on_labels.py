@@ -6,23 +6,30 @@ red on one day (#26439, #26453). What those tests mean is "this job runs on Blac
 GitHub-hosted runner or a personal machine". This module checks exactly that and nothing about size or
 overflow wiring.
 
-`resolve_labels` evaluates a GitHub Actions expression the way the runner does (`a && b` is `a` when `a`
-is falsy, else `b`; `a || b` is `a` when `a` is truthy, else `b`), with `github.repository_owner` fixed
-to 'manaflow-ai', so the fork branch (`github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'`)
-drops out. Every other context (`vars.X`, `github.event_name`, ...) is unknown: a comparison or
-`contains()` on it may be true or false, and a context used as a value may be empty or may be its own
-unknown value, reported as `vars.X`. The result over-approximates: it holds every label any setting of
-those unknowns can produce.
+`resolve_labels` evaluates a GitHub Actions expression the way the runner does: `a && b` is `a` when `a`
+is falsy, else `b`; `a || b` is `a` when `a` is truthy, else `b`; false, null, 0, NaN and '' are falsy.
+`github.repository_owner` is fixed to 'manaflow-ai', so the fork branch
+(`github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04'`) drops out. A variable the caller describes
+(`variables={"LINUX_RUNNER": {...}}`) takes each of those values or '', one at a time, the same value
+everywhere it is read in the expression. Every other context (`vars.X`,
+`github.event_name`, ...) is unknown: it may be falsy or its own unknown value, reported as its name, and
+a comparison or function on an unknown may go either way. Known values compare exactly when they have the
+same type; mixed types (GitHub coerces them to numbers) go either way. The result over-approximates: it
+holds every label any setting of the unknowns can produce.
 
-`disallowed_labels` names each label that is not Blacksmith Linux or a Linux label the manaflow-ai
-fleet declares in .github/runners.json, with the reason. A personal machine's label is neither, so it fails
-like any other label (tests/test_runs_on_labels.py mutates a workflow onto one to prove it). An empty result is a falsy value (an empty
-runs-on never schedules). An unknown variable is refused unless the caller allows it by name.
+`disallowed_labels` names each label that is not Blacksmith Linux or a Linux label the manaflow-ai fleet
+declares in .github/runners.json, with the reason. A personal machine's label is neither, so it fails like
+any other label (tests/test_runs_on_labels.py mutates a workflow onto one to prove it). An unknown value,
+a falsy value and a runs-on with no label at all are refused too: none of them is known to schedule on
+Blacksmith Linux.
 """
 from __future__ import annotations
 
+import itertools
 import json
+import math
 import re
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,18 +39,21 @@ OWNER = "manaflow-ai"
 BLACKSMITH_LINUX = re.compile(r"blacksmith-[0-9]+vcpu-ubuntu-[0-9]{4}(?:-arm)?")
 # GitHub-hosted images: ubuntu-24.04, ubuntu-latest, macos-26, macos-15-intel, windows-2022, ...
 GITHUB_HOSTED = re.compile(r"(?:ubuntu|macos|windows)-(?:latest|[0-9][0-9.]*)(?:-[a-z0-9]+)*")
+# What scripts/ci/cloud_overflow_switch.py points LINUX_RUNNER at while Blacksmith is down (HOSTED_LINUX).
+OVERFLOW_HOSTED_LINUX = "ubuntu-24.04"
 
 TOKEN = re.compile(
     r"\s*(?:(?P<str>'(?:[^']|'')*')|(?P<op>&&|\|\||==|!=|<=|>=|[!(),<>])"
-    r"|(?P<num>-?[0-9]+(?:\.[0-9]+)?)|(?P<ident>[A-Za-z_][A-Za-z0-9_.*\[\]'-]*))"
+    r"|(?P<num>-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][-+]?[0-9]+)?)|(?P<ident>[A-Za-z_][A-Za-z0-9_.*-]*))"
 )
 
 
 class Unknown(str):
-    """A context's value we cannot know (vars.X, matrix.y); truthy, reported by its name."""
+    """A context's value we cannot know (vars.X, matrix.y); a non-empty string, reported by its name."""
 
 
 EMPTY = ""
+NULL = None
 
 
 def _tokens(text: str) -> list[tuple[str, str]]:
@@ -112,16 +122,16 @@ class _Parser:
         if kind == "str":
             return ("lit", value[1:-1].replace("''", "'"))
         if kind == "num":
-            return ("lit", value)
+            return ("lit", float(value))
         if value == "(":
             node = self.or_()
             self.take(")")
             return node
         if kind == "ident":
             if value in {"true", "false"}:
-                return ("bool", value == "true")
+                return ("lit", value == "true")
             if value == "null":
-                return ("lit", EMPTY)
+                return ("lit", NULL)
             if self.peek() == ("op", "("):
                 self.take()
                 args = []
@@ -130,67 +140,109 @@ class _Parser:
                     if self.peek() == ("op", ","):
                         self.take()
                 self.take(")")
-                return ("call", value, args)
+                return ("call", value.lower(), args)
             return ("ctx", value)
         raise ValueError(f"unexpected {value!r}")
 
 
 def _truthy(value) -> bool:
-    if isinstance(value, bool):
-        return value
+    if value is NULL or value is False:
+        return False
+    if isinstance(value, float):
+        return value != 0 and not math.isnan(value)
     return value != EMPTY
 
 
-def _evaluate(node, owner: str) -> set:
-    kind = node[0]
-    if kind == "lit":
-        return {node[1]}
-    if kind == "bool":
-        return {node[1]}
-    if kind == "ctx":
-        if node[1] == "github.repository_owner":
-            return {owner}
-        return {EMPTY, Unknown(node[1])}
-    if kind == "not":
-        return {not _truthy(value) for value in _evaluate(node[1], owner)}
-    if kind == "and":
+def _known(value) -> bool:
+    return not isinstance(value, Unknown)
+
+
+def _kind(value) -> type:
+    return type(None) if value is NULL else (str if isinstance(value, str) else type(value))
+
+
+def _compare(op: str, left, right) -> set:
+    if not (_known(left) and _known(right)) or _kind(left) is not _kind(right):
+        # An unknown, or a pair GitHub coerces to numbers first: either outcome.
+        return {True, False}
+    if left is NULL:
+        result = {"==": True, "!=": False}.get(op)
+        return {True, False} if result is None else {result}
+    if isinstance(left, str):
+        left, right = left.lower(), right.lower()
+    return {{"==": left == right, "!=": left != right, "<": left < right, ">": left > right,
+             "<=": left <= right, ">=": left >= right}[op]}
+
+
+def _call(name: str, args: list[set]) -> set:
+    if name in {"contains", "startswith", "endswith"} and len(args) == 2:
         out = set()
-        for left in _evaluate(node[1], owner):
-            out |= {left} if not _truthy(left) else _evaluate(node[2], owner)
-        return out
-    if kind == "or":
-        out = set()
-        for left in _evaluate(node[1], owner):
-            out |= {left} if _truthy(left) else _evaluate(node[2], owner)
-        return out
-    if kind == "cmp":
-        op, lefts, rights = node[1], _evaluate(node[2], owner), _evaluate(node[3], owner)
-        out = set()
-        for left in lefts:
-            for right in rights:
-                known = not isinstance(left, Unknown) and not isinstance(right, Unknown)
-                if known and op in {"==", "!="}:
-                    same = str(left).lower() == str(right).lower() and type(left) is type(right)
-                    out.add(same if op == "==" else not same)
-                else:
+        for haystack in args[0]:
+            for needle in args[1]:
+                if not (_known(haystack) and _known(needle) and isinstance(haystack, str) and isinstance(needle, str)):
                     out |= {True, False}
+                    continue
+                haystack_l, needle_l = haystack.lower(), needle.lower()
+                out.add(needle_l in haystack_l if name == "contains"
+                        else haystack_l.startswith(needle_l) if name == "startswith"
+                        else haystack_l.endswith(needle_l))
         return out
-    if kind == "call":
-        # contains(), startsWith(), format(), fromJSON(), ...: the result is not worth modelling here.
-        # A boolean function may go either way; a value-returning one is an unknown value.
-        name = node[1]
-        if name in {"contains", "startsWith", "endsWith", "success", "failure", "always", "cancelled"}:
-            return {True, False}
-        return {EMPTY, Unknown(f"{name}(...)")}
-    raise ValueError(f"unknown node {node!r}")
+    if name in {"contains", "startswith", "endswith", "success", "failure", "always", "cancelled"}:
+        return {True, False}
+    # format(), fromJSON(), join(), toJSON(), hashFiles(): an unknown value, possibly falsy.
+    return {EMPTY, NULL, False, 0.0, Unknown(f"{name}(...)")}
 
 
-def resolve_labels(runs_on, owner: str = OWNER) -> set:
-    """Every label `runs_on` (a string, an expression or a list of them) can select for `owner`."""
+class _Evaluator:
+    def __init__(self, owner: str, variables: Mapping[str, str]):
+        # One value per described variable: a variable reads the same everywhere in one evaluation.
+        self.owner = owner
+        self.variables = {f"vars.{name}": {value} for name, value in variables.items()}
+
+    def __call__(self, node) -> set:
+        kind = node[0]
+        if kind == "lit":
+            return {node[1]}
+        if kind == "ctx":
+            if node[1] == "github.repository_owner":
+                return {self.owner}
+            if node[1] in self.variables:
+                return set(self.variables[node[1]])
+            return {EMPTY, NULL, False, 0.0, Unknown(node[1])}
+        if kind == "not":
+            return {not _truthy(value) for value in self(node[1])}
+        if kind == "and":
+            out = set()
+            for left in self(node[1]):
+                out |= {left} if not _truthy(left) else self(node[2])
+            return out
+        if kind == "or":
+            out = set()
+            for left in self(node[1]):
+                out |= {left} if _truthy(left) else self(node[2])
+            return out
+        if kind == "cmp":
+            out = set()
+            for left in self(node[2]):
+                for right in self(node[3]):
+                    out |= _compare(node[1], left, right)
+            return out
+        if kind == "call":
+            return _call(node[1], [self(arg) for arg in node[2]])
+        raise ValueError(f"unknown node {node!r}")
+
+
+def resolve_labels(runs_on, owner: str = OWNER, variables: Mapping[str, Iterable[str]] | None = None) -> set:
+    """Every label `runs_on` (a string, an expression or a list of them) can select for `owner`.
+
+    `variables` gives the values a repository variable can hold (it may also be unset, '');
+    any other variable is unknown.
+    """
+    variables = variables or {}
     if isinstance(runs_on, list):
         out = set()
         for item in runs_on:
-            out |= resolve_labels(item, owner)
+            out |= resolve_labels(item, owner, variables)
         return out
     if isinstance(runs_on, dict):
         raise ValueError(f"runs-on group/labels mappings are not modelled: {runs_on!r}")
@@ -200,7 +252,13 @@ def resolve_labels(runs_on, owner: str = OWNER) -> set:
         if "${{" in text:
             raise ValueError(f"runs-on mixes text and an expression: {text!r}")
         return {text}
-    return _evaluate(_Parser(whole.group(1)).parse(), owner)
+    tree = _Parser(whole.group(1)).parse()
+    names = sorted(variables)
+    choices = [sorted({EMPTY, *variables[name]}) for name in names]
+    out = set()
+    for values in itertools.product(*choices):
+        out |= _Evaluator(owner, dict(zip(names, values)))(tree)
+    return out
 
 
 def declared_fleet_linux_labels(root: Path = ROOT) -> set[str]:
@@ -210,17 +268,25 @@ def declared_fleet_linux_labels(root: Path = ROOT) -> set[str]:
     return {label for capability, label in fleet.items() if capability.startswith("linux")}
 
 
-def disallowed_labels(runs_on, allow_vars: frozenset[str] = frozenset(), root: Path = ROOT) -> dict[str, str]:
+def linux_runner_values(root: Path = ROOT) -> set[str]:
+    """What LINUX_RUNNER can hold: a declared fleet Linux label, or the overflow switch's hosted Linux."""
+    return declared_fleet_linux_labels(root) | {OVERFLOW_HOSTED_LINUX}
+
+
+def disallowed_labels(runs_on, variables: Mapping[str, Iterable[str]] | None = None,
+                      root: Path = ROOT) -> dict[str, str]:
     """label -> why it may not run this job; empty when every label is Blacksmith or declared fleet Linux."""
     fleet_linux = declared_fleet_linux_labels(root)
+    labels = resolve_labels(runs_on, variables=variables)
+    if not labels:
+        return {"[]": "no label at all: an empty runs-on never schedules"}
     bad = {}
-    for label in resolve_labels(runs_on):
+    for label in labels:
         if isinstance(label, Unknown):
-            if str(label) not in {f"vars.{name}" for name in allow_vars}:
-                bad[str(label)] = "an unknown value: nothing proves it is Blacksmith Linux"
-        elif isinstance(label, bool) or label == EMPTY:
-            bad[repr(label)] = "a falsy value: an empty runs-on never schedules"
-        elif GITHUB_HOSTED.fullmatch(label):
+            bad[str(label)] = "an unknown value: nothing proves it is Blacksmith Linux"
+        elif not isinstance(label, str) or label == EMPTY:
+            bad[repr(label)] = "a falsy or non-label value: it never schedules"
+        elif GITHUB_HOSTED.fullmatch(label.lower()):
             bad[label] = "a GitHub-hosted runner outside the fork branch"
         elif not (BLACKSMITH_LINUX.fullmatch(label) or label in fleet_linux):
             bad[label] = "neither Blacksmith Linux nor a declared manaflow-ai fleet Linux label"
