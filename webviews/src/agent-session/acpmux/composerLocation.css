@@ -1210,16 +1210,22 @@
 .acpmux-dock:has(.acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-asks-stack {
   --acpmux-composer-radius: 11px;
 }
-.acpmux-composer-inner { display: contents; }
+/* The bar is the grid's own items, not one box in it: styles.css gives .acpmux-composer-bar a flex
+   row with the same specificity, so this names the bar too and wins by order (the diagnostics in
+   composer-alignment-measure.test.ts showed the bar as one 102 px flex item in row 1). */
+.acpmux-composer-bar.acpmux-composer-inner { display: contents; }
 .acpmux-composer-box > .acpmux-attachments { grid-column: 1 / -1; grid-row: 1; }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-composer-field-menu > * {
   grid-column: 2;
   grid-row: 2;
 }
+/* The grid's inset is 8 px on both sides: + sits 8 px from the box's left, the mic 8 px from its
+   right, so each glyph's center is 22 px from its edge (a 28 px button, a 16 px glyph). The bottom
+   8 px centers both on the prompt's 22 px line (the field is 44 px: 11 px of padding each side). */
 .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 1;
   grid-row: 2;
-  margin: 0 0 8px 10px;
+  margin: 0 0 8px 8px;
 }
 .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 3;
