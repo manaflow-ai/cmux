@@ -16,9 +16,9 @@ const multipart = async (who: Who, conversation: string, body: Uint8Array) => {
     const res = await handleAttachmentMultipartPart(new Request(r.json.value.upload_url, { method: "PUT", body: piece, headers: { "content-length": String(piece.byteLength), "x-cmux-part-number": String(part) } }), env, conversation, token)
     return { status: res.status, json: (await res.json()) as any }
   }
-  const complete = async (env: TestEnv = testEnv) => {
+  const complete = async (env: TestEnv = testEnv, as: Who = who) => {
     const res = await handleAttachmentMultipartComplete(
-      new Request("https://api.test/v1/home/attachments/multipart/complete", { method: "POST", headers: { authorization: `Bearer ${who.token}`, "content-type": "application/json" }, body: JSON.stringify({ conversation, slot: r.json.value.slot }) }),
+      new Request("https://api.test/v1/home/attachments/multipart/complete", { method: "POST", headers: { authorization: `Bearer ${as.token}`, "content-type": "application/json" }, body: JSON.stringify({ conversation, slot: r.json.value.slot }) }),
       env
     )
     return { status: res.status, json: (await res.json()) as any }
@@ -40,6 +40,23 @@ const completingWith = (complete: (upload: R2MultipartUpload, parts: Array<R2Upl
     }
   })
   return { ...testEnv, HOME_ATTACHMENTS: wrapped }
+}
+
+/** The env with a conversation owner whose methods named in `override` run instead (given the real stub). */
+const ownerWith = (override: Record<string, (stub: any, ...args: Array<any>) => Promise<unknown>>): TestEnv => {
+  const ns = testEnv.CONVERSATION_DO
+  const get = (id: DurableObjectId) => {
+    const stub = ns.get(id)
+    return new Proxy(stub, {
+      get(t, p) {
+        const own = typeof p === "string" ? override[p] : undefined
+        if (own) return (...args: Array<unknown>) => own(t, ...args)
+        // An RPC stub answers every name with a method; call it on the stub itself.
+        return (...args: Array<unknown>) => (t as any)[p](...args)
+      }
+    })
+  }
+  return { ...testEnv, CONVERSATION_DO: { idFromName: (n: string) => ns.idFromName(n), get } as unknown as TestEnv["CONVERSATION_DO"] }
 }
 
 const downloaded = async (who: Who, conversation: string, hash: string) => new Uint8Array(await (await worker.fetch((await urlFor(who, conversation, hash)).json.value.url)).arrayBuffer())
@@ -206,3 +223,61 @@ describe("Home attachments: deleting a conversation's storage ends its open mult
     expect((await fresh.putPart(1)).status).toBe(403)
   })
 })
+
+describe("Home attachments: a completion whose owner commit was lost is recovered by the slot's owner", { timeout: 120_000 }, () => {
+  /** A slot whose R2 completion happened and whose owner commit failed (a dropped ConversationDO call): the slot stays `uploading`. */
+  const committedNowhere = async (alice: Who, id: string, body: Uint8Array) => {
+    const m = await multipart(alice, id, body)
+    expect((await m.putPart(1)).status).toBe(200)
+    const dropped = ownerWith({ commitAttachment: async () => Promise.reject(new Error("Network connection lost.")) })
+    await expect(m.complete(dropped)).rejects.toThrow(/Network connection lost/)
+    const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id))
+    const row = await runInDurableObject(stub, async (_i, state) => state.storage.sql.exec("SELECT state, object_key FROM home_attachment_slots WHERE id = ?", m.slot).toArray()[0] as { state: string; object_key: string })
+    expect(row.state).toBe("uploading")
+    expect((await testEnv.HOME_ATTACHMENTS.head(row.object_key))?.size).toBe(body.byteLength)
+    return m
+  }
+
+  it("the owner's retry verifies the joined object and commits it; another participant still gets 403", async () => {
+    const alice = await signIn("att-commit-lost-alice")
+    const bob = await signIn("att-commit-lost-bob")
+    const { id } = await group(alice, [bob])
+    const body = new Uint8Array(32_000_017).map((_, i) => i % 199)
+    const m = await committedNowhere(alice, id, body)
+    const other = await m.complete(testEnv, bob)
+    expect([other.status, other.json.error.code]).toEqual([403, "attachment.slot_invalid"])
+    const retried = await m.complete()
+    expect([retried.status, retried.json.value?.state]).toEqual([200, "stored"])
+    expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
+    // Committed once: the slot is gone, so a later retry is refused and the object stays.
+    expect((await m.complete()).status).toBe(403)
+    expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
+  })
+
+  it("two retries that both find the joined object commit it once, and the later one never deletes it", async () => {
+    const alice = await signIn("att-commit-lost-race")
+    const { id } = await group(alice)
+    const body = new Uint8Array(32_000_017).map((_, i) => (i * 3) % 197)
+    const m = await committedNowhere(alice, id, body)
+    let reached!: () => void
+    let open!: () => void
+    const atCommit = new Promise<void>((r) => (reached = r))
+    const gate = new Promise<void>((r) => (open = r))
+    const held = ownerWith({
+      commitAttachment: async (stub, ...args) => {
+        reached()
+        await gate
+        return stub.commitAttachment(...args)
+      }
+    })
+    const first = m.complete(held)
+    expect(await Promise.race([atCommit.then(() => "at commit"), first.then((r) => `answered ${r.status}`)])).toBe("at commit")
+    const second = await m.complete()
+    expect([second.status, second.json.value?.state]).toEqual([200, "stored"])
+    open()
+    const late = await first
+    expect([late.status, late.json.value?.state]).toEqual([200, "stored"])
+    expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
+  })
+})
+
