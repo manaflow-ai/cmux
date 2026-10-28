@@ -1,6 +1,5 @@
 public import Foundation
-public import CmuxNextCompat
-
+public import CmuxNextCompatAppKit
 /// What detection needs from the system: a home directory (a fixture folder
 /// in tests and test launches) and a way to find installed apps.
 public struct ImportEnvironment: Sendable {

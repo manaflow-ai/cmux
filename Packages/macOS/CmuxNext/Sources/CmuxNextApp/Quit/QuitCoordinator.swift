@@ -1,6 +1,6 @@
 import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
