@@ -18,6 +18,7 @@ extension AgentPaneView {
 
     /// A picture of the page as it draws now; nil when there is none.
     public func pageSnapshot() async -> NSImage? {
+        model.transport.beforePageWork?()
         if let page { return await page.snapshot() }
         return try? await webView.takeSnapshot(configuration: nil)
     }

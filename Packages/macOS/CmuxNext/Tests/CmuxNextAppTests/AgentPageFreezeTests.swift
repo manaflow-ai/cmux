@@ -157,10 +157,10 @@ struct AgentPageFreezeTests {
         advance(rig, seconds: 31)
         let control = try #require(page(rig, "tab_push"))
         #expect(control.frozen)
-        let wake = try #require(view.model.transport.willDeliver, "a frozen page's transport has no wake")
+        let wake = try #require(view.model.transport.beforePageWork, "a frozen page's transport has no wake")
         wake()
         #expect(!control.frozen, "a push went to a frozen page")
-        #expect(view.model.transport.willDeliver == nil)
+        #expect(view.model.transport.beforePageWork == nil)
         advance(rig, seconds: 20)
         #expect(!control.frozen, "froze again before freezeHiddenTabs")
         advance(rig, seconds: 11)
@@ -222,7 +222,7 @@ struct AgentPageFreezeTests {
         rig.tabs.aliases["tab_provisional"] = nil
         #expect(rig.tabs.existingView("tab_real") === view)
         // With no plan since the rekey, a push still finds the page.
-        try #require(view.model.transport.willDeliver, "the rekeyed page lost its wake")()
+        try #require(view.model.transport.beforePageWork, "the rekeyed page lost its wake")()
         #expect(!control.frozen, "a push did not wake the rekeyed page")
         #expect(rig.hibernation.frozen.isEmpty)
 
@@ -252,6 +252,47 @@ struct AgentPageFreezeTests {
         #expect(rig.hibernation.releaseForWorkspace("tab_real") == nil)
         #expect(!control.frozen, "the rekeyed page was asked for its state while frozen")
         #expect(rig.hibernation.frozen.isEmpty)
+    }
+
+    /// The provisional key still resolves (its alias stays until the tree drops it), so the page is
+    /// under both keys. While its workspace release under the real key asks it for its state, a plan
+    /// must not freeze it again under the provisional key.
+    @Test func aPageBeingReleasedUnderOneKeyDoesNotFreezeUnderTheOther() throws {
+        let rig = Self.rig()
+        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.wakeState = { _ in try? await Task.sleep(for: .seconds(30)); return nil }
+        _ = try rig.hiddenChat("tab_provisional", session: "s-both")
+        advance(rig, seconds: 31)
+        let control = try #require(page(rig, "tab_provisional"))
+        #expect(control.frozen)
+        rig.records["tab_real"] = rig.records["tab_provisional"]
+        rig.tabs.rekey("tab_provisional", to: "tab_real")
+        #expect(rig.hibernation.releaseForWorkspace("tab_real") == nil)
+        #expect(!control.frozen)
+        advance(rig, seconds: 60)
+        #expect(!control.frozen, "a plan froze the page again while its release asked it for its state")
+        #expect(control.calls == [true, false], "\(control.calls)")
+    }
+
+    /// Debug and automation actions call the page's scripts directly: a frozen page wakes first.
+    @Test func aScriptCallOrPictureWakesAFrozenChat() async throws {
+        let rig = Self.rig()
+        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        let view = try rig.hiddenChat("tab_script", session: "s-script")
+        advance(rig, seconds: 31)
+        let control = try #require(page(rig, "tab_script"))
+        #expect(control.frozen)
+        // The wake runs before the call starts (the test page never loads, so the call may not end).
+        let call = Task { @MainActor in _ = try? await view.callPageScript("return 1;") }
+        await rig.settle { !control.frozen }
+        call.cancel()
+        #expect(!control.frozen, "a script call reached a frozen page")
+        advance(rig, seconds: 31)
+        #expect(control.frozen)
+        let picture = Task { @MainActor in _ = await view.pageSnapshot() }
+        await rig.settle { !control.frozen }
+        picture.cancel()
+        #expect(!control.frozen, "a picture was asked of a frozen page")
     }
 
     /// Release asks the page what it holds and for its frame: a frozen page thaws first.

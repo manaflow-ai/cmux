@@ -335,7 +335,12 @@ final class AgentPageHibernation {
         }
         let current = now()
         var next: Double?
+        // Pages, not keys: a tab whose provisional key still resolves has its page under both, so a
+        // page being released or already frozen under one key is skipped under the other too.
+        let busy = Set(releasing.compactMap { store()?.existingView($0) }.map(ObjectIdentifier.init)
+            + frozenPages.values.compactMap(\.view).map(ObjectIdentifier.init))
         for (key, at) in hiddenAt where frozenPages[key] == nil && !releasing.contains(key) && keepsAwake(key, onScreen: false) == nil {
+            if let view = store()?.existingView(key), busy.contains(ObjectIdentifier(view)) { continue }
             var remaining = threshold - (current - at).seconds
             if let awake = awakeSince[key] { remaining = max(remaining, threshold - (current - awake).seconds) }
             if remaining > 0 {
@@ -389,9 +394,10 @@ final class AgentPageHibernation {
         }
         awakeSince[key] = nil
         frozenPages[key] = FrozenPage(view: view, control: page)
-        // A push the frame pacer sends a hidden page (one the page waits on: a reply, a turn's end,
-        // a backlog) wakes it first; the page is found by itself, whatever key its tab has by then.
-        view.model.transport.willDeliver = { [weak self, weak view] in self?.transportNeeds(view) }
+        // Work for the page wakes it first: a push the frame pacer sends a hidden page (a reply, a
+        // turn's end, a backlog), a script call (debug and automation actions) or a picture. The page
+        // is found by itself, whatever key its tab has by then.
+        view.model.transport.beforePageWork = { [weak self, weak view] in self?.pageWorkNeeds(view) }
         logger.debug("froze agent page \(key, privacy: .public)")
         return true
     }
@@ -403,7 +409,7 @@ final class AgentPageHibernation {
         let view = store()?.existingView(key)
         let frozenKey = frozenPages[key] != nil ? key : view.flatMap { view in frozenPages.first { $0.value.view === view }?.key }
         guard let frozenKey, let entry = frozenPages.removeValue(forKey: frozenKey) else { return }
-        entry.view?.model.transport.willDeliver = nil
+        entry.view?.model.transport.beforePageWork = nil
         entry.control.setFrozen(false)
         logger.debug("thawed agent page \(key, privacy: .public)")
     }
@@ -421,9 +427,9 @@ final class AgentPageHibernation {
         }
     }
 
-    /// The transport has a push for frozen page `view`: it thaws before the push goes, and freezes
-    /// again `freezeSeconds` later if it is still hidden and idle.
-    private func transportNeeds(_ view: AgentPaneView?) {
+    /// Frozen page `view` has work coming (a push, a script call, a picture): it thaws before the
+    /// work reaches it, and freezes again `freezeSeconds` later if it is still hidden and idle.
+    private func pageWorkNeeds(_ view: AgentPaneView?) {
         guard let view, let key = frozenPages.first(where: { $0.value.view === view })?.key else { return }
         thaw(key)
         awakeSince[key] = now()
