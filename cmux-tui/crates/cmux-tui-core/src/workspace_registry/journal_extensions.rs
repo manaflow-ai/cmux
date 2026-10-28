@@ -2943,23 +2943,16 @@ mod tests {
         assert!(error.to_string().contains("digest"), "{error:#}");
     }
 
-    /// Pages the registry connection read from the file since the last call.
-    fn take_cache_misses(registry: &WorkspaceRegistry) -> i32 {
-        let (mut current, mut highwater) = (0, 0);
-        let connection = registry.connection.get();
-        // SAFETY: the handle belongs to the connection the guard holds for this
-        // call, and both out-pointers are live locals.
-        let code = unsafe {
-            rusqlite::ffi::sqlite3_db_status(
-                connection.handle(),
-                rusqlite::ffi::SQLITE_DBSTATUS_CACHE_MISS,
-                &mut current,
-                &mut highwater,
-                1,
-            )
-        };
-        assert_eq!(code, rusqlite::ffi::SQLITE_OK);
-        current
+    /// Bytes this thread has read from files: `pread` of database pages
+    /// counts whether SQLite goes through its page cache or reads overflow
+    /// content directly, and other test threads do not add to it.
+    #[cfg(target_os = "linux")]
+    fn thread_bytes_read() -> u64 {
+        let io = std::fs::read_to_string("/proc/thread-self/io").unwrap();
+        io.lines()
+            .find_map(|line| line.strip_prefix("rchar:"))
+            .and_then(|value| value.trim().parse().ok())
+            .expect("/proc/thread-self/io reports rchar")
     }
 
     /// Journal maintenance asks for the newest checkpoint every tick under the
@@ -2967,6 +2960,7 @@ mod tests {
     /// snapshot's overflow pages: about 10 s on a 1.8 GB registry, so every
     /// request queued behind the lock, CLIs gave up and the owner refused new
     /// connections at its limit (https://github.com/manaflow-ai/cmux/issues/26702).
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_latest_checkpoint_lookup_does_not_read_checkpoint_snapshots() {
         const CHECKPOINTS: i64 = 8;
@@ -2993,20 +2987,30 @@ mod tests {
                 )
                 .unwrap();
             }
+            // Fresh overflow chains are contiguous, and with auto-vacuum SQLite
+            // finds each next page from the pointer map without reading it. A
+            // long-lived registry's chains are scattered (12,716 page reads for
+            // 128 checkpoints on the nightly copy); without a pointer map every
+            // overflow page is read, as it is there.
+            db.execute_batch("PRAGMA auto_vacuum=NONE; VACUUM;").unwrap();
         }
         // A reopened registry starts with an empty page cache.
         let registry = WorkspaceRegistry::open(&root, session).unwrap();
-        take_cache_misses(&registry);
 
+        let before = thread_bytes_read();
         assert_eq!(registry.latest_journal_checkpoint_source().unwrap(), CHECKPOINTS as u64);
-        let lookup_pages = take_cache_misses(&registry);
+        let lookup_bytes = thread_bytes_read() - before;
+        let before = thread_bytes_read();
         assert_eq!(registry.journal_checkpoints().unwrap().len(), CHECKPOINTS as usize);
-        let summary_pages = take_cache_misses(&registry);
+        let summary_bytes = thread_bytes_read() - before;
 
         drop(registry);
         let _ = std::fs::remove_dir_all(&root);
         // The summaries read every snapshot (8 MiB here); the lookup reads index pages.
-        assert!(summary_pages > 1_000, "the fixture must make snapshots expensive: {summary_pages}");
-        assert!(lookup_pages < 32, "the latest-checkpoint lookup read {lookup_pages} pages");
+        assert!(
+            summary_bytes > 4 * STATE_BYTES as u64,
+            "the fixture must make snapshots expensive: {summary_bytes} bytes"
+        );
+        assert!(lookup_bytes < 256 * 1024, "the latest-checkpoint lookup read {lookup_bytes} bytes");
     }
 }
