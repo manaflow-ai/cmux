@@ -130,14 +130,35 @@ impl Mux {
     }
 }
 
-/// Test hook (debug builds): each end try holds its lane slot this much
-/// longer (`CMUX_TUI_TEST_END_HOLD_MS`), outside `will_block`, as an end's
-/// commit and its record cleanup do under load.
+/// Test hooks (debug builds), on each end try, outside `will_block`:
+/// - `CMUX_TUI_TEST_END_HOLD_MS`: the try holds its lane slot this much
+///   longer, as an end's commit and its record cleanup do under load.
+/// - `CMUX_TUI_TEST_END_GATE` (a file path) with `CMUX_TUI_TEST_END_GATE_AFTER`
+///   (K): every end after the first K holds its slot until that file exists,
+///   so a test chooses when the queue moves and attaches while it is full.
 pub(super) fn end_hold_for_test() {
     #[cfg(debug_assertions)]
-    if let Some(hold) =
-        std::env::var("CMUX_TUI_TEST_END_HOLD_MS").ok().and_then(|ms| ms.parse::<u64>().ok())
     {
-        crate::request_path::sleep(Duration::from_millis(hold));
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static ENDS: AtomicUsize = AtomicUsize::new(0);
+        if let Some(hold) =
+            std::env::var("CMUX_TUI_TEST_END_HOLD_MS").ok().and_then(|ms| ms.parse::<u64>().ok())
+        {
+            crate::request_path::sleep(Duration::from_millis(hold));
+        }
+        let gate = std::env::var_os("CMUX_TUI_TEST_END_GATE").map(std::path::PathBuf::from);
+        let after = std::env::var("CMUX_TUI_TEST_END_GATE_AFTER")
+            .ok()
+            .and_then(|count| count.parse::<usize>().ok())
+            .unwrap_or(0);
+        if let Some(gate) = gate
+            && ENDS.fetch_add(1, Ordering::AcqRel) >= after
+        {
+            // A test gate: bounded so a test that fails never strands the owner.
+            let deadline = Instant::now() + Duration::from_secs(60);
+            while !gate.exists() && Instant::now() < deadline {
+                crate::request_path::sleep(Duration::from_millis(10));
+            }
+        }
     }
 }

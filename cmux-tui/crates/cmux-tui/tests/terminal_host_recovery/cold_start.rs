@@ -302,86 +302,65 @@ fn terminals_with_no_host_record_end_after_the_answer_and_respawn_across_a_resta
     wait_all_running(&harness.socket, &records);
 }
 
-/// The app attaches while the ends run (after the owner said ready), and
-/// each end holds its System lane slot (a debug hook stands in for a slow
-/// commit). The lane runs 5 such tries at once, so the queue of 200 ends
-/// takes 8 s. The ends start in no set order, so the test attaches to 5
-/// terminals that still adopt, at once: each one's end must go first, and
-/// then its respawn, so all 5 are live well before the queue reaches them
-/// (by chance, all 5 in its first 2.5 s is far below 1 %). Before, every end
-/// waited in the lane's own queue, where `Permits::promote` could not reach
-/// it, and a respawn queued at a background priority was not raised.
+/// The app attaches while the ends queue (after the owner said ready). A
+/// test gate holds every end after the first 10 in its System lane slot,
+/// outside `will_block`, as a slow commit does, so the lane is full and 190
+/// ends wait when the app attaches. The attached terminal's end must run
+/// past them, and then its respawn, while the gate still holds the rest.
+/// Before, every end waited in the lane's own queue, where
+/// `Permits::promote` could not reach it, and the attach timed out.
 #[test]
 fn an_attach_while_the_ends_run_ends_and_respawns_its_terminal_first() {
     const COUNT: usize = 200;
-    const ATTACHES: usize = 5;
-    let (mut harness, _records, _last, _content) = cold_session("cold-start-end-hold", COUNT);
-    harness.extra_env.push(("CMUX_TUI_TEST_END_HOLD_MS".to_string(), "200".to_string()));
-    let restarted = Instant::now();
+    const FREE_ENDS: usize = 10;
+    let (mut harness, _records, _last, _content) = cold_session("cold-start-end-gate", COUNT);
+    let gate = harness.dir.join("end-gate");
+    harness.extra_env.push(("CMUX_TUI_TEST_END_GATE".to_string(), gate.display().to_string()));
+    harness.extra_env.push(("CMUX_TUI_TEST_END_GATE_AFTER".to_string(), FREE_ENDS.to_string()));
     harness.restart();
-    // The ends run: the owner said ready and some already committed.
     let deadline = Instant::now() + test_timeout(Duration::from_secs(30));
-    let queued_before = loop {
-        let queued = ends_not_run(&harness.socket);
-        if COUNT - queued >= 10 {
-            break queued;
-        }
-        assert!(Instant::now() < deadline, "the ends never started: {queued} of {COUNT} queued");
-        std::thread::sleep(Duration::from_millis(50));
-    };
-    // The premise: most ends still wait when the app attaches.
-    assert!(
-        queued_before >= COUNT / 2,
-        "only {queued_before} of {COUNT} ends still waited when the app attached, {:?} after \
-         the restart; lifecycles {}: the queue this test is about had already drained",
-        restarted.elapsed(),
+    while COUNT - ends_not_run(&harness.socket) < FREE_ENDS {
+        assert!(Instant::now() < deadline, "the first {FREE_ENDS} ends never ran");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // The premise: the gate holds every other end.
+    let queued = ends_not_run(&harness.socket);
+    assert_eq!(
+        queued,
+        COUNT - FREE_ENDS,
+        "the gate did not hold the ends: {}",
         lifecycles(&harness.socket)
     );
     let tree = request(&harness.socket, serde_json::json!({"cmd": "list-workspaces"}));
-    let targets = tabs(&tree)
+    let (surface, terminal) = tabs(&tree)
         .into_iter()
         .filter(|tab| tab["terminal_state"] == "adopting")
         .filter_map(|tab| {
             Some((tab["surface"].as_u64()?, tab["content_resource_id"].as_str()?.to_owned()))
         })
-        .take(ATTACHES)
-        .collect::<Vec<_>>();
-    assert_eq!(targets.len(), ATTACHES, "too few tabs still pending: {tree}");
-    let socket = harness.socket.clone();
-    let attaches = targets
-        .iter()
-        .map(|(surface, _)| {
-            let (socket, surface) = (socket.clone(), *surface);
-            std::thread::spawn(move || attach(&socket, surface))
-        })
-        .collect::<Vec<_>>();
-    let answers = attaches.into_iter().map(|attach| attach.join().unwrap()).collect::<Vec<_>>();
-    let queued_after = ends_not_run(&harness.socket);
-    let slowest = answers.iter().map(|(_, attached)| *attached).max().unwrap_or_default();
-    // The premise again: the queue had not drained when the attaches ended.
-    assert!(
-        queued_after >= COUNT / 4,
-        "only {queued_after} of {COUNT} ends still waited when the attaches answered (slowest \
-         {slowest:?}; {queued_before} at the attach): the ends drained, so this run proves \
-         nothing about the order"
+        .last()
+        .unwrap_or_else(|| panic!("no tab is pending: {tree}"));
+    let (response, attached) = attach(&harness.socket, surface);
+    let still_held = ends_not_run(&harness.socket);
+    fs::write(&gate, b"open").unwrap();
+    assert_eq!(
+        response["ok"], true,
+        "the attach while {queued} ends were held failed after {attached:?}: its end waited \
+         behind them: {response}"
     );
-    for ((surface, terminal_id), (response, attached)) in targets.iter().zip(answers) {
-        assert_eq!(
-            response["ok"], true,
-            "the attach to {surface} while the ends ran failed after {attached:?}: its end or \
-             its respawn waited behind the queue: {response}"
-        );
-        assert!(
-            attached < Duration::from_millis(2_500),
-            "the attach to {surface} while the ends ran answered after {attached:?}: it waited \
-             for the queue"
-        );
-        let resolved = request(
-            &harness.socket,
-            serde_json::json!({"cmd": "resolve-terminal", "terminal_id": terminal_id}),
-        );
-        assert_eq!(resolved["lifecycle"], "running", "{resolved}");
-    }
+    assert!(
+        attached < Duration::from_millis(2_500),
+        "the attach while {queued} ends were held answered after {attached:?}"
+    );
+    assert!(
+        still_held >= COUNT - FREE_ENDS - 2,
+        "only {still_held} ends were still held when the attach answered: it did not go first"
+    );
+    let resolved = request(
+        &harness.socket,
+        serde_json::json!({"cmd": "resolve-terminal", "terminal_id": terminal}),
+    );
+    assert_eq!(resolved["lifecycle"], "running", "{resolved}");
 }
 
 /// How many terminals' ends have not run yet: rows still adopting.
