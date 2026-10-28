@@ -203,6 +203,18 @@ test("a recording kept out by the byte cap gets a notice that does not claim two
   expect(translate(recordingLeftOutNotice("narrowband"), {}, "en")).not.toBe(capped);
 });
 
+// Review of #27012 (P2): a recording the host could not write (a full disk, a folder that is not
+// writable) came back as no audio and no reason, so auto-send sent the transcript alone without a
+// word. The host now says `writeFailed`, and the notice says the recording was lost.
+test("a recording the host could not save gets a notice that says the audio was lost", async () => {
+  const { translate } = await import("../src/agent-session/acpmux/i18n");
+  const { recordingLeftOutNotice } = await import("../src/agent-session/acpmux/attachments");
+  const lost = translate(recordingLeftOutNotice("writeFailed"), {}, "en");
+  expect(lost).toBe("The voice recording couldn't be saved on this Mac, so the prompt gets the transcript only.");
+  expect(lost).not.toBe(translate(recordingLeftOutNotice("tooLong"), {}, "en"));
+  expect(lost).not.toBe(translate(recordingLeftOutNotice("narrowband"), {}, "en"));
+});
+
 // Leo, 2026-10-26: "I ALREADY SAID WE NEED ARBITARRILY LARGE FILES OF ANY TYPE". A recording too
 // long to go inline is the WAV the host wrote on this Mac: a local chat's agent gets that file.
 test("a long recording goes to a local chat as its saved file, of any size", () => {

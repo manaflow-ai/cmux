@@ -39,6 +39,9 @@ public final class DictationAudioRecording: Sendable {
     public enum Omission: String, Equatable, Sendable {
         /// The input came in below 16 kHz (a narrowband headset).
         case narrowband
+        /// The recording's file could not be written or read back (a full disk, a folder that is
+        /// not writable): the audio is lost, and the person is told.
+        case writeFailed
     }
 
     public static let sampleRate: Double = 16_000

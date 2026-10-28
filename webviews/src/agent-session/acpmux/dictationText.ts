@@ -16,7 +16,7 @@ export type DictationUpdate = {
   audio?: DictationRecording;
   /// Why such a session's recording was left out (the mic was narrowband; `tooLong` from a host
   /// that stopped keeping audio at two minutes): its prompt goes as text alone.
-  audioOmitted?: "tooLong" | "narrowband";
+  audioOmitted?: "tooLong" | "narrowband" | "writeFailed";
 };
 
 /// A finished session's recording, a WAV of any length: its bytes (base64) when it fits in a

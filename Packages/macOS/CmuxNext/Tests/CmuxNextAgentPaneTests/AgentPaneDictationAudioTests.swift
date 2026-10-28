@@ -249,6 +249,65 @@ struct AgentPaneDictationAudioTests {
         #expect(!FileManager.default.fileExists(atPath: folder.path), "the cancelled recording's folder goes")
     }
 
+    /// Review of #27012 (P2): a recording whose file could not be written (a full disk, a folder
+    /// that is not writable) came back nil with no omission, so the session's last update said
+    /// nothing and auto-send sent the transcript alone without a word. The loss is now an omission
+    /// (`writeFailed`) the update carries to the page, which says the audio was lost.
+    @Test func aRecordingThatCannotBeWrittenSaysItsAudioWasLost() async throws {
+        let parent = FileManager.default.temporaryDirectory.appending(path: "dictation-test-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        // Short (inline) and long (its file) recordings alike: the folder's path is a regular file,
+        // so neither the folder nor the WAV in it can be made.
+        for seconds in [2, 140] {
+            let folder = parent.appending(path: "blocked-\(seconds)")
+            #expect(FileManager.default.createFile(atPath: folder.path, contents: Data()))
+            let recording = DictationAudioRecording(folder: folder)
+            feed(recording, seconds: seconds)
+            #expect(await recording.finish() == nil)
+            #expect(recording.omission == .writeFailed, "a recording of \(seconds) s")
+        }
+        // A discarded recording lost nothing the person wanted: no omission.
+        let (discarded, other) = self.recording()
+        defer { try? FileManager.default.removeItem(at: other) }
+        feed(discarded, seconds: 2)
+        discarded.discard()
+        #expect(await discarded.finish() == nil)
+        #expect(discarded.omission == nil)
+        #expect(AgentPaneDictation.payload(DictationUpdate(phase: .idle, text: "t", audioOmitted: .writeFailed))["audioOmitted"] as? String == "writeFailed")
+    }
+
+    /// The session's last update carries a recording's write failure to the page.
+    @Test func aSessionWhoseRecordingCannotBeWrittenSaysSoInItsLastUpdate() async throws {
+        let parent = FileManager.default.temporaryDirectory.appending(path: "dictation-test-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let folder = parent.appending(path: "blocked")
+        #expect(FileManager.default.createFile(atPath: folder.path, contents: Data()))
+        let engine = LongRecordingTranscriber(seconds: 3)
+        let session = DictationSession(authorizer: GrantedDictationAuthorizer(), makeTranscriber: { meter in
+            engine.meter = meter
+            return engine
+        })
+        let updates = Updates()
+        session.onUpdate = { updates.all.append($0) }
+        session.recordsAudio = true
+        session.recordingFolder = { folder }
+        session.start()
+        try await waitFor { engine.fed && session.phase == .listening }
+        session.stop()
+        try await waitFor { updates.all.last?.phase == .idle }
+        let last = try #require(updates.all.last)
+        #expect(last.phase == .idle)
+        #expect(last.audio == nil)
+        #expect(last.audioOmitted == .writeFailed)
+    }
+
+    /// The updates a session sent, in order.
+    private final class Updates {
+        var all: [DictationUpdate] = []
+    }
+
     /// Polls `ready` on the main actor for up to 3 s.
     private func waitFor(_ ready: () -> Bool) async throws {
         for _ in 0..<300 where !ready() {
