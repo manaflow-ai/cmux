@@ -22,7 +22,7 @@ struct FileInstallSigner: InstallSigner {
 
     func rotate() async throws {
         try await work.run(.userVisible, mayBlock: .files) { [file] in
-            guard unlink(file.path) == 0 || errno == ENOENT else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            guard blockingUnlink(file.path) == 0 || errno == ENOENT else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         }
     }
 

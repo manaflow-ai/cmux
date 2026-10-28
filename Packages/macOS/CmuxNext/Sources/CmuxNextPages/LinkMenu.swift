@@ -236,7 +236,7 @@ public struct LinkMenu {
         let bundleName = name.hasSuffix(".app") ? name : name + ".app"
         let folders = FileManager.default.urls(for: .applicationDirectory, in: [.localDomainMask, .userDomainMask, .systemDomainMask])
             + [URL(fileURLWithPath: "/System/Applications"), URL(fileURLWithPath: "/Applications/Utilities")]
-        return folders.map { $0.appending(path: bundleName) }.first { paths.fileExists(atPath: $0.path) }
+        return folders.map { $0.appending(path: bundleName) }.first { FileManager.checked.fileExists(atPath: $0.path) }
     }
 
     nonisolated static func ordered(_ apps: [URL], first: URL?, excluding own: URL?) -> [URL] {

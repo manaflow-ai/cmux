@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextDaemon
 public import Foundation
 
@@ -25,6 +25,8 @@ public nonisolated struct HomeChiefHostedEngine: HomeChiefEngineSource {
     let send: Send
     /// The avatar stays this Mac's (`profile.json`, cosmetic).
     let files: HomeChiefFiles
+    /// The lanes ``files`` is read on.
+    let lanes: any MayBlockRunner
     public var isLocal: Bool { false }
     public var place: String? { nil }
     public var choosesHarness: Bool { false }
@@ -41,15 +43,18 @@ public nonisolated struct HomeChiefHostedEngine: HomeChiefEngineSource {
     static let defaultModel = "claude-opus-5-5"
     static let defaultEffort = "low"
 
-    public init(chief: @escaping @MainActor @Sendable () -> String?, send: @escaping Send, files: HomeChiefFiles) {
+    public init(chief: @escaping @MainActor @Sendable () -> String?, send: @escaping Send, files: HomeChiefFiles,
+                lanes: any MayBlockRunner) {
         self.chief = chief
         self.send = send
         self.files = files
+        self.lanes = lanes
     }
 
     public func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
         let config = try await call("GET", body: nil)
-        return Self.snapshot(config, avatar: files.avatar())
+        let avatar = try await files.avatar(on: lanes)
+        return Self.snapshot(config, avatar: avatar)
     }
 
     /// Sets model and effort (nil: the brain's default); a harness is not the brain's to change.
@@ -57,7 +62,9 @@ public nonisolated struct HomeChiefHostedEngine: HomeChiefEngineSource {
         let patch = Self.patch(fields)
         guard !patch.isEmpty else { return try await read() }
         let body = try? JSONSerialization.data(withJSONObject: patch, options: [.sortedKeys])
-        return Self.snapshot(try await call("PUT", body: body), avatar: files.avatar())
+        let config = try await call("PUT", body: body)
+        let avatar = try await files.avatar(on: lanes)
+        return Self.snapshot(config, avatar: avatar)
     }
 
     private func call(_ method: String, body: Data?) async throws(HomeChiefEngineError) -> [String: Any] {

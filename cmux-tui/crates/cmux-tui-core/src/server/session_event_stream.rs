@@ -20,6 +20,7 @@ use crate::resource::WireDecimal;
 use crate::state::placement_shift::CAPABILITY as PLACEMENT_SHIFT_CAPABILITY;
 use crate::state::placement_shift::PlacementShift;
 use crate::stream_interrupt::StreamInterrupt;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::sync::Mutex;
 use serde_json::Value;
 use serde_json::json;
@@ -263,9 +264,11 @@ pub(super) fn start_session_event_stream(
     let outbound = start.outbound.clone();
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn = cmux_threads::spawn(
+    let spawn = supervised::spawn_at(
         "mux-resource-session-events",
         crate::thread_qos::ThreadType::Interactive.qos(),
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             run_session_event_stream(&worker_mux, client, &worker_writer, start);
         },

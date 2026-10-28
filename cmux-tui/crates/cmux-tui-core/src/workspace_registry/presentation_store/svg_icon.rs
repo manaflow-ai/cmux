@@ -275,8 +275,10 @@ pub fn sanitize_svg_icon(input: &[u8]) -> anyhow::Result<String> {
                             continue;
                         }
                         if matches!(key, "mask" | "clip-path")
-                            && !(attribute.targets.len() == 1
-                                && attribute.value == format!("url(#{})", attribute.targets[0]))
+                            && !matches!(
+                                attribute.targets.as_slice(),
+                                [target] if attribute.value == format!("url(#{target})")
+                            )
                         {
                             continue;
                         }
@@ -460,18 +462,19 @@ fn canonical_attribute_value(value: &str) -> Option<(String, Vec<String>)> {
     }
     let mut output = String::with_capacity(value.len());
     let mut targets = Vec::new();
-    let mut index = 0;
-    while let Some(offset) = value[index..].find('(') {
-        let open = index + offset;
-        let name_start = value[..open]
+    let mut rest = value;
+    while let Some((before, after_open)) = rest.split_once('(') {
+        // `rest` follows a `)` (or starts the value), so a function name
+        // never reaches back into text already written.
+        let name_start = before
             .rfind(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '-'))
             .map_or(0, |at| at + 1);
-        let name = value[name_start..open].to_ascii_lowercase();
+        let (prefix, name) = before.split_at_checked(name_start)?;
+        let name = name.to_ascii_lowercase();
         if !ALLOWED_FUNCTIONS.contains(&name.as_str()) {
             return None;
         }
-        let close = value[open..].find(')').map(|at| open + at)?;
-        let argument = &value[open + 1..close];
+        let (argument, after_close) = after_open.split_once(')')?;
         if argument.contains('(') {
             return None;
         }
@@ -481,15 +484,15 @@ fn canonical_attribute_value(value: &str) -> Option<(String, Vec<String>)> {
                 return None;
             }
             let target = prefixed_id(id);
-            output.push_str(&value[index..name_start]);
+            output.push_str(prefix);
             let _ = write!(output, "url(#{target})");
             targets.push(target);
         } else {
-            output.push_str(&value[index..=close]);
+            let _ = write!(output, "{before}({argument})");
         }
-        index = close + 1;
+        rest = after_close;
     }
-    output.push_str(&value[index..]);
+    output.push_str(rest);
     Some((output, targets))
 }
 

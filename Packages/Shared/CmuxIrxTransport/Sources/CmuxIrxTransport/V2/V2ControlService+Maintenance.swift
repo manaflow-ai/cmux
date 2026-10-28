@@ -68,6 +68,7 @@ extension V2ControlService {
         renewalHealthTask?.cancel()
         let dependencies = dependencies
         renewalHealthTask = Task { [weak self] in
+            // wakeup-allow: deadline 300 s past the next refresh date; a renewal or a new run replaces it
             do { try await dependencies.sleep(delay) }
             catch { return }
             await self?.renewalHealthCheckFired(run: run)
@@ -129,6 +130,7 @@ extension V2ControlService {
                     directory: (directoryRefreshAfter, directoryDue)
                 ).joined(separator: ","),
             ])
+            // wakeup-allow: deadline the soonest renewal date of the ticket, relay credentials or directory
             do { try await dependencies.sleep(max(0, next - now)) }
             catch {
                 journal("maintenance-exited", ["reason": "sleep-cancelled"])

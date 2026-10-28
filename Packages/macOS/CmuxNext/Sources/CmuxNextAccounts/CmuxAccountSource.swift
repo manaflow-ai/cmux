@@ -36,6 +36,7 @@ extension CmuxAccountSource {
         case .signIn, .switchAccount:
             let attempt = beginSignIn(selectAccount: action == .switchAccount)
             // task-owner: one hosted sign-in; ends when the browser flow returns
+            // main-hop-allow: only awaits the sign-in task Cloud auth runs; its one resume re-reads the screen
             Task { if await attempt.value { refresh() } }
         case .cancelSignIn:
             cancelSignIn()
@@ -43,6 +44,7 @@ extension CmuxAccountSource {
             _ = continueSignInInBrowser()
         case .signOut:
             // task-owner: one sign-out; the row follows Cloud auth's state
+            // main-hop-allow: only awaits the app's main-actor sign-out (its requests run off main); its resume re-reads the screen
             Task {
                 await signOut()
                 refresh()
