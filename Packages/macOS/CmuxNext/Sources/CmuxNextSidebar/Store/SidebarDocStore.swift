@@ -70,13 +70,13 @@ public final class SidebarDocStore {
     @ObservationIgnored private var refetchAgain = false
     /// Batches that arrived while the first load was in flight; applied after it (the mirror drops the stale ones).
     @ObservationIgnored private var earlyBatches: [Data] = []
-    /// The last projection (`projection(live:)`), by version and live set.
     /// The live workspaces and the connected other machines at the last `show` (a remote close is a live ref that left).
     @ObservationIgnored var lastLive: Set<SidebarDocWorkspaceRef> = []
     @ObservationIgnored var lastConnectedRemotes: Set<String> = []
     /// The page icon address last sent for each url item (`storeIconURLs` sends each one once).
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]
-    @ObservationIgnored var projectionCache: (version: UInt64, live: [SidebarDocWorkspaceRef], projection: SidebarDocProjection)?
+    /// The last projection (`projection(live:)`), with what it was built over.
+    @ObservationIgnored var projectionCache: SidebarDocProjectionCache?
     /// Changes whose outcome no reply told (all asks unanswered, or answered only after an ask went unanswered: the
     /// echo may have gone to a closed connection). They stay pending until the next document load, which says where
     /// the rows really are: the load drops them (cx-ml98q).
@@ -231,6 +231,15 @@ public final class SidebarDocStore {
         send(.unpin(items, key: Self.newKey()), title: title) { remote, key, _ in
             try await remote.unpin(items, key: key)
         }
+    }
+
+    /// Archive (`archived` true): each item moves to the end of its own list (its group, or its
+    /// section's top level) and draws dimmed. Unarchive puts it back where it was archived from
+    /// (plans/cmux-next/archiving-DESIGN.md). One undo step titled `title`. Throws the reducer's
+    /// refusal (a provider-owned section, an unknown item), so the CLI and MCP get it too.
+    public func setArchived(_ items: [String], archived: Bool, title: String) throws(SidebarDocSendRefusal) {
+        guard !items.isEmpty else { return } // nothing placed yet (an adopt is on the way)
+        try sendChecked(ops: [["op": archived ? "archive" : "unarchive", "items": items]], title: title)
     }
 
     /// Folds or opens `group` in the document (the owner of record; other clients follow it). The

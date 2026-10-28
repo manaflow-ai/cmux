@@ -1,3 +1,4 @@
+import AppKit
 import CryptoKit
 import Foundation
 
@@ -50,9 +51,16 @@ nonisolated enum AgentPaneImageCopies {
         return "\(base) \(hash).\(extensions[type] ?? "img")"
     }
 
-    /// Writes `src`'s copy into `folder` (once per image) and returns its file.
+    /// Writes `src`'s copy into `folder` (once per image) and returns its file. An SVG is written
+    /// only as its rebuilt form (``AgentPaneSVGSanitizer``): a `data:` SVG comes from the reply as
+    /// the agent wrote it, and its copy is shown in Finder, saved, dragged out and Quick Looked
+    /// outside the pane's `<img>`, where its script and links would count (media-safety R7).
     @concurrent static func copy(_ src: String, name: String, in folder: URL) async -> Result<URL, AgentPaneReplyError> {
-        guard let image = decode(src) else { return .failure(.imageRefused) }
+        guard var image = decode(src) else { return .failure(.imageRefused) }
+        if image.type == "image/svg+xml" {
+            guard let clean = AgentPaneSVGSanitizer.sanitize(image.data) else { return .failure(.imageRefused) }
+            image.data = clean
+        }
         let file = folder.appendingPathComponent(fileName(name, data: image.data, type: image.type), isDirectory: false)
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -98,18 +106,24 @@ extension AgentPaneImageCopies {
         case .dragFile(let path):
             guard model.replyLinks.mouseHeld() else { return AgentPaneModel.replyFailure(.gestureRequired) }
             guard let file = draggedFile(path, in: model) else { return AgentPaneModel.replyFailure(.pathInvalid) }
-            return model.replyLinks.startDrag(file) ? AgentPaneReply.success() : AgentPaneModel.replyFailure(.openFailed)
+            let out = handedOut(file, in: model.replyLinks.imageFolder)
+            if out != file, await !model.replyLinks.rebuildCopy(file, out) { return AgentPaneModel.replyFailure(.imageRefused) }
+            // The rebuild ran off the main actor: a chat that turned remote meanwhile drags
+            // nothing of this Mac's (cx-k21v).
+            guard !model.chatIsElsewhere else { return AgentPaneModel.replyFailure(.pathInvalid) }
+            return model.replyLinks.startDrag(out) ? AgentPaneReply.success() : AgentPaneModel.replyFailure(.openFailed)
         case .quickLookImage(let src, let name):
             return await withCopy(src, name: name, in: model) { model.replyLinks.quickLookFile($0) }
         default: return AgentPaneModel.replyFailure(.openFailed)
         }
     }
 
-    /// `image.reveal`: the file `path` names when it is one inside the roots of a local chat, else
-    /// the image's copy, selected in Finder. One click covers both.
+    /// `image.reveal`: the file `path` names when it is one inside the roots of a local chat (not an
+    /// SVG, which Finder would open as the agent wrote it), else the image's copy, selected in
+    /// Finder. One click covers both.
     @MainActor static func reveal(_ src: String, name: String, path: String?, in model: AgentPaneModel) async -> [String: Any] {
         guard model.transport.gestures.consume() else { return AgentPaneModel.replyFailure(.gestureRequired) }
-        if let path, let file = shownFile(path, in: model) {
+        if let path, let file = shownFile(path, in: model), handedOut(file, in: model.replyLinks.imageFolder) == file {
             model.replyLinks.revealFile(file)
             return AgentPaneReply.success()
         }
@@ -125,19 +139,82 @@ extension AgentPaneImageCopies {
     /// The file `path` names when Finder may show it: a file (not a folder) inside the roots, not on
     /// the deny list, in a chat on this machine. Nil otherwise (the image's copy is shown instead).
     @MainActor static func shownFile(_ path: String, in model: AgentPaneModel) -> URL? {
-        guard !model.remoteChat, let resolved = model.replyPaths().resolve(path), resolved.place == .root,
+        guard !model.chatIsElsewhere else { return nil }
+        let paths = model.replyPaths()
+        let resolved = AgentPaneReplyPaths.isImagePath(path) ? paths.resolveImage(path) : paths.resolve(path)
+        guard let resolved, resolved.place == .root,
               !resolved.isFolder, let canonical = AcpmuxPathPolicy.canonical(resolved.path),
-              !model.replyPaths().isDenied(canonical) else { return nil }
+              !paths.isDenied(canonical) else { return nil }
         return URL(fileURLWithPath: canonical, isDirectory: false)
     }
 
     /// The file `path` names when it may be dragged out: a file or folder inside the roots, not on
     /// the deny list, in a chat on this machine.
     @MainActor static func draggedFile(_ path: String, in model: AgentPaneModel) -> URL? {
-        guard !model.remoteChat, let resolved = model.replyPaths().resolve(path), resolved.place == .root,
+        guard !model.chatIsElsewhere else { return nil }
+        let paths = model.replyPaths()
+        let resolved = AgentPaneReplyPaths.isImagePath(path) ? paths.resolveImage(path) : paths.resolve(path)
+        guard let resolved, resolved.place == .root,
               let canonical = AcpmuxPathPolicy.canonical(resolved.path),
-              !model.replyPaths().isDenied(canonical) else { return nil }
+              !paths.isDenied(canonical) else { return nil }
         return URL(fileURLWithPath: canonical, isDirectory: resolved.isFolder)
+    }
+
+    /// The file a path chip hands out (Copy, Save As…, Open With, Reveal in Finder, a drag): the
+    /// file itself, or for an SVG its rebuilt copy (``rebuild(_:to:)``), under its own name in a
+    /// folder for its path in `folder`. An agent may write the SVG; outside the pane's `<img>` its
+    /// script and links would count (media-safety R7). An `.svgz` goes out as on base: the rebuild
+    /// reads plain XML only. The folder is named by 16 bytes of the path's hash, so no two paths share it.
+    static func handedOut(_ file: URL, in folder: URL) -> URL {
+        guard !file.hasDirectoryPath, file.pathExtension.lowercased() == "svg" else { return file }
+        let hash = SHA256.hash(data: Data(file.path.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
+        return folder.appendingPathComponent(hash, isDirectory: true).appendingPathComponent(file.lastPathComponent, isDirectory: false)
+    }
+
+    /// Writes `file`'s rebuilt SVG to `copy` (``handedOut(_:in:)``), off the main actor; false when
+    /// the rebuild cannot read it (it is not handed out).
+    @concurrent static func rebuild(_ file: URL, to copy: URL) async -> Bool {
+        guard let data = regularFileBytes(file, limit: AgentPaneReplyImages.maximumBytes),
+              let clean = AgentPaneSVGSanitizer.sanitize(data) else { return false }
+        do {
+            try FileManager.default.createDirectory(at: copy.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try clean.write(to: copy, options: .atomic)
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// `file`'s bytes when, as it is opened, it is a regular file (not a link, which the agent could
+    /// swap in after the path was checked, nor a pipe that would block the read) of at most `limit` bytes.
+    nonisolated static func regularFileBytes(_ file: URL, limit: Int) -> Data? {
+        let descriptor = open(file.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { return nil }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= limit,
+              let data = try? handle.read(upToCount: limit + 1), data.count <= limit else { return nil }
+        return data
+    }
+
+    /// Makes each of `items` (and its submenu's) first write `file`'s rebuilt copy to `copy`, then
+    /// act; an SVG the rebuild cannot read does nothing but beep.
+    @MainActor static func rebuildingFirst(_ items: [NSMenuItem], _ file: URL, to copy: URL) -> [NSMenuItem] {
+        for item in items {
+            if let submenu = item.submenu { _ = rebuildingFirst(submenu.items, file, to: copy) }
+            guard let action = item.action, let target = item.target as? NSObject else { continue }
+            let rebuilt = AgentPaneMenuAction { [weak item] in
+                // task-owner: one rebuild of a local SVG off the main actor; ends when the row acts
+                Task { @MainActor in
+                    guard await rebuild(file, to: copy) else { return NSSound.beep() }
+                    _ = target.perform(action, with: item)
+                }
+            }
+            item.target = rebuilt
+            item.action = #selector(AgentPaneMenuAction.run)
+            item.representedObject = rebuilt
+        }
+        return items
     }
 
     /// `image.openInPane`: a copy of the `data:` image in a cmux browser pane.

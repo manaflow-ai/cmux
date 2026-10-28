@@ -1,5 +1,6 @@
 public import CoreGraphics
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// A density metric that Debug Settings can override. Its default is the
 /// density preset (or the user's `appearance.metrics.*` override in
@@ -103,6 +104,12 @@ public nonisolated enum MetricTunables {
 
     public static let columnGap = MetricTunable.make("columnGap", .panes, "Column gap", help: "Gap between strip columns.",
                                                      compact: 6, comfortable: 8, key: .columnGap)
+    public static let dividerThickness = MetricTunable.make(
+        "dividerThickness", .panes, "Divider thickness", help: "Visible line between split panes.",
+        compact: 1, comfortable: 1, key: .dividerThickness, range: 0...6)
+    public static let dividerHitWidth = MetricTunable.make(
+        "dividerHitWidth", .panes, "Divider drag width", help: "Draggable width centered on a split divider.",
+        compact: 7, comfortable: 7, key: .dividerHitWidth, range: 1...24)
     public static let densityPaneCornerRadius = MetricTunable.make(
         "densityPaneCornerRadius", .panes, "Pane corner radius", help: "Rounded pane corners when padding or a border shows and layout.paneCornerRadius is unset.",
         compact: 6, comfortable: 8)
@@ -123,6 +130,6 @@ public nonisolated enum MetricTunables {
     public static var metrics: [MetricTunable] {
         [sidebarWidth, titlebarHeight, sidebarRowHeight, sidebarRowHeightWithSubtitle, sidebarHeaderHeight, roomDotDiameter, roomDotSlot,
          tabStripHeight, tabHeight, controlHeight, tabMaxWidth, tabMinActiveWidth, tabMinInactiveWidth, tabPinnedWidth, tabMinWidth, paletteRowHeight, paletteSearchHeight, paletteWidth, panelInset,
-         columnGap, densityPaneCornerRadius, panelCornerRadius, itemCornerRadius, iconSize, smallIconSize, scrollEdgeFade]
+         columnGap, dividerThickness, dividerHitWidth, densityPaneCornerRadius, panelCornerRadius, itemCornerRadius, iconSize, smallIconSize, scrollEdgeFade]
     }
 }

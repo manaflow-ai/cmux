@@ -65,6 +65,15 @@ public nonisolated struct SidebarDragGeometry: Sendable {
     /// Each group's block (its header and the member rows under it), by the group's key: the y range a drop
     /// before or after the whole group splits in half.
     private let groupBlocks: [String: ClosedRange<CGFloat>]
+    /// Each group item's parent group item (nil at the top), from the header slots.
+    private var groupParent: [String: String?] = [:]
+    /// Each group item's header slot.
+    private var groupSlot: [String: Slot] = [:]
+    /// The bottom of each group item's whole subtree (its rows and its subgroups' rows).
+    private var subtreeBottom: [String: CGFloat] = [:]
+    /// The outliner rule's indent (nested-groups prototype): at the bottom edge of a nested block the
+    /// pointer's x picks the level the drop goes to. Nil keeps the y-only rule.
+    var outline: (indent: SidebarIndent, leading: CGFloat, width: CGFloat)?
 
     /// `slots` in any order; `acceptance` from the drag's begin (empty:
     /// every place is accepted, as for a mirror without the table).
@@ -95,6 +104,59 @@ public nonisolated struct SidebarDragGeometry: Sendable {
         }
         groupHeaders = headers
         groupBlocks = blocks
+        for slot in slots where slot.kind == .group {
+            guard let item = slot.item else { continue }
+            groupParent[item] = slot.parent
+            groupSlot[item] = slot
+        }
+        for slot in slots where slot.kind != .section {
+            var current = slot.kind == .group ? slot.item : slot.parent
+            var seen = Set<String>()
+            while let id = current, seen.insert(id).inserted, groupParent[id] != nil {
+                subtreeBottom[id] = max(subtreeBottom[id] ?? -.infinity, slot.frame.maxY)
+                current = groupParent[id] ?? nil
+            }
+        }
+    }
+
+    /// The level a slot draws at: a header at its tree level, a member one level under its group.
+    func level(of slot: Slot) -> Int {
+        var level = slot.kind == .group ? 0 : (slot.parent == nil ? 0 : 1)
+        var current = slot.kind == .group ? slot.parent : slot.parent.flatMap { groupParent[$0] ?? nil }
+        var seen = Set<String>()
+        while let id = current, seen.insert(id).inserted {
+            level += 1
+            current = groupParent[id] ?? nil
+        }
+        return level
+    }
+
+    /// The outliner rule: a drop after the last row of a nested block, with the pointer left of that
+    /// row's level, goes after the ancestor group whose level the pointer's x picks (drag out of a group).
+    /// Only ancestors whose whole subtree ends at this row qualify: a drop never lands inside a block above.
+    private func outlined(_ hit: Hit, x: CGFloat) -> Hit {
+        guard let outline, hit.zone == .after, hit.slot.kind != .section, hit.slot.kind != .tile else { return hit }
+        // The chain of places a drop at this bottom edge may go, deepest first.
+        var chain: [(slot: Slot, level: Int)] = [(hit.slot, level(of: hit.slot))]
+        var current = hit.slot.kind == .group ? hit.slot.item.flatMap { groupParent[$0] ?? nil } : hit.slot.parent
+        // A group header's own "after" is inside its block when it is open: only a closed one (or a member row) ends it.
+        if hit.slot.kind == .group, let item = hit.slot.item, (subtreeBottom[item] ?? hit.slot.frame.maxY) > hit.slot.frame.maxY + 0.5 { return hit }
+        var seen = Set<String>()
+        while let id = current, seen.insert(id).inserted, let header = groupSlot[id],
+              abs((subtreeBottom[id] ?? header.frame.maxY) - hit.slot.frame.maxY) < 0.5 {
+            chain.append((header, level(of: header)))
+            current = groupParent[id] ?? nil
+        }
+        guard chain.count > 1 else { return hit }
+        let deepest = chain[0].level, shallowest = chain[chain.count - 1].level
+        let picked = outline.indent.level(atX: x - outline.leading, width: outline.width, in: shallowest...deepest)
+        guard let place = chain.first(where: { $0.level <= picked }), place.slot != hit.slot, allows(place.slot, .after) else { return hit }
+        return Hit(slot: place.slot, zone: .after, target: Self.target(place.slot, .after), refusal: nil)
+    }
+
+    /// The level a drop of `hit` lands at: a member of the group it goes into, else its slot's level.
+    func dropLevel(_ hit: Hit) -> Int {
+        hit.zone == .into ? level(of: hit.slot) + 1 : level(of: hit.slot)
     }
 
     /// The slot under `point` (or the nearest one above or below the
@@ -112,7 +174,7 @@ public nonisolated struct SidebarDragGeometry: Sendable {
         let slot = Self.slot(in: line, x: point.x)
         if slot.kind == .group, !allows(slot, .into), let around = around(group: slot.key, point) { return around }
         let zone = Self.zone(slot, point)
-        if allows(slot, zone) { return Hit(slot: slot, zone: zone, target: Self.target(slot, zone), refusal: nil) }
+        if allows(slot, zone) { return outlined(Hit(slot: slot, zone: zone, target: Self.target(slot, zone), refusal: nil), x: point.x) }
         if let parent = slot.parent, let around = around(group: parent, point) { return around }
         let accepted = acceptance[slot.key] ?? slot.item.flatMap { acceptance[$0] }
         return Hit(slot: slot, zone: zone, target: nil, refusal: accepted?.refusal ?? "refused")
@@ -120,7 +182,7 @@ public nonisolated struct SidebarDragGeometry: Sendable {
 
     /// A drop right before or after the slot keyed `key` (a section's slot: first in it), if accepted there.
     ///
-    /// A dragged group's reorder uses it (`SidebarGroupReorder`): the drop goes beside a whole top-level block's
+    /// A dragged group's slots use it (`SidebarListView+GroupDrag`): the drop goes beside a whole top-level block's
     /// first row, never into a group or beside one of its members, whatever the acceptance table would take there
     /// (since nested groups, a group may land among another group's members, which a reorder must not do).
     public func beside(_ key: String, after: Bool) -> Hit? {
@@ -213,15 +275,25 @@ public nonisolated struct SidebarDragGeometry: Sendable {
     /// the row below as soon as its bottom passes that row's middle. Rows of
     /// any height, a group's members and listed items take the same rule.
     /// A drag that turns back (`reversing`: the last change came the other
-    /// way) must pass the middle by `SidebarGroupReorder.hysteresis(for:)`
+    /// way) must pass the middle by ``hysteresis(for:)``
     /// of the row it crosses before the drop changes, so a pointer held at
     /// the threshold never flips the rows.
     public func edgeY(top: CGFloat, bottom: CGFloat, x: CGFloat, movingUp: Bool, gapY: CGFloat?, gapHeight: CGFloat,
                       current: SidebarDocTarget?, reversing: Bool) -> CGFloat? {
         let y = Self.baseY(displayY: movingUp ? top : bottom, gapY: gapY, gapHeight: gapHeight)
         guard reversing, let current, let candidate = hit(CGPoint(x: x, y: y)), candidate.target != current else { return y }
-        let margin = SidebarGroupReorder.hysteresis(for: candidate.slot.frame.height)
+        let margin = Self.hysteresis(for: candidate.slot.frame.height)
         return hit(CGPoint(x: x, y: movingUp ? y + margin : y - margin))?.target == candidate.target ? y : nil
+    }
+
+    /// The share of a row's height a turning-back row drag must pass its middle by (``edgeY``).
+    static let hysteresisFraction: CGFloat = 0.2
+    /// The most a turning-back row drag must pass a row's middle by, in points.
+    static let maxHysteresis: CGFloat = 8
+
+    /// The margin past a row's middle that turns a row drag back, for a row `height` tall.
+    static func hysteresis(for height: CGFloat) -> CGFloat {
+        min(maxHysteresis, max(0, height) * hysteresisFraction)
     }
 
     /// The display y of `y` in a layout drawn without the open gap

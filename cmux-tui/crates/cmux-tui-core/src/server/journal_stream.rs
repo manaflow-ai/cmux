@@ -156,6 +156,22 @@ pub(super) fn handle_journal_extension_request(
                         })?;
                     mux.note_agent_reply(&terminal, reply).then_some(terminal)
                 });
+            // A question hook's question rides the same way, for the phone's answer card.
+            let question = request
+                .fields
+                .get("live_question")
+                .and_then(Value::as_str)
+                .filter(|_| ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID)
+                .and_then(|question| {
+                    let terminal = ingress
+                        .subjects
+                        .iter()
+                        .find(|subject| subject.kind == "terminal")
+                        .and_then(|subject| {
+                            crate::resource::TerminalPublicId::parse(subject.id.clone()).ok()
+                        })?;
+                    mux.note_agent_question(&terminal, question).then_some(terminal)
+                });
             let idempotency_key = super::wire_values::required_idempotency_key(request)?;
             let appended = mux.append_journal_ingress(&ingress, origin, idempotency_key);
             if let Some((terminal, previous)) = noted
@@ -165,6 +181,9 @@ pub(super) fn handle_journal_extension_request(
             }
             if let Some(terminal) = reply {
                 mux.forget_agent_reply(&terminal);
+            }
+            if let Some(terminal) = question {
+                mux.forget_noted_agent_question(&terminal);
             }
             appended
                 .map(|commit| {

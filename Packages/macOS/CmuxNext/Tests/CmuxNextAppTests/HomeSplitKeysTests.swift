@@ -46,14 +46,20 @@ struct HomeSplitKeysTests {
                 if !docked, placed.pane.tabs.count == 1 {
                     // A real Home's page joined the shell its workspace opened with; the daemon never
                     // splits a pane's only tab out of it ("a pane's only tab cannot be split out").
-                    _ = try await connection.newTab(in: placed.pane.handle)
-                    dockSteps.append("added the shell a real Home starts with")
+                    // The dock move can drop that pane before the tree reports it ("unknown pane"):
+                    // the next round reads the tree again.
+                    do {
+                        _ = try await connection.newTab(in: placed.pane.handle)
+                        dockSteps.append("added the shell a real Home starts with")
+                    } catch { dockSteps.append("adding the shell: \(error)") }
                 } else if docked {
                     // The dock is made: what is left on its right is that shell; Home stands alone.
                     let right = Self.panes(home).filter { $0 !== placed.pane }.flatMap(\.tabs).map(\.surface)
                     if !right.isEmpty {
-                        try await connection.closeTabs(right, endTerminals: true)
-                        dockSteps.append("closed \(right.count) tab(s) right of the dock")
+                        do {
+                            try await connection.closeTabs(right, endTerminals: true)
+                            dockSteps.append("closed \(right.count) tab(s) right of the dock")
+                        } catch { dockSteps.append("closing the shell: \(error)") }
                     } else if window.focusedPane?.pane !== placed.pane, let content = window.content,
                               let id = content.handles.paneIDs[placed.pane.handle] {
                         PaneHandlers.focus(id, in: content)
@@ -105,6 +111,62 @@ struct HomeSplitKeysTests {
             try await PasswordManagerRouteTests.until({ window.focusedPane?.pane === Self.panes(home).last }, report: {
                 "focused \(String(describing: window.focusedPane?.paneKey))"
             })
+        }
+    }
+
+    /// Home's pinned dock, as the app makes it, takes tabs (`allow_tabs`, Leo 2026-10-21) but shows no
+    /// tab strip while it holds only Home (Lawrence 2026-10-23: "home chief should have no tabbar"), and
+    /// Show Tab Bar is refused there. A tab dragged in joins it after Home's tab, the strip shows while it
+    /// is there so it stays reachable, and it drags out again. Only a drag: a new tab opens beside Home
+    /// (HomeDockOpensTests).
+    @Test func homesDockShowsNoTabStripAndTakesTabs() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            let (_, home) = try await Self.showHome(services, connection)
+            let dock = try #require(Self.panes(home).first)
+            @MainActor func dockFlag() -> DockSnapshot? {
+                home.screens.lazy.flatMap(\.columns).first { $0.layout.paneIDs.contains(dock.handle) }?.dock
+            }
+            try await PasswordManagerRouteTests.until({ dockFlag()?.allowsTabs == true }, report: {
+                "Home's dock: \(String(describing: dockFlag()))"
+            })
+            #expect(dockFlag()?.isPinned == true, "the dock stays pinned")
+            let controller = try #require(services.paneController(for: dock))
+            try await PasswordManagerRouteTests.until({ controller.view.hidesStrip }, report: { "Home's pane shows a tab strip" })
+            #expect(PaneTabBarHandlers.noToggleReason(controller) != nil, "Show Tab Bar is offered in Home")
+            let page = try #require(dock.tabs.first)
+            #expect(page.page == HomeDock.page)
+            // A terminal beside Home (the chat header's Terminal), plus a second tab there so its
+            // column stays when the terminal leaves.
+            var opensTerminal = ActionInvocation(origin: .user)
+            opensTerminal.opensTerminal = true
+            #expect(services.registry.perform("splitRight", invocation: opensTerminal))
+            // The daemon's pane, not the split's stand-in (`ProvisionalPane`), which shows first and
+            // whose handle the daemon does not know ("new-tab failed: unknown pane").
+            try await PasswordManagerRouteTests.until({
+                Self.panes(home).count == 2
+                    && Self.panes(home).last?.tabs.first.map { !ProvisionalTab.isProvisional(surface: $0.surface) } == true
+            }, report: { "\(Self.panes(home).count) panes, right tabs \(Self.panes(home).last?.tabs.map(\.surface) ?? [])" })
+            let right = try #require(Self.panes(home).last)
+            _ = try await connection.newTab(in: right.handle)
+            try await PasswordManagerRouteTests.until({ right.tabs.count == 2 }, report: { "right of Home: \(right.tabs.count) tab(s)" })
+            let terminal = try #require(right.tabs.first)
+            let surface = terminal.surface
+            // The drag paths: the terminal drags into Home, then back out to the pane right of Home.
+            let refused = Self.refusals(services) {
+                TabMoves.move(terminal, to: dock, index: 1, services: services)
+            }
+            #expect(refused.isEmpty, "a terminal dragged into Home was refused: \(refused)")
+            try await PasswordManagerRouteTests.until({ dock.tabs.contains { $0.surface == surface } }, report: {
+                "drag in: Home's dock holds \(dock.tabs.map(\.surface))"
+            })
+            #expect(dock.tabs.first?.surface == page.surface, "Home's tab stays first")
+            try await PasswordManagerRouteTests.until({ !controller.view.hidesStrip }, report: { "a tab dragged into Home has no strip to reach it" })
+            let moved = try #require(dock.tabs.first { $0.surface == surface })
+            TabMoves.move(moved, to: right, index: 0, services: services)
+            try await PasswordManagerRouteTests.until({ !dock.tabs.contains { $0.surface == surface } && right.tabs.contains { $0.surface == surface } },
+                                                       report: { "drag out: Home's dock holds \(dock.tabs.map(\.surface))" })
+            #expect(dock.tabs.first?.surface == page.surface, "Home's tab stays first")
+            try await PasswordManagerRouteTests.until({ controller.view.hidesStrip }, report: { "Home alone again shows a tab strip" })
         }
     }
 

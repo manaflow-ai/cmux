@@ -1,8 +1,7 @@
 //! A new agent chat starts in the harness's full-access mode (Claude Code
-//! `bypassPermissions`, the Codex bridge `agent-full-access`); the person's
-//! latest mode pick in any chat is the start mode of every new chat on every
-//! harness, also after a daemon restart, and chats that exist keep theirs;
-//! the setting `defaultPermissionMode` chooses the start mode otherwise; a
+//! `bypassPermissions`, the Codex bridge `agent-full-access`) unless the
+//! setting `defaultPermissionMode` chooses another; a mode picked in a chat
+//! holds for that chat only, also after a daemon restart (Leo 2026-10-21); a
 //! Web chat never starts in full access, and an unauthenticated connection
 //! gets nothing (cx-wx93i; Lawrence 2026-10-14).
 //! Driven through the protocol handler, as the app pane, the unix socket and
@@ -154,7 +153,8 @@ impl Client {
     }
 }
 
-/// The level of the person's latest mode pick, as config.json holds it.
+/// config.json's `lastPermissionMode`, where an older build saved the latest
+/// mode pick as every new chat's start mode. Never written now.
 fn last_pick(dir: &Path) -> Value {
     let config: Value =
         serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
@@ -188,57 +188,51 @@ async fn a_new_chat_starts_in_each_harness_full_access_mode() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A mode picked in a chat holds for that chat only: new chats, on every
+/// harness and after a restart, start in the default (Leo 2026-10-21: "the
+/// default for new chats != whatever u just temp set in an existing running
+/// chat").
 #[tokio::test]
-async fn the_latest_pick_is_the_start_mode_of_every_new_chat_after_a_restart() {
+async fn a_pick_in_a_chat_holds_for_that_chat_and_new_chats_start_in_the_default() {
     let dir = home("pick", json!({"defaultPermissionMode": "fullAccess"}));
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
     let (claude, _) = app.chat(&dir, "claude").await;
     let (codex, _) = app.chat(&dir, "codex").await;
 
-    // The person switches the Claude chat back to a mode that asks: every new
-    // chat, on every harness, now starts asking; the Codex chat keeps its mode.
+    // The person switches the Claude chat back to a mode that asks: that chat
+    // asks; the Codex chat and every new chat stay in full access.
     let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "default"})).await;
     assert!(r.get("error").is_none(), "{r}");
-    assert_eq!(last_pick(&dir), json!("ask"));
+    assert_eq!(app.mode(&claude).await, "default");
     assert_eq!(app.mode(&codex).await, "agent-full-access");
-    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
-    assert_eq!(app.chat(&dir, "claude").await.1, "default");
-    // Plan is a toggle, never the start mode.
-    let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "plan"})).await;
-    assert!(r.get("error").is_none(), "{r}");
-    assert_eq!(last_pick(&dir), json!("ask"));
-    // The latest pick wins: Codex's own mode (agent) is "standard".
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
+    assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
     let r = app.call("session/set_mode", json!({"sessionId": codex, "modeId": "agent"})).await;
     assert!(r.get("error").is_none(), "{r}");
-    assert_eq!(last_pick(&dir), json!("standard"));
+    assert_eq!(app.mode(&codex).await, "agent");
+    assert_eq!(last_pick(&dir), Value::Null);
     drop(app);
     drop(daemon);
 
-    // After a restart (config.json read again) new chats follow the pick.
+    // After a restart (config.json read again) new chats start in the default too.
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
-    assert_eq!(app.chat(&dir, "codex").await.1, "agent");
-    let (claude, mode) = app.chat(&dir, "claude").await;
-    assert_eq!(mode, "default");
-    // Back to full access: every new chat starts there again.
-    let r = app
-        .call("session/set_mode", json!({"sessionId": claude, "modeId": "bypassPermissions"}))
-        .await;
-    assert!(r.get("error").is_none(), "{r}");
-    assert_eq!(last_pick(&dir), json!("fullAccess"));
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
+    let answer = start_mode(&mut app, &dir, "claude").await;
+    assert_eq!(answer["modeId"], "bypassPermissions", "{answer}");
+    assert_eq!(answer["source"], "config", "{answer}");
+    assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
 
-    // A unix socket client (an agent, a script) is no pick, and cannot widen
-    // a chat to full access.
+    // A unix socket client (an agent, a script) cannot widen a chat to full
+    // access.
     let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
     let (chat, _) = agent.chat(&dir, "claude").await;
     let r = agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "default"})).await;
     assert!(r.get("error").is_none(), "{r}");
-    assert_eq!(last_pick(&dir), json!("fullAccess"));
     let r = agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "auto"})).await;
     assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
-    assert_eq!(last_pick(&dir), json!("fullAccess"));
+    assert_eq!(last_pick(&dir), Value::Null);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -324,19 +318,19 @@ async fn start_mode_answer_is_the_mode_a_new_chat_then_starts_in() {
     // A harness with no full-access mode keeps its own: no prediction.
     assert_eq!(start_mode(&mut app, &dir, "plain").await["modeId"], Value::Null);
 
-    // The person picks Manual in a chat: the answer follows, and so does the
-    // next new chat.
+    // The person picks Manual in a chat: the answer, and the next new chat,
+    // stay in the default.
     let (claude, _) = app.chat(&dir, "claude").await;
     let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "default"})).await;
     assert!(r.get("error").is_none(), "{r}");
     let answer = start_mode(&mut app, &dir, "claude").await;
-    assert_eq!(answer["modeId"], "default", "{answer}");
-    assert_eq!(answer["level"], "ask", "{answer}");
-    assert_eq!(answer["source"], "pick", "{answer}");
-    assert_eq!(app.chat(&dir, "claude").await.1, "default");
+    assert_eq!(answer["modeId"], "bypassPermissions", "{answer}");
+    assert_eq!(answer["level"], "fullAccess", "{answer}");
+    assert_eq!(answer["source"], "config", "{answer}");
+    assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
 
     // Asking changes nothing.
-    assert_eq!(last_pick(&dir), json!("ask"));
+    assert_eq!(last_pick(&dir), Value::Null);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -407,15 +401,20 @@ async fn start_mode_answer_change_is_announced_to_local_watchers() {
     let (claude, _) = app.chat(&dir, "claude").await;
     app.3.clear();
 
-    // A pick acpmux saves: a pane showing a pending chat asks again.
+    // A pick in a chat changes no new chat's start mode: no notice.
     let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "default"})).await;
     assert!(r.get("error").is_none(), "{r}");
+    assert!(!app.told_start_mode_changed().await);
+    // A new default in config.json, read at a catalog reload: a pane showing
+    // a pending chat asks again.
+    let path = dir.join("config.json");
+    let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    config["defaultPermissionMode"] = json!("ask");
+    std::fs::write(&path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    daemon.reload_catalog().await.unwrap();
     assert!(app.told_start_mode_changed().await, "the local watcher is told");
     assert!(!web.told_start_mode_changed().await, "a Web watcher's chats get no start mode");
-    // The same level again changes nothing, and Plan is no pick: no notice.
-    let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "plan"})).await;
-    assert!(r.get("error").is_none(), "{r}");
-    assert!(!app.told_start_mode_changed().await);
+    assert_eq!(app.chat(&dir, "claude").await.1, "default");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -776,5 +775,137 @@ async fn deny_all_in_config_holds_on_every_chat_from_startup() {
     daemon.config.write().await.permission_policy = acpmux::config::PermissionPolicy::DenyAll;
     daemon.finish_startup().await;
     assert_eq!(mode_soon(&mut app, &id, "read-only").await, "read-only");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// claude-sr2, 2026-10-25 (item L): "acpmux refuses read-only reviews it should allow": a
+/// reviewer started from an agent's shell with `acpmux new -m codex --mode read-only` was refused
+/// on the unix socket, because the start gate knew only the Web table's asking modes, which list
+/// no Codex mode. The Codex bridge's `ask` asks before every change and its `read-only` only
+/// reads (`hub/start_mode.rs` `NARROW_MODES`), so a start in either needs no person. A bridge
+/// mode that does not ask still does, and so does the codex-acp adapter's `read-only`, which
+/// writes in the workspace without asking (`web_modes::NON_ASKING_MODES`).
+#[tokio::test]
+async fn the_unix_socket_starts_the_codex_bridge_in_read_only_or_ask() {
+    let dir = home("narrow-start", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub_with(&dir, |cfg| {
+        let adapter = json!({"argv": ["python3", FAKE_AGENT, "codex-acp"], "family": "codex"});
+        cfg.harnesses.insert("adapter".into(), serde_json::from_value(adapter).unwrap());
+    });
+    let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let start = |harness: &str, mode: &str| {
+        json!({"cwd": dir.join("work"), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": harness, "mode": mode}}})
+    };
+    for mode in ["read-only", "ask"] {
+        let r = agent.call("session/new", start("codex", mode)).await;
+        let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{mode}: {r}"));
+        let id = id.to_owned();
+        assert_eq!(agent.mode(&id).await, mode);
+    }
+    for mode in ["agent", "agent-full-access"] {
+        let r = agent.call("session/new", start("codex", mode)).await;
+        assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{mode}: {r}");
+    }
+    let r = agent.call("session/new", start("adapter", "read-only")).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "adapter: {r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The reviewer of cmux#(this PR), 2026-10-25: "creation-time argv can authorize a different
+/// harness after adoption/respawn". An adopt may find a session already running, created on
+/// another profile than the one it names now, so it never takes the Codex bridge's `read-only`
+/// without the person: a running bridge chat in `ask` that an agent adopts in `read-only` (which
+/// runs commands in its sandbox without asking) is refused and stays in `ask`.
+#[tokio::test]
+async fn an_adopt_never_moves_a_running_bridge_chat_to_read_only() {
+    let dir = home("narrow-adopt", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let start = |mode: &str, adopt: Option<Value>| {
+        let mut acpmux = json!({"harness": "codex", "mode": mode});
+        if let Some(adopt) = adopt {
+            acpmux["adopt"] = adopt;
+        }
+        json!({"cwd": dir.join("work"), "mcpServers": [], "_meta": {"acpmux": acpmux}})
+    };
+    let r = agent.call("session/new", start("ask", None)).await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(agent.mode(&id).await, "ask");
+    let info = agent.call("_acpmux/info", json!({"sessionId": id})).await;
+    let conversation =
+        info["result"]["agentSessionId"].as_str().unwrap_or_else(|| panic!("{info}"));
+    let adopt = json!({"harness": "codex", "agentSessionId": conversation, "ifLive": "open"});
+    let r = agent.call("session/new", start("read-only", Some(adopt))).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
+    assert_eq!(agent.mode(&id).await, "ask");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The reviewer of cmux#25310, 2026-10-26: a session in the Codex bridge's `read-only` lends that
+/// mode id to a chat it starts on the codex-acp adapter, whose `read-only` writes in the
+/// workspace without asking. The agent in a bridge chat in `read-only` (its caller token) is
+/// refused the adapter in `read-only`, and still starts the bridge in it.
+#[tokio::test]
+async fn a_bridge_caller_never_lends_read_only_to_the_adapter() {
+    let dir = home("narrow-lend", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub_with(&dir, |cfg| {
+        let adapter = json!({"argv": ["python3", FAKE_AGENT, "codex-acp"], "family": "codex"});
+        cfg.harnesses.insert("adapter".into(), serde_json::from_value(adapter).unwrap());
+    });
+    let start = |harness: &str| {
+        json!({"cwd": dir.join("work"), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": harness, "mode": "read-only"}}})
+    };
+    let mut cli = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let r = cli.call("session/new", start("codex")).await;
+    let parent = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(cli.mode(&parent).await, "read-only");
+    let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let token = acpmux::hub::person::caller_token(&parent);
+    let caller = json!({"callerSession": {"sessionId": parent, "token": token}});
+    let r =
+        agent.call("initialize", json!({"protocolVersion": 1, "_meta": {"acpmux": caller}})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = agent.call("session/new", start("adapter")).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "adapter: {r}");
+    let r = agent.call("session/new", start("codex")).await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("bridge: {r}")).to_owned();
+    assert_eq!(agent.mode(&id).await, "read-only");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The reviewer of cmux#25310, 2026-10-26: a Codex bridge a trusted folder profile runs is the
+/// bridge too. The start check after the chat starts resolves the profile as a respawn would,
+/// folder profiles included, so the unix socket starts it in `read-only`.
+#[tokio::test]
+async fn the_unix_socket_starts_a_folder_profile_bridge_in_read_only() {
+    use acpmux::config::folder_profiles;
+    let dir = home("narrow-folder", json!({"defaultPermissionMode": "fullAccess"}));
+    let (repo, gate) = folder_profile(&dir);
+    let codex = dir.join("bin").join("codex");
+    let path = folder_profiles::profile_dir(&repo).join("acme.toml");
+    std::fs::write(
+        &path,
+        format!("schema = 1\nid = \"acme\"\ncommand = {:?}\nargs = [\"app-server\"]\n", codex),
+    )
+    .unwrap();
+    acpmux::trust::set(&gate.trust, &repo.to_string_lossy(), "trusted").unwrap();
+    let enabled = Config { folder_gate: Some(gate.clone()), ..Default::default() };
+    let sha = folder_profiles::load_one(&enabled, &gate, &repo, "acme")
+        .and_then(|fp| fp.sha256)
+        .expect("sha256");
+    folder_profiles::enable(&enabled, &gate, &repo, "acme", &sha).unwrap();
+    let daemon = hub_with(&dir, |cfg| cfg.folder_gate = Some(gate));
+    let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let r = agent
+        .call(
+            "session/new",
+            json!({"cwd": repo, "mcpServers": [],
+                "_meta": {"acpmux": {"harness": "acme", "mode": "read-only"}}}),
+        )
+        .await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(agent.mode(&id).await, "read-only");
     let _ = std::fs::remove_dir_all(&dir);
 }

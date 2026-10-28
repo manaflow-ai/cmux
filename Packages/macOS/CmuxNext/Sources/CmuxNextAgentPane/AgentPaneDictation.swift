@@ -64,9 +64,9 @@ final class AgentPaneDictation {
     private var held: (keyCode: UInt16, chord: NSEvent.ModifierFlags, pressedAt: TimeInterval)?
     private var keyUpMonitor: Any?
     /// Ends the hold when the app loses focus: the release goes elsewhere.
-    private var resignObserver: (any NSObjectProtocol)?
+    private var resignObserver: MainActorObservation?
     /// Stops the session when the Mac sleeps; observed only while a session runs.
-    private var sleepObserver: (any NSObjectProtocol)?
+    private var sleepObserver: MainActorObservation?
     /// Where sleep is announced (tests post their own).
     var sleepNotifications: NotificationCenter = NSWorkspace.shared.notificationCenter
     /// The event clock (`NSEvent.timestamp`'s), for telling a fresh key press from a stale one.
@@ -138,8 +138,8 @@ final class AgentPaneDictation {
             if event.type == .flagsChanged { self?.flagsChanged(event) } else { self?.keyUp(event) }
             return event
         }
-        resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.endHold() } // main-proof: observer on queue: .main
+        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
+            self?.endHold()
         }
     }
 
@@ -179,7 +179,6 @@ final class AgentPaneDictation {
         held = nil
         if let keyUpMonitor { NSEvent.removeMonitor(keyUpMonitor) }
         keyUpMonitor = nil
-        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
         resignObserver = nil
     }
 
@@ -205,14 +204,13 @@ final class AgentPaneDictation {
         session.recordsAudio = recordsAudio
         session.start()
         if !phase.isStartable, sleepObserver == nil {
-            sleepObserver = sleepNotifications.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.session?.stop() } // main-proof: observer on queue: .main
+            sleepObserver = MainActorObservation(NSWorkspace.willSleepNotification, center: sleepNotifications) { [weak self] in
+                self?.session?.stop()
             }
         }
     }
 
     private func endSleepWatch() {
-        if let sleepObserver { sleepNotifications.removeObserver(sleepObserver) }
         sleepObserver = nil
     }
 

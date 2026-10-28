@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Lawrence, 2026-10-20: every Cmd-F bar (terminal, browser, Agent chat, diff viewer) is one
 /// Liquid Glass capsule that looks and behaves the same (plans/cmux-next/find-pill-gallery.html,
@@ -20,6 +21,53 @@ import Testing
         pill.layoutSubtreeIfNeeded()
         #expect(pill.fittingSize.height == FindPillMetrics.height)
         #expect(pill.surface.cornerRadius == FindPillMetrics.height / 2)
+    }
+
+    @Test func findArrowEditingIsForwardedToTheFieldEditor() {
+        #expect(FindPillView.shouldForwardArrowKeyDown(keyCode: 123, flags: [], hasMarkedText: false))
+        #expect(FindPillView.shouldForwardArrowKeyDown(keyCode: 124, flags: [.shift], hasMarkedText: false))
+        #expect(FindPillView.shouldForwardArrowKeyDown(keyCode: 125, flags: [.option, .shift], hasMarkedText: false))
+        #expect(FindPillView.shouldForwardArrowKeyDown(keyCode: 126, flags: [.command, .shift], hasMarkedText: false))
+        #expect(!FindPillView.shouldForwardArrowKeyDown(keyCode: 122, flags: [], hasMarkedText: false))
+        #expect(!FindPillView.shouldForwardArrowKeyDown(keyCode: 123, flags: [.control], hasMarkedText: false))
+        #expect(!FindPillView.shouldForwardArrowKeyDown(keyCode: 123, flags: [], hasMarkedText: true))
+    }
+
+    @Test func forwardingFindArrowMovesTheFieldEditorCaret() throws {
+        let pill = makePill()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 360, height: 80), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil); window.contentView = nil }
+        let root = try #require(window.contentView)
+        pill.frame = NSRect(x: 20, y: 20, width: 320, height: FindPillMetrics.height)
+        pill.isHidden = false
+        root.addSubview(pill)
+        pill.query = "abcd"
+        #expect(window.makeFirstResponder(pill.field))
+        let editor = try #require(pill.field.currentEditor() as? NSTextView)
+        editor.setSelectedRange(NSRange(location: 4, length: 0))
+
+        let leftCharacter = String(Character(UnicodeScalar(NSLeftArrowFunctionKey)!))
+        let left = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                 windowNumber: window.windowNumber, context: nil,
+                                                 characters: leftCharacter, charactersIgnoringModifiers: leftCharacter,
+                                                 isARepeat: false, keyCode: 123))
+        #expect(FindPillView.forwardArrowKeyDown(left, in: window))
+        #expect(editor.selectedRange == NSRange(location: 3, length: 0))
+
+        let rightCharacter = String(Character(UnicodeScalar(NSRightArrowFunctionKey)!))
+        let right = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                                  windowNumber: window.windowNumber, context: nil,
+                                                  characters: rightCharacter, charactersIgnoringModifiers: rightCharacter,
+                                                  isARepeat: false, keyCode: 124))
+        #expect(FindPillView.forwardArrowKeyDown(right, in: window))
+        #expect(editor.selectedRange == NSRange(location: 4, length: 0))
+
+        let ordinary = NSTextField(frame: NSRect(x: 20, y: 0, width: 320, height: 20))
+        root.addSubview(ordinary)
+        #expect(window.makeFirstResponder(ordinary))
+        #expect(!FindPillView.forwardArrowKeyDown(left, in: window), "unrelated field editors stay on AppKit's normal path")
     }
 
     @Test func returnStepsForwardShiftReturnStepsBackEscapeCloses() {

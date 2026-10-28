@@ -20,11 +20,10 @@
 # stamp (artifact, layout, shim, product name, identity) matches and the
 # framework signature still verifies. When the artifact is unavailable (no
 # network, no access to the private manaflow-ai/cef release) or
-# CMUX_NEXT_SKIP_CEF=1, it embeds nothing and exits 0: the app then reports
-# the Chromium engine as unavailable. A CEF embedded by an earlier build is
-# kept when its layout is valid and removed when it is the old flat layout,
-# which would fail validation. CMUX_NEXT_REQUIRE_CEF=1 turns a missing
-# artifact into a build failure (release and CEF verification builds).
+# CMUX_NEXT_SKIP_CEF=1, it removes any prior CEF payload before exiting 0: the
+# app then reports the Chromium engine as unavailable. CMUX_NEXT_REQUIRE_CEF=1
+# turns a missing artifact into a build failure (release and CEF verification
+# builds).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,29 +35,37 @@ LAYOUT="versioned-3-locale-fallback-allowlist-credits-license-stripped-libs"
 
 app="${TARGET_BUILD_DIR:?}/${WRAPPER_NAME:?}"
 frameworks="$app/Contents/Frameworks"
+phase_stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/embed-cef.stamp"
+on_exit() {
+  status=$?
+  if (( status == 0 )); then
+    mkdir -p "$(dirname "$phase_stamp")"
+    printf 'completed\n' > "$phase_stamp"
+  fi
+  exit "$status"
+}
+trap on_exit EXIT
+rm -f "$phase_stamp"
 
 # The built-in full uBlock Origin (a Chromium extension, so it rides on this
 # phase; it does not need the CEF artifact). Its own failures are warnings
 # unless CMUX_NEXT_REQUIRE_UBLOCK=1.
 "$SCRIPT_DIR/bundle-ublock.sh"
 
-# Removes a framework left by a build that used the flat layout, with the
-# shim and helpers that belong to it. Used when nothing will replace it.
-remove_invalid_embed() {
-  local fw="$frameworks/$FW_NAME"
-  [[ -e "$fw" ]] || return 0
-  [[ -L "$fw/Versions/Current" ]] && return 0
-  echo "note: removing a flat-layout CEF framework left by an earlier build"
-  rm -rf "$fw" "$frameworks/libcmux_cef_shim.dylib"
-  for helper in "$frameworks"/*" Helper"*.app; do
-    [[ -e "$helper" ]] && rm -rf "$helper"
+# Remove the complete CEF payload when this build explicitly has no CEF. A
+# valid prior payload must not survive a skip, or a dependency-analysis stamp
+# would make the app claim CEF is unavailable while still shipping stale code.
+remove_embed() {
+  rm -rf "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib"
+  for helper in "$frameworks"/*" Helper"*.app "$frameworks"/*" Chromium Host.app"; do
+    if [[ -e "$helper" ]]; then rm -rf "$helper"; fi
   done
   return 0
 }
 
 if [[ "${CMUX_NEXT_SKIP_CEF:-0}" == "1" ]]; then
   echo "note: CMUX_NEXT_SKIP_CEF=1, not embedding CEF"
-  remove_invalid_embed
+  remove_embed
   exit 0
 fi
 # Which artifacts this build needs. A universal build (ARCHS has both) embeds
@@ -96,7 +103,7 @@ else
 fi
 if [[ -z "$cef_dir" ]]; then
   echo "warning: no CEF artifact for ARCHS=${ARCHS:-}; not embedding CEF"
-  remove_invalid_embed
+  remove_embed
   exit 0
 fi
 
@@ -123,7 +130,8 @@ if (( ${#shim_archs[@]} == 2 )); then
     shim_tmp="$(mktemp -d "$cache_root/shim/.universal.XXXXXX")"
     lipo -create "$arm_shim/libcmux_cef_shim.dylib" "$x86_shim/libcmux_cef_shim.dylib" -output "$shim_tmp/libcmux_cef_shim.dylib"
     lipo -create "$arm_shim/cmux-cef-helper" "$x86_shim/cmux-cef-helper" -output "$shim_tmp/cmux-cef-helper"
-    chmod +x "$shim_tmp/cmux-cef-helper"
+    lipo -create "$arm_shim/cmux-chromium-host" "$x86_shim/cmux-chromium-host" -output "$shim_tmp/cmux-chromium-host"
+    chmod +x "$shim_tmp/cmux-cef-helper" "$shim_tmp/cmux-chromium-host"
     printf '%s' "$universal_key" > "$shim_tmp/.build-key"
     /usr/bin/python3 -c 'import os, sys; os.rename(sys.argv[1], sys.argv[2])' "$shim_tmp" "$shim_out" 2>/dev/null || rm -rf "$shim_tmp"
   fi
@@ -256,6 +264,43 @@ for existing in "$frameworks"/*" Helper"*.app; do
   for w in "${wanted[@]}"; do [[ "$w" == "$base" ]] && keep=1; done
   (( keep )) || rm -rf "$existing"
 done
+
+# 3b. The Chromium host app (prototype behind browserHost.helperPrototype,
+# plans/cmux-next/cef-helper-app-DESIGN.md): Chromium's browser process in an
+# app of its own, which uses the helpers above for its child processes. Debug
+# builds only, so Release, RC and NIGHTLY bundles do not change.
+host_app="$frameworks/$product Chromium Host.app"
+if [[ "${CONFIGURATION:-}" == "Debug" ]]; then
+  host_name="$product Chromium Host"
+  mkdir -p "$host_app/Contents/MacOS"
+  copy_if_changed "$shim_out/cmux-chromium-host" "$host_app/Contents/MacOS/$host_name"
+  tmp_plist="$(mktemp)"
+  cat > "$tmp_plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleDisplayName</key><string>$host_name</string>
+  <key>CFBundleExecutable</key><string>$host_name</string>
+  <key>CFBundleIdentifier</key><string>$bundle_id.chromium-host</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>$host_name</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>${MARKETING_VERSION:-1.0}</string>
+  <key>CFBundleVersion</key><string>${CURRENT_PROJECT_VERSION:-1}</string>
+  <key>LSEnvironment</key><dict><key>MallocNanoZone</key><string>0</string></dict>
+  <key>LSMinimumSystemVersion</key><string>$min_os</string>
+  <key>LSUIElement</key><string>1</string>
+  <key>NSPrincipalClass</key><string>ChromiumHostApplication</string>
+  <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
+</dict>
+</plist>
+PLIST
+  if ! cmp -s "$tmp_plist" "$host_app/Contents/Info.plist"; then mv "$tmp_plist" "$host_app/Contents/Info.plist"; else rm -f "$tmp_plist"; fi
+else
+  rm -rf "$host_app"
+fi
 
 printf '%s' "$shim_key $product" > "$binary_stamp"
 

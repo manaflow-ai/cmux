@@ -22,13 +22,19 @@ extension TerminalSurfaceView {
     public override func mouseDown(with event: NSEvent) {
         session?.surfaceClicked()
         if !isFirstResponder { window?.makeFirstResponder(self) }
-        sendButton(event, state: GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT)
+        // A Cmd-press on a URL a program broke onto rows is this view's (TerminalLinkPointer).
+        if linkPointer.mouseDown(event) { return }
+        sendLeftPress(event)
     }
 
     public override func mouseUp(with event: NSEvent) {
         previousPressureStage = 0
-        sendButton(event, state: GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT)
-        if let surface { ghostty_surface_mouse_pressure(surface, 0, 0) }
+        defer {
+            linkPressInCapture = false
+            if let surface { ghostty_surface_mouse_pressure(surface, 0, 0) }
+        }
+        if linkPointer.mouseUp(event) { return }
+        sendButton(event, state: GHOSTTY_MOUSE_RELEASE, button: GHOSTTY_MOUSE_LEFT, phase: .followingPress)
     }
 
     public override func otherMouseDown(with event: NSEvent) {
@@ -51,20 +57,30 @@ extension TerminalSurfaceView {
         super.rightMouseUp(with: event)
     }
 
-    public override func mouseMoved(with event: NSEvent) { sendPosition(event) }
-    public override func mouseDragged(with event: NSEvent) { sendPosition(event) }
+    public override func mouseMoved(with event: NSEvent) {
+        linkPointer.movedWithoutButton()
+        sendPosition(event)
+    }
+    public override func mouseDragged(with event: NSEvent) { sendPosition(event, phase: .followingPress) }
     public override func rightMouseDragged(with event: NSEvent) { sendPosition(event) }
     public override func otherMouseDragged(with event: NSEvent) { sendPosition(event) }
     public override func mouseEntered(with event: NSEvent) { sendPosition(event) }
 
     /// Moves Ghostty's pointer off-grid so link hover state clears.
     public override func mouseExited(with event: NSEvent) {
+        linkPointer.exited()
         guard let surface else { return }
         ghostty_surface_mouse_pos(surface, -1, -1, GhosttyInput.mods(event.modifierFlags))
     }
 
     public override func scrollWheel(with event: NSEvent) {
         guard let surface else { return }
+        // The wheel goes with the real keys: a Cmd-hover's added Shift must not turn it sideways
+        // in a program that has the mouse.
+        if pointerFlags(event.modifierFlags) != event.modifierFlags {
+            let point = convert(event.locationInWindow, from: nil)
+            ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, GhosttyInput.mods(event.modifierFlags))
+        }
         var deltaX = event.scrollingDeltaX
         var deltaY = event.scrollingDeltaY
         let precise = event.hasPreciseScrollingDeltas
@@ -118,8 +134,8 @@ extension TerminalSurfaceView {
         guard newCursor != cursor else { return }
         cursor = newCursor
         window?.invalidateCursorRects(for: self)
-        if let window, let event = NSApp.currentEvent, event.window === window,
-           bounds.contains(convert(event.locationInWindow, from: nil)) {
+        // The pointer's own location: a key event or a late link-filter answer carries none.
+        if let window, isShown, window.isVisible, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) {
             newCursor.set()
         }
     }
@@ -149,20 +165,46 @@ extension TerminalSurfaceView {
 
     // MARK: Helpers
 
-    @discardableResult
-    private func sendButton(_ event: NSEvent, state: ghostty_input_mouse_state_e, button: ghostty_input_mouse_button_e) -> Bool {
-        guard let surface else { return false }
+    /// A left press: the move first, with the keys that let Ghostty find a link under it while
+    /// the program has the mouse, then the press, as a link click when it found one
+    /// (``TerminalPointerMods``).
+    private func sendLeftPress(_ event: NSEvent) {
         sendPosition(event)
+        let mods = pointerMods(event.modifierFlags)
+        linkPressInCapture = mods.linkGesture(event.modifierFlags, phase: .press) || mods.chordGesture(event.modifierFlags, phase: .press)
+        sendButton(event, state: GHOSTTY_MOUSE_PRESS, button: GHOSTTY_MOUSE_LEFT, phase: .press, position: false)
+    }
+
+    @discardableResult
+    private func sendButton(_ event: NSEvent, state: ghostty_input_mouse_state_e, button: ghostty_input_mouse_button_e,
+                            phase: TerminalPointerMods.Phase? = nil, position: Bool = true) -> Bool {
+        guard let surface else { return false }
+        if position { sendPosition(event, phase: phase ?? .move) }
+        let flags = phase.map { pointerMods(event.modifierFlags).flags(event.modifierFlags, phase: $0) } ?? event.modifierFlags
         return clipboardRequests.asUserClipboardWrite {
-            ghostty_surface_mouse_button(surface, state, button, GhosttyInput.mods(event.modifierFlags))
+            ghostty_surface_mouse_button(surface, state, button, GhosttyInput.mods(flags))
         }
     }
 
-    private func sendPosition(_ event: NSEvent) {
+    private func sendPosition(_ event: NSEvent, phase: TerminalPointerMods.Phase = .move) {
         guard let surface else { return }
         let point = convert(event.locationInWindow, from: nil)
         // Ghostty expects points with a top-left origin.
-        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, GhosttyInput.mods(event.modifierFlags))
+        ghostty_surface_mouse_pos(surface, point.x, bounds.height - point.y, GhosttyInput.mods(pointerFlags(event.modifierFlags, phase: phase)))
+        if phase == .move { linkPointer.moved(to: point, flags: event.modifierFlags) }
+    }
+
+    /// The pointer state ``TerminalPointerMods`` decides from. The capture check takes the
+    /// terminal's lock, so it runs only with Command alone held (or during a link click).
+    func pointerMods(_ flags: NSEvent.ModifierFlags) -> TerminalPointerMods {
+        let asks = TerminalPointerMods.commandOnly(flags) || TerminalPointerMods.commandChord(flags) || linkPressInCapture
+        let captured = asks && surface.map { ghostty_surface_mouse_captured($0) } == true
+        return TerminalPointerMods(captured: captured, overLink: session?.model.hoveredLink != nil, linkPress: linkPressInCapture)
+    }
+
+    /// `flags` as Ghostty gets them with a pointer event in `phase` (``TerminalPointerMods``).
+    func pointerFlags(_ flags: NSEvent.ModifierFlags, phase: TerminalPointerMods.Phase = .move) -> NSEvent.ModifierFlags {
+        pointerMods(flags).flags(flags, phase: phase)
     }
 
     private static func button(for number: Int) -> ghostty_input_mouse_button_e {

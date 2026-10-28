@@ -44,7 +44,7 @@ import Testing
             window.close()
             GhosttyRuntime.backgroundOverride = WindowBackgroundOverride()
             GhosttyConfigBackground.loaded = GhosttyConfigBackground()
-            ThemeStore.shared.apply(original)
+            ThemeScope.app.store.apply(original)
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
     }
@@ -59,13 +59,13 @@ import Testing
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
 
-        let original = ThemeStore.shared.input
+        let original = ThemeScope.app.store.input
         GhosttyRuntime.backgroundOverride = WindowBackgroundOverride()
         // The config files' own values, as `GhosttyRuntime.loadConfig` records them.
         GhosttyConfigBackground.loaded = GhosttyConfigBackground(opacity: colors.backgroundOpacity, blur: colors.backgroundBlur)
-        ThemeStore.shared.apply(ThemeBridge.input(colors))
+        ThemeScope.app.store.apply(ThemeBridge.input(colors))
         let terminal = TerminalThemeSetting(backdropScope: ThemeScope(level: .room))
-        terminal.reload = { ThemeStore.shared.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride)) }
+        terminal.reload = { ThemeScope.app.store.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride)) }
         terminal.follow(settings)
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.titled],
@@ -211,8 +211,8 @@ import Testing
         // The resolved blur says frosted (a material preview); Ghostty's own is glass.
         _ = try await harness.page.call("cmux.settings.preview", params: ["key": "appearance.backgroundBlur", "value": "frosted"],
                                         context: Self.gesture)
-        await settle { ThemeStore.shared.input.backgroundBlur != -1 }
-        #expect(ThemeStore.shared.input.backgroundBlur != -1)
+        await settle { ThemeScope.app.store.input.backgroundBlur != -1 }
+        #expect(ThemeScope.app.store.input.backgroundBlur != -1)
         try await set(harness, Self.opacityKey, 0.5)
         #expect(harness.settings.snapshot.windowBackground.material == .glass)
         _ = try await harness.page.call("cmux.settings.preview.end", params: [:], context: Self.gesture)

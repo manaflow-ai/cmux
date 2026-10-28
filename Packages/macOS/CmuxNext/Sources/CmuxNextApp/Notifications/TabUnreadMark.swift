@@ -39,10 +39,10 @@ enum TabUnreadMark {
     /// tab. A clear on a daemon without the capability does nothing (it has no
     /// mark to clear); a mark there throws the missing-capability message.
     static func set(_ marked: Bool, tab: TabModel, daemon: DaemonService) throws {
-        guard daemon.supports(DaemonCapabilities.shared.tabMarkUnread), daemon.store.servesStateResources,
+        guard daemon.supports(DaemonCapability.tabMarkUnread.rawValue), daemon.store.servesStateResources,
               let resource = tab.resourceID else {
             guard marked else { return }
-            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapabilities.shared.tabMarkUnread))
+            throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.tabMarkUnread.rawValue))
         }
         // Shown now; the record's echo confirms it, a refused write rolls it back.
         tab.expectMarkedUnread(marked)

@@ -75,7 +75,8 @@ import {
 import {
   invalidateCoderouterHandoffAuthority,
 } from "../../../services/coderouter/repository";
-import type { ProviderId } from "../../../services/vms/drivers";
+import type { ProviderCredential, ProviderId } from "../../../services/vms/drivers";
+import { gcpCredentialFromRequest } from "../../../services/vms/routeInput";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
 import {
   publishVmOps,
@@ -89,6 +90,7 @@ import { createHostedSubrouterClient } from "../../../services/subrouter/hostedC
 import { OBSERVED_DESTROY_CLEANUP_METADATA_KEY, type CloudVmRow } from "../../../services/vms/repository";
 import {
   destroyVm,
+  drainProviderCreateCleanups,
   listUserVms,
   deletePrivateNetworkingForAccountDeletion,
   revokeUserIdentityLeasesForAccountDeletion,
@@ -213,6 +215,12 @@ type AccountDeletionContext = {
   readonly accessToken: string;
   readonly userId: string;
   readonly originalStackMetadata: DeletableStackUser["clientReadOnlyMetadata"];
+  /**
+   * A fresh copy of the user's short-lived GCP credential from the deletion
+   * request, one per provider workflow (each wipes its own). Absent on cron
+   * resumes, so GCP machines and retained GCP creates fail closed there.
+   */
+  readonly gcpCredential?: () => ProviderCredential | undefined;
 };
 
 export async function DELETE(request: Request): Promise<Response> {
@@ -238,6 +246,7 @@ export async function DELETE(request: Request): Promise<Response> {
     accessToken,
     userId: stackUser.id,
     originalStackMetadata: stackUser.clientReadOnlyMetadata,
+    gcpCredential: () => gcpCredentialFromRequest(request),
   };
   const progress = initialAccountDeletionProgress();
   try {
@@ -574,7 +583,7 @@ async function deleteAccount(
     },
   );
   progress.stage = "identity_publications_vms";
-  await deleteAccountIdentityLeasesPublicationsAndVms(userId, accountScope.teamIds, progress);
+  await deleteAccountIdentityLeasesPublicationsAndVms(userId, accountScope.teamIds, progress, context.gcpCredential);
   progress.stage = "networking_vault";
   await deleteAccountNetworkingAndVault(userId, progress);
   if (hostedSubrouterDeletionRequired) {
@@ -629,6 +638,7 @@ async function deleteAccountIdentityLeasesPublicationsAndVms(
   userId: string,
   teamIds: readonly string[],
   progress: AccountDeletionProgress,
+  gcpCredential?: () => ProviderCredential | undefined,
 ): Promise<void> {
   await refreshAccountDeletionTombstoneLease(userId);
   try {
@@ -663,6 +673,7 @@ async function deleteAccountIdentityLeasesPublicationsAndVms(
   await refreshAccountDeletionTombstoneLease(userId);
   try {
     progress.destroyedVms = await destroyPersonalCloudVms(userId, teamIds, {
+      gcpCredential,
       afterVmDestroy: async () => {
         await refreshAccountDeletionTombstoneLease(userId);
       },
@@ -1215,8 +1226,17 @@ async function revokeAccountDeletionIdentityLeases(
 async function destroyPersonalCloudVms(
   userId: string,
   accountTeamIds: readonly string[],
-  options: { readonly afterVmDestroy?: () => Promise<void> } = {},
+  options: {
+    readonly afterVmDestroy?: () => Promise<void>;
+    readonly gcpCredential?: () => ProviderCredential | undefined;
+  } = {},
 ): Promise<number> {
+  // A retained GCP create names an instance only the user's own credential
+  // can delete; the account stays undeletable until that delete is confirmed.
+  const drainCredential = options.gcpCredential?.();
+  if (drainCredential) {
+    await runVmWorkflow(drainProviderCreateCleanups({ userId, providerCredential: drainCredential }));
+  }
   const vms = await listAccountDeletionCloudVms(userId, accountTeamIds);
   const failures: unknown[] = [];
   let destroyedVms = 0;
@@ -1232,6 +1252,7 @@ async function destroyPersonalCloudVms(
         afterProviderDestroy: () => void;
         modelPlane: VmModelPlaneRevoker;
         source: "account_deletion";
+        providerCredential?: ProviderCredential;
       } = {
         userId,
         teamIds: accountTeamIds,
@@ -1244,6 +1265,7 @@ async function destroyPersonalCloudVms(
         source: "account_deletion",
       };
       if (vm.billingTeamId) destroyInput.billingTeamId = vm.billingTeamId;
+      if (vm.provider === "gcp") destroyInput.providerCredential = options.gcpCredential?.();
       const destroyProgram = destroyVm(destroyInput);
       await runVmWorkflow(destroyProgram);
       destructiveCleanupStarted = true;
@@ -1846,6 +1868,17 @@ async function deleteCmuxOwnedAccountRows(userId: string, accountTeamIds: readon
     if (unsafePersonalVmRows.length > 0) {
       throw new Error(
         `Personal cloud VM provider teardown or creation is still pending for ${unsafePersonalVmRows.length} row${unsafePersonalVmRows.length === 1 ? "" : "s"}`,
+      );
+    }
+    // A GCP machine lives in the user's own project and only the user's
+    // credential can delete it, so a shared-team row (or a retained create)
+    // cannot be handed to the team as deleted-account.
+    const unsafeSharedGcpRows = sharedTeamVmRows.filter((vm) =>
+      vm.provider === "gcp" && vm.status !== "destroyed" && !(vm.status === "failed" && !vm.providerVmId)
+    );
+    if (unsafeSharedGcpRows.length > 0) {
+      throw new Error(
+        `GCP machines in shared teams must be deleted with the user's credential first (${unsafeSharedGcpRows.length} row${unsafeSharedGcpRows.length === 1 ? "" : "s"})`,
       );
     }
     const pendingExternalCleanupRows = personalVmRows.flatMap((vm) => {

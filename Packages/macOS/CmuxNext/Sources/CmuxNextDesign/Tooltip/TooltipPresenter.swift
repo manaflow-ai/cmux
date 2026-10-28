@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextWakeups
+public import CmuxNextDesignTokens
 
 /// The app's one tooltip (Leo, 2026-10-12: no stock macOS bubble). A view sets `themedToolTip`
 /// (`.themedHelp` in SwiftUI); hovering it shows this tooltip below the view, kept on screen, with
@@ -7,9 +8,8 @@ import CmuxNextWakeups
 /// neighbor's then shows at once while the group is warm, and a control whose own label already
 /// names it shows none. The first of a group fades in and rises 2 pt; a warm neighbor's is
 /// there at once; each fades out quicker than it came. It draws in the view's theme scope on the
-/// one tooltip surface (`TooltipSurface`: frosted glass under a tint the primary ink reads on, a
-/// one-device-pixel rim, a small tight shadow), with a shortcut hint in the secondary ink. Pages
-/// draw the same tooltip
+/// shared overlay glass (`Glass.makeOverlayPanel`, the hover cards' too; a small tight shadow)
+/// under the legibility tint (`TooltipSurface.tint`), with a shortcut hint in the secondary ink. Pages draw the same tooltip
 /// (webviews/src/ui/titleTooltips.ts, `.ui-tooltip`). A click, a key, a scroll or the app going
 /// inactive puts it away.
 @MainActor
@@ -154,11 +154,10 @@ public final class TooltipPresenter {
     private func show(fade: Bool = false) {
         guard let tracker = current, let view = tracker.view, let window = view.window,
               let text = tracker.text, let anchor = tracker.screenRect else { return }
-        let style = view.performWithTheme { TooltipStyle.current() }
         let center = NSPoint(x: anchor.midX, y: anchor.midY)
         let screen = NSScreen.screens.first { $0.frame.contains(center) } ?? window.screen ?? NSScreen.main
-        panel.show(text: text, shortcut: tracker.shortcut, style: style, appearance: view.effectiveAppearance,
-                   scale: screen?.backingScaleFactor ?? window.backingScaleFactor)
+        panel.show(text: text, shortcut: tracker.shortcut, scope: view.themeScope.fullStrength,
+                   appearance: view.effectiveAppearance)
         // The surface sits `margin` inside the window (room for its shadow): place the surface.
         let origin = Self.origin(for: panel.surfaceSize, below: anchor, on: screen?.visibleFrame ?? anchor.insetBy(dx: -1000, dy: -1000))
         panel.setFrameOrigin(NSPoint(x: origin.x - TooltipPanel.margin, y: origin.y - TooltipPanel.margin))

@@ -17,10 +17,11 @@ nonisolated enum DiffViewerSettingsSchema {
                 ["diff", "layout"], section: .appearance, group: group,
                 title: SettingsText.keyed("settings.diff.layout", "Layout"),
                 kind: .choice([
+                    SettingChoice("auto", SettingsText.keyed("settings.choice.diffAutoLayout", "Auto")),
                     SettingChoice("split", SettingsText.keyed("settings.choice.diffSplit", "Side by Side")),
                     SettingChoice("unified", SettingsText.keyed("settings.choice.diffUnified", "Unified")),
                 ]),
-                default: .string("unified"), keywords: ["diff", "split", "unified", "side by side"]
+                default: .string("auto"), keywords: ["diff", "split", "unified", "side by side", "auto", "automatic"]
             ),
             SettingDescriptor(
                 ["diff", "diffIndicators"], section: .appearance, group: group,
@@ -55,6 +56,15 @@ nonisolated enum DiffViewerSettingsSchema {
             // this row, so turning it on now lasts past the tab (webviews/src/viewer-prefs.ts).
             toggle("groupByKind", SettingsText.keyed("settings.diff.groupByKind", "Group Files by Kind"), false,
                    ["group", "kind", "tests", "generated", "order", "sort"]),
+            // Off by default: the diff shows every change, as git does. On, the diff leaves out white
+            // space changes (`git diff --ignore-all-space`), for the git sources only; the "..." menu's
+            // Hide white space writes this row.
+            toggle("hideWhitespace", SettingsText.keyed("settings.diff.hideWhitespace", "Hide White Space"), false,
+                   ["whitespace", "white space", "spaces", "indentation", "ignore"]),
+            // On by default: the floating Stage All / Revert All bar at the diff's end. Off hides it;
+            // each hunk's and file's own Stage and Revert stay.
+            toggle("showBulkActions", SettingsText.keyed("settings.diff.showBulkActions", "Stage All and Revert All Bar"), true,
+                   ["stage", "revert", "all", "floating", "bar", "bulk", "actions"]),
         ]
     }
 }

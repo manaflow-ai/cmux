@@ -17,6 +17,7 @@ cmux attach [START OPTIONS] [--terminal <terminal-id>]
 cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
 cmux wg hub --config <wg-quick file> --socket <unix socket>
+cmux wg dial --hub <unix socket> <host> <port>
 cmux link dial --host <install or host id> [--service daemon|ssh] [--socket <absolute path>]
 cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--handoff]
 cmux link stop --state-dir <dir>
@@ -329,7 +330,8 @@ output modes, and exit codes. It never sends private protocol commands.
 All `-t` values are cmux selectors. They do not interpret tmux numeric indexes,
 `%pane`, `@window`, or `session:window.pane` targets. Capture/input also accept a
 full `pane_…` ID, selecting its current tab's terminal. An omitted target uses
-`current` in the selected session, not a remembered client or shell.
+`current` in the selected session (the caller's own object inside cmux), not a
+remembered client or shell.
 
 Explicit selector paths take precedence over shorthand actions. Use `name:` for
 names that collide with command words. Names, option values, key payloads, and
@@ -352,12 +354,32 @@ screen inside the selected session's workspace.
 An instance selector accepts:
 
 - a typed opaque ID such as `ws_…`, `pane_…`, or `term_…`;
+- `caller`, for a workspace, screen, pane, tab or terminal;
 - `current`;
 - an exact name.
 
+`caller` is the object the command runs in: the caller's terminal
+(`CMUX_TUI_TERMINAL_ID`) and the tab, pane, screen and workspace that hold it,
+or for an agent session (`CMUX_AGENT_SESSION`) the place of its chat that the
+app's `system.identify` reports. The CLI resolves it to ids before it sends the
+request. It fails with `selector.not_found` when no caller is known and with
+`selector.invalid` under `--socket`, `--session` or `--machine`, which name
+another session or machine.
+
+`current` is the caller's object as well when a caller is known and the
+request routes to the caller's own session, so an agent never acts on the
+workspace or pane the person is looking at. It is the session's focused object
+when no caller is known or the caller cannot be found (a shell outside cmux, a
+stale terminal id, an app that does not answer), under `--socket`, `--session`
+or `--machine`, below an explicit parent that is not the caller's, above an
+explicit id or name, and for a browser target. The daemon itself only knows
+`current` as focused. `cmux agents` keeps `current` focused and does not take
+`caller`. The MCP tools resolve `current` to the chat's own place themselves,
+use `focused` for the object the person looks at, and do not take `caller`.
+
 Names may be empty, contain Unicode or whitespace, and need not be unique.
 `name:<value>` forces name interpretation and is required for names equal to
-`current`, names containing `_`, reserved command words, and ID-shaped names.
+`current` or `caller`, names containing `_`, reserved command words, and ID-shaped names.
 An ambiguous name returns `selector.ambiguous` with every candidate ID. It
 never chooses one or changes state.
 
@@ -567,6 +589,8 @@ notification list
 notification create --title <text> --body <text> [--subtitle <text>] [--level <level>] [--terminal <term_id>]
 notification clear [--terminal <term_id>]
 notification ack --client <id> <notification-id>...
+attention request --tab <tab_…> --reason <text>
+attention clear --tab <tab_…>
 git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
   [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [<path>...]

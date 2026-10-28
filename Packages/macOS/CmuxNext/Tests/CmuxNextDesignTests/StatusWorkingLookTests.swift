@@ -1,5 +1,6 @@
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// WORKING-LOOK: agent work draws the spinner by default (Leo 2026-10-21: "WE SAID NO BLINKING. WE
 /// SAID SPINNER."); the breathing and still accent dots stay as Debug choices, and loading (a page,

@@ -31,6 +31,8 @@ pub mod notify;
 mod picker;
 pub mod render;
 pub use menu::{Menu, MenuAction};
+#[cfg(all(test, unix))]
+mod answering_tests;
 pub(crate) mod directory;
 mod keymap;
 pub mod markdown;

@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useContext,
   useEffect,
   useId,
   useLayoutEffect,
@@ -8,18 +9,22 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { AgentMark, agentBrand, knownMark } from "../shared/AgentMark";
+import { AgentMark, agentBrand, hasAgentMark, knownMark } from "../shared/AgentMark";
 import { agentName } from "./agents";
 import { isDefaultChoice } from "./defaultChoice";
 import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPickers";
 import { Icon } from "./icons/Icon";
+import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, useT } from "./i18n";
 import { useUpdateOffer } from "./HarnessHealthNotice";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
-import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
+import { effortWords, fitsQuery, modelEffort, parseQuery, type ParsedQuery } from "./modelQuery";
+import { groupVariants } from "./modelVariants";
 import { registerPicker } from "./pickerOpeners";
-import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
+import { OnNewTab } from "./newTabComposer";
+import { QuickModelMenu, type QuickProfile, type QuickFamily, type QuickModel } from "./QuickModelMenu";
+import type { PickerProfile } from "./pickerProfiles";
 import { useUiAnchor } from "../../ui/anchor";
 import { useEscapeCloses } from "../../ui/escapeDismiss";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
@@ -31,6 +36,7 @@ import {
   PickerOptionList,
 } from "../../ui/PickerPrimitives";
 import { ScrollArea } from "../../ui/ScrollArea";
+import { FastToggle } from "./FastToggle";
 
 type HarnessChoice = {
   id: string;
@@ -44,6 +50,7 @@ type HarnessChoice = {
     unavailable?: string;
     efforts?: string[];
     fast?: boolean;
+    inlineFast?: boolean;
     release?: string;
   }[];
   unavailable?: string;
@@ -66,7 +73,58 @@ type ModelChoice = {
   fast?: boolean;
   /** The catalog release an alias row stands for, which the curated list names. */
   release?: string;
+  /** The compact menu's one row for a model several providers serve: each provider's row. */
+  offers?: (ModelChoice & { provider: string })[];
+  /** The provider the row lands ("OpenRouter"), for a harness that routes to several. */
+  provider?: string;
+  /** A bracketed note the model's name carried ("New"). */
+  tag?: string;
 };
+
+/// The compact model menu keeps the top picks and the running model readable; everything else is
+/// behind More models (Leo 2026-10-21: "why are there so many models!?"), while typed search still
+/// exposes the wider filtered list.
+const QUICK_ROWS = 4;
+
+const isVariant = (model: ModelChoice) => model.id.includes("[") || model.name.includes(" · ");
+
+/// `choices` as one row per model (modelVariants.ts): a model several providers serve lands the
+/// running provider's row (`model`) while it is available, else the first one that is, and `offers`
+/// holds every provider's. A list with no Provider row (search, Starred) would otherwise leave an
+/// unavailable running provider as the model's only way in. Its name drops the provider; a
+/// bracketed note becomes its `tag`.
+function groupChoices(choices: readonly ModelChoice[], model: string | undefined): ModelChoice[] {
+  return groupVariants(choices, model).map(({ model: grouped, name, tag, offers }): ModelChoice => {
+    const choice = grouped.unavailable ? (offers.find((offer) => !offer.model.unavailable)?.model ?? grouped) : grouped;
+    const provider = offers.find((offer) => offer.model === choice)?.provider;
+    return {
+      ...choice,
+      name,
+      ...(tag ? { tag } : {}),
+      ...(provider ? { provider } : {}),
+      ...(offers.length > 1 ? { offers: offers.map((offer) => ({ ...offer.model, provider: offer.provider })) } : {}),
+    };
+  });
+}
+
+function quickSections(
+  entry: HarnessChoice | undefined,
+  model: string | undefined,
+  usable: (choice: ModelChoice) => boolean = () => true,
+): { shown: ModelChoice[]; more: ModelChoice[] } {
+  const { latest, older } = sectionsFor(entry);
+  const latestIds = new Set(latest.map((choice) => choice.id));
+  // Filtered after grouping: a model stays when any provider's row of it is usable, and its offers
+  // keep the running one, so the Provider row still names it.
+  const all = groupChoices([...latest, ...older], model).filter(usable);
+  // A model is a top one when any provider's row of it is.
+  const top = all.filter((choice) => (choice.offers ?? [choice]).some((offer) => latestIds.has(offer.id)));
+  const picks = [...top.filter((choice) => !isVariant(choice)), ...top.filter(isVariant)].slice(0, QUICK_ROWS);
+  // The running model's row, also when it lands another provider than the unavailable running one.
+  const runs = all.find((choice) => (choice.offers ?? [choice]).some((offer) => offer.id === model));
+  const chosen = new Set(runs && !picks.includes(runs) ? [...picks.slice(0, QUICK_ROWS - 1), runs] : picks);
+  return { shown: all.filter((choice) => chosen.has(choice)), more: all.filter((choice) => !chosen.has(choice)) };
+}
 
 /// A harness's models, each once: its curated top models, else each family's newest (`latest`),
 /// then every other model (`older`, folded under More models). The agent-owned default sentinel is not a
@@ -116,6 +174,26 @@ function shownSections(
 function choicesFor(entry: HarnessChoice | undefined): ModelChoice[] {
   const { latest, older } = sectionsFor(entry);
   return [...latest, ...older];
+}
+
+/// The harness the picker's face draws when the chat names none: its first installed, pickable
+/// harness (a bundled catalog harness acpmux does not have is not one), as `current` below picks it.
+/// The composer's other chips and the footer's harness item draw the same one (ComposerPickers).
+export function pickerFaceHarness(catalog: ModelPickerProps["catalog"]): string | undefined {
+  return uniqueHarnesses(catalog)[0]?.id;
+}
+
+/// The models a typed query finds among `entries`, each with its harness, in rail order: the full
+/// picker's search and the compact menu's search field both list these.
+function searchModels(
+  entries: readonly HarnessChoice[],
+  query: ParsedQuery,
+): { model: ModelChoice; entry: HarnessChoice }[] {
+  return entries.flatMap((entry) =>
+    choicesFor(entry)
+      .filter((model) => fitsQuery(model, entry.name, query))
+      .map((model) => ({ model, entry })),
+  );
 }
 
 function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] {
@@ -176,8 +254,62 @@ function uniqueHarnesses(catalog: ModelPickerProps["catalog"]): HarnessChoice[] 
   return [...result, ...profiles];
 }
 
+/// A model as a row of the compact menu's tab `family`, with its providers' rows when it has several.
+function quickRow(family: string, model: ModelChoice): QuickModel {
+  return {
+    id: model.id,
+    name: model.name,
+    family,
+    ...(model.unavailable ? { disabled: true } : {}),
+    ...(model.tag ? { tag: model.tag } : {}),
+    ...(model.provider ? { provider: model.provider } : {}),
+    ...(model.offers
+      ? { offers: model.offers.map((offer) => ({ ...quickRow(family, offer), provider: offer.provider })) }
+      : {}),
+  };
+}
+
 /// The rail's Starred tab (never a harness id).
 const STARRED = "\u0000starred";
+
+/// One tab per installed harness. Launch profiles that share its brand live under Profile;
+/// route-backed signed-in identities remain in Account. Folder profiles belong to the machine chip.
+function railByHarness(
+  list: QuickFamily[],
+  running: string | undefined,
+  profiles: Readonly<Record<string, readonly PickerProfile[]>> = {},
+  signedOut: (id: string) => boolean = () => false,
+): QuickFamily[] {
+  const groups = new Map<string, QuickFamily[]>();
+  for (const family of list) {
+    const brand = family.starred || !family.mark ? undefined : agentBrand(family.mark);
+    const key = brand ? `brand:${brand}` : `id:${family.id}`;
+    groups.set(key, [...(groups.get(key) ?? []), family]);
+  }
+  return [...groups.values()].map((members) => {
+    const first = members[0]!;
+    const listed = members.flatMap((member): QuickProfile[] => {
+      const folded = profiles[member.id];
+      if (!folded?.length) return [{ id: member.id, name: member.name, ...(member.note ? { disabled: true } : {}) }];
+      return folded.map((profile) => ({
+        id: profile.id,
+        name: profile.name,
+        ...(profile.unavailable || signedOut(profile.id) ? { disabled: true } : {}),
+      }));
+    });
+    const seen = new Set<string>();
+    const unique = listed.filter((account) => !seen.has(account.id) && seen.add(account.id));
+    const accounts = unique.map((account) =>
+      unique.filter((other) => other.name === account.name).length > 1
+        ? { ...account, name: `${account.name} (${account.id})` }
+        : account,
+    );
+    const lead = members.find((member) => member.id === running) ?? members.find((member) => !member.note) ?? first;
+    const account = accounts.some((choice) => choice.id === running) ? running : lead.id;
+    if (members.length === 1 && accounts.length < 2) return first;
+    return { ...lead, name: first.name, profiles: accounts, ...(account ? { profile: account } : {}) };
+  });
+}
 
 /// A folder profile row the user cannot start yet: waiting for the folder's Trust answer, or broken.
 const blockedProfile = (entry: HarnessChoice | undefined) =>
@@ -228,6 +360,7 @@ export function ModelPicker(props: ModelPickerProps) {
     onHarnessEnable,
     onCombo,
     fastMode,
+    speed,
     catalogRefresh,
     signedOut,
     onLogIn,
@@ -235,12 +368,15 @@ export function ModelPicker(props: ModelPickerProps) {
     quick,
     detail,
     detailShort,
+    fork,
   } = props;
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
   const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
   const t = useT();
-  /// The chat's agent CLI has an update (hq#2569 #12): a dot on the chip and a row in the picker,
-  /// never a banner over the chat.
+  const newTab = useContext(OnNewTab);
+  /// The chat's agent CLI has an update (hq#2569 #12): a row in the menu and the picker and a line
+  /// in the chip's tooltip, never a banner over the chat. Never a dot on the chip: drawn between the
+  /// model and its effort it read "Opus 5.5 • Medium" (Leo 2026-10-21: "WE FUCKING HATE THE DOT").
   const update = useUpdateOffer();
   const updateText = update
     ? t("harness.outdated", { agent: update.agent, version: update.version, latest: update.latest })
@@ -280,6 +416,12 @@ export function ModelPicker(props: ModelPickerProps) {
   const menu = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
   const restoreFocus = useRef(false);
+  // A pick hands the keyboard to the composer's prompt, not back to the model button (promptFocus.ts).
+  const toPrompt = useRef(false);
+  const focusPrompt = usePromptFocus();
+  // The compact menu's pick does the same once the menu has closed: while it is open it keeps the
+  // keyboard on its rows, and its close leaves focus where the pick put it (ui/Menu.tsx).
+  const quickPicked = useRef(false);
   const menuId = useId();
   const allHarnesses = useMemo(() => uniqueHarnesses(catalog), [catalog]);
   // A started chat lists its own harness alone. One acpmux has not listed yet (the first open after
@@ -290,14 +432,17 @@ export function ModelPicker(props: ModelPickerProps) {
   );
   const harnessFixed = props.harnessFixed === true && ownHarness.length > 0;
   const harnesses = harnessFixed ? ownHarness : allHarnesses;
+  // Folder profiles remain available for the current machine's models and trust/enable state, but
+  // they are not harness choices and never become tabs in the picker rail.
+  const railHarnesses = useMemo(() => harnesses.filter((entry) => !entry.folder), [harnesses]);
   // A started chat offers no other harness, so it has no Add harness… row either.
   const onAddAgent = harnessFixed ? undefined : props.onAddAgent;
   const navigableHarnesses = useMemo(
     () =>
-      harnesses
+      railHarnesses
         .map((entry, index) => ({ entry, index }))
         .filter(({ entry }) => entry.pickable && !blockedProfile(entry)),
-    [harnesses],
+    [railHarnesses],
   );
   const current = harnesses.find((entry) => entry.ids.includes(harness ?? "")) ?? harnesses[0];
   // The rail's first tab lists the starred models of every harness; each row keeps its harness.
@@ -314,12 +459,13 @@ export function ModelPicker(props: ModelPickerProps) {
   const owners = useMemo(() => {
     const owner = new Map<ModelChoice, HarnessChoice>();
     if (searching) {
-      for (const entry of harnesses)
-        if (entry.pickable && !blockedProfile(entry) && loginFor(entry) === undefined)
-          for (const model of choicesFor(entry)) if (fitsQuery(model, entry.name, parsed)) owner.set(model, entry);
+      const searchable = harnesses.filter(
+        (entry) => entry.pickable && !blockedProfile(entry) && loginFor(entry) === undefined,
+      );
+      for (const { model, entry } of searchModels(searchable, parsed)) owner.set(model, entry);
     } else if (starredView) {
       for (const entry of harnesses)
-        if (loginFor(entry) === undefined)
+        if (!entry.folder && loginFor(entry) === undefined)
           for (const model of choicesFor(entry)) if (favorites.has(model.id)) owner.set(model, entry);
     } else if (selected && loginFor(selected) === undefined) {
       // Every model past the top ones folds under More models until it opens (cx-jqkx, cx-espus).
@@ -365,9 +511,10 @@ export function ModelPicker(props: ModelPickerProps) {
     if (catalogRefresh?.status && catalogRefresh.status !== "idle") setLocalRefreshStatus(undefined);
   }, [catalogRefresh?.date, catalogRefresh?.status]);
   // Opens on the side that has room for the picker's floor, not only for what it measures before its
-  // models load: above the chip, else below it (Leo: the menu stays inside the page).
+  // models load: above the chip, else below it (Leo: the menu stays inside the page). On New Tab,
+  // below first (newTabComposer.ts).
   const menuStyle = useUiAnchor(trigger, menu, open, {
-    side: "above",
+    side: newTab ? "below" : "above",
     align: "start",
     minHeight: MODEL_PICKER_MIN_HEIGHT,
     // Inside the chat column, never over the session rail or sidebar beside it.
@@ -391,7 +538,12 @@ export function ModelPicker(props: ModelPickerProps) {
     [onHarnessHint],
   );
   useEffect(() => {
-    if (open || !restoreFocus.current) return;
+    if (open) return;
+    // A pick's prompt focus belongs to its own close: a reopen before the frames below run cancels
+    // them, and the next close (Escape) returns to the model button.
+    const picked = toPrompt.current;
+    toPrompt.current = false;
+    if (!restoreFocus.current) return;
     restoreFocus.current = false;
     // A pointerup can still apply its default focus after React closes the popup. Defer the
     // restoration until that browser action has finished. A second frame also covers the
@@ -399,19 +551,26 @@ export function ModelPicker(props: ModelPickerProps) {
     // press-drag-release selection.
     let second: number | undefined;
     const first = requestAnimationFrame(() => {
-      second = requestAnimationFrame(() => trigger.current?.focus({ preventScroll: true }));
+      second = requestAnimationFrame(() => {
+        if (!(picked && focusPrompt())) trigger.current?.focus({ preventScroll: true });
+      });
     });
     return () => {
       cancelAnimationFrame(first);
       if (second !== undefined) cancelAnimationFrame(second);
     };
-  }, [open]);
+  }, [open, focusPrompt]);
+  useEffect(() => {
+    if (quickOpen || !quickPicked.current) return;
+    quickPicked.current = false;
+    focusPrompt();
+  }, [quickOpen, focusPrompt]);
   const show = useCallback(() => {
     setSelectedHarness(harness ?? current?.id);
     setActiveHarness(
       Math.max(
         0,
-        harnesses.findIndex((entry) => entry.ids.includes(harness ?? "")),
+        railHarnesses.findIndex((entry) => entry.ids.includes(harness ?? "")),
       ),
     );
     setQuery("");
@@ -430,7 +589,7 @@ export function ModelPicker(props: ModelPickerProps) {
     setOpen(true);
     if (open) search.current?.focus();
     else trigger.current?.focus();
-  }, [current, harness, harnesses, open, props.model]);
+  }, [current, harness, open, props.model, railHarnesses]);
   const showRef = useRef(show);
   showRef.current = show;
   const toggle = open ? (_next: boolean) => close() : setOpen;
@@ -475,6 +634,17 @@ export function ModelPicker(props: ModelPickerProps) {
     };
   }, [close, open]);
   useEffect(() => registerPicker(modelText, () => showRef.current()), [modelText]);
+  // The footer's harness item opens this menu: its rail is the composer's harness switcher.
+  const opener = props.opener;
+  const compact = quick !== undefined;
+  useEffect(() => {
+    if (!opener) return;
+    const openMenu = () => (compact ? setQuickOpen(true) : showRef.current());
+    opener.current = openMenu;
+    return () => {
+      if (opener.current === openMenu) opener.current = undefined;
+    };
+  }, [opener, compact]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
@@ -496,6 +666,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const selectModel = (model: ModelChoice) => {
     const owner = owners.get(model);
     if (model.unavailable || !owner?.pickable || loginFor(owner) !== undefined) return;
+    toPrompt.current = true;
     // A typed effort or fast mode, or a model of another harness, lands as one combo.
     const effort = searching ? modelEffort(model, parsed.effort) : undefined;
     const fast = searching ? parsed.fast : undefined;
@@ -513,56 +684,161 @@ export function ModelPicker(props: ModelPickerProps) {
     onLand(model.id);
     close();
   };
+  /// The compact menu's search field: the full picker's search over the harnesses the menu offers.
+  /// A row names its harness when the menu has a rail, and the effort and fast mode the query named
+  /// ("gpt high fast"), which its pick lands with.
+  const quickSearch = (text: string): QuickModel[] => {
+    const typed = parseQuery(text, vocabulary);
+    // The chat's own harness once it has started, else every one the rail offers.
+    const searchable = (harnessFixed ? ownHarness : harnesses).filter(
+      (entry) =>
+        entry.pickable &&
+        !blockedProfile(entry) &&
+        entry.folder?.state !== "needs-enable" &&
+        loginFor(entry) === undefined,
+    );
+    const found = searchModels(searchable, typed);
+    // A model several providers serve is one match, in the place of its best-ranked provider's row.
+    const groupOf = new Map<ModelChoice, ModelChoice>();
+    for (const entry of new Set(found.map((match) => match.entry))) {
+      const matches = found.filter((match) => match.entry === entry).map((match) => match.model);
+      for (const group of groupChoices(matches, entry.ids.includes(harness ?? "") ? props.model : undefined))
+        for (const member of group.offers ?? [group])
+          groupOf.set(
+            matches.find((match) => match.id === member.id)!,
+            group,
+          );
+    }
+    const seen = new Set<ModelChoice>();
+    return found.flatMap(({ model: match, entry }) => {
+      const model = groupOf.get(match) ?? match;
+      if (seen.has(model)) return [];
+      seen.add(model);
+      const effort = modelEffort(model, typed.effort);
+      const hint = [!harnessFixed ? entry.name : undefined, model.provider, effort, typed.fast ? fastText : undefined]
+        .filter(Boolean)
+        .join(" · ");
+      const row = quickRow(entry.id, model);
+      return [
+        {
+          ...row,
+          ...(hint ? { hint } : {}),
+          ...(effort ? { effort } : {}),
+          ...(typed.fast ? { fast: true } : {}),
+        },
+      ];
+    });
+  };
   // The compact menu's rail (Leo 2026-10-18): Starred when any model is starred, then each harness
   // that can start here, its top models numbered and the rest under More models.
   const quickFamilies = useMemo(() => {
     // A started chat's compact menu lists its own harness's models with no rail; More models
     // opens the full picker, which has no rail either.
-    if (!quick || harnessFixed) return undefined;
-    const row = (entry: HarnessChoice, model: ModelChoice): QuickModel => ({
-      id: model.id,
-      name: model.name,
-      family: entry.id,
-      ...(model.unavailable ? { disabled: true } : {}),
-    });
-    const startable = harnesses.filter(
-      (entry) => entry.pickable && !blockedProfile(entry) && entry.folder?.state !== "needs-enable",
+    // A folder profile is a machine choice, so its current models stay in the plain compact list
+    // while the harness-only rail remains absent.
+    if (!quick || (harnessFixed && !fork) || current?.folder) return undefined;
+    const row = (entry: HarnessChoice, model: ModelChoice) => quickRow(entry.id, model);
+    // A started chat that forks lists every harness, as a New Tab does; its own stays the chat's.
+    const startable = (fork ? allHarnesses : harnesses).filter(
+      (entry) => !entry.folder && entry.pickable && !blockedProfile(entry),
     );
     const list: QuickFamily[] = [];
     const starred = startable
       .filter((entry) => loginFor(entry) === undefined)
-      .flatMap((entry) => choicesFor(entry).flatMap((model) => (favorites.has(model.id) ? [row(entry, model)] : [])));
+      .flatMap((entry) =>
+        groupChoices(
+          choicesFor(entry).filter((model) => favorites.has(model.id)),
+          entry.ids.includes(harness ?? "") ? props.model : undefined,
+        ).map((model) => row(entry, model)),
+      );
     if (starred.length) list.push({ id: STARRED, name: starredText, starred: true, models: starred, more: [] });
     for (const entry of startable) {
       const signedOutHere = loginFor(entry) !== undefined;
-      const { latest, older } = signedOutHere
-        ? { latest: [], older: [] }
-        : shownSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined);
+      const { shown, more } = signedOutHere
+        ? { shown: [], more: [] }
+        : quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined);
       list.push({
         id: entry.id,
         name: entry.name,
-        ...(agentBrand(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
-        models: latest.slice(0, 9).map((model) => row(entry, model)),
-        more: [...latest.slice(9), ...older].map((model) => row(entry, model)),
+        ...(hasAgentMark(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
+        models: shown.map((model) => row(entry, model)),
+        more: more.map((model) => row(entry, model)),
         ...(signedOutHere ? { note: t("harnesses.signedOut") } : {}),
         ...(signedOutHere && loginFor(entry) && onLogIn
           ? { logIn: () => onLogIn(entry.acpmuxHarness ?? entry.id, loginFor(entry)!) }
           : {}),
       });
     }
-    return list;
-  }, [quick, harnessFixed, harnesses, loginFor, favorites, starredText, harness, props.model, t, onLogIn]);
+    const rail = railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined);
+    if (!harnessFixed) return rail;
+    // A started chat (Leo 2026-10-22: "can expose as fork"): another harness's tab is Fork to it,
+    // Starred keeps the chat's own models, and another launch profile of any harness forks there.
+    return rail.flatMap((family): QuickFamily[] => {
+      const accounts = family.profiles?.map((account) =>
+        account.id === harness || fork?.ready ? account : { ...account, disabled: true },
+      );
+      const own = { ...family, ...(accounts ? { profiles: accounts } : {}) };
+      if (family.starred) {
+        const models = family.models.filter((model) => model.family === current?.id);
+        return models.length ? [{ ...family, models }] : [];
+      }
+      if (family.id === current?.id || family.note) return [own];
+      return [{ ...own, models: [], more: [], fork: true }];
+    });
+  }, [
+    quick,
+    harnessFixed,
+    fork,
+    allHarnesses,
+    harnesses,
+    current?.id,
+    current?.folder,
+    loginFor,
+    favorites,
+    starredText,
+    harness,
+    props.model,
+    t,
+    onLogIn,
+    props.profiles,
+    signedOut,
+  ]);
   /// A compact-menu pick: this harness's model lands in place; another harness's starts a chat there.
+  /// A searched row with an effort or fast mode lands as one combo, as the full picker's does.
   const pickQuick = (model: QuickModel) => {
     const owner = harnesses.find((entry) => entry.id === model.family);
     if (!owner || model.disabled || !owner.pickable || loginFor(owner) !== undefined) return;
-    if (owner.ids.includes(harness ?? "")) {
+    const harnessId = owner.acpmuxHarness ?? owner.id;
+    const here = owner.ids.includes(harness ?? "");
+    if (onCombo && (model.effort || model.fast || !here)) {
+      onCombo({ harness: harnessId, model: model.id, effort: model.effort, fast: model.fast });
+      return;
+    }
+    if (here) {
       onLand(model.id);
       return;
     }
-    const harnessId = owner.acpmuxHarness ?? owner.id;
-    if (onCombo) onCombo({ harness: harnessId, model: model.id });
-    else if (owner.acpmuxHarness) onHarness?.(owner.acpmuxHarness);
+    if (owner.acpmuxHarness) onHarness?.(owner.acpmuxHarness);
+  };
+  /// A compact-menu pick from the rail or the search: the prompt takes the keyboard once it closes.
+  const pickQuickToPrompt = (model: QuickModel) => {
+    quickPicked.current = true;
+    pickQuick(model);
+  };
+  /// An Account pick: the harness's other profile starts a chat there, or forks a started chat there.
+  /// `id` is an acpmux profile: one a tab folded (pickerProfiles.ts) is no harness entry of its own.
+  const pickProfile = (id: string) => {
+    if (id === harness || signedOut?.[id] !== undefined) return;
+    const owner = allHarnesses.find((entry) => entry.id === id);
+    if (owner && loginFor(owner) !== undefined) return;
+    const target = owner?.acpmuxHarness ?? id;
+    if (harnessFixed) {
+      if (fork?.ready) fork.to(target);
+    } else onHarness?.(target);
+  };
+  const forkTo = (id: string) => {
+    const owner = allHarnesses.find((entry) => entry.id === id);
+    if (owner && fork?.ready) fork.to(owner.acpmuxHarness ?? owner.id);
   };
   const addHarness = () => {
     close();
@@ -633,7 +909,7 @@ export function ModelPicker(props: ModelPickerProps) {
       showTab(STARRED, -1);
       focusRail(-1);
     } else {
-      showTab(harnesses[next]?.id, next);
+      showTab(railHarnesses[next]?.id, next);
       focusRail(next);
     }
   };
@@ -721,7 +997,7 @@ export function ModelPicker(props: ModelPickerProps) {
           ? unavailableText
           : undefined;
   const selectedOther = selected !== undefined && !selected.ids.includes(harness ?? "");
-  const firstProfile = harnesses.findIndex((entry) => entry.folder);
+  const folderProfiles = harnesses.filter((entry) => entry.folder);
   // Several harness profiles can draw one brand's mark (Claude Code, Claude Agent, a subrouter
   // route): their tooltips add the profile id, so each tab says which one it starts.
   const markCounts = new Map<string, number>();
@@ -763,9 +1039,6 @@ export function ModelPicker(props: ModelPickerProps) {
           data-label={chipFamily}
         />
       )}
-      {update && (
-        <span aria-hidden="true" className="acpmux-model-update-dot size-1.5 flex-none rounded-full bg-accent" />
-      )}
     </>
   );
   return (
@@ -779,96 +1052,110 @@ export function ModelPicker(props: ModelPickerProps) {
       {quick ? (
         // The compact menu's chip is its Base UI menu button (submenus need one); a press while
         // the full picker is open only closes it.
-        <QuickModelMenu
-          open={quickOpen}
-          onOpenChange={(next) => {
-            // A close is only ever the compact menu's own; a press on the chip while the full
-            // picker is open closes that one instead.
-            if (!next) setQuickOpen(false);
-            else if (open) close();
-            else setQuickOpen(true);
-          }}
-          trigger={trigger}
-          chip={{
-            "data-menu": modelText,
-            label: modelText,
-            /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-            title: [chipLabel, usage, updateText].filter(Boolean).join(" · "),
-          }}
-          menu={{
-            ...quick,
-            ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
-            // This harness's top models, the running one among them; a signed-out harness lists none.
-            models:
-              current && loginFor(current) === undefined
-                ? shownSections(current, props.model)
-                    .latest.filter((model) => !model.unavailable)
-                    .slice(0, 9)
-                : [],
-            current: props.model,
-            onModel: (id) => onLand(id),
-            ...(quickFamilies
-              ? {
-                  families: {
-                    list: quickFamilies,
-                    current: current?.id,
-                    onPick: pickQuick,
-                    ...(onAddAgent ? { onAddHarness: onAddAgent } : {}),
-                  },
-                }
-              : {}),
-          }}
-          onMore={more}
-        >
-          {chipFace}
-          {/* A quiet label, as Claude Code's: the model, then its effort, and no chevron. */}
-          {detail && (
-            <span
-              className="acpmux-model-detail"
-              data-fit-part="effort"
-              data-fit-forms={detailShort ? "full" : "full short"}
-            >
-              {detail}
-            </span>
-          )}
-          {detail && detailShort && (
-            <span
-              className="acpmux-model-detail acpmux-fit-label"
-              data-fit-part="effort"
-              data-fit-forms="short"
-              data-label={detailShort}
-            />
-          )}
-        </QuickModelMenu>
+        <>
+          <QuickModelMenu
+            open={quickOpen}
+            onOpenChange={(next) => {
+              // A close is only ever the compact menu's own; a press on the chip while the full
+              // picker is open closes that one instead.
+              if (!next) setQuickOpen(false);
+              else if (open) close();
+              else setQuickOpen(true);
+            }}
+            trigger={trigger}
+            chip={{
+              "data-menu": modelText,
+              label: modelText,
+              /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
+              title: [chipLabel, usage, updateText].filter(Boolean).join(" · "),
+            }}
+            menu={{
+              ...quick,
+              ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
+              // This harness's top models, the running one among them; a signed-out harness lists none.
+              models:
+                current && loginFor(current) === undefined
+                  ? quickSections(current, props.model, (model) => !model.unavailable).shown.map((model) =>
+                      quickRow("", model),
+                    )
+                  : [],
+              current: props.model,
+              onModel: (id) => {
+                quickPicked.current = true;
+                onLand(id);
+              },
+              search: { find: quickSearch, pick: pickQuickToPrompt },
+              ...(quickFamilies
+                ? {
+                    families: {
+                      list: quickFamilies,
+                      current: current?.id,
+                      onPick: pickQuickToPrompt,
+                      ...(onAddAgent ? { onAddHarness: onAddAgent } : {}),
+                      ...(harnessFixed ? {} : onHarness ? { onProfile: pickProfile } : {}),
+                      ...(harnessFixed && fork
+                        ? { onProfile: pickProfile, onFork: forkTo, forkReady: fork.ready }
+                        : {}),
+                    },
+                  }
+                : {}),
+            }}
+            onMore={more}
+          >
+            {chipFace}
+            {/* A quiet label, as Claude Code's: the model, then its effort, and no chevron. */}
+            {detail && (
+              <span
+                className="acpmux-model-detail"
+                data-fit-part="effort"
+                data-fit-forms={detailShort ? "full" : "full short"}
+              >
+                {detail}
+              </span>
+            )}
+            {detail && detailShort && (
+              <span
+                className="acpmux-model-detail acpmux-fit-label"
+                data-fit-part="effort"
+                data-fit-forms="short"
+                data-label={detailShort}
+              />
+            )}
+          </QuickModelMenu>
+          {speed && <FastToggle speed={speed} inline />}
+        </>
       ) : (
-        <PickerButton
-          ref={trigger}
-          type="button"
-          className="acpmux-picker-button"
-          data-menu={modelText}
-          aria-label={modelText}
-          /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
-          title={[chipLabel, usage, updateText].filter(Boolean).join(" · ")}
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          aria-controls={open ? menuId : undefined}
-          keyboard={(event) => {
-            if (open && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
-              event.preventDefault();
-              setQuery(event.key);
-              setActive(0);
-              setAddChosen(false);
-              search.current?.focus();
-            } else if (!open && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
-              event.preventDefault();
-              show();
-            }
-          }}
-          {...press}
-        >
-          {chipFace}
-          <ChevronIcon />
-        </PickerButton>
+        <>
+          <PickerButton
+            ref={trigger}
+            type="button"
+            className="acpmux-picker-button"
+            data-menu={modelText}
+            aria-label={modelText}
+            /* tooltip-allow: the chip drops the vendor its mark draws; the title keeps the full name */
+            title={[chipLabel, usage, updateText].filter(Boolean).join(" · ")}
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            aria-controls={open ? menuId : undefined}
+            keyboard={(event) => {
+              if (open && event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey) {
+                event.preventDefault();
+                setQuery(event.key);
+                setActive(0);
+                setAddChosen(false);
+                search.current?.focus();
+              } else if (!open && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+                event.preventDefault();
+                show();
+              }
+            }}
+            {...press}
+          >
+            {chipFace}
+            <ChevronIcon />
+          </PickerButton>
+          {speed && <FastToggle speed={speed} inline />}
+        </>
       )}
       {open && (
         <PickerDialog
@@ -902,7 +1189,7 @@ export function ModelPicker(props: ModelPickerProps) {
                   selected={starredView}
                   active={starredView}
                   keyboard={(event) => {
-                    if (!harnesses.length) return;
+                    if (!railHarnesses.length) return;
                     if (event.key === "ArrowDown") {
                       event.preventDefault();
                       moveRail(-1, 1);
@@ -918,14 +1205,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 >
                   <StarGlyph filled={false} size={15} />
                 </PickerOption>
-                {harnesses.map((entry, index) => [
-                  index === firstProfile && (
-                    <hr
-                      key="folder-section"
-                      className="my-0.5 h-0 w-5 flex-none border-0 border-t-[0.5px] border-edge"
-                      aria-label={t("picker.thisFolder")}
-                    />
-                  ),
+                {railHarnesses.map((entry, index) => [
                   <PickerOption
                     type="button"
                     key={entry.folder ? `folder:${entry.id}` : entry.name}
@@ -958,7 +1238,7 @@ export function ModelPicker(props: ModelPickerProps) {
                     }}
                     active={index === activeHarness}
                   >
-                    {agentBrand(entry.mark ?? entry.id) ? (
+                    {hasAgentMark(entry.mark ?? entry.id) ? (
                       <AgentMark agent={entry.mark ?? entry.id} size={16} />
                     ) : (
                       // A harness without a mark: its initial, never an empty tab.
@@ -1019,6 +1299,27 @@ export function ModelPicker(props: ModelPickerProps) {
                 className="acpmux-mp-models p-1.5"
                 aria-label={searching ? searchText : starredView ? starredText : (selected?.name ?? modelText)}
               >
+                {!searching && !starredView && folderProfiles.length > 0 && (
+                  <div className="acpmux-mp-folder-profiles mb-1 border-b-[0.5px] border-edge pb-1">
+                    <div className="px-2 py-1 text-detail text-muted">{t("picker.thisFolder")}</div>
+                    {folderProfiles.map((entry) => (
+                      <button
+                        type="button"
+                        key={`folder-profile:${entry.id}`}
+                        className={`acpmux-mp-row ${modelRow} ${rowFill(selectedHarness === entry.id)}`}
+                        onClick={() => {
+                          setSelectedHarness(entry.id);
+                          setOlderOpen(false);
+                          setActive(0);
+                          setAddChosen(false);
+                        }}
+                      >
+                        <span className="acpmux-menu-label flex-1 truncate">{entry.name}</span>
+                        {folderNote(entry) && <span className="acpmux-quick-value">{folderNote(entry)}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {selected && !searching && !starredView && loginFor(selected) !== undefined ? (
                   <>
                     <div className={emptyNote}>{t("harness.signedOut", { agent: selected.name })}</div>

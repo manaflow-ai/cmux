@@ -46,6 +46,17 @@ fn hub() -> Arc<Hub> {
     hub_in(None)
 }
 
+/// A daemon's hub after a restart (`Hub::new_deferred`): it reads each chat's log only when a
+/// request needs it, until `load_logs` (`hub/log_load.rs`).
+fn deferred_hub_in(dir: &Path) -> Arc<Hub> {
+    let cfg = config(Some(dir));
+    let store = acpmux::store::open(&cfg.store, dir).unwrap();
+    let mailbox = acpmux::mailbox::Mailbox::memory();
+    let hub = Hub::new_deferred(cfg, store, mailbox);
+    let _ = hub.person.install_spawn_key(PERSON_KEY);
+    hub
+}
+
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
 impl Client {
@@ -764,4 +775,139 @@ async fn a_session_repeating_itself_with_acpmux_send_is_paused() {
     let third = lane.reply("session/prompt", send("s3", "Please check the build, run 3")).await;
     assert!(held(&third), "the third near-identical message is held: {third}");
     assert!(!c.ran(&b, "s3").await, "a held message does not run");
+}
+
+/// After a restart that reads the chat logs lazily, a pause the restart keeps holds both ways
+/// even when only the sender's log has it: the message `a` sent was held for `b`, in `b`'s log,
+/// and `b`'s reply to `a` reads `a`'s log for its delivery. The sender's log is read too.
+#[tokio::test]
+async fn a_lazy_restart_keeps_a_pause_only_the_senders_log_holds() {
+    let dir = std::env::temp_dir().join(format!("acpmux-pairs-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(Some(&dir));
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for i in 0..2 {
+        c.message(&a, &b, &format!("l{i}"), "please check the build").await;
+    }
+    assert!(held(&c.message(&a, &b, "l2", "please check the build").await));
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = deferred_hub_in(&dir);
+    let mut c = Client::open(&hub);
+    let reply = c.message(&b, &a, "l3", "checking now").await;
+    assert!(held(&reply), "the pair is still paused: {reply}");
+    hub.load_logs_async().await;
+    let mut person = Client::person(&hub).await;
+    let resumed = person.call(RESUME, json!({"sessionId": a})).await;
+    assert_eq!(resumed["delivered"], 2, "{resumed}");
+    c.wait_ran(&b, "l2").await;
+    c.wait_ran(&a, "l3").await;
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A pair the person resumed before a restart, holding messages both ways: after a lazy
+/// restart, reading one side's log first still delivers all of them in the order they were
+/// held, the other side's included.
+#[tokio::test]
+async fn a_lazy_restart_drains_both_sides_in_the_order_held() {
+    let dir = std::env::temp_dir().join(format!("acpmux-pairs-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(Some(&dir));
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for i in 0..2 {
+        c.message(&a, &b, &format!("w{i}"), "please check the build").await;
+    }
+    assert!(held(&c.message(&a, &b, "w2", "please check the build").await));
+    assert!(held(&c.message(&b, &a, "w3", "checking now").await));
+    assert!(held(&c.message(&a, &b, "w4", "thanks").await));
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    // The resume's records, as the stopped daemon wrote them before its first delivery.
+    let store = acpmux::store::open(&config(Some(&dir)).store, &dir).unwrap();
+    for (session, peer) in [(&b, &a), (&a, &b)] {
+        let last = store.events(session, 0, usize::MAX).unwrap().last().map_or(0, |r| r.seq);
+        let record = acpmux::store::EventRecord {
+            seq: last + 1,
+            at: acpmux::store::now_ms(),
+            dir: "mux".into(),
+            kind: "agent_pair_resumed".into(),
+            msg: json!({"peer": peer, "by": "request", "delivered": 3}),
+            host_seq: None,
+        };
+        store.append(session, &record).unwrap();
+    }
+    store.flush().unwrap();
+    drop(store);
+
+    let hub = deferred_hub_in(&dir);
+    hub.resume_queues();
+    let mut c = Client::open(&hub);
+    // Only `b`'s log is asked for.
+    c.call("_acpmux/info", json!({"sessionId": b})).await;
+    c.wait_ran(&b, "w4").await;
+    c.wait_ran(&a, "w3").await;
+    let page = |s: &str| json!({"sessionId": s, "kinds": ["agent_pair_released"]});
+    let mut at = Vec::new();
+    for session in [&a, &b] {
+        let events = c.call("_acpmux/events", page(session)).await;
+        for e in events["events"].as_array().unwrap() {
+            at.push((e["at"].as_u64().unwrap(), e["msg"]["promptId"].as_str().unwrap().to_owned()));
+        }
+    }
+    at.sort();
+    let ids: Vec<&str> = at.iter().map(|(_, id)| id.as_str()).collect();
+    assert_eq!(ids, ["w2", "w3", "w4"], "released in the order held");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// After a lazy restart, the person's prompt into `a` resumes a pause whose held messages are
+/// only in the peer's log (`a`'s messages held for `b`): `b`'s log is read first, the resume is
+/// written to both logs (it holds across another restart), and the held messages run, the
+/// oldest first even though `a`'s own log holds a newer one (`b` to `a`).
+#[tokio::test]
+async fn a_lazy_restart_resumes_a_pause_the_person_prompts_from_either_side_in_order() {
+    let dir = std::env::temp_dir().join(format!("acpmux-pairs-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(Some(&dir));
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for i in 0..2 {
+        c.message(&a, &b, &format!("v{i}"), "please check the build").await;
+    }
+    assert!(held(&c.message(&a, &b, "v2", "please check the build").await));
+    assert!(held(&c.message(&b, &a, "v3", "checking now").await));
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = deferred_hub_in(&dir);
+    let mut person = Client::person(&hub).await;
+    person
+        .call(
+            "session/prompt",
+            json!({"sessionId": a, "prompt": [{"type": "text", "text": "carry on"}]}),
+        )
+        .await;
+    let mut c = Client::open(&hub);
+    c.wait_ran(&b, "v2").await;
+    c.wait_ran(&a, "v3").await;
+    assert_eq!(c.records(&b, "agent_pair_resumed").await.len(), 1, "the resume is in b's log");
+    let page = |s: &str| json!({"sessionId": s, "kinds": ["agent_pair_released"]});
+    let mut at = Vec::new();
+    for session in [&a, &b] {
+        let events = c.call("_acpmux/events", page(session)).await;
+        for e in events["events"].as_array().unwrap() {
+            at.push((e["at"].as_u64().unwrap(), e["msg"]["promptId"].as_str().unwrap().to_owned()));
+        }
+    }
+    at.sort();
+    let ids: Vec<&str> = at.iter().map(|(_, id)| id.as_str()).collect();
+    assert_eq!(ids, ["v2", "v3"], "released in the order held");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
 }

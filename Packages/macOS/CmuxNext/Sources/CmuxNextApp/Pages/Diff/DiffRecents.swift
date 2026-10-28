@@ -30,6 +30,8 @@ nonisolated struct DiffRecent: Codable, Sendable, Equatable {
         case .branch(let base): base == "HEAD" ? "uncommitted" : "branch"
         case .staged: "staged"
         case .unstaged: "unstaged"
+        // A turn belongs to its chat: the empty state offers the default scope for it.
+        case .turn: "branch"
         }
     }
 }

@@ -41,6 +41,12 @@ pub(super) fn handle_connection_frame(
     // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise.
     let upgraded = writer.api_revision.upgrade_request(message);
     let message: &str = &upgraded;
+    // A host proxy's link for a teammate reaches the shared chat's verbs and nothing else the
+    // daemon serves (agent_session_proxy.rs).
+    #[cfg(unix)]
+    if agent_session_attach::proxy_bound(mux, client) {
+        return agent_session_attach::handle_bound(mux, client, message, writer);
+    }
     if let Some(request) = crate::resource_router::parse_resource_line(message) {
         // A v2 line the catalog parse refuses may name a routed namespace
         // operation (page-router-v1): the same JSON parse decides, so every
@@ -204,6 +210,9 @@ pub(super) fn handle_request_with_cancellation(
     let details = details.filter(|_| !mux.is_remote_client(client));
     let response_ok = response.ok;
     let sent = responses::send_response_with_details(writer, response, reason, retryable, details);
+    // The reply is out; the request's registry commits (already in the WAL)
+    // go to disk now, in one flush that none of them waited for.
+    mux.request_registry_flush();
     // Flush the successful acknowledgement before making the owning loop
     // leave, so process teardown cannot race the response writer.
     if shutdown_daemon && response_ok {

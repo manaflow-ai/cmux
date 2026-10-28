@@ -3,6 +3,9 @@
 use super::*;
 
 impl Mux {
+    /// A correlated creation (a terminal tab, pane or workspace). Its
+    /// commits are in the WAL when it answers; the registry's syncer makes
+    /// them power-loss durable off this path (`wal_durability`).
     #[allow(clippy::too_many_arguments)]
     pub(super) fn resource_correlated_creation_operation(
         self: &Arc<Self>,

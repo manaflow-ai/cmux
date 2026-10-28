@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// A dialog's choice list can show an option greyed out (Move Chief To…: an offline host, a paired
 /// server that is not a move target yet): the option is listed, cannot be picked, and the list

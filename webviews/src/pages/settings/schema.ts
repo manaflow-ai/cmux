@@ -26,6 +26,9 @@ export type SettingKind =
   // Keyed values (`browser.siteEngines`: site to engine); `appearance.themeEdits` is the theme
   // studio's and never a row.
   | "string_map"
+  // Notification sound rules by id or name (`notifications.sounds.workspaces`): a sound name, or
+  // `{sound, volume, events}`. Set from the sidebar menus, the palette and the CLI; never a row.
+  | "sound_rules"
   // Ordered choices (`row.choices`) or free-text tokens (`browser.urlsToAlwaysOpenExternally`).
   | "string_list";
 
@@ -85,6 +88,8 @@ export type PageCategory = {
   actions: string[];
   /** The section ids (old links, `app settings <section>`) that open this category. */
   aliases: string[];
+  /** Shown only in DEV builds (the host says so in `dev_build`); absent means everywhere. */
+  dev_only?: boolean;
 };
 
 export type PageLayout = { default_category: string; categories: PageCategory[] };

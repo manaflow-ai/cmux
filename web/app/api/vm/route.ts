@@ -1,5 +1,6 @@
 import { parseCreateNetworkPolicy } from "../../../services/vms/networkPolicyRoute";
 import { parseCreateAgentUpdates } from "../../../services/vms/agentUpdatesRoute";
+import { parseCreateIdlePause } from "../../../services/vms/idlePauseRoute";
 import {
   creatorFor,
   creatorUserIds,
@@ -97,7 +98,7 @@ import {
 import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "../../../services/vms/planUsage";
 import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePublisher";
-import { idempotencyKeyFromRequest } from "../../../services/vms/routeInput";
+import { gcpCredentialFromRequest, gcpProviderMetadataFromRequest, idempotencyKeyFromRequest } from "../../../services/vms/routeInput";
 import { enforceVmAllocationRateLimit } from "../../../services/vms/allocationRateLimit";
 
 
@@ -434,6 +435,8 @@ export async function POST(request: Request): Promise<Response> {
       admissionStartedAt = performance.now();
       recordAdmission();
 
+      const providerMetadata = gcpProviderMetadataFromRequest(request, provider);
+
       // Wire the machine to coderouter inside the workflow: the route token
       // is bound to the VM row id, so provisioning runs after the row exists
       // and before the provider call, and a failure fails the create.
@@ -452,6 +455,7 @@ export async function POST(request: Request): Promise<Response> {
         image,
         imageVersion: imageSelection.imageVersion,
         provider,
+        providerMetadata,
         idempotencyKey,
         displayName: body.displayName,
         persistentHome: homeVolumeRequested && candidate.persistentHome === true,
@@ -461,10 +465,15 @@ export async function POST(request: Request): Promise<Response> {
         modelPlane,
         networkPolicy: machineOptions.networkPolicy,
         agentUpdates: machineOptions.agentUpdates,
+        idlePauseMinutes: machineOptions.idlePauseMinutes,
         teamDirectory: vmClientRoutesTeamNetworks(request) ? vmTeamDirectory() : undefined,
         timing,
         // Keep the `vm.created` ledger write off New Machine's critical path.
         deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
+        // Allocated last, after every early return and every other input:
+        // createVm owns it from here and wipes it when the workflow ends,
+        // including a create that continues past its answer deadline.
+        providerCredential: gcpCredentialFromRequest(request, provider),
       }), {
         request,
         ...createRouteAnswerDeadline(idempotencyKey),
@@ -499,6 +508,7 @@ export async function POST(request: Request): Promise<Response> {
         address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
         cmuxTuiContract: created.cmuxTuiContract,
         agentUpdates: created.agentUpdates,
+        idlePauseMinutes: created.idlePauseMinutes,
         // Keep the create response self-contained for clients that append it
         // directly to their fleet model. Pool accounting and the per-machine
         // resize shape are separate contracts even when they currently match.
@@ -509,13 +519,18 @@ export async function POST(request: Request): Promise<Response> {
   );
 }
 
-/** The create body's outbound network policy and agent-update setting. */
+/**
+ * The create body's outbound network policy, agent-update setting and idle pause
+ * (`cmux cloud new-machine --persistent` sends "off"; stored with the row, before any provider call).
+ */
 function parseCreateMachineOptions(candidate: Record<string, unknown>) {
   const networkPolicy = parseCreateNetworkPolicy(candidate.networkPolicy);
   if (!networkPolicy.ok) return networkPolicy;
   const agentUpdates = parseCreateAgentUpdates(candidate.agentUpdates);
   if (!agentUpdates.ok) return agentUpdates;
-  return { ok: true as const, networkPolicy: networkPolicy.policy, agentUpdates: agentUpdates.setting };
+  const idlePause = parseCreateIdlePause(candidate);
+  if (!idlePause.ok) return idlePause;
+  return { ok: true as const, networkPolicy: networkPolicy.policy, agentUpdates: agentUpdates.setting, idlePauseMinutes: idlePause.minutes };
 }
 
 /**

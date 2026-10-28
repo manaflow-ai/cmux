@@ -662,7 +662,10 @@ pub use shared::codec::{decode_host_snapshot_payload, encode_host_snapshot_paylo
 pub(crate) use shared::control_responses::{ControlResponses, DeferredCellPixelResolution};
 #[cfg(any(unix, windows))]
 pub use shared::host_serve::{serve_terminal_host_process, serve_terminal_host_stdio};
+pub(crate) use shared::host_state::HOST_TERMINATE_WAIT;
 pub use shared::host_state::set_dev_host_orphan_grace;
+#[cfg(unix)]
+pub(crate) use shared::host_state::spawned_orphan_grace;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::records::live_successor_record;
 #[cfg(unix)]
@@ -694,6 +697,9 @@ pub(crate) use unix::input_ack_surface_fixture;
 pub(crate) use unix::launch_terminal_host_adopting_with_program_status;
 #[cfg(unix)]
 pub(crate) use unix::sweep_released_pty_locks;
+// The holder launch marks the holder with the same owner (holder_runtime).
+#[cfg(unix)]
+pub(crate) use unix::host_owner_args;
 #[cfg(unix)]
 pub use unix::{
     PtyCustody, TerminalHostAdoption, enter_terminal_host_process,

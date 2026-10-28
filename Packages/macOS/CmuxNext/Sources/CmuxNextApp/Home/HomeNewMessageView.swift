@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
@@ -26,6 +27,7 @@ final class HomeNewMessageView: NSView {
     /// The blank page's message box, over a store that only knows the draft.
     private(set) var composer: HomeNativeTranscriptView?
     private var composerStore: HomeStore?
+    private var spellCheckingWatch: Task<Void, Never>?
     private weak var services: AppServices?
     /// The first send made this conversation (the Home page shows it).
     var onSent: (ConversationID) -> Void = { _ in }
@@ -59,6 +61,11 @@ final class HomeNewMessageView: NSView {
             onEscape()
         }
         showComposer(carrying: "")
+        spellCheckingWatch = Task { [weak self, weak services] in
+            for await enabled in ObservationStream({ services?.settings?.snapshot.agentPaneComposer.spellChecking ?? false }) {
+                self?.composer?.composerSpellCheckingEnabled = enabled
+            }
+        }
         field.refreshSuggestions()
         // task-owner: one read of the team and Chiefs for the suggestions; ends when it is read
         Task { [weak self] in
@@ -73,9 +80,18 @@ final class HomeNewMessageView: NSView {
     nonisolated override var isFlipped: Bool { true }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // The last reference can go on any thread (OffMainReleaseCleanupTests' shape, 39256ad7181). This view owns no
+    // Sendable handle; its composer's own HomeStore is main-actor and only stop() ends its connection, resend and
+    // prune tasks and flushes its cache, so the stops run on the main actor. A guard that returned off main
+    // skipped them, and the store ran on.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { stop() }
+        let composer = composer, composerStore = composerStore
+        spellCheckingWatch?.cancel()
+        // task-owner: the main-actor half of this view's release; one call each, then it ends
+        Task { @MainActor in
+            composer?.stop()
+            composerStore?.stop()
+        }
     }
 
     /// Nothing chosen, nothing typed in To:, and an empty message box:
@@ -171,7 +187,9 @@ final class HomeNewMessageView: NSView {
         let store = HomeStore(source: source)
         store.start()
         if !text.isEmpty { store.setDraft(text, for: HomeNewMessageComposerSource.conversation) }
-        let view = HomeNativeTranscriptView(store: store, conversation: HomeNewMessageComposerSource.conversation, me: me.id)
+        let view = HomeNativeTranscriptView(store: store, conversation: HomeNewMessageComposerSource.conversation, me: me.id,
+                                            openPanel: services.openPanel)
+        view.composerSpellCheckingEnabled = services.settings?.snapshot.agentPaneComposer.spellChecking ?? false
         // The first message is text: attachments go once the conversation exists (they upload to it).
         view.attachmentPreparer = nil
         view.setAccessibilityIdentifier("cmux.home.newMessage.composer")

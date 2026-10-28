@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextCompat
 public import CmuxNextDesign
 public import CmuxNextSettings
 public import CmuxNextWakeups
@@ -34,7 +35,9 @@ public final class PageHostPool {
     var claimed: [ObjectIdentifier: WeakHost] = [:]
     var building = false
     var activityMark: UInt64 = 0
-    var memoryPressure: (any DispatchSourceMemoryPressure)?
+    /// The app's memory pressure events; a warning or critical level drops the spare.
+    let memoryPressure: MemoryPressureEvents
+    var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
     var windowObservers: [any NSObjectProtocol] = []
     public internal(set) var isLikely = false
     public internal(set) weak var target: NSWindow?
@@ -48,10 +51,13 @@ public final class PageHostPool {
         init(_ view: PageWebView) { self.view = view }
     }
 
-    public init(policy: Policy = Policy(), options: PageEngineOptions = .standard,
+    /// - Parameter memoryPressure: the app's one memory pressure service (a test passes events from a
+    ///   source it drives); a warning or critical level drops the parked spare.
+    public init(memoryPressure: MemoryPressureEvents, policy: Policy = Policy(), options: PageEngineOptions = .standard,
                 clock: any Clock<Duration> = ContinuousClock(),
                 activity: @escaping () -> UInt64 = { ExpectedActivity.shared.total },
                 isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking }) {
+        self.memoryPressure = memoryPressure
         self.policy = policy
         self.options = options
         self.activity = activity

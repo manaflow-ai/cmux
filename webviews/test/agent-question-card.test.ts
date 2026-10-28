@@ -3,7 +3,7 @@
 // A pending ask shows a "Needs your input" pill over a card with the question as its header; the
 // card has the keyboard when it arrives on an empty composer, so arrows move between the options,
 // ⌘↩ submits, Esc hands the keyboard back to the composer without answering (Skip declines), a
-// click on the last single-choice question sends it, and a number key picks Other to type an answer. What the card sends is the
+// click chooses an option and Submit sends it, and a number key picks Other to type an answer. What the card sends is the
 // host's `chat.permission` call, which the pane relay sends as `_acpmux/permission_respond` and
 // acpmux hands the agent (cmux-tui/crates/acpmux/tests/hub_integration/questions.rs).
 //
@@ -207,9 +207,16 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       await page.close();
     });
 
-    test("one click on the last single-choice question sends it", async () => {
+    test("one click on an option chooses it and Submit sends it", async () => {
+      // Leo 2026-10-24: "just clicking it directly just automatically sends the input. So it makes
+      // the skip and submit buttons redundant".
       const page = await pendingQuestion();
       await page.locator(".acpmux-question-row", { hasText: "Passkeys" }).click();
+      expect(await page.locator(".acpmux-question-row", { hasText: "Passkeys" }).getAttribute("aria-checked")).toBe(
+        "true",
+      );
+      expect(await permissionCalls(page, 0)).toEqual([]);
+      await page.locator(".acpmux-question-submit").click();
       expect(await permissionCalls(page, 1)).toEqual([
         {
           method: "chat.permission",
@@ -237,6 +244,7 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
         };
       });
       await page.locator(".acpmux-question-row", { hasText: "API keys" }).click();
+      await page.locator(".acpmux-question-submit").click();
       const error = page.locator(".acpmux-question-error");
       await error.waitFor();
       expect((await error.innerText()).replace(/\s+/g, " ").trim()).toBe(
@@ -244,7 +252,7 @@ await requireBrowserLane("agent-question-card.test.ts", async () => {
       );
       expect(await page.locator(".acpmux-question").getAttribute("aria-busy")).toBeNull();
       expect(await page.locator(".acpmux-question-skip").isDisabled()).toBe(false);
-      await page.locator(".acpmux-question-row", { hasText: "API keys" }).click();
+      await page.locator(".acpmux-question-submit").click();
       const calls = await permissionCalls(page, 2);
       expect(calls.length).toBe(2);
       expect(calls[1]).toEqual({

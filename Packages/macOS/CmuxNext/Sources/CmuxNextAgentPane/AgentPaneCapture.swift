@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -23,7 +24,8 @@ enum AgentPaneCapture {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-capture-\(UUID().uuidString).png")
         guard await capture(window: mode == "window", to: file) else { return AgentPaneReply.success(["cancelled": true]) }
         let taken = Date()
-        let value = await Task.detached { () -> [String: any Sendable] in
+        // A person waits for the attachment: the read and the scale run at userBlocking's priority.
+        let value = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { () -> [String: any Sendable] in
             defer { try? FileManager.default.removeItem(at: file) }
             return Self.answer((try? Data(contentsOf: file)) ?? Data(), taken: taken)
         }.value
@@ -44,16 +46,12 @@ enum AgentPaneCapture {
         return ["name": name, "mimeType": image.mimeType, "data": image.data.base64EncodedString()]
     }
 
-    /// Runs the pick; false when `screencapture` could not start.
+    /// Runs the pick; false when `screencapture` could not start. Its caller is the main actor: the spawn
+    /// runs on AsyncProcess's own queue, and the wait holds no thread.
     nonisolated static func capture(window: Bool, to file: URL) async -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: tool)
         // -x: no shutter sound; -o: no window shadow.
-        process.arguments = (window ? ["-i", "-W", "-o"] : ["-i"]) + ["-x", "-t", "png", file.path]
-        return await withCheckedContinuation { done in
-            process.terminationHandler = { _ in done.resume(returning: true) }
-            do { try process.run() } catch { done.resume(returning: false) }
-        }
+        let arguments = (window ? ["-i", "-W", "-o"] : ["-i"]) + ["-x", "-t", "png", file.path]
+        return (try? await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: tool), arguments))) != nil
     }
 
     /// The capture as an image under ``maxBytes``: the PNG as written, else scaled to ``maxSide`` as

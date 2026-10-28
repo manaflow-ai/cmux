@@ -107,11 +107,12 @@ def main():
     helper_script = open(os.path.join(ROOT, "scripts", "ci", "notarize-computer-use-helper.sh"), encoding="utf-8").read()
     _check("CMUX_COMPUTER_USE_NOTARY_WAIT_TIMEOUT" in helper_script,
            "notarize-computer-use-helper.sh bounds its notarytool wait")
-    # The architecture gate runs in prepare-nightly-variant, before signing (#21024).
-    prepare_steps = workflow["jobs"]["prepare-nightly-variant"]["steps"]
-    arch_step = next((str(s.get("run", "")) for s in prepare_steps if s.get("name") == "Verify nightly binary architectures"), "")
-    _check("cmux Computer Use.app/Contents/MacOS/cmux-cua" in arch_step,
-           "the architecture gate covers the helper's executable")
+    # The architecture gate runs in both preparation legs (primary and fallback), before signing (#21024).
+    for prepare_job in ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback"):
+        prepare_steps = workflow["jobs"][prepare_job]["steps"]
+        arch_step = next((str(s.get("run", "")) for s in prepare_steps if s.get("name") == "Verify nightly binary architectures"), "")
+        _check("cmux Computer Use.app/Contents/MacOS/cmux-cua" in arch_step,
+               f"the architecture gate in {prepare_job} covers the helper's executable")
 
     entries = json.load(open(BUNDLE_MAP, encoding="utf-8"))["entries"]
     helper_entry = next((e for e in entries if e["path"] == f"{HELPER}/Contents/MacOS/cmux-cua"), None)

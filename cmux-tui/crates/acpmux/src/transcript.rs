@@ -744,10 +744,14 @@ impl Transcript {
                 text: msg.get("text").and_then(Value::as_str).unwrap_or("").to_owned(),
             }),
             "exited" => self.items.push(Item::Status {
-                text: format!(
-                    "agent exited unexpectedly (code {})",
-                    msg.get("code").map(|c| c.to_string()).unwrap_or_default()
-                ),
+                text: if msg.get("code").and_then(Value::as_i64) == Some(0) {
+                    "agent stopped".into()
+                } else {
+                    format!(
+                        "agent exited unexpectedly (code {})",
+                        msg.get("code").map(|c| c.to_string()).unwrap_or_default()
+                    )
+                },
             }),
             "stopped" => self.items.push(Item::Status { text: "agent stopped".into() }),
             "resumed" => self.items.push(Item::Status {

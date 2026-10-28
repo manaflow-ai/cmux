@@ -174,10 +174,90 @@ const quick: ModelPickerProps = {
   },
 };
 
+/// The optional effort treatment Leo asked to compare: the default stays the Effort submenu, while
+/// this variant uses the same stepped track with endpoint-inclusive thumb geometry.
+const quickSlider: ModelPickerProps = {
+  ...quick,
+  quick: {
+    ...quick.quick!,
+    effort: { ...quick.quick!.effort!, slider: true, sliderStyle: "accent" },
+  },
+};
+
+/// A started Claude chat that can fork, on a Mac with a second Claude account (its own profile).
+const startedFork: ModelPickerProps = {
+  ...quick,
+  catalog: [
+    ...curated.catalog,
+    { ...curated.catalog.find((entry) => entry.id === "claude")!, id: "claude-work", name: "Claude (work)" },
+  ],
+  harnessFixed: true,
+  fork: { to: () => undefined, ready: true },
+};
+
 const openQuick: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-menu") !== null);
 };
+
+const openQuickSlider: Play = async (ctx) => {
+  await openQuick(ctx);
+  // Base UI's submenu trigger opens on hover and ignores a plain mouse click; Enter on the
+  // focused Effort row exercises the same path as keyboard users and keeps this capture reliable.
+  await ctx.focus({ role: "menuitem", name: /^Effort/ });
+  await ctx.press("Enter");
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-effort-slider .acpmux-effort-range") !== null);
+};
+
+/// An OpenCode chat as Lawrence's screenshot showed it (2026-10-22: "spacing + needs search"): one
+/// model offered by several providers, each its own row.
+const openCode: ModelPickerProps["catalog"] = [
+  {
+    id: "opencode",
+    name: "OpenCode",
+    models: [
+      { id: "opencode/deepseek-v4-pro", name: "DeepSeek V4 Pro [New]" },
+      { id: "opencode/deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash" },
+      { id: "openrouter/deepseek/deepseek-v4-pro", name: "OpenRouter/DeepSeek V4 Pro" },
+      { id: "openrouter/deepseek/deepseek-v4.1-flash", name: "OpenRouter/DeepSeek V4.1 Flash" },
+      { id: "openrouter/deepseek/deepseek-chat", name: "OpenRouter/DeepSeek Chat" },
+      { id: "deepseek/deepseek-v4-pro", name: "DeepSeek/DeepSeek V4 Pro" },
+      { id: "deepseek/deepseek-chat", name: "DeepSeek/DeepSeek Chat" },
+      { id: "deepseek/deepseek-reasoner", name: "DeepSeek/DeepSeek Reasoner" },
+      { id: "groq/deepseek-r2-distill", name: "Groq/DeepSeek R2 Distill" },
+      { id: "anthropic/claude-sonnet-5-5", name: "Anthropic/Claude Sonnet 5.5" },
+      { id: "openai/gpt-6.1-sol", name: "OpenAI/GPT-6.1-Sol" },
+      { id: "zai/glm-5.3", name: "Z.ai/GLM 5.3" },
+    ],
+  },
+];
+
+const openCodeChat: ModelPickerProps = {
+  ...quick,
+  catalog: openCode,
+  harness: "opencode",
+  model: "opencode/deepseek-v4-pro",
+  label: "DeepSeek V4 Pro",
+  harnessFixed: true,
+};
+
+/// The search field's versions (Lawrence 2026-10-22: "spacing + needs search"): `always` ships.
+const searchLook = (props: ModelPickerProps, searchField: "always" | "typed" | "long"): ModelPickerProps => ({
+  ...props,
+  quick: { ...props.quick, searchField },
+});
+
+const searchField = { selector: ".acpmux-quick-search input" };
+const typeSearch =
+  (text: string): Play =>
+  async (ctx) => {
+    await openQuick(ctx);
+    await ctx.waitFor(() => ctx.document.querySelector(searchField.selector) !== null);
+    await ctx.type(text, searchField);
+    await ctx.waitFor(
+      () => ctx.document.querySelector(".acpmux-quick-menu .ui-menu-group-label")?.textContent === `“${text}”`,
+    );
+  };
 
 export default componentEntry<GalleryProps>({
   id: "agent-pane.model-picker",
@@ -193,7 +273,7 @@ export default componentEntry<GalleryProps>({
     "ui/ScrollArea.tsx#ScrollArea",
     "agent-session/acpmux/HarnessHealthNotice.tsx#UpdateOfferContext",
   ],
-  styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css")]),
+  styles: () => Promise.all([import("./styles.css"), import("./modelPicker.css"), import("./composerControls.css")]),
   load: () =>
     import("./ModelPicker").then(({ ModelPicker }) => ({ update: offer, ...props }: GalleryProps) => (
       <UpdateOfferContext.Provider value={offer}>
@@ -255,7 +335,52 @@ export default componentEntry<GalleryProps>({
       },
       play: openQuick,
     },
+    // The same chat where it can fork (Leo 2026-10-22: "can expose as fork"): the whole rail, and
+    // the Codex tab offers Fork to Codex in place of its models.
+    "started-chat-fork": {
+      props: startedFork,
+      play: async (ctx) => {
+        await openQuick(ctx);
+        await ctx.click({ selector: '.acpmux-quick-rail-tab[aria-label="Codex"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-fork") !== null);
+      },
+    },
+    // Its Account row: the harness's own accounts (profiles), then the chat's routes.
+    "started-chat-accounts": {
+      props: startedFork,
+      play: async (ctx) => {
+        await openQuick(ctx);
+        await ctx.click({ role: "menuitem", name: /^Account/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-profile") !== null);
+      },
+    },
+    // Three captures keep the menu comparison concrete: default Effort submenu, opt-in slider, and
+    // the harness-only rail with no machine/session initials.
     "quick-menu": { props: quick, play: openQuick },
+    // An agent CLI update on offer: a quiet footer below the model choices, out of the numbered list.
+    "quick-update-offer": { props: { ...quick, update }, play: openQuick },
+    // The same footer on a started chat's menu, which has no rail.
+    "started-chat-update-offer": {
+      props: {
+        ...quick,
+        harness: "codex",
+        model: "gpt-6.1-sol",
+        label: "GPT-6.1 Sol",
+        harnessFixed: true,
+        update,
+      },
+      play: openQuick,
+    },
+    "quick-menu-slider": { props: quickSlider, play: openQuickSlider },
+    // A new chat on a Mac with a second Claude account: one Claude tab, its accounts under Account.
+    "quick-menu-accounts": {
+      props: { ...quick, catalog: startedFork.catalog, onHarness: () => undefined },
+      play: async (ctx) => {
+        await openQuick(ctx);
+        await ctx.click({ role: "menuitem", name: /^Account/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-profile") !== null);
+      },
+    },
     // The rail's Codex tab: Codex's models in place; Effort and Account stay with the chat's harness.
     "quick-menu-rail": {
       props: quick,
@@ -267,17 +392,56 @@ export default componentEntry<GalleryProps>({
         );
       },
     },
-    // Typing filters every harness's models in place, with no search field.
-    "quick-menu-filter": {
-      props: quick,
+    // Search, version A (ships): a search field heads the list and has the keyboard as the menu
+    // opens, so the menu says it can search (Lawrence: "needs search").
+    "quick-search-field": {
+      note: "Search version A (ships): the field heads the list and has the keyboard when the menu opens.",
+      props: searchLook(quick, "always"),
+      play: openQuick,
+    },
+    "quick-search-field-typed": {
+      note: "Search version A, typed: the full picker's matching, an effort word included; Enter lands the first row with it.",
+      props: searchLook(quick, "always"),
+      play: typeSearch("opus high"),
+    },
+    "quick-search-field-opencode": {
+      note: "Search version A on Lawrence's OpenCode chat: typing narrows its long provider list.",
+      props: searchLook(openCodeChat, "always"),
+      play: typeSearch("deepseek v4"),
+    },
+    // Version B: no field until a key is typed (Claude Code's menu), then the field shows the query.
+    "quick-search-typed-only": {
+      note: "Search version B: no field until you type, as in Claude Code; nothing says the menu searches.",
+      props: searchLook(quick, "typed"),
+      play: openQuick,
+    },
+    "quick-search-typed-only-typing": {
+      note: "Search version B after typing on a row: the field appears with the query.",
+      props: searchLook(quick, "typed"),
       play: async (ctx) => {
         await openQuick(ctx);
-        for (const letter of "son") await ctx.press(letter);
+        // A key on a row opens the field with it; the rest types into the field.
+        await ctx.press("s");
+        await ctx.waitFor(() => ctx.document.querySelector(searchField.selector) !== null);
+        await ctx.type("on", searchField);
         await ctx.waitFor(
           () => ctx.document.querySelector(".acpmux-quick-menu .ui-menu-group-label")?.textContent === "“son”",
         );
       },
     },
+    // Version C: a field only on a long list (more than eight models), else as B.
+    "quick-search-long-list": {
+      note: "Search version C: OpenCode's twelve models get a field.",
+      props: searchLook(openCodeChat, "long"),
+      play: openQuick,
+    },
+    "quick-search-long-short-list": {
+      note: "Search version C: a four-model list gets none, so the same menu changes shape by harness.",
+      props: searchLook({ ...quick, catalog, harnessFixed: true }, "long"),
+      play: openQuick,
+    },
+    // Typing filters every harness's models in place, each row naming its harness.
+    "quick-menu-filter": { props: quick, play: typeSearch("son") },
     "more-models": {
       props: curated,
       play: async (ctx) => {
@@ -314,8 +478,8 @@ export default componentEntry<GalleryProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-login") !== null);
       },
     },
-    // A folder profile whose icon names no brand: the chip draws no mark (never a placeholder
-    // square), and its rail tab its initial.
+    // A folder profile is a machine choice, not a harness: it remains the selected model source,
+    // while the rail contains only Claude/Codex harnesses.
     "profile-without-mark": {
       props: {
         ...base,
@@ -335,6 +499,11 @@ export default componentEntry<GalleryProps>({
       },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Model" });
+        await ctx.waitFor(() =>
+          [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-mp-harness")].every(
+            (tab) => tab.getAttribute("title")?.split(" · ")[0] !== "Vercel AI Gateway",
+          ),
+        );
       },
     },
   },

@@ -1,0 +1,19 @@
+[package]
+name = "cmux-kitty-media"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Rewrites Kitty graphics file, temporary-file and shared-memory transmissions in PTY output into chunked direct transmissions, so images a program loads from a file on this machine show on a viewer on another machine"
+
+[lints]
+workspace = true
+
+[dependencies]
+base64.workspace = true
+libc.workspace = true
+memchr.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

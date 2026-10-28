@@ -7,11 +7,12 @@
     "postinstall": "bun scripts/pages/gen-strings.mjs --best-effort",
     "build": "node scripts/pages/gen-strings.mjs && bun run verify:tanstack-router && bun run typecheck && vp build",
     "benchmark": "bun run bench/diff-stream.bench.ts",
-    "check": "bun run check:browser-lanes && bun run check:fixed-waits && bun run check:layers && bun run check:type-scale && bun run check:motion-scale && bun run check:status-glyphs && bun run check:system-blue && bun run check:text-focus && bun run check:dialog-keys && bun run check:switch-fetches && bun run check:catalog-keys && vp fmt --check && vp lint && vp check --no-fmt --no-lint && bun run acpmux-protocol:check",
+    "check": "bun run check:browser-lanes && bun run check:fixed-waits && bun run check:design-tokens && bun run check:layers && bun run check:type-scale && bun run check:motion-scale && bun run check:status-glyphs && bun run check:system-blue && bun run check:text-focus && bun run check:dialog-keys && bun run check:switch-fetches && bun run check:catalog-keys && vp fmt --check && vp lint && vp check --no-fmt --no-lint && bun run acpmux-protocol:check",
     "check:layers": "python3 ../scripts/cmux-next/check-layers.py",
     "check:type-scale": "python3 ../scripts/cmux-next/gen-type-scale.py --check && python3 ../scripts/cmux-next/check-type-scale.py",
     "check:motion-scale": "python3 ../scripts/cmux-next/gen-motion-scale.py --check",
     "check:status-glyphs": "python3 ../scripts/cmux-next/gen-status-glyphs.py --check",
+    "check:ui-rulings": "bun scripts/check-ui-rulings.ts",
     "check:system-blue": "python3 ../scripts/cmux-next/check-system-blue.py",
     "check:text-focus": "python3 ../scripts/cmux-next/check-text-focus-rings.py",
     "check:dialog-keys": "python3 -I ../scripts/cmux-next/check-dialog-key-hints.py ..",
@@ -19,6 +20,7 @@
     "check:catalog-keys": "python3 -I ../scripts/cmux-next/check-xcstrings-keys.py --root ..",
     "check:browser-lanes": "bun scripts/check-browser-test-lanes.ts",
     "check:fixed-waits": "bun scripts/check-fixed-waits.ts",
+    "check:design-tokens": "bun scripts/check-design-tokens.ts",
     "check:fix": "vp check --fix",
     "dev": "vp dev",
     "dev:agent-pane": "vp dev --config vite.config.acpmux-pane.mjs",
@@ -110,7 +112,7 @@
   "devEngines": {
     "packageManager": {
       "name": "bun",
-      "version": "1.4.2",
+      "version": "1.4.4",
       "onFail": "error"
     }
   }

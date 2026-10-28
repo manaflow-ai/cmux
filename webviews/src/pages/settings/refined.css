@@ -55,6 +55,7 @@
   --column: 800px;
   --sidebar-width: 208px;
   font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 :root[data-settings-look="refined"] .settings > .sidebar {
@@ -70,6 +71,7 @@
   border-radius: 6px;
   color: var(--polish-muted);
   font-size: var(--text-control);
+  letter-spacing: var(--text-control--letter-spacing);
 }
 
 :root[data-settings-look="refined"] .settings .section-link[aria-current] {
@@ -95,6 +97,7 @@
   font-size: var(--text-heading);
   line-height: var(--text-heading--line-height);
   font-weight: 600;
+  letter-spacing: var(--text-heading--letter-spacing);
 }
 
 :root[data-settings-look="refined"] .settings .group { margin-bottom: 28px; }
@@ -105,6 +108,7 @@
   color: var(--polish-muted);
   font-size: var(--text-detail);
   font-weight: 500;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 /* Titles start on the rows' text edge (the card's 1px border + 16px padding); a lead-in starts on its title. */
 :root[data-settings-look="refined"] .settings .density-help { margin-left: 17px; }
@@ -128,6 +132,7 @@
 :root[data-settings-look="refined"] .settings .group.ui-glass { border-radius: 12px; padding-top: 12px; }
 :root[data-settings-look="refined"] .settings .group.ui-glass > :not(.rows) { margin-inline: 16px; }
 :root[data-settings-look="refined"] .settings .group.ui-glass .group-title { margin-left: 0; }
+:root[data-settings-look="refined"] .settings .group.ui-glass > .group-title { margin-inline: 16px; }
 :root[data-settings-look="refined"] .settings .group.ui-glass > .rows {
   border: 0;
   border-radius: 0 0 12px 12px;
@@ -135,13 +140,14 @@
   box-shadow: inset 0 1px var(--polish-edge);
 }
 :root[data-settings-look="refined"] .settings .row-main { gap: 24px; }
-:root[data-settings-look="refined"] .settings .row-title { font-size: var(--text-body); font-weight: 500; }
+:root[data-settings-look="refined"] .settings .row-title { font-size: var(--text-body); font-weight: 500; letter-spacing: var(--text-body--letter-spacing); }
 :root[data-settings-look="refined"] .settings .row-help {
   margin-top: 4px;
   color: var(--polish-muted);
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   white-space: normal;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 :root[data-settings-look="refined"] .settings .row-control { margin-left: auto; justify-content: flex-end; }
@@ -157,7 +163,7 @@
   background: var(--polish-raised);
 }
 
-:root[data-settings-look="refined"] .settings .theme-caption { margin-top: 12px; font-size: var(--text-detail); }
+:root[data-settings-look="refined"] .settings .theme-caption { margin-top: 12px; font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); }
 :root[data-settings-look="refined"] .settings .theme-preview { border-radius: 8px; }
 
 /* A narrow pane stacks the categories over the content (layout.css): these refined rules outrank

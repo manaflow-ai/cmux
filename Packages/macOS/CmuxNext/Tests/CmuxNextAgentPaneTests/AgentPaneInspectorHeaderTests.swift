@@ -3,7 +3,7 @@ import CmuxNextSettings
 import Testing
 @testable import CmuxNextAgentPane
 
-/// The Inspector behind Debug Settings `agent.inspector` (on by default): the page learns the
+/// The Inspector behind Debug Settings `agent.inspector` (off by default): the page learns the
 /// toggle from the header state (`inspector`), so with it off the header has no Inspector toggle and
 /// the summary card comes back (webviews/src/agent-session/acpmux/inspector/ChatInspector.tsx).
 @Suite(.serialized)
@@ -17,16 +17,16 @@ struct AgentPaneInspectorHeaderTests {
         try body()
     }
 
-    @Test func onByDefaultThePageIsToldToOfferTheInspector() {
+    @Test func offByDefaultThePageIsToldThereIsNoInspector() {
         withInspector(nil) {
-            #expect(AgentPaneTunables.inspector.value == true)
-            #expect(AgentPaneHeaderState().json.objectValue?["inspector"] == .bool(true))
+            #expect(AgentPaneTunables.inspector.value == false)
+            #expect(AgentPaneHeaderState().json.objectValue?["inspector"] == .bool(false))
         }
     }
 
-    @Test func offThePageIsToldThereIsNoInspector() {
-        withInspector(false) {
-            #expect(AgentPaneHeaderState().json.objectValue?["inspector"] == .bool(false))
+    @Test func explicitOptInThePageIsToldToOfferTheInspector() {
+        withInspector(true) {
+            #expect(AgentPaneHeaderState().json.objectValue?["inspector"] == .bool(true))
         }
     }
 }

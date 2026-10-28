@@ -3,6 +3,15 @@
 //! "stream disconnected", and each chat stayed idle until a person typed "continue".
 use super::*;
 
+#[path = "agent_revive.rs"]
+mod agent_revive;
+
+#[path = "auto_resume_capacity.rs"]
+mod capacity;
+
+#[path = "auto_resume_retry.rs"]
+mod retry;
+
 /// Every event kind of a session, oldest first.
 fn kinds(hub: &Hub, id: &str) -> Vec<String> {
     hub.events(id, 0, 10_000).unwrap().into_iter().map(|e| e.kind).collect()
@@ -85,6 +94,12 @@ async fn automatic_continuations_stop_after_the_configured_attempts() {
         .await;
     let k = until(&hub, &id, |k| k.iter().any(|k| k == "auto_resume_exhausted")).await;
     assert!(k.iter().any(|k| k == "auto_resume_exhausted"), "{k:?}");
+    let exhausted = hub.events(&id, 0, 10_000).unwrap();
+    let exhausted = exhausted.iter().find(|e| e.kind == "auto_resume_exhausted").unwrap();
+    assert_eq!(exhausted.msg["reason"], "transport", "{:?}", exhausted.msg);
+    assert_eq!(exhausted.msg["attempts"], 2, "{:?}", exhausted.msg);
+    // Nothing waits any more: the row says so.
+    assert_eq!(hub.session_summary(&hub.resolve(&id).unwrap())["retry"], Value::Null);
     let ids: Vec<Value> =
         user_messages(&hub, &id).into_iter().map(|m| m["promptId"].clone()).collect();
     assert_eq!(ids, [json!("p-down"), json!("p-down~resume-1"), json!("p-down~resume-2")]);

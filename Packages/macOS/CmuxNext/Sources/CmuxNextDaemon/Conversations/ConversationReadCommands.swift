@@ -6,7 +6,7 @@ import Foundation
 public struct ListConversationsRequest: DaemonRequest {
     public typealias Response = ConversationList
     public static let command = "conversation-list"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.localConversations
+    public static let requiredCapability: String? = DaemonCapability.localConversations.rawValue
     public init() {}
 }
 
@@ -14,7 +14,7 @@ public struct ListConversationsRequest: DaemonRequest {
 public struct ConversationSnapshotRequest: DaemonRequest {
     public typealias Response = ConversationSnapshot
     public static let command = "conversation-snapshot"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.localConversations
+    public static let requiredCapability: String? = DaemonCapability.localConversations.rawValue
     public var conversation: String
     public var tail: Int
     public init(conversation: String, tail: Int) {
@@ -27,7 +27,7 @@ public struct ConversationSnapshotRequest: DaemonRequest {
 public struct ConversationHistoryRequest: DaemonRequest {
     public typealias Response = ConversationHistory
     public static let command = "conversation-history"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.localConversations
+    public static let requiredCapability: String? = DaemonCapability.localConversations.rawValue
     public var conversation: String
     public var beforeSeq: UInt64
     public var limit: Int

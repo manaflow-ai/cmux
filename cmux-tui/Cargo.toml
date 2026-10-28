@@ -17,6 +17,7 @@ workspace = true
 resolver = "2"
 members = [
     "crates/acpmux",
+    "crates/cmux-tailnet",
     "crates/cmux-coderouter",
     "crates/cmux-history",
     "crates/cmux-chat-index",
@@ -39,6 +40,7 @@ members = [
     "crates/cmux-tui-image-paste",
     "crates/cmux-tui-hooks",
     "crates/cmux-tui-util",
+    "crates/cmux-kitty-media",
     "crates/cmux-api-compat",
     "crates/cmux-tui-remote-access",
     "crates/cmux-layout-reducer",
@@ -46,6 +48,10 @@ members = [
     "crates/cmux-unix-socket",
     "crates/cmux-panic-log",
     "crates/cmux-pty",
+    "crates/cmux-holder",
+    "crates/cmux-flow-trace",
+    "crates/cmux-holder-v3",
+    "crates/cmux-process",
     "crates/cmux-remote-protocol",
     "crates/cmux-remote-transcript",
     "crates/cmux-build-identity",
@@ -85,6 +91,7 @@ members = [
     "crates/cmux-mobile-ffi",
     "crates/cmux-cloud-wire",
     "crates/cmux-palette-ranker",
+    "crates/cmux-kitty-media",
 ]
 default-members = [
     "crates/acpmux",
@@ -111,6 +118,7 @@ default-members = [
     "crates/cmux-layout-reducer",
     "crates/cmux-focus-core",
     "crates/cmux-pty",
+    "crates/cmux-process",
     "crates/cmux-remote-protocol",
     "crates/cmux-build-identity",
     "crates/cmux-remote",
@@ -175,6 +183,7 @@ redundant_clone = "warn"
 
 [workspace.dependencies]
 cmux-coderouter = { path = "crates/cmux-coderouter" }
+cmux-tailnet = { path = "crates/cmux-tailnet" }
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
@@ -188,6 +197,9 @@ cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
+cmux-holder = { path = "crates/cmux-holder" }
+cmux-process = { path = "crates/cmux-process" }
+cmux-flow-trace = { path = "crates/cmux-flow-trace" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
 cmux-conversation = { path = "crates/cmux-conversation" }
 cmux-history = { path = "crates/cmux-history" }
@@ -198,6 +210,7 @@ cmux-tui-platform = { path = "crates/cmux-tui-platform" }
 cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
+cmux-kitty-media = { path = "crates/cmux-kitty-media" }
 cmux-api-compat = { path = "crates/cmux-api-compat" }
 cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }
 cmux-link = { path = "crates/cmux-link" }
@@ -243,6 +256,7 @@ ip_network = "0.4"
 smoltcp = { version = "0.14", default-features = false, features = ["std", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-tcp-cubic", "async"] }
 png = "0.17"
 libc = "0.2"
+memchr = "2"
 tungstenite = { version = "0.29", default-features = false, features = ["handshake"] }
 uds_windows = "1.2"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_ToolHelp", "Win32_System_JobObjects", "Win32_System_Threading"] }
@@ -281,7 +295,10 @@ hyper-util = { version = "0.1", features = ["service", "tokio"] }
 # the cross-platform fs-event backend for the fs_watch stream family.
 ignore = "0.4"
 notify = "8"
-iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring"] }
+# platform-verifier: iroh-relay verifies relay TLS against the OS trust store
+# (Apple Security.framework, Windows, Linux native roots), not its compiled-in
+# webpki list, which still trusted the leaked emSign (eMudhra) roots (#25452).
+iroh = { version = "1.0.3", default-features = false, features = ["fast-apple-datapath", "portmapper", "tls-ring", "platform-verifier"] }
 subtle = "2.6.1"
 parking_lot = "0.12"
 wait-timeout = "0.2"
