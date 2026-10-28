@@ -2032,6 +2032,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A launch after a run that ended without a quit in this boot (kill -9, a crash) skips the terminal frames and the window picture an earlier quit saved, so each terminal shows the screen its running daemon holds instead of an older one first. After a reboot they still show.
+    public static let relaunchReattach = Feature(
+        index: 116,
+        name: "relaunchReattach",
+        owner: "Performance Lead",
+        description: "A launch after a run that ended without a quit in this boot (kill -9, a crash) skips the terminal frames and the window picture an earlier quit saved, so each terminal shows the screen its running daemon holds instead of an older one first. After a reboot they still show.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["relaunch-e2e"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.
     public static let renderStarvationGuard = Feature(
         index: 117,
@@ -2881,6 +2898,7 @@ nonisolated extension Feature {
         .pointerFrameRemoteInput,
         .purgeableImageCaches,
         .recentlyAudibleProtection,
+        .relaunchReattach,
         .renderStarvationGuard,
         .rendererlessSpareWindow,
         .resampledDrags,
@@ -3044,6 +3062,7 @@ nonisolated extension Feature {
         .pointerFrameRemoteInput,
         .purgeableImageCaches,
         .recentlyAudibleProtection,
+        .relaunchReattach,
         .renderStarvationGuard,
         .rendererlessSpareWindow,
         .resampledDrags,

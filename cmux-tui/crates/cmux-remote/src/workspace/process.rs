@@ -26,6 +26,8 @@ use tokio::sync::oneshot;
 use tokio::sync::{Mutex, Notify, RwLock, Semaphore, broadcast, watch};
 use tokio::task::JoinSet;
 
+use crate::read_buffer::filled;
+
 use super::ClientScope;
 #[cfg(unix)]
 use super::path::UnixWorkspaceDirectory;
@@ -139,18 +141,17 @@ impl AsyncPty {
     }
 
     async fn write_all(&self, bytes: &[u8]) -> std::io::Result<()> {
-        let mut offset = 0;
-        while offset < bytes.len() {
+        let mut remaining = bytes;
+        while !remaining.is_empty() {
             let mut ready = self.fd.writable().await?;
             match ready.try_io(|fd| {
-                // SAFETY: `fd` owns the descriptor for the call and `bytes[offset..]` is a live
-                // slice of the length passed (offset < len by the loop condition); write only reads
-                // it.
+                // SAFETY: `fd` owns the descriptor for the call and `remaining` is a live slice of
+                // `remaining.len()` bytes; write only reads it during the call.
                 let written = unsafe {
                     libc::write(
                         fd.get_ref().as_raw_fd(),
-                        bytes[offset..].as_ptr().cast(),
-                        bytes.len() - offset,
+                        remaining.as_ptr().cast(),
+                        remaining.len(),
                     )
                 };
                 if written < 0 {
@@ -160,7 +161,11 @@ impl AsyncPty {
                 }
             }) {
                 Ok(Ok(0)) => return Err(std::io::Error::from(std::io::ErrorKind::WriteZero)),
-                Ok(Ok(written)) => offset += written,
+                Ok(Ok(written)) => {
+                    remaining = remaining.get(written..).ok_or_else(|| {
+                        std::io::Error::other("PTY write reported more bytes than it was given")
+                    })?;
+                }
                 Ok(Err(error)) if error.kind() == std::io::ErrorKind::Interrupted => continue,
                 Ok(Err(error)) => return Err(error),
                 // Linux PTYs can keep reporting writable after a nonblocking
@@ -852,11 +857,20 @@ impl PendingPtyChild {
         Self { child: Some(child), pid }
     }
 
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: `new` sets `child`, and only the consuming `take` and Drop clear it"
+    )]
     fn child_mut(&mut self) -> &mut (dyn Child + Send + Sync) {
         self.child.as_deref_mut().expect("pending PTY child was already handed off")
     }
 
-    fn take(&mut self) -> Box<dyn Child + Send + Sync> {
+    /// Hands the child off; the guard no longer kills it.
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: `new` sets `child`, and only this consuming method and Drop clear it"
+    )]
+    fn take(mut self) -> Box<dyn Child + Send + Sync> {
         self.child.take().expect("pending PTY child was already handed off")
     }
 }
@@ -1022,8 +1036,8 @@ impl ProcessManager {
                 "PTY processes are unavailable on this platform",
             ));
         }
-        if argv.is_empty() || argv[0].is_empty() {
-            return Err(RpcError::new("invalid-argument", "process argv cannot be empty"));
+        if argv.first().is_none_or(String::is_empty) {
+            return Err(empty_argv());
         }
         if argv.iter().any(|argument| argument.contains('\0')) {
             return Err(RpcError::new(
@@ -1199,13 +1213,14 @@ impl ProcessManager {
         output_drain_total_timeout: std::time::Duration,
         environment: ProcessEnvironment,
     ) -> Result<WorkspaceResponse, RpcError> {
-        let catalog = process_catalog_metadata(&argv, &cwd, ProcessIoKind::Pipes);
-        let mut command = tokio::process::Command::new(&argv[0]);
+        let (program, args) = argv.split_first().ok_or_else(empty_argv)?;
+        let catalog = process_catalog_metadata(program, &argv, &cwd, ProcessIoKind::Pipes);
+        let mut command = tokio::process::Command::new(program);
         if environment == ProcessEnvironment::Clean {
             command.env_clear();
         }
         command
-            .args(&argv[1..])
+            .args(args)
             .envs(env)
             .stdin(if writable_stdin {
                 std::process::Stdio::piped()
@@ -1363,15 +1378,16 @@ impl ProcessManager {
             return Err(RpcError::new("invalid-argument", "PTY TERM is invalid"));
         }
         events.enable_terminal(cols, rows)?;
-        let catalog = process_catalog_metadata(&argv, &cwd, ProcessIoKind::Pty);
+        let (program, args) = argv.split_first().ok_or_else(empty_argv)?;
+        let catalog = process_catalog_metadata(program, &argv, &cwd, ProcessIoKind::Pty);
         let size = PtySize { rows, cols, pixel_width: 0, pixel_height: 0 };
         let pair = cmux_pty::open(size)
             .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
-        let mut command = PtyCommand::new(&argv[0]);
+        let mut command = PtyCommand::new(program);
         if environment == ProcessEnvironment::Clean {
             command.env_clear();
         }
-        command.args(argv[1..].iter().cloned());
+        command.args(args.iter().cloned());
         #[cfg(not(unix))]
         command.cwd(&cwd);
         #[cfg(unix)]
@@ -1511,7 +1527,9 @@ impl ProcessManager {
                     loop {
                         match reader.read(&mut buffer) {
                             Ok(0) | Err(_) => break,
-                            Ok(read) => reader_events.publish_output(id, false, &buffer[..read]),
+                            Ok(read) => {
+                                reader_events.publish_output(id, false, filled(&buffer, read))
+                            }
                         }
                     }
                 },
@@ -2108,7 +2126,7 @@ async fn read_pipe(
         match reader.read(&mut buffer).await {
             Ok(0) => return Ok(()),
             Ok(read) => {
-                events.publish_output(process, stderr, &buffer[..read]);
+                events.publish_output(process, stderr, filled(&buffer, read));
                 activity.send_modify(|generation| *generation = generation.wrapping_add(1));
             }
             Err(error) => {
@@ -2133,7 +2151,7 @@ async fn read_pty(
         match pty.read(&mut buffer).await {
             Ok(0) => return Ok(()),
             Ok(read) => {
-                events.publish_output(process, false, &buffer[..read]);
+                events.publish_output(process, false, filled(&buffer, read));
                 activity.send_modify(|generation| *generation = generation.wrapping_add(1));
             }
             Err(error) if error.raw_os_error() == Some(libc::EIO) => return Ok(()),
@@ -2221,16 +2239,22 @@ async fn collect_output_task_failures(
     }
 }
 
+fn empty_argv() -> RpcError {
+    RpcError::new("invalid-argument", "process argv cannot be empty")
+}
+
+/// `program` is `argv`'s first element.
 fn process_catalog_metadata(
+    program: &str,
     argv: &[String],
     cwd: &std::path::Path,
     io: ProcessIoKind,
 ) -> ProcessCatalogMetadata {
-    let command = std::path::Path::new(&argv[0])
+    let command = std::path::Path::new(program)
         .file_name()
         .and_then(std::ffi::OsStr::to_str)
         .filter(|name| !name.is_empty())
-        .unwrap_or(&argv[0]);
+        .unwrap_or(program);
     let (command_label, _) = bounded_display_text(command, MAX_PROCESS_COMMAND_LABEL_BYTES);
     let (cwd, _) = bounded_display_text(&cwd.to_string_lossy(), MAX_PROCESS_CATALOG_CWD_BYTES);
 

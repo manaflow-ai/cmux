@@ -126,10 +126,9 @@ fn panic_for_test() {
         return;
     }
     // supervise-allow: debug-only test trigger; the test asks for exactly this thread's panic line.
-    let _ = std::thread::Builder::new()
-        .name(TEST_PANIC_THREAD.into())
-        // crash-allow: debug-only test trigger for the owner panic log
-        .spawn(|| panic!("cmux-tui test owner panic"));
+    let _ = cmux_threads::spawn(TEST_PANIC_THREAD, cmux_threads::ThreadQos::Utility, || {
+        panic!("cmux-tui test owner panic")
+    });
 }
 
 #[cfg(unix)]

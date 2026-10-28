@@ -159,8 +159,9 @@ impl Mux {
         state.worker_running = true;
         drop(state);
         let worker = Arc::clone(timer);
-        if let Err(error) = supervised::spawn(
+        if let Err(error) = supervised::spawn_at(
             "terminal-exit-settle",
+            cmux_threads::ThreadQos::UserInitiated,
             Fatal,
             ShutdownBehavior::Continue,
             move || worker.run_worker(mux),
