@@ -63,10 +63,10 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
         super.tearDown()
     }
 
-    func testTypedPasswordBlocksBudgetDiscardButNotMemoryPressure() throws {
-        let panel = try loadPage(body: #"<form><input id="secret" type="password"></form>"#)
+    func testTypedPasswordBlocksBudgetDiscardButNotMemoryPressure() async throws {
+        let panel = try await loadPage(body: #"<form><input id="secret" type="password"></form>"#)
         defer { panel.close() }
-        typeValue("hunter2", intoFieldWithID: "secret", in: panel)
+        await typeValue("hunter2", intoFieldWithID: "secret", in: panel)
 
         panel.noteWebViewVisibility(false, reason: "test.hidden")
 
@@ -76,10 +76,10 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
         XCTAssertEqual(panel.webViewLifecycleState, .discarded)
     }
 
-    func testContentEditableEditBlocksBudgetDiscard() throws {
-        let panel = try loadPage(body: #"<div id="editor" contenteditable="true"></div>"#)
+    func testContentEditableEditBlocksBudgetDiscard() async throws {
+        let panel = try await loadPage(body: #"<div id="editor" contenteditable="true"></div>"#)
         defer { panel.close() }
-        _ = evaluate(
+        _ = await evaluate(
             """
             (() => {
               const editor = document.getElementById("editor");
@@ -90,8 +90,9 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
             """,
             in: panel.webView
         )
-        XCTAssertEqual(evaluate("document.getElementById('editor').textContent", in: panel.webView) as? String, "draft reply")
-        waitUntil("rich-text edit reported") { panel.pageRestoration.hasUnrestorableLiveInput }
+        let text = await evaluate("document.getElementById('editor').textContent", in: panel.webView)
+        XCTAssertEqual(text as? String, "draft reply")
+        await waitUntil("rich-text edit reported") { panel.pageRestoration.hasUnrestorableLiveInput }
 
         panel.noteWebViewVisibility(false, reason: "test.hidden")
 
@@ -100,10 +101,10 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
     }
 
     /// Input the restore replays must not keep the pane alive.
-    func testRestorableTypedInputDoesNotBlockBudgetDiscard() throws {
-        let panel = try loadPage(body: #"<form><input id="name" type="text"></form>"#)
+    func testRestorableTypedInputDoesNotBlockBudgetDiscard() async throws {
+        let panel = try await loadPage(body: #"<form><input id="name" type="text"></form>"#)
         defer { panel.close() }
-        typeValue("typed name", intoFieldWithID: "name", in: panel)
+        await typeValue("typed name", intoFieldWithID: "name", in: panel)
 
         panel.noteWebViewVisibility(false, reason: "test.hidden")
 
@@ -111,12 +112,12 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
         XCTAssertEqual(panel.webViewLifecycleState, .discarded)
     }
 
-    func testPictureInPictureBlocksBudgetAndPressureDiscard() throws {
-        let panel = try loadPage(body: "<video></video>")
+    func testPictureInPictureBlocksBudgetAndPressureDiscard() async throws {
+        let panel = try await loadPage(body: "<video></video>")
         defer { panel.close() }
         // The media hook reports from its isolated content world; post the
         // report a paused Picture in Picture video sends.
-        _ = evaluate(
+        _ = await evaluate(
             """
             window.webkit.messageHandlers.cmuxMediaPlayback.postMessage(
               { frameID: "pip-frame", playing: false, audible: false, pip: true }
@@ -126,7 +127,7 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
             in: panel.webView,
             contentWorld: BrowserPanel.mediaPlaybackContentWorld
         )
-        _ = evaluate("true", in: panel.webView, contentWorld: BrowserPanel.mediaPlaybackContentWorld)
+        _ = await evaluate("true", in: panel.webView, contentWorld: BrowserPanel.mediaPlaybackContentWorld)
 
         panel.noteWebViewVisibility(false, reason: "test.hidden")
 
@@ -139,10 +140,10 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
     /// shares the opener's content controller and its reports reach the
     /// opener's handlers. They must not replace the opener's typed input or
     /// keep the opener from being discarded.
-    func testPopupReportsDoNotChangeOpenerPageState() throws {
-        let panel = try loadPage(body: #"<form><input id="name" type="text"></form>"#)
+    func testPopupReportsDoNotChangeOpenerPageState() async throws {
+        let panel = try await loadPage(body: #"<form><input id="name" type="text"></form>"#)
         defer { panel.close() }
-        typeValue("opener draft", intoFieldWithID: "name", in: panel)
+        await typeValue("opener draft", intoFieldWithID: "name", in: panel)
 
         let popupPage = fixtureDirectory.appendingPathComponent("popup.html")
         try "<html><head><title>Popup</title></head><body>popup</body></html>"
@@ -151,11 +152,11 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
         hostWindow.contentView?.addSubview(popup)
         defer { popup.removeFromSuperview() }
         popup.loadFileURL(popupPage, allowingReadAccessTo: fixtureDirectory)
-        waitUntil("popup load") {
+        await waitUntil("popup load") {
             popup.url?.standardizedFileURL == popupPage.standardizedFileURL && !popup.isLoading
         }
 
-        _ = evaluate(
+        _ = await evaluate(
             """
             window.webkit.messageHandlers.cmuxFormState.postMessage({
               url: String(location.href),
@@ -167,7 +168,7 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
             in: popup,
             contentWorld: .browserFormState
         )
-        _ = evaluate(
+        _ = await evaluate(
             """
             window.webkit.messageHandlers.cmuxMediaPlayback.postMessage(
               { frameID: "popup-frame", playing: true, audible: true, pip: true }
@@ -179,8 +180,8 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
         )
         // WebKit delivers a page's script messages before the result of a
         // later evaluation in the same page.
-        _ = evaluate("true", in: popup, contentWorld: .browserFormState)
-        _ = evaluate("true", in: popup, contentWorld: BrowserPanel.mediaPlaybackContentWorld)
+        _ = await evaluate("true", in: popup, contentWorld: .browserFormState)
+        _ = await evaluate("true", in: popup, contentWorld: BrowserPanel.mediaPlaybackContentWorld)
 
         XCTAssertEqual(panel.pageRestoration.liveFormState?.fields.compactMap(\.value), ["opener draft"])
         XCTAssertFalse(panel.pageRestoration.hasUnrestorableLiveInput)
@@ -190,8 +191,8 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
         XCTAssertTrue(panel.discardHiddenWebViewForMemoryBudget(now: Date().addingTimeInterval(3600)))
     }
 
-    func testKeepActivePinBlocksDiscardAndSurvivesSessionRestore() throws {
-        let panel = try loadPage(body: "<p>pinned</p>")
+    func testKeepActivePinBlocksDiscardAndSurvivesSessionRestore() async throws {
+        let panel = try await loadPage(body: "<p>pinned</p>")
         defer { panel.close() }
         panel.keepsPageActiveWhileHidden = true
 
@@ -224,14 +225,14 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
         XCTAssertNil(restored.keepsPageActiveForSessionSnapshot)
     }
 
-    private func loadPage(body: String) throws -> BrowserPanel {
+    private func loadPage(body: String) async throws -> BrowserPanel {
         let page = fixtureDirectory.appendingPathComponent("page.html")
         try "<html><head><title>Page</title></head><body>\(body)</body></html>"
             .write(to: page, atomically: true, encoding: .utf8)
         let panel = BrowserPanel(workspaceId: UUID(), initialURL: page, isRemoteWorkspace: false)
         panel.webView.frame = hostWindow.contentView?.bounds ?? .zero
         hostWindow.contentView?.addSubview(panel.webView)
-        waitUntil("load of \(page.lastPathComponent)") {
+        await waitUntil("load of \(page.lastPathComponent)") {
             panel.webView.url?.standardizedFileURL == page.standardizedFileURL
                 && !panel.webView.isLoading
                 && !panel.isLoading
@@ -239,8 +240,8 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
         return panel
     }
 
-    private func typeValue(_ value: String, intoFieldWithID id: String, in panel: BrowserPanel) {
-        _ = evaluate(
+    private func typeValue(_ value: String, intoFieldWithID id: String, in panel: BrowserPanel) async {
+        _ = await evaluate(
             """
             (() => {
               const field = document.getElementById("\(id)");
@@ -254,7 +255,7 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
             in: panel.webView
         )
         // The observer reports the value, or flags a field it never replays.
-        waitUntil("input into #\(id) reported") {
+        await waitUntil("input into #\(id) reported") {
             panel.pageRestoration.liveFormState?.fields.contains { $0.value == value } == true
                 || panel.pageRestoration.hasUnrestorableLiveInput
         }
@@ -264,17 +265,15 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
         _ script: String,
         in webView: WKWebView,
         contentWorld: WKContentWorld? = nil
-    ) -> Any? {
+    ) async -> Any? {
         var result: Any?
         var finished = false
         webView.evaluateJavaScript(script, in: nil, in: contentWorld ?? .page) { outcome in
             result = try? outcome.get()
             finished = true
         }
-        let deadline = Date().addingTimeInterval(5)
-        while !finished, Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.01))
-        }
+        let completed = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) { finished }
+        XCTAssertTrue(completed, "JavaScript evaluation must complete")
         return result
     }
 
@@ -282,12 +281,9 @@ final class BrowserHiddenWebViewDiscardBlockerTests: XCTestCase {
         _ description: String,
         timeout: TimeInterval = 5,
         predicate: () -> Bool
-    ) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if predicate() { return }
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.02))
-        }
+    ) async {
+        // Let asynchronous navigation policy and script reports use the main actor.
+        if await AppKitTestEventPump().waitUntil(timeout: .seconds(timeout), predicate) { return }
         continueAfterFailure = false
         XCTFail("Timed out waiting for \(description)")
     }
