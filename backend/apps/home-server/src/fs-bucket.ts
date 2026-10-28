@@ -273,7 +273,8 @@ export class FsBucket {
   }
 
   /** Writes `path` by renaming a fresh temp file over it; a link at `path` is replaced, not followed. */
-  private async writeFile(path: string, data: string, area: Area) {
+  /** Writes `data` to a fresh temp file beside `path`; answers the temp file, for the caller to rename. */
+  private async stage(path: string, data: string, area: Area): Promise<string> {
     const tmp = tempName(path)
     const file = await this.createFile(tmp, area)
     try {
@@ -284,7 +285,28 @@ export class FsBucket {
       throw error
     }
     await file.close()
-    this.rename(tmp, path, area)
+    return tmp
+  }
+
+  private async writeFile(path: string, data: string, area: Area) {
+    this.rename(await this.stage(path, data, area), path, area)
+  }
+
+  /**
+   * Makes the staged `dataTmp` and `metaTmp` the object at `file`, in one synchronous step. The
+   * home-server process is this bucket's only writer, and a step with no await runs whole in it: no
+   * other put, completion, delete or read of the key runs in between, so the last commit wins
+   * whole and a reader never pairs one write's bytes with another's metadata. With `onlyIfAbsent`,
+   * an object already at `file` (one committed while this write streamed, too) wins and nothing is
+   * renamed. Metadata goes first and the data last: a crash between the two renames leaves
+   * metadata whose size the data does not match, which metaAt answers as no object until the next
+   * write (an overwrite with bytes of the same size would show the new etag on the old bytes).
+   */
+  private commit(file: string, dataTmp: string, metaTmp: string, onlyIfAbsent = false): boolean {
+    if (onlyIfAbsent && lstatOrNull(file)) return false
+    this.rename(metaTmp, `${file}.meta.json`, "key")
+    this.rename(dataTmp, file, "key")
+    return true
   }
 
   private rename(from: string, to: string, area: Area) {
@@ -344,8 +366,11 @@ export class FsBucket {
   /** An object's metadata; the object file itself must not be a link either. */
   private metaAt(file: string): StoredMeta | null {
     const meta = this.readJson<StoredMeta>(`${file}.meta.json`, "key")
-    if (meta && lstatOrNull(file)?.isSymbolicLink()) throw linkError()
-    return meta
+    if (!meta) return null
+    const stat = lstatOrNull(file)
+    if (stat?.isSymbolicLink()) throw linkError()
+    // Metadata without its bytes, or for other bytes (a crash between commit's two renames), is no object.
+    return stat?.isFile() && stat.size === meta.size ? meta : null
   }
 
   private object(key: string, meta: StoredMeta, body?: ReadableStream<Uint8Array>, range?: { offset: number; length: number }): FsObject {
@@ -414,13 +439,15 @@ export class FsBucket {
       throw error
     }
     const meta: StoredMeta = { ...stored, ...metadataOf(options), uploaded: Date.now() }
+    let metaTmp: string | undefined
     try {
-      this.rename(tmp, file, "key")
-    } catch (error) {
+      metaTmp = await this.stage(`${file}.meta.json`, JSON.stringify(meta), "key")
+      if (!this.commit(file, tmp, metaTmp, options.onlyIf?.etagDoesNotMatch === "*")) return null
+    } finally {
+      // Renamed into place on success; left over when the commit was refused or failed.
       rmSync(tmp, { force: true })
-      throw error
+      if (metaTmp) rmSync(metaTmp, { force: true })
     }
-    await this.writeFile(`${file}.meta.json`, JSON.stringify(meta), "key")
     return this.object(key, meta)
   }
 
@@ -475,7 +502,6 @@ export class FsBucket {
         if (partHash.digest("hex") !== expected) throw new FsBucketError("InvalidPart", `part ${part.partNumber} changed after it was stored`)
       }
       await target.close()
-      this.rename(tmp, output, "key")
     } catch (error) {
       await target.close().catch(() => undefined)
       rmSync(tmp, { force: true })
@@ -484,7 +510,14 @@ export class FsBucket {
     const etag = hash.digest("hex")
     // The object keeps the upload's metadata, as R2 does (a caller recognises its own completed upload by it).
     const stored: StoredMeta = { etag, size, ...(meta.contentType ? { contentType: meta.contentType } : {}), ...(meta.customMetadata ? { customMetadata: meta.customMetadata } : {}), uploaded: Date.now() }
-    await this.writeFile(`${output}.meta.json`, JSON.stringify(stored), "key")
+    let metaTmp: string | undefined
+    try {
+      metaTmp = await this.stage(`${output}.meta.json`, JSON.stringify(stored), "key")
+      this.commit(output, tmp, metaTmp)
+    } finally {
+      rmSync(tmp, { force: true })
+      if (metaTmp) rmSync(metaTmp, { force: true })
+    }
     await this.abortMultipart(key, uploadId)
     return this.object(meta.key, stored)
   }
