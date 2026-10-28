@@ -8,8 +8,10 @@ workflows and on copies of them mutated the ways a bad change would.
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -59,8 +61,16 @@ class ResolveLabels(unittest.TestCase):
     def test_a_variable_read_as_a_label_is_unknown_or_falsy(self):
         labels = resolve_labels("${{ vars.LINUX_RUNNER }}")
         self.assertIn(EMPTY, labels)
-        self.assertIn("vars.LINUX_RUNNER", labels)
-        self.assertTrue(any(isinstance(label, Unknown) for label in labels))
+        self.assertIn(Unknown("vars.LINUX_RUNNER"), labels)
+        # An unknown never collides with a literal that spells its name.
+        self.assertNotIn("vars.LINUX_RUNNER", labels)
+        expression = "${{ contains(vars.X || 'vars.X', 'ubuntu') && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}"
+        self.assertIn("ubuntu-latest", resolve_labels(expression))
+
+    def test_relational_operators_bind_tighter_than_equality(self):
+        # GitHub reads this as false == (false < false), which is true.
+        expression = "${{ false == false < false && 'ubuntu-latest' || 'blacksmith-4vcpu-ubuntu-2404' }}"
+        self.assertIn("ubuntu-latest", resolve_labels(expression))
 
     def test_a_described_variable_takes_its_values_and_contains_is_exact(self):
         variables = {"LINUX_RUNNER": {"ubuntu-24.04", "blacksmith-32vcpu-ubuntu-2404"}}
@@ -102,6 +112,7 @@ class DisallowedLabels(unittest.TestCase):
             "${{ vars.X && 'blacksmith-6vcpu-macos-26' || 'blacksmith-4vcpu-ubuntu-2404' }}": "blacksmith-6vcpu-macos-26",
             "${{ vars.X && 'glaeda-side-light-xcode-26.6' || 'blacksmith-4vcpu-ubuntu-2404' }}": "glaeda-side-light-xcode-26.6",
             "${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}": "vars.LINUX_RUNNER",
+            "${{ vars.X && 'ubuntu-slim' || 'blacksmith-4vcpu-ubuntu-2404' }}": "ubuntu-slim",
             "${{ vars.X && 'blacksmith-4vcpu-ubuntu-2404' }}": "''",
         }
         for expression, label in cases.items():
@@ -118,6 +129,18 @@ class DisallowedLabels(unittest.TestCase):
         # A value outside the set fails like a literal would.
         self.assertIn("macos-26", disallowed_labels(guarded.replace("'32vcpu'", "'macos'"),
                                                     variables={"LINUX_RUNNER": {"macos-26"}}))
+
+    def test_hosted_and_personal_labels_fail_even_when_a_fleet_declares_them(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".github").mkdir()
+            labels = {"linux": "ubuntu-slim", "linux_16": PERSONAL_WORKSTATION_LABEL, "linux_32": "macos-26"}
+            (root / ".github/runners.json").write_text(json.dumps(
+                {"owners": {"manaflow-ai": "f"}, "fleets": {"f": labels}}), encoding="utf-8")
+            for label in labels.values():
+                with self.subTest(label=label):
+                    self.assertIn(label, disallowed_labels(label, root=root))
+            self.assertEqual(disallowed_labels("blacksmith-4vcpu-ubuntu-2404", root=root), {})
 
     def test_no_label_at_all_fails(self):
         self.assertEqual(set(disallowed_labels([])), {"[]"})

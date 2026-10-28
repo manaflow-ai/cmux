@@ -37,8 +37,9 @@ OWNER = "manaflow-ai"
 
 # Blacksmith Linux, any size, x86_64 or arm: blacksmith-4vcpu-ubuntu-2404, blacksmith-16vcpu-ubuntu-2404-arm.
 BLACKSMITH_LINUX = re.compile(r"blacksmith-[0-9]+vcpu-ubuntu-[0-9]{4}(?:-arm)?")
-# GitHub-hosted images: ubuntu-24.04, ubuntu-latest, macos-26, macos-15-intel, windows-2022, ...
-GITHUB_HOSTED = re.compile(r"(?:ubuntu|macos|windows)-(?:latest|[0-9][0-9.]*)(?:-[a-z0-9]+)*")
+# GitHub-hosted images: ubuntu-24.04, ubuntu-latest, ubuntu-slim, macos-26, macos-15-intel, windows-2022, ...
+# Any label of these families, so a new image name is refused before anyone has to list it.
+GITHUB_HOSTED = re.compile(r"(?:ubuntu|macos|windows)(?:-.*)?")
 # What scripts/ci/cloud_overflow_switch.py points LINUX_RUNNER at while Blacksmith is down (HOSTED_LINUX).
 OVERFLOW_HOSTED_LINUX = "ubuntu-24.04"
 
@@ -48,8 +49,27 @@ TOKEN = re.compile(
 )
 
 
-class Unknown(str):
-    """A context's value we cannot know (vars.X, matrix.y); a non-empty string, reported by its name."""
+class Unknown:
+    """A context's value we cannot know (vars.X, matrix.y): any non-empty string, reported by its name.
+
+    Not a str: it never equals, or hashes like, a literal that happens to spell its name.
+    """
+
+    __slots__ = ("name",)
+
+    def __init__(self, name: str):
+        self.name = name
+
+    def __eq__(self, other) -> bool:
+        return isinstance(other, Unknown) and other.name == self.name
+
+    def __hash__(self) -> int:
+        return hash((Unknown, self.name))
+
+    def __str__(self) -> str:
+        return self.name
+
+    __repr__ = __str__
 
 
 EMPTY = ""
@@ -105,8 +125,16 @@ class _Parser:
         return node
 
     def compare(self):
+        # Equality binds looser than the relational operators, as in GitHub's grammar.
+        node = self.relational()
+        while self.peek() and self.peek()[0] == "op" and self.peek()[1] in {"==", "!="}:
+            op = self.take()[1]
+            node = ("cmp", op, node, self.relational())
+        return node
+
+    def relational(self):
         node = self.unary()
-        while self.peek() and self.peek()[0] == "op" and self.peek()[1] in {"==", "!=", "<", ">", "<=", ">="}:
+        while self.peek() and self.peek()[0] == "op" and self.peek()[1] in {"<", ">", "<=", ">="}:
             op = self.take()[1]
             node = ("cmp", op, node, self.unary())
         return node
@@ -179,7 +207,7 @@ def _call(name: str, args: list[set]) -> set:
         out = set()
         for haystack in args[0]:
             for needle in args[1]:
-                if not (_known(haystack) and _known(needle) and isinstance(haystack, str) and isinstance(needle, str)):
+                if not (isinstance(haystack, str) and isinstance(needle, str)):
                     out |= {True, False}
                     continue
                 haystack_l, needle_l = haystack.lower(), needle.lower()
@@ -273,10 +301,22 @@ def linux_runner_values(root: Path = ROOT) -> set[str]:
     return declared_fleet_linux_labels(root) | {OVERFLOW_HOSTED_LINUX}
 
 
+def personal_machine_names() -> tuple[str, ...]:
+    """The personal workstation's names, from the fleet rule lint: the one file allowed to spell them."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from test_ci_fleet_rule_lints import CANDIDATE_WORDS_ANY_CASE
+    return tuple(word.lower() for word in CANDIDATE_WORDS_ANY_CASE)
+
+
 def disallowed_labels(runs_on, variables: Mapping[str, Iterable[str]] | None = None,
                       root: Path = ROOT) -> dict[str, str]:
-    """label -> why it may not run this job; empty when every label is Blacksmith or declared fleet Linux."""
+    """label -> why it may not run this job; empty when every label is Blacksmith or declared fleet Linux.
+
+    GitHub-hosted labels and the personal workstation are refused first, even if a fleet declares them.
+    """
     fleet_linux = declared_fleet_linux_labels(root)
+    personal = personal_machine_names()
     labels = resolve_labels(runs_on, variables=variables)
     if not labels:
         return {"[]": "no label at all: an empty runs-on never schedules"}
@@ -288,6 +328,8 @@ def disallowed_labels(runs_on, variables: Mapping[str, Iterable[str]] | None = N
             bad[repr(label)] = "a falsy or non-label value: it never schedules"
         elif GITHUB_HOSTED.fullmatch(label.lower()):
             bad[label] = "a GitHub-hosted runner outside the fork branch"
+        elif any(name in label.lower() for name in personal):
+            bad[label] = "a personal machine, never a runner"
         elif not (BLACKSMITH_LINUX.fullmatch(label) or label in fleet_linux):
             bad[label] = "neither Blacksmith Linux nor a declared manaflow-ai fleet Linux label"
     return bad
