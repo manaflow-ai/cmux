@@ -505,14 +505,14 @@ const agentPaneActions: LatencyAction[] = [
     async prepare(page) {
       await page.waitForSelector(".acpmux-model .acpmux-picker-button");
       await page.keyboard.press("Escape");
-      return `document.querySelector(".acpmux-model .acpmux-mp") !== null`;
+      return `document.querySelector(".acpmux-quick-menu") !== null`;
     },
     async input(page) {
       await page.click(".acpmux-model .acpmux-picker-button");
     },
     async settle(page) {
       await page.keyboard.press("Escape");
-      await page.waitForFunction(() => document.querySelector(".acpmux-model .acpmux-mp") === null);
+      await page.waitForFunction(() => document.querySelector(".acpmux-quick-menu") === null);
       await quiet(page);
     },
   },

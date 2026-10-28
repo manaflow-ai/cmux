@@ -19,6 +19,11 @@ pub struct Session {
     /// Held while a child is spawned and initialized, so concurrent
     /// requests for a stopped session start one agent, not several.
     pub(super) spawn_lock: Mutex<()>,
+    /// Held shared by a request that reaches the harness outside a turn (a start, a mode
+    /// change); the idle pass takes it exclusively while it lists and ends the harness.
+    pub(super) harness_use: tokio::sync::RwLock<()>,
+    /// The hub clock's time of the last log of why the idle harness stays up (`idle_census.rs`).
+    pub(super) idle_refusal_logged: AtomicU64,
     pub(super) seq: AtomicU64,
     /// Held from sequence allocation until the record is stored and sent,
     /// so the log and fan-out always see sequences in order.

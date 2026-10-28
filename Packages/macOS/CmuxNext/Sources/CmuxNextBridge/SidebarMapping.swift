@@ -123,8 +123,11 @@ public struct SidebarMapping {
                     harnessIcons: HarnessIconLookup = .none) -> SidebarWorkspace {
         let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
         let unread = showsUnread ? workspace.unreadCount : 0
-        let indicator = StatusMapping.shared.summary(tabs: tabs, status: workspace.status)
+        let statuses = StatusMapping.shared.summaries(tabs: tabs, status: workspace.status)
+        let indicator = statuses.workspace
         let front = frontTab(workspace, selectedTab: selectedTab)
+        // The workspace's folder (Group by Folder's bucket): a tab row repeats it nowhere.
+        let rowFolder = front?.cwd ?? tabs.lazy.compactMap(\.cwd).first
         let folder = folderTab(tabs)
         let work = front?.kind == .browser ? workTab(workspace, selectedTab: selectedTab) : nil
         let page = front.flatMap { pageFace(workspace, $0, work) }
@@ -153,7 +156,7 @@ public struct SidebarMapping {
             pullRequest: Self.entry(Self.pullRequestKey, in: entries),
             lastActivity: lastActivity(tabs),
             rowKind: rowKind(tabs),
-            agentWorking: StatusMapping.shared.isWorking(tabs: tabs),
+            agentWorking: statuses.working,
             // A page in a split beside a chat or terminal leaves the row's icon to that work, as it
             // leaves its name (#22250; Leo 2026-10-21: "why did this turn into the githb favicon?").
             icon: Self.icon(color: workspace.color, icon: workspace.icon, asset: iconAsset)
@@ -169,20 +172,23 @@ public struct SidebarMapping {
             agentIcon: rowAgent.icon,
             agentName: agentTab(tabs, harnessIcons: harnessIcons)?.agentName,
             progress: progress(workspace, tabs: tabs),
-            tabs: tabs.map { tab in
+            tabs: zip(tabs, statuses.tabs).map { tab, state in
                 let isNewTabPage = newTabPages.contains(tab.id) && !newTabTitle.isEmpty
                 let title = tabTitle?(tab) ?? (isNewTabPage ? newTabTitle : tab.displayTitle)
-                return SidebarTab(id: TabID(tab.id), title: title,
-                                  kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
-                                  brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon)
+                var listed = SidebarTab(id: TabID(tab.id), title: title,
+                                        kind: Self.listedKind(tab, newTabPages: newTabPages), isUnread: tab.showsUnread,
+                                        brand: tab.agentBrand, favicon: browserFaces[tab.id]?.favicon)
+                if !isNewTabPage { Self.describe(&listed, tab, in: workspace, state: state, rowFolder: rowFolder, shorten: shorten) }
+                return listed
             },
             muted: muted,
             // The store refuses every close of its home workspace (`home_not_closable`).
             isClosable: workspace.kind != Self.homeKind,
             // Group by Folder's bucket: the front tab's folder, else any tab's.
-            folder: (front?.cwd ?? tabs.lazy.compactMap(\.cwd).first).map(shorten)
+            folder: rowFolder.map(shorten)
         )
         row.focusedTab = front.map { TabID($0.id) }
+        row.activityFromProgram = indicator.primary?.source == .program
         row.presence = presence(tabs)
         row.isUnnamed = Self.isUnnamed(workspace, label: page?.title)
         row.audio = SidebarWorkspaceAudio.merge(tabs.lazy.map { browserFaces[$0.id]?.audio })

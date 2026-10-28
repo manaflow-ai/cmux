@@ -22,6 +22,16 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 
 impl ClientRegistry {
+    /// Ends `client`'s connection at once, both ways (a link guest whose share or guest ended):
+    /// its reader sees the close and the usual disconnect forgets the connection.
+    pub(super) fn abort_connection(&self, client: u64) {
+        let writer =
+            self.state.lock().recover_poison().clients.get(&client).map(|r| r.writer.clone());
+        if let Some(writer) = writer {
+            writer.abort();
+        }
+    }
+
     pub(super) fn attach_surface(
         &self,
         client: u64,
