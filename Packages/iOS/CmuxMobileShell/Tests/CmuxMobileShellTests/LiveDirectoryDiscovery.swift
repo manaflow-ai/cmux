@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileShell
 import CmuxMobileShellModel
 
 @MainActor

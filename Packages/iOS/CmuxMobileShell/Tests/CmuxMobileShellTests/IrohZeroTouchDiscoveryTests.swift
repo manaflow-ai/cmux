@@ -1194,7 +1194,7 @@ final class ScriptedIrohDiscovery: MobileIrohMacDiscovering {
 }
 
 @MainActor
-private final class SuspendedIrohDiscovery: MobileIrohMacDiscovering {
+final class SuspendedIrohDiscovery: MobileIrohMacDiscovering {
     private let candidates: [MobileDiscoveredIrohMac]
     private var requestWaiters: [CheckedContinuation<Void, Never>] = []
     private var resumeWaiter: CheckedContinuation<Void, Never>?
