@@ -1615,6 +1615,19 @@ fn cmux_docs_finds_a_tool_from_a_sentence() {
         .map(|tools| tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<Vec<_>>())
         .unwrap_or_default();
     assert_eq!(names.first(), Some(&"pane_split"), "{found}");
+    // The answer is compact: no protocol tags or shared idempotency text,
+    // and the shared arguments by name only.
+    let split = &found["structuredContent"]["tools"][0];
+    let text = split.to_string();
+    assert!(!text.contains("cmux.protocol/2") && !text.contains("may have applied"), "{split}");
+    assert!(split["alsoTakes"].to_string().contains("idempotency_key"), "{split}");
+    assert!(split["inputSchema"]["properties"]["direction"]["enum"].is_array(), "{split}");
+
+    // A script that calls a name no tool has hears the near ones.
+    let script = "try { await cmux.context({}); } catch (e) { return e.message; }";
+    let ran = call(&mut server, "cmux_exec", json!({"script": script}));
+    let message = ran["structuredContent"]["result"].as_str().unwrap_or_default();
+    assert!(message.contains("did you mean"), "{ran}");
 }
 
 /// The tools the acpmux sub-session server's instructions point agents at
