@@ -105,6 +105,7 @@ export function ComposerContext({
   peerKinds = NO_PEER_KINDS,
   peerConnected = NO_PEER_CONNECTED,
   peerStates = NO_PEER_STATES,
+  peersUnlisted = false,
   environments = false,
   started = false,
   onProject,
@@ -138,6 +139,8 @@ export function ComposerContext({
   /// Each peer's link state (`AcpmuxSnapshot.peerStates`): a machine still connecting or down is
   /// listed greyed with it, and is not a pick.
   peerStates?: Record<string, string>;
+  /// The connection reads no peer list (`AcpmuxSnapshot.peersUnlisted`): a chat's peer draws no mark.
+  peersUnlisted?: boolean;
   /// Preview features on (`labs.previewFeatures`): the computer control is the environment picker
   /// (EnvironmentPicker.tsx), with Local, SSH and Cloud sections and ⌥⌘1–9.
   environments?: boolean;
@@ -199,7 +202,16 @@ export function ComposerContext({
   // one's transport and state, in both the environment picker and the plain Computer menu; for a
   // new chat, then the account's Cloud machines acpmux does not list (a paused one, say).
   const computers = useMemo(() => {
-    const listed: Computer[] = availableComputers(summary, sessions, peers, peerKinds, localName, peerConnected, peerStates);
+    const listed: Computer[] = availableComputers(
+      summary,
+      sessions,
+      peers,
+      peerKinds,
+      localName,
+      peerConnected,
+      peerStates,
+      !peersUnlisted,
+    );
     const detail = t(CONTEXT_LABELS.cloud);
     const rows: Computer[] = !newChat
       ? listed
@@ -212,7 +224,7 @@ export function ComposerContext({
       const link = isCloudMachineRow(row) ? undefined : computerLink(row, paneLink);
       return link ? { ...row, link } : row;
     });
-  }, [summary, sessions, peers, peerKinds, peerConnected, peerStates, localName, newChat, shownMachines, paneLink]);
+  }, [summary, sessions, peers, peerKinds, peerConnected, peerStates, peersUnlisted, localName, newChat, shownMachines, paneLink]);
   // The list opened, and every few seconds while it is open: acpmux's peers and, for a new chat,
   // the app's Cloud machines are read again.
   const onRefreshMachines =
@@ -561,12 +573,13 @@ function availableComputers(
   localName: string | undefined,
   peerConnected: Record<string, boolean>,
   peerStates: Record<string, string>,
+  peersListed: boolean,
 ): Computer[] {
   const localLabel =
     localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
   const computers: Computer[] = [{ id: "local", label: localLabel, kind: "local" }];
   const current = summary ? [summary] : [];
-  for (const machine of knownMachines(peers, sessions, peerKinds, current, peerConnected, peerStates)) {
+  for (const machine of knownMachines(peers, sessions, peerKinds, current, peerConnected, peerStates, peersListed)) {
     const detail = t(machine.kind === "ssh" ? "composer.envSSH" : CONTEXT_LABELS.cloud);
     computers.push({ ...machine, detail });
   }

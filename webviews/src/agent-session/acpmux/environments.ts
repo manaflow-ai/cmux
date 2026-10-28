@@ -251,7 +251,8 @@ type Host = { peer?: string | undefined; host?: string | undefined; hostKind?: s
 /// lists, is Cloud. A peer carries what acpmux last said of its connection (`peerConnected`) and
 /// its link state (`peerStates`); a Cloud chat's host carries neither. A chat's peer acpmux no
 /// longer lists (removed, or a daemon that has not said yet) is not connected: listed, no pick. The composer's computers and the New Tab machines widget both
-/// list these.
+/// list these. `peersListed` false: the connection reads no peer list (another host's acpmux), so
+/// a chat's peer it does not list says nothing of its connection (no mark, not "not connected").
 export function knownMachines(
   peers: readonly string[],
   chats: readonly Host[],
@@ -259,6 +260,7 @@ export function knownMachines(
   extra: readonly Host[] = [],
   peerConnected: Record<string, boolean> = {},
   peerStates: Record<string, string> = {},
+  peersListed = true,
 ): Environment[] {
   const machines: Environment[] = [];
   const seen = new Set<string>();
@@ -267,7 +269,7 @@ export function knownMachines(
     if (id === "local" || seen.has(id)) return;
     seen.add(id);
     const listed = cloudHost || listedPeers.has(id);
-    const connected = cloudHost ? undefined : listed ? peerConnected[id] : false;
+    const connected = cloudHost ? undefined : listed ? peerConnected[id] : peersListed ? false : undefined;
     const state = cloudHost || !listed ? undefined : peerStates[id];
     machines.push({
       id,

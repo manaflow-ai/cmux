@@ -187,9 +187,13 @@ function daemon(
 async function client(state: string, options: Parameters<typeof daemon>[1] = {}) {
   const fake = daemon(state, options);
   const states: (Record<string, string> | undefined)[] = [];
+  let latest: any;
   const connected = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t" },
-    (snapshot: any) => states.push(snapshot.peerStates),
+    (snapshot: any) => {
+      latest = snapshot;
+      states.push(snapshot.peerStates);
+    },
     undefined,
     fake.open,
   );
@@ -202,6 +206,7 @@ async function client(state: string, options: Parameters<typeof daemon>[1] = {})
     hold: fake.hold,
     release: fake.release,
     add: fake.add,
+    last: () => latest,
   };
 }
 
@@ -379,6 +384,21 @@ test("a connection that is not this machine's own acpmux reads no peer list and 
     expect(reads()).toBe(0);
     expect(asked.map((message) => message.method)).not.toContain("_acpmux/peer_reconnect");
   }
+});
+
+test("a chat's peer on a connection that lists no peers is not shown down", async () => {
+  const { knownMachines } = await import("../src/agent-session/acpmux/environments");
+  const chats = [{ host: "gpu-box", peer: "gpu-box" }];
+  const [unlisted] = knownMachines([], chats, {}, [], {}, {}, false);
+  expect(unlisted?.connected).toBeUndefined();
+  expect(peerLink(unlisted!)).toBeUndefined();
+  expect(pickableDown({ ...unlisted!, ...(peerLink(unlisted!) ? { link: peerLink(unlisted!) } : {}) })).toBe(false);
+  // This machine's own acpmux that no longer lists it: not connected, as before.
+  const [gone] = knownMachines([], chats, {}, [], {}, {});
+  expect(peerLink(gone!)).toBe("offline");
+  // The pane says so in its snapshot on another host's connection, and not on this machine's own.
+  expect((await client("connected", { events: true, origin: "peer" })).last()?.peersUnlisted).toBe(true);
+  expect((await client("connected", { events: true })).last()?.peersUnlisted).toBeUndefined();
 });
 
 test("a push that comes while the peer list is read stays on top of that read's older answer", async () => {

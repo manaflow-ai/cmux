@@ -1620,6 +1620,7 @@ export function Composer({
       {...(snapshot.peerKinds ? { peerKinds: snapshot.peerKinds } : {})}
       {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
       {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
+      {...(snapshot.peersUnlisted ? { peersUnlisted: true } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
       {...(onReconnectMachine ? { onReconnectMachine } : {})}
       {...(folderNote ? { folderNote } : {})}

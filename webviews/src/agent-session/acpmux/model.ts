@@ -614,6 +614,9 @@ export type AcpmuxSnapshot = {
   peerConnected?: Record<string, boolean>;
   /// Each peer's link state (`connected`, `reconnecting`, …), as `_acpmux/status` last said (environments.ts).
   peerStates?: Record<string, string>;
+  /// This connection reads no peer list (one acpmux calls `peer` or `remote`, another host's):
+  /// a chat's peer it names is not known to be down, so it draws no mark.
+  peersUnlisted?: true;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
   summary?: {
