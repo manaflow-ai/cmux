@@ -122,7 +122,8 @@ public final class DisplayClock {
     ///   - displayOf: Resolves a window's display; nil: the window's screen, else the main screen.
     ///   - isVisible: Whether a window can be seen; nil: not miniaturized, the app not hidden, and,
     ///     while the window is on screen, some part of it visible.
-    ///   - isAsleep: Whether a display sleeps now; nil: `CGDisplayIsAsleep`.
+    ///   - isAsleep: Whether a display sleeps now; nil: `CGDisplayIsAsleep`, or never asleep when `makeLink` is
+    ///     injected (fake links belong to no real display).
     ///   - clock: Runs the stall deadlines.
     ///   - ledger: Where stalls and deadlines are recorded.
     ///   - mediaTime: Stands in for `CACurrentMediaTime`, the timebase of frame timestamps.
@@ -140,7 +141,9 @@ public final class DisplayClock {
         self.makeLink = makeLink
         self.displayOf = displayOf ?? { window in DisplayClock.systemDisplay(window) }
         self.isVisible = isVisible ?? { window in DisplayClock.systemIsVisible(window) }
-        self.isAsleep = isAsleep ?? { display in DisplayClock.systemIsAsleep(display) }
+        // Injected links (tests) are not a real display's: with no injected probe they count as awake, so the
+        // host's own display sleeping never changes a test.
+        self.isAsleep = isAsleep ?? (makeLink != nil ? { _ in false } : { display in DisplayClock.systemIsAsleep(display) })
         self.clock = clock
         self.ledger = ledger
         self.mediaTime = mediaTime
