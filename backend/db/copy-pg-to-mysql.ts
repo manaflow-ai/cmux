@@ -7,7 +7,7 @@
  * By default (or with --exclude-junk-teams) the run skips the junk teams (projection-compare.ts
  * JUNK_TEAMS_SQL: anonymous visitors' Stack personal-team mirrors no cmux-next user belongs to and
  * that were never used) and their team-scoped rows, read from Postgres at the start of the run, and
- * verify then compares only the kept set, as the compare cron does. It prints the number of junk
+ * verify then compares only the kept set, as the retired compare cron did. It prints the number of junk
  * teams and of rows left out per table (counts only), so the operator checks the set before
  * cutover. --include-junk-teams copies and verifies every row. Nothing is deleted on either side.
  *
