@@ -1,14 +1,15 @@
 {
-  "title": "Real Claude workflow: transcript card, Session Info Background tasks and Subagents while running and finished",
+  "title": "Real Claude workflow: transcript card and Session Info Background tasks while running and finished",
   "frameInterval": 0.25,
   "steps": [
     {"title": "Turn on Settings > Advanced > Labs before opening the chat", "cmux": ["settings", "set", "labs.previewFeatures", "true"], "wait": 1, "shot": false},
-    {"title": "Open a fresh Claude chat", "cmux": ["agent", "new-chat", "--cwd", "/tmp"], "wait": 4},
+    {"title": "Turn on Debug agent.inspector so Session Info is available", "cmux": ["settings", "set", "agent.inspector", "true"], "wait": 1, "shot": false},
+    {"title": "Open a fresh Claude chat in the trusted private agent-home folder", "cmux": ["agent", "new-chat"], "wait": 4},
     {"title": "Wait for the chat page", "rpc": {"method": "debug.agent_pane", "params": {"action": "chat_state"}}, "shot": false},
     {"title": "Start a small real workflow: two Count agents, then one Report agent", "rpc": {"method": "debug.agent_pane", "params": {"action": "send_prompt", "text": "Use the Workflow tool to run a tiny workflow with exactly 2 phases and 3 agents. Phase 1 is Count: start two independent agents that count regular files in the current folder. Phase 2 is Report: after both counts finish, start one agent that recounts and reports whether the counts agree. Keep every prompt trivial and let the workflow finish."}}, "wait": 2, "shot": false},
-    {"title": "Open Session Info while the workflow runs", "rpc": {"method": "debug.agent_pane", "params": {"action": "inspector", "open": true}}, "wait": 2},
+    {"title": "Open Session Info while the workflow runs", "cmux": ["agent", "toggle-session-info"], "wait": 2},
     {"title": "Transcript workflow card while running", "wait": 1},
     {"title": "Wait for the real workflow to finish", "wait": 20, "shot": false},
-    {"title": "Transcript workflow card and summary after finish", "rpc": {"method": "debug.agent_pane", "params": {"action": "inspector", "open": false}}, "wait": 1}
+    {"title": "Transcript workflow card and summary after finish", "cmux": ["agent", "toggle-session-info"], "wait": 1}
   ]
 }
