@@ -363,14 +363,17 @@ export function EnvironmentPicker({
       const active = document.activeElement;
       if (!openRef.current && !(scope && active && scope.contains(active))) return;
       const environment = environmentForDigit(latest.current.ordered, digit);
-      // A digit that changes nothing in a closed picker stays the app's (a keymap may bind ⌥⌘1–9).
-      if (!environment || (!openRef.current && environment.id === latest.current.current)) return;
+      // A digit that changes nothing in a closed picker stays the app's (a keymap may bind ⌥⌘1–9);
+      // one on the chat's own machine while it is down reconnects it, as its click does.
+      const again = environment?.id === latest.current.current;
+      const reconnects = again && reconnectsOnUse(environment?.link);
+      if (!environment || (!openRef.current && again && !reconnects)) return;
       event.preventDefault();
       event.stopPropagation();
       if (openRef.current) closeRef.current();
       latest.current.persistent();
-      if (environment.id !== latest.current.current) latest.current.onPick(environment.id);
-      else focusPromptRef.current();
+      if (!again || reconnects) latest.current.onPick(environment.id);
+      if (again) focusPromptRef.current();
     };
     // ui-allow: ⌥⌘1–9 pick an environment while the list is open or the composer has focus, like an app menu key.
     window.addEventListener("keydown", onKey, true);

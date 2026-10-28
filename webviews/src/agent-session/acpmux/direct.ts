@@ -5068,7 +5068,7 @@ export class AcpmuxDirectClient {
       send().catch(async (error: unknown) => {
         if (!peer || !peerDown(error)) throw error;
         await this.reconnectPeer(peer, true, true);
-        if (this.peerDown(peer)) throw error;
+        if (!this.peerUp(peer)) throw error;
         return send();
       });
     try {
@@ -6035,7 +6035,7 @@ export class AcpmuxDirectClient {
     const result = await this.newSession(params, again).catch(async (error: unknown) => {
       if (!peer || !peerDown(error)) throw error;
       await this.reconnectPeer(peer, true, true);
-      if (this.peerDown(peer)) throw error;
+      if (!this.peerUp(peer)) throw error;
       return this.newSession(params, again);
     });
     // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
@@ -6546,6 +6546,11 @@ export class AcpmuxDirectClient {
     // A held snapshot (a chat being switched or reattached) draws the peers when it is released;
     // emitting now would record "connected" on the hold before setup says so.
     if (!this.snapshotHold) this.emit();
+  }
+  /// Whether acpmux lists `peer` and says its link finished its handshake (an older daemon: does
+  /// not mark it disconnected): a refused call there may go again.
+  private peerUp(peer: string): boolean {
+    return this.peers.includes(peer) && !this.peerDown(peer);
   }
   /// Whether acpmux lists `peer` and says its link has not finished its handshake.
   private peerDown(peer: string): boolean {

@@ -75,13 +75,17 @@ test("the App's push sets the pane's machine and clears it for a chat on this Ma
 /// The Mac's acpmux with one peer, `gpu-box`, in `state`; `_acpmux/peer_reconnect` brings it back.
 /// `dropped`: the link went down since the listing said `state`, so the next `session/new` or
 /// `session/prompt` there is refused as unreachable until a reconnect. `chat`: a chat on gpu-box.
-function daemon(state: string, { dropped = false, chat = false } = {}) {
+/// `gone`: the reconnect finds the peer removed (acpmux lists it no more).
+function daemon(state: string, { dropped = false, chat = false, gone = false } = {}) {
   const asked: { method: string; params: Record<string, unknown> }[] = [];
   let peerState = state;
   let down = dropped;
   const session = { sessionId: "on-gpu", peer: "gpu-box", host: "gpu-box", cwd: "/home/dev/project", updatedAt: 1 };
   let socket: any;
-  const peers = () => ({ peers: [{ name: "gpu-box", transport: "ssh", connected: peerState === "connected", state: peerState }] });
+  let listed = true;
+  const peers = () => ({
+    peers: listed ? [{ name: "gpu-box", transport: "ssh", connected: peerState === "connected", state: peerState }] : [],
+  });
   const answer = (method: string) => {
     switch (method) {
       case "initialize":
@@ -89,6 +93,10 @@ function daemon(state: string, { dropped = false, chat = false } = {}) {
       case "_acpmux/status":
         return peers();
       case "_acpmux/peer_reconnect":
+        if (gone) {
+          listed = false;
+          return peers();
+        }
         peerState = "connected";
         down = false;
         return peers();
@@ -208,4 +216,12 @@ test("a pick's reconnect and the sends behind it reconnect the machine once at a
   const reconnects = asked.filter((message) => message.method === "_acpmux/peer_reconnect");
   expect(reconnects).toHaveLength(1);
   expect(asked.map((message) => message.method)).toContain("session/new");
+});
+
+test("a send whose machine is gone after its reconnect keeps the refusal and is not sent again", async () => {
+  const { client: pane, asked } = await client("connected", { chat: true, dropped: true, gone: true });
+  await pane.select("on-gpu");
+  await pane.send("hello").catch(() => undefined);
+  expect(asked.filter((message) => message.method === "session/prompt")).toHaveLength(1);
+  expect(asked.map((message) => message.method)).toContain("_acpmux/peer_reconnect");
 });
