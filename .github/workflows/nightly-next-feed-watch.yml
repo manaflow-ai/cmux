@@ -12,6 +12,8 @@ name: nightly-next feed watch
 # run that publishes a build Apple accepted after its run stopped waiting, and
 # dispatches a current-tip build after 25 minutes without a publication when
 # no nightly or promotion run is active. The guard covers classic NIGHTLY too.
+# A run whose signing or publication failed after a good compile is resumed
+# from its saved unsigned app rather than built again.
 on:
   schedule:
     - cron: "7,37 * * * *"
@@ -51,6 +53,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
         run: scripts/cmux-next/continue-nightly-next.sh --repo "$REPOSITORY"
+
+      # A nightly-next run whose compile succeeded and whose signing,
+      # notarization, verification or publication then failed keeps its
+      # unsigned app for a day. Retry only those steps: dispatch nightly.yml on
+      # nightly-next with nightly_next_unsigned_run, which signs and publishes
+      # that app without compiling. One resume at a time, at most
+      # NIGHTLY_NEXT_MAX_UNSIGNED_RESUMES (2; 0 turns it off) per failed run,
+      # only for a build newer than the feed. Nothing is cancelled: a newer tip
+      # still builds beside it (scripts/ci/nightly_next_unsigned_resume.py,
+      # tested by tests/test_nightly_next_unsigned_resume.py).
+      - name: Resume a failed nightly-next signing from its saved unsigned app
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          MAX_RESUMES: ${{ vars.NIGHTLY_NEXT_MAX_UNSIGNED_RESUMES || '2' }}
+        run: python3 scripts/ci/nightly_next_unsigned_resume.py --repo "$REPOSITORY" --max-resumes "$MAX_RESUMES"
 
       - name: Check how long feat-cmux-next pushes have waited for the feed
         env:
