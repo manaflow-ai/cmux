@@ -702,10 +702,10 @@
    "cast_possible_truncation": 0
   },
   "cmux-tui": {
-   "unwrap_used": 354,
-   "expect_used": 70,
+   "unwrap_used": 353,
+   "expect_used": 61,
    "panic": 1,
-   "unreachable": 30,
+   "unreachable": 28,
    "todo": 0,
    "unimplemented": 0,
    "indexing_slicing": 1060,

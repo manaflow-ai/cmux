@@ -56,12 +56,17 @@ pub(super) fn read_frame<R: BufRead>(reader: &mut R) -> Result<Envelope, FrameRe
                 Err(FrameReadError::Truncated)
             };
         }
-        if let Some(newline) = available.iter().position(|byte| *byte == b'\n') {
+        if let Some(line) = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .and_then(|newline| available.get(..newline))
+        {
+            let newline = line.len();
             if frame.len().saturating_add(newline) > MAX_FRAME_BYTES {
                 frame.zeroize();
                 return Err(FrameReadError::TooLarge);
             }
-            frame.extend_from_slice(&available[..newline]);
+            frame.extend_from_slice(line);
             reader.consume(newline + 1);
             if frame.last() == Some(&b'\r') {
                 frame.pop();
