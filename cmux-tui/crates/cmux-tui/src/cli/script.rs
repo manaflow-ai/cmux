@@ -175,7 +175,7 @@ pub(super) fn load(
             if typescript {
                 return Err(messages().typescript.replace("{path}", &path.display().to_string()));
             }
-            std::fs::read_to_string(path).map_err(|error| {
+            cmux_blocking::fs::read_to_string(path).map_err(|error| {
                 messages()
                     .read_failed
                     .replace("{path}", &path.display().to_string())
