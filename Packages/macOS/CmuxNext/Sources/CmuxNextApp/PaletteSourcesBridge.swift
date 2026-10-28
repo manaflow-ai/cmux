@@ -207,4 +207,3 @@ extension AgentChatDestinations {
         })
     }
 }
-
