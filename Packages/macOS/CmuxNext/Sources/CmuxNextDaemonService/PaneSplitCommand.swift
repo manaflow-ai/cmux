@@ -71,10 +71,10 @@ public struct PaneSplitCommand: Sendable {
     /// The daemon pane a create aimed at `target` (``DaemonStore/paneTarget(_:)``, taken in the
     /// press's turn) names: its pane, or for a stand-in (a pane an earlier create still shows
     /// provisionally) the daemon's pane once it took the stand-in over
-    /// (``DaemonStore/daemonPane(confirming:)``). Throws when the stand-in's create was refused.
+    /// (``DaemonStore/daemonPane(confirming:)``). Throws when the stand-in's create was refused or cancelled.
     @MainActor
     public static func target(_ target: PaneTarget, on daemon: DaemonService) async throws -> PaneID {
-        guard let target = await daemon.store.daemonPane(confirming: target) else { throw PaneSplitFailure() }
+        guard let target = await daemon.store.daemonPane(confirming: target) else { throw StandInPaneGone() }
         return target
     }
 
@@ -93,6 +93,12 @@ public struct PaneSplitCommand: Sendable {
 
 /// An optimistic split whose pane the person closed before the daemon made it (CancelledCreation).
 public struct PaneSplitCancelled: Error, CustomStringConvertible {
+    public var description: String { "the pane closed before the daemon made it" }
+}
+
+/// A create aimed at a stand-in pane whose own create was refused, cancelled or cut off (#26695):
+/// no daemon pane took the stand-in over, so there is nothing to aim at.
+public struct StandInPaneGone: Error, CustomStringConvertible {
     public var description: String { "the pane closed before the daemon made it" }
 }
 

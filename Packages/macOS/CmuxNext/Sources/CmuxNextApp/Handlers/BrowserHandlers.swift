@@ -184,11 +184,12 @@ enum BrowserHandlers {
         // The pane's daemon handle, named in the press's turn (a stand-in's is client-only, #26695): the tab and the
         // split both go to the daemon's pane that takes it over.
         let target = daemon.store.paneTarget(handle)
+        let paneName = daemon.store.pane(handle)?.resourceID?.rawValue ?? String(handle.rawValue)
         // action-wait-allow: no provisional browser split exists yet (a tab opened in the source pane, then moved by the daemon's split); its failure is now reported.
         return .waiting(.daemonEcho) {
             do {
                 guard let split = await daemon.store.daemonPane(confirming: target), let shown = daemon.store.pane(split) else {
-                    throw ActionFailure(message: RefusalStrings.noPaneID(String(handle.rawValue)))
+                    throw ActionFailure(message: RefusalStrings.noPaneID(paneName))
                 }
                 let surface = try await browserTabs.open(choice, in: shown, url: address, profile: profile)
                 try await connection.split(split, direction: direction, movingTab: surface)

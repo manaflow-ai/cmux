@@ -25,6 +25,7 @@ public struct PaneTarget: Sendable, Hashable {
 
 extension DaemonStore {
     struct StandInWaiter {
+        let id: UUID
         let target: PaneTarget
         let resume: @MainActor (PaneID?) -> Void
     }
@@ -48,9 +49,23 @@ extension DaemonStore {
         if case .daemon = target.identity { return target.handle }
         if let confirmed = confirmedHandle(target) { return confirmed }
         guard standInPending(target) else { return nil }
-        return await withCheckedContinuation { (done: CheckedContinuation<PaneID?, Never>) in
-            standInWaiters.append(StandInWaiter(target: target) { done.resume(returning: $0) })
+        // A cancelled wait (its window closed, its action dropped) sends nothing: it ends at once
+        // with no pane rather than when the stand-in settles.
+        let id = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (done: CheckedContinuation<PaneID?, Never>) in
+                guard !Task.isCancelled else { return done.resume(returning: nil) }
+                standInWaiters.append(StandInWaiter(id: id, target: target) { done.resume(returning: $0) })
+            }
+        } onCancel: {
+            Task { @MainActor in self.dropStandInWaiter(id) }
         }
+    }
+
+    /// Ends the wait `id` with no pane: its task was cancelled.
+    private func dropStandInWaiter(_ id: UUID) {
+        guard let index = standInWaiters.firstIndex(where: { $0.id == id }) else { return }
+        standInWaiters.remove(at: index).resume(nil)
     }
 
     /// Runs the waiters whose stand-in the daemon took over or let go; every one with `all` (the
@@ -89,8 +104,10 @@ extension DaemonStore {
         }.first
     }
 
-    /// The daemon's pane that took the stand-in over, once the records hold it.
+    /// The daemon's pane that took the stand-in over, once the records hold it. None for a stand-in
+    /// whose create was cancelled: its pane is about to close (``CancelledCreation``).
     private func confirmedHandle(_ target: PaneTarget) -> PaneID? {
+        guard !standInCancelled(target) else { return nil }
         switch target.identity {
         case .daemon:
             return target.handle
@@ -106,9 +123,28 @@ extension DaemonStore {
         }
     }
 
+    /// Whether the create that minted the stand-in was cancelled (its pane closed before the daemon made it).
+    private func standInCancelled(_ target: PaneTarget) -> Bool {
+        switch target.identity {
+        case .daemon, .gone:
+            return false
+        case .split(let paneID):
+            return intentLog.entries.contains { entry in
+                guard entry.closeWhenCreated, case .splitPane(_, _, _, let provisional) = entry.kind else { return false }
+                return provisional.paneID == paneID
+            }
+        case .workspace(let key):
+            return intentLog.entries.contains { entry in
+                guard entry.closeWhenCreated, case .createWorkspace(let provisional, _) = entry.kind else { return false }
+                return provisional.key == key
+            }
+        }
+    }
+
     /// Whether the stand-in's create may still bring its pane: the create that minted it is in the
     /// log (and not cancelled), or the records still show the stand-in.
     private func standInPending(_ target: PaneTarget) -> Bool {
+        guard !standInCancelled(target) else { return false }
         switch target.identity {
         case .daemon, .gone:
             return false

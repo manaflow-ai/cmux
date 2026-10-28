@@ -154,8 +154,10 @@ extension DaemonStore {
     private func releaseStandInTargets() {
         guard !standInTargets.isEmpty else { return }
         let targets = Set(intentLog.entries.compactMap { entry -> PaneID? in
-            if case .splitPane(let target, _, _, _) = entry.kind { return target }
-            return nil
+            switch entry.kind {
+            case .splitPane(let target, _, _, _), .createTab(let target, _): return target
+            default: return nil
+            }
         })
         standInTargets = standInTargets.filter { targets.contains($0.key) }
     }
