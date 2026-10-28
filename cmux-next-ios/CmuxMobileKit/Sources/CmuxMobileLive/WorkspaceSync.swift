@@ -164,10 +164,10 @@ public final class WorkspaceSync {
                 arrangementStale = true
                 await refresh()
             }
-        case .agentChanged(let surface, let state, let agent, let updatedAt):
+        case .agentChanged(let surface, let state, let agent, let updatedAt, let harnessSession):
             // A Mac that reports `updated_at_ms` gives the time; an older one gets the phone's.
             if updatedAt == nil, agents.bySurface[surface]?.state != state { activity[surface] = Date() }
-            agents.bySurface[surface] = AgentState(state: state, agent: agent, updatedAt: updatedAt)
+            agents.bySurface[surface] = AgentState(state: state, agent: agent, updatedAt: updatedAt, harnessSession: harnessSession)
             Task { await refresh() }
         case .other:
             break

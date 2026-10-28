@@ -3,7 +3,6 @@ import type { AcpmuxSnapshot } from "./model";
 import type { Choice, Combo } from "./ComposerPickers";
 import type { QuickMenuExtras } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
-import type { SpeedTiers } from "./FastToggle";
 
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
@@ -41,9 +40,10 @@ export type ModelPickerProps = {
     offValue: string;
     onLabel: string;
     offLabel: string;
+    lastOnValue?: string;
+    values?: readonly string[];
     onPick(value: string): void;
   };
-  speed?: SpeedTiers;
   /** Refreshes the host-backed model catalog; the host owns transport and live events. */
   catalogRefresh?: CatalogRefreshState;
   /// Starts a new chat in another harness; without it, other harnesses are not offered.

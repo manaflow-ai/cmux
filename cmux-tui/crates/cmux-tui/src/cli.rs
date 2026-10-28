@@ -197,10 +197,21 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
                 index += 1;
             }
             value if value.starts_with('-') => return false,
+            "remote" => return remote_family_word(args.get(index + 1)),
             value => return REMOTE_COMMANDS.contains(&value),
         }
     }
     false
+}
+
+/// Whether the word after `remote` keeps argv in the remote command family:
+/// none, a flag, `help` or one of its actions. Any other word is an app
+/// action's CLI name (`remote new-group`, `remote reconnect`), which the app
+/// action fallback runs.
+fn remote_family_word(word: Option<&String>) -> bool {
+    word.is_none_or(|word| {
+        word.starts_with('-') || word == "help" || remote_action_command(word).is_some()
+    })
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

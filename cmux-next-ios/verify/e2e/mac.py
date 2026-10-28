@@ -341,7 +341,14 @@ class Mac:
         env["CMUX_SOCKET_PATH"] = self.socket
         env["CMUX_TAG"] = self.tag
         env["CMUX_BUNDLE_ID"] = self.bundle_id
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, env=env)
+        except subprocess.TimeoutExpired as e:
+            # A loaded mini answers late: an unchecked call (a readiness ping)
+            # reads it as "not yet" and asks again, instead of ending the run.
+            if check:
+                raise
+            r = subprocess.CompletedProcess(cmd, 124, e.stdout or "", f"timed out after {timeout} s")
         if check and r.returncode != 0:
             raise RuntimeError(f"cmux {' '.join(args)}: {(r.stderr or r.stdout).strip()[:400]}")
         if json_out and r.returncode == 0:

@@ -124,8 +124,11 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
 /// Something is pending on the person: acpmux counts an open request, names what the chat waits
 /// on, or says the chat is `waiting` (a secret request sets that with neither, hub/secrets.rs). A
 /// chat on another computer, or one whose status is unknown, still shows by its indicator alone. A
-/// local chat acpmux says is not waiting has nothing pending, whatever its dot last said.
+/// local chat acpmux says is not waiting has nothing pending, whatever its dot last said. A chat
+/// acpmux marks `lost` (its machine is unreachable) waits on nobody: no one can answer its ask now,
+/// and the sidebar and tab strip mark it as an error, not as waiting (cx-zlox).
 function waitsOnPerson(session: AcpmuxSessionEntry): boolean {
+  if (session.indicator === "lost") return false;
   if ((session.pendingPermissions ?? 0) > 0 || session.waitingOn || session.status === "waiting") return true;
   return session.indicator === "input" && (Boolean(session.peer) || session.status === undefined);
 }
