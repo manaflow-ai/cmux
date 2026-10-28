@@ -181,6 +181,7 @@ extension SidebarListViewComponents {
             let active = Set(rowViews.values.map { ObjectIdentifier($0) })
             for view in subviews.compactMap({ $0 as? SidebarRowView })
                 where !view.isHidden && !active.contains(ObjectIdentifier(view)) {
+                view.closingEnd = nil
                 recycle(view)
             }
             for (key, view) in rowViews where layout.row(for: key) == nil {

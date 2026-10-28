@@ -219,6 +219,7 @@ struct SidebarRowsMoveOnRenderServerTests {
 
         #expect(Self.springing(list).isEmpty, "still springing after a reload without motion: \(Self.springing(list))")
         #expect(Self.offSlot(list).isEmpty, "not at their slots: \(Self.offSlot(list))")
+        #expect(list.rowViews.values.allSatisfy { $0.closingEnd == nil }, "a returned row still belongs to its earlier close")
     }
 
     /// Reduce Motion turned on mid-move: the next change snaps, the earlier move's springs with it.
