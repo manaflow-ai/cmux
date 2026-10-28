@@ -289,6 +289,7 @@ public struct PresentedEstimate: Sendable, Hashable {
     /// The display has a variable refresh rate (its minimum and maximum intervals differ): label the sample.
     public let isVariableRefresh: Bool
 
+    /// An estimate of `nanos` from `basis`, on a display with `refreshNanos` refresh.
     public init(nanos: UInt64, basis: Basis, refreshNanos: UInt64, isVariableRefresh: Bool) {
         self.nanos = nanos
         self.basis = basis

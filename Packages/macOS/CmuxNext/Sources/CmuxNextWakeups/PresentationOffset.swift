@@ -7,6 +7,7 @@ public struct PresentationOffset: Sendable, Hashable {
     /// Nanoseconds added to each estimate (negative moves it earlier).
     public let nanos: Int64
 
+    /// An offset of `nanos` nanoseconds.
     public init(nanos: Int64) {
         self.nanos = nanos
     }

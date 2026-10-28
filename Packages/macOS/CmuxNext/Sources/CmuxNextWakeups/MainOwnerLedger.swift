@@ -39,7 +39,9 @@ public final class MainOwnerLedger: Sendable {
 
     /// One owner and class: its tasks' wait and run time, node states and posting locations.
     public struct Owner: Sendable, Equatable {
+        /// The owner's name (``MainTaskOwner``).
         public var owner: String
+        /// The class its tasks ran in.
         public var workClass: MainWorkClass
         /// Tasks recorded.
         public var tasks: Int
@@ -58,8 +60,11 @@ public final class MainOwnerLedger: Sendable {
 
     /// One posting location (`posted_from`).
     public struct Site: Sendable, Equatable {
+        /// The posting file's `#fileID`.
         public var file: String
+        /// The posting line.
         public var line: UInt
+        /// Tasks posted from here.
         public var tasks: Int
 
         /// `File.swift:12`.
@@ -70,10 +75,15 @@ public final class MainOwnerLedger: Sendable {
     /// bound, capped at ``maxNanos``: from 1 µs up the true value is at most it and at least 4/5 of
     /// it; under 1 µs it reads 1 µs (or the maximum).
     public struct Distribution: Sendable, Equatable {
+        /// Samples in the histogram.
         public var count: Int
+        /// The median.
         public var p50Nanos: UInt64
+        /// The 95th percentile.
         public var p95Nanos: UInt64
+        /// The 99th percentile.
         public var p99Nanos: UInt64
+        /// The largest sample.
         public var maxNanos: UInt64
     }
 
@@ -333,14 +343,20 @@ extension MainOwnerLedger {
     public struct Histogram: Sendable, Equatable {
         static let minExponent = 10
         static let maxExponent = 36
+        /// The buckets: one under 1 µs, four per power of two, one overflow.
         public static let bucketCount = 1 + (maxExponent - minExponent + 1) * 4 + 1
 
+        /// Samples per bucket.
         public private(set) var counts = [Int](repeating: 0, count: Histogram.bucketCount)
+        /// Samples counted.
         public private(set) var count = 0
+        /// The longest sample, in nanoseconds.
         public private(set) var maxNanos: UInt64 = 0
 
+        /// An empty histogram.
         public init() {}
 
+        /// Counts one sample of `nanos` nanoseconds.
         public mutating func add(_ nanos: UInt64) {
             counts[Self.bucket(of: nanos)] += 1
             count += 1
@@ -389,6 +405,7 @@ extension MainOwnerLedger {
             return maxNanos
         }
 
+        /// The count, p50, p95, p99 and max of the samples.
         public var distribution: MainOwnerLedger.Distribution {
             MainOwnerLedger.Distribution(count: count, p50Nanos: percentile(0.5), p95Nanos: percentile(0.95), p99Nanos: percentile(0.99),
                                          maxNanos: maxNanos)
