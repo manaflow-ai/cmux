@@ -169,6 +169,10 @@ fn a_cold_start_answers_before_it_ends_its_dead_hosts_and_respawns_an_attached_o
     );
     assert_eq!(resolved["lifecycle"], "running", "{resolved}");
     assert_eq!(resolved["surface"].as_u64(), Some(surface), "{resolved}");
+    let records = load_terminal_host_records(&harness.host_root()).unwrap_or_default();
+    eprintln!("PHASE body-done t={:?} live-host-records={}", phase_clock.elapsed(), records.len());
+    drop(harness);
+    eprintln!("PHASE dropped t={:?}", phase_clock.elapsed());
 }
 
 /// Starts a daemon with `count` terminals, then kills it and every host, as
