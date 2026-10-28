@@ -5913,11 +5913,20 @@ function AcpmuxPane() {
   const cloudStartPending = useRef(false);
   /// Counts the Cloud starts that ended, so the folder default looks again once one has.
   const [cloudStartsEnded, setCloudStartsEnded] = useState(0);
+  /// `cloudStartPending` as state, for the New Tab page: no send of its own while a start is out.
+  const [cloudStarting, setCloudStarting] = useState(false);
   const sandboxModeRows = {
     mode: sandbox.mode,
     onMode: (mode: RunMode) => {
       runModePicked.current = true;
       sandbox.setMode(mode);
+    },
+    /// Auto picked on the New Tab page: no pick, so the mode is the folder's default again.
+    onDefault: () => {
+      runModePicked.current = false;
+      const mode: RunMode = folderRunDefault === "cloud" ? "cloud" : "persistent";
+      cloudByDefault.current = mode === "cloud";
+      if (sandbox.mode !== mode) sandbox.setMode(mode);
     },
   };
   /// A Sandboxed send: text only, by an agent a sandbox runs. A page-side refusal comes back as its
@@ -5937,9 +5946,13 @@ function AcpmuxPane() {
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
     if (refused) return translate("composer.cloudAttachments");
     const started = startCloud({ task: text, ...start });
-    if (started) cloudStartPending.current = true;
+    if (started) {
+      cloudStartPending.current = true;
+      setCloudStarting(true);
+    }
     void started?.then((answer) => {
       cloudStartPending.current = false;
+      setCloudStarting(false);
       setCloudStartsEnded((count) => count + 1);
       if (!answer.ok && !cloudStartToasted(answer))
         directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
@@ -9870,6 +9883,10 @@ function AcpmuxPane() {
                 heldBack.current = [...(heldBack.current ?? []), { text: text.trim() ? text : "", attachments }];
                 setSandboxDraftMoved(true);
               }}
+              // Auto may send to Cloud only while Cloud is offered, and sends nothing while a start is out,
+              // whatever Run as shows.
+              {...(sandboxOffered ? { cloudOffered: true } : {})}
+              {...(cloudStarting ? { cloudStarting } : {})}
               {...(sandboxOffered || sandboxPickedNotOffered || cloudPickedNotOffered
                 ? {
                     runMode: sandboxModeRows,
