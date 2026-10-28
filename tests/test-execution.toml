@@ -982,6 +982,10 @@ path = "tests/test_tui_publish_workflow_security.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_runs_on_labels.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_vm_scp.py"
 lane = "legacy"
 
@@ -1814,6 +1818,10 @@ path = "tests/test_merge_freeze.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_gh_pages.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_release_changelog_lines.py"
 lane = "linux-guard"
 
@@ -1915,6 +1923,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pr_capture_check.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_pr_perf_section_check.py"
 lane = "linux-guard"
 
 [[test]]

@@ -2869,6 +2869,13 @@ jobs:
           shared-key: cmux-next-fast-tier-cargo
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
+      # ghostty-vt-sys's build.rs runs zig, which downloads the packages itself, once and
+      # unretried: a mid-stream read error failed the job (pkg/highway ReadFailed). Fetch
+      # them first, each attempt under a deadline and retried.
+      - name: Fetch the ghostty-next Zig packages (retried)
+        if: ${{ steps.reuse.outputs.hit != 'true' }}
+        run: ./scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next
+
       - name: Run the fast tier (cargo entries)
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         env:
@@ -2931,8 +2938,10 @@ jobs:
       actions: read
       contents: read
     # A cold build of the package graph (CmuxNext plus its Shared and iOS test
-    # dependencies) and the selected suites.
-    timeout-minutes: 60
+    # dependencies) and the selected suites. Admission (up to 20 min), cache
+    # restore (~7 min) and the build (~6 min) used most of 60 before a full
+    # broad pass (~860 s on a slow mini) ran, so 90.
+    timeout-minutes: 90
     env:
       # This job's label (its runs-on): a glaeda-* label means a mini.
       CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.gui_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (needs.macos-placement.outputs.runner != '' && 'blacksmith-6vcpu-macos-26') || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
@@ -3191,10 +3200,14 @@ jobs:
       # they do not compete with the other MainActor-isolated suites.
       - name: Run package tests (changed suites first, then selected targets)
         if: ${{ (env.SWIFT_TARGETS != '') && steps.reuse.outputs.hit != 'true' }}
-        timeout-minutes: 20
+        timeout-minutes: 30
         working-directory: Packages/macOS/CmuxNext
         env:
-          CMUX_NEXT_TEST_HANG_SECONDS: "900"
+          # Whole-run limit per pass. The hang guard is the stall rule (no test
+          # finished in CMUX_NEXT_TEST_STUCK_SECONDS, default 300), so a real
+          # hang ends in ~5 min; this only caps a slow healthy pass (~860 s).
+          # Both passes share one deadline below the step's 30 minutes.
+          CMUX_NEXT_TEST_HANG_SECONDS: "1500"
           # At most 6 Swift Testing tests run at once. A test's time limit
           # counts from its start, and Swift Testing otherwise starts all
           # ~5,900 at once: on a mini shared with Xcode compiles, tests used
@@ -3205,6 +3218,9 @@ jobs:
         run: |
           set -euo pipefail
           echo "Test targets: $SWIFT_TARGETS"
+          # One deadline for both passes, 2 min inside the step timeout, so a pass
+          # hung before any test starts is still sampled and reported.
+          deadline=$(( $(date +%s) + 1680 ))
           filter=()
           [[ -z "$SWIFT_FILTER" ]] || filter=(--filter "$SWIFT_FILTER")
           priority_skip=()
@@ -3220,7 +3236,10 @@ jobs:
             priority_skip=(--skip "$SWIFT_PRIORITY_FILTER")
           fi
           broad_status=0
-          if ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} \
+          left=$(( deadline - $(date +%s) ))
+          (( left >= 60 )) || left=60
+          (( left <= CMUX_NEXT_TEST_HANG_SECONDS )) || left=$CMUX_NEXT_TEST_HANG_SECONDS
+          if CMUX_NEXT_TEST_HANG_SECONDS="$left" ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build ${filter[@]+"${filter[@]}"} \
               ${priority_skip[@]+"${priority_skip[@]}"} --skip CmuxNextControlTests --skip BranchStateResourcesTests --skip CloudBringBackTests \
               --skip CommitBoundaryAppKitTests; then
             :
@@ -4497,10 +4516,10 @@ jobs:
   # requests immediately; the Mac job below requests only when it had no
   # verdict. Main's promote job refuses a head whose push run has no successful
   # Release compile, so each request waits for its own gate and for nothing else.
-  # Every green head is promoted, with no debounce: nightly.yml's concurrency
-  # group lets the running nightly-next build finish and replaces only the
-  # pending one, so the feed rolls forward to the newest green head without
-  # dropping the last one. Only main's job, in the `release` environment,
+  # Since 2026-10-28 this request only reports: request-nightly-next.sh dispatches
+  # the promotion only from main's 30-minute nightly-next-tick.yml
+  # (NIGHTLY_NEXT_PROMOTE=1), so a burst of landings starts one nightly build,
+  # not one each (six ran at once). Only main's job, in the `release` environment,
   # holds the release App key and checks this push run's Release compile; this
   # job only needs actions: write to request it.
   # The request also waits for this commit's cmux-tui tree: the nightly builds

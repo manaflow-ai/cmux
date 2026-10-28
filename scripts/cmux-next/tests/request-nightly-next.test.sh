@@ -128,7 +128,7 @@ request() { # <args...> -> output in $out, exit in $status
   status=0
   : > "$TMP/gh.log"
   out=$(cd "$src" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$TMP/bin:$PATH" \
-    RUNNER_TEMP="$TMP/runner" GITHUB_RUN_ID="${RUN_ID:-1}" \
+    RUNNER_TEMP="$TMP/runner" GITHUB_RUN_ID="${RUN_ID:-1}" NIGHTLY_NEXT_PROMOTE="${PROMOTE-1}" \
     bash scripts/cmux-next/request-nightly-next.sh --repo o/r "$@" 2>&1) || status=$?
 }
 mkdir -p "$TMP/runner"
@@ -144,10 +144,21 @@ request --sha "$head" --release-compile-green
 ! dispatched "$head" || fail "a commit whose tree is not published must not be promoted:" "$(cat "$TMP/gh.log")"
 grep -q "not published" <<<"$out" || fail "the skip must say the tree is not published:" "$out"
 
-# Once the tree publishes, the same green commit is promoted.
+# Once the tree publishes, the same green commit is promotable. Landings (cmux-next.yml,
+# cmux-tui-artifacts.yml) only report it: N of them within one window dispatch nothing,
+# and the 30-minute tick, the one caller that sets NIGHTLY_NEXT_PROMOTE=1, promotes once.
 publish "$head"
+for landing in 1 2 3; do
+  PROMOTE="" request --sha "$head" --release-compile-green
+  [[ "$status" == 0 ]] || fail "a landing's request must not fail (exit $status):" "$out"
+  ! grep -q "workflow run nightly.yml" "$TMP/gh.log" || fail "a landing must not promote (landing $landing):" "$(cat "$TMP/gh.log")"
+  grep -q "^promotable ${head:0:12}: .*30-minute nightly-next tick" <<<"$out" || fail "the landing must name the tick:" "$out"
+done
+PROMOTE=0 request --sha "$head" --release-compile-green
+! grep -q "workflow run nightly.yml" "$TMP/gh.log" || fail "only NIGHTLY_NEXT_PROMOTE=1 promotes:" "$(cat "$TMP/gh.log")"
 request --sha "$head" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$head" || fail "a green commit with a published tree must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+[[ "$(grep -c "workflow run nightly.yml" "$TMP/gh.log")" == 1 ]] || fail "the tick requests one promotion:" "$(cat "$TMP/gh.log")"
 
 # A later app-only commit shares the published tree (the key is content-addressed).
 echo app > "$src/App.swift"; git_q -C "$src" add -A; git_q -C "$src" commit -m "app only"
@@ -251,7 +262,7 @@ STUB
 chmod +x "$TMP/gitbin/git"
 : > "$TMP/git.log"; : > "$TMP/gh.log"
 status=0
-out=$(cd "$shallow" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$TMP/gitbin:$TMP/bin:$PATH" \
+out=$(cd "$shallow" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_TREE_DISPATCH PATH="$TMP/gitbin:$TMP/bin:$PATH" NIGHTLY_NEXT_PROMOTE=1 \
   bash scripts/cmux-next/request-nightly-next.sh --repo o/r --tree-ready "$head" 2>&1) || status=$?
 [[ "$status" == 0 ]] && dispatched "$app" || fail "a shallow checkout must still promote the newest green commit (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 fetches=$(grep -c . "$TMP/git.log" || true)
@@ -491,6 +502,51 @@ rm -f "$cdn/tree/$okey/daemon-tests.json" "$cdn/tree-commits/$other.json"
 wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 2>&1) \
   || fail "the writer must succeed when nothing is ready:" "$wout"
 [[ ! -f "$cdn/tree-commits/$other.json" ]] || fail "a tree without its daemon tests must not be marked:" "$wout"
+# --tip-branch: a run that publishes a tree late marks the newer branch commits sharing
+# it (their own runs ran before the tree existed and marked nothing). The run at
+# $head published its tree; $app, a later app-only commit, shares the key.
+rm -rf "$cdn/tree-commits"
+git_q -C "$src" checkout -q --detach "$head"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 2>&1) \
+  || fail "the writer failed:" "$wout"
+[[ -f "$cdn/tree-commits/$head.json" && ! -f "$cdn/tree-commits/$app.json" ]] \
+  || fail "without --tip-branch the writer walks only HEAD's window:" "$wout"
+git_q -C "$src" update-ref refs/heads/marker-tip "$app"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 --tip-branch marker-tip 2>&1) \
+  || fail "the writer with --tip-branch failed:" "$wout"
+[[ "$(git -C "$src" rev-parse --is-shallow-repository)" == false ]] || fail "--tip-branch must not make a full clone shallow"
+[[ -f "$cdn/tree-commits/$app.json" ]] || fail "--tip-branch must mark a newer commit that shares the published tree:" "$wout"
+python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["commit"]==sys.argv[2] and d["key"]==sys.argv[3], d' \
+  "$cdn/tree-commits/$app.json" "$app" "$(key "$head")" || fail "the tip's marker must name its own commit and the shared key"
+grep -q "1 written" <<<"$wout" || fail "--tip-branch must write each commit once (HEAD was already marked):" "$wout"
+rm -f "$cdn/tree-commits/$app.json"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 --tip-branch no-such-branch 2>&1) \
+  || fail "a tip that does not fetch must not fail the writer:" "$wout"
+[[ -f "$cdn/tree-commits/$head.json" && ! -f "$cdn/tree-commits/$app.json" ]] && grep -q "could not fetch no-such-branch" <<<"$wout" \
+  || fail "a tip that does not fetch marks from HEAD alone, with a warning:" "$wout"
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --tip-branch 'bad name' >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 2 ]] || fail "a --tip-branch that is not a branch name is a usage error (exit 2), got $rc"
+# A tip commit whose tree key definition (key script or input list) differs from
+# this checkout's is not keyed here, even when this checkout's key would match.
+git_q -C "$src" checkout -q -b keydef "$app"
+echo "# a key definition change" >> "$src/scripts/cmux-next/cmux-tui-tree-inputs.txt"
+git_q -C "$src" commit -m "key definition" scripts/cmux-next/cmux-tui-tree-inputs.txt
+keydef=$(git -C "$src" rev-parse HEAD)
+git_q -C "$src" checkout -q --detach "$head"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 2 --tip-branch keydef 2>&1) \
+  || fail "the writer with a cross-definition --tip-branch failed:" "$wout"
+[[ ! -f "$cdn/tree-commits/$keydef.json" ]] || fail "a tip commit with another key definition must not be marked here:" "$wout"
+grep -q "key definition differs" <<<"$wout" || fail "the writer must say why it skipped the tip commit:" "$wout"
+# The same holds for an ancestor in HEAD's window: run from $keydef, the older
+# commits (another key definition) are not marked by it.
+rm -rf "$cdn/tree-commits"
+git_q -C "$src" checkout -q --detach "$keydef"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 3 2>&1) \
+  || fail "the writer from a key definition change failed:" "$wout"
+[[ ! -f "$cdn/tree-commits/$app.json" && ! -f "$cdn/tree-commits/$head.json" ]] \
+  || fail "an ancestor with another key definition must not be marked:" "$wout"
+grep -q "key definition differs" <<<"$wout" || fail "the writer must say why it skipped the ancestor:" "$wout"
+git_q -C "$src" checkout -q --detach "$other"
 # check: 200 naming the commit, 404, and anything else (another commit, a 500) a read failure (3).
 printf '{"commit": "%s", "key": "%s", "publishedBy": "%s", "markedBy": "https://u"}\n' "$head" "$okey" "$other" > "$cdn/tree-commits/$other.json"
 rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" bash scripts/cmux-next/tree-commit-marker.sh check "$other" >/dev/null 2>&1) || rc=$?

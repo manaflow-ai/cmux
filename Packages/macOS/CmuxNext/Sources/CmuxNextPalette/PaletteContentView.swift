@@ -340,28 +340,26 @@ final class PaletteContentView: NSView {
         return Motion.scale(scale, about: panelCenter, in: layer)
     }
 
-    /// Shows or hides the Cmd-K Actions menu: it fades and grows from
-    /// `Motion.panelOpenScale` with the `appear` spring about its footer
-    /// corner, and fades out shrinking toward `Motion.panelCloseScale`, as
-    /// the palette does about its center. Both start from what is on screen,
-    /// so a reopen mid-close does not jump; Reduce Motion keeps only the fade.
+    /// Shows or hides the Cmd-K Actions menu. The palette itself keeps its
+    /// deliberate entrance motion, but this nested menu opens in one frame;
+    /// closing may still fade and shrink toward `Motion.panelCloseScale`.
     func animateActionsMenu(appearing: Bool) {
         let view = actionsMenuView
-        let wasHidden = view.isHidden
-        if wasHidden {
-            view.alphaValue = 0
+        if appearing {
+            actionsMenuFadingOut = false
             view.isHidden = false
+            view.layer?.removeAnimation(forKey: "sublayerTransform")
+            view.layer?.removeAnimation(forKey: "opacity")
+            view.layer?.sublayerTransform = CATransform3DIdentity
+            view.alphaValue = 1
+            return
         }
-        actionsMenuFadingOut = !appearing
+
+        actionsMenuFadingOut = true
         if let layer = view.layer {
-            if appearing {
-                Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .appear,
-                           from: wasHidden ? NSValue(caTransform3D: view.scaled(Motion.panelOpenScale)) : nil)
-            } else {
-                Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: view.scaled(Motion.panelCloseScale)), movementFade: .fadeOut)
-            }
+            Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: view.scaled(Motion.panelCloseScale)), movementFade: .fadeOut)
         }
-        Motion.overlays.animate(appearing ? .fadeIn : .fadeOut, in: view, { view.animator().alphaValue = appearing ? 1 : 0 }, completion: { [weak self] in
+        Motion.overlays.animate(.fadeOut, in: view, { view.animator().alphaValue = 0 }, completion: { [weak self] in
             guard let self, self.actionsMenuFadingOut, !appearing else { return }
             self.actionsMenuFadingOut = false
             view.isHidden = true
