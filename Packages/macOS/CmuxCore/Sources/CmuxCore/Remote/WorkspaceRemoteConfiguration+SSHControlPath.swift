@@ -42,6 +42,7 @@ extension WorkspaceRemoteConfiguration {
                 sshControlMasterLeaseGeneration
         )
         copy.restoredSSHSession = restoredSSHSession
+        copy.eternalTerminalOptions = eternalTerminalOptions
         return copy
     }
 }

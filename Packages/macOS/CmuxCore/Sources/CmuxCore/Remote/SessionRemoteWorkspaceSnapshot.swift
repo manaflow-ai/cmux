@@ -13,6 +13,8 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
     public var transport: WorkspaceRemoteTransport
     /// The interactive terminal protocol, absent in snapshots written before Mosh support.
     public var terminalTransport: WorkspaceRemoteTerminalTransport? = nil
+    /// Eternal Terminal client settings, present only for an `et` terminal transport.
+    public var eternalTerminalOptions: EternalTerminalOptions? = nil
     /// Durable terminal program intent, absent in snapshots written before terminal profiles.
     public var terminalProfile: WorkspaceRemoteTerminalProfile? = nil
     /// Effective host-configured command for the managed interactive shell.

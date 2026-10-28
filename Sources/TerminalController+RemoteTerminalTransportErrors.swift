@@ -16,6 +16,33 @@ extension TerminalController {
         return (profile, nil)
     }
 
+    /// Parses the optional `terminal_et_options` object
+    /// (`port`, `terminal_path`, `tunnels`, `reverse_tunnels`).
+    func remoteEternalTerminalConfiguration(
+        _ params: [String: Any]
+    ) -> (options: EternalTerminalOptions, error: ControlCallResult?) {
+        guard v2HasNonNullParam(params, "terminal_et_options") else { return (.default, nil) }
+        guard let raw = params["terminal_et_options"] as? [String: Any] else {
+            return (.default, invalidRemoteEternalTerminalOptionsResult())
+        }
+        var port: Int?
+        if v2HasNonNullParam(raw, "port") {
+            guard let parsed = v2StrictInt(raw, "port") else {
+                return (.default, invalidRemoteEternalTerminalOptionsResult())
+            }
+            port = parsed
+        }
+        guard let options = EternalTerminalOptions(
+            serverPort: port,
+            terminalPath: v2RawString(raw, "terminal_path"),
+            tunnels: v2StringArray(raw, "tunnels") ?? [],
+            reverseTunnels: v2StringArray(raw, "reverse_tunnels") ?? []
+        ) else {
+            return (.default, invalidRemoteEternalTerminalOptionsResult())
+        }
+        return (options, nil)
+    }
+
     func remoteTransportConfiguration(
         _ params: [String: Any]
     ) -> (
@@ -47,7 +74,18 @@ extension TerminalController {
             code: "invalid_params",
             message: String(
                 localized: "socket.workspace.remote.terminalTransport.invalid",
-                defaultValue: "The remote terminal transport must be SSH or Mosh."
+                defaultValue: "The remote terminal transport must be SSH, Mosh, or Eternal Terminal."
+            ),
+            data: nil
+        )
+    }
+
+    func invalidRemoteEternalTerminalOptionsResult() -> ControlCallResult {
+        .err(
+            code: "invalid_params",
+            message: String(
+                localized: "socket.workspace.remote.terminalTransport.etOptionsInvalid",
+                defaultValue: "Eternal Terminal options need a port from 1 to 65535 and non-empty values without control characters."
             ),
             data: nil
         )
@@ -69,7 +107,7 @@ extension TerminalController {
             code: "invalid_params",
             message: String(
                 localized: "socket.workspace.remote.terminalTransport.moshRequiresSSH",
-                defaultValue: "Mosh terminal transport requires an SSH-managed workspace."
+                defaultValue: "Mosh and Eternal Terminal transports require an SSH-managed workspace."
             ),
             data: nil
         )

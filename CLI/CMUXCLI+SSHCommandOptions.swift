@@ -27,6 +27,8 @@ extension CMUXCLI {
         let remoteCommand: SSHRemoteCommand
         let terminalTransport: WorkspaceRemoteTerminalTransport
         let terminalProfile: WorkspaceRemoteTerminalProfile
+        /// ET client settings; used only when ``terminalTransport`` is `.et`.
+        let eternalTerminalOptions: EternalTerminalOptions
         let agentSocketPath: String?
         let passwordCredential: String?
         let localSocketPath: String
@@ -62,6 +64,7 @@ extension CMUXCLI {
             remoteCommand: SSHRemoteCommand,
             terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
             terminalProfile: WorkspaceRemoteTerminalProfile = .shell,
+            eternalTerminalOptions: EternalTerminalOptions = .default,
             agentSocketPath: String? = nil,
             passwordCredential: String? = nil,
             localSocketPath: String,
@@ -82,6 +85,7 @@ extension CMUXCLI {
             self.remoteCommand = remoteCommand
             self.terminalTransport = terminalTransport
             self.terminalProfile = terminalProfile
+            self.eternalTerminalOptions = eternalTerminalOptions
             self.agentSocketPath = agentSocketPath
             self.passwordCredential = passwordCredential
             self.localSocketPath = localSocketPath

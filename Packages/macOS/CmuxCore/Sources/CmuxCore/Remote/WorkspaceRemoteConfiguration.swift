@@ -16,6 +16,9 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
     /// retained for recovery, never silently converted into a new TUI session.
     public var restoredSSHSession: SessionRemoteWorkspaceSnapshot? = nil
 
+    /// Eternal Terminal client settings used when ``terminalTransport`` is `.et`.
+    public var eternalTerminalOptions: EternalTerminalOptions? = nil
+
     /// Durable program profile opened in the interactive terminal.
     public let terminalProfile: WorkspaceRemoteTerminalProfile
     /// Effective host-configured command chained after cmux's interactive bootstrap.
@@ -204,6 +207,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
         lhs.restoredSSHSession == rhs.restoredSSHSession &&
             lhs.transport == rhs.transport &&
             lhs.terminalTransport == rhs.terminalTransport &&
+            lhs.eternalTerminalOptions == rhs.eternalTerminalOptions &&
             lhs.terminalProfile == rhs.terminalProfile &&
             lhs.configuredRemoteCommand == rhs.configuredRemoteCommand &&
             lhs.destination == rhs.destination &&
@@ -446,6 +450,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             skipDaemonBootstrap: skipDaemonBootstrap
         )
         copy.restoredSSHSession = restoredSSHSession
+        copy.eternalTerminalOptions = eternalTerminalOptions
         return copy
     }
 
@@ -484,6 +489,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             sshControlMasterLeaseGeneration: sshControlMasterLeaseGeneration
         )
         copy.restoredSSHSession = restoredSSHSession
+        copy.eternalTerminalOptions = eternalTerminalOptions
         return copy
     }
 
@@ -516,6 +522,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
             sshControlMasterLeaseGeneration: generation
         )
         copy.restoredSSHSession = restoredSSHSession
+        copy.eternalTerminalOptions = eternalTerminalOptions
         return copy
     }
 }
@@ -589,7 +596,7 @@ extension WorkspaceRemoteConfiguration {
 
         guard transport == .ssh else { return nil }
         if let restoredSSHSession { return restoredSSHSession }
-        let retainsRelayNamespace = preserveAfterTerminalExit || terminalTransport == .mosh
+        let retainsRelayNamespace = preserveAfterTerminalExit || terminalTransport != .ssh
 
         var snapshot = SessionRemoteWorkspaceSnapshot(
             transport: transport,
@@ -608,6 +615,9 @@ extension WorkspaceRemoteConfiguration {
             persistentDaemonSlot: preserveAfterTerminalExit ? persistentDaemonSlot : nil,
             managedCloudVMID: managedCloudVMID
         )
+        if terminalTransport == .et {
+            snapshot.eternalTerminalOptions = eternalTerminalOptions
+        }
         // Same rule as the app's routesThroughSSHTui: a configuration carrying a
         // cmuxd-remote relay or daemon endpoint runs the legacy lifecycle, so its
         // snapshot must not claim cmux-tui ownership.

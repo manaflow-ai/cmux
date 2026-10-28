@@ -14359,6 +14359,21 @@ struct CMUXCLI {
                 sshFallbackCommand: remoteTerminalSSHStartupCommand
             )
         }
+        if effectiveTerminalTransport == .et {
+            initialSSHStartupCommand = buildEternalTerminalStartupCommand(
+                options: sshOptions,
+                remoteBootstrapScript: remoteTerminalBootstrapScript,
+                localCommandScript: combinedLocalCommandScript,
+                sshFallbackCommand: initialSSHStartupCommand,
+                sshFallbackLauncherPaths: launchScripts.unlaunchedPaths
+            )
+            remoteTerminalSSHStartupCommand = buildEternalTerminalStartupCommand(
+                options: sshOptions,
+                remoteBootstrapScript: remoteTerminalBootstrapScript,
+                localCommandScript: combinedLocalCommandScript,
+                sshFallbackCommand: remoteTerminalSSHStartupCommand
+            )
+        }
         let reusableTerminalStartupCommand: String
         if let vmIDForSplitAttach,
            sshOptions.skipDaemonBootstrap {
@@ -14489,6 +14504,9 @@ struct CMUXCLI {
             ]
             if let tmuxSessionName = sshOptions.terminalProfile.tmuxSessionName {
                 configureParams["terminal_tmux_session"] = tmuxSessionName
+            }
+            if effectiveTerminalTransport == .et {
+                configureParams["terminal_et_options"] = eternalTerminalConfigureParams(sshOptions.eternalTerminalOptions)
             }
             if let configuredInteractiveRemoteCommand {
                 configureParams["configured_remote_command"] = configuredInteractiveRemoteCommand
@@ -14722,6 +14740,11 @@ struct CMUXCLI {
         var terminalTransport = defaultTerminalTransport
         var terminalProfile = defaultTerminalProfile
         var forwardAgentOverride: Bool?
+        var etServerPort: Int?
+        var etTerminalPath: String?
+        var etTunnels: [String] = []
+        var etReverseTunnels: [String] = []
+        var hasEternalTerminalOption = false
 
         var passthrough = false
         var index = 0
@@ -14799,10 +14822,36 @@ struct CMUXCLI {
                       let parsed = WorkspaceRemoteTerminalTransport(cliValue: commandArgs[index + 1]) else {
                     throw CLIError(message: String(
                         localized: "cli.ssh.transport.invalid",
-                        defaultValue: "ssh: --transport must be followed by 'ssh' or 'mosh'"
+                        defaultValue: "ssh: --transport must be followed by 'ssh', 'mosh', or 'et'"
                     ))
                 }
                 terminalTransport = parsed
+                index += 2
+            case "--et-port", "--et-terminal-path", "--et-tunnel", "--et-reversetunnel":
+                guard index + 1 < commandArgs.count else {
+                    throw CLIError(message: String.localizedStringWithFormat(
+                        String(localized: "cli.ssh.et.optionRequiresValue", defaultValue: "ssh: %@ requires a value"),
+                        arg
+                    ))
+                }
+                let value = commandArgs[index + 1]
+                switch arg {
+                case "--et-port":
+                    guard let parsed = Int(value), (1...65_535).contains(parsed) else {
+                        throw CLIError(message: String(
+                            localized: "cli.ssh.et.portInvalid",
+                            defaultValue: "ssh: --et-port must be 1-65535"
+                        ))
+                    }
+                    etServerPort = parsed
+                case "--et-terminal-path":
+                    etTerminalPath = value
+                case "--et-tunnel":
+                    etTunnels.append(value)
+                default:
+                    etReverseTunnels.append(value)
+                }
+                hasEternalTerminalOption = true
                 index += 2
             case "--session" where terminalProfile.kind == .tmux:
                 guard index + 1 < commandArgs.count,
@@ -14865,6 +14914,23 @@ struct CMUXCLI {
         if initialCommand != nil, !remoteCommand.arguments.isEmpty {
             throw CLIError(message: String(localized: "cli.ssh.error.commandConflict", defaultValue: "ssh: --command cannot be combined with trailing remote command arguments"))
         }
+        if hasEternalTerminalOption, terminalTransport != .et {
+            throw CLIError(message: String(
+                localized: "cli.ssh.et.optionsRequireTransport",
+                defaultValue: "ssh: --et-* options require --transport et"
+            ))
+        }
+        guard let eternalTerminalOptions = EternalTerminalOptions(
+            serverPort: etServerPort,
+            terminalPath: etTerminalPath,
+            tunnels: etTunnels,
+            reverseTunnels: etReverseTunnels
+        ) else {
+            throw CLIError(message: String(
+                localized: "cli.ssh.et.optionsInvalid",
+                defaultValue: "ssh: --et-* values must be non-empty and free of control characters"
+            ))
+        }
         let agentForwarding = resolvedSSHAgentForwarding(
             sshOptions: sshOptions,
             override: forwardAgentOverride
@@ -14885,6 +14951,7 @@ struct CMUXCLI {
             remoteCommand: remoteCommand,
             terminalTransport: terminalTransport,
             terminalProfile: terminalProfile,
+            eternalTerminalOptions: eternalTerminalOptions,
             agentSocketPath: agentForwarding.agentSocketPath,
             localSocketPath: localSocketPath,
             remoteRelayPort: remoteRelayPort
