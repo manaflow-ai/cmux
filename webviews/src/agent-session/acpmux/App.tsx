@@ -6738,7 +6738,8 @@ function AcpmuxPane() {
       // which this folder's history may undo.
       if (sandbox.mode === "cloud") cloudByDefault.current = true;
     }
-    if (runModePicked.current || snapshot.sessionId || cloudStartPending.current) return;
+    // A chat starting here (its session not shown yet) keeps the mode it starts with.
+    if (runModePicked.current || snapshot.sessionId || snapshot.summary?.sessionId || cloudStartPending.current) return;
     if (folderRunDefault === "cloud" && sandbox.mode === "persistent") {
       cloudByDefault.current = true;
       sandbox.setMode("cloud");
@@ -6746,7 +6747,15 @@ function AcpmuxPane() {
       cloudByDefault.current = false;
       sandbox.setMode("persistent");
     }
-  }, [folderRunDefault, snapshot.sessionId, newTabGeneration, sandbox, sandbox.mode, cloudStartsEnded]);
+  }, [
+    folderRunDefault,
+    snapshot.sessionId,
+    snapshot.summary?.sessionId,
+    newTabGeneration,
+    sandbox,
+    sandbox.mode,
+    cloudStartsEnded,
+  ]);
   /// A fresh chat's first prompt went: the commands it ran join the session it gets.
   const claimShellRuns = useRef(false);
   useEffect(() => {
