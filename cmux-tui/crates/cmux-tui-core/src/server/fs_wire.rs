@@ -30,6 +30,7 @@ use super::{
 use crate::fs_ops::stream::{self, StreamRequest};
 use crate::fs_ops::{FsError, FsService, frame_command, object_command};
 use crate::mux::Mux;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 /// A stream that sends nothing for this long is cancelled.
 const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -301,10 +302,11 @@ fn serve_stream(
     // Closing the client (a kick, a handoff, the entry's shutdown, or the
     // end of the stream) closes its queue; this thread then shuts the
     // socket down, which ends a blocked read or write of the stream at once.
-    let watcher = crate::thread_qos::spawn_raisable(
+    let watcher = supervised::spawn_raisable(
         "mux-fs-stream-close",
         crate::thread_qos::ThreadType::Utility.qos(),
-        None,
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             // mq14-allow: the close watcher waits for its own queue (a checked wait).
             while outbound.recv().is_some() {}

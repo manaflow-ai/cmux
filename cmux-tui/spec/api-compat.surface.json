@@ -13182,6 +13182,21 @@
         "nullable": true
       }
     },
+    "request:set-stream-priority": {
+      "/priority": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "focused",
+          "hidden",
+          "visible"
+        ]
+      },
+      "/stream": {
+        "ty": "uint16",
+        "required": true
+      }
+    },
     "request:set-tab-pinned": {
       "/pinned": {
         "ty": "boolean",
@@ -25130,6 +25145,20 @@
       }
     },
     "response:set-split-ratio": {},
+    "response:set-stream-priority": {
+      "/data/outcome": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "applied",
+          "ended"
+        ]
+      },
+      "/data/stream": {
+        "ty": "uint16",
+        "required": true
+      }
+    },
     "response:set-tab-pinned": {
       "/data": {
         "ty": "json",

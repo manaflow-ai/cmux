@@ -15,8 +15,9 @@
 //!   instead of starting over; the record goes once the upload is finished or cancelled.
 
 use super::Sent;
-use crate::client::{Client, DaemonError};
+use crate::client::DaemonError;
 use crate::rpc::method;
+use crate::subsession_mcp::ToolRequests;
 use anyhow::Context;
 use base64::Engine;
 use serde_json::{Value, json};
@@ -133,7 +134,7 @@ impl<'a> Progress<'a> {
 /// Whether failure `e` of a request to `daemon` may pass if asked again: a link that dropped or
 /// timed out, a peer that is down, a chunk the daemon did not take at that offset. Not a refusal
 /// the daemon gave for the upload itself, a local file error, or a closed daemon connection.
-pub(super) fn transient(daemon: &Client, e: &anyhow::Error) -> bool {
+pub(super) fn transient<D: ToolRequests>(daemon: &D, e: &anyhow::Error) -> bool {
     if e.downcast_ref::<LinkStopped>().is_some() {
         return true;
     }
@@ -176,15 +177,15 @@ fn link_failure(rpc: &crate::rpc::RpcError) -> bool {
 
 /// `e` as the failure of `label`'s upload: [`LinkStopped`] when the link it went on stopped, so
 /// the caller keeps the uploads for a later send to resume.
-pub(super) fn failure(daemon: &Client, label: &str, e: anyhow::Error) -> anyhow::Error {
+pub(super) fn failure<D: ToolRequests>(daemon: &D, label: &str, e: anyhow::Error) -> anyhow::Error {
     let message = format!("cannot attach {label}: {e:#}");
     if transient(daemon, &e) { LinkStopped(message).into() } else { anyhow::anyhow!(message) }
 }
 
 /// Asks `call` until it answers, waiting longer each time a [`transient`] failure comes, for at
 /// most [`STALL`] from `since`.
-pub(super) async fn retrying<F, Fut>(
-    daemon: &Client,
+pub(super) async fn retrying<D: ToolRequests, F, Fut>(
+    daemon: &D,
     say: Say<'_>,
     what: &str,
     since: Instant,
@@ -277,8 +278,8 @@ impl Record {
 /// The upload an earlier send of this file to this chat began, and where it stands: `(id,
 /// owner, offset)`. None when there is none, or the daemon answers it is not that upload (the
 /// record goes). Err when the daemon cannot be asked: the record stays for a later send.
-async fn resumable(
-    daemon: &Client,
+async fn resumable<D: ToolRequests>(
+    daemon: &D,
     say: Say<'_>,
     chat: &str,
     record: &Record,
@@ -315,8 +316,8 @@ async fn resumable(
 /// Begins (or resumes, [`resumable`]) an upload of the file at `path`, `size` bytes, to chat
 /// `chat` and sends its bytes in chunks read as they go, retrying what the link loses. A failure
 /// answers the upload when it was begun, for the caller to cancel or keep ([`LinkStopped`]).
-pub(super) async fn upload(
-    daemon: &Client,
+pub(super) async fn upload<D: ToolRequests>(
+    daemon: &D,
     chat: &str,
     path: &Path,
     size: u64,
@@ -331,7 +332,7 @@ pub(super) async fn upload(
     let mut head = vec![0u8; HEAD_BYTES.min(usize::try_from(size).unwrap_or(HEAD_BYTES))];
     file.read_exact(&mut head).await.map_err(|e| (fail(e.into()), None))?;
     let say = progress.say;
-    let resume = daemon.daemon_lists(crate::hub::file_uploads::RESUME_FEATURE);
+    let resume = daemon.lists(crate::hub::file_uploads::RESUME_FEATURE);
     let mut record = resume.then(|| Record::claim(chat, path, &meta)).flatten();
     let earlier = match &record {
         Some(record) => resumable(daemon, say, chat, record, &name, size).await,

@@ -113,7 +113,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.stripView.previewProvider = services.previews
         view.stripView.hoverFrameInput = services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
         view.stripView.scrollFrameInput = services.tabScrollFrameInput  // scroll by translation once per frame (`tabStripScrollFrames`)
-        view.stripView.resourceSource = services.resources
+        view.stripView.setResourceSource(services.resources, deadlines: services.mainDeadlines)
         // The + is a plain button (Lawrence 2026-10-27: no dropdown caret): a press makes the default
         // tab; a hold or a right-click opens the type menu (`TabStripView.showNewTabMenu`).
         view.stripView.opensNewTabMenuOnPress = false

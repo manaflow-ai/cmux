@@ -10,7 +10,9 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// link (a hover card's `pr.inspect`). Nil when gh is not installed, there is no such pull
 /// request, or gh does not answer in time; it never prompts.
 public nonisolated struct AgentChatPullRequestReader: Sendable {
-    /// `gh`'s path; nil looks in the App's PATH and the usual install folders.
+    /// `gh`'s path; nil runs `gh` through `/usr/bin/env`, which finds it on the PATH of gh's
+    /// environment (``environment(_:)``: the App's PATH, then the usual install folders) as the
+    /// child starts, so nothing checks a file before the read.
     var gh: String?
     var timeout: Duration = .seconds(30)
     /// The App's environment, from which gh gets the user's GitHub settings (``githubVariables``).
@@ -189,28 +191,34 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
     /// answer in time (it gets SIGTERM, then SIGKILL). No thread waits for it. Nobody waits for a
     /// chip's pull request now, so gh runs at bestEffort.
     private func run(_ arguments: [String], in folder: String?, anyExit: Bool) async -> Data? {
-        guard let gh = gh ?? Self.findGitHubCLI(environment) else { return nil }
-        let request = ProcessRequest(URL(fileURLWithPath: gh), arguments, environment: Self.environment(environment),
+        let executable = gh ?? Self.env, command = gh == nil ? ["gh"] + arguments : arguments
+        let request = ProcessRequest(URL(fileURLWithPath: executable), command, environment: Self.environment(environment),
                                      directory: folder.map { URL(fileURLWithPath: $0) }, timeout: timeout, priority: .bestEffort)
         let outcome = try? await processes.outcome(of: request)
-        // A deadline kill is never an answer.
-        guard let outcome, outcome.succeeded || (anyExit && outcome.exited) else { return nil }
+        // A deadline kill is never an answer, nor env's "no gh".
+        guard let outcome, outcome.succeeded || (anyExit && outcome.exited && outcome.status != Self.notFound) else { return nil }
         return outcome.output
     }
 
-    /// gh's environment: no prompts, the App's PATH and gh's install folders, HOME, and the user's
-    /// GitHub settings.
+    /// Where `/usr/bin/env gh` looks for gh: the App's PATH, then the folders an app launched from
+    /// Finder lacks on it (``installFolders``).
+    public static func searchPath(_ app: [String: String]) -> String {
+        ([app["PATH"] ?? "/usr/bin:/bin"] + installFolders).joined(separator: ":")
+    }
+
+    /// Runs `gh` found on its environment's PATH (``gh`` nil).
+    static let env = "/usr/bin/env"
+    /// `env`'s exit status when it finds no `gh` on that PATH: gh is not installed.
+    static let notFound: Int32 = 127
+
+    /// gh's environment: no prompts, the App's PATH and gh's install folders (``searchPath(_:)``), HOME,
+    /// and the user's GitHub settings. Run as `/usr/bin/env gh` with it, gh is found on that PATH.
     static func environment(_ app: [String: String]) -> [String: String] {
         var environment = ["GH_PROMPT_DISABLED": "1", "GH_NO_UPDATE_NOTIFIER": "1", "GIT_TERMINAL_PROMPT": "0",
-                           "PATH": ([app["PATH"] ?? "/usr/bin:/bin"] + installFolders).joined(separator: ":")]
+                           "PATH": searchPath(app)]
         environment["HOME"] = app["HOME"]
         for key in githubVariables { environment[key] = app[key] }
         return environment
-    }
-
-    public static func findGitHubCLI(_ environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
-        let folders = (environment["PATH"] ?? "").split(separator: ":").map(String.init) + installFolders
-        return folders.filter { $0.hasPrefix("/") }.map { $0 + "/gh" }.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 }
 

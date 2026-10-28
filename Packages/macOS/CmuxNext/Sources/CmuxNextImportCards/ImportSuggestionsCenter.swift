@@ -6,6 +6,7 @@ import CmuxNextDesign
 public import CmuxNextImportSuggestions
 import CmuxNextOnboarding
 public import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 
 /// The import suggestion cards for the whole app: it scans this Mac off the
@@ -44,7 +45,8 @@ public final class ImportSuggestionsCenter {
     /// Bumped when a scan in flight is dropped, so its late answer changes nothing.
     @ObservationIgnored private var scanGeneration = 0
     @ObservationIgnored var running: [String: Task<Void, Never>] = [:]
-    @ObservationIgnored private var activation: (any NSObjectProtocol)?
+    /// The app's become-active notice (``ImportCardsHost/appEvents``): a stale scan runs again.
+    @ObservationIgnored private var activation: EventSubscription?
     @ObservationIgnored private var started = false
     /// A page's start is waiting on the person's answer (one question at a time).
     @ObservationIgnored private var asking = false
@@ -92,9 +94,8 @@ public final class ImportSuggestionsCenter {
         started = true
         restoreJobs()
         state.expire(now: now())
-        activation = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil,
-                                                            queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.rescanIfStale() }
+        activation = host.appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "ImportSuggestionsCenter.rescan") { [weak self] in
+            self?.rescanIfStale()
         }
         scan { [weak self] in self?.resumeInterrupted() }
     }
@@ -130,6 +131,7 @@ public final class ImportSuggestionsCenter {
         let scan = scanThisMac
         let generation = scanGeneration
         // task-owner: ImportSuggestionsCenter.scanning (cancelled when browser import turns off)
+        // main-hop-allow: only awaits the scan, whose folder and session reads run on the files lane; its one resume stores the findings
         scanning = Task { [weak self] in
             let found = await scan(host)
             // Dropped while it ran (browser import turned off): what it found is not shown.
@@ -141,30 +143,33 @@ public final class ImportSuggestionsCenter {
                 return
             }
             findings = found
-            icons.load(deck.list().cards.compactMap(\.app))
+            icons.load(deck.list().cards.compactMap(\.app), work: host.work, mainWork: host.mainWork)
             then?()
         }
     }
 
-    /// This Mac's sources, read off the main thread.
+    /// This Mac's sources, read on the files lane at `.bestEffort` (a launch or activation scan nobody
+    /// waits for); none when the scan was dropped (quit).
     static func scanLive(_ host: ImportCardsHost) async -> [ImportFinding] {
         let environment = ImportEnvironment.live()
         let variables = ProcessInfo.processInfo.environment
         let imported = await host.importedProfiles()
-        // Classic's session file is up to 32 MB of JSON: read and planned off the main actor.
-        let classic = await Task.detached(priority: Task.currentPriority) { await ClassicWorkspaceCount().count() }.value
+        let work = host.work
+        // Classic's session file is up to 32 MB of JSON: read and planned on the files lane.
+        let classic = await ClassicWorkspaceCount().count(on: work)
         // Browser import turned off meanwhile: no other browser's data is read. The scan itself
-        // runs detached, so the cancel reaches it through `stop`, checked before each source.
+        // runs on the files lane, so the cancel reaches it through `stop`, checked before each source.
         guard !Task.isCancelled else { return [] }
         let stop = ImportScanStop()
-        return await withTaskCancellationHandler {
-            await Task.detached(priority: Task.currentPriority) {
+        let found = await withTaskCancellationHandler {
+            try? await work.runFiles(.bestEffort) {
                 ImportScanner(home: environment.homeDirectory, environment: environment, variables: variables,
                               importedProfiles: imported, classicWorkspaces: { classic }, shouldStop: { stop.isSet }).scan()
-            }.value
+            }
         } onCancel: {
             stop.set()
         }
+        return found ?? []
     }
 
     // MARK: Cards

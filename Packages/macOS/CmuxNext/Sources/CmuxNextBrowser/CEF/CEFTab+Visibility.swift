@@ -88,9 +88,11 @@ extension CEFTab: BrowserContentVisibilityReporting, BrowserVisibilityFollowing 
         // when shown; it never reloads by itself (it used to: a page could come back signed out
         // or lose what the person typed, with no sign why).
         hostRestoreShown()
+        rendererHangVisibilityChanged()
     }
 
     func contentDidDisappear() {
         host.conceal(self)
+        rendererHangVisibilityChanged()
     }
 }

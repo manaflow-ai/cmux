@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "45ed16fcded29b4de100ea6467ccbc4178bcf7c41a2d41110d7378787cba77c2";
+pub const ir_sha256 = "9b5b9c806e13650c898dfc5904a6126e49267ff313d5e2a2c7c48b816813d962";
 
 pub const AccessRequestKind = enum {
     file,
@@ -3131,6 +3131,29 @@ pub const SetSizePolicyResult = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "state",
     };
+};
+
+pub const SetStreamPriorityResultOutcome = enum {
+    applied,
+    ended,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "applied")) return .applied;
+        if (std.mem.eql(u8, value, "ended")) return .ended;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .applied => "applied",
+            .ended => "ended",
+        };
+    }
+};
+
+pub const SetStreamPriorityResult = struct {
+    outcome: SetStreamPriorityResultOutcome,
+    stream: u16,
 };
 
 pub const SetTerminalIdlePolicyResult = struct {
@@ -11876,6 +11899,45 @@ pub fn setSplitRatio(client: anytype, request: SetSplitRatioRequest) !wire.Decod
     );
 }
 
+pub const SetStreamPriorityRequestPriority = enum {
+    focused,
+    visible,
+    hidden,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "focused")) return .focused;
+        if (std.mem.eql(u8, value, "visible")) return .visible;
+        if (std.mem.eql(u8, value, "hidden")) return .hidden;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .focused => "focused",
+            .visible => "visible",
+            .hidden => "hidden",
+        };
+    }
+};
+
+pub const SetStreamPriorityRequest = struct {
+    priority: SetStreamPriorityRequestPriority,
+    stream: u16,
+};
+
+pub fn setStreamPriority(client: anytype, request: SetStreamPriorityRequest) !wire.Decoded(SetStreamPriorityResult) {
+    return client.callTyped(
+        SetStreamPriorityResult,
+        .{
+            .name = "set-stream-priority",
+            .authority = "frontend",
+            .since = 12,
+            .capability = "attach-streams-v1",
+        },
+        request,
+    );
+}
+
 pub const SetTabPinnedRequest = struct {
     pinned: bool,
     surface: Id,
@@ -15070,7 +15132,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 365;
+pub const command_count: usize = 366;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "access-request", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
     .{ .name = "access-request-answer", .authority = "local-admin", .since = 12, .capability = "access-request-v1", .stream = null },
@@ -15388,6 +15450,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-size-counts", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-size-policy", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-split-ratio", .authority = "control", .since = 8, .capability = null, .stream = null },
+    .{ .name = "set-stream-priority", .authority = "frontend", .since = 12, .capability = "attach-streams-v1", .stream = null },
     .{ .name = "set-tab-pinned", .authority = "control", .since = 12, .capability = "tab-metadata-v1", .stream = null },
     .{ .name = "set-terminal-command-history", .authority = "local-admin", .since = 12, .capability = "terminal-command-history-v1", .stream = null },
     .{ .name = "set-terminal-idle-policy", .authority = "control", .since = 12, .capability = "terminal-idle-close-v1", .stream = null },

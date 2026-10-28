@@ -187,7 +187,7 @@ final class CEFRuntime {
     var spareAfterFirstTabFeature: @MainActor () -> Bool = { false }
     private(set) var builtInAdBlockerLoaded = false  // this Chromium has the built-in uBlock Origin (at start or first tabs)
     let builtInLoader = CEFBuiltInExtensionLoader()  // built-in extensions at each profile's first tab (chromiumAdBlockerAtFirstTab)
-    let surfaceCopies = CEFSurfaceCopies()  // pages' surface copies waiting for Chromium (fork API 38, p13-webui-078)
+    let surfaceCopies = CEFSurfaceCopies()  // pages' surface copies waiting for Chromium (fork API 40, p13-webui-078)
     /// True when this Chromium started with `cmux-process-reuse-per-renderer-devtools` (`debug.cef` `windows`).
     private(set) var processReusePerRendererDevTools = false
     private var terminationObserver: (any NSObjectProtocol)?
@@ -203,6 +203,9 @@ final class CEFRuntime {
     /// The lanes whose startup fence holds a preload's framework read (feature `cefPrefetchBehindFence`); a start
     /// promotes it. Nil: the preload reads and maps at once, at utility.
     var prefetchWork: BackgroundWork?
+    var rendererHangFollowsVisibility = false  // feature chromiumHangFollowsVisibility (CEFRendererHang); false: every hang prompts
+    /// Where a shown tab reads its window's state and hears it change for the hang rules (``CEFTab/showsForRendererHang``).
+    var rendererHangWindows = ChromiumHostPageVisibility.Source.appKit
     /// Maps the in-process shim and framework through ``prefetch`` (``CEFLibraryLoader``; a test's counter).
     lazy var loadInProcess: @Sendable (CEFRuntimeLayout?) -> Result<CEFLoadedLibrary, BootError> = { [loader = CEFLibraryLoader(prefetch: self.prefetch)] in
         loader.load($0)

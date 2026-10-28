@@ -32,7 +32,6 @@
 //! [`check_wire`] answers a raw protocol sender whose inline request would not fit one message on
 //! the next hop, rather than let a hop drop it.
 
-use crate::client::Client;
 use crate::rpc::{RpcError, method};
 use anyhow::Context;
 use base64::Engine;
@@ -136,8 +135,8 @@ pub fn block(name: &str, bytes: &[u8]) -> Value {
 /// fit ([`fits_inline`]), else each uploaded to the chat and named by reference, whatever their
 /// size or number. A file that cannot be read, or an upload the daemon refuses, fails the send.
 /// `say` gets the uploads' progress lines (`attach/upload.rs`).
-pub async fn blocks_for(
-    daemon: &Client,
+pub(crate) async fn blocks_for<D: crate::subsession_mcp::ToolRequests>(
+    daemon: &D,
     session: &str,
     text: &str,
     paths: &[PathBuf],
@@ -158,8 +157,8 @@ pub async fn blocks_for(
     // Checked before any byte is sent, so no upload is left behind for a prompt that would be
     // refused: this daemon resolves references, and a peer's chat is refused at the begin
     // (`forPrompt`) when its daemon does not (`server/peer_forward.rs`).
-    if !daemon.daemon_lists(crate::prompt_uploads::FEATURE) {
-        let build = daemon.daemon_build().unwrap_or_else(|| "unknown".into());
+    if !daemon.lists(crate::prompt_uploads::FEATURE) {
+        let build = daemon.build().unwrap_or_else(|| "unknown".into());
         anyhow::bail!(
             "these files do not fit one message, and the running acpmux daemon (build {build}) \
              predates files sent by reference: restart it on this build (`acpmux daemon shutdown`; \

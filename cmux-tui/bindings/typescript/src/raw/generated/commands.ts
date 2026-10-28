@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 45ed16fcded29b4de100ea6467ccbc4178bcf7c41a2d41110d7378787cba77c2. */
+/* cmux-tui mux protocol 12, IR 9b5b9c806e13650c898dfc5904a6126e49267ff313d5e2a2c7c48b816813d962. */
 
 
 import type * as T from "./types.js";
@@ -3232,6 +3232,13 @@ export interface SetSplitRatioRequest extends CmuxRequestBase {
 }
 export type SetSplitRatioResult = T.EmptyResult;
 
+/** Protocol v12; authority: frontend. */
+export interface SetStreamPriorityRequest extends CmuxRequestBase {
+  cmd: "set-stream-priority";
+  "priority": "focused" | "visible" | "hidden";
+  "stream": number;
+}
+
 /** Protocol v12; authority: control. */
 export interface SetTabPinnedRequest extends CmuxRequestBase {
   cmd: "set-tab-pinned";
@@ -3992,6 +3999,7 @@ export type CmuxRequest =
   | SetSizeCountsRequest
   | SetSizePolicyRequest
   | SetSplitRatioRequest
+  | SetStreamPriorityRequest
   | SetTabPinnedRequest
   | SetTerminalCommandHistoryRequest
   | SetTerminalIdlePolicyRequest
@@ -6570,6 +6578,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 8;
     capability: null;
+    stream: null;
+  };
+  "set-stream-priority": {
+    request: SetStreamPriorityRequest;
+    result: T.SetStreamPriorityResult;
+    authority: "frontend";
+    since: 12;
+    capability: "attach-streams-v1";
     stream: null;
   };
   "set-tab-pinned": {

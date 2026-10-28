@@ -24,6 +24,7 @@
 use super::*;
 use compact_archive::Archive;
 use std::borrow::Cow;
+use std::io::Write;
 
 #[path = "compact_archive.rs"]
 mod compact_archive;

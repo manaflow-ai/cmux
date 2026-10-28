@@ -29,11 +29,13 @@ use crate::server::attach_lifecycle::{
 };
 use crate::server::attach_streams::StreamEndReason;
 use crate::server::sequenced_pool::SequencePriority;
+use crate::server::stream_priority::follow_visibility;
 use crate::server::{
     MessageWriter, OutboundStream, detach_committed_attach, handle_attach_send_error,
     report_attach_overflow,
 };
 use crate::stream_interrupt::StreamInterrupt;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::surface::snapshot_attach::{
     LocalReadySnapshot, SNAPSHOT_DIGEST_IDLE, SnapshotRequestGate,
 };
@@ -277,6 +279,7 @@ pub(super) fn start(worker: SnapshotWorker, commit: AttachCommit) -> anyhow::Res
             true,
         );
         worker.receiver.on_ready(pump.hook());
+        follow_visibility(&stream, &pump, Some(worker.receiver.visibility_handle()));
         let source = SnapshotSource { worker, wake_at: None };
         pump.install(Box::new(ViewDrain::new(out, source)));
         return commit_client_attach_and_start_pump(&mux, client, surface, stream.id, commit, pump);
@@ -284,9 +287,11 @@ pub(super) fn start(worker: SnapshotWorker, commit: AttachCommit) -> anyhow::Res
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     // A control stream, not an echo-path thread: it waits for the attach to
     // commit, and echo-path threads disallow blocking.
-    let spawned = cmux_threads::spawn(
+    let spawned = supervised::spawn_at(
         "mux-snapshot-attach-out",
         crate::thread_qos::ThreadType::Interactive.qos(),
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             if waits::recv(&worker_committed).is_ok() {
                 worker.run();
@@ -348,7 +353,18 @@ impl ViewSource for SnapshotSource {
     /// A READY or a history or images chunk is a bulk step: the turn
     /// yields after it, so a resync holds the worker the echo path shares
     /// for one chunk at a time.
-    fn next(&mut self, _out: &mut ViewOut, timer: &PumpTimer<'_>) -> Step {
+    fn next(&mut self, out: &mut ViewOut, timer: &PumpTimer<'_>) -> Step {
+        // Hidden (`set-stream-priority`): no output, chunk or digest until
+        // it shows; its viewer queue holds nothing meanwhile. Its surface
+        // closing still ends it (`detached`, then `stream-end`): the tap's
+        // drop wakes every viewer, hidden or not.
+        if out.stream.visibility.is_hidden() {
+            if !self.worker.receiver.is_disconnected() {
+                return Step::Empty;
+            }
+            self.worker.handle(Polled::Disconnected);
+            return Step::End;
+        }
         let polled = match self.worker.receiver.try_viewer_event() {
             Ok(event) => Polled::Event(event),
             Err(TryRecvError::Empty) if self.worker.tail.is_some() || self.worker.digest_due() => {

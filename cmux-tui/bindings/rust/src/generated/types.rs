@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 45ed16fcded29b4de100ea6467ccbc4178bcf7c41a2d41110d7378787cba77c2.
+// cmux-tui mux protocol 12, IR 9b5b9c806e13650c898dfc5904a6126e49267ff313d5e2a2c7c48b816813d962.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -2814,6 +2814,22 @@ pub struct SetSizeCountsResult {
 pub struct SetSizePolicyResult {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub state: Option<SizeState>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SetStreamPriorityResultOutcome {
+    #[serde(rename = "applied")]
+    Applied,
+    #[serde(rename = "ended")]
+    Ended,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetStreamPriorityResult {
+    pub outcome: SetStreamPriorityResultOutcome,
+    pub stream: u16,
 }
 
 #[rustfmt::skip]

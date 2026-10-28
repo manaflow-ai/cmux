@@ -88,7 +88,7 @@ public struct CloudPaths: Sendable {
     func writeSecret(_ text: String, to url: URL) throws {
         let temporary = url.appendingPathExtension("tmp")
         _ = FileManager.checked.createFile(atPath: temporary.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600])
-        guard rename(temporary.path, url.path) == 0 else {
+        guard blockingRename(temporary.path, url.path) == 0 else {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
         }
     }

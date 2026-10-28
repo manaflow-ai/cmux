@@ -8,6 +8,7 @@ import CmuxNextFeatures
 import CmuxNextFloating
 import CmuxNextHomeEngine
 import struct CmuxNextLayout.MainPaneLayout
+import CmuxNextWakeups
 import Foundation
 
 /// Agent chat tabs on the workspace store (cmux-tui/spec/commands.md, new-conversation-tab): the store
@@ -132,7 +133,7 @@ extension AgentTabStore {
         tabs.relaunchWake = services.relaunchWake
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
         let home = ChiefHome.resolve(tag: services.environment.tag)
-        let chief = ChiefHomeAcpmux(home: home, local: tabs.host, ensureHost: { [weak services] in
+        let chief = ChiefHomeAcpmux(home: home, local: tabs.host, work: services.work, ensureHost: { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
         }, startHost: { [weak services] in
             await MainActor.run { services?.home.brain.ensureForChat() ?? false }

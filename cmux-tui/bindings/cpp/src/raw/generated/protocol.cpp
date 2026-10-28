@@ -14692,6 +14692,43 @@ Result<SetSizePolicyResult> Codec<SetSizePolicyResult>::decode(const Json& value
     return result;
 }
 
+Result<Json> Codec<SetStreamPriorityResult>::encode(const SetStreamPriorityResult& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_outcome = encode_value(value.outcome);
+    if (!encoded_outcome) return std::move(encoded_outcome).error();
+    object.emplace("outcome", std::move(encoded_outcome).value());
+    auto encoded_stream = encode_value(value.stream);
+    if (!encoded_stream) return std::move(encoded_stream).error();
+    object.emplace("stream", std::move(encoded_stream).value());
+    return Json(std::move(object));
+}
+
+Result<SetStreamPriorityResult> Codec<SetStreamPriorityResult>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    SetStreamPriorityResult result{};
+    const Json* field_outcome = value.find("outcome");
+    if (!field_outcome) {
+        return make_error(ErrorCode::decode, "missing required field 'outcome'");
+    }
+    if (field_outcome) {
+        auto decoded = decode_value<SetStreamPriorityResultOutcome>(*field_outcome);
+        if (!decoded) return std::move(decoded).error();
+        result.outcome = std::move(decoded).value();
+    }
+    const Json* field_stream = value.find("stream");
+    if (!field_stream) {
+        return make_error(ErrorCode::decode, "missing required field 'stream'");
+    }
+    if (field_stream) {
+        auto decoded = decode_value<std::uint16_t>(*field_stream);
+        if (!decoded) return std::move(decoded).error();
+        result.stream = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<SetTerminalIdlePolicyResult>::encode(const SetTerminalIdlePolicyResult& value) {
     (void)value;
     Json::Object object;
@@ -40439,6 +40476,43 @@ Result<SetSplitRatioRequest> Codec<SetSplitRatioRequest>::decode(const Json& val
     return result;
 }
 
+Result<Json> Codec<SetStreamPriorityRequest>::encode(const SetStreamPriorityRequest& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_priority = encode_value(value.priority);
+    if (!encoded_priority) return std::move(encoded_priority).error();
+    object.emplace("priority", std::move(encoded_priority).value());
+    auto encoded_stream = encode_value(value.stream);
+    if (!encoded_stream) return std::move(encoded_stream).error();
+    object.emplace("stream", std::move(encoded_stream).value());
+    return Json(std::move(object));
+}
+
+Result<SetStreamPriorityRequest> Codec<SetStreamPriorityRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    SetStreamPriorityRequest result{};
+    const Json* field_priority = value.find("priority");
+    if (!field_priority) {
+        return make_error(ErrorCode::decode, "missing required field 'priority'");
+    }
+    if (field_priority) {
+        auto decoded = decode_value<SetStreamPriorityRequestPriority>(*field_priority);
+        if (!decoded) return std::move(decoded).error();
+        result.priority = std::move(decoded).value();
+    }
+    const Json* field_stream = value.find("stream");
+    if (!field_stream) {
+        return make_error(ErrorCode::decode, "missing required field 'stream'");
+    }
+    if (field_stream) {
+        auto decoded = decode_value<std::uint16_t>(*field_stream);
+        if (!decoded) return std::move(decoded).error();
+        result.stream = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<SetTabPinnedRequest>::encode(const SetTabPinnedRequest& value) {
     (void)value;
     Json::Object object;
@@ -51974,6 +52048,20 @@ Result<LayoutStack> Codec<LayoutStack>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<SetStreamPriorityResultOutcome>::encode(const SetStreamPriorityResultOutcome& value) {
+    switch (value) {
+        case SetStreamPriorityResultOutcome::applied: return Json(std::string("applied"));
+        case SetStreamPriorityResultOutcome::ended: return Json(std::string("ended"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<SetStreamPriorityResultOutcome> Codec<SetStreamPriorityResultOutcome>::decode(const Json& value) {
+    if (value == Json(std::string("applied"))) return SetStreamPriorityResultOutcome::applied;
+    if (value == Json(std::string("ended"))) return SetStreamPriorityResultOutcome::ended;
+    return make_error(ErrorCode::decode, "unknown SetStreamPriorityResultOutcome value");
+}
+
 Result<Json> Codec<SnapshotRequestResultStatus>::encode(const SnapshotRequestResultStatus& value) {
     switch (value) {
         case SnapshotRequestResultStatus::accepted: return Json(std::string("accepted"));
@@ -52419,6 +52507,22 @@ Result<IdsRequestKind> Codec<IdsRequestKind>::decode(const Json& value) {
     if (value == Json(std::string("pane"))) return IdsRequestKind::pane;
     if (value == Json(std::string("surface"))) return IdsRequestKind::surface;
     return make_error(ErrorCode::decode, "unknown IdsRequestKind value");
+}
+
+Result<Json> Codec<SetStreamPriorityRequestPriority>::encode(const SetStreamPriorityRequestPriority& value) {
+    switch (value) {
+        case SetStreamPriorityRequestPriority::focused: return Json(std::string("focused"));
+        case SetStreamPriorityRequestPriority::visible: return Json(std::string("visible"));
+        case SetStreamPriorityRequestPriority::hidden: return Json(std::string("hidden"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<SetStreamPriorityRequestPriority> Codec<SetStreamPriorityRequestPriority>::decode(const Json& value) {
+    if (value == Json(std::string("focused"))) return SetStreamPriorityRequestPriority::focused;
+    if (value == Json(std::string("visible"))) return SetStreamPriorityRequestPriority::visible;
+    if (value == Json(std::string("hidden"))) return SetStreamPriorityRequestPriority::hidden;
+    return make_error(ErrorCode::decode, "unknown SetStreamPriorityRequestPriority value");
 }
 
 Result<Json> Codec<SubscribeRequestTreeEvents>::encode(const SubscribeRequestTreeEvents& value) {
@@ -53532,22 +53636,22 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand306FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand315FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand320FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand321FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand322FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand323FieldRequirements{{
     {"marked_unread", 12U, "notification-mark-unread-v1"},
     {"pinned", 12U, "workspace-pin-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 3> kCommand323FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 3> kCommand324FieldRequirements{{
     {"end_terminals", 12U, "terminal-reap-v1"},
     {"force", 10U, "daemon-handoff-force-v1"},
     {"keep_layout", 12U, "end-terminals-keep-layout-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand325FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand326FieldRequirements{{
     {"stream", 12U, "attach-streams-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 10> kCommand326FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 10> kCommand327FieldRequirements{{
     {"cwd", 12U, "terminal-env-v1"},
     {"env", 12U, "terminal-env-v1"},
     {"keep", 12U, "terminal-reap-v1"},
@@ -53559,20 +53663,20 @@ constexpr std::array<CommandFieldRequirement, 10> kCommand326FieldRequirements{{
     {"terminal_id", 12U, "terminal-placement-env-v1"},
     {"url", 12U, "pane-browser-kind-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 2> kCommand327FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 2> kCommand328FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand348FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand349FieldRequirements{{
     {"icon", 12U, "bookmark-icon-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand354FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand355FieldRequirements{{
     {"icon", 12U, "screen-group-icon-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand355FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand356FieldRequirements{{
     {"icon", 12U, "tab-group-icon-v1"},
 }};
-constexpr std::array<CommandMetadata, 365> kCommands{{
+constexpr std::array<CommandMetadata, 366> kCommands{{
     {"access-request", "local-admin", 12U, "access-request-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"access-request-answer", "local-admin", 12U, "access-request-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"access-request-list", "local-admin", 12U, "access-request-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -53889,18 +53993,19 @@ constexpr std::array<CommandMetadata, 365> kCommands{{
     {"set-size-counts", "control", 12U, "shared-sizing-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-size-policy", "control", 12U, "shared-sizing-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-split-ratio", "control", 8U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand315FieldRequirements)},
+    {"set-stream-priority", "frontend", 12U, "attach-streams-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-tab-pinned", "control", 12U, "tab-metadata-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-terminal-command-history", "local-admin", 12U, "terminal-command-history-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-terminal-idle-policy", "control", 12U, "terminal-idle-close-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-terminal-keep", "control", 12U, "terminal-reap-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand320FieldRequirements)},
+    {"set-viewport-pane-width", "control", 9U, "viewport-column-resize-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand321FieldRequirements)},
     {"set-window-title", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-workspace-metadata", "control", 12U, "workspace-metadata-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand322FieldRequirements)},
-    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand323FieldRequirements)},
+    {"set-workspace-metadata", "control", 12U, "workspace-metadata-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand323FieldRequirements)},
+    {"shutdown-daemon", "local-admin", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand324FieldRequirements)},
     {"sidebar-plugin", "frontend", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"snapshot-request", "frontend", 12U, "terminal-snapshot-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand325FieldRequirements)},
-    {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand326FieldRequirements)},
-    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand327FieldRequirements)},
+    {"snapshot-request", "frontend", 12U, "terminal-snapshot-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand326FieldRequirements)},
+    {"split", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand327FieldRequirements)},
+    {"subscribe", "frontend", 5U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>(kCommand328FieldRequirements)},
     {"subscribe-activity", "local-admin", 12U, "vm-activity-v1", true, "subscribe", "", std::span<const CommandFieldRequirement>{}},
     {"swap-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-clipboard-reply", "frontend", 12U, "terminal-clipboard-read-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -53921,14 +54026,14 @@ constexpr std::array<CommandMetadata, 365> kCommands{{
     {"unregister-browser-provider", "local-admin", 10U, "browser-provider-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-tab-group", "control", 12U, "saved-tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand348FieldRequirements)},
+    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand349FieldRequirements)},
     {"update-browser-profile", "control", 12U, "browser-profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-frontend-browser-tab", "control", 12U, "frontend-browser-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-personal-group", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-profile", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-remote-terminal-tab", "control", 12U, "remote-terminal-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand354FieldRequirements)},
-    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand355FieldRequirements)},
+    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand355FieldRequirements)},
+    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand356FieldRequirements)},
     {"update-workspace-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open-claim", "frontend", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -57530,6 +57635,17 @@ Result<EmptyResult> Client::set_split_ratio(
     auto response = core_.request("set-split-ratio", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<EmptyResult>(response.value());
+}
+
+Result<SetStreamPriorityResult> Client::set_stream_priority(
+    const SetStreamPriorityRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("set-stream-priority", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<SetStreamPriorityResult>(response.value());
 }
 
 Result<JsonValue> Client::set_tab_pinned(

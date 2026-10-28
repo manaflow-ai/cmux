@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 45ed16fcded29b4de100ea6467ccbc4178bcf7c41a2d41110d7378787cba77c2. */
+/* cmux-tui mux protocol 12, IR 9b5b9c806e13650c898dfc5904a6126e49267ff313d5e2a2c7c48b816813d962. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "45ed16fcded29b4de100ea6467ccbc4178bcf7c41a2d41110d7378787cba77c2" as const;
+export const SDK_IR_SHA256 = "9b5b9c806e13650c898dfc5904a6126e49267ff313d5e2a2c7c48b816813d962" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3932,6 +3932,17 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": []
+  },
+  "set-stream-priority": {
+    "authority": "frontend",
+    "since": 12,
+    "capability": "attach-streams-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Sets the priority of one attach stream of this connection (stream visibility, p05-ipc-142); a stream never set keeps the bulk lane and input priority it opened with.",
+      "Idempotent: an id with no open stream answers outcome:ended and changes nothing."
+    ]
   },
   "set-tab-pinned": {
     "authority": "control",
@@ -15632,6 +15643,31 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "SizeState"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "SetStreamPriorityResult": {
+    "additional_properties": false,
+    "fields": {
+      "outcome": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "applied",
+            "ended"
+          ]
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
         }
       }
     },
@@ -33941,6 +33977,43 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "set-stream-priority": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "priority": {
+          "constraints": [
+            "focused: the stream's items ride the input lane and its view drains at input priority.",
+            "visible: the bulk lane, and its view drains at utility priority.",
+            "hidden: a snapshot view gets no output; the terminal still parses it, and the view gets one READY snapshot when it shows again if anything changed meanwhile. Any other view rides the background lane at background priority."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "enum",
+            "values": [
+              "focused",
+              "visible",
+              "hidden"
+            ]
+          }
+        },
+        "stream": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "SetStreamPriorityResult"
     }
   },
   "set-tab-pinned": {

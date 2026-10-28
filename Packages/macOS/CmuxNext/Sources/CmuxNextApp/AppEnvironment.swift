@@ -11,6 +11,7 @@ import CmuxNextHomeEngine
 import CmuxNextLaunch
 import CmuxNextTerminal
 import CmuxNextUpdater
+import CmuxNextWakeups
 import CmuxNextWebUpdates
 import Foundation
 

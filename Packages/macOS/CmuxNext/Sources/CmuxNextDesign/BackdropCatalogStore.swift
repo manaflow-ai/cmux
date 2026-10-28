@@ -1,6 +1,7 @@
 public import Foundation
 public import Observation
 public import CmuxNextWakeups
+public import CmuxNextAppearance
 
 /// The wallpaper choices, kept current off the main thread (``BackdropCatalog``).
 ///
@@ -46,8 +47,8 @@ public final class BackdropCatalogStore {
         catalog = BackdropCatalog(bundledOnly: ())
         self.mainWork = mainWork
         build = {
-            BackdropCatalog(systemDirectory: systemDirectory, fileManager: FileManager(),
-                            assets: AppleWallpaperAssets(folders: assetFolders, fileManager: FileManager()),
+            BackdropCatalog(systemDirectory: systemDirectory,
+                            assets: AppleWallpaperAssets(folders: assetFolders),
                             userImages: userImages, aerials: aerials)
         }
         folders = [systemDirectory, systemDirectory.appendingPathComponent(".wallpapers"), aerials] + assetFolders

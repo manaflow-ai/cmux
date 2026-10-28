@@ -20,8 +20,8 @@ mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
 mod browser_tools;
-mod catalog;
 mod caller_scope;
+mod catalog;
 mod code_mode;
 mod computer_use_gate;
 mod config;
@@ -29,6 +29,7 @@ mod config;
 mod host;
 mod keybinding_tools;
 mod messages;
+mod panic_log;
 mod placement;
 mod render_tool;
 mod results;
@@ -406,6 +407,9 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
     if let Some(why) = host::relay(&global, code_mode, &path) {
         eprintln!("cmux mcp: serving in this process: {why}");
     }
+    // The process that serves logs its panics; a relay above has replaced
+    // itself, and the shared host installs the same hook (`host::run`).
+    panic_log::install();
     // The client ends the server by closing stdin, then by SIGTERM; the
     // blocking stdin read must not hide that signal.
     let _ = crate::restore_default_termination_signals();

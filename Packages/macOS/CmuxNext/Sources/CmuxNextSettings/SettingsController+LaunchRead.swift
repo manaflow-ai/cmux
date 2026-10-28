@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 public import CmuxNextWakeups
 public import Foundation
 
@@ -51,7 +51,7 @@ extension SettingsController {
                                                    configDirectory: fileURL.deletingLastPathComponent(), buildDefaults: buildDefaults)
             return LaunchRead(loaded: loaded, fileURL: fileURL, bootstrapFailure: failure, buildDefaults: buildDefaults)
         }
-        let pending = sequence.map { CmuxNextDesign.LaunchRead(in: $0, read) } ?? CmuxNextDesign.LaunchRead(on: work, read)
+        let pending = sequence.map { CmuxNextWakeups.LaunchRead(in: $0, read) } ?? CmuxNextWakeups.LaunchRead(on: work, read)
         return PendingLaunchRead(work: work, read: pending)
     }
 
@@ -67,7 +67,7 @@ extension SettingsController {
     /// ```
     public nonisolated struct PendingLaunchRead: Sendable {
         let work: BackgroundWork
-        let read: CmuxNextDesign.LaunchRead<LaunchRead>
+        let read: CmuxNextWakeups.LaunchRead<LaunchRead>
 
         /// The result once the read has ended; nil while it runs.
         public var value: LaunchRead? { read.value }

@@ -2434,6 +2434,13 @@ class SetSizePolicyResult:
 
 
 @dataclass(frozen=True)
+class SetStreamPriorityResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/SetStreamPriorityResult'
+    outcome: Literal['applied', 'ended']
+    stream: int
+
+
+@dataclass(frozen=True)
 class SetTerminalIdlePolicyResult:
     __cmux_schema_path__: ClassVar[str] = 'types/SetTerminalIdlePolicyResult'
     terminal_id: str
@@ -6204,6 +6211,13 @@ class SetSplitRatioRequest:
 
 
 @dataclass(frozen=True)
+class SetStreamPriorityRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-stream-priority/request'
+    priority: Literal['focused', 'visible', 'hidden']
+    stream: int
+
+
+@dataclass(frozen=True)
 class SetTabPinnedRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-tab-pinned/request'
     surface: Id
@@ -8006,6 +8020,7 @@ __all__ = [
     'SetHostSizePolicyResult',
     'SetSizeCountsResult',
     'SetSizePolicyResult',
+    'SetStreamPriorityResult',
     'SetTerminalIdlePolicyResult',
     'SetTerminalKeepResult',
     'ShownProgramStatus',
@@ -8455,6 +8470,7 @@ __all__ = [
     'SetSizeCountsRequest',
     'SetSizePolicyRequest',
     'SetSplitRatioRequest',
+    'SetStreamPriorityRequest',
     'SetTabPinnedRequest',
     'SetTerminalCommandHistoryRequest',
     'SetTerminalIdlePolicyRequest',

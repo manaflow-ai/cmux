@@ -140,7 +140,7 @@ def choices(doc):
     for s in doc["styles"]:
         key = f"settings.choice.chromeStyle.{s['actionName']}"
         lines.append(f"        case .{case_name(s)}: SettingsText.keyed({swift_string(key)}, {swift_string(s['title'])})")
-    return (HEADER + "public import CmuxNextDesign\n\n"
+    return (HEADER + "public import CmuxNextDesignTokens\n\n"
             "extension ChromeStyleSetting {\n"
             "    /// The Settings picker title of `style`.\n"
             "    static func title(_ style: ChromeStyle) -> SettingText {\n"

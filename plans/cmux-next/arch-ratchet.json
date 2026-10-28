@@ -801,6 +801,12 @@
       "row": "observer_sites",
       "allow": 1,
       "why": "HomeReduceMotion is the existing process-wide adapter for native Home. It additionally observes Motion.speedDidChange once per app so already-mounted working spinners stop immediately when the master/category animation switch or speed is disabled. The existing per-view Reduce Motion delivery refreshes affected cells; no observer is added per row. Tokens live with the process-wide adapter until app shutdown. PR #26385 includes independent xhigh review of this lifecycle and rationale."
+    },
+    {
+      "date": "2026-10-28",
+      "row": "blocking_allow_escapes",
+      "allow": 4,
+      "why": "cp/fix-server-helper-sources: CmuxNextCompatCore is the seam module the privileged server helper compiles whole without CmuxNextCompat (swift-atomics, the detector), so the Mac build's helper phase never compiles a hand-picked Compat file list again. Its four escapes are not main-thread blocking: Process.runOnOwnThread's process.run() moved unchanged from CmuxNextCompat/Threading (a seam folder the rule exempts) and runs on the dedicated thread it makes; RunningCodeSigningTeam's three Security calls each run inside the blockingCall its caller passes (the app's SigningTeamInstall passes CmuxNextCompat's checked blockingCall(.systemCall), so the detector still sees each; the helper passes CmuxThreading's). Chrome: the same ScopedBlockingCall seam in a lower component (base/threading/scoped_blocking_call.h)."
     }
   ],
   "observer_wrappers": [

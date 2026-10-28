@@ -185,6 +185,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     @ObservationIgnored var isDiscardedInPlace = false
     /// The visibility tree node Chromium hears for this tab, and its freeze (`CEFTab+Visibility`).
     @ObservationIgnored let nodeVisibility = CEFTabNodeVisibility()
+    @ObservationIgnored var rendererHang = CEFRendererHang()  // a hang held while the tab is hidden
+    @ObservationIgnored var rendererHangWindowWatch = CEFRendererHangWindowWatch()  // the shown tab's window, for the hang rules
     /// Chromium's own Back/Forward state; the tab also offers the entries
     /// saved before a relaunch (`restored`).
     @ObservationIgnored var nativeHistory = (back: false, forward: false)
@@ -428,13 +430,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         return .load(url)
     }
 
-    /// Answers "Page unresponsive": wait restarts Chromium's hang timer, terminate ends the renderer (the sad tab follows).
-    public func answerUnresponsivePage(terminate: Bool) {
-        guard state.isUnresponsive else { return }
-        if let browserID { _ = runtime.shim?.unresponsiveReply(browserID, terminate ? 1 : 0) }
-        if !terminate { machine.apply(.unresponsiveChanged(false)) }
-    }
-
     public func stop() {
         clearTitleBeforeCommit()
         browserID.map { runtime.shim?.stop($0) }
@@ -478,6 +473,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
         if host.visibleTab === self { if visible { host.hostView.isHidden = false } else { host.setNeedsHostVisibility() } }
         devToolsController.views?.host.isHidden = !visible
         if visible { grantPendingFocusIfShown() }
+        rendererHangVisibilityChanged()
     }
 
     /// Whether the content lifecycle hid this page (read by the pane host

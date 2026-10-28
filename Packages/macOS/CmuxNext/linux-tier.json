@@ -34,6 +34,7 @@
       "CmuxNextBrowserCore"
     ],
     [
+      "CmuxNextAppearance",
       "CmuxNextBridge",
       "CmuxNextWorkspaceNaming",
       "CmuxNextCloud",
@@ -111,6 +112,7 @@
       "CmuxNextVSCodeServer",
       "CmuxNextRemoteFetch",
       "CmuxNextBrowserCore",
+      "CmuxNextAppearance",
       "CmuxNextBridge",
       "CmuxNextWorkspaceNaming",
       "CmuxNextCloud",
@@ -226,9 +228,6 @@
         "CmuxNextLayout",
         "CmuxNextSidebar",
         "CmuxNextTabs"
-      ],
-      "CmuxNextSettings": [
-        "CmuxNextDesign"
       ]
     },
     "absent": [

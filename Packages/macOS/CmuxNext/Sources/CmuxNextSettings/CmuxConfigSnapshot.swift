@@ -1,6 +1,7 @@
 public import Foundation
 import CmuxNextActions
-public import CmuxNextDesign
+public import CmuxNextAppearance
+public import CmuxNextDesignTokens
 
 /// The parts of cmux.json that cmux-next applies, parsed off the main actor.
 /// Keys stay strings here; `SettingsApplier` maps them onto `DesignSettings`

@@ -11151,6 +11151,43 @@ Result:
 object{stream:uint16,outcome:"applied"|"ended"}
 ```
 
+### set-stream-priority
+
+| Field | Value |
+| --- | --- |
+| name | `set-stream-priority` |
+| status | implemented |
+| since | protocol 12, capability `attach-streams-v1` |
+
+Sets how one client-minted attach stream of this connection competes with the
+others (stream visibility, p05-ipc-142), as Chrome ranks a renderer by its
+widgets' visibility (`RenderWidgetHostImpl::WasShown`/`WasHidden`) and moves its
+task runners with `UpdateableSequencedTaskRunner::UpdatePriority`:
+
+- `focused`: the stream's items ride the input lane, ahead of control replies,
+  and its view drains on the input workers. The view the person types into.
+- `visible`: the bulk lane, and the view drains on the utility workers, so a
+  flooding visible terminal never delays a focused echo.
+- `hidden`: a snapshot view (`terminal-snapshot-v1`) gets no output and no
+  digest; the daemon still parses the terminal's output and marks the view
+  dirty. When the stream is set `focused` or `visible` again, a dirty view gets
+  one READY snapshot (with its history) before any new output; a clean one
+  continues where it was. Any other view rides the background lane at
+  background priority.
+
+A stream never set keeps what it opened with: the bulk lane and input
+priority. Idempotent: an id with no open stream answers `outcome:"ended"` and
+changes nothing; the same priority again is `applied` and changes nothing.
+
+Params: required `stream:uint16`, required
+`priority:"focused"|"visible"|"hidden"`.
+
+Result:
+
+```text
+object{stream:uint16,outcome:"applied"|"ended"}
+```
+
 ### cancel-request
 
 `{target}` cancels this connection's own `apps-run` request or script cell

@@ -28,6 +28,22 @@ use std::future::Future;
 pub(crate) trait ToolRequests: Sync {
     fn request(&self, m: &'static str, params: Value)
     -> impl Future<Output = Result<Value>> + Send;
+
+    /// Whether the daemon these requests reach lists `feature` (`attach.rs` checks uploads by
+    /// reference). The daemon's own router is this build, which lists every feature it has.
+    fn lists(&self, _feature: &str) -> bool {
+        true
+    }
+
+    /// That daemon's build, for a refusal's text; none when it is this process.
+    fn build(&self) -> Option<String> {
+        None
+    }
+
+    /// Whether the connection to that daemon closed (no retry can pass); never for its own router.
+    fn is_closed(&self) -> bool {
+        false
+    }
 }
 
 impl ToolRequests for Client {
@@ -37,6 +53,18 @@ impl ToolRequests for Client {
         params: Value,
     ) -> impl Future<Output = Result<Value>> + Send {
         Client::request(self, m, params)
+    }
+
+    fn lists(&self, feature: &str) -> bool {
+        self.daemon_lists(feature)
+    }
+
+    fn build(&self) -> Option<String> {
+        self.daemon_build()
+    }
+
+    fn is_closed(&self) -> bool {
+        Client::is_closed(self)
     }
 }
 
@@ -382,7 +410,7 @@ fn sent_text(r: &Value) -> String {
 /// `send_message`'s `attachments` (absolute paths) as the files' blocks (`attach.rs`): this server
 /// reads them, as the agent's own user on its own machine, and uploads to the receiver through
 /// `daemon` the ones that go by reference.
-async fn with_attachments(daemon: &Client, mut args: Value) -> Result<Value> {
+async fn with_attachments<D: ToolRequests>(daemon: &D, mut args: Value) -> Result<Value> {
     let Some(paths) = args.get("attachments").filter(|v| !v.is_null()) else { return Ok(args) };
     let paths: Vec<std::path::PathBuf> = paths
         .as_array()

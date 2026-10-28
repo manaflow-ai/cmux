@@ -1,6 +1,8 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextWakeups
 import Foundation
 
 /// Which acpmux an agent tab's pane attaches to.
@@ -58,6 +60,8 @@ struct ChiefHomeAcpmux {
     /// - Parameters:
     ///   - local: this Mac's pane host; a Chief on the app's own acpmux
     ///     (``ChiefHome/usesAppAcpmux``) attaches its tabs there.
+    ///   - work: the app's blocking-work lanes (`AppServices.work`): a tab's disk check of a kept session
+    ///     runs there, and a heal's follow-up after a busy host's turn.
     ///   - ensureHost: starts the Chief brain host when none runs
     ///     (`ChiefBrainKeeper.ensure`), after a heal stopped the stale one.
     ///   - startHost: asks for the Chief brain host when a tab finds nothing on the Chief home's
@@ -66,7 +70,8 @@ struct ChiefHomeAcpmux {
     ///     without Home being shown (#25570).
     ///   - ownHost: the pane host of the Chief home's own acpmux (its environment) for a Chief
     ///     on the app's acpmux: the daemon its subagents ran on before the move.
-    init(home: ChiefHome, local: any AgentPaneHostProviding, ensureHost: @escaping @Sendable () async -> Void,
+    init(home: ChiefHome, local: any AgentPaneHostProviding, work: BackgroundWork,
+         ensureHost: @escaping @Sendable () async -> Void,
          startHost: @escaping @Sendable () async -> Bool,
          ownHost: @escaping @Sendable (AcpmuxEnvironment?) -> any AgentPaneHostProviding = { AcpmuxHost(environment: $0) }) {
         let host = Self.host(muxHome: home.muxHome)
@@ -83,7 +88,8 @@ struct ChiefHomeAcpmux {
             let own = ownHost(environment)
             let sessionsHome = home.acpmuxHome
             let router: @Sendable (any AgentPaneHostProviding) -> any AgentPaneHostProviding = { local in
-                AcpmuxChiefSessionRouter(local: local, chief: own, chiefEnvironment: environment, sessionsHome: sessionsHome, parentTag: tag)
+                AcpmuxChiefSessionRouter(local: local, chief: own, chiefEnvironment: environment, sessionsHome: sessionsHome,
+                                         parentTag: tag, work: work)
             }
             paneHost = router(local)
             localRouter = router
@@ -94,12 +100,14 @@ struct ChiefHomeAcpmux {
         // replaced bundle is healed through its owner (ChiefAcpmuxHeal), while the app runs.
         var healReplaced: (@Sendable () async -> Bool)?
         if let environment {
-            let heal = ChiefAcpmuxHeal(home: home, environment: environment, ensureHost: ensureHost)
+            let heal = ChiefAcpmuxHeal(home: home, environment: environment, work: work, ensureHost: ensureHost)
             healReplaced = { @Sendable () async -> Bool in await heal.heal() }
         }
         let chief = AcpmuxHost(environment: environment, startsDaemons: false, healReplaced: healReplaced, startOwner: startHost)
         paneHost = chief
-        localRouter = { local in AcpmuxChiefSessionRouter(local: local, chief: chief, chiefEnvironment: environment, parentTag: tag) }
+        localRouter = { local in
+            AcpmuxChiefSessionRouter(local: local, chief: chief, chiefEnvironment: environment, parentTag: tag, work: work)
+        }
     }
 
     /// The acpmux of the Chief home `home` (its socket is `socketPath`), nil without one.
