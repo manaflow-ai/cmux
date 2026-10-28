@@ -1189,9 +1189,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 ] + (canEditTabs && chatsBackend != nil
                     ? [TabsKitMenuItem(title: "Open Chat Folder in Terminal", systemImage: "apple.terminal") { [weak self] in
                         Task { await self?.openChatFolderInTerminal(tab.id) }
-                    }] : []),
+                    }] : []) + chatsItems,
                 edit,
-                chatsItems + [leave],
+                [leave],
                 [
                     TabsKitMenuItem(title: "Stop Agent", systemImage: "stop.circle", isEnabled: store.isRunning, isDestructive: true) { store.cancel() },
                     close,
@@ -1210,7 +1210,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 }] : []
             // Files and Links, Paste, Clear | Copy Directory | Close Tab: no
             // "All Workspaces" (Back leaves the workspace; design/terminal P1).
-            return [restart, own, [copy], edit, chatsItems, [close]].filter { !$0.isEmpty }
+            return [restart, own, [copy], chatsItems, edit, [close]].filter { !$0.isEmpty }
         case .browser:
             let model = browser(tab)
             return [
@@ -1218,8 +1218,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
                     TabsKitMenuItem(title: "Copy Link", systemImage: "link", isEnabled: model.url != nil) { UIPasteboard.general.url = model.url },
                     TabsKitMenuItem(title: "Reload", systemImage: "arrow.clockwise") { model.reloadOrStop() },
                 ],
+                chatsItems,
                 edit,
-                chatsItems + [leave],
+                [leave],
                 [close],
             ].filter { !$0.isEmpty }
         case .simulator:

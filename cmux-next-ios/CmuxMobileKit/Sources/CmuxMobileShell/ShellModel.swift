@@ -141,6 +141,15 @@ final class ShellModel {
         }
     }
 
+    /// Shows `workspace` in place of the one on screen (the Chats list's Open in New Workspace).
+    /// The destination keeps its screen state at the same place in the path, so the path is
+    /// emptied first and the workspace pushed on the next turn, as `openTerminal` does.
+    func show(workspace: Workspace) {
+        tab = .workspaces
+        workspacesPath = []
+        Task { @MainActor [weak self] in self?.workspacesPath = [workspace] }
+    }
+
     /// A terminal agent's Feed event: its workspace on Workspaces, at that
     /// terminal tab (as a tap on the workspace row with that tab does).
     func openTerminal(_ item: FeedItem) {

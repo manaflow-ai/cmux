@@ -81,6 +81,26 @@ def save_state(**kw):
     pq.save(st)
 
 
+def chat_cards(j):
+    """The seed workspace's chat card (its only tab that is not the `p2tabs-t1` terminal)."""
+    return [e for e in j.sim.find(suffix=", tab") if not (e.label or "").startswith("p2tabs-t")]
+
+
+def open_ws(j, name):
+    """pq_tabs.open_ws from wherever the last flow left the phone: an open menu is closed, a
+    workspace's tab grid left by its back chevron, and the Workspaces tab chosen."""
+    if j.sim.find(label="Mark All Notifications as Read", kind="Button") or j.sim.find(label="Clear All Notifications", kind="Button"):
+        j.sim.tap(60, 820)
+        time.sleep(1.0)
+    if j.sim.find(label="1 Tab") or j.sim.find(contains=" Tabs"):
+        j.sim.tap(37, 85)
+        time.sleep(1.5)
+    if j.sim.find(label="Workspaces", kind="RadioButton"):
+        j.tab("Workspaces")
+        time.sleep(1.0)
+    t.open_ws(j, name)
+
+
 def ocr_text(j):
     return " | ".join(o[4] for o in j.sim.ocr())
 
@@ -95,6 +115,21 @@ def open_page_menu(j):
     j.sim.tap_el(bottom[0])
     time.sleep(1.2)
     return menu_items(j)
+
+
+def menu_row(j, label, timeout=5):
+    """A row of an open menu, scrolled into view (a long page menu scrolls)."""
+    for _ in range(6):
+        row = j.sim.wait(label=label, kind="Button", timeout=timeout)
+        if not row:
+            return None
+        x, y, w, h = row.frame
+        if y + h < 820:
+            return row
+        j.sim.swipe(215, 700, 215, 300, 0.4)
+        time.sleep(0.8)
+        timeout = 2
+    return None
 
 
 def close_menu(j):
@@ -148,7 +183,7 @@ def chats_list(j, label):
     as a tab here), then Open in New Workspace from a row's menu. Before: no such item."""
     st = state()
     b = t.seed("chats-list", terminals=1)
-    t.open_ws(j, b["name"])
+    open_ws(j, b["name"])
     items = open_page_menu(j)
     pq.shot(f"chats-{label}-page-menu")
     row = j.sim.find(label="Search Agent Chats", kind="Button")
@@ -156,7 +191,9 @@ def chats_list(j, label):
         close_menu(j)
         check(not row, "the base app has Search Agent Chats")
         return {"page_menu": items, "search_agent_chats": False}
-    check(row, f"no Search Agent Chats: {items}")
+    row = [menu_row(j, "Search Agent Chats")]
+    pq.shot(f"chats-{label}-page-menu-scrolled")
+    check(row[0], f"no Search Agent Chats: {items}")
     j.sim.tap_el(row[0])
     list_shown = j.sim.wait(ident="agentChats.list", timeout=30)
     check(list_shown, "the chats list never loaded")
@@ -183,7 +220,7 @@ def chats_list(j, label):
     pq.shot(f"chats-{label}-opened-here")
     # Open in New Workspace: the row's menu (long press).
     open_page_menu(j)
-    j.sim.tap_el(j.sim.wait(label="Search Agent Chats", kind="Button", timeout=5))
+    j.sim.tap_el(menu_row(j, "Search Agent Chats"))
     j.sim.wait(ident="agentChats.list", timeout=30)
     time.sleep(1.0)
     row = j.sim.wait(ident=f"agentChats.row.{st['kiwi']}", timeout=8)
@@ -219,14 +256,14 @@ def archived(j, label):
     the Mac's archived tag. Before: no list to filter."""
     st = state()
     check(archived_on_mac(st["pong"]), "the PONG chat is not archived on the Mac (run seed)")
-    t.open_ws(j, st["seed_ws"])
+    open_ws(j, st["seed_ws"])
     items = open_page_menu(j)
     row = j.sim.find(label="Search Agent Chats", kind="Button")
     if label == "before":
         pq.shot(f"archived-{label}-page-menu")
         close_menu(j)
         return {"page_menu": items, "archived_list": False, "mac_archived": archived_on_mac(st["pong"])}
-    j.sim.tap_el(row[0])
+    j.sim.tap_el(menu_row(j, "Search Agent Chats"))
     j.sim.wait(ident="agentChats.list", timeout=30)
     time.sleep(1.0)
     hidden = not j.sim.find(ident=f"agentChats.row.{st['pong']}")
@@ -260,10 +297,10 @@ def find(j, label):
     """The kiwi chat: page menu > Find in Chat…, "kiwi": N of M, then Previous and Next. Before:
     no Find in Chat."""
     st = state()
-    t.open_ws(j, st["seed_ws"])
+    open_ws(j, st["seed_ws"])
     pq.open_grid(j)
-    cards = [e for e in j.sim.find(suffix=", tab") if "kiwi" in (e.label or "").lower()]
-    check(cards, f"no kiwi card: {[e.label for e in j.sim.find(suffix=', tab')]}")
+    cards = chat_cards(j)
+    check(cards, f"no chat card: {[e.label for e in j.sim.find(suffix=', tab')]}")
     j.sim.tap_el(cards[0])
     time.sleep(2.0)
     items = open_page_menu(j)
@@ -273,7 +310,8 @@ def find(j, label):
         close_menu(j)
         check(not row, "the base app has Find in Chat")
         return {"page_menu": items, "find": False}
-    check(row, f"no Find in Chat…: {items}")
+    row = [menu_row(j, "Find in Chat…")]
+    check(row[0], f"no Find in Chat…: {items}")
     j.sim.tap_el(row[0])
     time.sleep(1.0)
     pq.type_text("kiwi")
@@ -281,18 +319,18 @@ def find(j, label):
     pq.shot(f"find-{label}-first")
 
     def count():
-        e = j.sim.find(ident="agentChat.find.count")
-        return (e[0].label or e[0].value or "") if e else ""
+        e = [x for x in j.sim.find(kind="StaticText") if re.match(r"^\d+ of \d+$", x.label or "") or (x.label or "") == "No results"]
+        return e[0].label if e else ""
 
     counts = [count()]
-    for ident in ("agentChat.find.previous", "agentChat.find.previous", "agentChat.find.next"):
-        b = j.sim.wait(ident=ident, timeout=4)
-        check(b, f"no {ident}")
+    for name in ("Previous match", "Previous match", "Next match"):
+        b = j.sim.wait(label=name, kind="Button", timeout=4)
+        check(b, f"no {name} button")
         j.sim.tap_el(b)
         time.sleep(1.2)
         counts.append(count())
         pq.shot(f"find-{label}-step{len(counts) - 1}")
-    done = j.sim.wait(ident="agentChat.find.done", timeout=4)
+    done = j.sim.wait(label="Done", kind="Button", timeout=4)
     if done:
         j.sim.tap_el(done)
         time.sleep(1.0)
@@ -320,6 +358,9 @@ def mark_all_read(j, label):
         return [s for s in surfaces if markers.get(s)]
 
     shown, _ = t.until(lambda: unread() if len(unread()) == len(surfaces) else None, timeout=30, what="unread notifications on the Mac")
+    if j.sim.find(label="1 Tab") or j.sim.find(contains=" Tabs"):
+        j.sim.tap(37, 85)
+        time.sleep(1.5)
     j.back_to_list()
     j.tab("Feed")
     time.sleep(2.0)
@@ -346,10 +387,10 @@ def folder_terminal(j, label):
     """The kiwi chat: page menu > Open Chat Folder in Terminal: a new terminal tab beside the
     chat on the Mac, in the chat's folder. Before: no item."""
     st = state()
-    t.open_ws(j, st["seed_ws"])
+    open_ws(j, st["seed_ws"])
     pq.open_grid(j)
-    cards = [e for e in j.sim.find(suffix=", tab") if "kiwi" in (e.label or "").lower()]
-    check(cards, "no kiwi card")
+    cards = chat_cards(j)
+    check(cards, "no chat card")
     j.sim.tap_el(cards[0])
     time.sleep(2.0)
     items = open_page_menu(j)
@@ -359,23 +400,29 @@ def folder_terminal(j, label):
         close_menu(j)
         check(not row, "the base app has Open Chat Folder in Terminal")
         return {"page_menu": items, "folder_terminal": False}
-    check(row, f"no Open Chat Folder in Terminal: {items}")
+    row = [menu_row(j, "Open Chat Folder in Terminal")]
+    check(row[0], f"no Open Chat Folder in Terminal: {items}")
     folder = (mac_session(st["kiwi"]) or {}).get("cwd")
-    ws = t.mac_workspace(key=st["seed_key"])
-    before = {tab["surface"] for _, tab in t.ws_tabs(ws)}
-    chat_pane = next(p for p, tab in t.ws_tabs(ws) if ((tab.get("conversation") or {}).get("agent_session") or {}).get("session") == st["kiwi"])
+    every = lambda: [(ws, p, tab) for ws in t.mac_tree().get("workspaces", []) for p, tab in t.ws_tabs(ws)]
+    before = {tab["surface"] for _, _, tab in every()}
+    # The panes that show the kiwi chat (the phone's open tab is one of them).
+    chat_panes = {p for _, p, tab in every() if ((tab.get("conversation") or {}).get("agent_session") or {}).get("session") == st["kiwi"]}
     j.sim.tap_el(row[0])
 
     def new_terminal():
-        for pane, tab in t.ws_tabs(t.mac_workspace(key=st["seed_key"])):
-            if tab["surface"] not in before and tab.get("kind") == "pty" and same_folder(tab.get("cwd"), folder):
+        for ws, pane, tab in every():
+            if tab["surface"] not in before and tab.get("kind") == "pty":
                 return pane, tab
         return None
 
-    (pane, tab), took = t.until(new_terminal, timeout=30, what="a terminal in the chat's folder on the Mac")
+    (pane, tab), took = t.until(new_terminal, timeout=30, what="a new terminal on the Mac")
+    # The typed cd lands a moment after the tab: the Mac's own cwd report follows the shell.
+    cwd, _ = t.until(lambda: next((x.get("cwd") for _, _, x in every() if x["surface"] == tab["surface"] and same_folder(x.get("cwd"), folder)), None),
+                     timeout=20, what="the new terminal to reach the chat's folder")
+    tab["cwd"] = cwd
     time.sleep(3)
     pq.shot(f"folder-{label}-terminal")
-    return {"chat_folder": folder, "terminal_cwd": tab.get("cwd"), "same_pane_as_chat": pane == chat_pane, "took_s": round(took, 1)}
+    return {"chat_folder": folder, "terminal_cwd": tab.get("cwd"), "same_pane_as_chat": pane in chat_panes, "took_s": round(took, 1)}
 
 
 FLOWS = {"seed": seed, "chats": chats_list, "archived": archived, "find": find, "markread": mark_all_read,
