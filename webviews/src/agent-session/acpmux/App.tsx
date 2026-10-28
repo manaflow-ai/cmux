@@ -9757,14 +9757,15 @@ function AcpmuxPane() {
               environments={preview}
               // The tab's run, found by a read, takes the chat view: the page's draft goes to its composer.
               onLeaveDraft={(text, attachments) => {
-                // Persist the New Tab's pre-session text through the tab-owned unsent store
-                // before the page is replaced. Attachments are handed to the wake store below.
-                void callNative("chat.unsentDraft", { text }).catch(() => undefined);
-                // A Sandboxed send from the page already took its prompt (or held it back).
+                // A page-side Sandboxed send already owns its prompt (or held it back).
                 const handed = newTabSandboxSent.current;
                 newTabSandboxSent.current = false;
                 const view = sandbox.view();
-                if (handed || !view || sandboxRetryable(view)) return;
+                if (handed || !view || sandboxRetryable(view)) {
+                  void callNative("chat.unsentDraft", { text: handed ? "" : text }).catch(() => undefined);
+                  return;
+                }
+                // A restored run leaves separately typed text to the chat composer's existing handoff.
                 heldBack.current = [...(heldBack.current ?? []), { text: text.trim() ? text : "", attachments }];
                 setSandboxDraftMoved(true);
               }}
