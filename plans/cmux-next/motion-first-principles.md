@@ -119,7 +119,7 @@ measurement before and after, light and STRESS, and a clip.
 |---|---|---|---|---|---|---|---|
 | 1 | Split grow | CmuxNextLayout/Views/ScreenContentView+Motion.swift:83 (step), :199 (applyPresentation) | layout of the whole chain per frame | one layout, opacity fade of the new pane | fade instead of growth | cp/motion-split-fade | done |
 | 2 | Pane close | CmuxNextLayout/Views/ScreenContentView.swift:318 (departing) + step | neighbours laid out per frame | one layout; the closed pane's last picture fades out over its neighbours at rest (a snapshot layer), or no motion | neighbours take the space in one frame; the closed pane fades | cp/motion-pane-close | pending |
-| 3 | Strip column reveal / center | ScreenContentView+Motion.swift:121; LayoutRootView.swift:442 | host origins and clips per frame | lay out at rest once; spring the strip container's translation on the render server (as `StripPanContainer` does for pans) | none | cp/motion-strip-camera | pending |
+| 3 (p03-025) | Strip column reveal / center | ScreenContentView+Motion.swift:121; LayoutRootView.swift:442 | host origins and clips per frame | lay out at rest once; spring the strip container's translation on the render server (as `StripPanContainer` does for pans) | none | cp/motion-strip-camera | pending |
 | 4 | Sidebar show/hide | CmuxNextSidebar/Views/SidebarContainerView.swift:404 | Auto Layout of the window root per frame | final width in one layout; slide the sidebar layer (transform) and fade; content area at its final width at once | the content area no longer slides with the sidebar | cp/motion-sidebar | pending |
 | 5 | Collapsed titlebar band reveal | CmuxNextDesign/CollapsedBandReveal+CPUStep.swift:48 | root layout per frame, on hover | the render-server variant (CollapsedBandReveal.swift:163) by default | none | cp/motion-band-reveal | pending |
 | 6 | Screen switch | CmuxNextLayout/Views/LayoutRootView.swift:556 | setFrameOrigin + alpha + overlay sync per screen per frame | screens at rest; translate their layers on the render server | none | cp/motion-screen-switch | pending |
@@ -132,6 +132,13 @@ measurement before and after, light and STRESS, and a clip.
 | 13 | Web conversation fold | webviews/src/agent-session/acpmux/conversation/fold.ts:158 | WebKit lays out the transcript per frame (height) | FLIP: final height at once, animate a transform/clip of the content, opacity for the text | none | cp/motion-web-fold | pending |
 | 14 | Browser toolbar show/hide | CmuxNextBrowser/UI/BrowserChromeView+Toolbar.swift:45 | row frames and the page resize per frame | the render-server slide (:107) by default | none | cp/motion-browser-toolbar | pending |
 | 15 | Window zoom, quick composer frame | CmuxNextDesign/Windows/WindowZoom.swift:50; CmuxNextFloating/QuickComposer/QuickComposerPanel+Floating.swift:55 | full window resize per frame | final frame at once; no motion (macOS's own zoom is instant with Reduce Motion) or a snapshot scale | rare | cp/motion-window-frames | pending |
+
+Owned elsewhere (2026-10-28): items 3 (strip camera), 5 (band reveal: its render-server variant), 6 (screen switch),
+8 (tab drag ghost), 9 (drop highlight) and 14 (browser toolbar) already have render-server variants or tasks in
+chrome-parity p03-rendering (025 camera springs, 030 screen switch, 032 drop highlight, 035 tab drag ghost; 022c
+turns `motion.renderServer` on by default after its measurements). This work does not duplicate them; it feeds them
+the measurements. Its own order is 1, 2, then the sidebar Cmd-N burst (Lawrence 2026-10-28), then 4, 10, 11, 7, 12,
+13, 15.
 
 Runners-up: the web scroller ink fade (`scrollers.ts:84`, a custom property per frame), the streaming reveal
 (`RevealedMarkdown.tsx`, a layout per token), the tab strip drag autoscroll. Items 3, 5, 6, 8, 9 and 14 already have a
