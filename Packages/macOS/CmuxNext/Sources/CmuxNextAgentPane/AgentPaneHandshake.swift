@@ -25,7 +25,7 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case protocolVersion, transport, sessionId, newSession, newTab, cwd, draft, prompt, promptTicket, harness, adopt, surface,
              linkScheme, sessionMustExist, revealTurn, chooseFolder, startKind, folderNeeded, pastTurns, machineName, githubRepository, harnesses, wake,
-             workspaceContext, sandboxState, cloudMachineID, cloudCredentialRecoveryAvailable
+             workspaceContext, sandboxState, cloudMachineID, cloudAccount, cloudCredentialRecoveryAvailable
     }
 
     public var protocolVersion: Int
@@ -106,6 +106,8 @@ public nonisolated struct AgentPaneHandshake: Codable, Sendable, Equatable {
     public var pastTurns: [AgentPanePastTurn]?
     /// Provider VM ID resolved by the native tab host, never a daemon registry UUID.
     public var cloudMachineID: String?
+    /// Account and team that own this Cloud chat; absence never proves deletion.
+    public var cloudAccount: [String?]?
     /// True only when this Cloud backend supports credential delivery.
     public var cloudCredentialRecoveryAvailable: Bool?
     /// This Mac's name (System Settings > General > Sharing), for the composer's location row.

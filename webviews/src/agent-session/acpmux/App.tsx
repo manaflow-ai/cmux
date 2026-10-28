@@ -142,6 +142,8 @@ import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from ".
 import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
 import { ChatUnavailableState } from "./ChatUnavailableState";
+import { useCloudChatRecovery } from "./useCloudChatRecovery";
+import { cloudChatUnavailable, type CloudChatIdentity } from "./cloudChatRecovery";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos, projectRows } from "./projectRepos";
@@ -4541,6 +4543,7 @@ function AcpmuxPane() {
   /// This Mac's name, from the handshake.
   const [machineName, setMachineName] = useState<string | undefined>();
   const [cloudMachineID, setCloudMachineID] = useState<string | undefined>();
+  const [cloudChatIdentity, setCloudChatIdentity] = useState<CloudChatIdentity>();
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
   const [githubRepository, setGithubRepository] = useState<string | undefined>();
@@ -6541,6 +6544,19 @@ function AcpmuxPane() {
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
+  const recheckCloudChat = useCallback(async () => {
+    await directClient.current?.recheckMissing();
+  }, []);
+  const cloudRecovery = useCloudChatRecovery({
+    cloud: cloudChatIdentity,
+    session: snapshot.missingSession ?? snapshot.sessionId,
+    active: !!snapshot.unavailable || snapshot.connection !== "connected",
+    recheck: recheckCloudChat,
+  });
+  const cloudUnavailable =
+    cloudRecovery.state === "paused" || cloudRecovery.state === "deleted"
+      ? cloudChatUnavailable(snapshot.unavailable ?? { reason: "offline" }, cloudRecovery.state, machineName)
+      : snapshot.unavailable;
   const hasTray = !quick && !freshView && (trayList.length > 0 || trayFinished.length > 0);
   // The tray's motion (subagents/trayMotion.tsx): the chat on screen as of this render, which the
   // tray reads as it goes (it plays its exit only while its own chat still shows), and the chat that
@@ -7193,6 +7209,7 @@ function AcpmuxPane() {
           pastTurns?: unknown;
           machineName?: unknown;
           cloudMachineID?: unknown;
+          cloudAccount?: unknown;
           cloudCredentialRecoveryAvailable?: unknown;
           /// The app opens a Cloud chat's hand-off turns (`cloud.handoffTurn`, cloudHandoffTurn.ts).
           cloudHandoffs?: unknown;
@@ -7205,6 +7222,13 @@ function AcpmuxPane() {
         setCloudCredentialRecoveryAvailable(host.cloudCredentialRecoveryAvailable === true);
         setCloudMachineID(
           typeof host.cloudMachineID === "string" && host.cloudMachineID ? host.cloudMachineID : undefined,
+        );
+        setCloudChatIdentity(
+          typeof host.cloudMachineID === "string" &&
+            Array.isArray(host.cloudAccount) &&
+            host.cloudAccount.every((part) => part === null || typeof part === "string")
+            ? { id: host.cloudMachineID, account: host.cloudAccount as (string | null)[] }
+            : undefined,
         );
         setNewSession(host.newSession === true && !host.sessionId);
         if (host.newSession && !host.sessionId && typeof host.cwd === "string" && host.cwd) setProjectDraft(host.cwd);
@@ -10211,10 +10235,13 @@ function AcpmuxPane() {
                       ignoreFailure(callNative("chat.handoff.get").then(() => setReviewReload((value) => value + 1)))
                     }
                   />
-                ) : snapshot.unavailable ? (
+                ) : cloudUnavailable ? (
                   // The tab's chat is not here: which case it is, centered where the chat would be.
                   <ChatUnavailableState
-                    unavailable={snapshot.unavailable}
+                    unavailable={cloudUnavailable}
+                    onResumeMachine={cloudRecovery.resume}
+                    resuming={cloudRecovery.resuming}
+                    error={cloudRecovery.error}
                     {...(snapshot.missingSession ? { session: snapshot.missingSession } : {})}
                     {...(machineName ? { machine: machineName } : {})}
                     onRemove={() => runHeaderAction(HEADER_ACTIONS.close)}

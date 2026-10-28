@@ -11,16 +11,24 @@ extension AgentPaneCloudMachines {
     /// (``CloudService``, never another user's or team's list), and Open Machine and Resume
     /// Machine on one of them, run as the person's own.
     func wire(_ services: AppServices) {
-        list = { [weak services] in
+        let inventory: @MainActor (Duration) async -> Inventory = { [weak services] age in
             guard let services, services.cloud.isSignedIn else { return Inventory(signedIn: false, loaded: false, machines: []) }
-            await services.cloud.refresh(ifOlderThan: Self.listAge)
+            await services.cloud.refresh(ifOlderThan: age)
             guard services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines else {
                 return Inventory(signedIn: services.cloud.isSignedIn, loaded: false, machines: [])
             }
             let machines = services.machines.cloud.compactMap { session in
                 session.effectiveStatus == .destroyed ? nil : Machine(id: session.machineID, name: session.machine.title, stage: session.stage.name)
             }
-            return Inventory(signedIn: true, loaded: true, machines: machines)
+            return Inventory(signedIn: true, loaded: true, machines: machines, account: services.cloud.account)
+        }
+        list = { await inventory(Self.listAge) }
+        recoveryList = { await inventory(.zero) }
+        attach = { [weak services] id in
+            guard let services, services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines,
+                  let session = services.machines.session(id), session.effectiveStatus == .paused else { return false }
+            session.attach(origin: .user)
+            return true
         }
         open = { [weak services] id in
             services.map { Self.perform("cloudOpenMachine", on: id, services: $0) { _ in true } } ?? false

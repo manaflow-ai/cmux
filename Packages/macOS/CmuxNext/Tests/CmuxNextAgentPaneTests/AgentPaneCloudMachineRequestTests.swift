@@ -11,11 +11,13 @@ struct AgentPaneCloudMachineRequestTests {
         AgentPaneRequest(body: params.map { ["method": method, "params": $0] } ?? ["method": method])
     }
 
-    @Test func decodesTheThreeMethods() {
+    @Test func decodesTheMachineMethods() {
         #expect(Self.request("cloudMachine.list", [:]) == .cloudMachine(.list))
         #expect(Self.request("cloudMachine.list") == .cloudMachine(.list))
+        #expect(Self.request("cloudMachine.recoveryList") == .cloudMachine(.recoveryList))
         #expect(Self.request("cloudMachine.open", ["id": "vm-abc123"]) == .cloudMachine(.open(id: "vm-abc123")))
         #expect(Self.request("cloudMachine.resume", ["id": "machine_0123"]) == .cloudMachine(.resume(id: "machine_0123")))
+        #expect(Self.request("cloudMachine.attach", ["id": "vm-1"]) == .cloudMachine(.attach(id: "vm-1")))
         for method in AgentPaneCloudMachineRequest.methods { #expect(AgentPageOps.methods[method] == method) }
         #expect(String(describing: Self.request("cloudMachine.open", ["id": "vm-1"])) == "cloudMachine")
     }
@@ -28,6 +30,7 @@ struct AgentPaneCloudMachineRequestTests {
         for params in refused {
             #expect(Self.request("cloudMachine.open", params) == .unsupported("cloudMachine.open"))
             #expect(Self.request("cloudMachine.resume", params) == .unsupported("cloudMachine.resume"))
+            #expect(Self.request("cloudMachine.attach", params) == .unsupported("cloudMachine.attach"))
         }
     }
 
@@ -55,6 +58,8 @@ struct AgentPaneCloudMachineRequestTests {
         // Reading the list is not the person touching the page.
         let model = AgentPaneModel(host: NoHost())
         _ = await model.respond(to: .cloudMachine(.list))
+        #expect(!model.userTouched)
+        _ = await model.respond(to: .cloudMachine(.recoveryList))
         #expect(!model.userTouched)
     }
 
@@ -99,6 +104,31 @@ struct AgentPaneCloudMachineRequestTests {
         gestures.record(click: true)
         #expect(await AgentPaneCloudMachineRequest.open(id: "vm-1").reply(AgentPaneCloudMachines(), gestures: gestures)["ok"] as? Bool != true)
         #expect(gestures.isAvailable)
+    }
+
+    @Test func recoveryAttachConsumesOneGestureAndDoesNotOpenAWorkspace() async {
+        let machines = AgentPaneCloudMachines()
+        let gestures = AgentPaneUserGestures()
+        var attached: [String] = []
+        machines.attach = { attached.append($0); return true }
+        machines.open = { _ in Issue.record("Recovery must not open a workspace"); return false }
+        let request = AgentPaneCloudMachineRequest.attach(id: "vm-1")
+        #expect(await request.reply(machines, gestures: gestures)["ok"] as? Bool != true)
+        gestures.record(click: true)
+        #expect(await request.reply(machines, gestures: gestures)["ok"] as? Bool == true)
+        #expect(await request.reply(machines, gestures: gestures)["ok"] as? Bool != true)
+        #expect(attached == ["vm-1"])
+    }
+
+    @Test func inventoryKeepsPersonalAccountScopeAsJSONNull() async throws {
+        let machines = AgentPaneCloudMachines()
+        machines.list = { .init(signedIn: true, loaded: true, machines: [], account: ["user", nil]) }
+        let reply = await AgentPaneCloudMachineRequest.list.reply(machines, gestures: AgentPaneUserGestures())
+        #expect(JSONSerialization.isValidJSONObject(reply))
+        let value = try #require(reply["value"] as? [String: Any])
+        let account = try #require(value["account"] as? [Any])
+        #expect(account[0] as? String == "user")
+        #expect(account[1] is NSNull)
     }
 
     private actor NoHost: AgentPaneHostProviding {

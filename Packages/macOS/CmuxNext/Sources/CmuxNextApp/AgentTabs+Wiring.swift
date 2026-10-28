@@ -270,6 +270,7 @@ extension AgentTabStore {
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
+            host.cloudAccount = host.cloudMachineID == nil ? nil : services.cloud.account
             host.cloudCredentialRecoveryAvailable = host.cloudMachineID != nil &&
                 services.cloud.auth.isSignedIn && services.cloud.configuration.linkSource == .legacy
             // A Cloud machine (the app's own record, never the guest's) starts a chat or asks folder
