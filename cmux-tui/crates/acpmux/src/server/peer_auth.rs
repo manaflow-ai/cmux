@@ -61,4 +61,8 @@ impl PeerAuth {
     pub fn path(&self) -> &Path {
         &self.path
     }
+
+    pub(crate) fn token(&self) -> &str {
+        &self.token
+    }
 }

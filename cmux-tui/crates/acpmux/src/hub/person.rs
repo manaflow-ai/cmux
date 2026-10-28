@@ -786,14 +786,37 @@ pub(crate) fn owner_policy_proof_for_key(
     host: &str,
     nonce: &str,
 ) -> Option<String> {
-    use cmux_local_auth::frontend_proof::{hex, hmac_sha256, unhex};
+    use cmux_local_auth::frontend_proof::unhex;
     let key = unhex::<32>(key)?;
+    Some(owner_policy_proof_for_secret_bytes(&key, session, policy, host, nonce))
+}
+
+/// Computes the daemon-to-daemon owner-policy proof for a shared peer
+/// credential. Callers must keep the credential private.
+pub fn owner_policy_proof_for_secret(
+    secret: &str,
+    session: &str,
+    policy: &str,
+    host: &str,
+    nonce: &str,
+) -> String {
+    owner_policy_proof_for_secret_bytes(secret.as_bytes(), session, policy, host, nonce)
+}
+
+fn owner_policy_proof_for_secret_bytes(
+    key: &[u8],
+    session: &str,
+    policy: &str,
+    host: &str,
+    nonce: &str,
+) -> String {
+    use cmux_local_auth::frontend_proof::{hex, hmac_sha256};
     let mut message = OWNER_POLICY_DOMAIN.to_vec();
     for value in [session, policy, host, nonce] {
         message.extend_from_slice(value.as_bytes());
         message.push(0);
     }
-    Some(hex(&hmac_sha256(&key, &message)))
+    hex(&hmac_sha256(key, &message))
 }
 
 mod decision_answers;

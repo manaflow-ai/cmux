@@ -75,10 +75,6 @@ pub struct Peer {
     token: Option<String>,
     /// The peer's peer token (`server/peer_auth.rs`), sent with `token`.
     peer_token: Option<String>,
-    /// A per-link secret generated in this daemon. It is sent only in the
-    /// authenticated peer handshake and signs owner policy grants, so a
-    /// second connection with the peer token cannot forge one.
-    owner_link_secret: String,
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
     /// Outbound frames, each tagged with the link epoch it was admitted on:
@@ -183,7 +179,6 @@ impl Peer {
             url: url.to_owned(),
             token,
             peer_token,
-            owner_link_secret: crate::hub::person::new_nonce(),
             tunnel: Mutex::new(None),
             out,
             out_rx: Mutex::new(Some(out_rx)),
@@ -233,14 +228,15 @@ impl Peer {
         host: &str,
         nonce: &str,
     ) -> String {
-        crate::hub::person::owner_policy_proof_for_key(
-            &self.owner_link_secret,
-            session,
-            policy,
-            host,
-            nonce,
-        )
-        .expect("peer owner link secret is always a valid nonce")
+        let secret = self
+            .presented
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .or_else(|| self.peer_token.clone())
+            .unwrap_or_default();
+        crate::hub::person::owner_policy_proof_for_secret(&secret, session, policy, host, nonce)
+            .expect("peer owner link secret is always a valid nonce")
     }
 
     pub fn link(&self) -> Link {
@@ -880,7 +876,7 @@ impl Peer {
             let init = me
                 .link_request_on(
                     method::INITIALIZE,
-                    json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}, "_meta": {"acpmux": {"ownerLinkSecret": me.owner_link_secret.clone()}}}),
+                    json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}}),
                     Some(link),
                 )
                 .await?;

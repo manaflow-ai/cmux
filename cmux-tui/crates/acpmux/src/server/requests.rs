@@ -442,7 +442,9 @@ async fn dispatch_brief(
         );
     }
     let created =
-        match Box::pin(dispatch_request(hub, conn, method::SESSION_NEW, new_params, None)).await {
+        match Box::pin(dispatch_request(hub, conn, method::SESSION_NEW, new_params, None, None))
+            .await
+        {
             Ok(created) => created,
             Err(error) => {
                 hub.briefs.release(&id);
@@ -607,14 +609,14 @@ pub(super) async fn handle_request(
     let remote_authenticated = conn.auth.authenticated()
         && super::remote_guard::control_of(conn.origin, conn.auth, &params)
             == crate::hub::Control::Web;
-    let owner_policy_grant = super::remote_guard::owner_policy_grant(hub, conn, &params);
+    let owner_policy_grant = super::remote_guard::owner_policy_context(hub, conn, &params);
     let verdict = hub
         .person_check(
             conn.is_person(),
             remote_authenticated,
             conn.caller(),
             !conn.origin.web_class(),
-            owner_policy_grant,
+            owner_policy_grant.is_some(),
             m,
             &params,
         )
@@ -635,7 +637,7 @@ pub(super) async fn handle_request(
             )),
         }
     } else {
-        dispatch_request(hub, conn, m, params, resolved).await
+        dispatch_request(hub, conn, m, params, resolved, owner_policy_grant).await
     };
     super::remote_guard::after(hub, conn.origin, m, key.as_deref(), &mut reply);
     reply
@@ -647,6 +649,7 @@ async fn dispatch_request(
     m: &str,
     params: Value,
     resolved: Option<Arc<crate::hub::Session>>,
+    owner_policy_grant: Option<super::remote_guard::OwnerPolicyGrant>,
 ) -> Result<Value, RpcError> {
     // A session that lives on a peer (`peer_forward.rs`).
     if let Some(reply) = super::peer_forward::forward(hub, conn, m, &params).await {
@@ -1953,10 +1956,9 @@ async fn dispatch_request(
                 .parse()
                 .map_err(RpcError::invalid_params)?;
             refuse_full_access_policy(hub, Some(policy))?;
-            if let Some(host) = super::remote_guard::owner_policy_host(hub, conn, &params) {
-                let nonce = super::remote_guard::owner_policy_nonce(&params)
-                    .expect("owner_policy_host validates the nonce");
-                hub.set_policy_unless_moving_from_owner(&s, policy, &host, &nonce).await?;
+            if let Some(grant) = owner_policy_grant {
+                hub.set_policy_unless_moving_from_owner(&s, policy, &grant.host, &grant.nonce)
+                    .await?;
             } else {
                 hub.set_policy_unless_moving(&s, policy).await?;
             }

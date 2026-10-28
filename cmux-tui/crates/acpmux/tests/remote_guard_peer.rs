@@ -73,6 +73,38 @@ async fn call_auth(
     }
 }
 
+async fn call_auth_pair(
+    hub: &Arc<Hub>,
+    origin: Origin,
+    auth: ConnAuth,
+    first: (&str, Value),
+    second: (&str, Value),
+) -> (Value, Value) {
+    let (in_tx, in_rx) = mpsc::channel(64);
+    let (out_tx, mut out_rx) = mpsc::channel(4096);
+    tokio::spawn(serve_connection_authed(hub.clone(), in_rx, out_tx, origin, auth));
+    in_tx.send(Message::request(1, first.0, first.1).to_line()).await.unwrap();
+    loop {
+        let line =
+            tokio::time::timeout(Duration::from_secs(20), out_rx.recv()).await.unwrap().unwrap();
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v.get("id") == Some(&json!(1)) {
+            in_tx.send(Message::request(2, second.0, second.1).to_line()).await.unwrap();
+            let first_reply = v;
+            loop {
+                let line = tokio::time::timeout(Duration::from_secs(20), out_rx.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                let second_reply: Value = serde_json::from_str(&line).unwrap();
+                if second_reply.get("id") == Some(&json!(2)) {
+                    return (first_reply, second_reply);
+                }
+            }
+        }
+    }
+}
+
 fn err(v: &Value) -> String {
     v["error"]["message"].as_str().unwrap_or_default().to_owned()
 }
@@ -110,24 +142,25 @@ async fn a_proven_peer_starts_an_approve_all_session_and_the_web_still_cannot() 
     .await;
     assert!(err(&r).contains(WEB_ONLY), "{r}");
 
-    // A peer token alone cannot forge the owner marker; the forwarding daemon
-    // must carry the owner's HMAC-bound proof for this session and policy.
-    let r = call_auth(
+    // A peer token alone cannot choose the HMAC key used by the owner marker.
+    let chosen_key = "11".repeat(32);
+    let nonce = "22".repeat(32);
+    let proof = acpmux::hub::person::owner_policy_proof_for_secret(
+        &chosen_key,
+        &id,
+        "approve-all",
+        "forged-host",
+        &nonce,
+    );
+    let (_init, r) = call_auth_pair(
         &hub,
         Origin::Peer,
         ConnAuth::PeerToken,
-        "_acpmux/set_policy",
-        json!({
-            "sessionId": id,
-            "policy": "approve-all",
-            "_meta": {"acpmux": {
-                "ownerPolicyGrant": true,
-                "ownerPolicyHost": "forged-host",
-                "ownerPolicyProof": "00"
-            }}
-        }),
-    )
-    .await;
+        ("initialize", json!({"protocolVersion": 1})),
+        ("_acpmux/set_policy", json!({"sessionId": id, "policy": "approve-all", "_meta": {"acpmux": {
+            "ownerPolicyGrant": true, "ownerPolicyHost": "forged-host", "ownerPolicyProof": proof, "ownerPolicyNonce": nonce
+        }}})),
+    ).await;
     assert!(err(&r).contains(WEB_ONLY), "{r}");
 
     // Paired clients are also remote Web origins for policy raises.

@@ -98,12 +98,14 @@ const OWNER_POLICY_HOST: &str = "ownerPolicyHost";
 const OWNER_POLICY_PROOF: &str = "ownerPolicyProof";
 const OWNER_POLICY_NONCE: &str = "ownerPolicyNonce";
 
-fn owner_policy_meta(params: &Value) -> Option<&serde_json::Map<String, Value>> {
-    params.pointer("/_meta/acpmux").and_then(Value::as_object)
+#[derive(Clone, Debug)]
+pub(super) struct OwnerPolicyGrant {
+    pub host: String,
+    pub nonce: String,
 }
 
-pub(super) fn owner_policy_nonce(params: &Value) -> Option<&str> {
-    owner_policy_meta(params).and_then(|meta| meta.get(OWNER_POLICY_NONCE)).and_then(Value::as_str)
+fn owner_policy_meta(params: &Value) -> Option<&serde_json::Map<String, Value>> {
+    params.pointer("/_meta/acpmux").and_then(Value::as_object)
 }
 
 fn valid_owner_host(host: &str) -> bool {
@@ -114,12 +116,20 @@ fn valid_owner_host(host: &str) -> bool {
 /// Whether this request carries the owner grant for a remote policy raise.
 /// This reuses the VM-boundary owner proof: only a peer-token connection
 /// serving itself, never a Web or paired-device forwarding, may consume it.
-/// The HMAC is checked with the receiving daemon's enrolled owner key.
+/// The HMAC is checked with the receiving daemon's enrolled peer credential.
 pub(super) fn owner_policy_grant(
     hub: &crate::hub::Hub,
     conn: &super::Conn,
     params: &Value,
 ) -> bool {
+    owner_policy_context(hub, conn, params).is_some()
+}
+
+pub(super) fn owner_policy_context(
+    hub: &crate::hub::Hub,
+    conn: &super::Conn,
+    params: &Value,
+) -> Option<OwnerPolicyGrant> {
     if conn.origin != super::Origin::Peer
         || !crate::hub::vm_boundary::owner(
             conn.auth,
@@ -127,44 +137,32 @@ pub(super) fn owner_policy_grant(
             params,
         )
     {
-        return false;
+        return None;
     }
-    let Some(meta) = owner_policy_meta(params) else { return false };
+    let Some(meta) = owner_policy_meta(params) else { return None };
     if meta.get(OWNER_POLICY_GRANT) != Some(&Value::Bool(true)) {
-        return false;
+        return None;
     }
-    let Some(host) = meta.get(OWNER_POLICY_HOST).and_then(Value::as_str) else { return false };
+    let Some(host) = meta.get(OWNER_POLICY_HOST).and_then(Value::as_str) else { return None };
     let Some(proof) = meta.get(OWNER_POLICY_PROOF).and_then(Value::as_str) else {
-        return false;
+        return None;
     };
     let Some(nonce) = meta.get(OWNER_POLICY_NONCE).and_then(Value::as_str) else {
-        return false;
+        return None;
     };
-    let Some(session) = params.get("sessionId").and_then(Value::as_str) else { return false };
-    let Some(policy) = params.get("policy").and_then(Value::as_str) else { return false };
-    valid_owner_host(host)
+    let Some(session) = params.get("sessionId").and_then(Value::as_str) else { return None };
+    let Some(policy) = params.get("policy").and_then(Value::as_str) else { return None };
+    (valid_owner_host(host)
         && nonce.len() == 64
         && nonce.bytes().all(|b| b.is_ascii_hexdigit())
         && !hub.owner_policy_nonces.lock().unwrap_or_else(|e| e.into_inner()).contains(nonce)
-        && conn.owner_link_secret().is_some_and(|secret| {
-            crate::hub::person::owner_policy_proof_for_key(&secret, session, policy, host, nonce)
-                .is_some_and(|expected| cmux_local_auth::tokens_match(proof, &expected))
-        })
-}
-
-/// The source host recorded with an owner grant.
-pub(super) fn owner_policy_host(
-    hub: &crate::hub::Hub,
-    conn: &super::Conn,
-    params: &Value,
-) -> Option<String> {
-    owner_policy_grant(hub, conn, params).then(|| {
-        owner_policy_meta(params)
-            .and_then(|meta| meta.get(OWNER_POLICY_HOST))
-            .and_then(Value::as_str)
-            .expect("owner_policy_grant validates the host")
-            .to_owned()
-    })
+        && hub.owner_policy_secret().is_some_and(|secret| {
+            let expected = crate::hub::person::owner_policy_proof_for_secret(
+                &secret, session, policy, host, nonce,
+            );
+            cmux_local_auth::tokens_match(proof, &expected)
+        }))
+    .then(|| OwnerPolicyGrant { host: host.to_owned(), nonce: nonce.to_owned() })
 }
 
 /// Mark a policy request forwarded from a local person connection. Any
