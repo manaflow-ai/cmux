@@ -58,7 +58,8 @@ const sendParts = async (conversation: string, answer: any, body: Uint8Array) =>
     expect([url.searchParams.get("partNumber"), url.searchParams.get("X-Amz-SignedHeaders")]).toEqual([String(part), "content-length;host"])
     const key = decodeURIComponent(url.pathname).split("/").slice(2).join("/")
     const uploaded = await testEnv.HOME_ATTACHMENTS.resumeMultipartUpload(key, url.searchParams.get("uploadId")!).uploadPart(part, piece)
-    parts.push({ part_number: part, byte_count: piece.byteLength, etag: uploaded.etag })
+    // The client keeps the S3 ETag header as R2 sends it: quoted.
+    parts.push({ part_number: part, byte_count: piece.byteLength, etag: `"${uploaded.etag}"` })
   }
   return parts
 }

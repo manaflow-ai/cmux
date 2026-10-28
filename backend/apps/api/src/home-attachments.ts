@@ -525,8 +525,9 @@ const completeDirect = async (env: Env, conversation: string, slot: UploadSlot, 
     const { parts } = homeConversation.multipartPlan(slot.byte_count)
     if (!partsListed(listed, parts)) return partsInvalid(parts)
     let size: number
+    // The S3 API's ETag header is quoted; the binding names parts by the bare etag.
     try {
-      size = (await bucket.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id!).complete(listed.map((p) => ({ partNumber: p.part_number, etag: p.etag })))).size
+      size = (await bucket.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id!).complete(listed.map((p) => ({ partNumber: p.part_number, etag: p.etag.replace(/^"(.*)"$/, "$1") })))).size
     } catch {
       // A join whose answer was lost left the object (only this upload writes its key); otherwise the parts are wrong and the upload stays.
       const joined = await bucket.head(slot.object_key)
