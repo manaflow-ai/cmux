@@ -58,7 +58,8 @@ public struct NewTerminalTabCommand: Sendable {
         let send = daemon.intendNow("new-tab", intent, transaction: transaction) { connection in
             var sent = sent
             if let cwd, let start = await cwd.value { sent.cwd = start }
-            return try await connection.newTab(in: pane, options: sent)
+            // A pane a split still shows provisionally: the daemon's pane once it took it over (#26695).
+            return try await connection.newTab(in: try await PaneSplitCommand.target(pane, on: daemon), options: sent)
         }
         return Pending(tab: provisional.id, surface: provisional.surface) {
             guard let created = await send() else { throw NewTerminalTabFailure() }

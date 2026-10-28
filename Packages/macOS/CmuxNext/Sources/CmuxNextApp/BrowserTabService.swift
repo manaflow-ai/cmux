@@ -309,6 +309,9 @@ final class BrowserTabService {
     private func open(_ choice: BrowserEngineChoice, in pane: PaneID, on daemon: DaemonService, url: String, offTheRecord: Bool,
                       profile: String?, notice: String?, activate: Bool, after: SurfaceID?) async throws -> SurfaceID {
         guard BrowserAvailability(enabled: browserEnabled()).allows(url) else { throw ActionFailure(message: MiscHandlerStrings.browserOff) }
+        // A pane an earlier create still shows provisionally: its tab goes to the daemon's pane once it took
+        // the stand-in over; the stand-in's client-only handle would be refused (#26695).
+        let pane = try await PaneSplitCommand.target(pane, on: daemon)
         let surface = try await create(daemon, pane, offTheRecord ? Self.incognitoPlaceholderURL : url, choice.engine, profile, activate, after)
         let key = key(daemon, surface)
         if offTheRecord { incognitoURLs[key] = url }

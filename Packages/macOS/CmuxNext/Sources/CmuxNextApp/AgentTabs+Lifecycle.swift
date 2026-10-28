@@ -97,7 +97,12 @@ extension AgentTabStore {
         pending.result = Task { [weak self, pending] () throws -> AgentTabCreated in
             do {
                 guard let self else { throw CancellationError() }
-                let (created, sequence) = try await create(pane, daemon, record, idempotencyKey, transaction,
+                // A pane an earlier create still shows provisionally (a split pressed on a split in flight):
+                // the tab or split goes to the daemon's pane that takes it over; its client-only handle is refused (#26695).
+                guard let target = await store.daemonPane(confirming: pane) else {
+                    throw AgentTabRefusal(message: RefusalStrings.agentTabCreateFailed)
+                }
+                let (created, sequence) = try await create(target, daemon, record, idempotencyKey, transaction,
                                                            splitPane.map { ConversationTabSplit(direction: $0.0, paneID: $0.1.paneID,
                                                                                           splitID: sendsSplitID ? $0.1.splitID : nil) })
                 // Closed first (CancelledCreation): nothing moves to the store's tab, which the store

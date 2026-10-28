@@ -134,6 +134,8 @@ extension DaemonStore {
         intentSettlements.removeAll()
         for (transaction, settlement) in settled { onIntentSettled?(transaction, settlement) }
         CancelledCreation.requestCloses(in: self)
+        // A create aimed at a stand-in names the daemon's pane once this apply brought it.
+        runStandInWaiters()
         return result
     }
 

@@ -67,5 +67,6 @@ extension DaemonStore {
         let all = drainAppliedWaiters
         drainAppliedWaiters = false
         runAppliedWaiters(nil, all: all)
+        if all { runStandInWaiters(all: true) }
     }
 }

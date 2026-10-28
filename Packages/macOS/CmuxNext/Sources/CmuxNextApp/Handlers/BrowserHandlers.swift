@@ -185,7 +185,11 @@ enum BrowserHandlers {
         return .waiting(.daemonEcho) {
             do {
                 let surface = try await browserTabs.open(choice, in: model, url: address, profile: profile)
-                try await connection.split(handle, direction: direction, movingTab: surface)
+                // The pane's daemon handle (a stand-in's is client-only, #26695).
+                guard let target = await daemon.store.daemonPane(confirming: handle) else {
+                    throw ActionFailure(message: RefusalStrings.noPaneID(String(handle.rawValue)))
+                }
+                try await connection.split(target, direction: direction, movingTab: surface)
                 // The new pane takes focus (its address bar the keyboard
                 // for a new-tab page). The daemon may report the tab in the
                 // source pane before the move: land only in the new pane.
