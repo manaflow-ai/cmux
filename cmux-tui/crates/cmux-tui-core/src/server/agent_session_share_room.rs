@@ -196,12 +196,12 @@ fn abandon(mux: &Mux, share_id: &str, delete: bool) {
 }
 
 /// The room acknowledged `op`.
-fn done(mux: &Mux, share_id: &str, op: &Value) {
+fn done(mux: &Mux, share_id: &str, op: &Value) -> bool {
     change(mux, share_id, |s| {
         let before = s.pending_room_ops.len();
         s.pending_room_ops.retain(|o| o != op);
         ((), s.pending_room_ops.len() != before)
-    });
+    }).is_some()
 }
 
 enum Put {
@@ -457,7 +457,11 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
                 }
                 if attempted && shares(&mux).now() >= v.expires_at {
                     if v.delete {
-                        done(&mux, &id, &op);
+                        if !done(&mux, &id, &op) {
+                            tokio::time::sleep(wait).await;
+                            wait = (wait * 2).min(timing.backoff_max);
+                            continue;
+                        }
                     }
                     return;
                 }
@@ -476,7 +480,14 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
                 match (url.or_else(|| fallback.clone()), bearer) {
                     (Some(url), Some(bearer)) => (url, bearer),
                     // No credential (the owner's, lost to a restart): the room's expiry ends it.
-                    _ if shares(&mux).now() >= v.expires_at => return done(&mux, &id, &op),
+                    _ if shares(&mux).now() >= v.expires_at => {
+                        if done(&mux, &id, &op) {
+                            return;
+                        }
+                        tokio::time::sleep(wait).await;
+                        wait = (wait * 2).min(timing.backoff_max);
+                        continue;
+                    }
                     _ => return,
                 }
             };
@@ -490,7 +501,12 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
             if let Some(mux) = weak.upgrade()
                 && view(&mux, &id).is_some_and(|v| shares(&mux).now() >= v.expires_at)
             {
-                return done(&mux, &id, &op);
+                if done(&mux, &id, &op) {
+                    return;
+                }
+                tokio::time::sleep(wait).await;
+                wait = (wait * 2).min(timing.backoff_max);
+                continue;
             }
             tokio::time::sleep(wait).await;
             wait = (wait * 2).min(timing.backoff_max);
@@ -527,14 +543,9 @@ pub(super) fn expired(shares: &LinkShares) {
     };
     for id in ids {
         let Some(v) = view(&mux, &id) else { continue };
-        if v.host_token.is_none() {
-            // A restart may have lost the owner's token. Once the room's expiry has passed, the
-            // room has already ended this share; settle the local operation without spawning a
-            // task that can only wake again at the same elapsed deadline.
-            done(&mux, &id, &json!({"op": "delete"}));
-        } else {
-            delete(&mux, &id, None);
-        }
+        // A restart may have lost the owner's token. Cleanup still runs in a single worker so a
+        // transient persistence failure is retried with backoff instead of losing the operation.
+        delete(&mux, &id, None);
     }
 }
 

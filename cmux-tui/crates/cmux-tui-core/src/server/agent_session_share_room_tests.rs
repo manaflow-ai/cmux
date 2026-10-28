@@ -390,6 +390,31 @@ fn a_delete_stops_retrying_after_share_expiry_even_with_its_host_token() {
 }
 
 #[test]
+fn expired_cleanup_retries_when_settling_the_pending_delete_cannot_be_saved() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-expired-unsaved", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    room.request("PUT");
+    assert_eq!(owner.request(json!({"cmd":"agent-session-share-revoke",
+        "share_id":share["share_id"]}))[
+        "ok"], true);
+    room.request("DELETE");
+
+    let shares = shares_of(&mux);
+    shares.advance(Duration::from_secs(2 * 86_400));
+    shares.refuse_writes.store(true, Ordering::Relaxed);
+    shares.expired(&mux);
+    assert!(view(&mux, share["share_id"].as_str().unwrap()).unwrap().delete,
+        "a failed expiry save keeps the DELETE pending");
+
+    shares.refuse_writes.store(false, Ordering::Relaxed);
+    room.none("duplicate DELETE while the one worker retries persistence",
+        |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"));
+    assert!(!view(&mux, share["share_id"].as_str().unwrap()).unwrap().delete,
+        "the same worker eventually settles the durable operation");
+}
+
+#[test]
 fn a_slow_expired_delete_has_one_in_flight_worker() {
     let room = FakeRoom::start(&[]);
     let gate = room.block_deletes();
