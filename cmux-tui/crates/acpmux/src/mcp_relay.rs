@@ -292,6 +292,7 @@ mod relay {
             }
             let open = Open::default();
             let (owed, out) = (open.clone(), Arc::clone(out));
+            // supervise-allow: scoped to this connection: it owns only the read half, and a panic drops it, which ends the relay's connection.
             std::thread::Builder::new().name("mcp-relay-out".to_owned()).spawn(move || {
                 let _ = drain_connection(&mut reader, &*out, &owed);
             })?;

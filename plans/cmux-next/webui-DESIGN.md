@@ -141,7 +141,15 @@ cmux.33 line `c382c63b`). Nobody has built it or run its test, so 077 is not don
   without DevTools. Sharing is measured by 011's `CmuxPageProcessTest` and 012's pages10 renderer count.
 
 WebKit mechanism. One non-persistent data store per group, every view in the host's process pool,
-`_setRelatedWebView:` per group, 8 pages per process, every SPI gated with `responds(to:)`.
+`_setRelatedWebView:` per group, 8 pages per process, every SPI gated with `responds(to:)`
+(`WebProcessGroups`, owned by `WebUIHost`; p07-memory-087 built the groups, task 015 the store per group).
+Each membership (`.group(PageProcessGroup)`, or `.page(id)` for a `solo` page that asks) has one in-memory store,
+made at its first page and kept for the app's life (`WebProcessGroups.dataStore(for:)`): two pages of one group
+share localStorage, IndexedDB and storage events, and pages of different groups never do. Agent pages (the New
+Tab page and chats) always share the agent store and their processes; the WebKit warm-up view takes the agent
+store. With `webKitPageProcessGroups` every page of a sharing group joins it; without it only pages that ask
+(`sharesWebKitProcess`) do, and every other page has a store of its own, freed when the page closes. A page that
+shows in Chromium joins no WebKit group, and a `secrets` page never does.
 
 Fork implementation, proposed (task 011, manaflow-ai/cef `cp/p13-webui-011` at `17a7f8ff`, on spike 091's branch).
 Nobody has built or run it: the mechanism comes from reading Chromium 154.0.8037.98, not from a measurement. Do not
