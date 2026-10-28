@@ -46,9 +46,9 @@ an installed app down. So after a pull:
   build. The bad build stops spreading.
 - A Mac already on the bad build keeps it. The app can roll back to the build
   it kept before updating (`updates.keepPreviousVersions`) through its
-  `updates.rollback` control method, which refuses when the kept build can't
-  read the stores on disk. Today only a DEV build's CLI reaches it
-  (`cmux app call updates.rollback '{}'`); a Release CLI command is a follow-up.
+  `updates.rollback` action, which refuses when the kept build can't read the
+  stores on disk. A person runs it as **Roll Back to Previous Version…** in the
+  command palette, or with the pulled-build banner's Roll Back.
 - To bring every Mac forward, publish a build above the bad one. Revert the bad
   change on `feat-cmux-next` and let promotion publish it. It gets a new, higher
   build number, so every install updates to it. Every real pull starts this
