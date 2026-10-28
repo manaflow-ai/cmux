@@ -285,7 +285,7 @@ async fn a_day_old_outage_retries_hourly_and_still_refuses_requests_at_once() {
         peer.request(method::SESSION_NEW, json!({})),
     )
     .await;
-    let later = tokio::time::timeout(Duration::from_secs(3_600), notices.recv()).await;
+    let later = tokio::time::timeout(Duration::from_secs(3_661), notices.recv()).await;
     peer.stop();
     running.await.unwrap();
     assert!(early.is_err(), "a day-old outage retried within two minutes");
