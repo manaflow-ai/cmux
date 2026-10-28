@@ -81,7 +81,7 @@ extension KeyRouter {
         // keybind (or any cmux.json entry) keeps the key; with no cmux entry
         // the page gets it. A general cmux default there (Cmd-D Split Right)
         // still loses to the user's keybind.
-        if isBrowser, BrowserChordTable.isChromeChord(event) {
+        if isBrowser, BrowserChordTable.isChromeChord(event, registry: registry) {
             guard let cmux = resolve(event, context: context, ghostty: false) else { return nil }
             let isBrowserAction = registry.descriptor(for: cmux.command)?.requires.contains(.browserFocused) ?? false
             if winner.source == .ghostty, cmux.source == .default, !isBrowserAction {

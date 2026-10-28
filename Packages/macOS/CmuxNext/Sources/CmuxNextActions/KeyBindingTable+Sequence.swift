@@ -11,9 +11,12 @@
 /// Control or Option: `g g`) arms only where the context owns bare keys
 /// (``KeyContext/ownsBareKeys``, K1). A key has several readings
 /// (`ActionRegistry.shortcuts(for:)`, Ghostty's order: the digit row's
-/// digit, the text, the key-equivalent reading, the unshifted key, the
-/// ASCII-capable layout's key); the first reading that extends wins, then
-/// the first that completes.
+/// digit, the text, the Command map's key, the key-equivalent reading, the
+/// unshifted key, the ASCII-capable layout's key). As in Ghostty's
+/// `Set.getEvent`, the first reading with an entry decides: it extends the
+/// chord (or arms the leader), else it completes an entry; a later reading
+/// never wins over an earlier one (Cmd-C on Dvorak - QWERTY ⌘ also reads j,
+/// which must not arm the Cmd-J leader).
 extension KeyBindingTable {
     public enum SequenceStep: Hashable, Sendable {
         /// The key completes this entry.
@@ -31,17 +34,15 @@ extension KeyBindingTable {
         // keys: focus that moved into a text field mid-sequence types the key.
         if let first = keys.first, first.isBare, !context.ownsBareKeys { return .none }
         let input = CompiledWhen.Input(context)
-        if keys.count + 1 < Self.maxSequenceLength,
-           let longer = readings.first(where: {
-               (!keys.isEmpty || !$0.isBare || context.ownsBareKeys)
-                   && continues(KeysThenOne(keys, $0), in: input, isRunnable: isRunnable)
-           }) {
-            return .extend(longer)
-        }
-        if keys.isEmpty, readings.contains(LeaderLayer.prefix), hasEntries(after: CollectionOfOne(LeaderLayer.prefix)) {
-            return .extend(LeaderLayer.prefix)
-        }
+        let mayExtend = keys.count + 1 < Self.maxSequenceLength
         for reading in readings {
+            if mayExtend, !keys.isEmpty || !reading.isBare || context.ownsBareKeys,
+               continues(KeysThenOne(keys, reading), in: input, isRunnable: isRunnable) {
+                return .extend(reading)
+            }
+            if keys.isEmpty, reading == LeaderLayer.prefix, hasEntries(after: CollectionOfOne(LeaderLayer.prefix)) {
+                return .extend(LeaderLayer.prefix)
+            }
             if let winner = resolveWinner(KeysThenOne(keys, reading), in: input, isRunnable: isRunnable) { return .run(winner) }
         }
         return .none

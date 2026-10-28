@@ -60,8 +60,8 @@ enum BrowserChordTable {
     }()
 
     /// Whether `event` is a chord in `chromeReserved`.
-    static func isChromeChord(_ event: NSEvent) -> Bool {
-        shortcuts(of: event).contains { chromeReserved.contains($0) }
+    static func isChromeChord(_ event: NSEvent, registry: ActionRegistry) -> Bool {
+        registry.shortcuts(for: event).contains { chromeReserved.contains($0) }
     }
 
     /// Actions whose chords act only in a browser context (user 2026-09-30,
@@ -74,24 +74,15 @@ enum BrowserChordTable {
     /// Whether `event` is the effective chord of a browser-only action.
     static func isBrowserOnlyChord(_ event: NSEvent, registry: ActionRegistry) -> Bool {
         let chords = browserOnlyActions.compactMap(registry.effectiveShortcut(for:))
-        return shortcuts(of: event).contains { chords.contains($0) }
+        return registry.shortcuts(for: event).contains { chords.contains($0) }
     }
 
     /// The page-history action (`focusHistoryBack` / `focusHistoryForward`) of a browser-only
     /// chord, for a page with its own history (history.md 4.2b); nil for any other key.
     static func pageHistoryAction(for event: NSEvent, registry: ActionRegistry) -> ActionID? {
-        let typed = shortcuts(of: event)
+        let typed = registry.shortcuts(for: event)
         let pairs: [(ActionID, ActionID)] = [("browserBack", "focusHistoryBack"), ("browserForward", "focusHistoryForward")]
         return pairs.first { pair in registry.effectiveShortcut(for: pair.0).map(typed.contains) ?? false }?.1
-    }
-
-    /// Like `ActionRegistry.resolveShortcut`: the key as typed and its
-    /// unshifted base (Cmd-Shift-[ arrives as "{", Ctrl-Shift-Tab as
-    /// back-tab U+0019).
-    private static func shortcuts(of event: NSEvent) -> [Shortcut] {
-        guard event.type == .keyDown else { return [] }
-        let keys = [event.charactersIgnoringModifiers, event.characters(byApplyingModifiers: [])].compactMap { $0 }
-        return keys.map { Shortcut($0, modifiers: event.modifierFlags) }
     }
 
     /// Whether the focus target is browser content (page, address bar, find

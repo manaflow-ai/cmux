@@ -59,7 +59,7 @@ struct ChordTracker {
                        focus: FocusState.Resolved? = nil, canArm: () -> Bool) -> Step {
         let bindings = RegistryKeyBindings(registry)
         let context = KeyContext(bits: registry.context)
-        return step(event, readings: registry.shortcuts(for: event), window: window, focus: focus, table: bindings.table, context: context,
+        return step(event, readings: registry.shortcuts(for: event, armed: isPending), window: window, focus: focus, table: bindings.table, context: context,
                     isRunnable: { bindings.canPerform($0, in: context.bits) }, canArm: canArm)
     }
 

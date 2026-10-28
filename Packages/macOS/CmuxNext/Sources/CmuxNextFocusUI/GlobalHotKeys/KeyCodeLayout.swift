@@ -95,28 +95,10 @@ package struct KeyCodeLayout: Sendable {
     }
 
     /// What each main-row key types unshifted on the selected layout, by
-    /// ascending key code; empty when the layout cannot be read.
+    /// ascending key code; empty when the layout cannot be read
+    /// (`KeyboardLayoutKeys.characters(of:asciiOnly:)`, the one reading of a layout's keys).
     private static func typedKeys() -> [(code: UInt16, key: String)] {
-        guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
-              let pointer = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return [] }
-        let data = Unmanaged<CFData>.fromOpaque(pointer).takeUnretainedValue() as Data
-        var typed: [(code: UInt16, key: String)] = []
-        data.withUnsafeBytes { raw in
-            guard let keyboard = raw.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return }
-            for code in UInt16(0)..<128 where !Self.keypad.contains(Int(code)) {
-                var deadKeyState: UInt32 = 0
-                var length = 0
-                let capacity = 4
-                var characters = [UniChar](repeating: 0, count: capacity)
-                let status = UCKeyTranslate(
-                    keyboard, code, UInt16(kUCKeyActionDown), 0, UInt32(LMGetKbdType()),
-                    OptionBits(1 << kUCKeyTranslateNoDeadKeysBit), &deadKeyState,
-                    capacity, &length, &characters
-                )
-                guard status == noErr, length == 1, characters[0] > 0x20, characters[0] != 0x7F else { continue }
-                typed.append((code, String(utf16CodeUnits: characters, count: length).lowercased()))
-            }
-        }
-        return typed
+        guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue() else { return [] }
+        return KeyboardLayoutKeys.characters(of: source, asciiOnly: false).sorted { $0.key < $1.key }.map { (code: $0.key, key: $0.value) }
     }
 }

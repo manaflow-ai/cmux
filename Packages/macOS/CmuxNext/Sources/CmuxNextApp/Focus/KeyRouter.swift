@@ -452,7 +452,8 @@ final class KeyRouter: BrowserKeyRouting {
         let runnable: (ActionID) -> Bool = { [registry] in RegistryKeyBindings(registry).canPerform($0, in: bits) }
         // Keyed by the shell window, as focus settles report it: a Chromium
         // page window is a child of the shell.
-        let readings = registry.shortcuts(for: event)
+        // An armed chord's next key is not typing: it reads the digit row and the ASCII-capable layout too.
+        let readings = registry.shortcuts(for: event, armed: chords.isPending)
         let step = chords.step(event, readings: readings, window: ObjectIdentifier(controller.window ?? window), focus: focus.resolved,
                                table: table, context: context, isRunnable: runnable,
                                canArm: { !facts.pageLocksKeys && ChordTracker.canArm(focus: focus, hasMarkedText: facts.hasMarkedText) })

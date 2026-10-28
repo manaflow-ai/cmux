@@ -42,50 +42,6 @@ extension ActionRegistry {
         chordOverrides[id] = chord
     }
 
-    /// Whether `shortcut` starts a chord whose action could run now.
-    public func startsChord(_ shortcut: Shortcut) -> Bool {
-        let index = currentShortcutIndex()
-        let seconds = Array((index.chords[shortcut] ?? [:]).values) + Array((index.chordDigitFamilies[shortcut] ?? [:]).values)
-        return seconds.joined().contains { canPerform($0) }
-    }
-
-    /// The action the second key of a chord started by `prefix` runs, plus
-    /// the digit for a numbered family (`ctrl+b` then `3`).
-    public func resolveChord(after prefix: Shortcut, _ second: Shortcut) -> (id: ActionID, argument: String?)? {
-        let index = currentShortcutIndex()
-        if let id = bestCandidate(index.chords[prefix]?[second] ?? []) { return (id, nil) }
-        if second.key.count == 1, let digit = second.key.first, ("1"..."9").contains(digit),
-           let id = bestCandidate(index.chordDigitFamilies[prefix]?[Shortcut("1", modifiers: second.modifiers)] ?? []) {
-            return (id, String(digit))
-        }
-        return nil
-    }
-
-    /// The first key of a chord a key-down starts, or nil.
-    public func chordPrefix(for event: NSEvent) -> Shortcut? {
-        shortcuts(for: event).first(where: startsChord)
-    }
-
-    /// The action a key-down completes after `prefix`, with its tier.
-    public func resolveChord(after prefix: Shortcut, event: NSEvent) -> (id: ActionID, argument: String?, tier: ActionKeyTier)? {
-        guard event.type == .keyDown else { return nil }
-        return resolveChord(after: prefix, readings: shortcuts(for: event))
-    }
-
-    /// ``resolveChord(after:event:)`` for a key as ``KeyInput`` reads it (any layout).
-    public func resolveChord(after prefix: Shortcut, key: KeyInput) -> (id: ActionID, argument: String?, tier: ActionKeyTier)? {
-        resolveChord(after: prefix, readings: Self.shortcuts(for: key))
-    }
-
-    private func resolveChord(after prefix: Shortcut, readings: ShortcutReadings) -> (id: ActionID, argument: String?, tier: ActionKeyTier)? {
-        for shortcut in readings {
-            if let resolved = resolveChord(after: prefix, shortcut) {
-                return (resolved.id, resolved.argument, keyTier(for: resolved.id))
-            }
-        }
-        return nil
-    }
-
     /// The shortcuts a key-down may mean (``shortcuts(for:)-(KeyInput)``), with this registry's
     /// keyboard layout reader for the ASCII fallback.
     /// `armed`: a chord is armed and the key is its next key.
@@ -108,13 +64,16 @@ extension ActionRegistry {
     ///    layout's own letters), and 5. the unshifted key ("]" for Shift-]), each when one character;
     /// 6. for a Command or Control chord whose key types no ASCII character, the ASCII-capable
     ///    layout's key (Ctrl-B on Russian is the key with the Latin B).
+    /// An `armed` key (the next key of an armed chord: Cmd-J then S) is not typing either, so it
+    /// takes the digit-row and ASCII-capable readings like a chord.
     /// Letters are never read by position (Cmd-Z on German is the key that types z), and a plain,
     /// Shift or Option key reads only what it types: cmux decides those only after the input
     /// methods, never as a shortcut found by position or by another layout.
     public static func shortcuts(for input: KeyInput, armed: Bool = false) -> ShortcutReadings {
         let flags = input.modifiers
         var readings = ShortcutReadings()
-        if input.isChord, let digit = Self.digitRow[input.keyCode] { readings.append(Shortcut(digit, modifiers: flags)) }
+        let decided = input.isChord || armed
+        if decided, let digit = Self.digitRow[input.keyCode] { readings.append(Shortcut(digit, modifiers: flags)) }
         // Three calls, not a loop over an array: reading a key allocates no array (p04-input-055).
         func appendTyped(_ typed: String?) {
             if let typed, typed.unicodeScalars.count == 1 { readings.append(Shortcut(typed, modifiers: flags)) }
@@ -123,7 +82,7 @@ extension ActionRegistry {
         appendTyped(input.commandUnshifted)
         appendTyped(input.ignoringModifiers)
         appendTyped(input.unshifted)
-        if input.isChord, let ascii = input.asciiFallback { readings.append(Shortcut(ascii, modifiers: flags)) }
+        if decided, let ascii = input.asciiFallback { readings.append(Shortcut(ascii, modifiers: flags)) }
         return readings
     }
 

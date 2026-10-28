@@ -387,17 +387,6 @@ public final class ActionRegistry {
         descriptors.map(\.id).filter { !isBound($0) }
     }
 
-    func bestCandidate(_ ids: [ActionID]) -> ActionID? {
-        var best: (id: ActionID, specificity: Int)?
-        for id in ids where canPerform(id) {
-            let specificity = descriptor(for: id)?.requires.rawValue.nonzeroBitCount ?? 0
-            if specificity > best?.specificity ?? Int.min {
-                best = (id, specificity)
-            }
-        }
-        return best?.id
-    }
-
     @ObservationIgnored lazy var menuTarget = ActionMenuTarget(registry: self)
     /// Delegates of open choices submenus, released with their menu.
     @ObservationIgnored let choiceCoordinators = NSMapTable<NSMenu, ActionChoicesMenuCoordinator>(keyOptions: .weakMemory, valueOptions: .strongMemory)
