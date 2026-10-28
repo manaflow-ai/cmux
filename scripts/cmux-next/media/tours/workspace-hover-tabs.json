@@ -4,9 +4,10 @@
   "steps": [
     {"title": "Launch", "wait": 3},
     {"title": "Create a workspace with an inner tab", "cmux": ["workspace", "new", "--name", "Hover tab demo", "--cwd", "/tmp", "--shell", "printf ready; sleep 60"], "wait": 3},
+    {"title": "Add and focus a second inner tab", "cmux": ["action", "run", "newSurface"], "wait": 2},
     {"title": "Hover the workspace row", "rpc": {"method": "debug.mouse", "params": {"row": "Hover tab demo", "action": "move"}}, "wait": 1},
     {"title": "Move into the popover", "rpc": {"method": "debug.mouse", "params": {"target": "hover-card", "x": 100, "y": 60, "action": "move"}}, "wait": 2},
-    {"title": "Click its inner tab", "rpc": {"method": "debug.mouse", "params": {"target": "hover-card", "x": 100, "y": 60, "action": "click"}}, "wait": 3},
+    {"title": "Click the first inner tab from the second", "rpc": {"method": "debug.mouse", "params": {"target": "hover-card", "x": 100, "y": 60, "action": "click"}}, "wait": 3},
     {"title": "Focused tab after the click", "rpc": {"method": "debug.sidebar_rows"}, "wait": 1}
   ]
 }
