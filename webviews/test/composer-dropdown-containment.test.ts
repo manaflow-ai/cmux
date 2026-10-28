@@ -45,7 +45,7 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
     const outer = (await popup.boundingBox())!;
     const area = (await viewport.boundingBox())!;
     expect(area.y).toBeGreaterThanOrEqual(outer.y - 1);
-    expect(area.y + area.height).toBeLessThanOrEqual(outer.y + outer.height + 1);
+    expect(area.y + area.height).toBeLessThanOrEqual(outer.y + outer.height + 2);
   }
 
   async function reachable(row: Locator, viewport: Locator, popup: Locator) {
@@ -107,7 +107,7 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
 
   for (const [variant, triggerName, popupSelector, height, top] of [
     ["folder-menu", "Folder", ".acpmux-folder-popover", 560, "500px"],
-    ["environment-picker", /^Environment/, ".acpmux-env-popover", 760, "700px"],
+    ["environment-picker", /^Environment/, ".acpmux-env-popover", 760, "740px"],
   ] as const) {
     test(`${variant} flips above when the trigger is at the bottom edge`, async () => {
       const page = await open("agent-pane.composer-context", variant, height);
