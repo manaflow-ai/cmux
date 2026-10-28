@@ -1,5 +1,5 @@
 public import CmuxHomeCore
-import Foundation
+public import Foundation
 
 /// The Chiefs as New Message's list under To: shows them: the main Chief
 /// first, and each row tagged where it runs as the Home list tags it
