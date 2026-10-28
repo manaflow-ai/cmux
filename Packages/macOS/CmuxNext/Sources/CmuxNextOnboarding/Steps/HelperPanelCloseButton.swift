@@ -6,7 +6,8 @@ import CmuxNextIcons
 /// takes the first click. The panel sits over System Settings while cmux is
 /// in the background, so its hover tracks in any window, not only the key one.
 final class HelperPanelCloseButton: NSButton {
-    private(set) lazy var hover = ChromeHover(self, outset: NSSize(width: 4, height: 4))
+    // wakeup-allow: bounded only while the helper drag panel shows over System Settings with cmux in the background
+    private(set) lazy var hover = ChromeHover(self, outset: NSSize(width: 4, height: 4), tracking: .activeAlways)
 
     convenience init(target: AnyObject?, action: Selector?) {
         let image = NSImage.icon(.actionClose, size: 12)

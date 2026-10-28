@@ -5,7 +5,7 @@ import CmuxNextWakeups
 @MainActor
 public final class CreationInputBuffer {
     /// A ticket names its buffer too: a buffer flushed early never takes a later buffer's ticket of the same number.
-    public struct Ticket: Hashable { fileprivate let id: Int; fileprivate let owner: ObjectIdentifier }
+    public struct Ticket: Hashable, Sendable { fileprivate let id: Int; fileprivate let owner: ObjectIdentifier }
 
     /// The held keys in typing order, each with the creation it was typed for: the newest one
     /// pending when it was typed (the pane the person saw get the focus), nil for none.

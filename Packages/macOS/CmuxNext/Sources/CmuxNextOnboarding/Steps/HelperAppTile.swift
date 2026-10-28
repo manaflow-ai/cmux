@@ -8,7 +8,8 @@ final class HelperAppTile: NSView, NSDraggingSource {
     private let appURL: URL
     /// The helper's icon, read off the main thread by the App (cmux's own when it has none yet).
     private let appIcon: NSImage
-    private(set) lazy var hover = ChromeHover(self)
+    // wakeup-allow: bounded only while the helper drag panel shows over System Settings with cmux in the background
+    private(set) lazy var hover = ChromeHover(self, tracking: .activeAlways)
 
     init(appURL: URL, icon: NSImage?) {
         self.appURL = appURL
