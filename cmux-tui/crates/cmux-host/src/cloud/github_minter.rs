@@ -96,9 +96,10 @@ impl<H: Http + Send + 'static> Minter<H> {
         let pending = Arc::new(AtomicUsize::new(0));
         let (counter, stopping) = (Arc::clone(&pending), Arc::clone(&stop));
         // supervise-allow: owned by Minter, which keeps the handle and joins it at drop; a panic drops the receiver, so a later ask fails to send and its socket closes with no token, as when the minter is stopped.
-        let thread = std::thread::Builder::new()
-            .name("cmux-host-github".to_owned())
-            .spawn(move || run(&rx, &counter, &stopping, now, log))?;
+        let thread =
+            cmux_threads::spawn("cmux-host-github", cmux_threads::ThreadQos::Utility, move || {
+                run(&rx, &counter, &stopping, now, log);
+            })?;
         Ok(Minter { tx: Some(tx), pending, stop, thread: Some(thread) })
     }
 

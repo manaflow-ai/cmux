@@ -30,6 +30,8 @@ final class FilesPaneService: InternalPageProvider {
     }
 
     private weak var services: AppServices?
+    /// The app's blocking-work lanes: every tab's file operations and Get Info run there.
+    private let work: BackgroundWork
     private var tabs: [String: Tab] = [:]
     /// Icons and thumbnails for every Files tab, held to a share of the image cache budget; with
     /// `memoryFileHomeCaches` also a memory consumer.
@@ -66,6 +68,7 @@ final class FilesPaneService: InternalPageProvider {
         icons = FileIconProvider(queries: services.workspaceQueries, thumbnailBytes: memory.filesThumbnailBytes)
         fileApps = WorkspaceFileApps(queries: services.workspaceQueries)
         if let registry = memory.fileCacheRegistry { icons.registerMemoryConsumer(with: registry) }
+        work = services.work
         let sidebar = self.sidebar
         volumeWatch = [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
                        NSWorkspace.didRenameVolumeNotification].map { name in
@@ -113,8 +116,9 @@ final class FilesPaneService: InternalPageProvider {
     }
 
     private func makeTab(_ folder: URL) -> Tab {
-        let model = FileBrowserModel(folder: folder, work: mainWork, files: FileOperator(namer: FileNamer(copyWord: FilesPaneView.copyWord,
-                                                                                   aliasWord: FilesPaneView.aliasWord)),
+        let model = FileBrowserModel(folder: folder, work: mainWork, lanes: work,
+                                     files: FileOperator(namer: FileNamer(copyWord: FilesPaneView.copyWord, aliasWord: FilesPaneView.aliasWord),
+                                                         work: work),
                                      memory: FolderViewMemory(defaults: .standard))
         return Tab(model: model, view: nil, history: FilesPaneHistory(model: model))
     }

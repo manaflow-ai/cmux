@@ -182,6 +182,7 @@ public final class BackgroundWork: Sendable {
             case .system: (.shared(width: Self.systemWidth, reserved: Self.systemReserved), true, [.hostResolution: Self.hostResolutionCap])
             // The .cpu lane is sized to the cores: a blocking seam in one of its items is a wrong-lane violation.
             case .cpu: (.shared(width: max(1, cpuWidth)), false, [:])
+            case .bulkFiles: (.shared(width: Self.bulkFilesWidth), true, [:])
             }
             // One registration per slot: items of a lane run at once, and a hang scope nests only on one thread.
             let watching = hangs.map { LaneScheduler.HangWatching(name: Self.hangScopeName(lane), deadline: Self.hangDeadline(lane), watch: $0) }
@@ -215,6 +216,10 @@ public final class BackgroundWork: Sendable {
     public static func userBlockingQueueWaitP99Nanos(in times: [LaneTimes]) -> UInt64 {
         times.filter { $0.priority == .userBlocking }.map { $0.wait.percentileNanos(0.99) }.max() ?? 0
     }
+
+    /// How many ``BlockingLane/bulkFiles`` items run at once: a few long disk jobs (Get Info on a home
+    /// folder, a big delete) side by side, and still a bound on the disk work nobody waits for at once.
+    public static let bulkFilesWidth = 4
 
     /// The number of performance cores minus one (at least one), so CPU-bound background work always
     /// leaves a performance core to the main thread and the render threads.

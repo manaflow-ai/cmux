@@ -246,30 +246,36 @@ impl Pipe {
         let buffer = Arc::clone(&kept);
         let half = limit / 2;
         // A thread that does not start drops `sender`: `collect` returns at once with nothing kept.
-        let _ = supervised::spawn("git-run-pipe", Fatal, ShutdownBehavior::Continue, move || {
-            let mut chunk = [0_u8; 16 * 1024];
-            loop {
-                match reader.read(&mut chunk) {
-                    Ok(0) => break,
-                    Ok(read) => {
-                        // A reader that claims more than the chunk broke Read's contract.
-                        let Some(bytes) = chunk.get(..read) else { break };
-                        let mut kept = buffer.lock().unwrap_or_else(PoisonError::into_inner);
-                        let room = half.saturating_sub(kept.head.len());
-                        let (head, rest) = bytes.split_at(read.min(room));
-                        kept.head.extend_from_slice(head);
-                        kept.tail.extend(rest.iter().copied());
-                        while kept.tail.len() > half {
-                            kept.tail.pop_front();
-                            kept.dropped = true;
+        let _ = supervised::spawn_at(
+            "git-run-pipe",
+            cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                let mut chunk = [0_u8; 16 * 1024];
+                loop {
+                    match reader.read(&mut chunk) {
+                        Ok(0) => break,
+                        Ok(read) => {
+                            // A reader that claims more than the chunk broke Read's contract.
+                            let Some(bytes) = chunk.get(..read) else { break };
+                            let mut kept = buffer.lock().unwrap_or_else(PoisonError::into_inner);
+                            let room = half.saturating_sub(kept.head.len());
+                            let (head, rest) = bytes.split_at(read.min(room));
+                            kept.head.extend_from_slice(head);
+                            kept.tail.extend(rest.iter().copied());
+                            while kept.tail.len() > half {
+                                kept.tail.pop_front();
+                                kept.dropped = true;
+                            }
                         }
+                        Err(error) if error.kind() == ErrorKind::Interrupted => {}
+                        Err(_) => break,
                     }
-                    Err(error) if error.kind() == ErrorKind::Interrupted => {}
-                    Err(_) => break,
                 }
-            }
-            let _ = sender.send(());
-        });
+                let _ = sender.send(());
+            },
+        );
         Self { kept, done }
     }
 

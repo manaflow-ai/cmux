@@ -270,7 +270,7 @@ extension AgentPaneModel {
         let resolved = AgentPaneReplyPaths.isImagePath(src) ? paths.resolveImage(src) : paths.resolve(src)
         guard let resolved else { return Self.replyFailure(.pathInvalid) }
         switch resolved.place {
-        case .root: return Self.replyImage(await AgentPaneReplyImages.local(resolved.path))
+        case .root: return Self.replyImage(await AgentPaneReplyImages.local(resolved.path, runner: runner))
         case .denied: return Self.replyFailure(.pathDenied)
         case .outside: return Self.replyFailure(.pathOutsideRoots)
         case .missing: return Self.replyFailure(.pathInvalid)
