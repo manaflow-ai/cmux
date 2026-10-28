@@ -99,6 +99,29 @@ fn pool_auth_empty_config_directory_uses_the_child_home() {
 }
 
 #[test]
+fn pool_auth_opencode_uses_only_absolute_xdg_data_home() {
+    let home = LoginFiles::new("xdg-home");
+    let custom = LoginFiles::new("xdg-custom");
+    for value in [String::new(), "relative-data".to_owned(), custom.0.display().to_string()] {
+        let cache = AuthCache::default();
+        let env = |key: &str| (key == "XDG_DATA_HOME").then(|| value.clone());
+        let (files, path) = if Path::new(&value).is_absolute() {
+            (&custom, "opencode/auth.json")
+        } else {
+            (&home, ".local/share/opencode/auth.json")
+        };
+        files.write(path, json!({"openai": {"type": "api", "key": "fixture-a"}}));
+        let before = cache.fingerprint_with("opencode", &env, &home.0);
+        files.write(path, json!({"openai": {"type": "api", "key": "fixture-b"}}));
+        assert_ne!(
+            before,
+            cache.fingerprint_with("opencode", &env, &home.0),
+            "XDG_DATA_HOME={value:?}"
+        );
+    }
+}
+
+#[test]
 fn pool_auth_claude_refresh_preserves_the_key_but_account_switch_and_logout_do_not() {
     let files = LoginFiles::new("claude-oauth");
     let cache = AuthCache::default();
