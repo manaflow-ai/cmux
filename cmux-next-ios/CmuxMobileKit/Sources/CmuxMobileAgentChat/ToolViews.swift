@@ -230,7 +230,9 @@ struct ThoughtRow: View {
             .buttonStyle(.plain)
             .padding(.vertical, -6)
             if expanded {
-                Text(text)
+                // Opened by the person: all of it. Opened because it is live: its newest
+                // lines (a line limit alone keeps the first three, which stop changing).
+                Text(choice.chosen == true ? text : Self.tail(of: text))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .lineLimit(choice.chosen == true ? nil : 3)
@@ -238,6 +240,21 @@ struct ThoughtRow: View {
                     .transition(.opacity)
             }
         }
+    }
+}
+
+extension ThoughtRow {
+    /// The end of `text` that fits three lines: its last three lines, and of a long last
+    /// line only its end, cut at a word ("…" says text comes before it).
+    static func tail(of text: String, lines: Int = 3, characters: Int = 240) -> String {
+        // Only the end is read: a long live thought is split again on every chunk.
+        let window = text.suffix(characters * 2)
+        let kept = window.split(separator: "\n", omittingEmptySubsequences: true).suffix(lines).joined(separator: "\n")
+        // utf8 counts are O(1); earlier lines that were left out get the same "…".
+        guard kept.count > characters else { return kept.utf8.count < text.utf8.count ? "…" + kept : kept }
+        let end = kept.suffix(characters)
+        let word = end.firstIndex(where: \.isWhitespace).map { end[$0...].drop(while: \.isWhitespace) } ?? end
+        return "…" + word
     }
 }
 

@@ -27,6 +27,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 E2E = os.environ.get("AQ_E2E", os.path.expanduser("~/agentqa/src/cmux-next-ios/verify/e2e"))
 sys.path.insert(0, E2E)
 os.environ.setdefault("DEVELOPER_DIR", "/Applications/Xcode_26.6.app/Contents/Developer")
+# A plain `ssh mini '...'` has no login PATH: axe lives in ~/.local/bin, ffmpeg in Homebrew.
+os.environ["PATH"] = os.pathsep.join([os.path.expanduser("~/.local/bin"), "/opt/homebrew/bin", os.environ.get("PATH", "")])
 
 ROOT = os.path.expanduser("~/agentqa")
 STATE = os.path.join(ROOT, "state.json")
@@ -71,8 +73,10 @@ def prepare_acpmux(harnesses=None, default="fake"):
     """The stress agent as acpmux's default harness, asking for every tool."""
     os.makedirs(ACPMUX_HOME, mode=0o700, exist_ok=True)
     os.makedirs(WORK, exist_ok=True)
-    cfg = {"harnesses": {"fake": {"argv": ["/usr/bin/env", f"FAKE_AGENT={FAKE}", "python3", AGENT]}},
-           "defaultHarness": default, "permissionPolicy": "ask", "webAskingModes": {"fake": ["normal", "strict"]}}
+    # FAKE_ASK_MODE=1: the agent's one mode is "ask", a mode the Mac's mobile host lets a
+    # phone drive (`acpmux_policy.rs` PHONE_MODES), as a real Claude or Codex chat's is.
+    cfg = {"harnesses": {"fake": {"argv": ["/usr/bin/env", f"FAKE_AGENT={FAKE}", "FAKE_ASK_MODE=1", "python3", AGENT]}},
+           "defaultHarness": default, "permissionPolicy": "ask", "webAskingModes": {"fake": ["ask"]}}
     if harnesses:
         cfg["harnesses"].update(harnesses)
     path = os.path.join(ACPMUX_HOME, "config.json")
@@ -218,9 +222,10 @@ def app_pid():
     return pids[0] if pids else None
 
 
-def launch_app(env=None):
+def launch_app(env=None, terminate=True):
+    """Launches the app; terminate=False brings a backgrounded app back (a resume, not a cold start)."""
     st = load()
-    _sim().launch(st["bundle"], env=env or {})
+    _sim().launch(st["bundle"], env=env or {}, terminate=terminate)
 
 
 def terminate_app():
@@ -255,15 +260,17 @@ def rec_stop():
     save(st)
     if not r:
         return None
+    # The whole group: `xcrun simctl` can be a bash wrapper whose child is the recorder,
+    # and a signal to the wrapper alone leaves the recorder running (and the file unfinished).
     try:
-        os.kill(r["pid"], signal.SIGINT)
+        os.killpg(r["pid"], signal.SIGINT)
     except ProcessLookupError:
         return r["path"]
     for _ in range(80):
         try:
-            os.kill(r["pid"], 0)
+            os.killpg(r["pid"], 0)
             time.sleep(0.25)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):  # gone (EPERM: only a zombie left)
             break
     return r["path"]
 
@@ -308,7 +315,7 @@ def perf_stop():
     if not p:
         return None
     try:
-        os.kill(p["pid"], signal.SIGTERM)
+        os.killpg(p["pid"], signal.SIGTERM)
     except ProcessLookupError:
         pass
     return perf_summary(p["out"])
@@ -386,3 +393,86 @@ def bg(fn, *a):
     t = threading.Thread(target=fn, args=a, daemon=True)
     t.start()
     return t
+
+
+ACPMUX_CALL = r'''
+import json, socket, sys
+s = socket.socket(socket.AF_UNIX); s.connect(sys.argv[1])
+s.sendall((json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": 1}}) + "\n").encode())
+s.sendall((json.dumps({"jsonrpc": "2.0", "id": 2, "method": sys.argv[2], "params": json.loads(sys.argv[3])}) + "\n").encode())
+for line in s.makefile():
+    m = json.loads(line)
+    if m.get("id") == 2:
+        print(json.dumps(m)); break
+'''
+
+
+def acpmux_rpc(method, params, timeout=30):
+    """One request on the rig acpmux's own local socket (a local connection, as the Mac app's)."""
+    r = subprocess.run([sys.executable, "-c", ACPMUX_CALL, os.path.join(ACPMUX_HOME, "acpmux.sock"), method,
+                        json.dumps(params)], capture_output=True, text=True, timeout=timeout)
+    return json.loads(r.stdout) if r.stdout.strip() else {"err": r.stderr[-400:]}
+
+
+def trust(cwd=os.path.join(WORK, "proj")):
+    """Trusts `cwd` for agents, as Trust on the Mac's folder question does."""
+    return acpmux_rpc("acp.trust.set", {"cwd": cwd, "level": "trusted"})
+
+
+def new_chat(harness_label="fake, Default", timeout=60):
+    """From an open workspace: Tabs > New > New Agent Chat With… > the harness > Start Chat.
+    Returns the seconds from the Start Chat tap to the chat's composer."""
+    s = _sim()
+    if not s.find(label="New", kind="PopUpButton"):
+        s.tap_el(s.wait(label="Tabs", timeout=15))
+        time.sleep(2)
+    s.tap_el(s.wait(label="New", kind="PopUpButton", timeout=10))
+    time.sleep(1.2)
+    s.tap_el(s.wait(label="New Agent Chat With…", timeout=10))
+    s.tap_el(s.wait(label=harness_label, timeout=15))
+    time.sleep(0.5)
+    t = time.time()
+    s.tap_el(s.wait(label="Start Chat", timeout=10))
+    while time.time() - t < timeout:
+        if any(e.label in ("Send", "Model", "Mode") for e in s.tree()):
+            return round(time.time() - t, 2)
+        time.sleep(0.25)
+    return None
+
+
+def send(text):
+    """Types `text` on the soft keyboard into the chat composer and taps Send; returns the tap time."""
+    s = _sim()
+    prefixes = ("Ask ", "Follow up", "Reply", "Tell ")
+    els = s.tree()
+    # Collapsed, the composer is a button ("Reply to Fake"); a tap opens the field.
+    capsule = [e for e in els if e.kind == "Button" and str(e.label).startswith(prefixes)]
+    if capsule:
+        s.tap_el(capsule[0])
+    field = None
+    deadline = time.time() + 8
+    while time.time() < deadline and not field:
+        field = [e for e in s.tree() if e.kind == "TextArea" and str(e.label).startswith(prefixes)]
+        time.sleep(0.2)
+    if not field:
+        raise RuntimeError("no chat composer field")
+    if not capsule:
+        s.tap_el(field[0])
+        time.sleep(0.4)
+    s.softtype(text)
+    time.sleep(0.3)
+    t = time.time()
+    s.tap_el(s.wait(label="Send", kind="Button", timeout=10))
+    return t
+
+
+def phone_texts():
+    """Every StaticText label the phone shows, top to bottom (the transcript as rendered)."""
+    els = [e for e in _sim().tree() if e.kind == "StaticText" and e.label]
+    return [e.label for e in sorted(els, key=lambda e: (e.frame[1], e.frame[0]))]
+
+
+def last_reply(session=None):
+    """The newest session's last answer as the Mac's acpmux recorded it."""
+    r = acpmux("last", *( [session] if session else []))
+    return r.stdout
