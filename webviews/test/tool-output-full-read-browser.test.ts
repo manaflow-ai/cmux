@@ -69,10 +69,11 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
     try {
       const body = page.locator(".cv-tool-output__markdown");
       await body.evaluate((node) => {
-        node.ownerDocument.documentElement.style.height = "1600px";
-        node.ownerDocument.body.style.height = "1600px";
+        node.ownerDocument.documentElement.style.minHeight = "1600px";
+        node.ownerDocument.body.style.minHeight = "1600px";
+        node.ownerDocument.documentElement.style.overflowY = "scroll";
         node.scrollTop = 0;
-        node.ownerDocument.scrollingElement!.scrollTop = 0;
+        node.ownerDocument.defaultView!.scrollTo(0, 0);
       });
       await body.hover();
       expect(
@@ -85,7 +86,7 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
       expect(await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0)).toBe(0);
       await body.evaluate((node) => {
         node.scrollTop = node.scrollHeight;
-        node.ownerDocument.scrollingElement!.scrollTop = 0;
+        node.ownerDocument.defaultView!.scrollTo(0, 0);
       });
       await page.mouse.wheel(0, 320);
       await page.waitForFunction(() => (document.scrollingElement?.scrollTop ?? 0) > 0);
