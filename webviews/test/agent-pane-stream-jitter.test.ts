@@ -484,10 +484,10 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
         // The reply paints while the turn still runs before the turn ends, so a frame of it before
         // the settle exists to compare with: a one-chunk reply and its end can otherwise land in one
         // WebKit frame.
-        await page.waitForFunction((marker) => {
+        await page.waitForFunction(() => {
           const frames = (window as unknown as { __frames: Frame[] }).__frames;
           return frames.some((frame) => frame.messageBottom !== undefined && !frame.settled);
-        }, marker);
+        });
         endTurn();
         await ended(page, marker);
         await rest(page);
