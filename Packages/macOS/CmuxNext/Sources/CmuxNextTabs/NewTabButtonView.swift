@@ -40,7 +40,7 @@ final class NewTabButtonView: NSView {
         glyphLayer.fillColor = nil
         glyphLayer.lineWidth = Metrics.space1 * 0.7
         glyphLayer.lineCap = .round
-        glyphLayer.actions = ["bounds": NSNull(), "position": NSNull(), "path": NSNull(), "strokeColor": NSNull()]
+        glyphLayer.actions = ["bounds": NSNull(), "position": NSNull(), "path": NSNull(), "strokeColor": NSNull(), "lineWidth": NSNull()]
         layer?.addSublayer(fillLayer)
         layer?.addSublayer(glyphLayer)
         setAccessibilityElement(true)
@@ -116,6 +116,9 @@ final class NewTabButtonView: NSView {
                 // never by a rounded plate behind the +.
                 fillLayer.backgroundColor = nil
                 glyphLayer.strokeColor = (isPressed ? Palette.litGlyph : (isHovered ? Palette.textPrimary : Palette.textSecondary)).cgColor
+                // Neutral themes can use the same ink for hover and selection. A heavier
+                // stroke keeps a held press visible there too, without a background.
+                glyphLayer.lineWidth = Metrics.space1 * (isPressed ? 1 : 0.7)
             }
         }
     }

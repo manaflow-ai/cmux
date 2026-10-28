@@ -70,12 +70,12 @@ import Testing
         let plus = NewTabButtonView(frame: NSRect(x: 0, y: 0, width: 24, height: 24))
         plus.isHovered = true
         let glyph = try #require(plus.layer?.sublayers?.compactMap { $0 as? CAShapeLayer }.first)
-        let hoverColor = glyph.strokeColor
+        let hoverWidth = glyph.lineWidth
         plus.isPressed = true
-        #expect(glyph.strokeColor != hoverColor, "a press is visible even after hover brightens the glyph")
+        #expect(glyph.lineWidth > hoverWidth, "a press is visible even after hover brightens the glyph")
         #expect(plus.layer?.sublayers?.first?.backgroundColor == nil, "a press adds no plate")
         plus.isPressed = false
-        #expect(glyph.strokeColor == hoverColor, "release restores the hover glyph")
+        #expect(glyph.lineWidth == hoverWidth, "release restores the hover glyph")
     }
 
     @Test func theSidebarWorkspacePlusIsPlainAndItsNeighborOwnsTheChooser() {

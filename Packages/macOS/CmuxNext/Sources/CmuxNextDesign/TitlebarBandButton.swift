@@ -74,6 +74,8 @@ public final class TitlebarBandButton: NSButton {
     /// use the same path from ``mouseDown(with:)``.
     public func performPressMenu() {
         guard isEnabled, let menu = pressMenu?(), !menu.items.isEmpty else { return }
+        isHighlighted = true
+        defer { isHighlighted = false }
         presentMenu(menu, self)
     }
 
@@ -93,12 +95,8 @@ public final class TitlebarBandButton: NSButton {
     /// A long press shows the menu like a browser's Back button; a click runs.
     override public func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
-        if let pressMenu {
-            guard let menu = pressMenu(), !menu.items.isEmpty else { return }
-            // Pressed while its menu is open, like a pop-up button.
-            isHighlighted = true
-            defer { isHighlighted = false }
-            presentMenu(menu, self)
+        if pressMenu != nil {
+            performPressMenu()
             return
         }
         guard menuProvider != nil, longPressOpensMenu, let window else { return super.mouseDown(with: event) }
