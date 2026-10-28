@@ -73,6 +73,10 @@ class TranscriptScrollView: NSScrollView, UIScrollViewDelegate {
     /// The shared window view's transcript list (a layer-only scroll view).
     var collection: UIScrollView? { demo?.collection }
 
+    /// cmux: a wheel or trackpad event over the transcript: true when the open thread view took it.
+    /// Today the transcript takes every wheel, a thread open or not.
+    func routeThreadWheel(_ e: NSEvent) -> Bool { false }
+
     func attach(_ demo: MessagesWindowView) {
         self.demo = demo
         // The window view stays the list's delegate through this bridge.
