@@ -456,6 +456,21 @@ describe("self-hosted attachment bucket", () => {
       expect(await bucket.abortMultipartUploads("home/v1/conv_a/")).toBe(0)
       // A bucket that never had an upload has nothing to abort.
       expect(await new FsBucket(join(root, "fresh")).abortMultipartUploads("home/")).toBe(0)
+      // Never through a link: a record planted as a link is not an upload, and a linked .multipart is refused.
+      const outside = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-outside-"))
+      try {
+        writeFileSync(join(outside, "record.json"), JSON.stringify({ key: "home/v1/conv_a/planted" }))
+        symlinkSync(join(outside, "record.json"), join(root, ".multipart", `${"e".repeat(32)}.json`))
+        expect(await bucket.abortMultipartUploads("home/v1/conv_a/")).toBe(0)
+        expect(existsSync(join(outside, "record.json"))).toBe(true)
+        const linked = join(root, "linked")
+        mkdirSync(linked)
+        symlinkSync(outside, join(linked, ".multipart"))
+        await expect(new FsBucket(linked).abortMultipartUploads("home/")).rejects.toThrow(/symbolic link/)
+        expect(existsSync(join(outside, "record.json"))).toBe(true)
+      } finally {
+        rmSync(outside, { recursive: true, force: true })
+      }
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

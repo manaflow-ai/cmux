@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto"
 import { closeSync, constants, createReadStream, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, writeSync } from "node:fs"
 import type { Stats } from "node:fs"
-import { open } from "node:fs/promises"
+import { open, opendir } from "node:fs/promises"
 import { isAbsolute, join, posix, relative, resolve, sep } from "node:path"
 import { Readable } from "node:stream"
 
@@ -416,6 +416,32 @@ export class FsBucket {
     // Parts first, then the record, so a crash midway leaves an upload that can still be aborted.
     rmSync(this.multipartPath(uploadId), { recursive: true, force: true })
     rmSync(this.multipartMetaPath(uploadId), { force: true })
+  }
+
+  /**
+   * Aborts every open upload whose key starts with `prefix`; answers how many. R2 ends abandoned
+   * uploads by a bucket lifecycle rule and its binding cannot list them; this bucket has no
+   * lifecycle, so the owner calls this when it deletes a conversation's storage, and an upload no
+   * slot names (a lost slot, a failed expiry abort) does not stay on disk. Streams the directory:
+   * memory stays bounded whatever the number of open uploads.
+   */
+  async abortMultipartUploads(prefix: string): Promise<number> {
+    const dir = join(this.root, MULTIPART_DIR)
+    const stat = lstatOrNull(dir)
+    if (!stat) return 0
+    if (stat.isSymbolicLink()) throw linkError()
+    let aborted = 0
+    for await (const entry of await opendir(dir)) {
+      // Only an upload's own record (a regular file, never a link); its key must still be a valid key.
+      const id = /^([0-9a-f]{32})\.json$/.exec(entry.name)?.[1]
+      if (!entry.isFile() || !id) continue
+      // Null: closed by another request since the directory was read.
+      const meta = readJson<MultipartMeta>(this.multipartMetaPath(id))
+      if (!meta || typeof meta.key !== "string" || !meta.key.startsWith(prefix) || !isKey(this.root, meta.key)) continue
+      await this.abortMultipart(meta.key, id)
+      aborted++
+    }
+    return aborted
   }
 
   async head(key: string): Promise<FsObject | null> {
