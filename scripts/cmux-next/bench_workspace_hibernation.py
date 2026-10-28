@@ -97,7 +97,7 @@ def created_tab(response: dict) -> str | None:
 def phase(pid: int, bundle: str, sock: str, label: str, count: int, report: dict) -> dict:
     result = bm.sample(pid, bundle, label, count)
     status = surfaces(sock)
-    result["app_counts"] = {key: status.get(key) for key in ("live_terminals", "parked_workspaces", "hibernated_workspaces",
+    result["app_counts"] = {key: status.get(key) for key in ("live_terminals", "parked_workspaces", "hibernated_workspaces", "workspace_pages",
                                                              "workspaces_hibernated_total")}
     kinds = result["kinds"]
     print(f"PERF-WSHIB-PHASE label={label} workspaces={count} total_footprint_mb={result['total_footprint_mb']} "
@@ -115,10 +115,13 @@ def percentile(values, q):
 
 
 def wake(app: bm.App, sock: str, entry: dict, port: int) -> dict:
-    restored = (surfaces(sock).get("hibernation") or {}).get("restored_total") or 0
+    before = surfaces(sock).get("hibernation") or {}
+    restored = before.get("restored_total") or 0
+    asleep = entry["page"] in (before.get("hibernated") or [])
     started = time.monotonic()
     app.action("goToWorkspace", workspace=entry["workspace"])
-    mounted = wait_for(lambda: ((surfaces(sock).get("hibernation") or {}).get("restored_total") or 0) > restored and time.monotonic(), 15)
+    # A page that stayed awake has nothing to restore: waiting for a restore would time the wait, not the wake.
+    mounted = wait_for(lambda: ((surfaces(sock).get("hibernation") or {}).get("restored_total") or 0) > restored and time.monotonic(), 15) if asleep else None
     usable, got = None, {}
     state = evaluate(sock, entry["page"], READ_STATE)
     while state is not None:
@@ -143,6 +146,7 @@ def wake(app: bm.App, sock: str, entry: dict, port: int) -> dict:
            "page_mounted_ms": round((mounted - started) * 1000) if mounted else None,
            "page_usable_ms": round((usable - started) * 1000) if usable else None,
            "terminal_ms": round((shown - term_started) * 1000) if shown else None,
+           "page_was_hibernated": asleep,
            "scroll_ok": abs((got.get("y") or 0) - SCROLL_Y) <= 2,
            "url_ok": got.get("href") == entry["url"],
            "terminal_ok": shown is not None}
@@ -233,6 +237,7 @@ def run(argv: list[str]) -> int:
             "page_usable_p95_ms": percentile([r["page_usable_ms"] for r in rows], 0.95),
             "terminal_p50_ms": percentile([r["terminal_ms"] for r in rows], 0.5),
             "terminal_p95_ms": percentile([r["terminal_ms"] for r in rows], 0.95),
+            "pages_hibernated": sum(1 for r in rows if r["page_was_hibernated"]),
             "restored": sum(1 for r in rows if r["scroll_ok"] and r["url_ok"] and r["terminal_ok"]), "woken": len(rows),
         }
         report["summary"] = summary
