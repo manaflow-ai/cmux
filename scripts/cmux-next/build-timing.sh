@@ -20,7 +20,10 @@
 # Writes artifacts/build-timing/<sha>.json and prints one design-table row per
 # edit. Exits 1 when a leaf edit takes the budget or longer or reruns the
 # generator, 2 on a usage error, 3 when a build fails. Every edited file is
-# put back as it was, also on failure.
+# put back as it was, also on failure. With --rust it first runs
+# `git submodule update --init --depth 1 ghostty-next` (cargo builds
+# libghostty-vt from it and a fleet step's submodules are empty) and exits 2,
+# before any build, when that fails.
 set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 exec python3 "$repo_root/scripts/cmux-next/build_timing.py" --repo-root "$repo_root" "$@"

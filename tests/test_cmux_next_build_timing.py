@@ -71,6 +71,34 @@ print("[2/2] Emitting module CmuxNextDaemon")
 print("Build complete!")
 """
 
+# Logs "git <args>"; `submodule status` names a gitlink unless FAKE_GIT_NO_GITLINK,
+# `submodule update` exits 1 with FAKE_GIT_SUBMODULE_FAIL, everything else prints nothing.
+FAKE_GIT = """#!/usr/bin/env python3
+import os, sys
+from pathlib import Path
+args = sys.argv[1:]
+with Path(os.environ["FAKE_SWIFT_CALLS"]).open("a") as f:
+    f.write("git " + " ".join(args) + "\\n")
+if args[:1] == ["-C"]:
+    args = args[2:]
+if args[:2] == ["submodule", "status"]:
+    if os.environ.get("FAKE_GIT_NO_GITLINK"):
+        sys.exit(1)
+    print(" 0123456789abcdef ghostty-next (heads/main)")
+elif args[:2] == ["submodule", "update"] and os.environ.get("FAKE_GIT_SUBMODULE_FAIL"):
+    print("fatal: could not fetch ghostty-next", file=sys.stderr)
+    sys.exit(1)
+"""
+
+FAKE_CARGO = """#!/usr/bin/env python3
+import os, sys
+from pathlib import Path
+with Path(os.environ["FAKE_SWIFT_CALLS"]).open("a") as f:
+    f.write("cargo " + " ".join(sys.argv[1:]) + "\\n")
+print("   Compiling cmux-ipc v0.1.0 (/x)")
+print("    Finished dev")
+"""
+
 
 class ParseTests(unittest.TestCase):
     def test_swift_log_targets_steps_and_generator(self) -> None:
@@ -169,9 +197,10 @@ class EndToEndTests(unittest.TestCase):
         self.originals = {leaf: leaf.read_bytes(), schema: schema.read_bytes()}
         bin_dir = root / "bin"
         bin_dir.mkdir()
-        fake = bin_dir / "swift"
-        fake.write_text(FAKE_SWIFT)
-        fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
+        for name, body in (("swift", FAKE_SWIFT), ("git", FAKE_GIT), ("cargo", FAKE_CARGO)):
+            fake = bin_dir / name
+            fake.write_text(body)
+            fake.chmod(fake.stat().st_mode | stat.S_IXUSR)
         self.calls = root / "calls.log"
         self.out = root / "out.json"
         self.env = {
@@ -219,6 +248,41 @@ class EndToEndTests(unittest.TestCase):
         # warm, noop, 2 leaf, leaf restore, 2 schema, schema restore.
         self.assertEqual(len(builds), 8)
         self.assertTrue(all("--jobs 4" in c and "--target CmuxNextApp" in c for c in builds))
+        self.assertFalse([c for c in calls if "submodule" in c], "no --rust: ghostty-next is not touched")
+
+    def test_rust_checks_out_ghostty_next_before_any_build(self) -> None:
+        result = self.run_script("--schema-edit", "--rust")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assert_restored()
+        calls = self.calls.read_text().splitlines()
+        update = f"git -C {self.repo} submodule update --init --depth 1 ghostty-next"
+        self.assertIn(update, calls)
+        first_build = min(i for i, c in enumerate(calls) if c.startswith(("build ", "cargo ")))
+        self.assertLess(calls.index(update), first_build)
+        self.assertTrue(any(c.startswith("cargo build") for c in calls))
+        report = json.loads(self.out.read_text())
+        self.assertEqual([(row["edit"], row["tool"]) for row in report["rows"]], [("schema", "swift"), ("schema", "cargo")])
+
+    def test_rust_stops_before_any_build_when_ghostty_next_fails(self) -> None:
+        result = self.run_script("--schema-edit", "--rust", FAKE_GIT_SUBMODULE_FAIL="1")
+        self.assertEqual(result.returncode, bt.EXIT_USAGE, result.stderr + result.stdout)
+        self.assertIn("ghostty-next", result.stderr)
+        self.assertIn("no build ran", result.stderr)
+        calls = self.calls.read_text().splitlines()
+        self.assertFalse([c for c in calls if c.startswith(("build ", "cargo "))])
+        self.assertFalse(self.out.exists())
+        self.assert_restored()
+
+    def test_rust_uses_ghostty_next_files_of_a_synced_copy(self) -> None:
+        build_zig = self.repo / "ghostty-next/build.zig"
+        build_zig.parent.mkdir()
+        build_zig.write_text("// synced\n")
+        result = self.run_script("--schema-edit", "--rust", FAKE_GIT_NO_GITLINK="1", FAKE_GIT_SUBMODULE_FAIL="1")
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertIn("synced copy", result.stdout)
+        calls = self.calls.read_text().splitlines()
+        self.assertFalse([c for c in calls if "submodule update" in c])
+        self.assertTrue(any(c.startswith("cargo build") for c in calls))
 
     def test_leaf_that_reruns_generator_fails(self) -> None:
         result = self.run_script("--leaf-edit", FAKE_SWIFT_GENERATOR="1")

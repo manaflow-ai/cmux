@@ -404,7 +404,9 @@ generator) must not slow the edit-build loop. `scripts/cmux-next/build-timing.sh
 Targets rebuilt come from SwiftPM's `Compiling <module>` and `Emitting module <module>` lines; "generator ran"
 is a build step that names `CmuxNextWireGen` (the plugin's build command). The script writes
 `artifacts/build-timing/<sha>.json`, prints the rows below, and puts every edited file back. It refuses to run
-outside a fleet step. Its `layout` column names the dependencies the tree has: `before-025/027`, `after-027`
+outside a fleet step. With `--rust` it first runs `git submodule update --init --depth 1 ghostty-next`
+(cargo builds libghostty-vt from it, and a fleet step's submodules are empty) and exits 2 before any build
+when that fails. Its `layout` column names the dependencies the tree has: `before-025/027`, `after-027`
 or `after-025/027`. Run it on the same host class at three shas:
 
 - Before: `18384acbfe85`, the last perf/chrome-parity first-parent sha without the 027 plugin (027 came in

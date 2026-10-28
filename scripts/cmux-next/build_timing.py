@@ -15,7 +15,7 @@ warm build:
 Each edit is a different one per sample, so every sample is a real rebuild.
 The rebuilt targets come from SwiftPM's `Compiling <module>` and
 `Emitting module <module>` lines (cargo's `Compiling <crate>` lines with
---rust), and "generator ran" from a build line that names the generator. All
+--rust, which first checks out ghostty-next at this commit's pin), and "generator ran" from a build line that names the generator. All
 edited files get their original bytes back, also when a build fails or the
 step is stopped.
 
@@ -58,6 +58,7 @@ CARGO_MANIFEST = Path("cmux-tui/Cargo.toml")
 PROBE_FIELD = "build_timing_probe"
 DEFAULT_GENERATOR_PATTERN = r"WireGen"
 RUST_GENERATOR_CRATE = "cmux-ipc"
+GHOSTTY_NEXT = "ghostty-next"
 
 SWIFT_STEP = re.compile(r"^\[(\d+)/(\d+)\]\s+(.*)$")
 # Steps that build code; a generator match on any other step means it ran.
@@ -305,6 +306,26 @@ def build_jobs() -> int:
     return os.cpu_count() or 1
 
 
+def prepare_rust_sources(root: Path) -> None:
+    """Check out ghostty-next at this commit's pin before any build.
+
+    ghostty-vt-sys builds libghostty-vt from ghostty-next, a fleet step's
+    checkout has empty submodules, and a reused checkout must move to this
+    sha's pin (scripts/ci/cmux-tui-rust-check.sh does the same). A synced copy
+    with no gitlink already holds ghostty-next's files: use them.
+    """
+    if not _output(["git", "submodule", "status", GHOSTTY_NEXT], root) and (root / GHOSTTY_NEXT / "build.zig").is_file():
+        print(f"build-timing: {GHOSTTY_NEXT} has no gitlink in this tree (a synced copy); using the files present")
+        return
+    cmd = ["git", "-C", str(root), "submodule", "update", "--init", "--depth", "1", GHOSTTY_NEXT]
+    try:
+        status = subprocess.call(cmd, stdin=subprocess.DEVNULL)
+    except OSError as error:
+        raise UsageError(f"--rust: `{' '.join(cmd)}` could not run ({error}); no build ran") from error
+    if status != 0:
+        raise UsageError(f"--rust: `{' '.join(cmd)}` exited {status}; cargo needs {GHOSTTY_NEXT} at this commit's pin; no build ran")
+
+
 def layout_of(root: Path) -> str:
     wire = (root / WIRE_TARGET_DIR).is_dir()
     plugin = (root / PLUGIN_DIR).is_dir()
@@ -394,6 +415,9 @@ def run(args: argparse.Namespace) -> int:
     schema = Path(args.schema_file) if args.schema_edit else None
     if schema is not None and not (root / schema).is_file():
         raise UsageError(f"--schema-file {schema}: no such file")
+
+    if args.rust:
+        prepare_rust_sources(root)
 
     sha = os.environ.get("CMUX_CI_SHA") or _output(["git", "rev-parse", "HEAD"], root) or "unknown"
     dirty = bool(_output(["git", "status", "--porcelain", "--untracked-files=no"], root))
