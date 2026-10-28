@@ -1,7 +1,7 @@
 import React, { Fragment, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { AgentMark, hasAgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
-import { SearchIcon, type Choice } from "./ComposerPickers";
+import { SearchIcon, reasoningChoices, type Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
 import { useComposerSettings, type ReasoningSliderStyle, type HarnessPlacement } from "./composerSettings";
@@ -30,6 +30,9 @@ export type QuickMenu = {
   models: readonly Omit<QuickModel, "family">[];
   current?: string;
   onModel(id: string): void;
+  onModelEffort?(id: string, effort: string): void;
+  /** Gallery alternatives; joined segments are the shipped choice. */
+  effortLook?: "joined" | "spaced" | "underline";
   /// The reasoning levels; absent when the model offers no choice.
   effort?: {
     levels: Choice[];
@@ -87,6 +90,8 @@ export type QuickModel = {
   disabled?: boolean;
   hint?: string;
   effort?: string;
+  /** Only levels advertised for this model; [] means no reasoning control. */
+  efforts?: readonly string[];
   fast?: boolean;
   tag?: string;
   /// The provider the row lands, named at its trailing edge (a harness that routes to several).
@@ -282,8 +287,52 @@ export function QuickModelMenu({
     const running = (!families || row.family === families.current) && row.id === current;
     if (running && !row.effort && !row.fast) return;
     if (query && search) search.pick(row);
+    else if (!families && row.effort && menu.onModelEffort) menu.onModelEffort(row.id, row.effort);
     else if (!families) menu.onModel(row.id);
     else families.onPick(row);
+  };
+  const effortChoices = (model: QuickModel) => {
+    const running = (!families || model.family === families.current) && model.id === current;
+    if (!families && !menu.onModelEffort) return [];
+    // An explicit empty list must not inherit another model's reasoning capabilities.
+    return model.efforts !== undefined
+      ? reasoningChoices(
+          model.efforts.map((value) => ({ value })),
+          { efforts: model.efforts },
+          t,
+        )
+      : running
+        ? levels
+        : [];
+  };
+  const withEffort = (model: QuickModel, name: React.ReactNode) => {
+    const choices = effortChoices(model);
+    if (choices.length === 0) return name;
+    const running = (!families || model.family === families.current) && model.id === current;
+    return (
+      <div className="acpmux-quick-model-effort" key={valueOf(model)} data-effort-look={menu.effortLook ?? "joined"}>
+        {name}
+        <div className="acpmux-quick-efforts" role="group" aria-label={`${model.name} · ${t("effort.title")}`}>
+          <MenuRadioGroup
+            value={running ? (effort?.current ?? "") : ""}
+            onValueChange={(value) => pickRow({ ...model, effort: value })}
+          >
+            {choices.map((choice) => (
+              <MenuRadioItem
+                key={choice.id}
+                className="acpmux-quick-effort-segment"
+                disabled={model.disabled}
+                label={`${model.name} · ${choice.name}`}
+                value={choice.id}
+                closeOnClick
+              >
+                <span data-selected={running && effort?.current === choice.id ? "" : undefined}>{choice.name}</span>
+              </MenuRadioItem>
+            ))}
+          </MenuRadioGroup>
+        </div>
+      </div>
+    );
   };
   /// The field's editing keys stay in it: Base UI's typeahead and the menu's own keys never see
   /// them. Digits on an empty field still pick a row, and Left and Right move along the rail.
@@ -422,7 +471,8 @@ export function QuickModelMenu({
                 {choice.offers.map((offer) => providerRow(offer, "acpmux-quick-item acpmux-quick-offer"))}
               </Fragment>
             );
-          return (
+          return withEffort(
+            choice,
             <MenuRadioItem
               key={value}
               value={value}
@@ -439,7 +489,7 @@ export function QuickModelMenu({
                 {label}
                 {detail && <span className="acpmux-quick-value">{detail}</span>}
               </span>
-            </MenuRadioItem>
+            </MenuRadioItem>,
           );
         })}
       </MenuRadioGroup>
@@ -499,19 +549,22 @@ export function QuickModelMenu({
                   if (row) pickRow(row);
                 }}
               >
-                {shown.more.map((choice) => (
-                  <MenuRadioItem
-                    key={choice.id}
-                    value={rowValue(choice)}
-                    closeOnClick
-                    disabled={choice.disabled}
-                    className="acpmux-quick-item"
-                    // tooltip-allow: a long model name ends in "…" at the menu's width; the tooltip names it whole.
-                    title={choice.provider ? `${choice.name} · ${choice.provider}` : choice.name}
-                  >
-                    <QuickModelLabel model={choice} />
-                  </MenuRadioItem>
-                ))}
+                {shown.more.map((choice) =>
+                  withEffort(
+                    choice,
+                    <MenuRadioItem
+                      key={choice.id}
+                      value={rowValue(choice)}
+                      closeOnClick
+                      disabled={choice.disabled}
+                      className="acpmux-quick-item"
+                      // tooltip-allow: a long model name ends in "…" at the menu's width; the tooltip names it whole.
+                      title={choice.provider ? `${choice.name} · ${choice.provider}` : choice.name}
+                    >
+                      <QuickModelLabel model={choice} />
+                    </MenuRadioItem>,
+                  ),
+                )}
               </MenuRadioGroup>
             </fieldset>
           )}
@@ -522,7 +575,7 @@ export function QuickModelMenu({
           )}
         </>
       )}
-      {!query && onChatTab && effort && levels.length > 1 && (
+      {!query && onChatTab && effort && levels.length > 1 && !rows.some((row) => effortChoices(row).length > 0) && (
         <>
           <MenuSeparator />
           <Submenu
@@ -591,17 +644,20 @@ export function QuickModelMenu({
                   if (row) pickRow(row);
                 }}
               >
-                {shown.more.map((choice) => (
-                  <MenuRadioItem
-                    key={choice.id}
-                    value={rowValue(choice)}
-                    closeOnClick
-                    disabled={choice.disabled}
-                    className="acpmux-quick-item"
-                  >
-                    <QuickModelLabel model={choice} />
-                  </MenuRadioItem>
-                ))}
+                {shown.more.map((choice) =>
+                  withEffort(
+                    choice,
+                    <MenuRadioItem
+                      key={choice.id}
+                      value={rowValue(choice)}
+                      closeOnClick
+                      disabled={choice.disabled}
+                      className="acpmux-quick-item"
+                    >
+                      <QuickModelLabel model={choice} />
+                    </MenuRadioItem>,
+                  ),
+                )}
               </MenuRadioGroup>
               {families.onAddHarness && <MenuSeparator />}
             </>

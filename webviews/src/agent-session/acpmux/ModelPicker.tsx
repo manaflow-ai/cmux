@@ -247,6 +247,7 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
     id: model.id,
     name: model.name,
     family,
+    ...(model.efforts !== undefined ? { efforts: model.efforts } : {}),
     ...(model.unavailable ? { disabled: true } : {}),
     ...(model.tag ? { tag: model.tag } : {}),
     ...(model.provider ? { provider: model.provider } : {}),
@@ -1158,6 +1159,9 @@ export function ModelPicker(props: ModelPickerProps) {
               onModel: (id) => {
                 quickPicked.current = true;
                 onLand(id);
+              },
+              onModelEffort: (id, effort) => {
+                if (current) pickQuickToPrompt({ id, name: id, family: current.id, effort });
               },
               search: { find: quickSearch, pick: pickQuickToPrompt },
               ...(quickFamilies
