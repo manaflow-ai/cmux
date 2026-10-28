@@ -1,9 +1,13 @@
 // The New Tab page's ambient widgets (`tabs.newTabWidgets.weather|machines`): a quiet row under the
 // composer, so turning one on never moves the field. Weather is the app's last Open-Meteo reading
 // (the handshake's `weather`, AgentPaneNewTabWeather.swift); Machines are the composer's computers
-// (acpmux's peers and the hosts its chats ran on), each online while acpmux lists it as a peer.
-import { knownMachines } from "../environments";
+// (acpmux's peers and the hosts its chats ran on) and the account's Cloud machines, each with its
+// live link, as buttons that start the next chat there, plus Add Machine… (Leo, 2026-10-26: "in
+// the new tab page ... we should have buttons for connected cloud machines? and adding new stuff").
+import { type CloudMachine, isCloudMachineRow, withCloudMachines } from "../cloudMachines";
+import { environmentReady, knownMachines } from "../environments";
 import { machineColor } from "../machineColor";
+import { type MachineLink, peerLink } from "../machineLink";
 import type { AcpmuxSnapshot } from "../model";
 
 /// How long a reading stays current (AgentPaneNewTabWeather.maximumAge): older is drawn dimmed.
@@ -68,23 +72,92 @@ export type NewTabMachine = {
   id: string;
   label: string;
   kind: MachineKind;
+  /** A chat can start on it now: this Mac, or a peer whose link finished its handshake. */
   online: boolean;
+  /** Its link as the composer strip draws it (machineLink.tsx): none for this Mac, and none for an
+   *  older chat's host that acpmux no longer lists (nothing is known of it). */
+  link?: MachineLink;
+  /** acpmux lists it as a peer: a press picks it (and reconnects it when it is down). */
+  listed?: true;
+  /** An account Cloud machine acpmux does not list (cloudMachines.ts): a press resumes or opens it. */
+  cloudMachine?: CloudMachine;
   /** The machine's identity color (machineColor.ts), as the composer's computer chip draws it; none for this Mac. */
   color?: string;
 };
 
-/// The machines a chat can run on: this Mac first (always online), then acpmux's peers (online),
-/// then the hosts older chats ran on that acpmux no longer lists (offline). Each peer's kind is its
-/// transport (`peerKinds`, environments.ts); a Cloud chat's host is Cloud.
+/// The machines a chat can run on: this Mac first (always online), then acpmux's peers with their
+/// live link (`peerStates`, followed from acpmux's pushes), then the hosts older chats ran on that
+/// acpmux no longer lists (offline), then the account's Cloud machines acpmux does not list
+/// (`cloudMachines`: a paused one, say), each with its stage. Each peer's kind is its transport
+/// (`peerKinds`, environments.ts); a Cloud chat's host is Cloud, and gives way to the account's
+/// machine of its name, which knows its stage.
 export function newTabMachines(
-  snapshot: Pick<AcpmuxSnapshot, "sessions" | "peers">,
+  snapshot: Pick<AcpmuxSnapshot, "sessions" | "peers" | "peerConnected" | "peerStates" | "peersUnlisted">,
   peerKinds: Record<string, "ssh" | "cloud">,
   localName: string,
+  cloudMachines: readonly CloudMachine[] = [],
 ): NewTabMachine[] {
   const machines: NewTabMachine[] = [{ id: "local", label: localName, kind: "local", online: true }];
-  const online = new Set(snapshot.peers ?? []);
-  for (const machine of knownMachines(snapshot.peers ?? [], snapshot.sessions, peerKinds)) {
-    machines.push({ ...machine, online: online.has(machine.id), color: machineColor(machine.label) });
+  const peers = snapshot.peers ?? [];
+  const listed = new Set(peers);
+  const known = knownMachines(
+    peers,
+    snapshot.sessions,
+    peerKinds,
+    [],
+    snapshot.peerConnected ?? {},
+    snapshot.peerStates ?? {},
+    !snapshot.peersUnlisted,
+  );
+  for (const machine of withCloudMachines(known, cloudMachines, peers, "")) {
+    const color = machineColor(machine.label);
+    if (isCloudMachineRow(machine)) {
+      const link = cloudStageLink(machine.cloudMachine.stage);
+      machines.push({
+        id: machine.id,
+        label: machine.label,
+        kind: "cloud",
+        online: false,
+        ...(link ? { link } : {}),
+        cloudMachine: machine.cloudMachine,
+        color,
+      });
+      continue;
+    }
+    if (!listed.has(machine.id)) {
+      machines.push({ id: machine.id, label: machine.label, kind: machine.kind, online: false, color });
+      continue;
+    }
+    const link = peerLink(machine);
+    machines.push({
+      id: machine.id,
+      label: machine.label,
+      kind: machine.kind,
+      online: environmentReady(machine),
+      listed: true,
+      ...(link ? { link } : {}),
+      color,
+    });
   }
   return machines;
+}
+
+/// An account Cloud machine's stage as a link mark: grey while paused, the spinner while it starts,
+/// red once it failed; a ready one acpmux has no link to yet draws none (a press opens it).
+export function cloudStageLink(stage: string): MachineLink | undefined {
+  if (stage === "paused") return "paused";
+  if (["requesting", "creating", "booting", "connecting"].includes(stage)) return "connecting";
+  if (stage === "failed") return "offline";
+  return undefined;
+}
+
+/// What pressing a machine's button does: pick it for the next chat (a peer that is down is
+/// reconnected as it is picked; the send waits for its link), resume or open an account Cloud
+/// machine, or nothing for an older chat's host acpmux no longer lists.
+export type MachinePress = "pick" | "reconnect" | "cloud" | "none";
+export function machinePress(machine: NewTabMachine): MachinePress {
+  if (machine.cloudMachine) return "cloud";
+  if (machine.kind === "local") return "pick";
+  if (!machine.listed) return "none";
+  return machine.link === "offline" ? "reconnect" : "pick";
 }

@@ -9908,6 +9908,7 @@ function AcpmuxPane() {
                 : {})}
               onConnect={connectMachine}
               onRefreshMachines={() => void directClient.current?.refreshPeersOnOpen()}
+              onReconnectMachine={(id) => void directClient.current?.reconnectPeer(id)}
               onNewWorktree={(cwd) => {
                 let folder: string | undefined;
                 return newWorktree(callNative, cwd, (used) => {

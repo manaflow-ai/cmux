@@ -68,6 +68,7 @@ import { useWidgetEditing, WidgetEditBar, WidgetFrame } from "./WidgetEditing";
 import { useNoEntryMotion } from "./noEntryMotion";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { AmbientWidgets } from "./AmbientWidgets";
+import { runCloudMachine } from "../cloudMachines";
 import type { NewTabWeather } from "./ambient";
 import { EnvironmentCard, SuggestionsCard } from "./StageCards";
 import { Icon } from "../icons/Icon";
@@ -140,6 +141,9 @@ export type NewTabScreenActions = {
   /// The location row's machine list opened, and every few seconds while it stays open: the host
   /// reads acpmux's machines again (`_acpmux/status`).
   onRefreshMachines?(): void;
+  /// Reconnects acpmux peer `id` now (`_acpmux/peer_reconnect`): a down machine's button on the
+  /// machines widget was pressed (AmbientWidgets.tsx). The pick goes on; the send waits for the link.
+  onReconnectMachine?(id: string): void;
   /// With `environments`, New Worktree beside the folder: the host makes a worktree of `cwd` and
   /// this resolves to the folder the chat starts in (startFolder.tsx newWorktree); rejects with the
   /// host's reason.
@@ -1451,6 +1455,15 @@ export function NewTabScreen(props: Props) {
       snapshot={snapshot}
       localName={props.machineName ?? t("composer.thisMac")}
       now={at}
+      // The machines are buttons: a press starts the next chat there (a down one reconnects as it
+      // is picked), resumes or opens an account Cloud machine, and Add Machine… opens Add Device.
+      buttons={{
+        current: machine?.peer ?? "local",
+        onPick: (id) => pickMachine(id === "local" ? undefined : { peer: id }),
+        onReconnect: (id) => props.onReconnectMachine?.(id),
+        onCloudMachine: (cloudMachine) => void runCloudMachine(cloudMachine),
+        ...(props.onConnect ? { onAddMachine: () => props.onConnect!("addMachine") } : {}),
+      }}
     />
   );
   const extras = <NewTabExtras widgets={widgets} now={at} />;
