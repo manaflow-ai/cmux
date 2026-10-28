@@ -1276,9 +1276,9 @@ export function NewTabScreen(props: Props) {
                   projectChoice.current += 1;
                   saved.pick(undefined);
                   setMachine(undefined);
+                  // The picker's Auto row has already asked App for the folder's default
+                  // (RunModeRows.onDefault), which Auto reads.
                   setAutoEnvironment(true);
-                  // The Run as mode goes back to the folder's default (App), which Auto reads.
-                  props.runMode?.onDefault?.();
                   touch();
                   requestAnimationFrame(() => field.current?.focus());
                 },

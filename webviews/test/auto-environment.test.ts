@@ -141,11 +141,11 @@ test("a machine-name prefix does not select a different machine", () => {
 test("an incidental local is no destination: the named machine or cloud ask wins, on either folder default", () => {
   for (const folder of ["local", "cloud"] as const) {
     const options = { folder, cloudRow: true, environments };
-    expect(where(chooseAutoEnvironment({ prompt: "Run the tests on gpu-box using the local dataset", ...options }))).toBe(
-      "gpu-box",
-    );
-    expect(where(chooseAutoEnvironment({ prompt: "Run the tests in the cloud with the local config", ...options }))).toBe(
-      "cloud",
-    );
+    expect(
+      where(chooseAutoEnvironment({ prompt: "Run the tests on gpu-box using the local dataset", ...options })),
+    ).toBe("gpu-box");
+    expect(
+      where(chooseAutoEnvironment({ prompt: "Run the tests in the cloud with the local config", ...options })),
+    ).toBe("cloud");
   }
 });
