@@ -90,6 +90,15 @@ class WorkflowTests(unittest.TestCase):
         compile_if = self.jobs["cmux-scheme-compile"]["if"]
         tree = compile_if[compile_if.index("((inputs.same_tree_sha == ''"):].rstrip(" }")[:-2]
         self.assertIn(tree, job["if"])
+        # Only for the commit the dispatcher asked for: the compile's "Require the requested DEV daily
+        # commit" step fails a stale daily at once, so placing it would hold a Mac for nothing.
+        guard = ("(inputs.same_tree_sha == '' && inputs.dev_daily_sha == github.sha || "
+                 "inputs.same_tree_sha != '' && inputs.dev_daily_sha == inputs.same_tree_sha)")
+        self.assertIn(guard + " && " + tree, job["if"])
+        require = {s.get("name"): s for s in self.jobs["cmux-scheme-compile"]["steps"]}[
+            "Require the requested DEV daily commit"]
+        self.assertIn('[[ "$DEV_DAILY_SHA" == "$GITHUB_SHA" ]]', require["run"])
+        self.assertIn('[[ "$DEV_DAILY_SHA" == "$SAME_TREE_SHA" ]]', require["run"])
         step = {s.get("id"): s for s in job["steps"]}["place"]
         self.assertEqual(step["continue-on-error"], "true", "a failed placement keeps the compile's route")
         self.assertIn("scripts/ci/dev_landing_place.py", step["run"])
