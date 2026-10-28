@@ -131,6 +131,8 @@ extension LayoutRootView {
         panesMovedInLastOverlaySync = moved
         reportInteractiveRects()
         notifyOverlaySync()
+        // A screen switch's turn put the rings and dims at rest above: they spring with their screens now.
+        startScreenSwitch()
     }
 
     /// `screen`'s strip rings' plane in `plane`, below every other overlay, covering it exactly.
