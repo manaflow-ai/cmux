@@ -109,13 +109,14 @@ impl Mux {
 
 /// Attaches that wait on a work item for a restored terminal
 /// (server/pending_terminal_attach.rs): at most [`RESTORE_ATTACH_WAITS`] at
-/// once, each cancelled by a later detach of its client's view.
+/// once, each cancelled by a later `cancel-stream` of the stream it opens.
 #[derive(Default)]
 pub(crate) struct RestoreAttaches {
     next: u64,
-    /// By token: the attaching client, its surface (`None` when the attach
-    /// named the terminal), and whether a detach cancelled it.
-    waiting: HashMap<u64, (u64, Option<SurfaceId>, bool)>,
+    /// By token: the attaching client, the stream the attach opens (`None`:
+    /// a legacy attach, which nothing cancels before its answer), and
+    /// whether a cancel came.
+    waiting: HashMap<u64, (u64, Option<u16>, bool)>,
 }
 
 /// The most attaches that wait at once. Each holds one of the System lane's
@@ -124,14 +125,10 @@ pub(crate) struct RestoreAttaches {
 const RESTORE_ATTACH_WAITS: usize = 16;
 
 impl Mux {
-    /// Registers an attach of `client` to `surface` that is about to wait
-    /// for a restored terminal: its token, or `None` when
+    /// Registers an attach of `client` (opening `stream`) that is about to
+    /// wait for a restored terminal: its token, or `None` when
     /// [`RESTORE_ATTACH_WAITS`] attaches already wait.
-    pub(crate) fn begin_restore_attach(
-        &self,
-        client: u64,
-        surface: Option<SurfaceId>,
-    ) -> Option<u64> {
+    pub(crate) fn begin_restore_attach(&self, client: u64, stream: Option<u16>) -> Option<u64> {
         let mut startup = self.startup_adoptions.lock().unwrap_or_else(PoisonError::into_inner);
         let attaches = &mut startup.attaches;
         if attaches.waiting.len() >= RESTORE_ATTACH_WAITS {
@@ -139,19 +136,22 @@ impl Mux {
         }
         attaches.next += 1;
         let token = attaches.next;
-        attaches.waiting.insert(token, (client, surface, false));
+        attaches.waiting.insert(token, (client, stream, false));
         Some(token)
     }
 
-    /// `client` detached its view of `surface` (`None`: every view): its
-    /// attaches that still wait are cancelled.
-    pub(crate) fn cancel_restore_attaches(&self, client: u64, surface: Option<SurfaceId>) {
+    /// `client` cancelled `stream` before it opened: whether an attach that
+    /// waits to open it was cancelled.
+    pub(crate) fn cancel_restore_attach(&self, client: u64, stream: u16) -> bool {
         let mut startup = self.startup_adoptions.lock().unwrap_or_else(PoisonError::into_inner);
-        for (owner, waiting, cancelled) in startup.attaches.waiting.values_mut() {
-            if *owner == client && (surface.is_none() || *waiting == surface) {
+        let mut found = false;
+        for (owner, opens, cancelled) in startup.attaches.waiting.values_mut() {
+            if *owner == client && *opens == Some(stream) {
                 *cancelled = true;
+                found = true;
             }
         }
+        found
     }
 
     /// Ends the wait of `token`: whether a detach cancelled it meanwhile.
