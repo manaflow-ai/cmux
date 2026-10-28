@@ -10,12 +10,24 @@ export function keepHandoff(current: AcpmuxSnapshot | undefined, next: AcpmuxSna
 
 export function snapshotFrames(schedule: (run: () => void) => void, publish: (value: AcpmuxSnapshot) => void) {
   let active = true;
+  let queued = false;
+  let pending: AcpmuxSnapshot | undefined;
   return {
     push(value: AcpmuxSnapshot) {
-      if (active) publish(value);
+      if (!active) return;
+      pending = keepHandoff(pending, value);
+      if (queued) return;
+      queued = true;
+      schedule(() => {
+        queued = false;
+        const next = pending;
+        pending = undefined;
+        if (active && next) publish(next);
+      });
     },
     stop() {
       active = false;
+      pending = undefined;
     },
   };
 }
