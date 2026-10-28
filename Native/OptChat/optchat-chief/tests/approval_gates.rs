@@ -497,6 +497,11 @@ fn another_persons_turn_is_held_to_the_input_rules_when_a_chief_tool_runs() {
             "mcp__optchat__control",
             json!({"action": "answer", "id": "a1", "option": "allow"}),
         ),
+        // A billed Cloud machine runs only in the owner's turn.
+        (
+            "mcp__optchat__cloud_workspace",
+            json!({"title": "crypto miner"}),
+        ),
     ] {
         assert!(h.brain.turn_gate(tool, &input).is_err(), "{tool}");
     }
@@ -511,6 +516,11 @@ fn another_persons_turn_is_held_to_the_input_rules_when_a_chief_tool_runs() {
     h.settle();
     let upload = json!({"text": "here", "attachments": ["/tmp/report.txt"]});
     assert_eq!(h.brain.turn_gate("mcp__optchat__send", &upload), Ok(()));
+    let cloud = json!({"title": "fix login bug"});
+    assert_eq!(
+        h.brain.turn_gate("mcp__optchat__cloud_workspace", &cloud),
+        Ok(())
+    );
 }
 
 // No request of a Chief turn or of its subagents waits on an answer nobody

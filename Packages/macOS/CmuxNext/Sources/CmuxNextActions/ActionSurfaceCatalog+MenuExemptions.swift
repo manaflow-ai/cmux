@@ -42,7 +42,7 @@ nonisolated extension ActionSurfaceCatalog {
             "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.openTerminalChatView",
             "palette.quickAgentChat",
             "palette.launchClaudeTeams", "palette.launchCodexTeams", "palette.computerUse.setup",
-            "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "computerUseStop",
+            "palette.computerUse.accessibility", "palette.computerUse.screenRecording", "palette.computerUse.restart", "computerUseStop",
             "newCloudMachine", "cloudDiagnostics", "openTeamPicker", "palette.auth.signIn", "palette.auth.signOut",
             "palette.mobileConnect", "accounts.show", "accounts.refresh", "accounts.reauthenticate",
             "accounts.connect", "accounts.remove", "reloadConfiguration", "palette.openCmuxSettingsFile",
@@ -132,6 +132,7 @@ nonisolated extension ActionSurfaceCatalog {
         ],
         .dragGesture: [
             "space.move", "browser.extension.move", "bookmark.move", "space.moveLeft", "space.moveRight",
+            "space.moveToStart", "space.moveToEnd",
         ],
         .minimalMenu: [
             "space.setDefaults", "space.clearDefaults", "browserProfile.clearSpaceDefault",

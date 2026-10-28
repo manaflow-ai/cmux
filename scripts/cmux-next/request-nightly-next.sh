@@ -41,7 +41,12 @@
 # Exit 0 when a commit was requested or
 # none is ready yet, 2 on bad usage, 1 on an API failure.
 # Env: CMUX_NIGHTLY_NEXT_RUN_WINDOW (default 99) recent first-parent commits searched;
-# CMUX_NIGHTLY_NEXT_MAX_REFUSED (default 5) unpromotable candidates passed over.
+# CMUX_NIGHTLY_NEXT_MAX_REFUSED (default 5) unpromotable candidates passed over;
+# NIGHTLY_NEXT_PROMOTE=1 dispatches the promotion. Only main's 30-minute
+# nightly-next-tick.yml sets it: every promotion starts a full nightly build, and
+# when each landing promoted, six ran at once (2026-10-28). Without it the script
+# runs every check and reports the commit it would promote, and the tick
+# promotes it within 30 minutes.
 set -euo pipefail
 
 sha="" repo="" mode=""
@@ -166,6 +171,10 @@ request() { # <sha>
   elif (( marker_rc != 0 )); then
     echo "not promoting ${1:0:12}: read failure on its tree-commit marker (above); no backfill on a read failure"
     return 1
+  fi
+  if [[ "${NIGHTLY_NEXT_PROMOTE:-}" != 1 ]]; then
+    echo "promotable ${1:0:12}: not requested here; the 30-minute nightly-next tick (nightly-next-tick.yml) promotes it"
+    return 0
   fi
   if ! gh workflow run nightly.yml --repo "$repo" --ref main -f promote_nightly_next_sha="$1"; then
     echo "error: could not request the nightly-next promotion of $1" >&2
