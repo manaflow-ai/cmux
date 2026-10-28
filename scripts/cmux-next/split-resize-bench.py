@@ -13,8 +13,13 @@ On the fleet (through the allowlisted entry, which builds the app at the commit)
 
 With --variants=live,hold,synced each `browserResize.dragResize` value runs in its own launch of the
 same build, back to back, through a Debug Settings override file (CMUX_NEXT_DEBUG_TUNABLES_FILE).
+resizeSync is #26595's mode; a build without it reads the override as unknown and runs its default.
+With --pages=probe,heavy each variant also runs once per page (split_resize.HEAVY_PAGE: a long page
+whose every width is a real relayout), each in its own launch. Every launch also records one drag
+out and back (debug.window_record JPEG frames under its folder's record/).
 
-Usage: split-resize-bench.py --app APP --out DIR [--json PATH] [--tag TAG] [--variants=live,hold,synced]
+Usage: split-resize-bench.py --app APP --out DIR [--json PATH] [--tag TAG] [--variants=live,hold,synced,resizeSync]
+                             [--pages=probe,heavy]
 """
 
 from __future__ import annotations
@@ -37,12 +42,17 @@ parser.add_argument("--tag")
 # `browserResize.dragResize` values to measure, each in its own launch of the same build, back to back
 # (live: AsyncLiveResize, the behaviour before cmux#25842; hold; synced: AsyncLiveResize off).
 parser.add_argument("--variants", default="")
+parser.add_argument("--pages", default="probe")
 opts, _ = parser.parse_known_args()
-VARIANTS = ("live", "hold", "synced")
+VARIANTS = ("live", "hold", "synced", "resizeSync")
 variants = [v for v in opts.variants.split(",") if v] or [None]
 for variant in variants:
     if variant is not None and variant not in VARIANTS:
         sys.exit(f"--variants: {variant!r} is not one of {', '.join(VARIANTS)}")
+pages = [page for page in opts.pages.split(",") if page] or ["probe"]
+for page in pages:
+    if page not in ("probe", "heavy"):
+        sys.exit(f"--pages: {page!r} is not one of probe, heavy")
 
 out = Path(opts.out)
 out.mkdir(parents=True, exist_ok=True)
@@ -57,7 +67,24 @@ def strip_png(path: Path) -> str | None:
     return base64.b64encode((small if scaled.returncode == 0 and small.is_file() else path).read_bytes()).decode()
 
 
-def measure(variant: str | None, folder: Path) -> dict:
+def recording_frames(folder: Path, count: int = 24) -> list[dict]:
+    """`count` frames spread evenly over the recorded drag (record/frame-NNNNN.jpg), each scaled to 900 px wide,
+    with their host time: the recording goes back inside the report too."""
+    frames = sorted((folder / "record").glob("frame-*.jpg"))
+    try:
+        times = json.loads((folder / "record" / "frames.json").read_text()).get("times")
+    except (OSError, ValueError, AttributeError):
+        times = None
+    picked = frames[::max(1, len(frames) // count)][:count] if frames else []
+    shown = []
+    for frame in picked:
+        index = int(frame.stem.split("-")[-1])
+        shown.append({"frame": index, "t": times[index] if isinstance(times, list) and index < len(times) else None,
+                      "png": strip_png(frame)})
+    return shown
+
+
+def measure(variant: str | None, folder: Path, page: str = "probe") -> dict:
     """One launch: the harness's drags and its recording drag, judged."""
     folder.mkdir(parents=True, exist_ok=True)
     env = {}
@@ -66,13 +93,14 @@ def measure(variant: str | None, folder: Path) -> dict:
         tunables.write_text(json.dumps({"version": 1, "values": {"browserResize.dragResize": variant}}))
         env["CMUX_NEXT_DEBUG_TUNABLES_FILE"] = str(tunables)
     app = BenchApp(opts.app, out=str(folder), env=env, window=(80, 80, 1100, 720))
-    report: dict = {"variant": variant}
+    report: dict = {"variant": variant, "page": page}
     try:
         app.launch()
         driver = golden.Driver(app.socket, folder)
         driver.call("debug.motion", {"action": "speed", "value": "fast"})
         driver.call("debug.motion", {"action": "reduce", "value": False})
-        split_resize.drive(driver, folder, strip=True)
+        split_resize.drive(driver, folder, strip=True, page_kind=page, pid=app.process.pid if app.process else None,
+                           record=True)
         data = json.loads((folder / "split_resize.json").read_text())
         refresh = next((float(d.get("refresh_ms") or 0) for d in data.get("drags") or [] if float(d.get("refresh_ms") or 0) > 0),
                        1000 / 60)
@@ -81,18 +109,21 @@ def measure(variant: str | None, folder: Path) -> dict:
         # The recording goes back inside the report (the step returns one file).
         report["strip"] = [{"step": shot["step"], "error": (shot.get("result") or {}).get("error"),
                             "png": strip_png(folder / shot["path"])} for shot in (data.get("strip") or [])[:20]]
-        print(f"[{variant or 'default'}] " + split_resize.markdown_row(report))
+        report["recorded"] = data.get("recorded")
+        report["recording"] = recording_frames(folder)
+        print(f"[{variant or 'default'} {page}] " + split_resize.markdown_row(report))
         print("SPLIT-RESIZE " + json.dumps({k: v for k, v in report.items() if k not in ("drags", "strip", "log")}))
     except (Exception, SystemExit) as error:  # one variant's failure (BenchApp's launch error is a SystemExit) still reports the others
         report["error"] = repr(error)
-        print(f"[{variant or 'default'}] failed: {error!r}")
+        print(f"[{variant or 'default'} {page}] failed: {error!r}")
     finally:
         app.stop()
     return report
 
 
-reports = [measure(variant, out / (variant or "default")) for variant in variants]
-result = reports[0] if variants == [None] else {"variants": reports}
+reports = [measure(variant, out / ((variant or "default") + ("" if page == "probe" else f"-{page}")), page)
+           for variant in variants for page in pages]
+result = reports[0] if len(reports) == 1 else {"variants": reports}
 if opts.json:
     Path(opts.json).parent.mkdir(parents=True, exist_ok=True)
     Path(opts.json).write_text(json.dumps(result, indent=1) + "\n")

@@ -23,7 +23,15 @@ reports, per drag:
 - `gap_frames`: display frames in which the page area was wider than the page window
   (the host view shows there);
 - `dropped`: display frames the app missed while the divider moved (an interval over 1.5
-  refresh periods), and `page_dropped`, the same for the page's own animation frames.
+  refresh periods), and `page_dropped`, the same for the page's own animation frames;
+- `frame_ms` and `page_frame_ms`: p50/p95/p99/max of the app's display-frame intervals and of
+  the page's animation-frame intervals while the divider moved;
+- `cpu`: with the app's pid, CPU ms the app's main thread, the whole app and its Chromium
+  helpers (renderer, GPU, other) spent over the drag, and the main thread's ms per drag step.
+
+`page="heavy"` opens HEAVY_PAGE instead of the probe: the same recorder over a long page of
+wrapping text, a table and a grid, so each width costs Chromium a real relayout (a long
+docs page or a pull request diff), not the probe's 30 boxes.
 
 Report only: no threshold fails a run.
 """
@@ -31,12 +39,83 @@ Report only: no threshold fails a run.
 from __future__ import annotations
 
 import json
+import re
+import subprocess
 import time
 from pathlib import Path
 
 import browser_resize
 
 DRAGS = (-160, 160, -160, 160)
+STEPS = 60
+
+_WORDS = ("resize divider chromium layout frame pane width wraps across the column while the page "
+          "catches up with its host view and paints again at every new size").split()
+
+
+def _heavy_page() -> str:
+    """The probe's recorder over about 120k words of wrapping text, a 400-row table and a 600-cell grid."""
+    paragraphs = "".join(
+        "<p>" + " ".join(_WORDS[(i * 7 + j) % len(_WORDS)] for j in range(30 + i % 40)) + "</p>" for i in range(2400))
+    rows = "".join(f"<tr><td>{i}</td><td>{' '.join(_WORDS[(i + j) % len(_WORDS)] for j in range(12))}</td>"
+                   f"<td>{' '.join(_WORDS[(i * 3 + j) % len(_WORDS)] for j in range(18))}</td></tr>" for i in range(400))
+    head, tail = browser_resize.PROBE_PAGE.split('<div class="grid">', 1)
+    head = head.replace("</style>", "p{margin:6px 20px;font:400 14px/1.45 -apple-system,sans-serif}"
+                        "table{margin:12px 20px;border-collapse:collapse;font:400 13px -apple-system,sans-serif}"
+                        "td{border:1px solid #2a7;padding:3px 6px}</style>")
+    tail = tail.replace("<div></div>" * 30, "<div></div>" * 600, 1)
+    return head + '<div class="grid">' + tail.replace("</div>\n<script>", "</div>" + paragraphs + "<table>" + rows
+                                                       + "</table>\n<script>", 1)
+
+
+HEAVY_PAGE = _heavy_page()
+
+
+def _cpu_seconds(text: str) -> float:
+    """`ps` TIME ([[dd-]hh:]mm:ss.ss) in seconds."""
+    days, _, clock = text.strip().rpartition("-")
+    total = 0.0
+    for part in clock.split(":"):
+        total = total * 60 + float(part)
+    return total + (float(days) * 86400 if days else 0.0)
+
+
+def cpu_snapshot(pid: int | None) -> dict | None:
+    """Cumulative CPU seconds of the app's main thread (the first thread `ps -M` lists), the whole app, and its
+    Chromium helpers (child processes) by kind; None without a pid or when ps fails."""
+    if not pid:
+        return None
+    try:
+        threads = subprocess.run(["/bin/ps", "-M", "-p", str(pid)], capture_output=True, text=True, timeout=5).stdout
+        procs = subprocess.run(["/bin/ps", "-A", "-o", "pid=,ppid=,time=,comm="], capture_output=True, text=True,
+                               timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    lines = [line for line in threads.splitlines()[1:] if line.strip()]
+    times = re.findall(r"\s(\d+:\d+\.\d+)\s+(\d+:\d+\.\d+)", lines[0]) if lines else []
+    if not times:
+        return None
+    snap = {"main": _cpu_seconds(times[0][0]) + _cpu_seconds(times[0][1]), "app": 0.0, "renderer": 0.0, "gpu": 0.0,
+            "helper_other": 0.0}
+    for line in procs.splitlines():
+        parts = line.split(None, 3)
+        if len(parts) < 4:
+            continue
+        child, parent, used, comm = parts
+        if int(child) == pid:
+            snap["app"] = _cpu_seconds(used)
+        elif int(parent) == pid:
+            kind = "renderer" if "Renderer" in comm else "gpu" if "GPU" in comm else "helper_other"
+            snap[kind] += _cpu_seconds(used)
+    return snap
+
+
+def _cpu_delta(before: dict | None, after: dict | None, steps: int) -> dict | None:
+    if not before or not after:
+        return None
+    delta = {key: round((after[key] - before[key]) * 1000, 1) for key in before}
+    delta["main_ms_per_step"] = round(delta["main"] / steps, 2)
+    return delta
 
 
 def _divider(sample: dict) -> list | None:
@@ -53,15 +132,21 @@ def _page(sample: dict) -> list | None:
     return max(rows, key=lambda row: float(row[5]) if len(row) >= 8 else 0.0)
 
 
-def drive(driver, out: Path, strip: bool = False) -> None:
-    """Splits right, opens the probe in the right pane, then traces four divider drags.
+def drive(driver, out: Path, strip: bool = False, page_kind: str = "probe", pid: int | None = None,
+          record: bool = False) -> None:
+    """Splits right, opens the probe (or HEAVY_PAGE) in the right pane, then traces four divider drags.
 
     `strip`: then one more drag, held open while `debug.window_snapshot` takes the window every
     12 moves (`strip-NN.png` in `out`): a frame strip of where the page is while the divider moves.
-    Snapshots perturb timing, so that drag is not measured."""
+    `record`: then one more drag out and back under `debug.window_record` (JPEG frames per display
+    frame in `out/record`). Snapshots and the recording perturb timing, so those drags are not measured."""
     page = out / "split-resize-probe.html"
-    page.write_text(browser_resize.PROBE_PAGE)
+    page.write_text(HEAVY_PAGE if page_kind == "heavy" else browser_resize.PROBE_PAGE)
+    # A fresh home opens on the agent chat dock, which never splits: start from a workspace with a terminal.
+    workspace = driver.call("action.run", {"action": "newTab", "focus": True}, timeout=30)
+    time.sleep(1.5)
     split = driver.call("action.run", {"action": "splitRight", "focus": True}, timeout=30)
+    split = {**split, "workspace": workspace}
     time.sleep(1.0)
     opened = driver.call("action.run", {"action": "openBrowser.chromium", "args": {"url": page.as_uri()}, "focus": True},
                          timeout=90)
@@ -94,10 +179,11 @@ def drive(driver, out: Path, strip: bool = False) -> None:
     x = float(divider[1]) + float(divider[3]) / 2
     y = float(divider[2]) + float(divider[4]) / 2
 
-    def drag(dx: float, steps: int = 60) -> dict:
+    def drag(dx: float, steps: int = STEPS) -> dict:
         """The divider pressed once at (x, y), then one drag event per 120 Hz frame, then released."""
         nonlocal x
         period = 1 / 120
+        before = cpu_snapshot(pid)
         down = driver.call("debug.mouse", {"action": "down", "x": x, "y": y})
         began = time.monotonic()
         for step in range(1, steps + 1):
@@ -108,8 +194,10 @@ def drive(driver, out: Path, strip: bool = False) -> None:
             if wait > 0:
                 time.sleep(wait)
         driver.call("debug.mouse", {"action": "up", "x": x + dx, "y": y})
+        wall = time.monotonic() - began
         x += dx
-        return {"from_x": x - dx, "dx": dx, "down": down, "wall_s": round(time.monotonic() - began, 3)}
+        return {"from_x": x - dx, "dx": dx, "down": down, "wall_s": round(wall, 3),
+                "cpu": _cpu_delta(before, cpu_snapshot(pid), steps)}
 
     drags = []
     for dx in DRAGS:
@@ -120,8 +208,17 @@ def drive(driver, out: Path, strip: bool = False) -> None:
             trace["page_frames"] = json.loads(raw) if isinstance(raw, str) else []
         except ValueError:
             trace["page_frames"] = []
+        trace["cpu"] = (trace.get("acted") or {}).get("cpu")
         drags.append(trace)
         time.sleep(0.6)
+    recorded = None
+    if record:
+        frames_dir = out / "record"
+        recorded = {"record": driver.call("debug.window_record", {"dir": str(frames_dir), "seconds": 2.4})}
+        time.sleep(0.1)
+        recorded["out"] = drag(-160)
+        recorded["back"] = drag(160)
+        time.sleep(1.4)
     shots = []
     if strip:
         driver.call("debug.mouse", {"action": "down", "x": x, "y": y})
@@ -139,7 +236,8 @@ def drive(driver, out: Path, strip: bool = False) -> None:
         path = out / "strip-landed.png"
         shots.append({"step": "landed", "path": path.name,
                       "result": driver.call("debug.window_snapshot", {"kind": "main", "path": str(path)}, timeout=20)})
-    driver.save("split_resize", {"drags": drags, "split": split, "opened": opened, "strip": shots})
+    driver.save("split_resize", {"drags": drags, "split": split, "opened": opened, "strip": shots, "page": page_kind,
+                                 "recorded": recorded})
 
 
 # The recording drag: a window snapshot every this many of its 96 moves (16 frames, then one after it landed).
@@ -203,12 +301,20 @@ def judge_drag(trace: dict, refresh: float) -> dict:
     page_times = [t for t, _ in page if walls[first] <= t <= walls[last] + refresh] if moving else []
     page_dropped = sum(max(0, round((b - a) / refresh) - 1) for a, b in zip(page_times, page_times[1:])
                        if b - a > 1.5 * refresh)
+    page_intervals = [b - a for a, b in zip(page_times, page_times[1:])]
     def spread(values: list[float], scale: float = 1.0) -> dict | None:
         """p50/p95/max of `values` times `scale`; None when nothing was measured (never a zero lag)."""
         if not values:
             return None
         return {"p50": round(p(values, 0.5) * scale, 2), "p95": round(p(values, 0.95) * scale, 2),
                 "max": round(max(values) * scale, 2), "measured": len(values)}
+
+    def frame_spread(values: list[float]) -> dict | None:
+        """p50/p95/p99/max of frame intervals in ms; None when nothing was measured."""
+        if not values:
+            return None
+        return {"p50": round(p(values, 0.5), 2), "p95": round(p(values, 0.95), 2), "p99": round(p(values, 0.99), 2),
+                "max": round(max(values), 2), "measured": len(values)}
 
     return {
         "frames": len(samples),
@@ -227,6 +333,9 @@ def judge_drag(trace: dict, refresh: float) -> dict:
         "dropped": dropped,
         "worst_stall_ms": worst_stall_ms,
         "page_dropped": page_dropped,
+        "frame_ms": frame_spread(intervals),
+        "page_frame_ms": frame_spread(page_intervals),
+        "cpu": trace.get("cpu"),
         "page_frames": len(page),
         # The host's widths over the drag: one value when it held its size.
         "host_widths": {"min": min(v for _, v in host), "max": max(v for _, v in host),
@@ -247,11 +356,21 @@ def judge(data: dict, refresh: float) -> dict:
         values = [drag[key] if field is None else drag[key][field] for drag in measured if drag.get(key) is not None]
         return max(values) if values else None
 
+    def pooled(key: str) -> dict | None:
+        """The worst p50/p95/p99/max of a `frame_spread` field over the drags."""
+        rows = [drag[key] for drag in measured if drag.get(key)]
+        return {f: max(row[f] for row in rows) for f in ("p50", "p95", "p99", "max")} if rows else None
+
+    cpus = [drag["cpu"] for drag in measured if drag.get("cpu")]
+    cpu = ({key: round(sum(c[key] for c in cpus) / len(cpus), 2) for key in cpus[0]} if cpus else None)
     return {
         "ok": True,
         "problems": [],
         "measured": True,
         "refresh_ms": refresh,
+        "frame_ms": pooled("frame_ms"),
+        "page_frame_ms": pooled("page_frame_ms"),
+        "cpu_per_drag": cpu,
         "drags": drags,
         "layout_lag_p50": worst("layout_lag", "p50"),
         "layout_lag_p95": worst("layout_lag", "p95"),
