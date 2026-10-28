@@ -45,11 +45,13 @@ pub fn kinds_of(command: &str) -> (String, String) {
 }
 
 /// The verdict on the host's children: `Ok` when there is at least one
-/// renderer and every renderer and GPU process is sandboxed and may not read
-/// a file outside the profile; else the first failure, in words.
+/// renderer and one GPU process and every one of them is sandboxed and may
+/// not read a file outside the profile; else the first failure, in words.
 pub fn verdict(children: &[Child]) -> Result<(), String> {
-    if !children.iter().any(|c| c.kind == "renderer") {
-        return Err("sandbox: the host has no renderer process to check".to_string());
+    for kind in MUST_BE_SANDBOXED {
+        if !children.iter().any(|c| c.kind == kind) {
+            return Err(format!("sandbox: the host has no {kind} process to check"));
+        }
     }
     for child in children.iter().filter(|c| MUST_BE_SANDBOXED.contains(&c.kind.as_str())) {
         match child.sandboxed {
@@ -75,6 +77,35 @@ pub fn verdict(children: &[Child]) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// Chromium switches that turn the sandbox off, run page or GPU code in the
+/// browser process (which is not sandboxed), or start helpers from another
+/// program. The browser process refuses to start with one
+/// ([`refused_browser_switch`]); nothing the host passes uses them.
+pub const REFUSED_SWITCHES: [&str; 10] = [
+    "no-sandbox",
+    "disable-gpu-sandbox",
+    "single-process",
+    "in-process-gpu",
+    "browser-subprocess-path",
+    "main-bundle-path",
+    "framework-dir-path",
+    "renderer-cmd-prefix",
+    "utility-cmd-prefix",
+    "gpu-launcher",
+];
+
+/// The first argument of the browser process's command line that names a
+/// [`REFUSED_SWITCHES`] entry (`--name` or `--name=value`), if any.
+#[must_use]
+pub fn refused_browser_switch(args: &[String]) -> Option<&str> {
+    args.iter().skip(1).map(String::as_str).find(|arg| {
+        arg.strip_prefix("--").is_some_and(|rest| {
+            let name = rest.split_once('=').map_or(rest, |(name, _)| name);
+            REFUSED_SWITCHES.contains(&name)
+        })
+    })
 }
 
 /// The children as a JSON array (for `result.json`).

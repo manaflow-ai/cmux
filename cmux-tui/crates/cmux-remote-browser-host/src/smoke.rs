@@ -380,6 +380,8 @@ pub fn run(argv: &mut [*mut c_char], out: PathBuf) -> i32 {
     // may read it.
     let outside = out.join("outside-profile.txt");
     let _ = std::fs::write(&outside, "the sandbox check reads this file\n");
+    // The kernel matches the sandbox check's path literally: absolute, links resolved.
+    let outside = std::fs::canonicalize(&outside).unwrap_or(outside);
     if let Ok(mut guard) = SMOKE.lock() {
         *guard = Some(Smoke { out: out.clone(), jsonl, outside, ..Smoke::default() });
     }

@@ -60,6 +60,16 @@ fn main() -> std::process::ExitCode {
     if !helper && let Some(code) = probe(&all) {
         return code;
     }
+    // The helpers' sandbox is decided by the browser process: refuse a
+    // command line that would turn it off or move the helpers.
+    if !helper
+        && let Some(arg) = cmux_remote_browser_host::sandbox_status::refused_browser_switch(&all)
+    {
+        eprintln!(
+            "cmux-remote-browser-host: refusing {arg}: the host's helpers always run sandboxed"
+        );
+        return std::process::ExitCode::from(2);
+    }
     let args: Vec<CString> =
         std::env::args().map(|a| CString::new(a).unwrap_or_default()).collect();
     let mut argv: Vec<*mut c_char> = args.iter().map(|a| a.as_ptr().cast_mut()).collect();
