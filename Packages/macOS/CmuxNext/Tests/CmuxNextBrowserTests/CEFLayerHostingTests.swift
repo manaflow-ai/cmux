@@ -152,6 +152,16 @@ import Testing
         #expect(old.forkCalls == 0)
     }
 
+    /// p03-rendering-042: fork API 32 takes the resize deadline without effect and returns 1, so
+    /// from API 32 no deadline is sent and none is recorded as applied.
+    @Test func theResizeDeadlineReachesOnlyForkAPI27To31() {
+        #expect(!CEFLayerHosting.hasResizeSync(apiVersion: 26))
+        #expect(CEFLayerHosting.hasResizeSync(apiVersion: 27))
+        #expect(CEFLayerHosting.hasResizeSync(apiVersion: 31))
+        #expect(!CEFLayerHosting.hasResizeSync(apiVersion: 32))
+        #expect(!CEFLayerHosting.hasResizeSync(apiVersion: 33))
+    }
+
     @Test func aNewPageWindowDropsTheOldWindowsContext() throws {
         let hosting = makeHosting()
         hosting.pageWindowCreated(browser: 3, fork: fake.fork)

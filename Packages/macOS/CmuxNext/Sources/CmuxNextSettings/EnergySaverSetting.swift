@@ -26,6 +26,18 @@ public nonisolated struct EnergySaverSetting: Sendable {
     public func value(in root: JSONValue) -> EnergySaverMode {
         root.value(at: Self.path)?.stringValue.flatMap(EnergySaverMode.init(rawValue:)) ?? Self.defaultValue
     }
+
+    /// What Settings and the palette offer of this row now. With the `energySaver` feature off the
+    /// row is left out, since the saver never turns on. A Mac with no battery never runs on battery,
+    /// so "On Battery" is left out there, as Chrome shows its battery modes only on a device with a
+    /// battery (`BatterySaverModeManager`, p14-energy.md section 1.9). `hasBattery` is the power
+    /// monitor's (`EnergyInputs.hasBattery`): false until its first reading.
+    public func availability(featureEnabled: Bool, hasBattery: Bool) -> SettingsAvailability {
+        let id = Self.path.joined(separator: ".")
+        if !featureEnabled { return SettingsAvailability(hiddenRows: [id]) }
+        if !hasBattery { return SettingsAvailability(hiddenChoices: [id: [EnergySaverMode.onBattery.rawValue]]) }
+        return SettingsAvailability()
+    }
 }
 
 extension CmuxConfigSnapshot {

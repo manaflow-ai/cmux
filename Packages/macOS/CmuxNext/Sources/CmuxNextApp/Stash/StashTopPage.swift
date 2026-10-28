@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextHibernation
 import CmuxNextHistory
 import CmuxNextIcons
 
@@ -26,4 +27,11 @@ final class StashTopPage: InternalPageProvider {
     }
 
     func tabClosed(_ key: String) { services?.historyPage.stash.dropDraft(key) }
+
+    // MARK: Discard (p07-memory-025)
+
+    /// Ten minutes hidden (Chrome's proactive_discarding_policy.cc). The tab's search and OneTab
+    /// paste box live in its draft (``StashImportDraft``), which the stash keeps until the tab
+    /// closes, so the view made again shows them; the default view state adds the scroll.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
 }

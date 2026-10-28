@@ -1,5 +1,6 @@
 import AppKit
 public import CmuxNextBrowser
+import CmuxNextCompat
 public import CmuxNextTabs
 public import Observation
 
@@ -17,21 +18,24 @@ public import Observation
 @MainActor
 @Observable
 public final class TabFaviconStore {
-    private struct Key: Hashable {
+    struct Key: Hashable {
         var profile: BrowserProfileID
         var url: URL
     }
 
     /// Icons per profile and URL. `TabImage` identity is stable per entry,
     /// so a strip redraws an icon only when it changes.
-    private var images = LRUCache<Key, TabImage>(capacity: 256)
-    /// Counts landed icons: a reader outside an observed strip (Search Tabs, the bookmarks
-    /// bars) re-reads when it moves.
-    public private(set) var revision = 0
+    var images = LRUCache<Key, TabImage>(capacity: 256)
+    /// Counts landed and released icons: a reader outside an observed strip (Search Tabs, the
+    /// bookmarks bars) re-reads when it moves.
+    public internal(set) var revision = 0
     /// One fetch per missing icon; each ends on its own (the loader's timeout).
     @ObservationIgnored private var pending: [Key: Task<Void, Never>] = [:]
     @ObservationIgnored private var failed = LRUCache<Key, Bool>(capacity: 256)
     @ObservationIgnored private let loader: any BrowserFaviconLoading
+    /// The loader cache this store's icons are decoded from, released with them (TabFaviconStore+Memory).
+    @ObservationIgnored var loaderCache: BrowserFaviconLoader?
+    @ObservationIgnored var memoryRegistration: MemoryConsumerRegistration?
 
     /// Creates a favicon store over the supplied loader.
     ///
@@ -63,6 +67,11 @@ public final class TabFaviconStore {
     public func isFetching(_ address: String, profile: BrowserProfileID) -> Bool {
         guard let url = URL(string: address) else { return false }
         return pending[Key(profile: profile, url: url)] != nil
+    }
+
+    /// Waits for every fetch started so far to land (tests).
+    func settle() async {
+        for task in Array(pending.values) { await task.value }
     }
 
     private func load(_ key: Key, tab: (any BrowserTab)?) {

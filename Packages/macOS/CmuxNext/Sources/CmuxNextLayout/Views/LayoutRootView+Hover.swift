@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Divider hover (cx-ww20): each screen view owns the hover of its
 /// handles and recomputes it from the pointer and the current frames. The
@@ -22,18 +23,25 @@ extension LayoutRootView {
 
     /// Becoming or resigning key changes whether the pointer may hover at
     /// all: a resigned window clears its hover without a mouse event.
-    /// Block observers on `queue: .main` (inline for AppKit's post on main):
-    /// a selector into this main-actor view trapped on a post off main.
+    /// The notices come through the window's one fan-out (``WindowEvents``;
+    /// Chromium observes an NSWindow once, in
+    /// components/remote_cocoa/app_shim/views_nswindow_delegate.mm), in the
+    /// notice's own turn, in ``MainWorkClass/input``: the click or Cmd-Tab
+    /// that moves the keys is input, and the hover follows in the frame that
+    /// input commits. Only a live root subscribes, so a hidden or parked one
+    /// gets no call; `setLive` subscribes again on show.
     func observeKeyWindow() {
-        let center = NotificationCenter.default
-        for token in keyWindowObservers { center.removeObserver(token) }
+        for subscription in keyWindowObservers { subscription.cancel() }
         keyWindowObservers = []
         guard isLive, let window else { return }
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
-            keyWindowObservers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refreshDividerHover() } // main-proof: observer on queue: .main
-            })
-        }
+        let events = context.hoverWindowEvents(window)
+        let refresh: @MainActor () -> Void = { [weak self] in self?.refreshDividerHover() }
+        keyWindowObservers = [
+            // input-hop-allow: class input; the key change is the click's or Cmd-Tab's own effect, and a later turn would commit that input's frame with the divider hover of the old key state.
+            events.subscribe(NSWindow.didBecomeKeyNotification, owner: "LayoutRootView.dividerHover", refresh),
+            // input-hop-allow: as above, for the window resigning key.
+            events.subscribe(NSWindow.didResignKeyNotification, owner: "LayoutRootView.dividerHover", refresh),
+        ]
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS

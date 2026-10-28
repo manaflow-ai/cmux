@@ -62,20 +62,12 @@ nonisolated enum HostTypoFixup {
     }
 }
 
-/// The IANA root zone's top-level domains (`Resources/TopLevelDomains.txt`,
-/// https://data.iana.org/TLD/tlds-alpha-by-domain.txt). These are the
-/// public suffix list's top-level entries: a label not in it cannot
-/// resolve on the public internet.
+/// The IANA root zone's top-level domains (https://data.iana.org/TLD/tlds-alpha-by-domain.txt),
+/// compiled in (`TopLevelDomains+List.swift`, scripts/cmux-next/generate-word-lists.py) as
+/// Chromium compiles its registry data: the typo fix after Enter and a Cmd-clicked terminal link read
+/// no file. These are the public suffix list's top-level entries: a label not in it cannot resolve on
+/// the public internet.
 nonisolated enum TopLevelDomains {
-    private static let all: Set<String> = {
-        guard let url = Bundle.module.url(forResource: "TopLevelDomains", withExtension: "txt"),
-              // concurrency-allow: a 10 KB bundled file, read once: after Enter on a typed host whose last label is in the typo table, or off the main thread for a Cmd-clicked terminal link.
-              let contents = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-        return Set(contents.split(whereSeparator: \.isNewline).lazy
-            .filter { !$0.hasPrefix("#") }
-            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() })
-    }()
-
     /// `label` (any case, ASCII or punycode) is a delegated top-level domain.
     static func contains(_ label: String) -> Bool {
         all.contains(label.lowercased())

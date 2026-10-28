@@ -3,8 +3,11 @@ import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextHibernation
+import enum CmuxNextLayout.LayoutTunables
 import CmuxNextPages
+import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextWakeups
 
@@ -47,6 +50,18 @@ enum TabContent {
         }
     }
 
+    /// Hands the content's gated SwiftUI (``VisibilityGatedHostingView``) its tab's node: it leaves the window
+    /// while the tab is hidden and comes back in the show turn (feature `visibilityGatedHosting`, p06-scheduler-214).
+    @MainActor func followVisibility(_ node: VisibilityNode, services: AppServices) {
+        guard services.features.isEnabled(.visibilityGatedHosting) else { return }
+        let content: NSView? = switch self {
+        case .page(let view): view.content
+        case .browser(let entry): entry.tab.contentView
+        case .terminal, .agent, .placeholder, .notice, .conversation: nil
+        }
+        (content as? any VisibilityGatedContent)?.visibilityGate?.follow(node, observations: services.observations)
+    }
+
     /// Whether a page's document can take typing yet (the key router's
     /// type-ahead): an agent page or a React page tab.
     @MainActor var inputReadiness: PageInputReadiness? {
@@ -67,6 +82,20 @@ enum TabContent {
         case .placeholder: "placeholder"
         case .notice: "notice"
         case .conversation: "conversation"
+        }
+    }
+
+    /// How this content reports its first themed frame for a new tab's `create.tab` (``CreateTabTimings``).
+    @MainActor var createTabFirstFrame: CreateTabTimings.FirstFrame {
+        let identity: AnyObject = view
+        switch self {
+        case .terminal(let entry): return entry.session.createTabFirstFrame(content: identity)
+        case .browser(let entry):
+            guard let page = entry.tab as? any BrowserFirstContentFrameReporting else { return .atCommit(identity) }
+            return page.createTabFirstFrame(content: identity)
+        case .agent(let view): return view.createTabFirstFrame(content: identity)
+        case .page(let view): return view.createTabFirstFrame(content: identity)
+        case .placeholder, .notice, .conversation: return .atCommit(identity)
         }
     }
 
@@ -101,14 +130,16 @@ final class TerminalEntry {
     private(set) var gate: TerminalTargetGate?
     /// The key of this terminal's own theme; a provisional split's moves to its daemon terminal at the confirm.
     private(set) var themeKey: TerminalThemeKey
-    /// A provisional view waits for its tab's daemon surface (``TabContentCache/awaitConfirm(_:of:daemon:)``).
-    var confirmation: Task<Void, Never>?
+    /// A provisional view follows its tab's surface until the daemon's arrives (``TabContentCache/awaitConfirm(_:of:daemon:)``).
+    var confirmation: ServiceObservation<Bool>?
     weak var confirming: TabModel? // the tab record that task watches
     /// This surface's theme scope, under its pane's workspace scope.
     let themeScope = ThemeScope(level: .terminal)
     let themeBinding: TerminalThemeBinding
     /// Tab `dead` and connection changes for this view.
     private var watch: TerminalLinkWatch
+    /// The app's one main-thread scheduler, which each link watch posts its follow-ups on.
+    private let mainWork: MainWorkScheduler
     /// The TextBox composer under this terminal, made the first time a TextBox action runs on it.
     var textBox: TextBoxController?
 
@@ -117,15 +148,16 @@ final class TerminalEntry {
     nonisolated deinit {}
 
     init(validity: String, session: TerminalSession, io: DaemonTerminalIO, themeKey: TerminalThemeKey, store: DaemonStore,
-         surface: SurfaceID, gate: TerminalTargetGate? = nil) {
+         surface: SurfaceID, gate: TerminalTargetGate? = nil, mainWork: MainWorkScheduler) {
         self.validity = validity
+        self.mainWork = mainWork
         self.session = session
         self.io = io
         self.gate = gate
         self.themeKey = themeKey
         themeBinding = TerminalThemeBinding(scope: themeScope, session: session)
         themeScope.root(session.view)
-        watch = TerminalLinkWatch(store: store, surface: surface, io: io, session: session)
+        watch = TerminalLinkWatch(store: store, surface: surface, io: io, session: session, mainWork: mainWork)
     }
 
     /// The daemon's tab replaced the provisional one: the same view and session attach to it,
@@ -136,7 +168,7 @@ final class TerminalEntry {
         self.themeKey = themeKey
         self.gate = nil
         watch.stop()
-        watch = TerminalLinkWatch(store: store, surface: target.surface, io: io, session: session)
+        watch = TerminalLinkWatch(store: store, surface: target.surface, io: io, session: session, mainWork: mainWork)
         gate.resolve(target)
     }
 
@@ -157,9 +189,14 @@ final class BrowserEntry {
     /// Owns the chrome's (weak) Extensions menu handler.
     var extensionMenuHandler: (any ExtensionMenuHandling)?
 
-    init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil) {
+    /// `mainWork` is the app's one main-thread scheduler; `node` the tab's (`TabContentCache.node(for:)`).
+    init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil,
+         mainWork: MainWorkScheduler, node: VisibilityNode?) {
         self.tab = tab
-        chrome = BrowserChromeView(tab: tab, suggestionEngine: suggestionEngine)
+        if let node { (tab as? any BrowserTabNodeAdopting)?.adoptNode(node) }
+        // The toolbar's motion runs on the render server only with `motion.renderServer` on (off by default).
+        chrome = BrowserChromeView(tab: tab, suggestionEngine: suggestionEngine, mainWork: mainWork, node: node,
+                                   rendersMotionOnServer: { LayoutTunables.motionRenderServer.value })
         chrome.history = history
         // Shortcuts route through the action registry (browser* actions).
         chrome.handlesDefaultShortcuts = false

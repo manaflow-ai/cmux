@@ -57,4 +57,23 @@ struct NoActivateKeyboardGuardTests {
         #expect(host.handedBackTo === second)
         #expect(guardian.giveBacks.last?.restoredTo == 22)
     }
+
+    /// The PID answers come back as budgeted main posts (p02-threads-120), which need not keep the order the
+    /// activations came in: the newest activation's answer can land first, and the older one that lands after
+    /// it is dropped by its sequence.
+    @Test func anOlderResolutionThatLandsLastIsDropped() {
+        let host = Host()
+        let first = NSRunningApplication.current
+        let second = NSRunningApplication.current
+        let guardian = NoActivateKeyboardGuard(host: host, frontmost: nil)
+        let firstSequence = guardian.beginOtherAppActivation()
+        let secondSequence = guardian.beginOtherAppActivation()
+
+        guardian.otherAppActivated(second, processIdentifier: 22, sequence: secondSequence)
+        guardian.otherAppActivated(first, processIdentifier: 11, sequence: firstSequence)
+        guardian.start()
+
+        #expect(host.handedBackTo === second)
+        #expect(guardian.giveBacks.last?.restoredTo == 22)
+    }
 }

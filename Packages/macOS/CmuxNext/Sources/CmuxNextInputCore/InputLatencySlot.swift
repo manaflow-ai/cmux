@@ -13,8 +13,14 @@ public struct InputLatencySlot: Sendable, Equatable {
     /// The input changed a layer or its contents before the presented frame (Chrome
     /// `caused_frame_update`). The ledger drops non-key slots without one.
     public var causedFrameUpdate: Bool
+    /// The display that showed the frame has a variable refresh rate (ProMotion, adaptive
+    /// sync): its rows are labelled, since a vsync estimate drifts there.
+    public var isVariableRefresh: Bool
     /// How many OS events the slot covers (1 unless the input was coalesced).
     public var coalescedCount: UInt16
+    /// The virtual key code of a key slot (`NSEvent.keyCode`), 0 for other kinds: pairs a key press
+    /// with its release into one interaction (``InteractionLatency``). Never leaves the Mac.
+    public var keyCode: UInt16
 
     public var generated: UInt64
     public var lastGenerated: UInt64
@@ -38,14 +44,18 @@ public struct InputLatencySlot: Sendable, Equatable {
         entrypoint: InputEntrypoint,
         presentationSource: InputPresentationSource = .estimatedVsync,
         causedFrameUpdate: Bool = false,
-        coalescedCount: UInt16 = 1
+        isVariableRefresh: Bool = false,
+        coalescedCount: UInt16 = 1,
+        keyCode: UInt16 = 0
     ) {
         self.kind = kind
         self.target = target
         self.entrypoint = entrypoint
         self.presentationSource = presentationSource
         self.causedFrameUpdate = causedFrameUpdate
+        self.isVariableRefresh = isVariableRefresh
         self.coalescedCount = coalescedCount
+        self.keyCode = keyCode
         generated = 0
         lastGenerated = 0
         arrivedMain = 0

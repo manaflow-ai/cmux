@@ -51,7 +51,7 @@ fn wait_gone(pid: u32) -> bool {
 
 #[test]
 fn no_spare_before_the_first_new_tab() {
-    let (slot, pool) = (slot(), TerminalWorkPool::default());
+    let (slot, pool) = (slot(), TerminalWorkPool::for_test());
     slot.refill(&pool);
     std::thread::sleep(Duration::from_millis(50));
     assert!(!slot.has_spare(), "a headless owner that never opened a tab starts no spare");
@@ -59,7 +59,7 @@ fn no_spare_before_the_first_new_tab() {
 
 #[test]
 fn the_first_new_tab_starts_one_spare_and_the_next_tab_adopts_it() {
-    let (slot, pool) = (slot(), TerminalWorkPool::default());
+    let (slot, pool) = (slot(), TerminalWorkPool::for_test());
     assert!(slot.take().is_none(), "the first tab of a session launches as before");
     slot.refill(&pool);
     assert!(wait_for_spare(&slot));
@@ -70,7 +70,7 @@ fn the_first_new_tab_starts_one_spare_and_the_next_tab_adopts_it() {
 
 #[test]
 fn a_burst_takes_the_spare_once_and_refills_at_most_one() {
-    let (slot, pool) = (slot(), TerminalWorkPool::default());
+    let (slot, pool) = (slot(), TerminalWorkPool::for_test());
     let _ = slot.take();
     slot.refill(&pool);
     assert!(wait_for_spare(&slot));
@@ -89,7 +89,7 @@ fn a_burst_takes_the_spare_once_and_refills_at_most_one() {
 
 #[test]
 fn a_spare_killed_before_adoption_falls_back_with_no_error() {
-    let (slot, pool) = (slot(), TerminalWorkPool::default());
+    let (slot, pool) = (slot(), TerminalWorkPool::for_test());
     let _ = slot.take();
     slot.refill(&pool);
     assert!(wait_for_spare(&slot));
@@ -109,7 +109,7 @@ fn a_spare_killed_before_adoption_falls_back_with_no_error() {
 #[test]
 fn memory_pressure_drops_the_spare_kills_it_and_stops_refills_until_normal() {
     let memory = memory();
-    let (slot, pool) = (slot_in(&memory), TerminalWorkPool::default());
+    let (slot, pool) = (slot_in(&memory), TerminalWorkPool::for_test());
     let _ = slot.take();
     slot.refill(&pool);
     assert!(wait_for_spare(&slot));
@@ -119,17 +119,18 @@ fn memory_pressure_drops_the_spare_kills_it_and_stops_refills_until_normal() {
         slot.finish_refill_for_test(spare);
         pid
     };
-    memory.registry().set_level(PressureLevel::Warning);
+    let app = memory.registry().voter();
+    app.set_level(PressureLevel::Warning);
     assert!(!slot.has_spare());
     assert!(wait_gone(pid), "a dropped spare process is killed");
     slot.refill(&pool);
     std::thread::sleep(Duration::from_millis(50));
     assert!(!slot.has_spare(), "no refill under pressure");
-    memory.registry().set_level(PressureLevel::Critical);
+    app.set_level(PressureLevel::Critical);
     slot.refill(&pool);
     std::thread::sleep(Duration::from_millis(50));
     assert!(!slot.has_spare(), "no refill under critical pressure");
-    memory.registry().set_level(PressureLevel::Normal);
+    app.set_level(PressureLevel::Normal);
     slot.refill(&pool);
     assert!(wait_for_spare(&slot), "back to normal, the next new tab refills");
 }
@@ -137,15 +138,41 @@ fn memory_pressure_drops_the_spare_kills_it_and_stops_refills_until_normal() {
 #[test]
 fn a_slot_made_under_pressure_starts_no_spare_until_normal() {
     let memory = memory();
-    memory.registry().set_level(PressureLevel::Warning);
-    let (slot, pool) = (slot_in(&memory), TerminalWorkPool::default());
+    let app = memory.registry().voter();
+    app.set_level(PressureLevel::Warning);
+    let (slot, pool) = (slot_in(&memory), TerminalWorkPool::for_test());
     let _ = slot.take();
     slot.refill(&pool);
     std::thread::sleep(Duration::from_millis(50));
     assert!(!slot.has_spare(), "the slot hears the current level when it registers");
-    memory.registry().set_level(PressureLevel::Normal);
+    app.set_level(PressureLevel::Normal);
     slot.refill(&pool);
     assert!(wait_for_spare(&slot));
+}
+
+/// Spares started by [`counting_spawn`]; only the test below uses it.
+static FIRST_WATCH_SPAWNS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+fn counting_spawn() -> anyhow::Result<StandbyTerminalHost> {
+    FIRST_WATCH_SPAWNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    StandbyTerminalHost::spawn_stand_in()
+}
+
+#[test]
+fn a_first_refill_under_system_pressure_starts_no_spare() {
+    // The system is already under pressure when the first new tab starts
+    // the kernel source: its initial read must suppress the slot before the
+    // slot decides to refill.
+    let memory = Arc::new(DaemonMemory::with_stand_in_system_level(PressureLevel::Warning));
+    let slot = StandbyHostSlot::with_spawner(memory.clone(), counting_spawn);
+    let pool = TerminalWorkPool::for_test();
+    let _ = slot.take();
+    slot.refill(&pool);
+    assert_eq!(memory.registry().level(), PressureLevel::Warning);
+    assert!(!slot.is_refilling(), "no refill job is submitted under pressure");
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(FIRST_WATCH_SPAWNS.load(std::sync::atomic::Ordering::SeqCst), 0, "no spare process");
+    assert!(!slot.has_spare());
 }
 
 #[test]

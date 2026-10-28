@@ -16,7 +16,7 @@ package import CmuxNextSettings
 /// reasons in webui-DESIGN.md.
 ///
 /// ```swift
-/// let plan = PageLifecyclePlanner().plan(pages, conditions: .init(setting: setting, pressure: .normal, lowPowerMode: false))
+/// let plan = PageLifecyclePlanner().plan(pages, conditions: .init(setting: setting, pressure: .normal, energySaver: false))
 /// ```
 package nonisolated struct PageLifecyclePlanner: Sendable {
     /// A page's lifecycle state, from most to least alive.
@@ -37,7 +37,7 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
 
         /// The page shows now (Chrome's kVisible).
         case visible
-        /// Hidden less than ``Timing/visibleWindow(lowPowerMode:)`` ago (Chrome's kRecentlyVisible).
+        /// Hidden less than ``Timing/visibleWindow(energySaver:)`` ago (Chrome's kRecentlyVisible).
         case recentlyVisible = "recently_visible"
         /// Still loading, until its load and first paint (Chrome's kLoading).
         case loading
@@ -75,6 +75,11 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         case mostRecentlyUsed = "most_recently_used"
         /// `browser.freezeHiddenTabs` is off: hidden pages keep running, and still discard on time.
         case freezeOff = "freeze_off"
+        /// A host call waits for the page's answer, or a call thawed the page less than one recently visible
+        /// window ago: a freeze would stall it (Chrome's freezing policy freezes a page only once no
+        /// `CannotFreezeReason` holds, components/performance_manager/freezing/freezing_policy.cc). A discard
+        /// still takes it on time, so a call that never answers keeps no page alive.
+        case pageCall = "page_call"
 
         // Block discard only.
 
@@ -106,7 +111,7 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
             switch self {
             case .visible, .recentlyVisible, .loading, .inspector, .focused, .fileDrop, .popup, .confirmation,
                  .dictation, .capture, .audible, .webRTC, .connectedDevice, .webLock, .turnRunning, .turnsUnknown,
-                 .mostRecentlyUsed, .freezeOff:
+                 .mostRecentlyUsed, .freezeOff, .pageCall:
                 true
             case .userEdits, .formInteraction, .beforeUnload, .draft, .pinned, .shellCommandRan, .awaitingPerson,
                  .remoteChat, .preload, .unrestorable, .hibernationOff:
@@ -118,7 +123,7 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         package var blocksDiscard: Bool { !Self.freezeOnly.contains(self) }
 
         /// The reasons that block a freeze and let a discard through.
-        package static let freezeOnly: Set<KeepReason> = [.mostRecentlyUsed, .freezeOff]
+        package static let freezeOnly: Set<KeepReason> = [.mostRecentlyUsed, .freezeOff, .pageCall]
 
         /// The reasons only the planner sets, from the page's facts and the conditions.
         package static let derived: Set<KeepReason> = [.visible, .recentlyVisible, .mostRecentlyUsed, .freezeOff, .hibernationOff]
@@ -177,13 +182,15 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         /// the freeze seconds time browser tabs; pages use ``Timing`` (p13-webui.md section 3.C).
         package var setting: BrowserHibernationSetting
         package var pressure: MemoryPressureLevel
-        package var lowPowerMode: Bool
+        /// Pages spend less (`EnergyPolicy.pageSaver`): Energy Saver, or Low Power Mode while the
+        /// `energySaver` feature is off.
+        package var energySaver: Bool
 
         package init(setting: BrowserHibernationSetting = .fallback, pressure: MemoryPressureLevel = .normal,
-                     lowPowerMode: Bool = false) {
+                     energySaver: Bool = false) {
             self.setting = setting
             self.pressure = pressure
-            self.lowPowerMode = lowPowerMode
+            self.energySaver = energySaver
         }
     }
 
@@ -191,9 +198,9 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
     package nonisolated struct Timing: Hashable, Sendable {
         /// Hidden this long, a page is no longer recently visible and may freeze.
         package var recentlyVisible: Double = 10
-        /// The same in Low Power Mode, which, as for the neighbor tabs (`NeighborTabs.radius`), spends
+        /// The same under Energy Saver, which, as for the neighbor tabs (`NeighborTabs.radius`), spends
         /// fewer wakeups on a quick switch back.
-        package var lowPowerRecentlyVisible: Double = 3
+        package var saverRecentlyVisible: Double = 3
         /// Hidden this long without memory pressure, a page is discarded.
         package var discardAfterNormal: Double = 300
         /// At warning pressure.
@@ -210,8 +217,8 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         package init() {}
 
         /// Seconds a hidden page counts as recently visible.
-        package func visibleWindow(lowPowerMode: Bool) -> Double {
-            lowPowerMode ? lowPowerRecentlyVisible : recentlyVisible
+        package func visibleWindow(energySaver: Bool) -> Double {
+            energySaver ? saverRecentlyVisible : recentlyVisible
         }
 
         /// Seconds hidden before a page is discarded at `pressure`, never under ``minimumHidden``, nor
@@ -279,7 +286,7 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         var reasons = page.keepReasons.subtracting(KeepReason.derived)
         if page.isShown {
             reasons.insert(.visible)
-        } else if page.hiddenFor < timing.visibleWindow(lowPowerMode: conditions.lowPowerMode) {
+        } else if page.hiddenFor < timing.visibleWindow(energySaver: conditions.energySaver) {
             reasons.insert(.recentlyVisible)
         }
         if isMostRecentlyUsed { reasons.insert(.mostRecentlyUsed) }
@@ -292,14 +299,11 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
     /// Each page's target state and the next deadline. O(pages) plus the sort of the pages due for
     /// a discard.
     package func plan(_ pages: [Page], conditions: Conditions) -> Plan {
-        let window = timing.visibleWindow(lowPowerMode: conditions.lowPowerMode)
+        let window = timing.visibleWindow(energySaver: conditions.energySaver)
         let discardAfter = timing.discardAfter(at: conditions.pressure, setting: conditions.setting)
         let pace = timing.pace(at: conditions.pressure)
         let discardDue = max(discardAfter, pace.minimumHidden)
-        // Discarded pages count, as Chrome's discarded tab keeps its PageNode and last-visible time:
-        // discarding the most recently hidden page never hands the role to an older, frozen page.
-        let mostRecent = pages.filter { !$0.isShown }
-            .min { ($0.hiddenFor, $0.key) < ($1.hiddenFor, $1.key) }?.key
+        let mostRecent = Self.mostRecentlyHidden(pages)
         var plan = Plan()
         var due: [(page: Page, reasons: Set<KeepReason>)] = []
         for page in pages {
@@ -325,8 +329,8 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
             plan.decisions[page.key] = Decision(key: page.key, group: page.group, state: state,
                                                 keptBy: KeepReason.ordered(reasons), nextDeadline: deadline)
         }
-        // Chrome's page_discarding_helper.cc order: the longest hidden goes first.
-        due.sort { $0.page.hiddenFor != $1.page.hiddenFor ? $0.page.hiddenFor > $1.page.hiddenFor : $0.page.key < $1.page.key }
+        // Chrome's page_discarding_helper.cc order, the urgent pass's too: the longest hidden goes first.
+        due.sort { UrgentDiscardRanker.longestHiddenFirst($0.page.hiddenFor, $0.page.key, $1.page.hiddenFor, $1.page.key) }
         for (index, entry) in due.enumerated() {
             let (page, reasons) = (entry.page, entry.reasons)
             if index < pace.perPass {
@@ -341,5 +345,27 @@ package nonisolated struct PageLifecyclePlanner: Sendable {
         }
         plan.nextCheck = plan.decisions.values.compactMap(\.nextDeadline).min()
         return plan
+    }
+
+    /// The hidden pages the critical event's one urgent pass may take (``UrgentDiscardRanker``): live
+    /// (not discarded), hidden at least ``Timing/minimumHidden``, and no reason blocks their discard
+    /// (the most recently used role blocks a freeze only). Their timeout plays no part: under critical
+    /// pressure the ranker, not the clock, picks which goes. O(pages).
+    package func urgentCandidates(_ pages: [Page], conditions: Conditions) -> [UrgentDiscardRanker.Candidate] {
+        let mostRecent = Self.mostRecentlyHidden(pages)
+        return pages.compactMap { page in
+            guard !page.isShown, !page.isDiscarded, page.hiddenFor >= timing.minimumHidden else { return nil }
+            let reasons = keepReasons(of: page, conditions: conditions, isMostRecentlyUsed: page.key == mostRecent)
+            guard !reasons.contains(where: \.blocksDiscard) else { return nil }
+            return UrgentDiscardRanker.Candidate(key: page.key, kind: page.group == "agent" ? .agentPage : .internalPage,
+                                                 hiddenFor: page.hiddenFor)
+        }
+    }
+
+    /// The most recently hidden page's key. Discarded pages count, as Chrome's discarded tab keeps its
+    /// PageNode and last-visible time: discarding the most recently hidden page never hands the role to
+    /// an older, frozen page.
+    private static func mostRecentlyHidden(_ pages: [Page]) -> String? {
+        pages.filter { !$0.isShown }.min { ($0.hiddenFor, $0.key) < ($1.hiddenFor, $1.key) }?.key
     }
 }

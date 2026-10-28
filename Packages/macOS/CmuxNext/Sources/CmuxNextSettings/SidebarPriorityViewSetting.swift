@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// `sidebar.priorityView.enabled` and `sidebar.priorityView.shown` in cmux.json: the Priority view
 /// at the top of the sidebar (every agent chat, the ones that need you first). `enabled` is the

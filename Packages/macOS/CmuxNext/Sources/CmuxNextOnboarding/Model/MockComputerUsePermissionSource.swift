@@ -1,9 +1,12 @@
+public import AppKit
 public import Foundation
 
 /// Grants set by hand, for the gallery and tests. Records which panes were opened.
 @MainActor
 public final class MockComputerUsePermissionSource: ComputerUsePermissionSource {
     public let helperAppURL: URL?
+    /// No icon: the tile shows cmux's own.
+    public var helperAppIcon: NSImage?
     public private(set) var opened: [ComputerUsePermissionPane] = []
     /// How many times Allow turned Computer Use on.
     public private(set) var enabledCount = 0
@@ -23,6 +26,7 @@ public final class MockComputerUsePermissionSource: ComputerUsePermissionSource 
         let (stream, continuation) = AsyncStream<ComputerUsePermissions>.makeStream(bufferingPolicy: .bufferingNewest(1))
         continuation.yield(current)
         continuations[id] = continuation
+        // main-hop-allow: a gallery and test mock; the stream's termination can come from any thread and only drops its continuation
         continuation.onTermination = { [weak self] _ in Task { @MainActor in self?.continuations[id] = nil } }
         return stream
     }

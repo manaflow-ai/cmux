@@ -1,9 +1,11 @@
 import AppKit
 public import CmuxNextBrowser
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import CmuxNextCompat
 public import CmuxNextDaemon
+public import CmuxNextWakeups
 public import Foundation
-import Observation
 
 /// Writes a browser page's back/forward entries and scroll positions to
 /// its daemon tab (`frontend-browser-history-v1`), so a relaunch restores
@@ -37,38 +39,46 @@ public final class BrowserHistoryWriter {
     private var showedPrivateField = false
     /// Whether the last write carried engine state (`debug.browser.page_status`).
     public private(set) var savedEngineState = false
-    private var observation: Task<Void, Never>?
+    private var observation: ServiceObservation<HistoryKey>?
     private var pending: Task<Void, Never>?
     private var leaving: Task<Void, Never>?
-    private var resignObserver: MainActorObservation?
-    /// Where it hears that the app resigned active (tests post to their own).
-    private let center: NotificationCenter
+    private var resignWatch: EventSubscription?
 
     /// Starts writing `page`'s history after each change, waiting `delay`; `recorded` is what the daemon holds.
     /// `keepsEngineState` adds the engine's own history (this Mac's daemon only).
+    ///
+    /// R-obs: the page's history key is a service observation (it writes the daemon, so it follows a hidden page
+    /// too), in the background class: nobody sees the write. R-notif: leaving the app is the app's one
+    /// `didResignActive` observer (`appEvents`, tests pass their own).
     public init(page: Page, recorded: FrontendBrowserHistory?, keepsEngineState: Bool = false, delay: Duration,
-                sleep: @escaping Sleep, center: NotificationCenter = .default, send: @escaping Send) {
+                sleep: @escaping Sleep, mainWork: MainWorkScheduler, appEvents: AppEvents, send: @escaping Send) {
         self.page = page
-        self.center = center
         self.recorded = recorded
         self.keepsEngineState = keepsEngineState
         self.delay = delay
         self.sleep = sleep
         self.send = send
-        observation = Task { [weak self, page] in
-            for await state in ObservationStream({ HistoryKey(page.state) }) {
-                self?.pageDidChange(state)
-            }
-        }
-        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification, center: center) { [weak self] in
+        resignWatch = appEvents.subscribe(NSApplication.didResignActiveNotification, owner: Self.leaveOwner) { [weak self] in
             self?.appDidResignActive()
         }
+        observation = ServiceObservation(.background, owner: Self.pageOwner, on: mainWork) {
+            HistoryKey(page.state)
+        } apply: { [weak self] key in
+            self?.pageDidChange(key)
+        }
     }
+
+    /// The page observation's owner in the board and the wakeup ledger.
+    static let pageOwner = "BrowserHistoryWriter.page"
+    /// The leave-the-app subscription's owner.
+    static let leaveOwner = "BrowserHistoryWriter.leave"
 
     /// The user left the app: save the shown page with its scroll position.
     /// A save still measuring covers a quick switch back and away again.
     private func appDidResignActive() {
         guard leaving == nil else { return }
+        // task-owner: `leaving`; one save with the measured scroll position; cancel() cancels it
+        // main-hop-allow: flushNow is the writer's main-actor async save (the page's scroll script and the daemon's send seam); it starts in the notice's turn
         leaving = Task { [weak self] in
             await self?.flushNow()
             self?.leaving = nil
@@ -96,7 +106,7 @@ public final class BrowserHistoryWriter {
         observation = nil
         pending = nil
         leaving = nil
-        resignObserver = nil
+        resignWatch = nil
     }
 
     private func pageDidChange(_ key: HistoryKey) {
@@ -106,8 +116,10 @@ public final class BrowserHistoryWriter {
             return
         }
         let delay = delay, sleep = sleep
+        // task-owner: `pending`; one debounced save per page change; the next change and cancel() cancel it
+        // main-hop-allow: the injected Sleep seam's debounce, then the page's main-actor savedSession and the daemon's send seam
         pending = Task { [weak self] in
-            do { try await sleep(delay) } catch { return } // wakeup-allow: one `delay` per page change; the next change and cancel() cancel it
+            do { try await sleep(delay) } catch { return } // wakeup-allow: deadline of one `delay` per page change; the next change and cancel() cancel it
             guard let session = await self?.page?.savedSession(measuringScroll: false) else { return }
             await self?.write(session)
         }
@@ -225,33 +237,28 @@ public final class BrowserHistoryWriter {
     /// finishes unawaited).
     public static func within<T: Sendable>(_ budget: Duration, sleep: @escaping Sleep,
                                     _ work: @escaping @MainActor () async -> T?) async -> T? {
-        let once = Once<T>()
-        return await withCheckedContinuation { continuation in
-            once.continuation = continuation
-            let timer = Task { @MainActor in
-                try? await sleep(budget) // wakeup-allow: the one `budget` deadline for `work`, cancelled when the work finishes first
-                once.resume(nil)
-            }
-            Task { @MainActor in
-                once.resume(await work())
-                timer.cancel()
-            }
-        }
+        await first(of: work, within: budget, sleep: sleep)
     }
 
-    /// Resumes a continuation with the first answer only.
-    private final class Once<T: Sendable> {
-        var continuation: CheckedContinuation<T?, Never>?
-
-        // A main-actor generic class needs a nonisolated deinit while the package targets macOS 14: the
-        // isolated deinit's back-deploy path crashed swift-frontend's Release inliner
-        // (EarlyPerfInliner, isCallerAndCalleeLayoutConstraintsCompatible) on its deallocating deinit.
-        nonisolated deinit {}
-
-        func resume(_ value: T?) {
-            continuation?.resume(returning: value)
-            continuation = nil
+    /// ``within(_:sleep:_:)``: the budget cancels the wait, which ends its cancellable continuation at once and
+    /// makes the work's late answer a no-op. Off the main actor: only the work runs there, in its own isolation.
+    private nonisolated static func first<T: Sendable>(of work: @escaping @MainActor () async -> T?, within budget: Duration,
+                                                       sleep: @escaping Sleep) async -> T? {
+        // task-owner: the wait for the work's answer; ends with the answer or at the budget below
+        let wait = Task { @concurrent in
+            try await withOnceThrowingContinuation(cancellation: .cancellable) { (answer: OnceContinuation<T?, any Error>) in
+                // task-owner: the work; it finishes unawaited when the budget answers first
+                Task { @concurrent in answer.resume(returning: await work()) }
+            }
         }
+        // task-owner: the budget; cancelled when the work answers first
+        let timer = Task { @concurrent in
+            try? await sleep(budget) // wakeup-allow: deadline of `budget` for `work`, cancelled when the work finishes first
+            wait.cancel()
+        }
+        let answer = try? await wait.value
+        timer.cancel()
+        return answer
     }
 
     /// The page changes that can change its history: a new URL or title,

@@ -7,8 +7,9 @@
 //
 // The exports are generated (generated/remote_shim.inc, scripts/cmux-next/gen-chromium-host-wire.py)
 // except the `local` ones: remote_shim.mm (load, prepare_application, initialize, do_work, free,
-// free_owned, password_entry_size) and remote_shim_local.mm (task 014b: the exports with a
-// function-pointer parameter). This header is the interface both include.
+// free_owned, password_entry_size, and set_lock_handler, whose fn ../src/host_locks.h's LockClient
+// keeps, task 229) and remote_shim_local.mm (task 014b: the exports with a function-pointer
+// parameter). This header is the interface both include.
 //
 // Threads: every shim call is on the main thread (cmux_cef_shim.h), so the client's state is
 // main-thread state with no lock; each entry asserts it. The control channel's reader thread
@@ -21,6 +22,7 @@
 #include <optional>
 #include <string>
 
+#include "chromium_host_mint.h"
 #include "chromium_host_tlv.h"
 
 #define CMUX_REMOTE_EXPORT __attribute__((visibility("default")))
@@ -81,8 +83,8 @@ CMUX_REMOTE_EXPORT void cmux_remote_shim_configure(const cmux_remote_shim_callba
 // is attached already.
 CMUX_REMOTE_EXPORT int cmux_remote_shim_attach(int ctl_fd, void* in_ring, void* out_ring);
 // Main thread. Disconnects (host exit, Reload): closes the channel, drops the mirror cache, the
-// pending marks, the awaited tokens and the posts still waiting for the HELLO; `ended` is not
-// called. Posts fail until the next attach, which replays the preinit log (asking no verdict
+// pending marks, the awaited tokens and the posts still waiting for the HELLO, and ends each
+// pending password reveal as not found (PostPasswordReveal); `ended` is not called. Posts fail until the next attach, which replays the preinit log (asking no verdict
 // twice) and INITIALIZE to the new host. Ids and tokens keep counting.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_detach(void);
 CMUX_REMOTE_EXPORT int cmux_remote_shim_attached(void);
@@ -90,6 +92,72 @@ CMUX_REMOTE_EXPORT int cmux_remote_shim_attached(void);
 // (CEFForkFeatures reads this in host mode, not the remote dylib's own symbols).
 CMUX_REMOTE_EXPORT int cmux_remote_shim_host_has_export(const char* name);
 CMUX_REMOTE_EXPORT void cmux_remote_shim_get_stats(cmux_remote_shim_stats* out);
+// Main thread. The token of the latest op sent for a REPLY (an async op, a non-void preinit's
+// verdict): read right after the call, it names that call's answer, which the reply callback
+// delivers under it (task 018: CEFHostReplies awaits it). 0 when that call sent nothing.
+CMUX_REMOTE_EXPORT uint32_t cmux_remote_shim_last_reply_token(void);
+// Main thread. REPLY frames go to `reply(ctx, ...)` from now on, in place of the configured
+// callback and its ctx (task 018: CEFRemoteShim hands them to CEFHostReplies); NULL drops them
+// (replies_unhandled). The next cmux_remote_shim_configure sets them again.
+CMUX_REMOTE_EXPORT void cmux_remote_shim_set_reply(void* ctx, cmux_remote_reply_fn reply);
+// Main thread. The channel's end goes to `ended(ctx, reason)` from now on, in place of the
+// configured callback and its ctx (task 091: CEFRemoteShim hands it to CEFHostReplies, whose
+// tokens then resolve as hostGone in that turn); NULL drops it. A detach cmux asks for is never
+// reported. The next cmux_remote_shim_configure sets it again.
+CMUX_REMOTE_EXPORT void cmux_remote_shim_set_ended(void* ctx, cmux_remote_ended_fn ended);
+// Main thread. The input ring's writer (ChromiumHostInputRing, tasks 041 and 042) calls it for
+// each frame of an input kind (IsOrderedInput) it writes, in write order (kPing and kStats keep
+// `seq` as their request id): returns the frame's input seq (Header::seq) and puts in
+// `ctl_seq` the control seq to stamp (SetCtlSeq), that of the last ordered op posted before it.
+// Ordered ops carry the returned seq as the input they follow (task 092; chromium_host_wire.h,
+// "One ordered input stream"). With no host attached it returns 0 and `ctl_seq` 0: the writer
+// writes nothing for that frame. Both seqs start again with the next host.
+CMUX_REMOTE_EXPORT uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq);
+// What the host watch callback hears (task p01-process-084; host_hang_watcher.h).
+typedef enum {
+  CMUX_REMOTE_HOST_INPUT_OUTSTANDING = 0,  // input the host has not dispatched yet: the first seq waits
+  CMUX_REMOTE_HOST_INPUT_PROGRESS = 1,     // the host dispatched input; later input still waits
+  CMUX_REMOTE_HOST_INPUT_SETTLED = 2,      // the host dispatched every seq written (or went away)
+  CMUX_REMOTE_HOST_HANG = 3,               // a UI-thread hang of the host: `a` its length in ns, `b` its
+                                           // kOpHostHang flags (1 still running, 2 dumped, 4 the
+                                           // turn's end of a hang the still-running report sent)
+} cmux_remote_host_watch_event;
+// Main thread, in the order the host's frames came, and from inside the input posts
+// (cmux_remote_shim_order_input, and on the control channel cmux_shim_browser_send_wheel,
+// cmux_shim_browser_send_locked_mouse_move, cmux_shim_widget_send_input, cmux_shim_tab_send_click:
+// OUTSTANDING) and cmux_remote_shim_detach (SETTLED). `a` and `b` are 0 but for a hang.
+typedef void (*cmux_remote_host_watch_fn)(void* ctx, int32_t event, int64_t a, int64_t b);
+// Main thread. The host watch's changes go to `watch(ctx, ...)` from now on; NULL drops them. Input
+// is counted only on a host whose HELLO listed kHangWatchHelloName: ring input against its
+// kOpInputDispatched, control-channel input (sent with a token) against its kOpAck of the op.
+CMUX_REMOTE_EXPORT void cmux_remote_shim_set_host_watch(void* ctx, cmux_remote_host_watch_fn watch);
+// Main thread. Takes `port`, a send right to the attached host's resize fence inbox (the
+// bootstrap name cmux passed as --resize-fence, looked up off the main thread after the HELLO;
+// ChromiumHost/src/host_resize.h, task 052): 1 when kept until the host detaches, 0 (the right
+// released) with no host attached.
+CMUX_REMOTE_EXPORT int cmux_remote_shim_set_resize_fence_channel(unsigned int port);
+// What cmux_remote_shim_page_resize did.
+typedef enum {
+  CMUX_REMOTE_RESIZE_NOT_SENT = 0,  // no host attached, view token 0, or over a bound
+  CMUX_REMOTE_RESIZE_UNFENCED = 1,  // sent with no fence: no answer comes
+  CMUX_REMOTE_RESIZE_FENCED = 2,    // sent with its fence: the host answers
+} cmux_remote_page_resize_result;
+// Main thread. Sizes page view `view_token`'s page (`browser_id`: the tab it shows) to `width` x
+// `height` points with kOpPageResize, on the ordered stream. With `fence_port` (a send right of
+// this process to a -[CAContext createFencePort] port) and a fence channel, a copy of that right
+// goes to the host first, which gives the fork its own right before the page's frame change
+// (deadline `deadline_frames` display frames, at most kMaxFenceDeadlineFrames) and answers with
+// i32 1 when the fork took it: CMUX_REMOTE_RESIZE_FENCED, the answer's token in
+// cmux_remote_shim_last_reply_token. With no fence, no channel or a full inbox it goes unfenced.
+// The caller's right stays its own either way.
+CMUX_REMOTE_EXPORT int cmux_remote_shim_page_resize(uint64_t view_token, int browser_id, int width, int height,
+                                                    unsigned int fence_port, unsigned int deadline_frames);
+// Sends a copy of the send right `fence` and its `seq` to the fence inbox `channel`: 1 when sent.
+typedef int (*cmux_remote_fence_send_fn)(unsigned int channel, unsigned int fence, uint64_t seq);
+// Main thread. How cmux_remote_shim_page_resize sends a fence right: nullptr (the default) is the
+// Mach message of host_resize.h (SendFence), which sends nothing where there is no Mach; the
+// tests pass their own to drive the fenced path on Linux.
+CMUX_REMOTE_EXPORT void cmux_remote_shim_set_fence_sender(cmux_remote_fence_send_fn send);
 
 }  // extern "C"
 
@@ -101,10 +169,10 @@ using TlvReader = cmux_host::control::TlvReader;
 
 class TlvWriter : public cmux_host::control::TlvWriter {
  public:
-  // An NSView* travels as its page view token (ChromiumHostPageView, task 040): the client
-  // numbers each view the first time it crosses and keeps the number on the view, so it dies
-  // with the view and is never another view's; NULL is 0.
-  void View(void* ns_view);
+  // A parent view argument (NSView* in the in-process ABI): in host mode cmux passes the token it
+  // minted for the page view (ChromiumHostPageView, CEFRuntime.mintPageViewToken: never 0, never
+  // reused), not a view pointer, and it travels as is; NULL is 0.
+  void View(void* view_token);
 };
 
 // Control channel; queued before the first attach (never dropped: past the channel's quota the
@@ -124,15 +192,29 @@ bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args);
 // host's verdict once (PostForReply). Returns the client's check of the arguments, the
 // in-process shim's own: 1 accepted, 0 refused (nothing recorded).
 int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args);
+// cmux_shim_password_reveal's wire (task p01-process-025), for remote_shim_local.mm's
+// LocalTransport::send_password_reveal, with its DeliverPasswordReveal as `revealed`:
+// kOpPasswordReveal with str profile_cache_path and str id under `token`. The host's REPLY is
+// one bytes field, the password, or none when its shim found none; it goes to `revealed` once,
+// on main (the bytes valid during the call), never to the reply callback, and nothing here
+// logs or counts it. A reveal that gets no answer ends with revealed(token, NULL, 0) once:
+// a detach, the host's end or a malformed frame, or a queued op that was then not sent.
+// False when not sent: no host attached, or the channel refused it; `revealed` never runs then.
+// The password crosses as a plain frame: the channel's buffers are not zeroed, as Chrome's
+// plaintext answer crosses its IPC (passwords_private_delegate_impl.cc).
+using PasswordRevealedFn = bool (*)(uint32_t token, const char* password, size_t length);
+bool PostPasswordReveal(uint32_t token, const char* profile_cache_path, const char* id, PasswordRevealedFn revealed);
 // Never 0.
 uint32_t NextToken();
-// Browser and window ids from 1 << 20, so they never meet one Chromium assigned; DevTools
-// message ids below 2^30 (the header's shim-internal range), from 2^29 so they never meet the
-// host shim's own counter. 0 when the range is used up.
+// Browser ids in [1 << 20, 1 << 30), so they never meet one Chromium assigned nor one the host mints
+// for a tab it opened for a window request (task 031); DevTools message ids below
+// 2^30 (the header's shim-internal range), from 2^29 so they never meet the host shim's own
+// counter (chromium_host_mint.h; the host maps them, host_client_ids.h). 0 when the range is used up.
 int32_t MintID(uint16_t op);
-inline constexpr int32_t kFirstMintedBrowserID = 1 << 20;
-inline constexpr int32_t kFirstMintedDevToolsID = 1 << 29;
-inline constexpr int32_t kEndMintedDevToolsID = 1 << 30;
+inline constexpr int32_t kFirstMintedBrowserID = cmux_host::mint::kFirstBrowserID;
+inline constexpr int32_t kEndMintedBrowserID = cmux_host::mint::kFirstHostBrowserID;
+inline constexpr int32_t kFirstMintedDevToolsID = cmux_host::mint::kFirstDevToolsID;
+inline constexpr int32_t kEndMintedDevToolsID = cmux_host::mint::kEndDevToolsID;
 // A malloc'd copy, freed by cmux_shim_free or cmux_shim_free_owned.
 char* Dup(const std::string& text);
 void MarkPending(uint16_t mirror_op, uint32_t token, const TlvWriter& key, uint32_t wildcards);

@@ -6,17 +6,20 @@ import Foundation
 /// gets the new tab, or 0 when Chromium must open nothing.
 let cefWindowRequestCallback: CEFShimLibrary.WindowRequestFn = { context, kind, disposition, source, hasBounds,
     x, y, width, height, userGesture, url, profile in
-    guard let context, Thread.isMainThread else { return 0 }
+    // SAFETY: only the context's address is read; CEFRuntime.from turns it back into the runtime.
+    let address = unsafe UInt(bitPattern: context)
+    guard address != 0, Thread.isMainThread else { return 0 }
+    // SAFETY: the shim's strings are NUL-terminated and valid during this call; String(cString:) copies each.
+    let text = unsafe (url.map(String.init(cString:)) ?? "", profile.map(String.init(cString:)) ?? "")
     let request = CEFWindowRequest(
         kind: CEFWindowRequest.Kind(rawValue: kind) ?? .window,
         disposition: CEFDisposition(raw: Int(disposition)),
         sourceBrowser: source,
         bounds: hasBounds != 0 ? CGRect(x: Int(x), y: Int(y), width: Int(width), height: Int(height)) : nil,
-        url: url.map { String(cString: $0) } ?? "",
+        url: text.0,
         userGesture: userGesture != 0,
-        profilePath: CEFRuntime.normalizedPath(profile.map { String(cString: $0) } ?? "")
+        profilePath: CEFRuntime.normalizedPath(text.1)
     )
-    let address = UInt(bitPattern: context)
     return MainActor.assumeIsolated { // main-proof: guarded by Thread.isMainThread in the guard above
         CEFRuntime.from(address)?.windowRequests.handle(request) ?? 0
     }
@@ -27,6 +30,8 @@ nonisolated struct CEFWindowRequestLog: Equatable, Sendable {
     struct Entry: Equatable, Sendable {
         var request: CEFWindowRequest
         var decision: CEFWindowDecision
+        /// The id the Chromium Host minted for an insert's tab, else 0.
+        var tab: Int32 = 0
     }
 
     private(set) var count = 0
@@ -42,10 +47,10 @@ nonisolated struct CEFWindowRequestLog: Equatable, Sendable {
         if popupWindows.count > 12 { popupWindows.removeFirst(popupWindows.count - 12) }
     }
 
-    mutating func record(_ request: CEFWindowRequest, _ decision: CEFWindowDecision) {
+    mutating func record(_ request: CEFWindowRequest, _ decision: CEFWindowDecision, tab: Int32 = 0) {
         count += 1
         if case .refuse = decision { refused += 1 }
-        recent.append(Entry(request: request, decision: decision))
+        recent.append(Entry(request: request, decision: decision, tab: tab))
         if recent.count > 8 { recent.removeFirst(recent.count - 8) }
     }
 
@@ -62,11 +67,13 @@ extension CEFRuntime {
         return key.offTheRecord ? context : Self.normalizedPath(context)
     }
 
-    /// How the next tab inserted into `window` opens: the oldest placement a
-    /// window request recorded for it, else `fallback` with the popup
-    /// features Chromium reported at creation.
-    func takePlacement(window: Int32, fallback: BrowserNewTabDisposition, created: CEFCreatedBy = .none) -> CEFPlacement {
-        guard var placement = placements.take(window: window) else {
+    /// How `browser`, a tab Chromium inserted into `window`, opens: the placement
+    /// the Chromium Host's window request recorded for the id it minted for
+    /// it, else the oldest placement recorded for `window`, else `fallback`
+    /// with the popup features Chromium reported at creation.
+    func takePlacement(browser: Int32, window: Int32, fallback: BrowserNewTabDisposition,
+                       created: CEFCreatedBy = .none) -> CEFPlacement {
+        guard var placement = placements.take(tab: browser) ?? placements.take(window: window) else {
             return CEFPlacement(disposition: fallback, bounds: created.features)
         }
         placement.bounds = CEFPlacement.resolvedBounds(request: placement.bounds, created: created.features)
@@ -109,7 +116,8 @@ public struct CEFWindowReport: Sendable {
     /// Window requests the fork sent (fork API 8).
     public var requests: Int
     public var refused: Int
-    /// The latest requests: "kind=… disposition=… source=… -> decision".
+    /// The latest requests: "kind=… disposition=… source=… -> decision", and " tab=…" with the id the
+    /// Chromium Host minted for an insert's tab.
     public var recent: [String]
     /// Chromium commands the shim blocked (`IDC_*` ids).
     public var blockedCommands: [Int32]
@@ -123,6 +131,9 @@ public struct CEFWindowReport: Sendable {
     /// Tabs Chromium created that wait for a pane window.
     public var unplacedTabs: Int
     public var forkAPIVersion: Int
+    /// Chromium started with `cmux-process-reuse-per-renderer-devtools` (fork API 29 and the shim's
+    /// renderer paths): a DevTools agent stops main-frame sharing only for its own renderer.
+    public var processReusePerRendererDevTools = false
     /// The latest popup window events (fork API 13).
     public var popupWindows: [String] = []
 }
@@ -135,6 +146,7 @@ extension CEFRuntime {
             refused: windowRequests.log.refused,
             recent: windowRequests.log.recent.map { entry in
                 "kind=\(entry.request.kind.rawValue) disposition=\(entry.request.disposition.rawValue) source=\(entry.request.sourceBrowser) -> \(entry.decision)"
+                    + (entry.tab != 0 ? " tab=\(entry.tab)" : "")
             },
             blockedCommands: windowRequests.log.blockedCommands,
             foreignBrowsers: started ? Int(shim?.foreignBrowserCount() ?? -1) : -1,
@@ -143,6 +155,7 @@ extension CEFRuntime {
             chromiumWindows: started ? windowGuard.offendingWindows().map { "\(NSStringFromClass(type(of: $0))) \"\($0.title)\"" } : [],
             unplacedTabs: orphans.unplaced.count,
             forkAPIVersion: Int(forkAPIVersion),
+            processReusePerRendererDevTools: processReusePerRendererDevTools,
             popupWindows: windowRequests.log.popupWindows
         )
     }

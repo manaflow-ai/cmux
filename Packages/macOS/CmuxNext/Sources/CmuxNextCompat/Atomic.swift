@@ -218,3 +218,19 @@ public enum AtomicUpdateOrdering: Sendable {
     case acquiringAndReleasing
     case sequentiallyConsistent
 }
+
+/// A memory fence with `ordering` (swift-atomics' `atomicMemoryFence`, C++'s `std::atomic_thread_fence`): orders
+/// this thread's memory accesses around a word that cannot itself be an ``Atomic`` or an ``AtomicPointerSlot``,
+/// such as a signal handler's global with a constant initial value (an atomic made lazily would run its
+/// initializer in the handler). A releasing fence before the word's store pairs with an acquiring fence after
+/// its load on the reading thread. Async-signal-safe: one barrier instruction, always inlined.
+@inlinable @inline(__always)
+public func atomicFence(ordering: AtomicUpdateOrdering) {
+    switch ordering {
+    case .relaxed: atomicMemoryFence(ordering: .relaxed)
+    case .acquiring: atomicMemoryFence(ordering: .acquiring)
+    case .releasing: atomicMemoryFence(ordering: .releasing)
+    case .acquiringAndReleasing: atomicMemoryFence(ordering: .acquiringAndReleasing)
+    case .sequentiallyConsistent: atomicMemoryFence(ordering: .sequentiallyConsistent)
+    }
+}

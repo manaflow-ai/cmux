@@ -6,13 +6,13 @@
 //! `overrides`), pathspecs are literal, and each run has a deadline and
 //! bounded output.
 
+use std::ffi::OsStr;
 use std::io::{ErrorKind, Read};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
-use wait_timeout::ChildExt;
+use cmux_process::{Child, Command, Stdio};
 
 /// The git every run starts, found on `PATH`. The diff sidecar starts the
 /// same one, so the filter drivers a run blanks are the ones that git sees.
@@ -106,26 +106,9 @@ fn run(
     if deadline.is_zero() {
         return Err(GitFailure::TimedOut);
     }
-    let mut command = Command::new(PROGRAM);
-    confine_read(&mut command, overrides);
-    command.args(["-c", "core.quotePath=false"]);
-    command
-        .args(arguments)
-        .current_dir(directory)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("GIT_PAGER", "cat")
-        // Client paths are file names, never pathspec magic such as `:(top)`.
-        .env("GIT_LITERAL_PATHSPECS", "1")
-        .env("LC_ALL", "C");
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-    let mut child = command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
+    let mut child = read_command(directory, overrides, arguments)
+        .spawn()
+        .map_err(|error| GitFailure::Unavailable(error.to_string()))?;
     // Both are piped above; a missing one is a spawn failure, not a panic.
     let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
         stop(&mut child);
@@ -159,6 +142,62 @@ fn run(
     Ok(GitOutput { stdout, truncated })
 }
 
+/// The confined read git [`run`] spawns: in its own process group (the
+/// deadline stops git and what it started), at [`cmux_threads::HELPER_CHILD`]
+/// rather than the class of the request or echo thread that runs it.
+fn read_command(directory: &Path, overrides: &[Override], arguments: &[&str]) -> Command {
+    let mut command = Command::new(PROGRAM);
+    confine_read(&mut command, overrides);
+    command.args(["-c", "core.quotePath=false"]);
+    command
+        .args(arguments)
+        .current_dir(directory)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .env("GIT_OPTIONAL_LOCKS", "0")
+        .env("GIT_PAGER", "cat")
+        // Client paths are file names, never pathspec magic such as `:(top)`.
+        .env("GIT_LITERAL_PATHSPECS", "1")
+        .env("LC_ALL", "C")
+        .process_group(0)
+        .qos_ceiling(cmux_threads::HELPER_CHILD);
+    command
+}
+
+/// What [`confine_read`] sets on a git command: arguments and environment.
+/// Implemented for this crate's runs (`cmux_process::Command`) and for a
+/// caller's own `std::process::Command` (the diff sidecar's git runs).
+pub trait GitCommand {
+    fn add_args(&mut self, args: &[&str]);
+    fn set_env(&mut self, key: &OsStr, value: &OsStr);
+    fn remove_env(&mut self, key: &OsStr);
+}
+
+impl GitCommand for Command {
+    fn add_args(&mut self, args: &[&str]) {
+        self.args(args);
+    }
+    fn set_env(&mut self, key: &OsStr, value: &OsStr) {
+        self.env(key, value);
+    }
+    fn remove_env(&mut self, key: &OsStr) {
+        self.env_remove(key);
+    }
+}
+
+impl GitCommand for std::process::Command {
+    fn add_args(&mut self, args: &[&str]) {
+        self.args(args);
+    }
+    fn set_env(&mut self, key: &OsStr, value: &OsStr) {
+        self.env(key, value);
+    }
+    fn remove_env(&mut self, key: &OsStr) {
+        self.env_remove(key);
+    }
+}
+
 /// Confines `command`, a git that only reads, so neither the caller's
 /// environment nor repository config makes it run a program or reach a
 /// remote: every inherited `GIT_*` variable is dropped, fsmonitor, hooks,
@@ -168,29 +207,29 @@ fn run(
 /// still needs `--no-ext-diff` and `--no-textconv`. Call it before adding
 /// arguments: the settings are `-c` options, which precede the subcommand.
 /// The diff sidecar confines its own git runs with it too.
-pub fn confine_read(command: &mut Command, overrides: &[Override]) {
+pub fn confine_read(command: &mut impl GitCommand, overrides: &[Override]) {
     for (name, _) in std::env::vars_os() {
         if name.as_encoded_bytes().starts_with(b"GIT_") {
-            command.env_remove(name);
+            command.remove_env(&name);
         }
     }
     // `log.showSignature` would print signature checks into parsed output
     // and run the signing program.
-    command.args(["-c", "core.fsmonitor=false", "-c", "log.showSignature=false"]);
+    command.add_args(&["-c", "core.fsmonitor=false", "-c", "log.showSignature=false"]);
     // A diff or status that refreshes a stale index writes it, and each
     // write runs `post-index-change` from `.git/hooks` (no config needed)
     // or `core.hooksPath`. As a `-c` setting this reaches the git run inside
     // a submodule too.
-    command.args(["-c", "core.hooksPath=/dev/null"]);
+    command.add_args(&["-c", "core.hooksPath=/dev/null"]);
     // `diff.submodule=diff` would run `git diff` inside a submodule, with
     // the submodule's own diff drivers.
-    command.args(["-c", "diff.submodule=short"]);
+    command.add_args(&["-c", "diff.submodule=short"]);
     // Files every diff or status reads to the end: `/dev/zero` would be read
     // until the deadline.
-    command.args(["-c", "core.attributesFile=/dev/null", "-c", "diff.orderFile=/dev/null"]);
+    command.add_args(&["-c", "core.attributesFile=/dev/null", "-c", "diff.orderFile=/dev/null"]);
     set_overrides(command, overrides);
     deny_transports(command);
-    command.env("GIT_TERMINAL_PROMPT", "0");
+    command.set_env(OsStr::new("GIT_TERMINAL_PROMPT"), OsStr::new("0"));
 }
 
 /// Sets `overrides` through `GIT_CONFIG_COUNT`, which keeps a key whole: a
@@ -198,11 +237,11 @@ pub fn confine_read(command: &mut Command, overrides: &[Override]) {
 /// `a=b` could never be blanked that way. git passes them on to the git it
 /// runs inside a submodule. On the same key, a `-c` setting beats a pair
 /// here, so the runners' fixed `-c` settings always win.
-pub(crate) fn set_overrides(command: &mut Command, overrides: &[Override]) {
-    command.env("GIT_CONFIG_COUNT", overrides.len().to_string());
+pub(crate) fn set_overrides(command: &mut impl GitCommand, overrides: &[Override]) {
+    command.set_env(OsStr::new("GIT_CONFIG_COUNT"), OsStr::new(&overrides.len().to_string()));
     for (index, (key, value)) in overrides.iter().enumerate() {
-        command.env(format!("GIT_CONFIG_KEY_{index}"), key);
-        command.env(format!("GIT_CONFIG_VALUE_{index}"), value);
+        command.set_env(OsStr::new(&format!("GIT_CONFIG_KEY_{index}")), OsStr::new(key));
+        command.set_env(OsStr::new(&format!("GIT_CONFIG_VALUE_{index}")), OsStr::new(value));
     }
 }
 
@@ -212,8 +251,9 @@ pub(crate) fn set_overrides(command: &mut Command, overrides: &[Override]) {
 /// outranks `protocol.<name>.allow` in repository config, which
 /// `protocol.allow=never` does not; `GIT_NO_LAZY_FETCH` (git 2.45 and later)
 /// stops git before it tries.
-pub(crate) fn deny_transports(command: &mut Command) {
-    command.env("GIT_NO_LAZY_FETCH", "1").env("GIT_ALLOW_PROTOCOL", "");
+pub(crate) fn deny_transports(command: &mut impl GitCommand) {
+    command.set_env(OsStr::new("GIT_NO_LAZY_FETCH"), OsStr::new("1"));
+    command.set_env(OsStr::new("GIT_ALLOW_PROTOCOL"), OsStr::new(""));
 }
 
 /// git's stderr, with a partial clone's missing object said plainly: git
@@ -315,4 +355,47 @@ fn drain(mut reader: impl Read, limit: usize) -> (Vec<u8>, bool) {
         }
     }
     (kept, truncated)
+}
+
+/// macOS: a read git started from a UserInteractive thread (an echo or
+/// request thread) runs at the helper class, below a child that inherits the
+/// thread's class, and the thread keeps its class.
+#[cfg(all(test, target_vendor = "apple"))]
+mod qos_tests {
+    use cmux_process::Command;
+    use cmux_threads::process::probe;
+    use cmux_threads::{HELPER_CHILD, LiveQos, QosChange, ThreadQos, current, set_current};
+
+    use super::{read_command, stop};
+
+    #[test]
+    fn a_read_git_of_a_user_interactive_thread_runs_at_utility() {
+        let first_thread_priority = |mut command: Command| {
+            let mut child = command.spawn().unwrap();
+            assert_eq!(current(), LiveQos::Class(ThreadQos::UserInteractive));
+            let priority = probe::first_thread_base_priority(child.id() as libc::pid_t);
+            stop(&mut child);
+            priority.unwrap()
+        };
+        let sleep = |helper: bool| {
+            let mut command = Command::new("/bin/sleep");
+            command.arg("30").process_group(0);
+            if helper {
+                command.qos_ceiling(HELPER_CHILD);
+            }
+            command
+        };
+        // A shell alias keeps git running (waiting for its `sleep`) while its
+        // own first thread is read.
+        let alias = ["-c", "alias.cmux-qos-probe=!sleep 30", "cmux-qos-probe"];
+        let [git, helper, inherited] = std::thread::spawn(move || {
+            assert_eq!(set_current(ThreadQos::UserInteractive), QosChange::Applied);
+            [read_command(&std::env::temp_dir(), &[], &alias), sleep(true), sleep(false)]
+                .map(first_thread_priority)
+        })
+        .join()
+        .unwrap();
+        assert_eq!(git, helper, "git {git}: a helper {helper}, inherited {inherited}");
+        assert!(git < inherited, "git {git}: inherited {inherited}");
+    }
 }

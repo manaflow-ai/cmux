@@ -177,6 +177,7 @@ struct SplitTerminalResizeCountTests {
     /// does. Every terminal's PTY resizes at most once, at its final grid, and the new pane's exactly once.
     @Test func aSplitResizesEachPTYOnceIncludingTheNewPanesTerminalAttachedMidSpring() async throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         let screen = Screen(Self.pair)
         defer { screen.close() }
         try screen.attachTerminal("p1")

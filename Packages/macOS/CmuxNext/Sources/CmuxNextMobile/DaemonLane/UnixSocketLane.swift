@@ -1,5 +1,8 @@
 public import Foundation
 import Network
+import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// A `MobileByteLane` over a Unix stream socket (the local cmux-tui daemon
 /// or a Cloud link socket). Network.framework keeps every read and write off
@@ -24,39 +27,37 @@ public final class UnixSocketLane: MobileByteLane {
         let queue = DispatchQueue(label: "cmux.next.mobile.unix-lane", qos: .userInitiated)
         let connection = NWConnection(to: .unix(path: path), using: .tcp)
         let lane = UnixSocketLane(connection: connection, queue: queue)
-        // concurrency-allow: on timeout the catch cancels the NWConnection, which resumes waitUntilReady
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask { try await lane.waitUntilReady(path: path) }
-            group.addTask {
-                // wakeup-allow: one-shot deadline (unix socket connect)
-                try await Task.sleep(for: deadline)
-                throw Failure.connectTimedOut(path: path)
+        // The Deadline race (R-timer): the limit cancels the connection, whose `.cancelled` ends waitUntilReady.
+        do {
+            try await Deadline(deadline).run("mobile.unix-lane.connect", onTimeout: { connection.cancel() }) {
+                try await lane.waitUntilReady(path: path)
             }
-            defer { group.cancelAll() }
-            do {
-                try await group.next()
-            } catch {
-                connection.cancel()
-                throw error
-            }
+        } catch is Deadline.Exceeded {
+            throw Failure.connectTimedOut(path: path)
+        } catch {
+            connection.cancel()
+            throw error
         }
         return lane
     }
 
     private func waitUntilReady(path: String) async throws {
-        let gate = ResumeOnce()
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-                connection.stateUpdateHandler = { state in
+            // Not cancellable itself: the cancel handler cancels the connection, whose `.cancelled` answers.
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
+                // The first ready, failed or cancelled state answers. Network calls this handler on `queue`
+                // one state at a time, so dropping it there leaves no later state to answer again.
+                connection.stateUpdateHandler = { [weak connection] state in
                     switch state {
                     case .ready:
-                        gate.resume { continuation.resume() }
+                        connection?.stateUpdateHandler = nil
+                        continuation.resume(returning: ())
                     case .failed(let error), .waiting(let error):
-                        gate.resume {
-                            continuation.resume(throwing: Failure.connectFailed(path: path, detail: "\(error)"))
-                        }
+                        connection?.stateUpdateHandler = nil
+                        continuation.resume(throwing: Failure.connectFailed(path: path, detail: "\(error)"))
                     case .cancelled:
-                        gate.resume { continuation.resume(throwing: CancellationError()) }
+                        connection?.stateUpdateHandler = nil
+                        continuation.resume(throwing: CancellationError())
                     default:
                         break
                     }
@@ -69,26 +70,32 @@ public final class UnixSocketLane: MobileByteLane {
     }
 
     public func read(maximumBytes: Int) async throws -> Data? {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Data?, any Error>) in
             connection.receive(minimumIncompleteLength: 1, maximumLength: maximumBytes) { data, _, isComplete, error in
                 if let data, !data.isEmpty {
                     continuation.resume(returning: data)
-                } else if let error {
-                    continuation.resume(throwing: error)
-                } else {
-                    // Complete, or an empty delivery with no error: the
-                    // stream ended. Returning empty data made the splice
-                    // pumps call read again at once, a loop without progress.
-                    continuation.resume(returning: nil)
+                    return
                 }
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                // Complete, or an empty delivery with no error: the
+                // stream ended. Returning empty data made the splice
+                // pumps call read again at once, a loop without progress.
+                continuation.resume(returning: nil)
             }
         }
     }
 
     public func write(_ data: Data) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             connection.send(content: data, completion: .contentProcessed { error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                continuation.resume(returning: ())
             })
         }
     }

@@ -122,7 +122,8 @@ impl UserGit<'_> {
             .envs(extra.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            .qos_ceiling(cmux_threads::HELPER_CHILD);
         // A new session has no controlling terminal, so ssh and git cannot
         // prompt, and git leads the group the deadline stops.
         #[cfg(unix)]
@@ -250,9 +251,11 @@ impl Pipe {
                 match reader.read(&mut chunk) {
                     Ok(0) => break,
                     Ok(read) => {
+                        // A reader that claims more than the chunk broke Read's contract.
+                        let Some(bytes) = chunk.get(..read) else { break };
                         let mut kept = buffer.lock().unwrap_or_else(PoisonError::into_inner);
                         let room = half.saturating_sub(kept.head.len());
-                        let (head, rest) = chunk[..read].split_at(read.min(room));
+                        let (head, rest) = bytes.split_at(read.min(room));
                         kept.head.extend_from_slice(head);
                         kept.tail.extend(rest.iter().copied());
                         while kept.tail.len() > half {

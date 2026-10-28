@@ -1,5 +1,6 @@
 public import CmuxHomeCore
 public import CmuxNextDaemon
+import CmuxNextIPC
 public import Foundation
 
 /// The person's direct message with each of this Mac's Chiefs, so every Chief is in the Home list
@@ -39,8 +40,7 @@ public nonisolated struct HomeChiefDirectMessages: Sendable {
     /// The opener over `connection`, the app's trusted connection to this Mac's Chief owner.
     public init(connection: DaemonConnection, me: ConversationParticipant) {
         self.init(me: me, list: {
-            try await ResourceRelayClient(connection: connection).send(
-                operation: "chief.profile.list", params: ["machine": .string("current"), "session": .string("current")], idempotencyKey: nil)
+            try await ResourceOperationClient(connection: connection).read(V2ChiefProfileListRequest(), as: JSONValue.self)
         }, open: { request in
             try await ConversationClient(connection).create(request).conversation.id
         })

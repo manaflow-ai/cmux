@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '78ae2f1f797111b944b41b9cb30dabe9d2dbcd01a0d47808dd602101a5037c55'
+IR_SHA256 = '8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d'
 
 
 @dataclass(frozen=True)
@@ -204,6 +204,42 @@ COMMANDS = {
             'expected_machine_id': CommandFieldMetadata(None, None),
             'expected_session_id': CommandFieldMetadata(None, None),
             'idempotency_key': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-inventory': CommandMetadata(
+        'agent-inventory',
+        'local-admin',
+        12,
+        'agent-inventory-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, 'agent-inventory-owner-v1'),
+        },
+    ),
+    'agent-inventory-refresh': CommandMetadata(
+        'agent-inventory-refresh',
+        'local-admin',
+        12,
+        'agent-inventory-refresh-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-inventory-watch': CommandMetadata(
+        'agent-inventory-watch',
+        'local-admin',
+        12,
+        'agent-inventory-watch-v1',
+        ('local-admin',),
+        None,
+        {
+            'admission_receipt': CommandFieldMetadata(None, 'agent-inventory-watch-admission-v1'),
+            'enabled': CommandFieldMetadata(None, None),
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'expected_watch_id': CommandFieldMetadata(None, 'agent-inventory-watch-fence-v1'),
         },
     ),
     'agent-session-attach': CommandMetadata(
@@ -697,6 +733,7 @@ COMMANDS = {
             'snapshot_images': CommandFieldMetadata(None, 'terminal-snapshot-images-v1'),
             'snapshot_local_history': CommandFieldMetadata(None, 'terminal-snapshot-local-history-v1'),
             'snapshot_version': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
             'viewer_backlog_bytes': CommandFieldMetadata(None, 'terminal-snapshot-v1'),
         },
@@ -945,6 +982,17 @@ COMMANDS = {
             'target': CommandFieldMetadata(None, None),
         },
     ),
+    'cancel-stream': CommandMetadata(
+        'cancel-stream',
+        'frontend',
+        12,
+        'attach-streams-v1',
+        ('frontend',),
+        None,
+        {
+            'stream': CommandFieldMetadata(None, None),
+        },
+    ),
     'chief-inspect': CommandMetadata(
         'chief-inspect',
         'local-admin',
@@ -998,6 +1046,7 @@ COMMANDS = {
         ('local-admin',),
         None,
         {
+            'features': CommandFieldMetadata(None, None),
             'install_id': CommandFieldMetadata(None, None),
             'page': CommandFieldMetadata(None, None),
             'proof': CommandFieldMetadata(None, None),
@@ -1985,6 +2034,16 @@ COMMANDS = {
             'name': CommandFieldMetadata(None, None),
         },
     ),
+    'debug-daemon-locks': CommandMetadata(
+        'debug-daemon-locks',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'delete-bookmark': CommandMetadata(
         'delete-bookmark',
         'control',
@@ -2087,6 +2146,7 @@ COMMANDS = {
         None,
         {
             'lease': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
             'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
@@ -3452,6 +3512,7 @@ COMMANDS = {
         None,
         {
             'lease': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
             'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
@@ -3645,6 +3706,7 @@ COMMANDS = {
             'identity': CommandFieldMetadata(12, 'shared-sizing-v1'),
             'lease': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
             'view': CommandFieldMetadata(12, 'shared-sizing-v1'),
         },
@@ -3853,6 +3915,16 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'server-blocking': CommandMetadata(
+        'server-blocking',
+        'local-admin',
+        12,
+        'server-threads-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'server-stats': CommandMetadata(
         'server-stats',
         'local-admin',
@@ -3862,6 +3934,16 @@ COMMANDS = {
         None,
         {
             'include': CommandFieldMetadata(None, None),
+        },
+    ),
+    'server-threads': CommandMetadata(
+        'server-threads',
+        'local-admin',
+        12,
+        'server-threads-v1',
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'set-cell-pixels': CommandMetadata(
@@ -4254,6 +4336,7 @@ COMMANDS = {
             'have': CommandFieldMetadata(None, None),
             'reason': CommandFieldMetadata(None, None),
             'request_id': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(12, 'attach-streams-v1'),
             'surface': CommandFieldMetadata(None, None),
         },
     ),
@@ -4803,6 +4886,7 @@ EVENTS = {
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'history-changed': EventMetadata('history-changed', 12, 'history-v1', ('subscribe',), 'emitted'),
+    'input-failed': EventMetadata('input-failed', 12, 'ipc-frames-v2', ('attach-byte',), 'emitted'),
     'keybindings-changed': EventMetadata('keybindings-changed', 12, 'keybindings-v1', ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
     'loopback-closed': EventMetadata('loopback-closed', 12, 'loopback-forward-v1', ('control',), 'emitted'),
@@ -4829,9 +4913,11 @@ EVENTS = {
     'screen-renamed': EventMetadata('screen-renamed', 7, None, ('subscribe-deltas',), 'emitted'),
     'script-log': EventMetadata('script-log', 12, None, ('control',), 'emitted'),
     'scroll-changed': EventMetadata('scroll-changed', 6, None, ('subscribe', 'attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
+    'server-diagnostic-site': EventMetadata('server-diagnostic-site', 12, 'diagnostic-sites-v1', ('subscribe',), 'emitted'),
     'settings-changed': EventMetadata('settings-changed', 12, 'settings-v1', ('subscribe',), 'emitted'),
     'size-state': EventMetadata('size-state', 12, 'shared-sizing-v1', ('subscribe', 'attach-byte', 'attach-render'), 'emitted'),
     'status': EventMetadata('status', 5, None, ('subscribe',), 'emitted'),
+    'stream-end': EventMetadata('stream-end', 12, 'attach-streams-v1', ('attach-byte', 'attach-render', 'attach-browser'), 'emitted'),
     'surface-exited': EventMetadata('surface-exited', 5, None, ('subscribe',), 'emitted'),
     'surface-output': EventMetadata('surface-output', 5, None, ('subscribe',), 'emitted'),
     'surface-resize-failed': EventMetadata('surface-resize-failed', 7, None, ('subscribe',), 'emitted'),

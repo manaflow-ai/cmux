@@ -1,3 +1,4 @@
+public import AppKit
 public import CmuxNextBrowserImport
 import Foundation
 public import Observation
@@ -44,6 +45,8 @@ public final class ImportStepModel {
 
     public private(set) var phase: Phase = .idle
     public private(set) var sources: [BrowserSource] = []
+    /// The browsers' icons, read off the main thread after detection; a row shows the browser symbol until its lands.
+    public private(set) var browserIcons: [ImportBrowser: NSImage] = [:]
     /// Browsers on this Mac whose profile folder has no grant yet (nothing in it was read).
     public private(set) var awaitingAccess: [ImportBrowser] = []
     /// The open panel is up for the browser being explained.
@@ -127,6 +130,7 @@ public final class ImportStepModel {
         accessNotGranted = false
         accessRequest += 1
         let request = accessRequest
+        // main-hop-allow: the person's Continue (p06 rule 2): requestFolderAccess is the main-actor async open panel; the grant applies in its one resume
         task = Task { [weak self, services] in
             let granted = await services.requestFolderAccess(for: browser)
             guard let self, self.accessRequest == request else { return }
@@ -213,6 +217,7 @@ public final class ImportStepModel {
         accessNotGranted = false
         task?.cancel()
         phase = .detecting
+        // main-hop-allow: detection runs through the main-actor async OnboardingServices (the importer reads off main); the list applies in its resumes, and a newer detection cancels it
         task = Task { [weak self, services] in
             let found = await services.detectBrowsers()
             let awaiting = await services.browsersAwaitingAccess()
@@ -233,6 +238,10 @@ public final class ImportStepModel {
             // Everything is checked to start with: the common case is "bring it all".
             selectedProfiles = Set(profiles.map(\.id))
             phase = .ready
+            let shown: [(browser: ImportBrowser, app: URL?)] = sources.map { ($0.browser, $0.appURL) } + awaiting.map { ($0, nil) }
+            let icons = await services.browserIcons(shown)
+            guard !Task.isCancelled else { return }
+            browserIcons = icons
         }
     }
 
@@ -391,6 +400,7 @@ public final class ImportStepModel {
             authorizationDenied = false
             authorizationRequest += 1
             let request = authorizationRequest
+            // main-hop-allow: the person's Import (p06 rule 2): authorizePasswordRead is the main-actor async system prompt; its answer applies in its one resume
             task = Task { [weak self, services] in
                 let allowed = await services.authorizePasswordRead(reason: OnboardingStrings.passwordsAuthReason)
                 // Back, Import Without Passwords or Cancel while the sheet was up: that choice stands.
@@ -415,6 +425,7 @@ public final class ImportStepModel {
         rowCounts = [:]
         phase = .importing(nil)
         startedAt = .now
+        // main-hop-allow: the person's Import (p06 rule 2): runImport is the main-actor async importer (it reads and writes off main); progress and the summary apply in its resumes, and Cancel cancels it
         task = Task { [weak self, services] in
             do {
                 let summary = try await services.runImport(plan) { progress in

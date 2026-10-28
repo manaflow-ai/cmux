@@ -6,7 +6,7 @@ import AppKit
 /// Carried by the part row (`PartRow.cmuxAvatar`) and drawn into the row's
 /// bitmap with the bubble (`RowDraw.drawStatic`), so it costs nothing per
 /// frame or keystroke.
-enum SenderAvatar: Hashable {
+enum SenderAvatar: Hashable, Sendable {
     /// One or two letters on a grey disc.
     case monogram(String)
     /// A picture by asset reference (`Images.load`).
@@ -50,7 +50,7 @@ enum SenderAvatar: Hashable {
         // Messages' monogram disc: a grey gradient, lighter at the top, white letters.
         let top = UIColor(red: 166 / 255, green: 170 / 255, blue: 180 / 255, alpha: 1).cgColor
         let bottom = UIColor(red: 134 / 255, green: 138 / 255, blue: 148 / 255, alpha: 1).cgColor
-        if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [top, bottom] as CFArray, locations: [0, 1]) {
+        if let gradient = CGGradient.checked(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: [top, bottom], locations: [0, 1]) {
             ctx.drawLinearGradient(gradient, start: CGPoint(x: rect.midX, y: rect.minY), end: CGPoint(x: rect.midX, y: rect.maxY), options: [])
         } else {
             ctx.setFillColor(bottom)

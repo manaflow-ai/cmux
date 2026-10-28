@@ -1,272 +1,603 @@
 #!/usr/bin/env python3
-"""Offline tests for fleet.py: step keys and commands, rejoining without resubmitting, the per-shard same-host
-check (task p15-oracle-008) and the merged comparison through oracle.py and diff.py.
+"""Tests for fleet.py and scripts/measure/oracle.sh (p15-oracle-050): shards merge into one receipt, waits never
+resubmit, refusals and lost pairs are reported, never maclease; a diff pair on two hosts, OS versions or displays is
+refused as host-mismatch (p15-oracle-008).
 
-Run: python3 -I scripts/cmux-next/oracle/fleet_test.py (or fleet.py --selftest). A fake cmux-ci stands in for
-the fleet; the run directories come from oracle.perform_run with oracle_cli_test's fake driver.
+Run: python3 -I scripts/cmux-next/oracle/fleet_test.py (stdlib unittest; no fleet, no build). A fake `cmux-ci`
+(FAKE_CLIENT below) stands in for the controller: `run` prints the step line the real client prints, then runs
+scripts/measure/oracle.sh --dry-run in a throwaway git checkout that holds copies of oracle.sh and the oracle
+scripts, as a worker runs a step in its checkout; `wait` and `artifact` answer from the fake's state dir.
 """
 
 from __future__ import annotations
 
-import argparse
 import io
 import json
-import re
+import os
+import shutil
+import signal
+import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
+import unittest.mock
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Sequence
 
 HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[2]
 sys.path.insert(0, str(HERE))
 
 import fleet  # noqa: E402
-import oracle  # noqa: E402
-from oracle_cli_test import FakeDriver, options, write_corpus  # noqa: E402
 
-BASE, HEAD = "a" * 40, "b" * 40
-FIVE = {"name": "aws-m4pro-5", "os": "Darwin", "osVersion": "26.1", "arch": "arm64",
-        "display": "1920 x 1080 @ 60.00Hz (3840 x 2160 px), 1 display"}
-SIX = {**FIVE, "name": "aws-m4pro-6"}
+SHA = "0123456789abcdef0123456789abcdef01234567"
+OTHER_SHA = "89abcdef0123456789abcdef0123456789abcdef"
 
-
-def RESOLVE(ref: str) -> str:
-    return {"base": BASE, "head": HEAD}.get(ref, HEAD)
-
-
-def diff_args(*argv: str) -> argparse.Namespace:
-    return fleet.build_parser().parse_args(["diff", *argv])
-
-
-def request(*argv: str) -> fleet.Request:
-    return fleet.request_from_args(diff_args(*argv), resolve_ref=RESOLVE)
-
-
-class FakeCi:
-    """cmux-ci: `run` prints a step line and exits with `codes[i]`; `artifact` writes shard i's tarball."""
-
-    def __init__(self, tarballs: Dict[int, Path], codes: Optional[Dict[int, int]] = None) -> None:
-        self.tarballs = tarballs
-        self.codes = codes or {}
-        self.calls: List[List[str]] = []
-
-    def __call__(self, command: Sequence[str], on_line: Callable[[str], None]) -> int:
-        command = list(command)
-        self.calls.append(command)
-        verb = command[1]
-        if verb == "run":
-            key = command[command.index("--key") + 1]
-            index = int(re.search(r"-s(\d+)of\d+$", key).group(1))
-            on_line(f"cmux-ci: step step-{index} (isolated, key {key})")
-            on_line("oracle.sh: side a ...")
-            return self.codes.get(index, 0)
-        if verb == "wait":
-            return self.codes.get(int(command[2].split("-")[1]), 0)
-        if verb == "artifact":
-            index = int(command[2].split("-")[1])
-            Path(command[3]).write_bytes(self.tarballs[index].read_bytes())
-            return 0
-        raise AssertionError(f"unexpected cmux-ci {command}")
-
-    def verbs(self) -> List[str]:
-        return [call[1] for call in self.calls]
-
-
-def make_shards(tmp: Path, total: int, hosts: Dict[int, tuple], value_of=None) -> Dict[int, Path]:
-    """Shard i's step artifact: a/ and b/ run dirs of shard i/total, with receipt hosts hosts[i] = (a, b)."""
-    write_corpus(tmp / "corpus", suites=("alpha",), per_suite=6)
-    cases, _ = oracle.load_corpus(tmp / "corpus")
-    tarballs = {}
-    for index in range(total):
-        root = tmp / "src" / str(index)
-        for side, host, driver in (("a", hosts[index][0], FakeDriver()), ("b", hosts[index][1], FakeDriver(value_of=value_of))):
-            out = root / side
-            with redirect_stdout(io.StringIO()):
-                oracle.perform_run(options(tmp, shard=(index, total), out=out, run_id=f"{side}{index}"), cases,
-                                   driver.open_session, None, {})
-            path = out / "receipt.json"
-            receipt = json.loads(path.read_text())
-            receipt["host"] = host
-            path.write_text(json.dumps(receipt))
-        (root / "pair.json").write_text("{}")
-        tarballs[index] = tmp / f"shard{index}.tgz"
-        with tarfile.open(tarballs[index], "w:gz") as tar:
-            for name in ("a", "b", "pair.json"):
-                tar.add(root / name, arcname=name)
-    return tarballs
-
-
-def run_diff(tmp: Path, ci: FakeCi, *argv: str) -> int:
-    out = tmp / "out"
-    args = ["diff", "--base", "base", "--head", "head", "--out", str(out), "--expectations-root",
-            str(tmp / "expectations"), *argv]
-    with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-        return fleet.main(args, fleet=fleet.Fleet(runner=ci, emit=lambda line: None, resolve_ref=RESOLVE))
+FAKE_CLIENT = r'''#!/usr/bin/env python3
+"""A fake cmux-ci: run, wait, artifact. State in $FAKE_STATE; every call logged to $FAKE_STATE/calls.jsonl."""
+import fcntl, hashlib, json, os, shutil, subprocess, sys
+state = os.environ["FAKE_STATE"]
+args = sys.argv[1:]
+def log(entry):
+    with open(os.path.join(state, "calls.jsonl"), "a") as f:
+        f.write(json.dumps(entry) + "\n")
+def bump(name):
+    # Shards submit in parallel: the counter file is read and written under an flock.
+    with open(os.path.join(state, name), "a+") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        f.seek(0)
+        n = int(f.read() or 0)
+        f.seek(0)
+        f.truncate()
+        f.write(str(n + 1))
+    return n
+def opt(name):
+    return args[args.index(name) + 1] if name in args else None
+op = args[0]
+log({"op": op, "args": args[1:]})
+if op == "run":
+    if os.environ.get("FAKE_REFUSE"):
+        print("cmux-ci: HTTP 400: script is not on the ci-step allowlist", file=sys.stderr)
+        sys.exit(1)
+    key = opt("--key")
+    step_id = hashlib.sha1(key.encode()).hexdigest()[:24]
+    workers = os.environ.get("FAKE_WORKERS", "mini-a,mini-b,mini-c").split(",")
+    target = opt("--target-worker")
+    worker = workers[bump("submissions") % len(workers)]
+    if target and not os.environ.get("FAKE_IGNORE_TARGET"):
+        worker = target
+    print(f"cmux-ci: step {step_id} (exclusive, key {key})", file=sys.stderr, flush=True)
+    step_args = [a[len("--arg="):] for a in args if a.startswith("--arg=")]
+    checkout = os.environ["FAKE_CHECKOUT"]
+    if os.environ.get("FAKE_WORKER_REFUSE"):
+        code = 1
+        print(f"ci-step refused: scripts/measure/oracle.sh at {opt('--ref')} (blob 0) is not the reviewed version "
+              "on main or feat-cmux-next", flush=True)
+    else:
+        code = subprocess.run(["bash", "scripts/measure/oracle.sh", *step_args], cwd=checkout,
+                              env={**os.environ, "CMUX_CI_STEP_KEY": key}).returncode
+    job = {"id": step_id, "state": "done" if code == 0 else "failed", "exit_code": code, "worker": worker,
+           "step_key": key}
+    artifact = os.path.join(checkout, opt("--artifact"))
+    if code == 0 and os.path.exists(artifact):
+        shutil.copy(artifact, os.path.join(state, step_id + ".tar.gz"))
+        job["artifact"] = "sha256:" + "0" * 64
+    json.dump(job, open(os.path.join(state, step_id + ".json"), "w"))
+    print(f"cmux-ci: step {step_id} {job['state']} on {worker}", file=sys.stderr, flush=True)
+    if os.environ.get("FAKE_CLIENT_GONE"):
+        print(f"cmux-ci: step {step_id} continues; re-attach with the same --key {key}", file=sys.stderr)
+        sys.exit(130)
+    sys.exit(code)
+if op == "wait":
+    step_id = args[1]
+    if bump("waits-" + step_id) < int(os.environ.get("FAKE_WAIT_TIMEOUTS", "0")):
+        print(f"Timed out observing {step_id}; remote job is unchanged", file=sys.stderr)
+        sys.exit(2)
+    job = json.load(open(os.path.join(state, step_id + ".json")))
+    open(opt("--receipt"), "w").write(json.dumps(job))
+    sys.exit(0 if job["state"] == "done" else 1)
+if op == "artifact":
+    source = os.path.join(state, args[1] + ".tar.gz")
+    if not os.path.exists(source):
+        print("no artifact", file=sys.stderr)
+        sys.exit(1)
+    shutil.copy(source, args[2])
+    sys.exit(0)
+sys.exit(64)
+'''
 
 
-class RequestTests(unittest.TestCase):
-    def test_key_is_stable_and_names_the_request(self):
-        one, two = request("--base", "base", "--head", "head"), request("--base", "base", "--head", "head")
-        self.assertEqual([one.key(i) for i in range(6)], [two.key(i) for i in range(6)])
-        self.assertTrue(one.key(2).endswith("-s2of6"))
-        self.assertLessEqual(len(one.key(5)), 120)
-        self.assertNotEqual(one.key(0), request("--base", "base", "--head", "head", "--suite", "actions").key(0))
-        self.assertNotEqual(one.key(0), request("--base", "base", "--head", "head", "--attempt", "2").key(0))
-        self.assertNotEqual(one.key(0), request("--base", "base", "--head", "head", "--shards", "3").key(0))
-
-    def test_shuffle_seed_is_one_per_request(self):
-        one = request("--base", "base", "--head", "head", "--shuffle")
-        self.assertEqual(one.selection, request("--base", "base", "--head", "head", "--shuffle").selection)
-        self.assertTrue(any(arg.startswith("--seed=") for arg in one.selection))
-        self.assertIn("--seed=7", request("--base", "base", "--head", "head", "--shuffle", "--seed", "7").selection)
-
-    def test_step_command_runs_both_sides_in_one_isolated_step(self):
-        req = request("--base", "base", "--head", "head", "--suite", "actions", "--shards", "3")
-        command = fleet.run_command_line(req, fleet.Shard(1, req.key(1), Path("/tmp/x")))
-        self.assertEqual(command[:6], ["cmux-ci", "run", "--class", "isolated", "--script", "scripts/measure/oracle.sh"])
-        self.assertEqual(command[command.index("--ref") + 1], HEAD)
-        self.assertIn("--no-supersede", command)
-        self.assertEqual(command[command.index("--artifact") + 1], "artifacts/oracle/shard.tgz")
-        self.assertEqual([a for a in command if a.startswith("--arg=")],
-                         ["--arg=pair", f"--arg=--base={BASE}", "--arg=--shard=1/3", "--arg=--build=bench",
-                          "--arg=--suite=actions"])
-        self.assertNotIn("maclease", " ".join(command))
-
-    def test_switch_and_launch_config_build_one_ref(self):
-        lc = request("--arm", "launch-config", "--ref", "head")
-        self.assertEqual((lc.mode, lc.labels, lc.base), ("launch-config", ("default", "launch-config"), None))
-        self.assertIn("--arm=launch-config", lc.step_args(0))
-
-    def test_bad_requests_are_refused(self):
-        for argv in (["--base", "base"], ["--base", "base", "--head", "head", "--arm", "launch-config"],
-                     ["--product", "daemon", "--base", "base", "--head", "head"], [],
-                     ["--switch", "no-such-switch-p15-oracle-008"]):
-            with self.assertRaises(fleet.FleetError, msg=argv):
-                request(*argv)
-
-    def test_oracle_options_that_cannot_apply_are_refused(self):
-        with redirect_stderr(io.StringIO()) as err:
-            code = fleet.main(["diff", "--product", "app", "--base", "x", "--head", "y", "--base-binary=/tmp/a"])
-        self.assertEqual(code, fleet.EXIT_FAILED)
-        self.assertIn("--base-binary", err.getvalue())
+def write_corpus(root: Path, count: int) -> Path:
+    for i in range(count):
+        suite = ("alpha", "beta", "gamma")[i % 3]
+        path = root / suite / f"case-{i:03d}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"id": f"{suite}/case-{i:03d}", "steps": [{"id": "s1", "op": "snapshot"}]}))
+    return root
 
 
-class PairingTests(unittest.TestCase):
-    def test_paired_shards_on_two_minis_compare_and_pass(self):
-        with tempfile.TemporaryDirectory() as raw:
-            tmp = Path(raw)
-            ci = FakeCi(make_shards(tmp, 3, {0: (FIVE, FIVE), 1: (SIX, SIX), 2: (FIVE, FIVE)}))
-            self.assertEqual(run_diff(tmp, ci, "--shards", "3"), 0)
-            self.assertEqual(sorted(ci.verbs()), ["artifact"] * 3 + ["run"] * 3)
-            document = json.loads((tmp / "out" / "fleet.json").read_text())
-            self.assertEqual(document["verdict"], "pass")
-            self.assertEqual(document["shards"][1]["hosts"]["a"]["name"], "aws-m4pro-6")
-            comparison = json.loads((tmp / "out" / "comparison.json").read_text())
-            self.assertEqual((comparison["compared"], comparison["divergent"]), (6, []))
-
-    def test_forced_cross_host_pair_is_refused(self):
-        with tempfile.TemporaryDirectory() as raw:
-            tmp = Path(raw)
-            ci = FakeCi(make_shards(tmp, 2, {0: (FIVE, FIVE), 1: (FIVE, SIX)}))
-            self.assertEqual(run_diff(tmp, ci, "--shards", "2"), oracle.EXIT_REFUSED)
-            document = json.loads((tmp / "out" / "fleet.json").read_text())
-            self.assertEqual(document["verdict"], "host-mismatch")
-            self.assertEqual(list(document["mismatched"]), ["shard 1"])
-            self.assertIn("name ('aws-m4pro-5' != 'aws-m4pro-6')", document["mismatched"]["shard 1"])
-            self.assertFalse((tmp / "out" / "comparison.json").exists())
-
-    def test_cross_os_and_cross_display_pairs_are_refused(self):
-        for other in ({**FIVE, "osVersion": "27.0"}, {**FIVE, "display": "1600 x 1000 @ 120.00Hz (1600 x 1000 px), 2 displays"}):
-            with tempfile.TemporaryDirectory() as raw:
-                tmp = Path(raw)
-                ci = FakeCi(make_shards(tmp, 1, {0: (FIVE, other)}))
-                self.assertEqual(run_diff(tmp, ci, "--shards", "1"), oracle.EXIT_REFUSED, other)
-
-    def test_diff_py_refuses_shards_paired_across_hosts_after_merge(self):
-        # Each shard's own pair matches, but side B's shard 1 came from another mini than side A's: the merged
-        # per-case hosts differ, and oracle.py's comparison (diff.py) refuses those cases.
-        with tempfile.TemporaryDirectory() as raw:
-            tmp = Path(raw)
-            make_shards(tmp, 2, {0: (FIVE, FIVE), 1: (SIX, SIX)})
-            make_shards(tmp / "other", 2, {0: (FIVE, FIVE), 1: (FIVE, FIVE)})
-            a_dirs = [tmp / "src" / str(i) / "a" for i in range(2)]
-            b_dirs = [tmp / "other" / "src" / str(i) / "b" for i in range(2)]
-            argv = ["diff", "--out", str(tmp / "cmp"), "--expectations-root", str(tmp / "expectations")]
-            argv += [x for d in a_dirs for x in ("--base-run", str(d))] + [x for d in b_dirs for x in ("--head-run", str(d))]
-            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-                code = oracle.main(argv)
-            self.assertEqual(code, oracle.EXIT_REFUSED)
-            self.assertTrue(json.loads((tmp / "cmp" / "comparison.json").read_text())["refused"].startswith("host-mismatch"))
-
-    def test_divergence_is_reported(self):
-        with tempfile.TemporaryDirectory() as raw:
-            tmp = Path(raw)
-            ci = FakeCi(make_shards(tmp, 2, {0: (FIVE, FIVE), 1: (FIVE, FIVE)},
-                                    value_of=lambda cid, n: "changed" if cid == "alpha/case-003" else "v-" + cid))
-            self.assertEqual(run_diff(tmp, ci, "--shards", "2"), 1)
-            comparison = json.loads((tmp / "out" / "comparison.json").read_text())
-            self.assertEqual(comparison["divergent"], ["alpha/case-003"])
+def make_checkout(root: Path) -> Path:
+    """A git checkout with oracle.sh and the oracle scripts, where the fake worker runs its steps."""
+    checkout = root / "checkout"
+    (checkout / "scripts" / "measure").mkdir(parents=True)
+    shutil.copy(REPO / "scripts" / "measure" / "oracle.sh", checkout / "scripts" / "measure" / "oracle.sh")
+    shutil.copytree(HERE, checkout / "scripts" / "cmux-next" / "oracle",
+                    ignore=shutil.ignore_patterns("__pycache__"))
+    for rel in ("tests/oracle", "schemas/oracle"):
+        if (REPO / rel).is_dir():
+            shutil.copytree(REPO / rel, checkout / rel)
+    git = ["git", "-C", str(checkout), "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run(git[:3] + ["init", "-q"], check=True)
+    subprocess.run(git + ["add", "-A"], check=True)
+    subprocess.run(git + ["commit", "-q", "-m", "fixture"], check=True)
+    return checkout
 
 
-class WaitTests(unittest.TestCase):
-    def test_rerun_waits_for_the_saved_step_and_never_resubmits(self):
-        with tempfile.TemporaryDirectory() as raw:
-            tmp = Path(raw)
-            tarballs = make_shards(tmp, 2, {0: (FIVE, FIVE), 1: (FIVE, FIVE)})
-            first = FakeCi(tarballs, codes={1: 130})
-            self.assertEqual(run_diff(tmp, first, "--shards", "2"), fleet.EXIT_FAILED)
-            self.assertEqual(json.loads((tmp / "out" / "shards" / "1" / "step.json").read_text())["step"], "step-1")
-            again = FakeCi(tarballs)
-            self.assertEqual(run_diff(tmp, again, "--shards", "2"), 0)
-            self.assertEqual(again.calls, [["cmux-ci", "wait", "step-1"],
-                                           ["cmux-ci", "artifact", "step-1", str(tmp / "out" / "shards" / "1" / "shard.tgz")]])
+class FleetHarness(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="oracle-fleet-test-"))
+        self.state = self.tmp / "state"
+        self.state.mkdir()
+        self.client = self.tmp / "bin" / "cmux-ci"
+        self.client.parent.mkdir()
+        self.client.write_text(FAKE_CLIENT)
+        self.client.chmod(0o755)
+        self.corpus = write_corpus(self.tmp / "corpus", 30)
+        self.checkout = make_checkout(self.tmp)
+        self.env = {"FAKE_STATE": str(self.state), "FAKE_CHECKOUT": str(self.checkout)}
+        self.saved = {k: os.environ.get(k) for k in ("FAKE_STATE", "FAKE_CHECKOUT", "FAKE_REFUSE", "FAKE_WAIT_TIMEOUTS",
+                                                     "FAKE_CLIENT_GONE", "FAKE_IGNORE_TARGET", "FAKE_WORKER_REFUSE",
+                                                     "FAKE_WORKERS")}
+        os.environ.update(self.env)
 
-    def test_failed_step_is_reported_once(self):
-        with tempfile.TemporaryDirectory() as raw:
-            tmp = Path(raw)
-            ci = FakeCi(make_shards(tmp, 1, {0: (FIVE, FIVE)}), codes={0: 124})
-            self.assertEqual(run_diff(tmp, ci, "--shards", "1"), fleet.EXIT_FAILED)
-            self.assertEqual(ci.verbs(), ["run"])
-            document = json.loads((tmp / "out" / "fleet.json").read_text())
-            self.assertEqual(document["verdict"], "failed")
-            self.assertIn("ran past --timeout", document["shards"][0]["error"])
+    def tearDown(self) -> None:
+        for k, v in self.saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_another_request_in_the_same_out_is_refused(self):
-        with tempfile.TemporaryDirectory() as raw:
-            tmp = Path(raw)
-            ci = FakeCi(make_shards(tmp, 1, {0: (FIVE, FIVE)}))
-            self.assertEqual(run_diff(tmp, ci, "--shards", "1"), 0)
-            self.assertEqual(run_diff(tmp, ci, "--shards", "1", "--suite", "alpha"), fleet.EXIT_FAILED)
+    def fleet(self, *argv: str) -> int:
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = fleet.main([*argv, "--client", str(self.client), "--dry-run", "--corpus", str(self.corpus)])
+        self.output = out.getvalue() + err.getvalue()
+        return code
 
-    def test_compare_again_offline(self):
-        with tempfile.TemporaryDirectory() as raw:
-            tmp = Path(raw)
-            ci = FakeCi(make_shards(tmp, 2, {0: (FIVE, FIVE), 1: (SIX, SIX)}))
-            self.assertEqual(run_diff(tmp, ci, "--shards", "2"), 0)
-            with redirect_stdout(io.StringIO()):
-                self.assertEqual(fleet.main(["compare", str(tmp / "out")]), 0)
+    def calls(self, op: str) -> list:
+        path = self.state / "calls.jsonl"
+        rows = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+        return [r for r in rows if r["op"] == op]
 
-
-class ExtractTests(unittest.TestCase):
-    def test_member_outside_the_target_is_refused(self):
-        with tempfile.TemporaryDirectory() as raw:
-            tmp = Path(raw)
-            (tmp / "evil").write_text("x")
-            archive = tmp / "bad.tgz"
-            with tarfile.open(archive, "w:gz") as tar:
-                tar.add(tmp / "evil", arcname="../evil")
-            with self.assertRaises(fleet.FleetError):
-                fleet.extract(archive, tmp / "target")
-            self.assertFalse((tmp / "target").exists())
+    def record(self, out: Path) -> dict:
+        return json.loads((out / "fleet.json").read_text())
 
 
-def main() -> int:
-    suite = unittest.defaultTestLoader.loadTestsFromModule(sys.modules[__name__])
-    return 0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1
+class RunTests(FleetHarness):
+    def test_six_shards_merge_into_one_receipt(self) -> None:
+        out = self.tmp / "out"
+        code = self.fleet("run", "--ref", SHA, "--shards", "6", "--out", str(out), "--run-id", "t1")
+        self.assertEqual(code, fleet.EXIT_OK, self.output)
+        runs = self.calls("run")
+        self.assertEqual(len(runs), 6)
+        for row in runs:
+            args = row["args"]
+            self.assertEqual(args[args.index("--class") + 1], "exclusive")
+            self.assertEqual(args[args.index("--script") + 1], "scripts/measure/oracle.sh")
+            self.assertIn("--no-supersede", args)
+            self.assertIn("--arg=--config=bench", args)
+        receipt = json.loads((out / "run" / "receipt.json").read_text())
+        self.assertEqual(receipt["shards"], [0, 1, 2, 3, 4, 5])
+        self.assertEqual(len(receipt["cases"]), 30)
+        self.assertEqual(receipt["config"]["build"], "bench")
+        self.assertEqual(receipt["config"]["product"], "app")
+        record = self.record(out)
+        self.assertTrue(record["ok"])
+        self.assertEqual(len(record["sides"]["run"]["shards"]), 6)
+        self.assertTrue(all(s["state"] == "done" for s in record["sides"]["run"]["shards"]))
+
+    def test_wait_timeouts_wait_again_and_never_resubmit(self) -> None:
+        os.environ.update({"FAKE_CLIENT_GONE": "1", "FAKE_WAIT_TIMEOUTS": "2"})
+        out = self.tmp / "out"
+        code = self.fleet("run", "--ref", SHA, "--shards", "3", "--out", str(out), "--run-id", "t2")
+        self.assertEqual(code, fleet.EXIT_OK, self.output)
+        self.assertEqual(len(self.calls("run")), 3)
+        self.assertEqual(len(self.calls("wait")), 9)
+        self.assertIn("waiting again (never a resubmit)", self.output)
+
+    def test_a_second_fleet_py_reattaches_to_the_same_steps(self) -> None:
+        out = self.tmp / "out"
+        self.assertEqual(self.fleet("run", "--ref", SHA, "--shards", "2", "--out", str(out), "--run-id", "t3"), 0)
+        self.assertEqual(self.fleet("run", "--ref", SHA, "--shards", "2", "--out", str(out)), 0, self.output)
+        self.assertEqual(len(self.calls("run")), 2)
+        self.assertEqual(self.record(out)["runId"], "t3")
+
+    def test_controller_refusal_is_incomplete_and_names_the_hq_ask(self) -> None:
+        os.environ["FAKE_REFUSE"] = "1"
+        out = self.tmp / "out"
+        code = self.fleet("run", "--ref", SHA, "--shards", "2", "--out", str(out), "--run-id", "t4")
+        self.assertEqual(code, fleet.EXIT_INCOMPLETE)
+        shards = self.record(out)["sides"]["run"]["shards"]
+        self.assertEqual({s["state"] for s in shards}, {"refused"})
+        self.assertIn("measureScripts", shards[0]["error"])
+        self.assertFalse((out / "run").exists())
+
+    def test_worker_refusal_of_an_unreviewed_blob_is_reported(self) -> None:
+        os.environ["FAKE_WORKER_REFUSE"] = "1"
+        out = self.tmp / "out"
+        code = self.fleet("run", "--ref", SHA, "--shards", "1", "--out", str(out), "--run-id", "t5")
+        self.assertEqual(code, fleet.EXIT_INCOMPLETE)
+        shard = self.record(out)["sides"]["run"]["shards"][0]
+        self.assertEqual(shard["state"], "refused")
+        self.assertIn("not the reviewed version", shard["error"])
+
+    def test_glob_filters_travel_hex_encoded(self) -> None:
+        out = self.tmp / "out"
+        code = self.fleet("run", "--ref", SHA, "--shards", "2", "--out", str(out), "--run-id", "t6",
+                          "--filter", "alpha/*")
+        self.assertEqual(code, fleet.EXIT_OK, self.output)
+        args = self.calls("run")[0]["args"]
+        self.assertIn("--arg=--filter-hex=" + "alpha/*".encode().hex(), args)
+        receipt = json.loads((out / "run" / "receipt.json").read_text())
+        self.assertEqual(len(receipt["cases"]), 10)
+        self.assertTrue(all(cid.startswith("alpha/") for cid in receipt["cases"]))
+
+
+class DiffTests(FleetHarness):
+    def test_head_runs_on_the_base_steps_worker(self) -> None:
+        out = self.tmp / "out"
+        code = self.fleet("diff", "--base", SHA, "--head", OTHER_SHA, "--shards", "3", "--out", str(out),
+                          "--run-id", "d1")
+        record = self.record(out)
+        for base, head in zip(record["sides"]["base"]["shards"], record["sides"]["head"]["shards"]):
+            self.assertEqual(head["target_worker"], base["worker"])
+            self.assertEqual(head["worker"], base["worker"])
+        # Both sides merged; oracle.py diff refuses to compare dry runs (nothing ran), exit 3.
+        self.assertTrue((out / "base" / "receipt.json").is_file())
+        self.assertTrue((out / "head" / "receipt.json").is_file())
+        self.assertEqual(record["comparison"]["exit"], code)
+        self.assertEqual(code, 3, self.output)
+
+    def test_engine_parity_runs_one_arm_per_engine_of_one_build(self) -> None:
+        out = self.tmp / "out"
+        code = self.fleet("diff", "--engine", "webkit,chromium", "--ref", SHA, "--shards", "2", "--out", str(out),
+                          "--run-id", "e1")
+        self.assertEqual(code, 3, self.output)  # dry runs: both arms merge, nothing to compare
+        record = self.record(out)
+        self.assertEqual({side: record["sides"][side]["args"] for side in ("webkit", "chromium")},
+                         {"webkit": {"engine": "webkit"}, "chromium": {"engine": "chromium"}})
+        self.assertEqual({record["sides"][side]["sha"] for side in ("webkit", "chromium")}, {SHA})
+        for side in ("webkit", "chromium"):
+            self.assertEqual(json.loads((out / side / "receipt.json").read_text())["config"]["engine"], side)
+        with redirect_stderr(io.StringIO()):
+            for argv in (["--engine", "webkit,webkit", "--ref", SHA], ["--engine", "webkit,gecko", "--ref", SHA],
+                         ["--engine", "webkit,chromium"], ["--engine", "webkit,chromium", "--ref", SHA, "--switch", "x"],
+                         ["--engine", "webkit,chromium", "--base", SHA, "--head", OTHER_SHA]):
+                self.assertEqual(fleet.main(["diff", *argv, "--out", str(self.tmp / "refused")]), fleet.EXIT_USAGE, argv)
+
+    def test_a_cross_host_pair_is_refused(self) -> None:
+        os.environ["FAKE_IGNORE_TARGET"] = "1"
+        out = self.tmp / "out"
+        code = self.fleet("diff", "--base", SHA, "--head", OTHER_SHA, "--shards", "1", "--out", str(out),
+                          "--run-id", "d2")
+        self.assertEqual(code, fleet.EXIT_INCOMPLETE)
+        head = self.record(out)["sides"]["head"]["shards"][0]
+        self.assertIn("ignored --target-worker", head["error"])
+        self.assertNotIn("comparison", self.record(out))
+
+    def diff_with_head_host(self, change, run_id: str) -> int:
+        """A base/head diff of 2 shards whose head receipts, in shard 1 only, get `change` applied to their host."""
+        original = fleet.Fleet.fetch
+
+        def fetch(fleet_self, shard, *, failed):
+            run = original(fleet_self, shard, failed=failed)
+            if run is not None and shard.side == "head" and shard.index == 1:
+                receipt = json.loads((run / "receipt.json").read_text())
+                receipt["host"] = change(dict(receipt["host"]))
+                (run / "receipt.json").write_text(json.dumps(receipt))
+            return run
+
+        with unittest.mock.patch.object(fleet.Fleet, "fetch", fetch):
+            return self.fleet("diff", "--base", SHA, "--head", OTHER_SHA, "--shards", "2",
+                              "--out", str(self.tmp / run_id), "--run-id", run_id)
+
+    def test_every_receipt_records_host_os_and_display(self) -> None:
+        out = self.tmp / "out"
+        self.fleet("diff", "--base", SHA, "--head", OTHER_SHA, "--shards", "1", "--out", str(out), "--run-id", "h0")
+        for side in ("base", "head"):
+            host = json.loads((out / "shards" / side / "0" / "unpacked" / "run" / "receipt.json").read_text())["host"]
+            self.assertEqual(set(host), {"name", "os", "osVersion", "arch", "display"})
+            self.assertIsNotNone(host["display"])
+
+    def test_forced_cross_host_os_or_display_pairs_are_refused(self) -> None:
+        for run_id, change, field in (
+                ("h1", lambda host: {**host, "name": "aws-m4pro-6"}, "name"),
+                ("h2", lambda host: {**host, "osVersion": "27.0"}, "osVersion"),
+                ("h3", lambda host: {**host, "display": "1600 x 1000 @ 120.00Hz (1600 x 1000 px), 2 displays"},
+                 "display"),
+                ("h4", lambda host: {k: v for k, v in host.items() if k != "display"}, "display (not recorded)")):
+            with self.subTest(field=field):
+                self.assertEqual(self.diff_with_head_host(change, run_id), fleet.EXIT_INCOMPLETE, self.output)
+                record = self.record(self.tmp / run_id)
+                self.assertEqual(record["verdict"], "host-mismatch")
+                self.assertEqual(list(record["mismatched"]), ["shard 1"])
+                self.assertTrue(record["mismatched"]["shard 1"][0].startswith(field), record["mismatched"])
+                self.assertNotIn("comparison", record)
+                self.assertFalse(record["ok"])
+                self.assertFalse((self.tmp / run_id / "compare").exists())
+                self.assertIn("host-mismatch", self.output)
+
+
+FIXTURE_SWIFT = "Packages/macOS/CmuxNext/Sources/Fixture/Index.swift"
+FIXTURE_MUTANT = "tests/oracle/mutants/app/fixture-off-by-one.patch"
+
+
+class MutantFixture(FleetHarness):
+    """A checkout with one committed Swift source and an app mutant of it (p15-oracle-026)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        git = ["git", "-C", str(self.checkout), "-c", "user.email=t@t", "-c", "user.name=t"]
+        source = self.checkout / FIXTURE_SWIFT
+        source.parent.mkdir(parents=True)
+        source.write_text("func index(_ i: Int) -> Int {\n    i\n}\n")
+        subprocess.run(git + ["add", "-A"], check=True)
+        subprocess.run(git + ["commit", "-q", "-m", "swift"], check=True)
+        source.write_text("func index(_ i: Int) -> Int {\n    i + 1\n}\n")
+        body = subprocess.run(git + ["diff"], check=True, stdout=subprocess.PIPE, text=True).stdout
+        subprocess.run(git + ["checkout", "-q", "--", FIXTURE_SWIFT], check=True)
+        mutant = self.checkout / FIXTURE_MUTANT
+        mutant.parent.mkdir(parents=True, exist_ok=True)
+        mutant.write_text("Mutant: app/fixture-off-by-one\nSuite: actions\nExercises: index\nFault: off by one.\n\n" + body)
+        subprocess.run(git + ["add", "-A"], check=True)
+        subprocess.run(git + ["commit", "-q", "-m", "mutant"], check=True)
+        self.sha = subprocess.run(git + ["rev-parse", "HEAD"], check=True, stdout=subprocess.PIPE,
+                                  text=True).stdout.strip()
+        self.saved_repo = fleet.REPO
+        fleet.REPO = self.checkout
+
+    def tearDown(self) -> None:
+        fleet.REPO = self.saved_repo
+        super().tearDown()
+
+
+class MutantTests(MutantFixture):
+    """App mutants (p15-oracle-026): the head step gets --mutant=PATH, oracle.sh checks it applies in its checkout."""
+
+    def test_the_head_step_alone_gets_the_mutant(self) -> None:
+        out = self.tmp / "out"
+        code = self.fleet("diff", "--base", self.sha, "--head", self.sha, "--head-mutant", FIXTURE_MUTANT,
+                          "--shards", "2", "--out", str(out), "--run-id", "m1")
+        self.assertEqual(code, 3, self.output)  # dry runs: both sides merge, nothing to compare
+        arg = f"--arg=--mutant={FIXTURE_MUTANT}"
+        by_side: dict = {}
+        for row in self.calls("run"):
+            key = row["args"][row["args"].index("--key") + 1]
+            by_side.setdefault(key.split("-")[2], []).append(arg in row["args"])
+        self.assertEqual(by_side, {"base": [False, False], "head": [True, True]})
+        record = self.record(out)
+        self.assertEqual(record["sides"]["head"]["args"], {"mutant": FIXTURE_MUTANT})
+        self.assertEqual(record["sides"]["base"]["args"], {})
+        step = json.loads((out / "shards" / "head" / "0" / "unpacked" / "fleet-step.json").read_text())
+        self.assertEqual(step["mutant"], "app/fixture-off-by-one")
+        base = json.loads((out / "shards" / "base" / "0" / "unpacked" / "fleet-step.json").read_text())
+        self.assertIsNone(base["mutant"])
+        self.assertNotIn("i + 1", (self.checkout / FIXTURE_SWIFT).read_text(), "a dry run applies nothing")
+
+    def test_a_mutant_that_does_not_apply_fails_its_step(self) -> None:
+        git = ["git", "-C", str(self.checkout), "-c", "user.email=t@t", "-c", "user.name=t"]
+        (self.checkout / FIXTURE_SWIFT).write_text("func index(_ j: Int) -> Int {\n    j\n}\n")
+        subprocess.run(git + ["commit", "-q", "-am", "moved on"], check=True)
+        sha = subprocess.run(git + ["rev-parse", "HEAD"], check=True, stdout=subprocess.PIPE, text=True).stdout.strip()
+        out = self.tmp / "out"
+        code = self.fleet("run", "--ref", sha, "--mutant", FIXTURE_MUTANT, "--out", str(out), "--run-id", "m2")
+        self.assertEqual(code, fleet.EXIT_INCOMPLETE, self.output)
+        log = (out / "shards" / "run" / "0" / "step.log").read_text()
+        self.assertIn("does not apply", log)
+
+    def test_mutant_paths_are_checked_before_any_submission(self) -> None:
+        for path, message in (("tests/oracle/mutants/daemon/x.patch", "an app mutant is"),
+                              ("../escape.patch", "an app mutant is"),
+                              ("tests/oracle/mutants/app/missing.patch", "unreadable")):
+            with self.subTest(path=path):
+                self.assertEqual(self.fleet("run", "--ref", self.sha, "--mutant", path, "--out", str(self.tmp / "o")),
+                                 fleet.EXIT_USAGE)
+                self.assertIn(message, self.output)
+        (self.checkout / FIXTURE_MUTANT).write_text((self.checkout / FIXTURE_MUTANT).read_text() + "\n")
+        self.assertEqual(self.fleet("run", "--ref", self.sha, "--mutant", FIXTURE_MUTANT), fleet.EXIT_USAGE)
+        self.assertIn("differs from", self.output)
+        self.assertEqual(self.fleet("diff", "--ref", self.sha, "--switch", "x", "--head-mutant", FIXTURE_MUTANT),
+                         fleet.EXIT_USAGE)
+        self.assertIn("goes with --base/--head", self.output)
+        self.assertEqual(self.calls("run"), [])
+
+
+# The build oracle.sh runs, stubbed: it records whether the fault is in the source it compiles, then acts as
+# STUB_RELOAD says (ok: prints an app path; fail: a failed build; hang: waits to be signalled; lock: leaves
+# .git/index.lock, as a concurrent git command would, so the revert cannot write the index).
+STUB_RELOAD = r'''#!/usr/bin/env bash
+set -eu
+grep -c "i + 1" "Packages/macOS/CmuxNext/Sources/Fixture/Index.swift" >"$STUB_LOG/reload-saw" || true
+case "$STUB_RELOAD" in
+  ok | lock)
+    [[ "$STUB_RELOAD" == ok ]] || : >.git/index.lock
+    mkdir -p "$STUB_LOG/cmux DEV oracle.app"
+    printf 'App path:\n  %s\n' "$STUB_LOG/cmux DEV oracle.app" ;;
+  fail) echo "error: stub build failed"; exit 1 ;;
+  hang) : >"$STUB_LOG/reload-started"; sleep 60 ;;
+esac
+'''
+# fleet.py step, stubbed: its argv is the record under test.
+STUB_STEP = r'''import json, os, sys
+open(os.path.join(os.environ["STUB_LOG"], "step.json"), "w").write(json.dumps(sys.argv[1:]))
+'''
+
+
+class MutantBuildTests(MutantFixture):
+    """oracle.sh without --dry-run: the mutant is in the build, the reused checkout is clean after every exit."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.stub_log = self.tmp / "stub"
+        self.stub_log.mkdir()
+        reload = self.checkout / "scripts" / "reload.sh"
+        reload.write_text(STUB_RELOAD)
+        reload.chmod(0o755)
+        (self.checkout / "scripts" / "cmux-next" / "oracle" / "fleet.py").write_text(STUB_STEP)
+        for sub in ("ghostty", "ghostty-next"):
+            (self.checkout / sub).mkdir()
+            (self.checkout / sub / ".git").write_text("gitdir: elsewhere\n")
+        (self.checkout / "GhosttyKit.xcframework").mkdir()
+        (self.checkout / "GhosttyKit.xcframework" / "Info.plist").write_text("")
+
+    def start(self, reload: str, *, mutant: bool = True) -> subprocess.Popen:
+        argv = ["bash", "scripts/measure/oracle.sh", "--shard=0/1", "--artifact=artifacts/oracle/s.tar.gz"]
+        argv += [f"--mutant={FIXTURE_MUTANT}"] if mutant else []
+        env = {**os.environ, "STUB_LOG": str(self.stub_log), "STUB_RELOAD": reload, "TMPDIR": str(self.tmp)}
+        return subprocess.Popen(argv, cwd=self.checkout, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, start_new_session=True)
+
+    def build(self, reload: str, *, mutant: bool = True) -> subprocess.CompletedProcess:
+        proc = self.start(reload, mutant=mutant)
+        out, _ = proc.communicate(timeout=60)
+        return subprocess.CompletedProcess(proc.args, proc.returncode, out)
+
+    def killed_during_build(self, signal_number: int) -> subprocess.CompletedProcess:
+        proc = self.start("hang")
+        started = self.stub_log / "reload-started"
+        deadline = time.monotonic() + 30
+        while not started.exists() and proc.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(started.exists(), "the stub build never started")
+        os.killpg(proc.pid, signal_number)
+        out, _ = proc.communicate(timeout=60)
+        return subprocess.CompletedProcess(proc.args, proc.returncode, out)
+
+    def saw_fault(self) -> bool:
+        return (self.stub_log / "reload-saw").read_text().strip() == "1"
+
+    def journal(self) -> Path:
+        return self.checkout / ".git" / "oracle-mutant-files"
+
+    def assert_clean(self) -> None:
+        status = subprocess.run(["git", "-C", str(self.checkout), "status", "--porcelain", "--", "Packages"],
+                                check=True, stdout=subprocess.PIPE, text=True).stdout
+        self.assertEqual(status, "")
+        self.assertFalse(self.journal().exists())
+
+    def step_args(self) -> dict:
+        argv = json.loads((self.stub_log / "step.json").read_text())
+        return {name[2:]: value for name, value in zip(argv, argv[1:]) if name in ("--mutant", "--source-diff")}
+
+    def test_the_build_compiles_the_fault_and_the_checkout_is_clean_after(self) -> None:
+        result = self.build("ok")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertTrue(self.saw_fault())
+        self.assertIn("reverted mutant app/fixture-off-by-one", result.stdout)
+        args = self.step_args()
+        self.assertEqual(args["mutant"], "app/fixture-off-by-one")
+        self.assertRegex(args["source-diff"], r"^[0-9a-f]{64}$")
+        self.assert_clean()
+        clean = self.build("ok", mutant=False)
+        self.assertEqual(clean.returncode, 0, clean.stdout)
+        self.assertFalse(self.saw_fault())
+        self.assertEqual(self.step_args(), {"source-diff": "none"})
+
+    def test_a_failed_build_reverts_the_fault(self) -> None:
+        result = self.build("fail")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertTrue(self.saw_fault())
+        self.assert_clean()
+
+    def test_term_during_the_build_reverts_the_fault(self) -> None:
+        result = self.killed_during_build(signal.SIGTERM)
+        self.assertEqual(result.returncode, 128 + signal.SIGTERM, result.stdout)
+        self.assertTrue(self.saw_fault())
+        self.assert_clean()
+
+    def test_the_next_build_restores_what_a_killed_step_left(self) -> None:
+        self.killed_during_build(signal.SIGKILL)
+        self.assertIn("i + 1", (self.checkout / FIXTURE_SWIFT).read_text(), "SIGKILL runs no trap")
+        self.assertTrue(self.journal().exists())
+        result = self.build("ok", mutant=False)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("restored the files a killed mutant step left changed", result.stdout)
+        self.assertFalse(self.saw_fault(), "the clean build compiled the leftover fault")
+        self.assertEqual(self.step_args(), {"source-diff": "none"})
+        self.assert_clean()
+
+    def test_a_changed_product_source_is_refused_before_the_build(self) -> None:
+        (self.checkout / FIXTURE_SWIFT).write_text("func index(_ i: Int) -> Int {\n    i * 2\n}\n")
+        result = self.build("ok", mutant=False)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("tracked product sources differ from HEAD", result.stdout)
+        self.assertIn(FIXTURE_SWIFT, result.stdout)
+        self.assertFalse((self.stub_log / "reload-saw").exists(), "nothing was built")
+        self.assertIn("i * 2", (self.checkout / FIXTURE_SWIFT).read_text(), "the edit is not discarded")
+
+    def test_a_revert_that_fails_fails_the_step(self) -> None:
+        result = self.build("lock")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("could not revert mutant app/fixture-off-by-one", result.stdout)
+        self.assertTrue(self.journal().exists(), "the journal stays for the next build")
+        (self.checkout / ".git" / "index.lock").unlink()
+        again = self.build("ok", mutant=False)
+        self.assertEqual(again.returncode, 0, again.stdout)
+        self.assertFalse(self.saw_fault())
+        self.assert_clean()
+
+
+class UnitTests(unittest.TestCase):
+    def test_maclease_is_never_the_client(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "maclease"
+            path.write_text("#!/bin/sh\n")
+            path.chmod(0o755)
+            with self.assertRaises(fleet.UsageError):
+                fleet.find_client(str(path))
+
+    def test_encode_decode_round_trip(self) -> None:
+        for name, value in (("suite", "alpha,beta"), ("filter", "alpha/*,beta/case-00?"), ("filter", "a b")):
+            self.assertEqual(fleet.decode_args([fleet.encode_arg(name, value)]), [f"--{name}={value}"])
+        self.assertEqual(fleet.encode_arg("suite", "alpha"), "--suite=alpha")
+
+    def test_unpack_refuses_names_outside_the_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tarball = Path(tmp) / "bad.tar.gz"
+            with tarfile.open(tarball, "w:gz") as archive:
+                data = b"x"
+                info = tarfile.TarInfo("../escape")
+                info.size = len(data)
+                archive.addfile(info, io.BytesIO(data))
+            with self.assertRaises(fleet.UsageError):
+                fleet.unpack(tarball, Path(tmp) / "dest")
+            self.assertFalse((Path(tmp) / "escape").exists())
+
+    def test_step_args_fit_the_controller(self) -> None:
+        side = fleet.Side("launch-config", SHA, (("arm", "launch-config"),))
+        selection = fleet.Selection(suites=("actions", "journeys"), filters=("actions/*",), repeat=2, retry_limit=3,
+                                    seed=7, batch_limit=10)
+        with tempfile.TemporaryDirectory() as tmp:
+            fleet.make_shards(side, run_id="20261026T114552Z-abc123", total=64, selection=selection, out=Path(tmp))
+        self.assertEqual(len(side.shards), 64)
+        for shard in side.shards:
+            self.assertRegex(shard.key, fleet.KEY_PATTERN)
+            self.assertLessEqual(len(shard.args), fleet.MAX_STEP_ARGS)
+            self.assertTrue(all(fleet.ARG_PATTERN.match(a) for a in shard.args), shard.args)
+
+    def test_vm_only_options_are_refused(self) -> None:
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(fleet.main(["run", "--ref", SHA, "--jobs", "200"]), fleet.EXIT_USAGE)
+
+    def test_step_refuses_unknown_forwarded_options(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, redirect_stderr(io.StringIO()):
+            code = fleet.main(["step", "--ref", SHA, "--tag", "oracle", "--shard", "0/1", "--work", tmp,
+                               "--artifact", "artifacts/oracle/x.tar.gz", "--dry-run", "--binary=/Applications/cmux.app"])
+        self.assertEqual(code, fleet.EXIT_USAGE)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    unittest.main()
