@@ -488,6 +488,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             };
             let id = crate::cli::resolve::routed_id(&v)?;
             let session_id = v["sessionId"].as_str().unwrap_or_default();
+            let session_id = v["peer"]
+                .as_str()
+                .and_then(|peer| session_id.strip_prefix(&format!("{peer}/")))
+                .unwrap_or(session_id);
             // Started past this host's lane cap: a warning, never a refusal (`hub/admission.rs`).
             if reused.is_none()
                 && let Some(w) =

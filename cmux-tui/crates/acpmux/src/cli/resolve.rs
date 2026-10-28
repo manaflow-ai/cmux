@@ -61,6 +61,7 @@ pub(crate) fn routed_id(session: &Value) -> Result<String> {
     // Local replies retain the unqualified id. For a peer, never lose its route by looking
     // up the bare id a second time: another daemon may hold a copy of the same session.
     Ok(match session["peer"].as_str() {
+        Some(peer) if id.strip_prefix(&format!("{peer}/")).is_some() => id.to_owned(),
         Some(peer) => format!("{peer}/{id}"),
         None => id.to_owned(),
     })
