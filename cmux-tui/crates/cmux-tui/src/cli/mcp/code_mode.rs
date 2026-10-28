@@ -67,23 +67,36 @@ const MAX_LOG_BYTES: usize = 64 << 10;
 const DOCS_DEFAULT_LIMIT: usize = 8;
 const DOCS_MAX_LIMIT: usize = 30;
 /// Further matching names a docs answer lists without schemas.
-const DOCS_MORE_NAMES: usize = 60;
+const DOCS_MORE_NAMES: usize = 24;
 
-pub(super) const INSTRUCTIONS: &str = "cmux tools run in code mode, through cmux_exec. In a \
-    script, `cmux.docs(query)` searches every cmux tool and returns its input schema, and the script calls them: `await cmux.pane_split({...})`; put related steps in \
-    one script and return what you need. Tools of the chat's other cmux servers (cua_*, \
-    secrets_*, sessions_*, subsessions_*, forum_*) come with their rules in `servers` of a \
-    cmux.docs answer: follow them. Objects have public ids (ws_…, pane_…, tab_…, term_…) \
-    from the *_list tools; a unique prefix or <session>:<id> works. `current` is this chat's \
-    own workspace or pane; `focused` is the one the person looks at. A change takes \
-    idempotency_key: on in_progress, retry with the key from the error; another server's \
-    call that fails in_progress has no key and may have run, so check its effect first. Tools \
-    never move the \
-    user's focus unless the call passes focus: true or the tool's purpose is focus. Name \
-    workspaces and tabs to the person by title, never by id. When they must act in a tab \
-    (log in, confirm, approve), tab_update {tab, attention: \"reason\"} marks it; tab_focus \
-    it when they ask to go there. In a chat reply, show UI: ![alt](/abs/path.png) or an image \
-    path or https address draws as a thumbnail.";
+/// Arguments every change or every read takes, explained once in
+/// [`INSTRUCTIONS`]; a docs answer lists them by name only.
+const COMMON_ARGUMENTS: [&str; 5] =
+    ["idempotency_key", "expected_revision", "correlation_key", "session", "machine"];
+/// Selector arguments, whose long shared description [`INSTRUCTIONS`] gives.
+const SELECTORS: [&str; 6] = ["workspace", "screen", "pane", "tab", "terminal", "window"];
+/// Sentences every daemon tool or app action description repeats.
+const BOILERPLATE: [&str; 5] = [
+    " Changes state on the cmux session daemon. A call that fails with state in_progress may \
+     have applied; retry it with the idempotency_key the error returns.",
+    " Reads the cmux session daemon and changes nothing.",
+    " Runs in the cmux app and waits until its work is done.",
+    " An MCP run changes the user's focus only when focus is true or the action's purpose is \
+     focus.",
+    "Default false: the user's view stays as it is.",
+];
+
+pub(super) const INSTRUCTIONS: &str = "cmux tools run through cmux_exec scripts; its \
+    description lists the common ones. Selectors (workspace, screen, pane, tab, terminal) take a \
+    public id (ws_…, pane_…, tab_…, term_…), a unique prefix, <session>:<id>, an exact name, \
+    `current` (this chat's own) or `focused` (the one the person looks at). Tools of the chat's \
+    other cmux servers (cua_*, secrets_*, sessions_*, subsessions_*, forum_*) come with their \
+    rules in `servers` of a cmux.docs answer: follow them. A change takes idempotency_key: on \
+    in_progress, retry with the key from the error; another server's call that fails \
+    in_progress has no key and may have run, so check its effect first. Tools never move the \
+    person's focus unless the call passes focus: true. Name workspaces and tabs to the person \
+    by title, never by id. When they must act in a tab (log in, confirm), tab_update {tab, \
+    attention: \"reason\"} marks it. In a reply, ![alt](/abs/path.png) shows an image.";
 
 /// The one tool `serve` lists in code mode, `cmux_exec` (Lawrence 2026-10-23:
 /// an agent sees no other cmux tool name; a script searches with
@@ -99,15 +112,33 @@ pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
         "name": EXEC,
         "title": "Run a cmux script",
         "description": format!(
-            "Run JavaScript that calls cmux tools and return its result. The script is \
-             an async function body: use await and return a JSON value. \
-             `cmux.docs(query)` finds tools with their input schemas (words such as \
-             \"pane split\", or nothing for every name by family); \
-             `cmux.call(name, args)` or `cmux.<tool_name>(args)` calls one and returns its \
-             result; a failed call throws an Error whose `cmux` field has the error, its \
-             state and its idempotency key. console.log output comes back in logs. There \
-             is no file system, network or timer access. A failed script reports the calls \
-             that already ran. Families: {families}."
+            "Run JavaScript that calls cmux tools and return its result: an async function \
+             body, `await cmux.<tool>({{...}})` per call, `return` a JSON value. Do related \
+             steps in one script: look up, act and check together. No file system, network or \
+             timers; console.log comes back in logs.\n\n\
+             Common tools (no docs search needed):\n\
+             - workspace_list, workspace_get, pane_list {{workspace}}, tab_list {{pane | \
+             workspace}}, terminal_list, terminal_get: ids and names. Lists answer {{items: \
+             [...]}}; a change answers {{value: {{...}}}} with the new ids (value.terminal_id, \
+             value.pane_id, value.tab_id).\n\
+             - tab_create_terminal {{shell, name}}: with no pane, the terminal opens on the \
+             person's right, as a tab in the column right of this chat, or a new column when \
+             there is none. Use it for 'open a terminal', 'run X on my right', 'next to my \
+             logs'.\n\
+             - pane_split {{pane, direction, shell}}: only when the person asks for a split. A \
+             pane or tab started with shell closes when that command exits; to keep the \
+             output, start a shell and type the command with terminal_input_write.\n\
+             - terminal_input_write {{terminal, text: \"cmd\\n\"}}; terminal_wait {{terminal, \
+             pattern, timeout_ms}} waits for text (never sleep or poll); terminal_screen_read and \
+             terminal_history_read {{terminal}} read it.\n\
+             - tab_rename, tab_close, tab_focus {{tab}}; workspace_rename {{workspace, name}}; \
+             tab_group_create, workspace_group_create; workspace_status_set; \
+             notification_create.\n\n\
+             Anything else: `await cmux.docs(\"words\")` answers {{tools: [{{name, description, \
+             inputSchema}}], more: [names]}}; a tool's exact name finds it first. \
+             app_* tools are the app's menu actions. A failed call throws an Error whose `cmux` \
+             field has the error, its state and its idempotency key; its message names the fix. \
+             A failed script reports the calls that already ran. Families: {families}."
         ),
         "inputSchema": {
             "type": "object",
@@ -162,7 +193,7 @@ pub(super) fn docs(tools: &[Value], arguments: &Map<String, Value>) -> Result<Va
         let mut unknown = Vec::new();
         for name in names {
             match tools.iter().find(|tool| tool["name"] == name) {
-                Some(tool) => found.push(tool.clone()),
+                Some(tool) => found.push(compact(tool)),
                 None => unknown.push(name),
             }
         }
@@ -237,7 +268,7 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
     let mut answer = json!({
         "query": query,
         "matches": scored.len(),
-        "tools": scored.iter().take(limit).map(|(_, tool)| (*tool).clone()).collect::<Vec<_>>(),
+        "tools": scored.iter().take(limit).map(|(_, tool)| compact(tool)).collect::<Vec<_>>(),
         "more": more,
     });
     // A task no one tool answers (`cmux docs search` returns the same).
@@ -246,6 +277,72 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
         answer["guides"] = json!(guides);
     }
     answer
+}
+
+/// Up to five tool names for a name no tool has: what a docs search for
+/// its words finds, daemon tools first.
+pub(super) fn nearest_names(tools: &[Value], name: &str) -> Vec<String> {
+    search(tools, name, 5)["tools"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
+        .collect()
+}
+
+/// A tool as a docs answer shows it: what a model needs to call it, at
+/// about half the size of the listed descriptor (tests/tool-evals,
+/// 2026-10-27: six typical docs answers were 82 KB, most of it the same
+/// selector, idempotency and protocol text in every tool). The call is
+/// still checked against the full schema.
+fn compact(tool: &Value) -> Value {
+    let mut description = tool["description"].as_str().unwrap_or_default().to_owned();
+    for sentence in BOILERPLATE {
+        description = description.replace(sentence, "");
+    }
+    // "(cmux.protocol/2 `pane.split`)" names the wire operation, which a
+    // script never uses.
+    if let (Some(start), Some(tag)) =
+        (description.find(" (cmux.protocol/2 `"), description.find("`)."))
+        && start < tag
+    {
+        description.replace_range(start..tag + 2, ".");
+    }
+    let schema = &tool["inputSchema"];
+    let mut properties = Map::new();
+    let mut common = Vec::new();
+    for (name, property) in schema["properties"].as_object().into_iter().flatten() {
+        if COMMON_ARGUMENTS.contains(&name.as_str()) {
+            common.push(name.clone());
+            continue;
+        }
+        let mut property = property.clone();
+        if SELECTORS.contains(&name.as_str())
+            && let Some(object) = property.as_object_mut()
+        {
+            object.remove("description");
+            object.remove("minLength");
+        }
+        properties.insert(name.clone(), property);
+    }
+    let mut compact = json!({
+        "name": tool["name"],
+        "description": description.trim(),
+        "inputSchema": {"type": "object", "properties": properties},
+    });
+    if let Some(required) = schema.get("required").filter(|required| required != &&json!([])) {
+        compact["inputSchema"]["required"] = required.clone();
+    }
+    if !common.is_empty() {
+        compact["alsoTakes"] = json!(common);
+    }
+    if tool["annotations"]["readOnlyHint"] == true {
+        compact["readOnly"] = json!(true);
+    }
+    if tool["annotations"]["destructiveHint"] == true {
+        compact["destructive"] = json!(true);
+    }
+    compact
 }
 
 /// What a script asks the server for while it runs.

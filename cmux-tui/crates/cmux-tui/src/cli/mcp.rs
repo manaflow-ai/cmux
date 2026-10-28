@@ -881,7 +881,19 @@ impl<B: Backend> Server<B> {
                 )
             }
             code_mode::Request::Call { name, arguments } => {
-                let result = self.call(&json!({"name": name, "arguments": arguments}));
+                let mut result = self.call(&json!({"name": name, "arguments": arguments}));
+                // A guessed name (`context`, `terminal_send`) gets the tools
+                // a docs search for it finds, so the next call can be right
+                // (tests/tool-evals, 2026-10-27).
+                if let Err((_, message)) = &mut result
+                    && message.starts_with("unknown tool")
+                {
+                    let tools = tools.get_or_insert_with(|| self.list());
+                    let near = code_mode::nearest_names(tools, &name);
+                    if !near.is_empty() {
+                        message.push_str(&format!("; did you mean {}?", near.join(", ")));
+                    }
+                }
                 code_mode::script_answer(result, images)
             }
             code_mode::Request::Docs { query } => {
