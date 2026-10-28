@@ -130,6 +130,12 @@ struct LiveIdentity {
     ips: Vec<String>,
 }
 
+#[derive(Clone, Copy)]
+struct ClosePlan {
+    logout: bool,
+    reopen: bool,
+}
+
 fn state_name(state: BackendState) -> &'static str {
     match state {
         BackendState::NoState => "no_state",
@@ -143,10 +149,26 @@ fn state_name(state: BackendState) -> &'static str {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RetirementPhase {
+    Waiting,
+    Closing,
+}
+
+enum LifecycleState {
+    Stopped,
+    Starting,
+    Running(Arc<Node>),
+    Retiring { node: Option<Arc<Node>>, phase: RetirementPhase },
+    LoggingOut { node: Option<Arc<Node>>, reopen: bool },
+}
+
 struct Inner {
     snapshot: Snapshot,
-    node: Option<Arc<Node>>,
-    starting: bool,
+    /// The one lifecycle state machine. Every transition is made while the
+    /// short `inner` mutex is held; blocking node work happens after the
+    /// transition and is reconciled with `generation`.
+    state: LifecycleState,
     generation: u64,
     /// Set by daemon shutdown and never cleared: no node starts after it.
     closed: bool,
@@ -180,8 +202,7 @@ impl Controller {
             hostname: hostname.into(),
             inner: Mutex::new(Inner {
                 snapshot: Snapshot { state: "not_started", ..Snapshot::default() },
-                node: None,
-                starting: false,
+                state: LifecycleState::Stopped,
                 generation: 0,
                 closed: false,
             }),
@@ -205,7 +226,21 @@ impl Controller {
     /// The live node for the ingress server. It remains valid through a
     /// restart; callers should subscribe and discard it when state stops.
     pub fn node(&self) -> Option<Arc<Node>> {
-        self.inner.lock().unwrap_or_else(PoisonError::into_inner).node.clone()
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        match &inner.state {
+            LifecycleState::Running(node) => Some(Arc::clone(node)),
+            _ => None,
+        }
+    }
+
+    fn state_node(&self) -> Option<Arc<Node>> {
+        let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        match &inner.state {
+            LifecycleState::Running(node)
+            | LifecycleState::Retiring { node: Some(node), .. }
+            | LifecycleState::LoggingOut { node: Some(node), .. } => Some(Arc::clone(node)),
+            _ => None,
+        }
     }
 
     /// Resume only a saved explicit opt-in; an untouched installation creates nothing.
@@ -213,6 +248,20 @@ impl Controller {
         loop {
             let retirement = self.await_retirement_gate().await;
             let lifecycle = self.lifecycle.lock().await;
+            let waiting_for_logout = {
+                let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+                matches!(
+                    &inner.state,
+                    LifecycleState::Retiring { .. } | LifecycleState::LoggingOut { .. }
+                )
+            };
+            if waiting_for_logout {
+                let waiting = self.retirement_finished.notified();
+                drop(lifecycle);
+                drop(retirement);
+                waiting.await;
+                continue;
+            }
             if self.pending_retirement.load(Ordering::Acquire) {
                 drop(lifecycle);
                 drop(retirement);
@@ -260,9 +309,10 @@ impl Controller {
     }
 
     pub(crate) async fn listener_failed(self: &Arc<Self>, failed: &Arc<Node>) {
-        // Mark the retirement before waiting on the gate. A login/logout may
-        // hold the lifecycle lock longer than the supervisor timeout; the
-        // service must not start a replacement while this cleanup is queued.
+        // Retire synchronously before waiting on either async lock. Login and
+        // logout hold the lifecycle lock during blocking LocalAPI calls; the
+        // supervisor may cancel this future after its drain bound, but the
+        // state swap and detached cleanup must still happen.
         let Some((Some(node), generation)) =
             self.begin_listener_retirement(Some(failed), "stopped")
         else {
@@ -271,20 +321,40 @@ impl Controller {
             release_node(Arc::clone(failed));
             return;
         };
-        // The cleanup task owns the failed node and the retirement gate. The
-        // supervisor timeout may cancel only this join, never the cleanup.
+        // The cleanup task owns the failed node and the gate. Dropping its
+        // join handle (for example when the supervisor's close timeout
+        // expires) never cancels the cleanup or opens the gate early.
         let failed = Arc::clone(failed);
         let controller = Arc::clone(self);
+        let cleanup_node = Arc::clone(&node);
         let cleanup = spawn_after_retirement(
             Arc::clone(&self.retirement_gate),
             Arc::clone(&self.lifecycle),
             move || async move {
-                let _ = tokio::task::spawn_blocking(move || node.close().map_err(|e| e.0))
-                    .await
-                    .map_err(|error| error.to_string());
+                let plan = controller.begin_retirement_close(generation, &node);
+                let result = tokio::task::spawn_blocking(move || {
+                    if plan.logout {
+                        logout_and_close(
+                            || cleanup_node.logout().map_err(|e| e.0),
+                            || cleanup_node.close().map_err(|e| e.0),
+                        )
+                    } else {
+                        cleanup_node.close().map_err(|e| e.0)
+                    }
+                })
+                .await
+                .map_err(|error| error.to_string());
+                controller.finish_retirement(generation, &node, plan.reopen, result);
                 controller.note_listener_error_if_current(generation);
-                controller.pending_retirement.store(false, Ordering::Release);
-                controller.retirement_finished.notify_waiters();
+                if !plan.reopen {
+                    controller.pending_retirement.store(false, Ordering::Release);
+                    controller.retirement_finished.notify_waiters();
+                }
+                // `node` is an Arc clone taken for the async state machine;
+                // the blocking client must never be its final drop on a Tokio
+                // worker. The state-owned and failed-listener handles are
+                // transferred the same way below.
+                release_node(node);
                 release_node(failed);
             },
         );
@@ -321,11 +391,20 @@ impl Controller {
 
     async fn start_detached(self: Arc<Self>) -> Result<Snapshot, String> {
         loop {
-            let retirement = self.await_retirement_gate().await;
-            let lifecycle = self.lifecycle.lock().await;
-            if self.pending_retirement.load(Ordering::Acquire) {
-                drop(lifecycle);
-                drop(retirement);
+            let _retirement = self.await_retirement_gate().await;
+            let _lifecycle = self.lifecycle.lock().await;
+            let waiting_for_retirement = {
+                let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+                matches!(
+                    &inner.state,
+                    LifecycleState::Retiring { .. } | LifecycleState::LoggingOut { .. }
+                )
+            };
+            if waiting_for_retirement {
+                let waiting = self.retirement_finished.notified();
+                drop(_lifecycle);
+                drop(_retirement);
+                waiting.await;
                 continue;
             }
             return self.start_locked().await;
@@ -354,12 +433,12 @@ impl Controller {
             if inner.closed {
                 return Err("the daemon is shutting down".to_owned());
             }
-            if inner.node.is_some() || inner.starting {
+            if !matches!(&inner.state, LifecycleState::Stopped) {
                 return Ok(inner.snapshot.clone());
             }
             inner.generation = inner.generation.wrapping_add(1);
             generation = inner.generation;
-            inner.starting = true;
+            inner.state = LifecycleState::Starting;
             inner.snapshot.state = "starting";
             inner.snapshot.error = None;
             self.publish_locked(&inner.snapshot);
@@ -393,17 +472,43 @@ impl Controller {
                 return Err(error);
             }
         };
-        {
+        let close = {
             let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             if self.stopping.load(Ordering::Acquire) {
-                inner.starting = false;
-                tokio::task::spawn_blocking(move || {
-                    let _ = node.close();
-                });
-                return Err("tailnet service is stopping".into());
+                inner.generation = inner.generation.wrapping_add(1);
+                let state_node = Arc::clone(&node);
+                inner.state = LifecycleState::Retiring {
+                    node: Some(state_node.clone()),
+                    phase: RetirementPhase::Closing,
+                };
+                inner.snapshot.node_gone("stopped");
+                self.publish_locked(&inner.snapshot);
+                Some((inner.generation, state_node, false, "tailnet service is stopping"))
+            } else if inner.generation != generation
+                || !matches!(&inner.state, LifecycleState::Starting)
+            {
+                let reopen_logout =
+                    matches!(&inner.state, LifecycleState::LoggingOut { node: None, reopen: true });
+                inner.generation = inner.generation.wrapping_add(1);
+                let state_node = Arc::clone(&node);
+                inner.state = LifecycleState::Retiring {
+                    node: Some(state_node.clone()),
+                    phase: RetirementPhase::Closing,
+                };
+                inner.snapshot.node_gone("stopped");
+                self.publish_locked(&inner.snapshot);
+                Some((inner.generation, state_node, reopen_logout, "tailnet start was superseded"))
+            } else {
+                inner.state = LifecycleState::Running(node.clone());
+                None
             }
-            inner.starting = false;
-            inner.node = Some(node.clone());
+        };
+        if let Some((close_generation, state_node, reopen_logout, message)) = close {
+            let close_result = tokio::task::spawn_blocking(move || node.close().map_err(|e| e.0))
+                .await
+                .map_err(|error| error.to_string());
+            self.finish_start_close(close_generation, &state_node, reopen_logout, close_result);
+            return Err(message.into());
         }
         let this = Arc::clone(&self);
         let watch_node = node.clone();
@@ -426,7 +531,10 @@ impl Controller {
         if inner.generation != generation || self.stopping.load(Ordering::Acquire) {
             return;
         }
-        inner.starting = false;
+        if !matches!(&inner.state, LifecycleState::Starting) {
+            return;
+        }
+        inner.state = LifecycleState::Stopped;
         inner.snapshot =
             Snapshot { state: "error", error: Some(error.to_owned()), ..Snapshot::default() };
         self.publish_locked(&inner.snapshot);
@@ -444,33 +552,62 @@ impl Controller {
     }
 
     async fn logout_detached(self: Arc<Self>) -> Result<Snapshot, String> {
+        // Publish the transition before waiting for either async lock. A
+        // listener-failure cleanup that already owns the gate will therefore
+        // perform logout on the Retiring node instead of silently dropping it.
+        self.request_logout();
         let _retirement = self.retirement_gate.lock().await;
         let _lifecycle = self.lifecycle.lock().await;
+        // The request may have observed Starting before it acquired the
+        // lifecycle lock. Re-apply the transition now that the operation is
+        // serialized, invalidating the starting watch generation as well.
+        self.request_logout();
         let path = self.state_dir.join("enabled");
-        tokio::task::spawn_blocking(move || clear_opt_in(&path))
+        let marker = tokio::task::spawn_blocking(move || clear_opt_in(&path))
             .await
-            .map_err(|e| e.to_string())??;
-        {
-            let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-            inner.generation = inner.generation.wrapping_add(1);
+            .map_err(|e| e.to_string())?;
+        if let Err(error) = marker {
+            self.abort_logout(&error);
+            return Err(error);
         }
-        let node = self.node();
-        if let Some(node) = node {
-            let result = tokio::task::spawn_blocking(move || {
+        let reopen = self.logout_reopens();
+        let node = self.state_node();
+        let result = if reopen {
+            let config = NodeConfig::new(self.state_dir.clone(), self.hostname.clone());
+            Some(tokio::task::spawn_blocking(move || {
+                let node = Arc::new(Node::new(&config).map_err(|e| e.0)?);
+                if let Err(error) = node.start().map_err(|e| e.0) {
+                    let _ = node.close();
+                    return Err(error);
+                }
                 logout_and_close(
                     || node.logout().map_err(|e| e.0),
                     || node.close().map_err(|e| e.0),
                 )
-            })
-            .await
-            .map_err(|error| error.to_string())?;
+            }))
+        } else if let Some(node) = node {
+            Some(tokio::task::spawn_blocking(move || {
+                logout_and_close(
+                    || node.logout().map_err(|e| e.0),
+                    || node.close().map_err(|e| e.0),
+                )
+            }))
+        } else {
+            None
+        };
+        if let Some(result) = result {
+            let result = result.await.map_err(|error| error.to_string())?;
             if let Err(error) = result {
                 self.clear_node("error");
                 self.update(|snapshot| snapshot.error = Some(error.clone()));
+                self.pending_retirement.store(false, Ordering::Release);
+                self.retirement_finished.notify_waiters();
                 return Err(error);
             }
         }
         self.clear_node("stopped");
+        self.pending_retirement.store(false, Ordering::Release);
+        self.retirement_finished.notify_waiters();
         Ok(self.snapshot())
     }
 
@@ -491,7 +628,7 @@ impl Controller {
             let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             inner.generation = inner.generation.wrapping_add(1);
         }
-        if let Some(node) = self.node() {
+        if let Some(node) = self.state_node() {
             let result = tokio::task::spawn_blocking(move || node.close().map_err(|e| e.0))
                 .await
                 .map_err(|error| error.to_string())?;
@@ -511,17 +648,31 @@ impl Controller {
         state: &'static str,
     ) -> Option<(Option<Arc<Node>>, u64)> {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(expected) = expected
-            && !inner.node.as_ref().is_some_and(|node| Arc::ptr_eq(node, expected))
-        {
-            return None;
-        }
+        let node = match &inner.state {
+            LifecycleState::Running(node) => {
+                if let Some(expected) = expected
+                    && !Arc::ptr_eq(node, expected)
+                {
+                    return None;
+                }
+                Some(Arc::clone(node))
+            }
+            LifecycleState::Stopped if expected.is_none() => None,
+            _ => return None,
+        };
         inner.generation = inner.generation.wrapping_add(1);
-        inner.starting = false;
-        let node = inner.node.take();
+        let previous = std::mem::replace(
+            &mut inner.state,
+            LifecycleState::Retiring { node: node.clone(), phase: RetirementPhase::Waiting },
+        );
         inner.snapshot.node_gone(state);
         self.publish_locked(&inner.snapshot);
-        Some((node, inner.generation))
+        let generation = inner.generation;
+        drop(inner);
+        if let LifecycleState::Running(previous) = previous {
+            release_node(previous);
+        }
+        Some((node, generation))
     }
 
     fn begin_listener_retirement(
@@ -533,7 +684,192 @@ impl Controller {
         self.retire_node(expected, state)
     }
 
-    pub(super) fn retirement_pending(&self) -> bool {
+    fn request_logout(&self) {
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let next = match &inner.state {
+            LifecycleState::Running(node) => Some(Some(Arc::clone(node))),
+            LifecycleState::Retiring { node, phase: RetirementPhase::Waiting } => {
+                Some(node.clone())
+            }
+            LifecycleState::Retiring { node: _, phase: RetirementPhase::Closing } => Some(None),
+            LifecycleState::LoggingOut { .. } => None,
+            LifecycleState::Starting => Some(None),
+            LifecycleState::Stopped => Some(None),
+        };
+        if let Some(node) = next {
+            inner.generation = inner.generation.wrapping_add(1);
+            let reopen = node.is_none();
+            let previous =
+                std::mem::replace(&mut inner.state, LifecycleState::LoggingOut { node, reopen });
+            inner.snapshot.node_gone("stopped");
+            self.publish_locked(&inner.snapshot);
+            drop(inner);
+            match previous {
+                LifecycleState::Running(previous)
+                | LifecycleState::Retiring { node: Some(previous), .. } => release_node(previous),
+                _ => {}
+            }
+        }
+    }
+
+    fn logout_reopens(&self) -> bool {
+        matches!(
+            &self.inner.lock().unwrap_or_else(PoisonError::into_inner).state,
+            LifecycleState::LoggingOut { node: None, reopen: true }
+        )
+    }
+
+    fn abort_logout(&self, error: &str) {
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let state = std::mem::replace(&mut inner.state, LifecycleState::Stopped);
+        let held_node = matches!(&state, LifecycleState::LoggingOut { node: Some(_), .. });
+        match state {
+            LifecycleState::LoggingOut { node, reopen } => {
+                inner.generation = inner.generation.wrapping_add(1);
+                inner.state = if let Some(node) = node {
+                    // Marker removal failed before logout began. Keep ownership of
+                    // the live node and let its existing watcher continue under a
+                    // fresh generation; it must never be forgotten.
+                    LifecycleState::Running(node)
+                } else if reopen {
+                    LifecycleState::Stopped
+                } else {
+                    LifecycleState::Stopped
+                };
+                if matches!(&inner.state, LifecycleState::Running(_)) {
+                    inner.snapshot.state = "running";
+                    inner.snapshot.error = Some(error.to_owned());
+                } else {
+                    inner.snapshot.node_gone("error");
+                    inner.snapshot.error = Some(error.to_owned());
+                }
+                self.publish_locked(&inner.snapshot);
+            }
+            state => {
+                debug_assert!(false, "abort_logout called outside LoggingOut");
+                inner.state = state;
+            }
+        }
+        if held_node {
+            debug_assert!(
+                matches!(
+                    &inner.state,
+                    LifecycleState::Running(_) | LifecycleState::Retiring { node: Some(_), .. }
+                ),
+                "a failed logout must transfer a held node to a successor state"
+            );
+        }
+        drop(inner);
+        self.pending_retirement.store(false, Ordering::Release);
+        self.retirement_finished.notify_waiters();
+    }
+
+    fn begin_retirement_close(&self, generation: u64, node: &Arc<Node>) -> ClosePlan {
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        match &inner.state {
+            LifecycleState::Retiring { node: Some(current), phase: RetirementPhase::Waiting }
+                if Arc::ptr_eq(current, node) && inner.generation == generation =>
+            {
+                inner.state = LifecycleState::Retiring {
+                    node: Some(Arc::clone(node)),
+                    phase: RetirementPhase::Closing,
+                };
+                ClosePlan { logout: false, reopen: false }
+            }
+            LifecycleState::LoggingOut { node: Some(current), reopen: false }
+                if Arc::ptr_eq(current, node) =>
+            {
+                ClosePlan { logout: true, reopen: false }
+            }
+            LifecycleState::LoggingOut { node: None, reopen: true } => {
+                ClosePlan { logout: false, reopen: true }
+            }
+            _ => ClosePlan { logout: false, reopen: false },
+        }
+    }
+
+    fn finish_retirement(
+        &self,
+        generation: u64,
+        node: &Arc<Node>,
+        reopen: bool,
+        result: Result<Result<(), String>, String>,
+    ) {
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let same = matches!(
+            &inner.state,
+            LifecycleState::Retiring { node: Some(current), .. }
+            | LifecycleState::LoggingOut { node: Some(current), .. }
+                if Arc::ptr_eq(current, node)
+        );
+        if !same && !reopen {
+            return;
+        }
+        if reopen {
+            return;
+        }
+        let retired = std::mem::replace(&mut inner.state, LifecycleState::Stopped);
+        let error = match result {
+            Ok(inner) => inner.err(),
+            Err(error) => Some(error),
+        };
+        if let Some(error) = error {
+            inner.snapshot.state = "error";
+            inner.snapshot.error = Some(error);
+        } else if inner.generation == generation {
+            inner.snapshot.node_gone("stopped");
+        }
+        self.publish_locked(&inner.snapshot);
+        drop(inner);
+        match retired {
+            LifecycleState::Retiring { node: Some(retired), .. }
+            | LifecycleState::LoggingOut { node: Some(retired), .. } => release_node(retired),
+            _ => {}
+        }
+    }
+
+    fn finish_start_close(
+        &self,
+        generation: u64,
+        node: &Arc<Node>,
+        reopen_logout: bool,
+        result: Result<Result<(), String>, String>,
+    ) {
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        let same = matches!(
+            &inner.state,
+            LifecycleState::Retiring { node: Some(current), phase: RetirementPhase::Closing }
+                if Arc::ptr_eq(current, node) && inner.generation == generation
+        );
+        if !same {
+            return;
+        }
+        let retired = std::mem::replace(
+            &mut inner.state,
+            if reopen_logout {
+                LifecycleState::LoggingOut { node: None, reopen: true }
+            } else {
+                LifecycleState::Stopped
+            },
+        );
+        let error = match result {
+            Ok(result) => result.err(),
+            Err(error) => Some(error),
+        };
+        if let Some(error) = error {
+            inner.snapshot.state = "error";
+            inner.snapshot.error = Some(error);
+        } else {
+            inner.snapshot.node_gone("stopped");
+        }
+        self.publish_locked(&inner.snapshot);
+        drop(inner);
+        if let LifecycleState::Retiring { node: Some(retired), .. } = retired {
+            release_node(retired);
+        }
+    }
+
+    pub(crate) fn retirement_pending(&self) -> bool {
         self.pending_retirement.load(Ordering::Acquire)
     }
 
@@ -560,8 +896,12 @@ impl Controller {
 
     fn clear_node(&self, state: &'static str) {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        let node = inner.node.take();
-        inner.starting = false;
+        let node = match std::mem::replace(&mut inner.state, LifecycleState::Stopped) {
+            LifecycleState::Running(node)
+            | LifecycleState::Retiring { node: Some(node), .. }
+            | LifecycleState::LoggingOut { node: Some(node), .. } => Some(node),
+            _ => None,
+        };
         inner.snapshot.node_gone(state);
         self.publish_locked(&inner.snapshot);
         drop(inner);
@@ -573,11 +913,15 @@ impl Controller {
     fn clear_if_same(&self, node: &Arc<Node>, generation: u64, state: &'static str) {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         if inner.generation == generation
-            && inner.node.as_ref().is_some_and(|current| Arc::ptr_eq(current, node))
+            && matches!(&inner.state, LifecycleState::Running(current) if Arc::ptr_eq(current, node))
         {
-            inner.node = None;
+            let previous = std::mem::replace(&mut inner.state, LifecycleState::Stopped);
             inner.snapshot.node_gone(state);
             self.publish_locked(&inner.snapshot);
+            drop(inner);
+            if let LifecycleState::Running(previous) = previous {
+                release_node(previous);
+            }
         }
     }
 
@@ -685,7 +1029,11 @@ mod tests {
     fn tailnet_late_start_failure_cannot_replace_shutdown_state() {
         let temporary = tempfile::tempdir().unwrap();
         let controller = Controller::new(temporary.path(), "test");
-        let generation = controller.inner.lock().unwrap().generation;
+        let generation = {
+            let mut inner = controller.inner.lock().unwrap();
+            inner.state = LifecycleState::Starting;
+            inner.generation
+        };
         controller.start_failed(generation, "start failed");
         assert_eq!(controller.snapshot().state, "error");
         controller.begin_shutdown();
@@ -763,6 +1111,57 @@ mod tests {
         );
         assert!(closed.get());
         assert_eq!(result, Err("logout failed".into()));
+    }
+
+    #[test]
+    fn failed_marker_removal_keeps_the_original_node_for_shutdown() {
+        let temporary = tempfile::tempdir().unwrap();
+        let node = Arc::new(Node::new(&NodeConfig::new(temporary.path(), "test")).unwrap());
+        let controller = Controller::new(temporary.path(), "test");
+        {
+            let mut inner = controller.inner.lock().unwrap();
+            inner.state =
+                LifecycleState::LoggingOut { node: Some(Arc::clone(&node)), reopen: false };
+        }
+
+        controller.abort_logout("remove enabled failed");
+        let retained = controller.state_node().expect("failed logout retains the node");
+        assert!(Arc::ptr_eq(&retained, &node));
+        retained.close().unwrap();
+    }
+
+    #[tokio::test]
+    async fn logout_during_start_waits_for_the_original_close() {
+        let temporary = tempfile::tempdir().unwrap();
+        let node = Arc::new(Node::new(&NodeConfig::new(temporary.path(), "test")).unwrap());
+        let controller = Controller::new(temporary.path(), "test");
+        let generation = {
+            let mut inner = controller.inner.lock().unwrap();
+            inner.state = LifecycleState::Retiring {
+                node: Some(Arc::clone(&node)),
+                phase: RetirementPhase::Closing,
+            };
+            inner.generation = inner.generation.wrapping_add(1);
+            inner.generation
+        };
+        let retirement = controller.retirement_gate.lock().await;
+        let lifecycle = controller.lifecycle.lock().await;
+        let queued_start = {
+            let controller = Arc::clone(&controller);
+            tokio::spawn(async move {
+                let _retirement = controller.await_retirement_gate().await;
+                let _lifecycle = controller.lifecycle.lock().await;
+                controller.snapshot().state
+            })
+        };
+        tokio::task::yield_now().await;
+        assert!(!queued_start.is_finished(), "start must wait while the original node closes");
+
+        node.close().unwrap();
+        controller.finish_start_close(generation, &node, true, Ok(Ok(())));
+        drop(lifecycle);
+        drop(retirement);
+        assert_eq!(queued_start.await.unwrap(), "stopped");
     }
 
     #[test]
@@ -946,6 +1345,69 @@ mod tests {
             .await
             .expect("queued start ran after retirement cleanup")
             .expect("queued start sent completion");
+    }
+
+    #[test]
+    fn lifecycle_table_keeps_logout_inside_retirement() {
+        // Exercise the short-mutex transitions as a table so the two
+        // interleavings that used to lose saved credentials stay explicit:
+        // retirement first, and logout first while retirement is pending.
+        let cases = [
+            (
+                "retire",
+                LifecycleState::Retiring { node: None, phase: RetirementPhase::Waiting },
+                "stopped",
+            ),
+            (
+                "logout-during-retire",
+                LifecycleState::LoggingOut { node: None, reopen: true },
+                "stopped",
+            ),
+            ("logout-during-start", LifecycleState::Starting, "starting"),
+        ];
+        for (name, state, snapshot_state) in cases {
+            let controller = Controller::new("/nonexistent/cmux-tailnet-test", name);
+            {
+                let mut inner = controller.inner.lock().unwrap();
+                inner.state = state;
+                inner.snapshot.node_gone(snapshot_state);
+            }
+            assert!(controller.node().is_none(), "{name} exposes no replacement node");
+            assert_eq!(controller.snapshot().state, snapshot_state, "{name}");
+        }
+
+        let controller = Controller::new("/nonexistent/cmux-tailnet-test", "logout");
+        controller.begin_listener_retirement(None, "stopped");
+        controller.request_logout();
+        assert!(matches!(
+            &controller.inner.lock().unwrap().state,
+            LifecycleState::LoggingOut { node: None, reopen: true }
+        ));
+
+        let controller = Controller::new("/nonexistent/cmux-tailnet-test", "starting");
+        let generation = controller.inner.lock().unwrap().generation;
+        {
+            let mut inner = controller.inner.lock().unwrap();
+            inner.state = LifecycleState::Starting;
+        }
+        controller.request_logout();
+        assert!(matches!(
+            &controller.inner.lock().unwrap().state,
+            LifecycleState::LoggingOut { node: None, reopen: true }
+        ));
+        assert!(controller.inner.lock().unwrap().generation > generation);
+    }
+
+    #[tokio::test]
+    async fn failed_marker_removal_rolls_back_logout_and_wakes_start() {
+        let controller = Controller::new("/nonexistent/cmux-tailnet-test", "remove-failure");
+        controller.request_logout();
+        controller.abort_logout("remove enabled failed");
+        assert!(matches!(&controller.inner.lock().unwrap().state, LifecycleState::Stopped));
+        tokio::time::timeout(std::time::Duration::from_secs(1), controller.start())
+            .await
+            .expect("start is not left waiting on the failed logout transition")
+            .expect_err("the test state directory is intentionally unavailable");
     }
 
     #[test]
