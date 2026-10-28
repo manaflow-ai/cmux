@@ -26,6 +26,8 @@ export function newTabScreenActions(deps: {
   requestFolder?(cwd: string, start: (folder: string) => void): void;
   /// false: the page's chats run on another machine, whose folders are never this Mac's default.
   startsHere?(): boolean;
+  /// The page's chat already has a session (its deferred start finished): a + mode pick goes to it.
+  chatStarted?(): boolean;
 }): NewTabScreenActions {
   const { callNative, cwd } = deps;
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
@@ -90,6 +92,24 @@ export function newTabScreenActions(deps: {
         if (deps.requestFolder) deps.requestFolder(picked, start);
         else start(picked);
       } else start(deps.chatCwd);
+    },
+    // The + menu's Plan/Build row (plusActions.ts), as the page's mode chip sends it (App
+    // `DefaultComposerChips`): the deferred start for the picked harness and folder first, then the
+    // mode, which the switch holds until that chat starts. `chat.new` for the switch already running
+    // is that switch. A pick for another machine or no project has no deferred start (`chat.new`
+    // would open the chat itself), so only the mode goes. A refused mode rejects: the menu stays
+    // open with its error.
+    async onPlusMode(pick) {
+      if (!deps.chatStarted?.() && !pick.peer && !pick.noProject)
+        ignore(
+          callNative("chat.new", {
+            harness: pick.harness,
+            ...(pick.cwd ? { cwd: pick.cwd } : {}),
+            ...(pick.model ? { model: pick.model } : {}),
+            deferred: true,
+          }),
+        );
+      await callNative("chat.mode", { modeId: pick.modeId });
     },
     savedEnvironments: savedEnvironmentHost(callNative),
     onOpen: (url) => {
