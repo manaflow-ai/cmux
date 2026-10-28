@@ -144,7 +144,7 @@ class TreeKeyTests(unittest.TestCase):
                 path = root / "scripts/ci" / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("changed build input\n")
-                git("add", "."); git("commit", "-qm", name)
+                git("add", str(path.relative_to(root))); git("commit", "-qm", name)
                 changed = module.tree_key("HEAD")
                 self.assertNotEqual(previous, changed, name)
                 previous = changed
