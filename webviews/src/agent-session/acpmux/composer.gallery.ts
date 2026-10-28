@@ -2034,7 +2034,7 @@ export default agentPaneEntry({
     },
     "slash-menu-cmux-descriptions": {
       note: "Play: type /; cmux-owned rows describe their actual actions: import starts a chat from a transcript and fork opens a new chat.",
-      snapshot: chat(finished, { commands: [] }),
+      snapshot: chat([...finished.slice(0, -1), summary(9, { status: "completed", seq: 12 })], { commands: [] }),
       play: async (ctx) => {
         await ctx.click({ selector: "[contenteditable='true']" });
         await ctx.type("/");
