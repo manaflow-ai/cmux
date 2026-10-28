@@ -96,6 +96,8 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         upper,
         lower,
         after,
+        upperRowBottom: column.bottom,
+        lowerRowTop: document.querySelector('[data-row-id="lower"]')!.getBoundingClientRect().top,
         // Tool headers are controls before their output. Aim at the row's real blank trailing
         // padding, so the midpoint cannot accidentally be inside the next tool's disclosure.
         gapY: column.bottom - Math.max(1, padding / 2),
@@ -139,6 +141,53 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
             ),
           ).toBe("lower");
           expect(await page.evaluate(() => getSelection()?.anchorOffset)).toBe(0);
+          await page.close();
+        });
+        test(`${name}: ${above} to ${below} inter-row midpoint starts at the nearest caret`, async () => {
+          const page = await open(name, above, below);
+          // Integration-fixture spacing only: leave real row renderers and controls intact while
+          // making a positive gap outside both article boxes. Production does not use this margin.
+          await page.addStyleTag({
+            content: '[data-row-id="lower"], [data-row-id="after"] { margin-top: 32px; }',
+          });
+          await paint(page);
+          const box = await geometry(page);
+          expect(box.lowerRowTop - box.upperRowBottom).toBeGreaterThanOrEqual(32);
+          const midpoint = (box.upperRowBottom + box.lowerRowTop) / 2;
+          expect(midpoint).toBeGreaterThan(box.upperRowBottom);
+          expect(midpoint).toBeLessThan(box.lowerRowTop);
+          const nearestRow = midpoint - box.upper.bottom <= box.lower.top - midpoint ? "upper" : "lower";
+          for (const x of [box.center, box.left, box.right]) {
+            // The press belongs to empty transcript space, never to a tool disclosure or another
+            // row control. Those surfaces keep their ownership in the existing control regression.
+            expect(
+              await page.evaluate(
+                ({ x, y }) => {
+                  const target = document.elementFromPoint(x, y);
+                  return Boolean(
+                    target?.closest(".acpmux-thread, .acpmux-spacer, .acpmux-scroll") && !target.closest(".acpmux-row"),
+                  );
+                },
+                { x, y: midpoint },
+              ),
+            ).toBe(true);
+            await drag(page, { x, y: midpoint }, box.after);
+            expect((await selected(page)).length).toBeGreaterThan(0);
+            const anchor = await page.evaluate(() => {
+              const selection = getSelection()!;
+              return {
+                row: selection.anchorNode?.parentElement?.closest(".acpmux-row")?.getAttribute("data-row-id"),
+                offset: selection.anchorOffset,
+                length: selection.anchorNode?.textContent?.length,
+              };
+            });
+            expect(anchor.row).toBe(nearestRow);
+            expect(anchor.offset).toBe(nearestRow === "upper" ? (anchor.length ?? -1) : 0);
+            await drag(page, { x, y: midpoint }, box.lower);
+            expect((await selected(page)).length).toBeGreaterThan(0);
+            await page.mouse.click(x, midpoint);
+            expect(await selected(page)).toBe("");
+          }
           await page.close();
         });
       }
