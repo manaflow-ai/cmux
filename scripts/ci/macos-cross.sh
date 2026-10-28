@@ -156,7 +156,15 @@ cmd_weaken_compiler_rt() {
 
 cmd_toolchain() {
   local sdk=${1:?sdk version} zig_lib
-  zig_lib="$(dirname "$(readlink -f "$(command -v zig)")")/lib"
+  # The reviewed installer may expose Zig through a wrapper rather than a symlink.
+  zig_lib="$(zig env | python3 -c 'import json, re, sys
+text = sys.stdin.read()
+try:
+    print(json.loads(text)["lib_dir"])
+except (ValueError, KeyError):
+    found = re.search(r"(?m)^\s*\.lib_dir\s*=\s*\"([^\"]+)\"", text)
+    if not found: raise SystemExit("zig env has no lib_dir")
+    print(found.group(1))')"
   [[ -f "$zig_lib/libc/darwin/libSystem.tbd" ]] || die "zig darwin libSystem stub not found under $zig_lib"
   rm -rf "${SYSROOT:?}" "${XC_ROOT:?}/bin"; mkdir -p "$SYSROOT/usr/lib"
   cp -r "$zig_lib/libc/include/any-darwin-any" "$SYSROOT/usr/include"
