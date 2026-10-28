@@ -204,6 +204,14 @@ class NothingWaitsOnTheSmokeTests(unittest.TestCase):
         # No second copy of the rollback's logic: nothing here writes the feed.
         self.assertNotRegex(self.text, r"upload-r2-object|R2_ENDPOINT|nightly_next_feed_rollback")
 
+    def test_tooling_comes_from_feat_cmux_next_except_a_pull_request_into_it(self) -> None:
+        self.assertEqual(self.workflow["env"]["TOOLING_REF"],
+                         "${{ github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' "
+                         "&& github.sha || 'feat-cmux-next' }}")
+        for name in ("smoke", "crashed"):
+            checkout = self.jobs[name]["steps"][0]
+            self.assertEqual(checkout["with"]["ref"], "${{ env.TOOLING_REF }}", name)
+
     def test_a_crash_is_never_marked_smoked_so_a_failed_rollback_is_retried(self) -> None:
         record = self.jobs["record"]
         self.assertNotIn("crash'", record["if"].replace("'pass'", "").replace("'cannot-run'", ""))
