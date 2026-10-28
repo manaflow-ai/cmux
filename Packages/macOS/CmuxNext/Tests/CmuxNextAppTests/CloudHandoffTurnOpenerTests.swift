@@ -62,6 +62,13 @@ struct CloudHandoffTurnOpenerTests {
         let opened = try await open(view(turn: 4, status: "done"), begun: [ended, view(turn: 6, status: "starting")])
         #expect(opened.opened == .turn(id: Self.id, number: 6))
         #expect(opened.begins == [4, 5])
+        // Two begins other devices won and finished, then a third that makes the turn: it is named.
+        var five = view(turn: 5, status: "done"), six = view(turn: 6, status: "done")
+        five.refusal = "handoff.turn_conflict"
+        six.refusal = "handoff.turn_conflict"
+        let third = try await open(view(turn: 4, status: "done"), begun: [five, six, view(turn: 7, status: "starting")])
+        #expect(third.opened == .turn(id: Self.id, number: 7))
+        #expect(third.begins == [4, 5, 6])
         // A begin that answers no newer turn names none.
         #expect(try await open(view(turn: 4, status: "done"), begun: [view(turn: 4, status: "done")]).opened == .refused("handoff.turn_conflict"))
     }

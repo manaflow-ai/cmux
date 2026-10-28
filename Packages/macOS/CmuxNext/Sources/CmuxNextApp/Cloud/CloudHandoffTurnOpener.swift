@@ -103,6 +103,8 @@ struct CloudHandoffTurnOpener {
                 handoff = begun
             }
         }
+        // The last begin's answer is read too: a turn it made is named, never left unreported.
+        if case .name(let turn) = handoff.next { return .turn(id: handoff.id, number: turn) }
         return .refused("handoff.turn_conflict")
     }
 
