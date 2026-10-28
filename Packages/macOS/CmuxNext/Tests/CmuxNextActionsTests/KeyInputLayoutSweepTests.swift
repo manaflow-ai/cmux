@@ -140,8 +140,12 @@ import Testing
         }
         if shortcut.modifiers.contains(.command), let code = keyCodes.first(where: { types(layout.data, $0, [.command]) }) { return code }
         if let code = keyCodes.first(where: { types(layout.data, $0, []) }) { return code }
-        // Punctuation the layout types on no key without Option: its US ANSI key.
-        if let code = KeyInput.usPunctuation.first(where: { $0.value == shortcut.key })?.key { return code }
+        // Punctuation the layout types on no key without Option: its US ANSI key, when the app's rule
+        // reads it there (the key types no plain ASCII itself, or is dead); else unreachable.
+        if let code = KeyInput.usPunctuation.first(where: { $0.value == shortcut.key })?.key,
+           key(code, shortcut.modifiers, on: layout, ascii: ascii).positional == shortcut.key {
+            return code
+        }
         guard !layout.asciiCapable, let ascii else { return nil }
         return keyCodes.first { types(ascii.data, $0, []) }
     }

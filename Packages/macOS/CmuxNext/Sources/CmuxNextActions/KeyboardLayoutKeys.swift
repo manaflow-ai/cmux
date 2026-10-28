@@ -19,7 +19,7 @@ public final class KeyboardLayoutKeys {
 
     /// The selected layout's plain keys: the characters they type, and the keys that are dead keys
     /// (they type nothing and compose with the next key: ^ on French, the key left of 1 on German).
-    public struct TypedKeys: Sendable {
+    public nonisolated struct TypedKeys: Sendable {
         public var characters: Set<String>
         public var deadKeys: Set<UInt16>
 

@@ -195,8 +195,11 @@ import Testing
             return code
         }
         if let code = candidates.first(where: { layout.keys[$0]?.base == character }) { return code }
-        // Punctuation the layout moved to an Option layer (or types nowhere): its US ANSI key.
-        if let code = KeyInput.usPunctuation.first(where: { $0.value == character })?.key, layout.keys[code] != nil {
+        // Punctuation the layout moved to an Option layer: its US ANSI key, when the app's rule reads it
+        // there (``KeyInput/positionalPunctuation``); else the chord has no key on this layout.
+        if let code = KeyInput.usPunctuation.first(where: { $0.value == character })?.key, let base = layout.keys[code],
+           KeyInput.positionalPunctuation(keyCode: code, keyTypes: base.base, isDead: layout.deadKeys.contains(code), iso: false,
+                                          layoutTypes: layout.typesUnshifted) == character {
             return code
         }
         guard !layout.asciiCapable else { return nil }
