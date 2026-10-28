@@ -19,8 +19,8 @@ import type { Env } from "./env.ts"
  *
  * Events (keys only, never values), all with the same `pass` (the cron's scheduled time):
  * - `projection.compare.full.table`, one per table: rows on each side, rows checked, `outcome`
- *   (equal, diff, incomplete or failed), the difference count and up to 20 keys per kind; an error
- *   level line when the table is not equal;
+ *   (equal, diff, incomplete, failed or skipped), the difference count and up to 20 keys per kind; an
+ *   error level line when the table is not equal;
  * - `projection.compare.full.done`: totals, `complete` (every table read to the end) and the duration;
  *   an error level line unless every table is equal.
  *
@@ -74,6 +74,7 @@ export const runFullCompare = async (deps: FullCompareDeps): Promise<FullCompare
   for (const table of Object.keys(PROJECTION_TABLES)) {
     if (stopped) {
       skipped.push(table)
+      console.error(JSON.stringify({ event: "projection.compare.full.table", level: "error", pass: deps.pass, table, outcome: "skipped" }))
       continue
     }
     const t0 = now()
@@ -108,8 +109,9 @@ export const runFullCompare = async (deps: FullCompareDeps): Promise<FullCompare
     }
   }
   const diffs = tables.reduce((n, r) => n + fullDiffCount(r), 0)
-  const complete = !stopped
-  const clean = complete && failed.length === 0 && diffs === 0
+  // Complete: every table read to its end (none stopped by the bound, none failed).
+  const complete = !stopped && failed.length === 0
+  const clean = complete && diffs === 0
   const done = {
     event: "projection.compare.full.done",
     level: clean ? "info" : "error",
@@ -134,6 +136,21 @@ export const runFullCompare = async (deps: FullCompareDeps): Promise<FullCompare
   return { complete, tables, failed, skipped }
 }
 
+/** As Postgres's query_timeout: a MySQL read that hangs ends the run instead of holding it to the platform's wall limit. */
+const MYSQL_QUERY_TIMEOUT_MS = 25_000
+const withTimeout = (my: MyLike & { destroy(): void }, ms: number): MyLike => ({
+  query: (sql, values) => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        my.destroy()
+        reject(Object.assign(new Error("mysql query timeout"), { code: "QUERY_TIMEOUT" }))
+      }, ms)
+    })
+    return Promise.race([my.query(sql, values), timeout]).finally(() => clearTimeout(timer))
+  }
+})
+
 /**
  * The cron entry (wrangler.jsonc: staging's hourly PROJECTION_COMPARE_FULL_CRON; production has no such
  * trigger until the cutover runbook asks). Runs while a MySQL shadow or primary is configured; a switch set
@@ -155,7 +172,7 @@ export const compareFullFromEnv = async (env: Env, scheduledTime: number): Promi
     await pgc.connect()
     await pgc.query("SET default_transaction_read_only = on")
     my = await connectMysql(env.PS_MYSQL_RO)
-    await runFullCompare({ postgres: pgc, mysql: my, pass: new Date(scheduledTime).toISOString() })
+    await runFullCompare({ postgres: pgc, mysql: withTimeout(my, MYSQL_QUERY_TIMEOUT_MS), pass: new Date(scheduledTime).toISOString() })
   } finally {
     await pgc.end().catch(() => undefined)
     await my?.end().catch(() => undefined)

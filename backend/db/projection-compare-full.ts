@@ -27,7 +27,7 @@ export const selectOnlyMy = (db: MyLike): MyLike => ({
 
 /** The pass stopped at its per-invocation bound (rows read or wall time); the table it was in is incomplete. */
 export class FullCompareBudgetExceeded extends Error {}
-/** A side returned keys out of order, so the merge cannot give a verdict for this table. */
+/** A side returned keys out of order, or a numeric key past 2^53, so the merge cannot give a verdict for this table. */
 export class FullCompareOrderError extends Error {}
 
 export interface FullBudget {
@@ -58,7 +58,7 @@ export interface FullTableOptions {
   readonly excludeTeams: ReadonlyArray<string>
   readonly budget: FullBudget
   readonly pageSize?: number
-  /** Suspects read again by key at most; more are counted as unchecked differences. */
+  /** Suspects read again by key at most (memory); more are counted as unchecked differences. */
   readonly recheckCap?: number
   /** Test seam: runs before the recheck. */
   readonly beforeRecheck?: () => Promise<void>
@@ -158,11 +158,13 @@ class KeysetStream {
     if (this.i < this.buf.length) return this.buf[this.i]
     if (this.done) return undefined
     checkBudget(this.budget)
-    this.buf = await this.side.page(this.after, this.pageSize)
+    // Never more rows than the bound has left: a short last page is only "done" when it is shorter than asked for.
+    const limit = Math.min(this.pageSize, this.budget.maxRows - this.budget.rowsRead)
+    this.buf = await this.side.page(this.after, limit)
     this.i = 0
     this.pages += 1
     charge(this.budget, this.buf.length)
-    if (this.buf.length < this.pageSize) this.done = true
+    if (this.buf.length < limit) this.done = true
     if (this.buf.length > 0) this.after = this.keyOf(this.buf[this.buf.length - 1]!)
     return this.buf[0]
   }
@@ -183,10 +185,17 @@ export const compareTableFull = async (pgc: PgLike, my: MyLike, table: string, o
   const spec = PROJECTION_TABLES[table]
   if (!spec) throw new Error(`not a projected table: ${table}`)
   const pageSize = options.pageSize ?? 1000
-  const recheckCap = options.recheckCap ?? 1000
+  const recheckCap = options.recheckCap ?? 20_000
   const shared = (await sharedColumns(pgc, my, table)).filter((c) => !spec.skip.includes(c))
   const columns = [...new Set([...spec.key, ...shared])]
-  const keyOf = (r: Row): Key => spec.key.map((k) => (NUMERIC_KEYS.has(k) ? Number(r[k]) : String(r[k])))
+  const keyOf = (r: Row): Key =>
+    spec.key.map((k) => {
+      if (!NUMERIC_KEYS.has(k)) return String(r[k])
+      const n = Number(r[k])
+      // A bigint past 2^53 would collide with its neighbours as a number: no verdict rather than a wrong one.
+      if (!Number.isSafeInteger(n) || String(n) !== String(r[k])) throw new FullCompareOrderError(`${table}.${k}: not a safe integer key`)
+      return n
+    })
   const keyText = (key: Key) => key.map(String).join("/")
   const hashOf = (r: Row) => rowHash(shapeRow(r, shared))
   const pgSideT = pgSide(pgc, table, spec.key, columns, options.excludeTeams)
@@ -222,9 +231,13 @@ export const compareTableFull = async (pgc: PgLike, my: MyLike, table: string, o
   const changed: Array<string> = []
   if (suspects.length > 0) {
     await options.beforeRecheck?.()
-    for (let i = 0; i < suspects.length; i += 200) {
-      const slice = suspects.slice(i, i + 200)
+    for (let i = 0; i < suspects.length; ) {
       checkBudget(options.budget)
+      // At most one row per key and side: a batch never reads past the bound.
+      const room = Math.floor((options.budget.maxRows - options.budget.rowsRead) / 2)
+      if (room < 1) throw new FullCompareBudgetExceeded("full compare budget reached")
+      const slice = suspects.slice(i, i + Math.min(200, room))
+      i += slice.length
       const [pgRows, myRows] = [await pgSideT.byKeys(slice), await mySideT.byKeys(slice)]
       charge(options.budget, pgRows.length + myRows.length)
       const pgHash = new Map(pgRows.map((r) => [keyText(keyOf(r)), hashOf(r)]))

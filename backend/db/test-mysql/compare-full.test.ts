@@ -139,8 +139,22 @@ run("projection full compare", () => {
     const stoppedAt = (done.failed as Array<string>)[0]!
     expect(table(stoppedAt)).toMatchObject({ outcome: "incomplete", level: "error" })
     expect((done.skipped as Array<string>).length + (done.failed as Array<string>).length + Number(done.tables_equal)).toBe(TABLES)
+    for (const t of done.skipped as Array<string>) expect(table(t)).toMatchObject({ outcome: "skipped", level: "error" })
+    expect(Number(done.rows_read)).toBeLessThanOrEqual(20)
     const late = await pass({ wallMs: 0 })
     expect(late.done).toMatchObject({ complete: false, rows_read: 0 })
+  }, 60_000)
+
+  it("a numeric key past 2^53 fails its table instead of comparing rounded keys", async () => {
+    await both("audit.append", { ...audit("team_p1", 1), n: 2 ** 53 })
+    try {
+      const { table, done } = await pass()
+      expect(table("audit_events")).toMatchObject({ outcome: "failed", level: "error" })
+      expect(done).toMatchObject({ complete: false, clean: false, failed: ["audit_events"] })
+    } finally {
+      await pgc.query("DELETE FROM audit_events WHERE n > 1000000")
+      await my.query("DELETE FROM audit_events WHERE n > 1000000")
+    }
   }, 60_000)
 
   it("the SELECT-only handles refuse a write before it reaches the database", async () => {
