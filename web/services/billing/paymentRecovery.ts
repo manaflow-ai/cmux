@@ -82,6 +82,8 @@ async function payOpenInvoice(
     return true;
   } catch (error) {
     if (isStripeCardError(error)) return false;
+    // A second return (a reload or double click) can lose the race to pay.
+    if ((await client.invoices.retrieve(invoiceId)).status === "paid") return true;
     throw error;
   }
 }

@@ -179,6 +179,17 @@ describe("recoverFailedSubscriptionPayments", () => {
     expect(await recover(client, failingRecord).outcome).toBe("recovered");
   });
 
+  test("treats an invoice a concurrent return already paid as recovered", async () => {
+    const client = fakeStripe({ defaultPaymentMethod: NEW_CARD, subscriptions: [cmuxSubscription()] });
+    let retrievals = 0;
+    client.invoices.retrieve.mockImplementation(async (id: string) => ({ id, status: retrievals++ === 0 ? "open" : "paid" }));
+    client.invoices.pay.mockImplementation(async () => {
+      throw Object.assign(new Error("Invoice is already paid"), { type: "StripeInvalidRequestError" });
+    });
+
+    expect(await recover(client).outcome).toBe("recovered");
+  });
+
   test("propagates Stripe errors that are not card declines", async () => {
     const client = fakeStripe({ defaultPaymentMethod: NEW_CARD, subscriptions: [cmuxSubscription()] });
     client.invoices.pay.mockImplementation(async () => {
