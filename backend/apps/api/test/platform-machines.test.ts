@@ -290,6 +290,22 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(await rpc.create(c, name, target)).toMatchObject({ ok: false, code: "cloud.platform.provision_failed", retryable: false })
   })
 
+  it("retires a capture completed after its fork deadline without a client retry", async () => {
+    const c = caller()
+    const { machine, stub } = await bootAndBind(c)
+    const name = nameOf()
+    await stub.fakeControl({ fail_next: 1 })
+    expect(await rpc.fork(c, machine, name)).toMatchObject({ ok: false, retryable: true })
+    // The capture intent survives the failed provider call. On this alarm the ordinary Cloud
+    // ledger finishes it first; the expired platform intent must then remove the saved snapshot,
+    // without restoring a child or requiring the caller to retry the fork.
+    await stub.fakeControl({ advance_ms: 16 * 60_000 })
+    await fireAlarm(stub)
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1, snapshots: [] })
+    expect(await rpc.fork(c, machine, name)).toMatchObject({ ok: false, code: "cloud.platform.provision_failed", retryable: false })
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1, snapshots: [] })
+  })
+
   it("finds and cancels a child while its committed create answer is still suspended", async () => {
     const c = caller()
     const stub = cloudStub(c.team)
