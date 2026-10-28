@@ -2723,7 +2723,7 @@ export function VirtualTranscript({
   const readerAt = useRef(Number.NEGATIVE_INFINITY);
   /// The last input that explicitly moved upward. A one-pixel real wheel at the old end must not
   /// be mistaken for the browser's one-pixel clamp window during a layout correction.
-  const readerUpAt = useRef(Number.NEGATIVE_INFINITY);
+  const readerUpPending = useRef(false);
   // Scroll frames re-render with the same rows; only rows, width or the registry
   // change an estimate.
   const estimated = useMemo(() => {
@@ -3124,6 +3124,7 @@ export function VirtualTranscript({
     const switched = previousSession.current !== sessionId;
     if (switched) {
       if (ref.current) clearScrollOrigin(ref.current);
+      readerUpPending.current = false;
       // A single VirtualTranscript is reused while the selected chat changes. Discard every
       // scroll anchor from the old session before the placement pass chooses the new session's
       // openAt position or latest row.
@@ -3184,7 +3185,7 @@ export function VirtualTranscript({
       const live = node.scrollTop;
       // The browser rounds the height it clamps to, so the old end allows a pixel either way.
       const end = Math.min(node.scrollHeight, old.totalHeight) - node.clientHeight;
-      const recentUp = performance.now() - readerUpAt.current <= READER_SCROLL_MS && live < scrolledTo.current.top;
+      const recentUp = readerUpPending.current && live < scrolledTo.current.top;
       const clamped = !recentUp && live < scrolledTo.current.top - 0.5 && live >= end - 1;
       // A reader's move can reach the live offset before its scroll event. Layout changes alone
       // never release or reacquire follow; the input window only identifies this event race.
@@ -3195,6 +3196,9 @@ export function VirtualTranscript({
       const readerLeft =
         !clamped && performance.now() - readerAt.current <= READER_SCROLL_MS && scrolledTo.current.top - live > 0;
       if (readerLeft) follow(false);
+      // Once the live upward movement has been incorporated into this placement pass, later
+      // layout clamps must use the acknowledged offset rather than the old input marker.
+      if (readerUpPending.current && readerLeft) readerUpPending.current = false;
       // A real wheel can move the live offset before its scroll event reaches React. Keep that
       // movement for this pass and mark the view away from the latest row; otherwise the stored
       // bottom offset would immediately snap the reader back. Once the event is acknowledged,
@@ -3701,6 +3705,9 @@ export function VirtualTranscript({
     // A recent upward input is authoritative even when it moved only a pixel or two. The
     // deadband absorbs layout rounding, but must not turn a real trackpad step into bottom follow.
     const movedUp = next < was.top - 0.5;
+    // The native/default scroll event has now acknowledged this input generation. A later
+    // content shrink must use the ordinary clamp path instead of reusing the old wheel marker.
+    if (readerUpPending.current) readerUpPending.current = false;
     const recentUp = !programmatic && movedUp;
     const readerReachedBottom = !programmatic && next > was.top + 0.5 && measured.atLatest;
     scrolledTo.current = {
@@ -3811,7 +3818,7 @@ export function VirtualTranscript({
       // deliver the input before its scroll event; a streamed snapshot in that gap must not pin
       // the view back to the bottom. Capture the event so nested rows cannot commit first.
       if (movingUp) followIntent(false);
-      if (movingUp) readerUpAt.current = performance.now();
+      if (movingUp) readerUpPending.current = true;
       if (jumpTarget.current !== undefined) {
         stopJump();
         scrolledTo.current = { top: node?.scrollTop ?? 0, atLatest: false };
