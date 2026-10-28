@@ -133,8 +133,12 @@ extension TerminalSurfaceView {
         let outer = interpretingKeyDown
         interpretingKeyDown = event
         defer { interpretingKeyDown = outer }
-        guard let textInputStage else { return interpretKeyEvents([translated]) }
-        textInputStage.interpreting(event) { interpretKeyEvents([translated]) }
+        guard let textInputStage else { return runInputMethods(translated) }
+        textInputStage.interpreting(event) { runInputMethods(translated) }
+    }
+
+    private func runInputMethods(_ translated: NSEvent) {
+        if let inputMethod { inputMethod(self, translated) } else { interpretKeyEvents([translated]) }
     }
 
     // MARK: Sending
