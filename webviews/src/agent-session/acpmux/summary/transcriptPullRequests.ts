@@ -145,6 +145,7 @@ const executedShellText = (command: string): string => {
     .replace(/\bif\s+true\s*(?:;|\n)\s*then\s+([\s\S]*?)\s*\b(?:elif|else)\b[\s\S]*?\bfi\b/g, "$1")
     .replace(/\bif\s+true\s*(?:;|\n)\s*then\s+([\s\S]*?)\s*\bfi\b/g, "$1")
     .replace(/\bif\s+false\b[\s\S]*?\belif\s+((?!(?:true|false)\b)[\s\S]*?)\s*(?:;|\n)\s*then[\s\S]*?\bfi\b/g, "$1")
+    .replace(/\bif\s+false\b[\s\S]*?\belif\s+((?!(?:true|false)\b)[\s\S]*?)\s*(?:;|\n)\s*fi\b/g, "$1")
     .replace(/\bif\s+false\b[\s\S]*?\belse\s+([\s\S]*?)\s*\bfi\b/g, "$1")
     .replace(/\bif\s+false\b[\s\S]*?\bfi\b/g, "");
   text = text.replace(/\bif\s+(true|false)\s*(?:;|\n)\s*then\s+([\s\S]*?)(?=\s*(?:;|\n)\s*(?:elif|else|fi)\b)([\s\S]*?)\bfi\b/g, (_, condition: string, thenBody: string, rest: string) => {
