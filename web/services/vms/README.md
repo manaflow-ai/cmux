@@ -565,6 +565,18 @@ the gateway maps an absent method to `VmOperationUnsupportedError` (an honest 50
 `MockVMProvider` (`drivers/mock.ts`) is the interface's second implementer and the test
 double for provider-contract tests.
 
+## Auto-sizing: a handed-off task's machine
+
+`POST /api/vm` with `autosize: {taskKind: chat|build|test, repo?: {sizeMb, rootFiles}, gpu?}` and
+no `memoryMb` picks the machine for the task (`services/vms/autosize.ts`): the smallest shape on
+the ladder (`images/sizes.ts`) that the plan allows and that covers the task's memory, cores and
+disk, with the fleet's grants (`TASK_NEEDS`) until the repo has measured runs, then p95 of their
+peaks plus 20%. The answer carries `sizePick: {vcpus, memoryGb, pick, reason}`, the hand-off's
+size fields (`backend/apps/api/src/handoffs`), e.g. reason "8 vCPU · 16 GB, picked for a Swift
+build". `memoryMb` and `image` stay the override (an image boots at its own snapshot's size); a provider
+without `sizing` gets no pick; `gpu` is refused
+(`vm_gpu_unavailable`) until a provider has one.
+
 ## TLS edge: port previews and credential injection
 
 The current port-preview and model-plane paths have different trust boundaries:

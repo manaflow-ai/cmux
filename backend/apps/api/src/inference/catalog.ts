@@ -65,6 +65,7 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     defaultMaxTokens: 8_192,
     tools: true,
     free: true,
+    freeProviders: ["vercel"],
     routes: [
       { provider: "openrouter", id: "qwen/qwen3.7-flash", list: { input: 0.03, output: 0.13 } },
       { provider: "vercel", id: "alibaba/qwen3.7-flash", list: { input: 0.03, output: 0.13 } }
@@ -79,6 +80,7 @@ export const MODELS: ReadonlyArray<ModelEntry> = [
     defaultMaxTokens: 8_192,
     tools: true,
     free: true,
+    freeProviders: ["vercel"],
     routes: [
       { provider: "openrouter", id: "openai/gpt-oss-120b", list: { input: 0.15, output: 0.6 } },
       { provider: "vercel", id: "openai/gpt-oss-120b", list: { input: 0.1, output: 0.5 } },
