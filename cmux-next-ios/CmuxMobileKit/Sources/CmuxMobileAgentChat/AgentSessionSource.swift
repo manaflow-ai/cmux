@@ -80,7 +80,7 @@ public enum AgentSessionEvent: Hashable, Sendable {
 }
 
 /// A person's action in the chat, encoded by the source into acpmux calls:
-/// `session/prompt`, `session/cancel`, `_acpmux/permission_respond`, `session/set_model`,
+/// `session/prompt`, `session/cancel`, `_acpmux/permission_respond`, `session/set_model` (and Retry with another model),
 /// `session/set_mode`, `session/set_config_option`, `_acpmux/queue_remove`, `_acpmux/queue_edit`.
 public enum AgentClientIntent: Hashable, Sendable {
     /// `promptID`: `_meta.acpmux.promptId`, which acpmux runs once; `resend`: the same prompt
@@ -90,6 +90,9 @@ public enum AgentClientIntent: Hashable, Sendable {
     case respondPermission(permissionId: String, optionId: String?)
     case answerQuestion(questionId: String, answer: AgentQuestionAnswer)
     case setModel(String)
+    /// Retry with another model (the Mac's turn menu, cx-ncc.62): `session/set_model`, then
+    /// the prompt again under `promptID`. A refused model sends nothing (the chat says why).
+    case retryWithModel(model: String, text: String, promptID: String)
     case setMode(String)
     case setConfigOption(id: String, value: String)
     case removeQueued(promptId: String)
