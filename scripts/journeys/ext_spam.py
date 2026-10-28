@@ -16,6 +16,9 @@ scheduled time on this Mac's uptime clock), so a main thread that falls behind s
 with a real held key. `debug.key {repeat: true}` sends an auto-repeat; the app's repeat gate reads that key as down
 (a slot has no physical key) and still drops repeats that waited longer than one repeat interval.
 
+Each hold and hammer reply has a `bench` row (the shortcut-spam bench): presses handled per second and each run's
+main-thread time to its commit (debug.action_budget, p50 / p99 / max). Target on an optimized build: p99 < 2 ms.
+
 Steps (`do`):
   spam_remember {as}                   keeps the journey workspace's counts (tabs, panes, the focused pane's tabs,
                                        its selected tab, the workspaces of the window, the workspace shown) as AS
@@ -126,6 +129,35 @@ def _play(j, key, modifiers, schedule, window):
     return threads, replies
 
 
+def _budget_mark(j):
+    """The newest action-budget sample's sequence now (debug.action_budget), or None when the build has none."""
+    try:
+        report = j.app.rpc("debug.action_budget", {"limit": 1}) or {}
+    except Exception:
+        return None
+    recent = report.get("recent") or []
+    return max((r.get("sequence", 0) for r in recent), default=0)
+
+
+def _bench(j, since, seconds, ran):
+    """The bench row of one hold or hammer: presses handled per second and each run's main-thread time to its
+    commit (debug.action_budget `commit_ms`: ActionBudgetMonitor), p50 / p99 / max, for runs after `since`."""
+    if since is None:
+        return None
+    try:
+        report = j.app.rpc("debug.action_budget", {"limit": 512}) or {}
+    except Exception as error:
+        return {"error": str(error)}
+    ms = sorted(r.get("commit_ms", 0.0) for r in report.get("recent") or [] if r.get("sequence", 0) > since)
+    if not ms:
+        return {"runs_sampled": 0}
+
+    def pct(p):
+        return round(ms[min(len(ms) - 1, int(p * len(ms)))], 3)
+    return {"presses_per_s": round(ran / seconds, 1) if seconds else None, "runs_sampled": len(ms),
+            "main_ms_p50": pct(0.5), "main_ms_p99": pct(0.99), "main_ms_max": round(ms[-1], 3)}
+
+
 def _summary(replies):
     ran = sum(1 for r in replies if isinstance(r, dict) and r.get("action"))
     refused = sum(1 for r in replies if isinstance(r, dict) and r.get("refused_action"))
@@ -146,6 +178,7 @@ def step_hold_key(j, step):
         schedule.append((t, True))
         t += interval
     key_up = start + seconds
+    mark = _budget_mark(j)
     threads, replies = _play(j, step["key"], step.get("modifiers", []), schedule, window)
     # One frame after the key-up: what the person sees when they let go.
     time.sleep(max(0.0, key_up + FRAME - uptime()))
@@ -155,6 +188,7 @@ def step_hold_key(j, step):
     for thread in threads:
         thread.join(30)
     summary = _summary(replies)
+    summary["bench"] = _bench(j, mark, seconds, summary["ran"])
     j.spam[name] = summary
     j.last_key_at = D.now()
     return dict(summary, at_release=j.spam[name + "_release"])
@@ -167,12 +201,14 @@ def step_hammer_key(j, step):
     presses, within = int(step.get("presses", 20)), float(step.get("within", 1))
     start = uptime() + 0.05
     schedule = [(start + i * within / max(presses, 1), False) for i in range(presses)]
+    mark = _budget_mark(j)
     threads, replies = _play(j, step["key"], step.get("modifiers", []), schedule, window)
     for thread in threads:
         thread.join(30)
     name = step["as"]
     j.marks[step.get("mark", name)] = D.now()
     summary = _summary(replies)
+    summary["bench"] = _bench(j, mark, within, summary["ran"])
     j.spam[name] = summary
     j.last_key_at = D.now()
     return summary
