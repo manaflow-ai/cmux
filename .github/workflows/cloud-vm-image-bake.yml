@@ -83,11 +83,14 @@ jobs:
     if: inputs.mode == 'prod-copy'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
+    outputs:
+      reviewed: ${{ steps.gate.outputs.reviewed }}
     env:
       GH_TOKEN: ${{ github.token }}
       PROD_ENV: cmux-next-vm-image-prod
     steps:
       - name: Check the production environment
+        id: gate
         run: |
           set -euo pipefail
           refuse() { echo "::error title=Production environment::$1"; exit 1; }
@@ -98,6 +101,11 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/environments/$PROD_ENV/deployment-branch-policies" --jq '[.branch_policies[] | "\(.type // "branch"):\(.name)"] | sort | join(",")' > "$RUNNER_TEMP/prod-env-branches.txt" || refuse "cannot read the branch policies of $PROD_ENV: $inert"
           [ "$(cat "$RUNNER_TEMP/prod-env-branches.txt")" = "branch:feat-cmux-next" ] || refuse "$PROD_ENV allows $(cat "$RUNNER_TEMP/prod-env-branches.txt"), not branch feat-cmux-next only: $inert"
           echo "$PROD_ENV exists and allows branch feat-cmux-next only"
+          # With required reviewers a person approves each production job before it starts; the first
+          # production copy (no recorded production snapshot to identify the account by) needs that.
+          reviewed="$(jq -r 'if any(.protection_rules[]?; .type == "required_reviewers") then "yes" else "" end' "$RUNNER_TEMP/prod-env.json")"
+          echo "required reviewers: ${reviewed:-none}"
+          echo "reviewed=$reviewed" >> "$GITHUB_OUTPUT"
 
   bake:
     needs: prod-gate
@@ -232,6 +240,7 @@ jobs:
         env:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           DEV_SNAPSHOT: ${{ inputs.dev_snapshot }}
+          CMUX_PROD_ENV_REVIEWED: ${{ needs.prod-gate.outputs.reviewed }}
         run: |
           set -euo pipefail
           bun scripts/cmux-vm-image/prod-copy.ts plan --dev-snapshot "$DEV_SNAPSHOT" | tee "$RUNNER_TEMP/prod-copy-plan.out"

@@ -61,11 +61,14 @@ jobs:
     if: inputs.channel == 'production'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
+    outputs:
+      reviewed: ${{ steps.gate.outputs.reviewed }}
     env:
       GH_TOKEN: ${{ github.token }}
       PROD_ENV: cmux-next-vm-image-prod
     steps:
       - name: Check the production environment
+        id: gate
         run: |
           set -euo pipefail
           refuse() { echo "::error title=Production environment::$1"; exit 1; }
@@ -76,6 +79,11 @@ jobs:
           gh api "repos/$GITHUB_REPOSITORY/environments/$PROD_ENV/deployment-branch-policies" --jq '[.branch_policies[] | "\(.type // "branch"):\(.name)"] | sort | join(",")' > "$RUNNER_TEMP/prod-env-branches.txt" || refuse "cannot read the branch policies of $PROD_ENV: $inert"
           [ "$(cat "$RUNNER_TEMP/prod-env-branches.txt")" = "branch:feat-cmux-next" ] || refuse "$PROD_ENV allows $(cat "$RUNNER_TEMP/prod-env-branches.txt"), not branch feat-cmux-next only: $inert"
           echo "$PROD_ENV exists and allows branch feat-cmux-next only"
+          # With required reviewers a person approves each production job before it starts; the first
+          # production copy (no recorded production snapshot to identify the account by) needs that.
+          reviewed="$(jq -r 'if any(.protection_rules[]?; .type == "required_reviewers") then "yes" else "" end' "$RUNNER_TEMP/prod-env.json")"
+          echo "required reviewers: ${reviewed:-none}"
+          echo "reviewed=$reviewed" >> "$GITHUB_OUTPUT"
 
   promote:
     needs: prod-gate
@@ -186,8 +194,10 @@ jobs:
 
       # The key reaches promote.ts only as a 0600 file in RUNNER_TEMP (FREESTYLE_API_KEY_FILE),
       # never on a command line or in a child's environment, and is deleted when the step ends.
-      # production first refuses a dev account key (prod-copy.ts account-check); promote.ts then
-      # runs the cmux-old compat gate as the test profile (empty on dev) and smokes on that account.
+      # production first refuses a key that is not the production account's (prod-copy.ts account-check:
+      # never the dev key, and it must resolve a recorded production snapshot, which by now includes the
+      # copy the gated prod-copy bake made); promote.ts then runs the cmux-old compat gate as the test
+      # profile (empty on dev) and smokes on that account.
       - name: Promote (fresh-clone smoke on the channel's account)
         if: steps.inputs.outputs.promote == 'true'
         env:
@@ -198,6 +208,7 @@ jobs:
           CMUX_UITEST_STACK_PASSWORD: ${{ inputs.channel == 'production' && secrets.CMUX_UITEST_STACK_PASSWORD || '' }}
           # compat.ts reads the newest release with gh (read-only).
           GH_TOKEN: ${{ inputs.channel == 'production' && github.token || '' }}
+          CMUX_PROD_ENV_REVIEWED: ${{ needs.prod-gate.outputs.reviewed }}
         run: |
           set -euo pipefail
           # First: the key moves to an unexported shell variable, so no child process inherits it.
@@ -213,7 +224,7 @@ jobs:
           if [ "$CHANNEL" = production ]; then
             FREESTYLE_API_KEY_FILE="$key_file" bun scripts/cmux-vm-image/prod-copy.ts account-check 2>&1 | tee "$OUT_DIR/account-check.log"
           else
-            unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD GH_TOKEN
+            unset CMUX_UITEST_STACK_EMAIL CMUX_UITEST_STACK_PASSWORD GH_TOKEN CMUX_PROD_ENV_REVIEWED
           fi
           FREESTYLE_API_KEY_FILE="$key_file" bun ../images/cmux-vm/promote.ts --channel "$CHANNEL" --snapshot "$SNAPSHOT" --var "$SNAPSHOT_VAR" 2>&1 | tee "$OUT_DIR/promote.log"
 

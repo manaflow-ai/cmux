@@ -85,10 +85,11 @@ describe("prod-gate", () => {
     );
     chmodSync(path.join(bin, "gh"), 0o755);
     const result = await runChild("bash", ["-e", "-c", gate(promoteWf)], {
-      env: { PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: dir, GITHUB_REPOSITORY: "manaflow-ai/cmux", GITHUB_REF: ref, PROD_ENV: "cmux-next-vm-image-prod" },
+      env: { PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: dir, GITHUB_REPOSITORY: "manaflow-ai/cmux", GITHUB_REF: ref, PROD_ENV: "cmux-next-vm-image-prod", GITHUB_OUTPUT: path.join(dir, "out") },
       cwd: dir,
     });
-    return { ...result, argv: existsSync(path.join(dir, "gh.argv")) ? readFileSync(path.join(dir, "gh.argv"), "utf8") : "" };
+    const read = (f: string) => (existsSync(path.join(dir, f)) ? readFileSync(path.join(dir, f), "utf8") : "");
+    return { ...result, argv: read("gh.argv"), output: read("out") };
   }
   const custom = { deployment_branch_policy: { custom_branch_policies: true, protected_branches: false } };
 
@@ -97,6 +98,14 @@ describe("prod-gate", () => {
     expect(r.status).toBe(0);
     expect(r.argv).toContain("api repos/manaflow-ai/cmux/environments/cmux-next-vm-image-prod");
     expect(r.stdout).toContain("allows branch feat-cmux-next only");
+    expect(r.output).toBe("reviewed=\n");
+  });
+
+  test("reports required reviewers, which the first production copy needs", async () => {
+    const r = await runGate({ ...custom, protection_rules: [{ type: "branch_policy" }, { type: "required_reviewers", reviewers: [] }] }, "branch:feat-cmux-next");
+    expect(r.status).toBe(0);
+    expect(r.output).toBe("reviewed=yes\n");
+    for (const wf of [bakeWf, promoteWf]) expect((wf.jobs["prod-gate"] as Job & { outputs?: Record<string, string> }).outputs).toEqual({ reviewed: "${{ steps.gate.outputs.reviewed }}" });
   });
 
   const refused: Array<[string, Record<string, unknown> | "missing", string, string?]> = [
@@ -202,11 +211,13 @@ describe("prod-copy.ts account-check", () => {
     await expect(accountCheck(root, async (n) => (n === "cmuxnp-dev-vmimg-ci-100-1" ? ID(100) : undefined))).rejects.toThrow(/dev account's key/);
   });
 
-  test("before any production snapshot is recorded, only the dev key is refused (the first copy's channel PR records one)", async () => {
+  test("before any production snapshot is recorded, the first copy needs the environment's required reviewers", async () => {
     const { root } = fakeRoot([]);
     const asked: string[] = [];
-    expect(await accountCheck(root, async (n) => (asked.push(n), undefined))).toContain("no production snapshot is recorded yet");
-    expect(await accountCheck(root, async () => ID(5))).toContain("account check passed");
+    await expect(accountCheck(root, async (n) => (asked.push(n), undefined))).rejects.toThrow(/no required reviewers/);
+    expect(await accountCheck(root, async () => ID(5), true)).toContain("approved through the environment's required reviewers");
+    // The dev key is refused even then.
+    await expect(accountCheck(root, async () => ID(100), true)).rejects.toThrow(/dev account's key/);
     expect(asked).toEqual(["cmuxnp-dev-vmimg-ci-100-1"]);
   });
 
