@@ -50,6 +50,7 @@ export default componentEntry<Props>({
                     current: model,
                     onModel: setModel,
                     effortLook: look,
+                    inlineEffort: true,
                     harnessPlacement: placement,
                     effort: {
                       current: effort,

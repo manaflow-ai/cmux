@@ -31,7 +31,7 @@ export type QuickMenu = {
   current?: string;
   onModel(id: string): void;
   onModelEffort?(id: string, effort: string): void;
-  /** False for callers without a combined model/effort operation. */
+  /** Opt in to inline model/effort segments; omitted or false keeps the Effort submenu. */
   inlineEffort?: boolean;
   /** Gallery alternatives; joined segments are the shipped choice. */
   effortLook?: "joined" | "spaced" | "underline";
@@ -295,7 +295,9 @@ export function QuickModelMenu({
   };
   const effortChoices = (model: QuickModel) => {
     const running = (!families || model.family === families.current) && model.id === current;
-    if (menu.inlineEffort === false || (!families && !menu.onModelEffort)) return [];
+    // Inline effort controls are opt-in. Other compact-menu callers may expose a combined
+    // callback for the full picker while retaining the standalone Effort submenu here.
+    if (menu.inlineEffort !== true || (!families && !menu.onModelEffort)) return [];
     // An explicit empty list must not inherit another model's reasoning capabilities.
     const advertised =
       model.efforts !== undefined
