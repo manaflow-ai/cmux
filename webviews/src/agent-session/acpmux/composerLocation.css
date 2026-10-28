@@ -1038,21 +1038,10 @@
   outline: none;
 }
 .acpmux-folder-popover .acpmux-location-search::placeholder { color: var(--agent-muted); opacity: 1; }
-.acpmux-folder-popover .acpmux-location-folders { margin: 0; padding: 0; list-style: none; }
+.acpmux-folder-popover .acpmux-location-folders { margin: 0; padding: 0; list-style: none; overflow: hidden; }
 .acpmux-folder-popover .acpmux-menu-item { display: flex; align-items: center; min-width: 0; border-radius: var(--ui-row-radius, 6px); }
 .acpmux-location-row,
 .acpmux-location-action { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
-/* The actions after the folders: a hairline above the first. */
-.acpmux-folder-popover .acpmux-menu-item:has(> .acpmux-location-action[data-first]) { position: relative; margin-top: 9px; }
-.acpmux-folder-popover .acpmux-menu-item:has(> .acpmux-location-action[data-first])::before {
-  content: "";
-  position: absolute;
-  top: -5px;
-  left: 6px;
-  right: 6px;
-  height: 1px;
-  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
-}
 .acpmux-folder-popover .acpmux-menu-item[data-highlighted] { background: var(--acpmux-menu-highlight); }
 .acpmux-location-check { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; min-height: 16px; margin-left: auto; color: var(--agent-text); }
 /* The name and its suffix on one line, cut at the end: "cmux · cg-lane-adopt". */

@@ -7,6 +7,7 @@ import { Autocomplete } from "@base-ui/react/autocomplete";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
+import { ScrollArea } from "./ScrollArea";
 
 type BaseUIKeyEvent = KeyboardEvent<HTMLInputElement> & { preventBaseUIHandler?: () => void };
 
@@ -14,6 +15,8 @@ export interface ComboboxProps {
   /** The field's text when it opens. */
   defaultValue?: string;
   suggestions: readonly string[];
+  /** Leading actions remain below the field while the remaining suggestions scroll. */
+  pinnedSuggestions?: readonly string[];
   /** The text changed (typing, completion): compute new suggestions. */
   onQuery(value: string): void;
   /** Return: the highlighted suggestion, else the text. */
@@ -61,6 +64,7 @@ export interface ComboboxProps {
 export function Combobox({
   defaultValue = "",
   suggestions,
+  pinnedSuggestions,
   onQuery,
   onSubmit,
   onCancel,
@@ -174,53 +178,63 @@ export function Combobox({
     }
   };
   const renderItemContent = (item: string) => (renderItem ? renderItem(item) : item);
+  const renderOption = (item: string) => (
+    <Autocomplete.Item
+      key={item}
+      value={item}
+      aria-label={itemLabel?.(item)}
+      aria-current={isItemCurrent?.(item) ? true : undefined}
+      className={cx("ui-combobox-item", itemClassName)}
+      render={pinnedSuggestions ? <div /> : <li />}
+      onPointerDownCapture={() => {
+        // A new gesture cannot inherit a press whose click was cancelled outside.
+        pressActivatedRef.current = undefined;
+      }}
+      onMouseDown={(event) => {
+        if (event.button !== 0) {
+          pressActivatedRef.current = undefined;
+          return;
+        }
+        if (isItemDisabled?.(item)) return;
+        event.preventDefault();
+        pressActivatedRef.current = item;
+        onSubmit(item);
+      }}
+      onClick={(event) => {
+        // A real mouse click follows the primary press and must not submit twice. Keyboard and
+        // synthetic detail=0 clicks remain independent even if a press was cancelled outside.
+        const pressed = pressActivatedRef.current;
+        pressActivatedRef.current = undefined;
+        if (pressed === item && event.detail > 0) return;
+        // Base UI cancels pointerdown to retain input focus. Browsers then omit the
+        // compatibility mousedown, so a primary click must also activate on its own.
+        if (event.button === 0 && !isItemDisabled?.(item)) onSubmit(item);
+      }}
+    >
+      {renderItemContent(item)}
+    </Autocomplete.Item>
+  );
   const list = (
     <Autocomplete.List
       ref={listRef}
-      className={cx("ui-combobox-list", listClassName)}
-      render={<ul />}
+      className={cx("ui-combobox-list", pinnedSuggestions ? "ui-combobox-pinned-list" : listClassName)}
+      render={pinnedSuggestions ? <div /> : <ul />}
       hidden={suggestions.length === 0 && !held}
       aria-hidden={held && suggestions.length === 0 ? true : undefined}
       style={held ? { minHeight: tallest, boxSizing: "border-box" } : undefined}
     >
-      <Autocomplete.Collection>
-        {(item: string) => (
-          <Autocomplete.Item
-            key={item}
-            value={item}
-            aria-label={itemLabel?.(item)}
-            aria-current={isItemCurrent?.(item) ? true : undefined}
-            className={cx("ui-combobox-item", itemClassName)}
-            render={<li />}
-            onPointerDownCapture={() => {
-              // A new gesture cannot inherit a press whose click was cancelled outside.
-              pressActivatedRef.current = undefined;
-            }}
-            onMouseDown={(event) => {
-              if (event.button !== 0) {
-                pressActivatedRef.current = undefined;
-                return;
-              }
-              if (isItemDisabled?.(item)) return;
-              event.preventDefault();
-              pressActivatedRef.current = item;
-              onSubmit(item);
-            }}
-            onClick={(event) => {
-              // A real mouse click follows the primary press and must not submit twice. Keyboard and
-              // synthetic detail=0 clicks remain independent even if a press was cancelled outside.
-              const pressed = pressActivatedRef.current;
-              pressActivatedRef.current = undefined;
-              if (pressed === item && event.detail > 0) return;
-              // Base UI cancels pointerdown to retain input focus. Browsers then omit the
-              // compatibility mousedown, so a primary click must also activate on its own.
-              if (event.button === 0 && !isItemDisabled?.(item)) onSubmit(item);
-            }}
-          >
-            {renderItemContent(item)}
-          </Autocomplete.Item>
-        )}
-      </Autocomplete.Collection>
+      {pinnedSuggestions ? (
+        <>
+          <div className="ui-combobox-pinned" role="group">
+            {enabledSuggestions.filter((item) => pinnedSuggestions.includes(item)).map(renderOption)}
+          </div>
+          <ScrollArea className={cx("ui-combobox-scroll", listClassName)}>
+            {enabledSuggestions.filter((item) => !pinnedSuggestions.includes(item)).map(renderOption)}
+          </ScrollArea>
+        </>
+      ) : (
+        <Autocomplete.Collection>{renderOption}</Autocomplete.Collection>
+      )}
       {disabledSuggestions.map((item) => (
         <li
           key={item}
@@ -264,8 +278,8 @@ export function Combobox({
         spellCheck={false}
         onKeyDown={onKeyDown}
         // A press on a suggestion keeps focus in the field (Base UI items are not focusable).
-        onBlur={() => {
-          if (cancelOnBlur) onCancel();
+        onBlur={(event) => {
+          if (cancelOnBlur && !listRef.current?.contains(event.relatedTarget as Node | null)) onCancel();
         }}
       />
       {inline ? (
