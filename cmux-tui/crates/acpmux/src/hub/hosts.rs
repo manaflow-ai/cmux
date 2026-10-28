@@ -1592,8 +1592,13 @@ impl Hub {
             cwd_pin: crate::cwd_pin::CwdPin::current(),
         };
         let launcher = crate::agent_host::link::HostLauncher::current().map_err(internal)?;
+        let launch = crate::agent::Launch::new(&spec.program, &spec.args, &spec.env, &spec.cwd);
+        let launched = |child: Arc<ChildAgent>| {
+            *child.launch.lock().unwrap_or_else(|e| e.into_inner()) = Some(launch.clone());
+            child
+        };
         let first = match self.start_hosted(session, meta, &launcher, &spec, tap.clone()).await {
-            Ok(child) => return Ok(child),
+            Ok(child) => return Ok(launched(child)),
             Err(e) => e,
         };
         // A host that started but did not answer (a wedged or dead host: its hello missed the
@@ -1606,7 +1611,7 @@ impl Hub {
         }
         tracing::warn!(session = %session.id, "agent host did not answer ({:#}); starting a fresh host", first.error);
         match self.start_hosted(session, meta, &launcher, &spec, tap).await {
-            Ok(child) => Ok(child),
+            Ok(child) => Ok(launched(child)),
             Err(second) => {
                 if let Some(failed) = &second.started {
                     let _ = self.end_unanswered_host(session, failed, &second.error).await;

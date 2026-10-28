@@ -165,7 +165,16 @@ impl Hub {
             .await
             .unwrap_or_else(|_| Err(anyhow::anyhow!("no host link within {START_BUDGET:?}")));
         let child = match attached {
-            Ok(Attached::Ready(child, _, _)) => child,
+            Ok(Attached::Ready(child, _, _)) => {
+                let launch = crate::agent::Launch::new(
+                    &host_spec.program,
+                    &host_spec.args,
+                    &host_spec.env,
+                    &host_spec.cwd,
+                );
+                *child.launch.lock().unwrap_or_else(|e| e.into_inner()) = Some(launch);
+                child
+            }
             Ok(Attached::Incompatible { .. }) => {
                 end_pooled_host(&record).await;
                 anyhow::bail!("a host of this build refused its controller")

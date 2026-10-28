@@ -7,17 +7,19 @@
 //! servers, or run under one; anything else keeps the harness up. A census that fails or is not
 //! whole keeps it up too.
 //!
-//! The MCP servers are read from every config the harness reads: what acpmux gave this harness
-//! (an ACP harness's `mcpServers`, recorded at its session/new or load; Claude Code's
-//! `--mcp-config` file and any its profile names), and for Claude Code its `.claude.json` (its
-//! user servers and this folder's project entry, in `~` and in the session's `CLAUDE_CONFIG_DIR`)
-//! and the folder's `.mcp.json` (none with `--strict-mcp-config`), for Codex its `config.toml`
-//! `[mcp_servers]` (in `~/.codex` and the session's `CODEX_HOME`). A file that is missing or
-//! does not parse adds nothing, so a server only it names keeps the harness up; so does a server
-//! acpmux gave an agent another daemon started. A process is a server when its program is the
-//! server's command, or an interpreter runs that command as a script, and the server's args
-//! follow it (`runs`). The configs and `ps` each get [`CENSUS_BUDGET`]; past it the harness
-//! stays up, so the leases the pass holds are never held longer.
+//! The MCP servers are read from the configs the harness read as it was started
+//! (`ChildAgent::launch`: its argv, folder, `HOME`, `PATH`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`):
+//! the `mcpServers` acpmux gave an ACP harness; for Claude Code its `--mcp-config` files (acpmux's
+//! among them) and, unless `--strict-mcp-config`, its `.claude.json` (user servers and this
+//! folder's project entry) and the folder's `.mcp.json`; for Codex its `config.toml`. A file that
+//! is missing or does not parse adds nothing, so a server only it names keeps the harness up. For
+//! a harness another daemon started none are known: it ends only when nothing runs under it.
+//!
+//! Only a child of the harness can be a server, and only when its command line is exactly the
+//! server's: its program (as configured, or what `PATH` runs for a name), or an interpreter
+//! running that program as a script, then exactly its args (`runs`). What runs under a server is
+//! the server's. The configs and `ps` each get [`CENSUS_BUDGET`]; past it the harness stays up,
+//! so the leases the pass holds are never held longer.
 
 #![cfg_attr(not(unix), allow(dead_code))]
 
@@ -25,12 +27,12 @@ use super::*;
 use std::path::{Path, PathBuf};
 
 /// One configured MCP server: its command and args, each arg split on whitespace as `ps` prints.
-/// `paths`: for a command given by name, where the harness's `PATH` finds it.
+/// `resolved`: for a command given by name, the program the harness's `PATH` runs for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct Sidecar {
     command: String,
     args: Vec<String>,
-    paths: Vec<String>,
+    resolved: Option<String>,
 }
 
 /// The most the idle pass waits for the configs to be read, or for `ps`.
@@ -46,7 +48,7 @@ pub(super) enum Census {
     Clear,
     /// This process is neither an MCP server nor under one.
     Busy { pid: u32, comm: String },
-    /// The processes could not be listed (or the harness pid is unknown).
+    /// The processes or the harness's MCP servers could not be listed (or its pid is unknown).
     Unknown,
 }
 
@@ -56,12 +58,16 @@ const REFUSAL_LOG_EVERY: std::time::Duration = std::time::Duration::from_secs(60
 impl Hub {
     /// Lists what runs under `pid`, the session's harness, against `sidecars`, within
     /// [`CENSUS_BUDGET`].
-    pub(super) async fn idle_census(&self, pid: Option<u32>, sidecars: Vec<Sidecar>) -> Census {
+    pub(super) async fn idle_census(
+        &self,
+        pid: Option<u32>,
+        sidecars: Option<Vec<Sidecar>>,
+    ) -> Census {
         #[cfg(unix)]
-        if let Some(pid) = pid {
+        if let (Some(pid), Some(sidecars)) = (pid, sidecars) {
             let found = tokio::task::spawn_blocking(move || crate::agent_host::tree::under(pid));
             return match tokio::time::timeout(CENSUS_BUDGET, found).await {
-                Ok(Ok(Some(found))) => classify(&found, &sidecars),
+                Ok(Ok(Some(found))) => classify(&found, pid, &sidecars),
                 _ => Census::Unknown,
             };
         }
@@ -85,108 +91,97 @@ impl Hub {
             ),
             Census::Unknown => tracing::info!(
                 session = %session.id,
-                "idle harness stays up: the processes under it could not be listed"
+                "idle harness stays up: its MCP servers or the processes under it are not known"
             ),
             Census::Clear => {}
         }
     }
 
-    /// The MCP servers `child`, the session's harness, runs, from every config it reads, within
-    /// [`CENSUS_BUDGET`] (none past it, so the harness stays up).
-    pub(super) async fn sidecars(&self, session: &Session, child: &ChildAgent) -> Vec<Sidecar> {
-        let meta = session.meta();
-        let (_, env) = self.harness_env(&meta).await;
-        let argv = meta.spawn_argv.clone().unwrap_or_else(|| meta.harness_argv.clone());
-        // What acpmux gave it: an ACP harness's `mcpServers` (none known for one adopted from
-        // another daemon), Claude Code's `--mcp-config` file (`agent_tools::claude_args_for`).
+    /// The MCP servers `child`, the session's harness, runs, from every config it reads as it was
+    /// started (`ChildAgent::launch`), within [`CENSUS_BUDGET`]. None when the reads ran out of
+    /// time: the harness stays up. For a harness another daemon started none are known, so it
+    /// ends only when nothing at all runs under it.
+    pub(super) async fn sidecars(
+        &self,
+        session: &Session,
+        child: &ChildAgent,
+    ) -> Option<Vec<Sidecar>> {
+        let Some(launch) = child.launch.lock().unwrap_or_else(|e| e.into_inner()).clone() else {
+            return Some(Vec::new());
+        };
+        let family = session.meta().family.unwrap_or_default();
+        // What acpmux gave an ACP harness at its session/new or load.
         let given = child.given_servers.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let mut out = from_json(given.as_ref());
-        let family = meta.family.clone().unwrap_or_default();
-        let strict = argv.iter().any(|a| a == "--strict-mcp-config");
-        let home = dirs::home_dir().unwrap_or_default();
-        let mut files = Vec::new();
-        let mut claude = Vec::new();
-        let mut codex = Vec::new();
-        if family == "claude" {
-            files.push(crate::agent_tools::mcp_config_path(&crate::config::home(), &session.id));
-            // A profile's own `--mcp-config <file>` (inline JSON is read as it is).
-            for pair in argv.windows(2).filter(|w| w[0] == "--mcp-config") {
-                match serde_json::from_str::<Value>(&pair[1]) {
-                    Ok(inline) => out.extend(from_json(inline.get("mcpServers"))),
-                    Err(_) => files.push(PathBuf::from(&pair[1])),
-                }
-            }
-            if !strict {
-                claude.push(home.clone());
-                claude.extend(crate::harness_config::config_dir(
-                    "CLAUDE_CONFIG_DIR",
-                    ".claude",
-                    &[&env],
-                ));
-                claude.extend(crate::route_account::current_home(&meta, "claude", &env));
-            }
-        }
-        if family == "codex" {
-            codex.push(home.join(".codex"));
-            codex.extend(crate::harness_config::config_dir("CODEX_HOME", ".codex", &[&env]));
-            codex.extend(crate::route_account::current_home(&meta, "codex", &env));
-        }
-        let project = !claude.is_empty();
-        let cwd = Path::new(&meta.cwd);
-        let cwd_keys: Vec<String> = [Some(cwd.to_path_buf()), cwd.canonicalize().ok()]
-            .into_iter()
-            .flatten()
-            .map(|p| p.to_string_lossy().into_owned())
-            .collect();
-        // Where the harness finds a command given by name.
-        let path: Vec<String> =
-            [env.get("PATH").cloned(), std::env::var("PATH").ok(), crate::login_env::var("PATH")]
-                .into_iter()
-                .flatten()
-                .collect();
         let read = tokio::task::spawn_blocking(move || {
-            for file in files {
-                out.extend(from_json(read_json(&file).as_ref().and_then(|j| j.get("mcpServers"))));
-            }
-            for dir in claude {
-                let Some(json) = read_json(&dir.join(".claude.json")) else { continue };
-                out.extend(from_json(json.get("mcpServers")));
-                for key in &cwd_keys {
-                    out.extend(from_json(json.pointer(&format!("/projects/{}", escape(key)))));
-                }
-            }
-            for key in cwd_keys.iter().filter(|_| project) {
-                let file = read_json(&PathBuf::from(key).join(".mcp.json"));
-                out.extend(from_json(file.as_ref().and_then(|j| j.get("mcpServers"))));
-            }
-            for dir in codex {
-                let Ok(text) = std::fs::read_to_string(dir.join("config.toml")) else { continue };
-                out.extend(from_toml(&text));
-            }
+            let mut out = from_json(given.as_ref());
+            out.extend(from_launch(&family, &launch));
+            let path = launch.env.get("PATH").cloned().unwrap_or_default();
             for s in out.iter_mut().filter(|s| !s.command.contains('/')) {
-                s.paths = on_path(&s.command, &path);
+                s.resolved = first_on_path(&s.command, &path);
             }
             out.dedup();
             out
         });
-        match tokio::time::timeout(CENSUS_BUDGET, read).await {
-            Ok(Ok(out)) => out,
-            _ => Vec::new(),
-        }
+        tokio::time::timeout(CENSUS_BUDGET, read).await.ok()?.ok()
     }
 }
 
-/// Every `dir/name` on the `:`-separated `paths` that is a file.
-fn on_path(name: &str, paths: &[String]) -> Vec<String> {
-    let mut found: Vec<String> = Vec::new();
-    for dir in paths.iter().flat_map(|p| p.split(':')).filter(|d| !d.is_empty()) {
-        let at = Path::new(dir).join(name);
-        let at_s = at.to_string_lossy().into_owned();
-        if at.is_file() && !found.contains(&at_s) {
-            found.push(at_s);
+/// The servers in the configs a harness of `family` started as `launch` reads: Claude Code's
+/// `--mcp-config` files and JSON (acpmux's own among them), and unless `--strict-mcp-config`
+/// its `.claude.json` (`$CLAUDE_CONFIG_DIR`, else `$HOME`: user servers and this folder's
+/// project entry) and the folder's `.mcp.json`; Codex's `config.toml` (`$CODEX_HOME`, else
+/// `$HOME/.codex`).
+fn from_launch(family: &str, launch: &crate::agent::Launch) -> Vec<Sidecar> {
+    let mut out = Vec::new();
+    let env = |k: &str| launch.env.get(k).filter(|v| !v.is_empty()).map(PathBuf::from);
+    let Some(home) = env("HOME") else { return out };
+    let cwd = &launch.cwd;
+    if family == "claude" {
+        for pair in launch.args.windows(2).filter(|w| w[0] == "--mcp-config") {
+            match serde_json::from_str::<Value>(&pair[1]) {
+                Ok(inline) if inline.is_object() => out.extend(from_json(inline.get("mcpServers"))),
+                // A file, relative to the harness's folder.
+                _ => {
+                    let file = read_json(&cwd.join(&pair[1]));
+                    out.extend(from_json(file.as_ref().and_then(|j| j.get("mcpServers"))));
+                }
+            }
+        }
+        if launch.args.iter().any(|a| a == "--strict-mcp-config") {
+            return out;
+        }
+        let dir = env("CLAUDE_CONFIG_DIR").unwrap_or(home);
+        let keys: Vec<String> = [Some(cwd.clone()), cwd.canonicalize().ok()]
+            .into_iter()
+            .flatten()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        if let Some(json) = read_json(&dir.join(".claude.json")) {
+            out.extend(from_json(json.get("mcpServers")));
+            for key in &keys {
+                out.extend(from_json(json.pointer(&format!("/projects/{}", escape(key)))));
+            }
+        }
+        let project = read_json(&cwd.join(".mcp.json"));
+        out.extend(from_json(project.as_ref().and_then(|j| j.get("mcpServers"))));
+    } else if family == "codex" {
+        let dir = env("CODEX_HOME").unwrap_or_else(|| home.join(".codex"));
+        if let Ok(text) = std::fs::read_to_string(dir.join("config.toml")) {
+            out.extend(from_toml(&text));
         }
     }
-    found
+    out
+}
+
+/// The program `PATH` runs for `name`: its first executable file there.
+fn first_on_path(name: &str, path: &str) -> Option<String> {
+    use std::os::unix::fs::PermissionsExt;
+    path.split(':').filter(|d| !d.is_empty()).find_map(|dir| {
+        let at = Path::new(dir).join(name);
+        let meta = std::fs::metadata(&at).ok()?;
+        (meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+            .then(|| at.to_string_lossy().into_owned())
+    })
 }
 
 fn read_json(path: &Path) -> Option<Value> {
@@ -200,7 +195,7 @@ fn escape(key: &str) -> String {
 
 fn sidecar(command: &str, args: &[String]) -> Sidecar {
     let args = args.iter().flat_map(|a| a.split_whitespace()).map(str::to_owned).collect();
-    Sidecar { command: command.to_owned(), args, paths: Vec::new() }
+    Sidecar { command: command.to_owned(), args, resolved: None }
 }
 
 /// The stdio servers of a `{"name": {"command", "args"}}` map (a project entry nests it) or an
@@ -245,44 +240,48 @@ fn from_toml(text: &str) -> Vec<Sidecar> {
         .collect()
 }
 
-/// Whether command line `args` (as `ps` prints it) runs `s`: its program is the server's command
-/// (the same path; for a command given by name, the name or where the harness's `PATH` finds
-/// it), or one of [`INTERPRETERS`] runs that command as a script (a `#!` line:
-/// `node /usr/local/bin/npx`), and the server's args follow right after, in order. A shell
-/// whose command string names the server (`sh -c ...`) is not the server.
+/// Whether command line `args` (as `ps` prints it) is exactly `s`: its program is the server's
+/// command (as configured, or the program `PATH` runs for a command given by name), or one of
+/// [`INTERPRETERS`] runs that program as a script (a `#!` line: `node /usr/local/bin/npx`), and
+/// then exactly the server's args. A server that is a bare interpreter with no args says nothing
+/// about what it runs, so it never matches.
 fn runs(args: &str, s: &Sidecar) -> bool {
     let words: Vec<&str> = args.split_whitespace().collect();
-    let is_command = |w: &str| w == s.command || s.paths.iter().any(|p| p == w);
+    let base = |w: &str| Path::new(w).file_name().map(|n| n.to_string_lossy().into_owned());
     let interpreter = |w: &str| {
-        let name = Path::new(w).file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+        let name = base(w).unwrap_or_default();
         INTERPRETERS.iter().any(|i| {
             name.strip_prefix(i)
                 .is_some_and(|rest| rest.chars().all(|c| c.is_ascii_digit() || c == '.'))
         })
     };
-    let at = if words.first().is_some_and(|w| is_command(w)) {
+    if s.args.is_empty() && interpreter(&s.command) {
+        return false;
+    }
+    let program = |w: &str| w == s.command || s.resolved.as_deref() == Some(w);
+    let at = if words.first().is_some_and(|w| program(w)) {
         1
     } else if words.first().is_some_and(|w| interpreter(w))
-        && words.get(1).is_some_and(|w| w.contains('/') && is_command(w))
+        && words.get(1).is_some_and(|w| w.contains('/') && program(w))
     {
         2
     } else {
         return false;
     };
-    words.len() >= at + s.args.len() && words[at..].iter().zip(&s.args).all(|(a, b)| a == b)
+    words.len() == at + s.args.len() && words[at..].iter().zip(&s.args).all(|(a, b)| a == b)
 }
 
-/// `Busy` with the first process that is neither a server nor under one.
+/// `Busy` with the first process that is neither a server (a child of `leader`) nor under one.
 #[cfg(unix)]
-fn classify(found: &[crate::agent_host::tree::Under], sidecars: &[Sidecar]) -> Census {
+fn classify(found: &[crate::agent_host::tree::Under], leader: u32, sidecars: &[Sidecar]) -> Census {
     let mut allowed: Vec<u32> = Vec::new();
     let mut grew = true;
     while grew {
         grew = false;
         for p in found {
-            if !allowed.contains(&p.pid)
-                && (allowed.contains(&p.ppid) || sidecars.iter().any(|s| runs(&p.args, s)))
-            {
+            // The harness starts its servers itself: only its own children can be one.
+            let server = p.ppid == leader && sidecars.iter().any(|s| runs(&p.args, s));
+            if !allowed.contains(&p.pid) && (allowed.contains(&p.ppid) || server) {
                 allowed.push(p.pid);
                 grew = true;
             }
@@ -309,14 +308,14 @@ mod tests {
 
     #[test]
     fn mcp_servers_and_what_runs_under_them_let_a_harness_end() {
-        let servers = from_json(Some(&json!({
-            "cmux": {"command": "/Applications/cmux.app/Contents/Resources/bin/cmux", "args": ["mcp", "serve"]},
+        let mut servers = from_json(Some(&json!({
+            "cmux": {"command": "/Applications/cmux.app/Contents/Resources/bin/cmux", "args": ["mcp", "serve", "--all-tools"]},
             "fetch": {"command": "npx", "args": ["-y", "@example/fetch"]},
+            "py": {"command": "python3"},
             "remote": {"type": "http", "url": "https://example.com/mcp"},
         })));
-        let mut servers = servers;
-        assert_eq!(servers.len(), 2, "a server with no command spawns nothing");
-        servers[1].paths = vec!["/usr/local/bin/npx".into()];
+        assert_eq!(servers.len(), 3, "a server with no command spawns nothing");
+        servers[1].resolved = Some("/usr/local/bin/npx".into());
         let found = [
             under(
                 11,
@@ -326,30 +325,72 @@ mod tests {
             under(12, 10, "node /usr/local/bin/npx -y @example/fetch"),
             under(13, 12, "node /tmp/_npx/fetch/index.js"),
         ];
-        assert!(matches!(classify(&found, &servers), Census::Clear));
-        for same in
-            ["npx -y @example/fetch", "/usr/bin/python3.12 /usr/local/bin/npx -y @example/fetch"]
-        {
-            assert!(matches!(classify(&[under(12, 10, same)], &servers), Census::Clear), "{same}");
+        assert!(matches!(classify(&found, 10, &servers), Census::Clear));
+        for same in [
+            "npx -y @example/fetch",
+            "/usr/local/bin/npx -y @example/fetch",
+            "/usr/bin/python3.12 /usr/local/bin/npx -y @example/fetch",
+        ] {
+            let found = [under(12, 10, same)];
+            assert!(matches!(classify(&found, 10, &servers), Census::Clear), "{same}");
         }
         let mut busy = found.to_vec();
         busy.push(under(14, 10, "/usr/bin/python3 -m http.server 8000"));
         assert!(
-            matches!(classify(&busy, &servers), Census::Busy { pid: 14, ref comm } if comm == "python3")
+            matches!(classify(&busy, 10, &servers), Census::Busy { pid: 14, ref comm } if comm == "python3")
         );
-        let renamed = [under(12, 10, "node /usr/local/bin/npx -y @example/other")];
-        assert!(matches!(classify(&renamed, &servers), Census::Busy { pid: 12, .. }));
         for other in [
+            "node /usr/local/bin/npx -y @example/other",
             "sh -c npx -y @example/fetch",
-            "/tmp/other/cmux mcp serve",
+            "/tmp/other/cmux mcp serve --all-tools",
+            "/Applications/cmux.app/Contents/Resources/bin/cmux mcp serve --all-tools --x",
             "python3 notes.py npx -y @example/fetch",
             "cat /usr/local/bin/npx -y @example/fetch",
             "/tmp/npx -y @example/fetch",
+            "/opt/bin/npx -y @example/fetch",
             "node /tmp/npx -y @example/fetch",
+            "python3",
+            "python3 -c print(1)",
         ] {
             let found = [under(12, 10, other)];
-            assert!(matches!(classify(&found, &servers), Census::Busy { .. }), "{other}");
+            assert!(matches!(classify(&found, 10, &servers), Census::Busy { .. }), "{other}");
         }
+        // A server's command line under something other than the harness is not its server.
+        let nested = [under(15, 10, "bash"), under(16, 15, "npx -y @example/fetch")];
+        assert!(matches!(classify(&nested, 10, &servers), Census::Busy { pid: 15, .. }));
+    }
+
+    #[test]
+    fn the_configs_are_the_ones_the_harness_was_started_with() {
+        let root = std::env::temp_dir().join(format!("idle-census-{}", uuid::Uuid::now_v7()));
+        let (home, dir, cwd) = (root.join("home"), root.join("claude"), root.join("work"));
+        for d in [&home, &dir, &cwd] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let server = |c: &str| json!({"mcpServers": {"s": {"command": c}}}).to_string();
+        std::fs::write(home.join(".claude.json"), server("home-mcp")).unwrap();
+        std::fs::write(dir.join(".claude.json"), server("dir-mcp")).unwrap();
+        std::fs::write(cwd.join(".mcp.json"), server("project-mcp")).unwrap();
+        std::fs::write(cwd.join("extra.json"), server("extra-mcp")).unwrap();
+        let launch = |args: &[&str], env: &[(&str, &Path)]| crate::agent::Launch {
+            args: args.iter().map(|a| a.to_string()).collect(),
+            env: env.iter().map(|(k, v)| (k.to_string(), v.to_string_lossy().into())).collect(),
+            cwd: cwd.clone(),
+        };
+        let names = |l: &crate::agent::Launch| {
+            let mut n: Vec<String> =
+                from_launch("claude", l).into_iter().map(|s| s.command).collect();
+            n.sort();
+            n
+        };
+        let plain = launch(&["claude", "--mcp-config", "extra.json"], &[("HOME", &home)]);
+        assert_eq!(names(&plain), ["extra-mcp", "home-mcp", "project-mcp"]);
+        let moved = launch(&["claude"], &[("HOME", &home), ("CLAUDE_CONFIG_DIR", &dir)]);
+        assert_eq!(names(&moved), ["dir-mcp", "project-mcp"]);
+        let strict = launch(&["claude", "--strict-mcp-config"], &[("HOME", &home)]);
+        assert!(names(&strict).is_empty());
+        assert!(from_launch("codex", &plain).is_empty());
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
