@@ -196,6 +196,9 @@ nonisolated enum AcpmuxStatusClient {
     }
 
     static func start(_ connection: NWConnection) async throws {
+        // A caller cancelled before the connection starts has already torn it down
+        // (withAgentPaneDeadline's onTimeout): a cancelled connection may never report a state.
+        try Task.checkCancellation()
         let gate = AgentPaneResumeOnce()
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
             connection.stateUpdateHandler = { state in
