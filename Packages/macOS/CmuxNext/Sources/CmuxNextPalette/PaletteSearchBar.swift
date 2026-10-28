@@ -24,6 +24,8 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     private let keywordHint = PaletteKeywordHintView()
     private let spinner = StatusIndicatorView.spinner()
     private var placeholder = ""
+    /// The text width the placeholder was last fitted to.
+    private var placeholderWidth: CGFloat = 0
     private var style: PaletteScopeChipStyle = .token
     private var depth = 0
 
@@ -93,13 +95,16 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     private func applyColors() {
         performWithTheme {
             magnifier.contentTintColor = Palette.textTertiary
-            // The field scrolls its text, so a placeholder wider than the field truncates only
-            // through its own line break mode (#26606).
+            // The field scrolls its text, and a scrolling cell clips a placeholder wider than the
+            // field mid-glyph whatever its line break mode, so it is cut to fit here, with an
+            // ellipsis (#26606).
             let style = NSMutableParagraphStyle()
             style.lineBreakMode = .byTruncatingTail
+            let attributes: [NSAttributedString.Key: Any] = [.font: Typography.search, .foregroundColor: Palette.textTertiary,
+                                                             .paragraphStyle: style]
             field.placeholderAttributedString = NSAttributedString(
-                string: placeholder,
-                attributes: [.font: Typography.search, .foregroundColor: Palette.textTertiary, .paragraphStyle: style]
+                string: Self.fitted(placeholder, width: placeholderWidth, attributes: attributes),
+                attributes: attributes
             )
         }
     }
@@ -144,5 +149,31 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
             right = keywordHint.frame.minX - Metrics.space4
         }
         field.frame = pixelAligned(NSRect(x: x, y: fieldY, width: max(0, right - x), height: fieldHeight))
+        // Less the field editor's line fragment padding (2 pt a side), which the text draws inside.
+        let textWidth = (field.cell?.titleRect(forBounds: field.bounds).width ?? field.bounds.width) - 4
+        if textWidth != placeholderWidth {
+            placeholderWidth = textWidth
+            applyColors()
+        }
+    }
+
+    /// `text` whole when it fits `width`, else its longest prefix that fits with an ellipsis.
+    static func fitted(_ text: String, width: CGFloat, attributes: [NSAttributedString.Key: Any]) -> String {
+        func fits(_ candidate: String) -> Bool {
+            (candidate as NSString).size(withAttributes: attributes).width <= width
+        }
+        guard width > 0, !fits(text) else { return text }
+        let characters = Array(text)
+        var low = 0
+        var high = characters.count
+        while low < high {
+            let mid = (low + high + 1) / 2
+            if fits(Self.truncated(characters, mid)) { low = mid } else { high = mid - 1 }
+        }
+        return Self.truncated(characters, low)
+    }
+
+    private static func truncated(_ characters: [Character], _ count: Int) -> String {
+        String(characters.prefix(count)).trimmingCharacters(in: .whitespaces) + "…"
     }
 }
