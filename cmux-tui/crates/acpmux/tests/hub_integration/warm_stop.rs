@@ -158,3 +158,53 @@ async fn warm_stop_settles_the_turn_and_withdraws_queued_work() {
     assert_eq!(results[0].msg["status"], "cancelled");
     hub.shutdown_all().await;
 }
+
+/// A launch's warm that reaches the daemon after that launch's cleanup stopped the chat (a
+/// detached RPC) starts nothing; the next launch's warm still starts it.
+#[tokio::test]
+async fn launch_token_fence_refuses_a_warm_after_its_launch_cleanup() {
+    let (hub, mut client) = setup(PermissionPolicy::ApproveAll).await;
+    let made =
+        client.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&id).unwrap();
+    hub.detach_child(&session).await;
+    let (warmed, failed) =
+        hub.warm_sessions_report(&[id.clone()], 1, false, true, Some("launch-a")).await;
+    assert_eq!((warmed.len(), failed.len()), (1, 0), "{warmed:?} {failed:?}");
+    hub.warm_stop(&id, Some("launch-a")).await;
+    assert_eq!(hub.status().await["liveAgents"], 0);
+
+    let (warmed, failed) =
+        hub.warm_sessions_report(&[id.clone()], 1, false, true, Some("launch-a")).await;
+    assert!(warmed.is_empty(), "a cleaned-up launch started the chat again: {warmed:?}");
+    assert_eq!(failed[0]["error"]["message"], "stale launch warm", "{failed:?}");
+    assert_eq!(hub.status().await["liveAgents"], 0);
+
+    let (warmed, failed) =
+        hub.warm_sessions_report(&[id.clone()], 1, false, true, Some("launch-b")).await;
+    assert_eq!((warmed.len(), failed.len()), (1, 0), "{warmed:?} {failed:?}");
+    hub.shutdown_all().await;
+}
+
+/// A launch that ended without its cleanup (a crash or force quit) leaves the shared daemon
+/// running; the next launch still starts the chats it restores.
+#[tokio::test]
+async fn launch_token_fence_admits_a_launch_after_one_without_cleanup() {
+    let (hub, mut client) = setup(PermissionPolicy::ApproveAll).await;
+    let made =
+        client.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = made["sessionId"].as_str().unwrap().to_owned();
+    let session = hub.resolve(&id).unwrap();
+    hub.detach_child(&session).await;
+    let (warmed, _) =
+        hub.warm_sessions_report(&[id.clone()], 1, false, true, Some("crashed-launch")).await;
+    assert_eq!(warmed.len(), 1, "{warmed:?}");
+    hub.detach_child(&session).await;
+
+    let (warmed, failed) =
+        hub.warm_sessions_report(&[id.clone()], 1, false, true, Some("next-launch")).await;
+    assert!(failed.is_empty(), "the next launch was refused: {failed:?}");
+    assert_eq!(warmed.len(), 1, "{warmed:?}");
+    hub.shutdown_all().await;
+}

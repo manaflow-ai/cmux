@@ -50,7 +50,8 @@ impl Hub {
         let mut failed = Vec::new();
         for session in candidates {
             if let Some(token) = launch_token {
-                let mut current = session.launch_warm_token.lock().unwrap();
+                let mut current =
+                    session.launch_warm_token.lock().unwrap_or_else(|e| e.into_inner());
                 if session.launch_warm_invalidated.load(Ordering::SeqCst) {
                     *current = Some(token.to_owned());
                     session.launch_warm_invalidated.store(false, Ordering::SeqCst);
@@ -113,7 +114,9 @@ impl Hub {
         };
         // An idle pass finishes marking hibernation before this stop; none starts during it.
         let _using = session.harness_use.read().await;
-        if let Some(current) = session.launch_warm_token.lock().unwrap().as_deref() {
+        if let Some(current) =
+            session.launch_warm_token.lock().unwrap_or_else(|e| e.into_inner()).as_deref()
+        {
             if launch_token.is_none() || launch_token == Some(current) {
                 session.launch_warm_invalidated.store(true, Ordering::SeqCst);
             }
