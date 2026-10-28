@@ -620,6 +620,14 @@
         {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFSwitches.swift:272", "kind": "use", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
       ]
     },
+    "CMUX_NEXT_BENCH_LAUNCH_STALL_MS": {
+      "class": "benchOnly",
+      "auto": true,
+      "sites": [
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/BenchLaunchStall.swift:10", "kind": "constant", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false},
+        {"at": "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Diagnostics/BenchLaunchStall.swift:17", "kind": "via variable", "cond": "DEBUG || CMUX_BENCH_HOOKS", "release": false}
+      ]
+    },
     "CMUX_NEXT_BENCH_REAL_KEYCHAIN": {
       "class": "benchOnly",
       "note": "=1 gives a development bundle Chromium's real login keychain instead of its mock one (chromium-host-bench.py --modes tcc, p01-process-089); read only in DEBUG or CMUX_BENCH_HOOKS builds, never in Release.",
