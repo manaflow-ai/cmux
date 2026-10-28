@@ -9,8 +9,7 @@ import Testing
 
 @MainActor @Suite
 struct AgentChatDestinationsTests {
-    @Test func aCloudDestinationUsesItsFocusedWorkspaceAndPane() throws {
-        let services = MachineIconTests.services()
+    static func focusedCloud(_ services: AppServices) -> CloudMachineSession {
         let session = MachineIconTests.cloudMachine(services, id: "vm-chat-focus")
         let first = PaneSnapshot(id: PaneID(rawValue: 11), focusedAt: 1,
             tabs: [TabSnapshot(surface: SurfaceID(rawValue: 11), cwd: "/unrelated")])
@@ -24,10 +23,16 @@ struct AgentChatDestinationsTests {
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: WorkspaceKey(rawValue: "focused-project"), name: "Focused",
                 screens: [ScreenSnapshot(id: ScreenID(rawValue: 2), layout: .leaf(other.id), panes: [other, focused])]),
         ]))
+        return session
+    }
+
+    @Test func aCloudDestinationUsesItsFocusedWorkspaceAndPane() throws {
+        let services = MachineIconTests.services()
+        let session = Self.focusedCloud(services)
         let destination = try #require(AgentChatPlacement.destination(on: session.daemon, services: services))
         #expect(destination.daemon === session.daemon)
         #expect(destination.workspace.id == "focused-project")
-        #expect(destination.pane.handle == focused.id)
+        #expect(destination.pane.handle == PaneID(rawValue: 22))
         #expect(destination.cwd(nil) == "/focused-project")
         #expect(destination.cwd("/explicit") == "/explicit")
     }
@@ -96,6 +101,26 @@ struct AgentChatDestinationsTests {
 /// fixture data; no remote account or peer process is needed to check routing and refusals.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct AgentChatDestinationActionTests {
+    @Test(arguments: [false, true])
+    func cloudPlacementUsesWindowFocusBeforeDaemonRecency(away: Bool) async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            let window = try #require(services.windows.active)
+            let localWorkspace = window.state.workspaceID
+            let session = AgentChatDestinationsTests.focusedCloud(services)
+            window.state.machineID = session.machineID
+            window.state.workspaceID = "focused-project"
+            window.state.focus.send(.restoredPane("pane:21", workspace: "focused-project"))
+            if away {
+                window.state.machineID = MachineRegistry.localID
+                window.state.workspaceID = localWorkspace
+            }
+            let destination = try #require(AgentChatPlacement.destination(on: session.daemon, services: services))
+            #expect(destination.workspace.id == "focused-project")
+            #expect(destination.pane.handle == PaneID(rawValue: 21))
+            #expect(destination.cwd(nil) == "/other")
+        }
+    }
+
     @Test(arguments: ["local", "This Mac", "dev-box"])
     func aLocalOrPeerDestinationWorksWhileARemoteDaemonIsActive(host: String) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
