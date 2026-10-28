@@ -16,13 +16,20 @@ import Testing
         var fails = false
         private var waiter: (count: Int, continuation: CheckedContinuation<Void, Never>)?
 
+        /// Returns once `count` requests arrived, or when the test is cancelled (its time limit), so a missing
+        /// request fails the test instead of hanging the suite.
         func reach(_ count: Int) async {
             guard requests.count < count else { return }
-            await withCheckedContinuation { waiter = (count, $0) }
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { waiter = (count, $0) }
+            } onCancel: {
+                // The waiter is set on main before this hop runs: the body stores it in the job that suspends.
+                Task { @MainActor in self.resumeWaiter(cancelled: true) }
+            }
         }
 
-        private func resumeWaiter() {
-            guard let waiter, requests.count >= waiter.count else { return }
+        private func resumeWaiter(cancelled: Bool = false) {
+            guard let waiter, cancelled || requests.count >= waiter.count else { return }
             self.waiter = nil
             waiter.continuation.resume()
         }
@@ -76,7 +83,8 @@ import Testing
         }
     }
 
-    /// The window and one tab node per surface, followed by `reporter`, all hidden.
+    /// The window and one tab node per surface, followed by `reporter`, all hidden. A tab holds its parent weakly:
+    /// the caller keeps the window, or every tab is hidden for good.
     private static func nodes(_ store: DaemonStore, _ reporter: FrontendVisibilityReporter) throws
         -> (window: VisibilityNode, tabs: [VisibilityNode]) {
         let window = VisibilityNode(root: "window", own: .visible)
@@ -121,7 +129,7 @@ import Testing
         await daemon.reach(3)
         #expect(daemon.requests.last == FrontendVisibilitySetRequest(visible: []))
         #expect(frames.run() == 0)
-        withExtendedLifetime((reporter, tabs)) {}
+        withExtendedLifetime((reporter, window, tabs)) {}
     }
 
     @Test(.timeLimit(.minutes(1))) func everyConnectionIsToldAndAFailedSendIsResentOnTheNextChange() async throws {
@@ -129,7 +137,7 @@ import Testing
         let daemon = Received()
         let frames = Frames()
         let reporter = Self.reporter(store, frames: frames, daemon: daemon)
-        let (_, tabs) = try Self.nodes(store, reporter)
+        let (window, tabs) = try Self.nodes(store, reporter)
         tabs[0].set(.visible)
         frames.run()
         await daemon.reach(1)
@@ -161,7 +169,7 @@ import Testing
         frames.run()
         await daemon.reach(4)
         #expect(daemon.requests.last == FrontendVisibilitySetRequest(visible: [1, 2, 3]))
-        withExtendedLifetime((reporter, tabs)) {}
+        withExtendedLifetime((reporter, window, tabs)) {}
     }
 
     @Test func aDaemonWithoutTheCapabilityIsNotTold() async throws {
@@ -169,12 +177,12 @@ import Testing
         let daemon = Received()
         let frames = Frames()
         let reporter = Self.reporter(store, frames: frames, daemon: daemon)
-        let (_, tabs) = try Self.nodes(store, reporter)
+        let (window, tabs) = try Self.nodes(store, reporter)
         tabs[0].set(.visible)
         frames.run()
         await drainMainTurns()
         #expect(daemon.requests.isEmpty)
-        withExtendedLifetime((reporter, tabs)) {}
+        withExtendedLifetime((reporter, window, tabs)) {}
     }
 
     @Test func onlyTheLocalDaemonReports() {
