@@ -63,9 +63,9 @@ struct ComputerUseSheetTests {
         return (step, footer)
     }
 
-    static let both = ComputerUsePermissions(accessibility: true, screenRecording: true)
-    static let accessibilityOnly = ComputerUsePermissions(accessibility: true, screenRecording: false)
-    static let screenOnly = ComputerUsePermissions(accessibility: false, screenRecording: true)
+    nonisolated static let both = ComputerUsePermissions(accessibility: true, screenRecording: true)
+    nonisolated static let accessibilityOnly = ComputerUsePermissions(accessibility: true, screenRecording: false)
+    nonisolated static let screenOnly = ComputerUsePermissions(accessibility: false, screenRecording: true)
 
     // MARK: Cards
 
@@ -164,7 +164,7 @@ struct ComputerUseSheetTests {
 
     // MARK: Drag panel placement
 
-    static let screen = NSRect(x: 0, y: 0, width: 1512, height: 944)
+    nonisolated static let screen = NSRect(x: 0, y: 0, width: 1512, height: 944)
 
     @Test func panelDocksCenteredUnderTheWindow() {
         let placement = HelperPanelPlacement(gap: 10)
