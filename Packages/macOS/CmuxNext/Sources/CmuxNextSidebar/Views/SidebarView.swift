@@ -4,7 +4,6 @@ public import CmuxNextResources
 public import CmuxNextWakeups
 import CmuxNextCompat
 import CmuxNextIcons
-import CmuxNextWakeups
 import Observation
 /// Footer slots the App fills (account, cloud, status).
 public enum SidebarAccessorySlot: CaseIterable, Sendable {
