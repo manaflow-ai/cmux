@@ -8,9 +8,14 @@
 
 use std::cell::Cell;
 use std::ffi::OsStr;
-use std::io::{ErrorKind, Read};
+use std::fs::{File, OpenOptions};
+use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicU64, Ordering},
+};
 use std::thread;
 use std::time::Duration;
 
@@ -34,9 +39,23 @@ pub struct GitOutput {
     pub window: Option<GitWindow>,
 }
 
+#[derive(Clone)]
 pub struct GitWindow {
     pub total_bytes: u64,
     pub sha256: String,
+    snapshot: Arc<Mutex<File>>,
+}
+
+impl GitWindow {
+    /// Reads only the requested range of the original, immutable capture.
+    pub fn read(&self, offset: u64, limit: usize) -> std::io::Result<Vec<u8>> {
+        let mut file =
+            self.snapshot.lock().map_err(|_| std::io::Error::other("patch capture lock failed"))?;
+        file.seek(SeekFrom::Start(offset))?;
+        let mut bytes = Vec::new();
+        (&mut *file).take(limit as u64).read_to_end(&mut bytes)?;
+        Ok(bytes)
+    }
 }
 
 #[derive(Debug)]
@@ -91,9 +110,8 @@ pub fn run_git_within(
     run(directory, overrides, arguments, max_stdout, deadline, None, &[], None)
 }
 
-/// Retains only `limit` bytes at `offset`, while hashing and draining stdout to
-/// the end. A client can join bounded pages and refuse a changed source by its
-/// digest, without retaining the complete patch in the server's memory.
+/// Captures stdout once on an anonymous private file, retaining only `limit`
+/// bytes at `offset` in memory. Further windows read that immutable file.
 pub fn run_git_window_within(
     directory: &Path,
     overrides: &[Override],
@@ -317,12 +335,16 @@ fn drain_window(
 ) -> (Vec<u8>, bool, Option<GitWindow>) {
     let mut kept = Vec::new();
     let mut total = 0_u64;
+    let Ok(mut snapshot) = snapshot_file() else { return (Vec::new(), true, None) };
     let mut hash = Sha256::new();
     let mut chunk = [0_u8; 16 * 1024];
     loop {
         match reader.read(&mut chunk) {
             Ok(0) => break,
             Ok(read) => {
+                if snapshot.write_all(&chunk[..read]).is_err() {
+                    return (Vec::new(), true, None);
+                }
                 hash.update(&chunk[..read]);
                 let skip = offset.saturating_sub(total).min(read as u64) as usize;
                 let take = (read - skip).min(limit.saturating_sub(kept.len()));
@@ -335,7 +357,37 @@ fn drain_window(
     }
     let sha256 = hash.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
     let truncated = offset.saturating_add(kept.len() as u64) < total;
-    (kept, truncated, Some(GitWindow { total_bytes: total, sha256 }))
+    (
+        kept,
+        truncated,
+        Some(GitWindow { total_bytes: total, sha256, snapshot: Arc::new(Mutex::new(snapshot)) }),
+    )
+}
+
+/// A unique mode-0600 file, immediately unlinked: only this file handle owns
+/// the captured bytes and dropping its last reader releases the disk space.
+#[cfg(unix)]
+fn snapshot_file() -> std::io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    for _ in 0..32 {
+        let serial = NEXT.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("cmux-patch-{}-{serial}", std::process::id()));
+        match OpenOptions::new().read(true).write(true).create_new(true).mode(0o600).open(&path) {
+            Ok(file) => {
+                std::fs::remove_file(path)?;
+                return Ok(file);
+            }
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::other("could not allocate a private patch capture"))
+}
+
+#[cfg(not(unix))]
+fn snapshot_file() -> std::io::Result<File> {
+    Err(std::io::Error::new(ErrorKind::Unsupported, "patch captures require Unix"))
 }
 
 /// Confines `command`, a git that only reads, so neither the caller's
@@ -511,6 +563,7 @@ mod background_tests {
         let first_window = first_window.unwrap();
         let second_window = second_window.unwrap();
         assert_eq!(first_window.total_bytes, source.len() as u64);
+        assert_eq!(first_window.read(4, 5).unwrap(), source[4..9]);
         assert_eq!(first_window.sha256, second_window.sha256);
         assert_eq!(
             first_window.sha256,

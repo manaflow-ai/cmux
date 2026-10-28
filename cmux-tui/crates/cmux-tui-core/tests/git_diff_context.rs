@@ -191,7 +191,7 @@ fn cmux_next_git_diff_pages_a_large_patch_without_losing_bytes() {
     let mut first_page_ms = 0.0;
     loop {
         let mut params = json!({"path": path, "scope": "uncommitted", "include_patch": true,
-            "paths": ["large.txt"], "patch_offset": offset.to_string()});
+            "paths": ["./large.txt/"], "patch_offset": offset.to_string()});
         if let Some(revision) = &revision {
             params["patch_revision"] = json!(revision);
         }
@@ -243,6 +243,19 @@ fn cmux_next_git_diff_pages_a_large_patch_without_losing_bytes() {
     );
     assert_eq!(changed["ok"], false, "pages from a changed file must never be joined");
     assert!(changed.to_string().contains("repository_changed"), "{changed}");
+    let captured = client.read(
+        "git.diff",
+        json!({"path": path, "scope": "uncommitted", "include_patch": true,
+        "paths": ["large.txt"], "patch_offset": "1", "patch_revision": revision}),
+    );
+    let captured_bytes = base64::engine::general_purpose::STANDARD
+        .decode(captured["patch_page"]["data_base64"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(
+        captured_bytes,
+        expected.stdout[1..1 + captured_bytes.len()],
+        "continuations must read the original immutable capture without regenerating it"
+    );
     write(&repo, "next.txt", "next\n");
     write(&repo, "z.txt", "last\n");
     let mut after: Option<String> = None;

@@ -8,7 +8,7 @@ use std::path::{Component, Path};
 
 use base64::Engine as _;
 use cmux_git::diff::{Comparison, ScopeError, diff_args, untracked_args};
-use cmux_git::run::GitOutput;
+use cmux_git::run::{GitOutput, GitWindow};
 use serde_json::{Map, Value, json};
 
 use super::{Repository, clamp, git_failed, parse};
@@ -165,6 +165,37 @@ fn report(
             "continuing a patch requires the first page's revision",
         ));
     }
+    let page_key = json!([
+        repository.root,
+        operation,
+        comparison.revisions,
+        comparison.cached,
+        comparison.head,
+        comparison.base,
+        comparison.untracked,
+        paths,
+        context_lines
+    ])
+    .to_string();
+    if let Some(offset) = page_offset.filter(|offset| *offset > 0) {
+        let revision = fields.get("patch_revision").and_then(Value::as_str).unwrap_or_default();
+        let Some((window, mut metadata)) = super::diff_pages::get(&page_key, revision) else {
+            return Err(ResourceError::operation_failed(
+                operation,
+                "the patch capture expired; restart at offset zero",
+                json!({"code":"patch_expired"}),
+            ));
+        };
+        let bytes = window.read(offset, PATCH_PAGE_BYTES).map_err(|_| {
+            ResourceError::operation_failed(
+                operation,
+                "could not read the captured patch",
+                json!({"code":"patch_read_failed"}),
+            )
+        })?;
+        metadata["patch_page"] = page_value(&window, offset, bytes)?;
+        return Ok(metadata);
+    }
 
     let mut files = tracked(repository, comparison, operation, &paths)?;
     let mut untracked_skipped = 0;
@@ -230,7 +261,7 @@ fn report(
                 "a patch page requires one changed text file",
             ));
         }
-        value["patch_page"] = patch_page(
+        let (page, window) = patch_page(
             repository,
             comparison,
             operation,
@@ -239,6 +270,8 @@ fn report(
             offset,
             fields,
         )?;
+        super::diff_pages::put(page_key, window, value.clone());
+        value["patch_page"] = page;
     }
     Ok(value)
 }
@@ -251,7 +284,7 @@ fn patch_page(
     context_lines: usize,
     offset: u64,
     fields: &Map<String, Value>,
-) -> Result<Value, ResourceError> {
+) -> Result<(Value, GitWindow), ResourceError> {
     let paths = returned_paths(std::slice::from_ref(file));
     let unified = format!("--unified={context_lines}");
     let arguments = diff_args(comparison, &["--patch", "--full-index", &unified], &paths);
@@ -282,13 +315,24 @@ fn patch_page(
             "patch_offset is past the end of the patch",
         ));
     }
-    let next = offset + output.stdout.len() as u64;
+    let page = page_value(&window, offset, output.stdout)?;
+    Ok((page, window))
+}
+
+fn page_value(window: &GitWindow, offset: u64, bytes: Vec<u8>) -> Result<Value, ResourceError> {
+    if offset > window.total_bytes {
+        return Err(ResourceError::validation_invalid(
+            Some("patch_offset"),
+            "patch_offset is past the end of the patch",
+        ));
+    }
+    let next = offset + bytes.len() as u64;
     Ok(json!({
         "offset": WireDecimal::new(offset),
         "next_offset": WireDecimal::new(next),
         "total_bytes": WireDecimal::new(window.total_bytes),
         "revision": window.sha256,
-        "data_base64": base64::engine::general_purpose::STANDARD.encode(output.stdout),
+        "data_base64": base64::engine::general_purpose::STANDARD.encode(bytes),
         "complete": next == window.total_bytes,
     }))
 }
@@ -474,7 +518,14 @@ fn pathspecs(fields: &Map<String, Value>) -> Result<Vec<String>, ResourceError> 
                 .components()
                 .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
             if inside {
-                Ok(raw.to_string())
+                Ok(Path::new(raw)
+                    .components()
+                    .filter_map(|part| match part {
+                        Component::Normal(name) => Some(name.to_string_lossy()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+                    .join("/"))
             } else {
                 Err(ResourceError::validation_invalid(
                     Some("paths"),
