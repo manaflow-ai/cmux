@@ -387,7 +387,7 @@ import CmuxNextWakeupsTestSupport
 
     @Test func applesMovingWallpapersAndDownloadedAerialsAreListedAsMovingWallpapers() async throws {
         let mac = try await mac()
-        let catalog = BackdropCatalog(systemDirectory: mac.pictures, fileManager: .default, aerials: mac.aerials)
+        let catalog = BackdropCatalog(systemDirectory: mac.pictures, aerials: mac.aerials)
         let moving = catalog.choices.filter { $0.pickerCollection?.id == AppleWallpapers.videoCollection }
         // One tile per moving wallpaper (its light cut; the window picks the cut), none for a portrait cut.
         let light = mac.pictures.appendingPathComponent(".wallpapers/Sonoma/Sonoma Graphic Light Landscape.mov")

@@ -95,10 +95,11 @@ public struct LaunchOrder {
     ///   - wakeUps: The main thread's one deadline queue `main()` made first and gave the main-thread watchdog,
     ///     whose busy windows end on it (p14-energy-065); the scheduler's deadlines share it. Nil: the scheduler
     ///     makes its own.
+    ///   - budgetPlacement: Where each frame's budgeted batch runs (feature `mainBudgetTurn`: after the commit).
     ///   - mark: Records a launch mark (`launch.revealed`, `launch.settled`, `startup_complete`).
     public init(fence: BestEffortFence, board: MainTaskBoard = MainTaskBoard(), input: any InputObserving,
                 startupTag: StartupTaskTag = StartupTaskTag(), wakeUps: MainWakeUpQueue? = nil,
-                mark: @escaping @MainActor (String) -> Void) {
+                budgetPlacement: BudgetedBatchPlacement = .inTick, mark: @escaping @MainActor (String) -> Void) {
         // One display link per display, shared by the app, window and budgeted frame schedulers.
         let displays = DisplayClock()
         // One frame.commit per commit, and each key echo's present at its display's vsync (p09-observability 037).
@@ -112,7 +113,8 @@ public struct LaunchOrder {
         phase.whenReached(.settled) { mark("launch.settled") }
         let starvation = RenderStarvationGuard(holdsWork: false, signposts: true) // holds work once FeatureList is in the app (p12-perf-process-091)
         let pending = SessionInputPending(events: WindowServerInputEvents(input: input))
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: pending, board: board, signposts: true, starvation: starvation),
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: pending, board: board, signposts: true, starvation: starvation,
+                                                                 placement: budgetPlacement),
                                          displays: displays, startup: phase, wakeUps: wakeUps)
         // The quiet before a long idle period starts again at each key, click, scroll or drag.
         pending.onInputDispatched = { [weak idle = mainWork.idle] in idle?.noteInput() }

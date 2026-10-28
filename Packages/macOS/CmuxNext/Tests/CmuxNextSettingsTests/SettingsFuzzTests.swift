@@ -541,7 +541,7 @@ extension SettingsFuzzTests {
     }
 
     /// The settings a snapshot holds, without the document, the reports about it and the background a
-    /// shuffle picks by the clock (``BackdropShuffle/pick(on:calendar:fileManager:)``).
+    /// shuffle picks by the clock (``BackdropShuffle/pick(on:calendar:)``).
     static func knownSettings(_ snapshot: CmuxConfigSnapshot) -> CmuxConfigSnapshot {
         var settings = snapshot
         settings.root = .object([:])

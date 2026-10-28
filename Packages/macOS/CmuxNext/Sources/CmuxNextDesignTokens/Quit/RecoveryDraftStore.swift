@@ -174,7 +174,7 @@ package nonisolated struct RecoveryDraftFiles {
         var total = files.reduce(0) { $0 + size($1) }
         for file in files.sorted(by: { date($0) < date($1) }) where total > maxTotalBytes && file.standardizedFileURL != kept.standardizedFileURL {
             total -= size(file)
-            unlink(file.path)
+            _ = blockingUnlink(file.path)
             Logger(subsystem: "com.cmuxterm.app.next", category: "recovery-drafts")
                 .notice("evicted recovery draft \(file.deletingPathExtension().lastPathComponent, privacy: .public) (store over its size cap)")
         }
@@ -228,12 +228,12 @@ package nonisolated struct RecoveryDraftFiles {
     /// Lowercase hex SHA-256 of the file, read in 1 MB chunks; nil when it
     /// cannot be read.
     package static func sha256(_ path: String) -> String? {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        guard let handle = try? FileHandle.blockingForReading(from: URL(fileURLWithPath: path)) else { return nil }
         defer { try? handle.close() }
         var hasher = SHA256()
         do {
             // concurrency-allow: called only from blockingChangedSince (a files lane or @concurrent changedSince), never on the main actor
-            while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+            while let chunk = try handle.blockingRead(upToCount: 1 << 20), !chunk.isEmpty {
                 hasher.update(data: chunk)
             }
         } catch {

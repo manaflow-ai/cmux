@@ -21,15 +21,14 @@ nonisolated enum TerminalLinkResolver {
     /// The target of `text`, or nil when it is no link (a path that exists nowhere, a bogus
     /// host). Reads the file system: call it off the main thread.
     static func resolve(_ text: String, cwd: String?, allowsLocalFiles: Bool = true,
-                        localHostNames: Set<String>? = nil, fileManager: FileManager = .default,
-                        isTopLevelDomain: (String) -> Bool = { $0.isTopLevelDomain }) -> TerminalLinkTarget? {
+                        localHostNames: Set<String>? = nil, isTopLevelDomain: (String) -> Bool = { $0.isTopLevelDomain }) -> TerminalLinkTarget? {
         let trimmed = trim(text)
         guard safeTerminalText(trimmed) else { return nil }
         let localHostNames = localHostNames ?? localFileHostNames()
         if hasScheme(trimmed), let url = URL(string: trimmed) {
             if url.isFileURL {
                 guard allowsLocalFiles, safeTerminalURL(url), localFile(url, hostNames: localHostNames) else { return nil }
-                return existing(url.path, fileManager: fileManager)
+                return existing(url.path)
             }
             guard !trimmed.unicodeScalars.contains(where: CharacterSet.whitespacesAndNewlines.contains),
                   safeTerminalURL(url), webURL(url) else { return nil }
@@ -39,8 +38,8 @@ nonisolated enum TerminalLinkResolver {
             return safeWebURL(trimmed, isTopLevelDomain: isTopLevelDomain).map(TerminalLinkTarget.url)
         }
         let path = withoutLocation(trimmed)
-        for candidate in candidates(path, cwd: cwd, hostNames: localHostNames, fileManager: fileManager) {
-            if let target = existing(candidate, fileManager: fileManager) { return target }
+        for candidate in candidates(path, cwd: cwd, hostNames: localHostNames) {
+            if let target = existing(candidate) { return target }
         }
         return safeWebURL(trimmed, isTopLevelDomain: isTopLevelDomain).map(TerminalLinkTarget.url)
     }
@@ -101,12 +100,12 @@ nonisolated enum TerminalLinkResolver {
 
     /// Absolute paths as they are; `~` expanded; a relative path under `cwd`, then under the git
     /// root above it.
-    private static func candidates(_ path: String, cwd: String?, hostNames: Set<String>, fileManager: FileManager) -> [String] {
+    private static func candidates(_ path: String, cwd: String?, hostNames: Set<String>) -> [String] {
         if path.hasPrefix("~") { return [(path as NSString).expandingTildeInPath] }
         if path.hasPrefix("/") { return [path] }
         guard let cwd = cwd.flatMap({ directory($0, hostNames: hostNames) }) else { return [] }
         var bases = [cwd]
-        if let root = gitRoot(above: cwd, fileManager: fileManager), root != cwd { bases.append(root) }
+        if let root = gitRoot(above: cwd), root != cwd { bases.append(root) }
         return bases.map { ($0 as NSString).appendingPathComponent(path) }
     }
 
@@ -165,18 +164,18 @@ nonisolated enum TerminalLinkResolver {
     }
 
     /// The nearest folder at or above `directory` holding `.git`.
-    private static func gitRoot(above directory: String, fileManager: FileManager) -> String? {
+    private static func gitRoot(above directory: String) -> String? {
         var folder = directory
         for _ in (directory as NSString).pathComponents {
-            if fileManager.fileExists(atPath: (folder as NSString).appendingPathComponent(".git")) { return folder }
+            if FileManager.checked.fileExists(atPath: (folder as NSString).appendingPathComponent(".git")) { return folder }
             folder = (folder as NSString).deletingLastPathComponent
         }
         return nil
     }
 
-    private static func existing(_ path: String, fileManager: FileManager) -> TerminalLinkTarget? {
+    private static func existing(_ path: String) -> TerminalLinkTarget? {
         let standardized = (path as NSString).standardizingPath
-        guard let kind = fileManager.entryKind(atPath: standardized) else { return nil }
+        guard let kind = FileManager.checked.entryKind(atPath: standardized) else { return nil }
         let isDirectory = kind == .directory
         return .file(URL(fileURLWithPath: standardized, isDirectory: isDirectory), isDirectory: isDirectory)
     }

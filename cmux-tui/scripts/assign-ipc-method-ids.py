@@ -84,7 +84,8 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "terminal-io": (0x03, "Terminal input, output streams, screen reads and terminal requests to the frontend.", (
         "send", "send-key", "paste-image", "read-screen", "read-scrollback", "wait-for", "copy",
         "clear-history", "vt-state", "scroll-surface", "snapshot-request", "terminal-history",
-        "terminal-read-range", "terminal-events", "attach-surface", "cancel-stream", "subscribe",
+        "terminal-read-range", "terminal-events", "attach-surface", "cancel-stream",
+        "set-stream-priority", "subscribe",
         "mint-terminal-renderer", "mint-terminal-renderer-by-terminal", "get-cell-pixels",
         "set-cell-pixels", "url-open", "url-open-*", "terminal-clipboard-*",
     )),
@@ -209,6 +210,8 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
         "send", "send-key", "paste-image", "browser-key", "browser-key-press", "browser-mouse",
         "browser-mouse-guarded", "browser-wheel", "browser-wheel-guarded", "browser-insert-text",
         "resize-attached-view", "scroll-surface",
+        # Focus and visibility of an attach stream (p05-ipc-142): a tab switch is the person's.
+        "set-stream-priority",
         "agent-session-prompt", "agent-session-cancel", "agent-session-permission",
     ),
     "bulk": (
@@ -351,6 +354,8 @@ MEMORY = (
     "snapshot-request",
     # Ends one attach stream of this connection and removes its view.
     "cancel-stream",
+    # The lane and sequence priority of one attach stream of this connection.
+    "set-stream-priority",
     # Agent chat attachments and what they send to acpmux, which keeps the
     # session and the folder trust itself; children also records the chats
     # the tab may file. agent-session-start binds the tab, a journaled write.
