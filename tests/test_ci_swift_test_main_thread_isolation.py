@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,6 +27,7 @@ VAR = "CMUX_NEXT_MAIN_THREAD_HEAVY"
 
 spec = importlib.util.spec_from_file_location("heavy", SCRIPT)
 heavy = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = heavy  # a @dataclass reads its module from sys.modules
 spec.loader.exec_module(heavy)
 
 

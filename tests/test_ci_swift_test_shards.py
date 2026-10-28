@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,9 +22,17 @@ PACKAGE = ROOT / "Packages" / "macOS" / "CmuxNext"
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next.yml"
 SCRIPT = ROOT / "scripts" / "cmux-next" / "swift-test-shards.py"
 
-spec = importlib.util.spec_from_file_location("shards", SCRIPT)
-shards = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(shards)
+def load(name: str, path: Path):
+    """A script as a module, registered in sys.modules first: a @dataclass reads its module from there
+    (on Python 3.12 and 3.13 an unregistered module crashes the import)."""
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+shards = load("swift_test_shards", SCRIPT)
 
 
 def matching(plan: list[dict], test_id: str) -> list[str]:
@@ -80,9 +89,7 @@ class Width(unittest.TestCase):
 
 class Route(unittest.TestCase):
     def test_a_change_to_either_script_runs_every_swift_target(self) -> None:
-        spec = importlib.util.spec_from_file_location("route", ROOT / "scripts" / "ci" / "cmux_next_route.py")
-        route = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(route)
+        route = load("cmux_next_route_for_shards", ROOT / "scripts" / "ci" / "cmux_next_route.py")
         for path in ("scripts/cmux-next/swift-test-shards.py", "scripts/cmux-next/main-thread-heavy-suites.py"):
             with self.subTest(path=path):
                 self.assertIn(path, route.FULL_INPUTS)

@@ -84,16 +84,26 @@ static void window_census(void) {
     if (length > 0) write(STDERR_FILENO, line, (size_t)length < sizeof line ? (size_t)length : sizeof line - 1);
 }
 
+// Plain C timer callbacks, not blocks: the target builds with no -fblocks flag on any compiler.
+static void keep_alive_fired(CFRunLoopTimerRef timer, void *info) {
+    (void)timer;
+    (void)info;
+}
+
+static void census_fired(CFRunLoopTimerRef timer, void *info) {
+    (void)timer;
+    (void)info;
+    window_census();
+}
+
 static void run_guard_pass(void) {
     atomic_store(&guard_running, 1);
     // A far-off timer keeps the default mode from reading as empty, so a pass waits for work
     // instead of returning "finished" at once.
-    CFRunLoopTimerRef keep = CFRunLoopTimerCreateWithHandler(NULL, CFAbsoluteTimeGetCurrent() + 1e9, 1e9, 0, 0,
-                                                             ^(CFRunLoopTimerRef timer) { (void)timer; });
+    CFRunLoopTimerRef keep = CFRunLoopTimerCreate(NULL, CFAbsoluteTimeGetCurrent() + 1e9, 1e9, 0, 0, keep_alive_fired, NULL);
     CFRunLoopAddTimer(CFRunLoopGetMain(), keep, kCFRunLoopDefaultMode);
     // Stop condition: none of its own; it ends with the test process, as the pass does.
-    CFRunLoopTimerRef census = CFRunLoopTimerCreateWithHandler(NULL, CFAbsoluteTimeGetCurrent() + 30, 30, 0, 0,
-                                                               ^(CFRunLoopTimerRef timer) { (void)timer; window_census(); });
+    CFRunLoopTimerRef census = CFRunLoopTimerCreate(NULL, CFAbsoluteTimeGetCurrent() + 30, 30, 0, 0, census_fired, NULL);
     CFRunLoopAddTimer(CFRunLoopGetMain(), census, kCFRunLoopDefaultMode);
     for (;;) {
         // Not CFRunLoopRun(): it returns on "finished" too, which would spin here.
@@ -110,14 +120,19 @@ static void run_guard_pass(void) {
     }
 }
 
+static void start_fired(CFRunLoopTimerRef timer, void *info) {
+    (void)timer;
+    (void)info;
+    run_guard_pass();
+}
+
 __attribute__((constructor)) static void cmux_next_test_run_loop_guard_install(void) {
     if (!is_swift_testing_helper()) return;
     // A one-shot timer due now fires in the main loop's first default-mode pass:
     // swift-testing's CFRunLoopRun(). Not a main-queue job (a pass run inside one never serves
     // the main queue again) and not a CFRunLoopPerformBlock (blocks queued behind it in the same
     // batch would wait for it, forever).
-    CFRunLoopTimerRef start = CFRunLoopTimerCreateWithHandler(NULL, CFAbsoluteTimeGetCurrent(), 0, 0, 0,
-                                                              ^(CFRunLoopTimerRef timer) { (void)timer; run_guard_pass(); });
+    CFRunLoopTimerRef start = CFRunLoopTimerCreate(NULL, CFAbsoluteTimeGetCurrent(), 0, 0, 0, start_fired, NULL);
     CFRunLoopAddTimer(CFRunLoopGetMain(), start, kCFRunLoopDefaultMode);
     atomic_store(&guard_installed, 1);
 }
