@@ -39,6 +39,7 @@ case "$1" in
   test)
     while [ "$#" -gt 0 ]; do [ "$1" = --filter ] && filter="$2"; shift; done
     cat "$FAKE_SWIFT_OUTPUTS/$filter.out"
+    [ -f "$FAKE_SWIFT_OUTPUTS/$filter.status" ] && exit "$(cat "$FAKE_SWIFT_OUTPUTS/$filter.status")"
     exit 0 ;;
 esac
 exit 0
@@ -104,6 +105,15 @@ PARTLY_NO_DAEMON_SUITE = """\
 ✔ Test aLocalCheck() passed after 0.010 seconds.
 ➜ Test aDaemonCheck() skipped: "needs the same-tree cmux-tui and app host"
 ✔ Test run with 2 tests in 1 suite passed after 0.011 seconds.
+"""
+
+# A test failed while another skipped for the missing cmux-tui: `swift test` exits 1.
+FAILED_AND_NO_DAEMON_SUITE = """\
+◇ Test run started.
+✘ Test aLocalCheck() recorded an issue at A.swift:3:5: Expectation failed
+✘ Test aLocalCheck() failed after 0.010 seconds with 1 issue.
+➜ Test aDaemonCheck() skipped: "needs the same-tree cmux-tui"
+✘ Test run with 2 tests in 1 suite failed after 0.011 seconds with 1 issue.
 """
 
 # XCTest's "Executed 0 tests" and nothing else: no test ran at all.
@@ -218,8 +228,9 @@ class SuiteSkipTest(unittest.TestCase):
                              ("AAGalleryTests", PARTLY_SKIPPED_SUITE), ("XCSkippedTests", xctest_skipped),
                              ("EmptyTests", "Build complete!\n"), ("FirstLaunchTests", NO_DAEMON_SUITE),
                              ("DaemonRanTests", DAEMON_RAN_SUITE), ("PartlyDaemonTests", PARTLY_NO_DAEMON_SUITE),
-                             ("ZeroExecutedTests", ZERO_EXECUTED)):
+                             ("ZeroExecutedTests", ZERO_EXECUTED), ("FailedDaemonTests", FAILED_AND_NO_DAEMON_SUITE)):
             (self.outputs / f"{name}.out").write_text(output, encoding="utf-8")
+        (self.outputs / "FailedDaemonTests.status").write_text("1")
         (self.tmp / "sdk").mkdir()
         self.env = {**{k: v for k, v in os.environ.items() if k not in ("CMUX_TEST_REQUIRE_GUI", "GITHUB_STEP_SUMMARY")},
                     "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_SWIFT_OUTPUTS": os.fspath(self.outputs),
@@ -258,6 +269,21 @@ class SuiteSkipTest(unittest.TestCase):
                               "not run", done.stdout)
                 self.assertIn("this tree's cmux-tui is missing", done.stdout)
                 self.assertNotIn("suites passed", done.stdout)
+
+    def test_a_missing_cmux_tui_is_no_result_beside_a_failure_or_a_gui_skip(self):
+        """Neither a failing test nor CMUX_TEST_REQUIRE_GUI=1 may hide the no-result line the classifier reads."""
+        spec = importlib.util.spec_from_file_location("test_reds", ROOT / "scripts/ci/test_reds.py")
+        reds = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(reds)
+        for name, env in (("FailedDaemonTests", {}), ("FirstLaunchTests", {"CMUX_TEST_REQUIRE_GUI": "1"}),
+                          ("PartlyDaemonTests", {"CMUX_TEST_REQUIRE_GUI": "1"})):
+            with self.subTest(suite=name, env=env):
+                done = self.suite(name, **env)
+                self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+                self.assertIn(f"::error title=Swift suite no result::{name} in Packages/macOS/Pkg: required tests did "
+                              "not run: tests skipped because this tree's cmux-tui is missing", done.stdout)
+                for log in (done.stdout, re.sub(r"::error title=[^:]*::", "##[error]", done.stdout)):
+                    self.assertTrue(any("required tests did not run" in why for why in reds.read(log).truncated), log)
 
     def test_xctest_executed_0_is_a_failure_unless_swift_testing_ran(self):
         done = self.suite("ZeroExecutedTests")

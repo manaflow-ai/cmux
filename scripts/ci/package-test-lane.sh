@@ -758,13 +758,18 @@ run_suite() {
       python3 scripts/ci/require_swift_test_execution.py --log "$log" --skip-report "$log.skips" || status=$?
     fi
     echo "::endgroup::"
-    ran=0 skipped=0 daemon_skips=0
+    ran=0 skipped=0
+    # Read from the log itself, whatever the exit status or CMUX_TEST_REQUIRE_GUI: a failing test or a GUI
+    # skip beside a missing-cmux-tui skip must not hide the no-result line.
+    daemon_skips="$(grep -cE '(Test|Suite) .+ skipped: "needs the same-tree cmux-tui' "$log" || true)"
+    if [ "$daemon_skips" -gt 0 ]; then
+      echo "::error title=Swift suite no result::$filter in $suite_package: required tests did not run: tests skipped because this tree's cmux-tui is missing (CMUX_NEXT_TUI_TREE_PATH=${CMUX_NEXT_TUI_TREE_PATH:-unset}); no result, never a pass or a base red"
+    fi
     if [ "$status" -eq 0 ]; then
       read -r ran skipped < "$log.skips"
       if [ "$skipped" -gt 0 ]; then
         while IFS= read -r reason; do
           echo "$filter: skipped $reason"
-          case "$reason" in *"same-tree cmux-tui"*) daemon_skips=$((daemon_skips + 1)) ;; esac
         done < <(tail -n +2 "$log.skips")
       fi
       if [ "$skipped" -gt 0 ] && [ "${CMUX_TEST_REQUIRE_GUI:-}" = 1 ]; then
@@ -778,7 +783,6 @@ run_suite() {
       [ "$first_failure_status" -ne 0 ] || first_failure_status="$status"
       if [ "$daemon_skips" -gt 0 ]; then
         result="no result (no cmux-tui)"
-        echo "::error title=Swift suite no result::$filter in $suite_package: required tests did not run: $skipped skipped because this tree's cmux-tui is missing (CMUX_NEXT_TUI_TREE_PATH=${CMUX_NEXT_TUI_TREE_PATH:-unset}); no result, never a pass or a base red"
       else
         result="no result (0 ran)"
         echo "::error title=Swift suite no result::$filter in $suite_package: required tests did not run: none of its $skipped tests ran (all skipped); no result, never a pass or a base red"
