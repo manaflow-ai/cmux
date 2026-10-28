@@ -231,6 +231,25 @@ describe("Run model migrations on main's three starting shapes", () => {
     catalogs.main = await catalog(pool);
   });
 
+  dbTest("a legacy artifact that breaks next's checks is kept, and those checks stay NOT VALID", async () => {
+    const pool = await freshDatabase("legacy_artifact");
+    await applyPendingMigrations(pool, webDir, folder((name) => !addedByB2.includes(name)));
+    await pool.query(`
+      insert into runs (id, user_id, request_digest, source, recipe) values ('${ids(10)}', 'user-a', 'd1', '{}', 'recipe');
+      insert into run_attempts (id, run_id, ordinal, variant) values ('${ids(20)}', '${ids(10)}', 0, '{}');
+      insert into run_artifacts (id, run_id, attempt_id, name, digest, payload, size_bytes)
+        values ('${ids(40)}', '${ids(10)}', '${ids(20)}', 'legacy', 'sha256:x', '{}', 600000000);
+    `);
+    const before = await snapshotRows(pool);
+    expect(await applyRealFolder(pool)).toBe(addedByB2.length);
+    expectRowsKept(before, await snapshotRows(pool));
+    expect(await rows(pool, `select conname, convalidated from pg_constraint where conrelid = 'run_artifacts'::regclass and contype = 'c' order by conname`))
+      .toEqual([{ conname: "run_artifacts_digest_check", convalidated: false }, { conname: "run_artifacts_size_check", convalidated: false }]);
+    // The checks still hold new writes.
+    await expect(pool.query(`insert into run_artifacts (run_id, attempt_id, name, digest, payload, size_bytes) values ('${ids(10)}', '${ids(20)}', 'new', 'sha256:y', '{}', 1)`)).rejects.toThrow("run_artifacts_digest_check");
+    expect(await applyRealFolder(pool)).toBe(0);
+  });
+
   dbTest("staging's hybrid, holding rows from both models, migrates and keeps every row", async () => {
     const pool = await freshDatabase("hybrid");
     const nextFirst = new Set(fromNext.slice(0, 3));
