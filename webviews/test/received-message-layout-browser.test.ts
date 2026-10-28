@@ -214,12 +214,26 @@ await requireBrowserLane("received-message-layout-browser.test.ts", async () => 
         await received.locator('[data-menu="queued-message"]').click();
         await page.getByRole("menuitem", { name: "Send now", exact: true }).waitFor();
         await page.mouse.move(12, 12);
-        expect(
-          await received
-            .locator(".cv-received-actions")
-            .first()
-            .evaluate((node) => getComputedStyle(node).opacity),
-        ).toBe("1");
+        const allVisibleWhileOpen = await received.locator(".cv-received__line").evaluate(
+          (line) =>
+            new Promise<boolean>((resolve) => {
+              let frames = 0;
+              window.cmuxAfterPaint(() => {
+                const trigger = line.querySelector('[aria-haspopup="menu"][aria-expanded="true"]');
+                const groups = [...line.querySelectorAll<HTMLElement>(".cv-received-actions")];
+                const visible = Boolean(
+                  trigger && groups.length >= 2 && groups.every((group) => getComputedStyle(group).opacity === "1"),
+                );
+                if (!visible || ++frames === 16) {
+                  resolve(visible);
+                  return false;
+                }
+              });
+            }),
+        );
+        expect(allVisibleWhileOpen).toBe(true);
+        for (const group of await received.locator(".cv-received-actions").all())
+          expect(await group.evaluate((node) => getComputedStyle(node).opacity)).toBe("1");
         await capture(page, `step-menu-${colorScheme}`);
         await page.keyboard.press("Escape");
         expect(await page.locator('[data-row-id="presentation-shell"]').textContent()).toContain(
