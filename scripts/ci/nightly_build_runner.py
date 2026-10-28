@@ -61,7 +61,7 @@ It never fails the job and never prints an empty `blacksmith`:
 
 `nightly_build_runner.py verify` prints only `owned`, never the dedicated builder (it keeps
 that Mac for the next tip's build): pick-nightly-sign-runner's route for the secret-free
-verify jobs (verify-signed-nightly, verify-final-dmg-nightly, signer-dmg-image, signer-verify),
+verify jobs (verify-signed-nightly, verify-final-dmg-nightly, signer-dmg-image),
 by the same owned rule as the build. Until 2026-10-27 that step ran the pull request pool picker
 (e2e_runner_pool.py), which named a Blacksmith macOS 15 label in run 40515681971 while owned
 side runners were idle, so verify queued about 1.5 h on Blacksmith.
