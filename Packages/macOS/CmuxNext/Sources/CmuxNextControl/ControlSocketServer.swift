@@ -23,11 +23,16 @@ public import CmuxNextTrace
 /// binary that hosts every terminal), and `automation` admits the same user.
 /// The socket file is always 0600.
 ///
+/// Startup lock (p08-startup-107): a server made with a locked ``ControlStartupLock`` accepts, checks
+/// each peer and parses each request before the app registered its methods; the requests wait in the
+/// lock's bounded queue and run in order at ``unlock(router:)``. One past the queue's 256 is answered
+/// `starting` and never runs. A server made with a router serves it at once.
+///
 /// Hang watch: the accept queue is one hang-watched lane, each accept pass and each socket-path watch job (a
 /// restore binds on disk) one scope of ``acceptHangDeadline``, and each connection's queue is a lane of its own (``ControlConnection``), as
 /// Chrome watches each task of its IO thread (base/threading/hang_watcher.h, `ThreadType::kIOThread`).
 public final class ControlSocketServer: Sendable {
-    public struct Configuration: Sendable {
+    public struct Configuration: Sendable, Equatable {
         public var path: String
         public var accessMode: ControlAccessMode
         /// Tightens and validates an existing parent as cmux's canonical state directory.
@@ -95,7 +100,10 @@ public final class ControlSocketServer: Sendable {
     }
 
     public let configuration: Configuration
-    public let router: ControlRouter
+    /// Holds requests until the router with every method group is handed over (``unlock(router:)``).
+    public let startup: ControlStartupLock
+    /// The router requests go to, once unlocked.
+    public var router: ControlRouter? { startup.router }
     private let acceptQueue = DispatchQueue(label: "com.cmuxterm.next.control.accept", qos: .utility)
     /// The hang watch the accept lane and each connection's lane register on; nil watches nothing.
     private let hangs: (any HangWatchScoping)?
@@ -132,14 +140,24 @@ public final class ControlSocketServer: Sendable {
     /// - Parameter hangs: Watches each accept pass and each connection's jobs; nil (the default) watches nothing.
     ///   The app passes `TraceRuntime.shared.hangWatch`, which its hang monitor reads.
     public convenience init(configuration: Configuration, router: ControlRouter, hangs: (any HangWatchScoping)? = nil) {
-        // SAFETY: with a nil address and length, accept(2) writes nothing back.
-        self.init(configuration: configuration, router: router, accept: { unsafe accept($0, nil, nil) }, hangs: hangs)
+        self.init(configuration: configuration, startup: ControlStartupLock(unlockedWith: router), hangs: hangs)
     }
 
-    init(configuration: Configuration, router: ControlRouter, accept: @escaping AcceptCall,
+    /// A server whose requests wait in `startup` until ``unlock(router:)`` (p08-startup-107).
+    public convenience init(configuration: Configuration, startup: ControlStartupLock, hangs: (any HangWatchScoping)? = nil) {
+        // SAFETY: with a nil address and length, accept(2) writes nothing back.
+        self.init(configuration: configuration, startup: startup, accept: { unsafe accept($0, nil, nil) }, hangs: hangs)
+    }
+
+    convenience init(configuration: Configuration, router: ControlRouter, accept: @escaping AcceptCall,
+                     bind: @escaping BindCall = { $1.bind($0) }, hangs: (any HangWatchScoping)? = nil) {
+        self.init(configuration: configuration, startup: ControlStartupLock(unlockedWith: router), accept: accept, bind: bind, hangs: hangs)
+    }
+
+    init(configuration: Configuration, startup: ControlStartupLock, accept: @escaping AcceptCall,
          bind: @escaping BindCall = { $1.bind($0) }, hangs: (any HangWatchScoping)? = nil) {
         self.configuration = configuration
-        self.router = router
+        self.startup = startup
         self.acceptCall = accept
         self.bindCall = bind
         self.hangs = hangs
@@ -200,6 +218,20 @@ public final class ControlSocketServer: Sendable {
         serve(acceptSource(taken.descriptor), identity: listener.identity, lock: taken.lock)
     }
 
+    /// A server accepting on `listener` now, its requests held in `startup` until ``unlock(router:)``
+    /// (p08-startup-107, ``ControlSocketBind/EarlyAccept``). Nil when it cannot adopt the listener (taken
+    /// or discarded already, or a mode of `off`, which discards it).
+    static func accepting(_ listener: ControlSocketListener, configuration: Configuration, startup: ControlStartupLock,
+                          hangs: (any HangWatchScoping)?) -> ControlSocketServer? {
+        let server = ControlSocketServer(configuration: configuration, startup: startup, hangs: hangs)
+        do {
+            try server.start(adopting: listener)
+        } catch {
+            return nil
+        }
+        return server
+    }
+
     /// Publishes and resumes the listener's accept source, then watches the socket file (and the
     /// compatibility link) so that a deleted one is put back. The watches open their files on
     /// `acceptQueue` (``ControlSocketPathWatch/start()``).
@@ -210,7 +242,7 @@ public final class ControlSocketServer: Sendable {
             $0.socketIdentity = identity
             $0.ownerLock = lock
         }
-        router.setTransportInfo(socketPath: path, accessMode: configuration.accessMode.rawValue)
+        router?.setTransportInfo(socketPath: path, accessMode: configuration.accessMode.rawValue)
         source.resume()
         var watches = [ControlSocketPathWatch(path: path, queue: acceptQueue, lane: acceptWatched) { [weak self] in self?.restoreSocket() ?? true }]
         if let link = configuration.compatibilityLink {
@@ -271,6 +303,14 @@ public final class ControlSocketServer: Sendable {
         return true
     }
 
+    /// Hands over `router`, with every method group registered, and replays the requests that waited for
+    /// it in the order they arrived (``ControlStartupLock/unlock(router:)``). A second call changes nothing.
+    public func unlock(router: ControlRouter) {
+        guard !startup.isUnlocked else { return }
+        router.setTransportInfo(socketPath: configuration.path, accessMode: configuration.accessMode.rawValue)
+        startup.unlock(router: router)
+    }
+
     /// Closes the listener and every connection, then binds the socket again
     /// at the same path and mode (Restart CLI Listener). Throws what
     /// ``start()`` throws, leaving the server stopped.
@@ -298,6 +338,8 @@ public final class ControlSocketServer: Sendable {
             state.connections = [:]
             return result
         }
+        // Requests still waiting for the unlock never run: their connections close.
+        startup.refuseWaiting()
         guard listener != nil || !connections.isEmpty else { return Self.releaseOwner(lock, of: configuration.path) }
         listener?.cancel()
         connections.forEach { $0.close() }
@@ -379,23 +421,52 @@ public final class ControlSocketServer: Sendable {
                 ControlConnectionClosures.shared.closed(id)
             })
             state.withLock { $0.connections[id] = connection }
-            let router = self.router
+            let startup = self.startup
             connection.start { lines in
-                var authorizer = authorizer
                 for await line in lines {
-                    if let request = authorizer.eventStreamRequest(line) {
-                        // A stream owns the connection until the client hangs up.
-                        await router.streamEvents(request, emit: { connection.send($0) }, hangup: { await connection.hangup() })
-                        break
-                    }
-                    let (response, keepOpen) = await authorizer.respond(to: line, router: router, connection: id)
-                    if let response { connection.send(response) }
-                    connection.lineConsumed()
-                    if !keepOpen { break }
+                    guard await Self.respond(to: line, authorizer: authorizer, startup: startup, connection: connection, id: id) else { break }
                 }
                 connection.close()
             }
         }
+    }
+
+    /// Answers one request line on its connection's task and returns whether to read the next one. The
+    /// peer policy and the parse run first, so a refused peer or a malformed line never takes a place in
+    /// the startup queue; a request for the router then waits for its turn there (``ControlStartupLock``).
+    private static func respond(to line: String, authorizer: ControlAuthorizer, startup: ControlStartupLock,
+                                connection: ControlConnection, id: ControlConnectionID) async -> Bool {
+        let screened = authorizer.screen(line)
+        if case .answered(let response, let keepOpen) = screened {
+            if let response { connection.send(response) }
+            connection.lineConsumed()
+            return keepOpen
+        }
+        switch await startup.admit() {
+        case .refused(let error):
+            if case .request(let request) = screened {
+                connection.send(ControlRouter.encode(id: request.id, error: error))
+            } else {
+                connection.send("ERROR: \(error.message)")
+            }
+        case .route(let router, let turn):
+            switch screened {
+            case .request(let request) where request.method == ControlRouter.eventStreamMethod:
+                // A stream owns the connection until the client hangs up; it holds no startup turn.
+                turn?.finish()
+                await router.streamEvents(request, emit: { connection.send($0) }, hangup: { await connection.hangup() })
+                return false
+            case .request(let request):
+                connection.send(ControlRouter.encode(id: request.id, result: await router.handle(request, connection: id)))
+            case .plainText(let text):
+                connection.send(await router.response(forLine: text, connection: id))
+            case .answered:
+                break
+            }
+            turn?.finish()
+        }
+        connection.lineConsumed()
+        return true
     }
 
     struct Peer: Sendable {

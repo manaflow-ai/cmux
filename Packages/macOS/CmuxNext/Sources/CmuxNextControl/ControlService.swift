@@ -29,7 +29,9 @@ public import Foundation
 /// (``ControlSocketServer``); nil, the default, watches nothing.
 @MainActor
 public final class ControlService {
-    public let server: ControlSocketServer
+    /// The server: the one ``prepare(registry:settings:launch:environment:bundle:accessMode:frameSource:watchdog:mainWork:hangs:)``
+    /// built, or the one the launch started accepting early (``serve(after:_:)``, p08-startup-107).
+    public private(set) var server: ControlSocketServer
     public let router: ControlRouter
     public let bridge: RegistryControlBridge
     /// The router's idempotency cache in the app's memory coordinator (`control-idempotency`).
@@ -175,9 +177,18 @@ public final class ControlService {
     /// ``serve(adopting:)`` on `bind`'s listener once its bind finished (at once without a bind: this
     /// call binds). `done` gets the socket's path, or why it does not serve (another live instance owns
     /// the path, the bind failed).
+    ///
+    /// When the launch already accepts on that listener (``ControlSocketBind/EarlyAccept``,
+    /// p08-startup-107), this service takes over that server and unlocks it with its router: the requests
+    /// that waited run in the order they arrived. A server started for another configuration (the
+    /// access mode changed since the launch read) is stopped, its waiting requests never run (their
+    /// connections close), and this service binds its own.
     public func serve(after bind: ControlSocketBind?, _ done: @escaping @MainActor (Result<String, any Error>) -> Void) {
         guard let bind else { return done(serveResult(nil)) }
-        bind.whenBound { [self] outcome in done(serveResult(outcome)) }
+        bind.whenBound { [self] outcome in
+            guard let early = bind.takeAccepting() else { return done(serveResult(outcome)) }
+            done(serve(taking: early))
+        }
     }
 
     private func serveResult(_ outcome: ControlSocketBind.Outcome?) -> Result<String, any Error> {
@@ -187,6 +198,18 @@ public final class ControlService {
         } catch {
             return .failure(error)
         }
+    }
+
+    /// Serves the router on `early`, a server that accepts into its startup lock, when it was started for
+    /// this service's configuration; else stops it and binds this service's own socket.
+    private func serve(taking early: ControlSocketServer) -> Result<String, any Error> {
+        guard early.configuration == server.configuration else {
+            early.stop()
+            return serveResult(nil)
+        }
+        server = early
+        early.unlock(router: router)
+        return .success(socketPath)
     }
 
     public func stop() {
@@ -252,7 +275,7 @@ public final class ControlService {
     /// whose processes host every terminal: `.cmuxOnly` admits their
     /// descendants. Includes the daemon binary the launcher resolves the
     /// same way (`CMUX_NEXT_TUI_BIN` in dev builds).
-    static func bundledExecutables(_ bundle: Bundle, environment: [String: String]) -> Set<String> {
+    nonisolated static func bundledExecutables(_ bundle: Bundle, environment: [String: String]) -> Set<String> {
         var urls: [URL] = []
         if let bin = bundle.resourceURL?.appendingPathComponent("bin") {
             urls += ["cmux", "cmux-tui"].map { bin.appendingPathComponent($0) }

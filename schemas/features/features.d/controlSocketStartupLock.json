@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "controlSocketStartupLock",
+  "owner": "Performance Lead",
+  "description": "With controlSocketEarlyBind, the control socket accepts right after its launch bind and holds early CLI requests in a 256-entry startup queue that runs in order once its methods register, so launch-time CLI calls are never refused.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["launch-cold", "launch-warm"],
+  "sticky": false,
+  "runtimeMutable": false
+}

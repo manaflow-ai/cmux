@@ -398,8 +398,8 @@ extension AppControl {
                           work: BackgroundWork, mainWork: MainWorkScheduler) -> ControlSocketBind? {
         guard features.isEnabled(.controlSocketEarlyBind) else { return nil }
         let configured = settingsRead.snapshot.root.value(at: ["automation", "socketControlMode"])?.stringValue
-        return ControlSocketBind.begin(launch: launch, environment: ProcessInfo.processInfo.environment, configured: configured,
-                                       work: work, mainWork: mainWork)
+        return ControlSocketBind.begin(launch: launch, environment: ProcessInfo.processInfo.environment, configured: configured, work: work, mainWork: mainWork,
+                                       accept: features.isEnabled(.controlSocketStartupLock) ? .init(hangs: TraceRuntime.shared.hangWatch) : nil)  // p08-startup-107
     }
 
     /// With the feature (a `socket` from ``beginBind(features:settingsRead:launch:work:mainWork:)``):

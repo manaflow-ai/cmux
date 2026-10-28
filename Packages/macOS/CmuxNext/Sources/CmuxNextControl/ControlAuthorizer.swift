@@ -15,29 +15,39 @@ struct ControlAuthorizer: Sendable {
 
     static let accessDenied = "ERROR: Access denied - only processes started inside cmux can connect"
 
-    /// The response line for one request line, and whether to keep the
-    /// connection open.
-    mutating func respond(to rawLine: String, router: ControlRouter, connection: ControlConnectionID = .inProcess) async -> (String?, Bool) {
-        let line = Self.unwrapEnvelopes(rawLine.trimmingCharacters(in: .whitespacesAndNewlines))
-        guard !line.isEmpty else { return (nil, true) }
-        guard isPeerAdmitted else { return (Self.accessDenied, false) }
-
-        let isJSON = line.hasPrefix("{")
-        let loweredVerb = isJSON ? "" : line.split(separator: " ", maxSplits: 1).first.map { $0.lowercased() } ?? ""
-        if loweredVerb == "auth" {
-            return ("OK: Authentication not required", true)
-        } else if isJSON, case .success(let request) = ControlRouter.decode(line), request.method == "auth.login" {
-            return (ControlRouter.encode(id: request.id, result: .success(["authenticated": true])), true)
-        }
-        return (await router.response(forLine: line, connection: connection), true)
+    /// One request line after the peer policy, the envelopes, the auth handshake, the v1 `ping` and the
+    /// JSON parse, which all answer without the router: also while the startup lock holds requests
+    /// (``ControlStartupLock``, p08-startup-107).
+    enum Screened: Sendable {
+        /// Answered here (nil: an empty line, nothing to send); `keepOpen` false ends the connection.
+        case answered(String?, keepOpen: Bool)
+        /// A v2 request for the router.
+        case request(ControlRequest)
+        /// A v1 plain-text line for the router's v1 handler.
+        case plainText(String)
     }
 
-    /// The `events.stream` request in `rawLine`, when this connection is admitted.
-    func eventStreamRequest(_ rawLine: String) -> ControlRequest? {
+    /// Screens one request line: the peer policy first, then the envelopes, `auth`, the v1 `ping` and the
+    /// JSON parse. Runs on the connection's task, never on the main thread.
+    func screen(_ rawLine: String) -> Screened {
         let line = Self.unwrapEnvelopes(rawLine.trimmingCharacters(in: .whitespacesAndNewlines))
-        guard line.hasPrefix("{"), isPeerAdmitted,
-              case .success(let request) = ControlRouter.decode(line), request.method == ControlRouter.eventStreamMethod else { return nil }
-        return request
+        guard !line.isEmpty else { return .answered(nil, keepOpen: true) }
+        guard isPeerAdmitted else { return .answered(Self.accessDenied, keepOpen: false) }
+        guard line.hasPrefix("{") else {
+            switch line.split(separator: " ", maxSplits: 1).first?.lowercased() {
+            case "auth": return .answered("OK: Authentication not required", keepOpen: true)
+            case "ping": return .answered("PONG", keepOpen: true)
+            default: return .plainText(line)
+            }
+        }
+        switch ControlRouter.decode(line) {
+        case .failure(let error):
+            return .answered(ControlRouter.encode(id: nil, error: error), keepOpen: true)
+        case .success(let request) where request.method == "auth.login":
+            return .answered(ControlRouter.encode(id: request.id, result: .success(["authenticated": true])), keepOpen: true)
+        case .success(let request):
+            return .request(request)
+        }
     }
 
     var isPeerAdmitted: Bool {

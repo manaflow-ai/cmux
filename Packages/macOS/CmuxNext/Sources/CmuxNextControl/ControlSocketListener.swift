@@ -1,6 +1,8 @@
 import CmuxNextCompat
+public import CmuxNextTrace
 public import CmuxNextWakeups
 import Darwin
+import Foundation
 
 /// A control socket bound and listening at ``path`` that no server accepts on yet
 /// (``ControlSocketServer/bindListener(path:protectStateDirectory:compatibilityLink:accessMode:)``,
@@ -73,14 +75,46 @@ public final class ControlSocketListener: Sendable {
 /// // after the methods are registered (ControlLaunch's last post):
 /// service.serve(after: socket) { result in log(result) }
 /// ```
+///
+/// With an ``EarlyAccept`` (feature `controlSocketStartupLock`, p08-startup-107) the lane also starts a
+/// server on the listener right after the bind: it accepts, checks each peer and parses each request
+/// while the app is still starting, and holds the requests in its ``ControlStartupLock`` until the
+/// service unlocks it, so a client that connects at launch never meets a full listen queue
+/// (`ECONNREFUSED`). Chrome's process singleton accepts from the moment it owns the socket and queues
+/// the command lines (chrome/browser/process_singleton_startup_lock.cc).
 @MainActor
 public final class ControlSocketBind {
+    /// The lane starts accepting right after the bind, into a locked startup queue (p08-startup-107).
+    public struct EarlyAccept: Sendable {
+        /// The process environment: it names the daemon binary whose descendants `cmuxOnly` admits
+        /// (``ControlSocketBind/begin(launch:environment:configured:work:mainWork:accept:)`` sets the one it gets).
+        var environment: [String: String] = [:]
+        /// Hang-watches the server's accept and connection lanes; nil watches nothing.
+        let hangs: (any HangWatchScoping)?
+        /// Requests that may wait for the unlock.
+        let capacity: Int
+
+        public init(hangs: (any HangWatchScoping)?, capacity: Int = ControlStartupLock.defaultCapacity) {
+            self.hangs = hangs
+            self.capacity = capacity
+        }
+    }
+
+    /// What the lane hands to main: the bind's outcome and the server that accepts on it, if any.
+    private struct Bound: Sendable {
+        var outcome: Outcome
+        var accepting: ControlSocketServer?
+    }
+
     /// The bound listener, or why there is none (`disabled` when the resolved access mode is off,
     /// `addressInUse` when another live instance owns the path).
     public typealias Outcome = Result<ControlSocketListener, ControlSocketServer.StartError>
 
     /// The outcome, once the lane finished the bind.
     public private(set) var outcome: Outcome?
+    /// The server the lane started on the listener (``EarlyAccept``), until the service takes it
+    /// (``takeAccepting()``). Its listener is taken: the outcome's listener adopts nothing.
+    public private(set) var accepting: ControlSocketServer?
     private var waiters: [@MainActor (Outcome) -> Void] = []
     /// ``discard()`` was called: a listener the lane hands over later is closed before any waiter sees it.
     private var isDiscarded = false
@@ -102,31 +136,44 @@ public final class ControlSocketBind {
     ///   - work: The lanes; the bind runs on the system lane at `userBlocking` (a person or an agent
     ///     may be waiting on the CLI).
     ///   - mainWork: Where the outcome comes back, as an automation task.
+    ///   - accept: Starts accepting on the lane right after the bind, into a locked startup queue; nil
+    ///     (the default) accepts nothing until the service serves.
     public static func begin(launch: LaunchIdentity, environment: [String: String], configured: String?,
-                             work: BackgroundWork, mainWork: MainWorkScheduler) -> ControlSocketBind {
-        begin(path: launch.socketPath, protectStateDirectory: ControlService.protectsStateDirectory(launch),
+                             work: BackgroundWork, mainWork: MainWorkScheduler, accept: EarlyAccept? = nil) -> ControlSocketBind {
+        var accept = accept
+        accept?.environment = environment
+        return begin(path: launch.socketPath, protectStateDirectory: ControlService.protectsStateDirectory(launch),
               compatibilityLink: launch.compatibilityLink,
               accessMode: ControlService.resolveAccessMode(explicit: nil, environment: environment, configured: configured),
-              work: work, mainWork: mainWork)
+              work: work, mainWork: mainWork, accept: accept)
     }
 
-    /// ``begin(launch:environment:configured:work:mainWork:)`` with a resolved mode and an explicit path.
+    /// ``begin(launch:environment:configured:work:mainWork:accept:)`` with a resolved mode and an explicit path.
     static func begin(path: String, protectStateDirectory: Bool, compatibilityLink: String?, accessMode: ControlAccessMode,
-                      work: BackgroundWork, mainWork: MainWorkScheduler) -> ControlSocketBind {
+                      work: BackgroundWork, mainWork: MainWorkScheduler, accept: EarlyAccept? = nil) -> ControlSocketBind {
         let bind = ControlSocketBind()
         guard accessMode != .off else {
             bind.finish(.failure(.disabled))
             return bind
         }
-        work.run(.userBlocking, mayBlock: .system) { () -> Outcome in
+        work.run(.userBlocking, mayBlock: .system) { () -> Bound in
+            let listener: ControlSocketListener
             do throws(ControlSocketServer.StartError) {
-                return .success(try ControlSocketServer.bindListener(path: path, protectStateDirectory: protectStateDirectory,
-                                                                     compatibilityLink: compatibilityLink, accessMode: accessMode))
+                listener = try ControlSocketServer.bindListener(path: path, protectStateDirectory: protectStateDirectory,
+                                                                compatibilityLink: compatibilityLink, accessMode: accessMode)
             } catch {
-                return .failure(error)
+                return Bound(outcome: .failure(error))
             }
-        }.reply(on: mainWork, class: .automation, owner: "ControlSocket.bound") { [bind] outcome in
-            bind.finish(outcome)
+            guard let accept else { return Bound(outcome: .success(listener)) }
+            let configuration = ControlSocketServer.Configuration(
+                path: path, accessMode: accessMode, protectStateDirectory: protectStateDirectory,
+                trustedExecutables: ControlService.bundledExecutables(.main, environment: accept.environment),
+                compatibilityLink: compatibilityLink)
+            return Bound(outcome: .success(listener),
+                         accepting: ControlSocketServer.accepting(listener, configuration: configuration,
+                                                                  startup: ControlStartupLock(capacity: accept.capacity), hangs: accept.hangs))
+        }.reply(on: mainWork, class: .automation, owner: "ControlSocket.bound") { [bind] bound in
+            bind.finish(bound.outcome, accepting: bound.accepting)
         }
         return bind
     }
@@ -138,18 +185,37 @@ public final class ControlSocketBind {
     }
 
     /// Discards the listener nobody adopted (quit, or a resolved access mode of `off`), now or as soon
-    /// as the bind finishes, before any waiter sees it: a later adopt throws `discarded`. Nothing once
-    /// a server adopted it.
+    /// as the bind finishes, before any waiter sees it: a later adopt throws `discarded`. Stops the server
+    /// that accepts early, if the service has not taken it: its waiting requests never run. Nothing once
+    /// a server adopted the listener.
     public func discard() {
         isDiscarded = true
         if case .success(let listener)? = outcome { listener.discard() }
+        takeAccepting()?.stop()
+    }
+
+    /// The server that accepts early, for the service that serves its router on it; nil once taken, or
+    /// without an ``EarlyAccept``.
+    public func takeAccepting() -> ControlSocketServer? {
+        defer { accepting = nil }
+        return accepting
     }
 
     /// The bind finished.
     public func finish(_ outcome: Outcome) {
+        finish(outcome, accepting: nil)
+    }
+
+    /// The bind finished, and `accepting` accepts on its listener (``EarlyAccept``).
+    func finish(_ outcome: Outcome, accepting: ControlSocketServer?) {
         guard self.outcome == nil else { return }
         self.outcome = outcome
-        if isDiscarded, case .success(let listener) = outcome { listener.discard() }
+        if isDiscarded {
+            if case .success(let listener) = outcome { listener.discard() }
+            accepting?.stop()
+        } else {
+            self.accepting = accepting
+        }
         let waiting = waiters
         waiters = []
         for waiter in waiting { waiter(outcome) }

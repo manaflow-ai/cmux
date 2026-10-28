@@ -13890,6 +13890,137 @@
           }
         }
       }
+    },
+    "control.error.starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is still starting (%1$lld requests waiting, limit %2$lld); retry shortly"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يزال cmux قيد البدء (%1$lld طلبات في الانتظار، الحد %2$lld)؛ أعد المحاولة بعد قليل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux se još pokreće (%1$lld zahtjeva čeka, ograničenje %2$lld); pokušajte ponovo uskoro"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux starter stadig (%1$lld anmodninger venter, grænse %2$lld); prøv igen om lidt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux startet noch (%1$lld Anfragen warten, Grenze %2$lld); bitte gleich erneut versuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux todavía se está iniciando (%1$lld solicitudes en espera, límite %2$lld); vuelve a intentarlo en breve"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux démarre encore (%1$lld requêtes en attente, limite %2$lld) ; réessayez sous peu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux è ancora in avvio (%1$lld richieste in attesa, limite %2$lld); riprova a breve"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux はまだ起動中です（待機中のリクエスト %1$lld 件、上限 %2$lld 件）。少し待ってから再試行してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux នៅតែកំពុងចាប់ផ្ដើម (សំណើ %1$lld កំពុងរង់ចាំ ដែនកំណត់ %2$lld); សូមព្យាយាមម្ដងទៀតបន្តិចទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 아직 시작 중입니다(대기 중인 요청 %1$lld개, 한도 %2$lld개). 잠시 후 다시 시도하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux starter fortsatt (%1$lld forespørsler venter, grense %2$lld); prøv igjen om litt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux wciąż się uruchamia (oczekujące żądania: %1$lld, limit %2$lld); spróbuj ponownie za chwilę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux ainda está iniciando (%1$lld solicitações aguardando, limite %2$lld); tente novamente em instantes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ещё запускается (ожидающих запросов: %1$lld, предел %2$lld); повторите попытку чуть позже"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ยังเริ่มทำงานไม่เสร็จ (มีคำขอรออยู่ %1$lld รายการ ขีดจำกัด %2$lld); โปรดลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux hâlâ başlatılıyor (%1$lld istek bekliyor, sınır %2$lld); kısa süre sonra yeniden deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ще запускається (запитів в очікуванні: %1$lld, межа %2$lld); повторіть спробу трохи згодом"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux vẫn đang khởi động (%1$lld yêu cầu đang chờ, giới hạn %2$lld); hãy thử lại sau giây lát"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 仍在启动（%1$lld 个请求等待中，上限 %2$lld）；请稍后重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 仍在啟動（%1$lld 個請求等待中，上限 %2$lld）；請稍後重試"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

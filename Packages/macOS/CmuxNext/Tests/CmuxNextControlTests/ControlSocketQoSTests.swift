@@ -76,7 +76,7 @@ import Testing
         let frames = BudgetedFrameSource(budget: MainFrameBudget(), soonOnRunLoop: true)
         let server = try makeServer(recording: recorder, frameSource: frames)
         defer { server.stop() }
-        let queue = server.router.workQueue
+        let queue = try #require(server.router).workQueue
         let end = ContinuousClock.now + .seconds(20)
 
         // The main thread does not turn until all 40 are queued.

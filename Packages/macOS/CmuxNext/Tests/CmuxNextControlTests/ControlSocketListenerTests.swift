@@ -73,7 +73,7 @@ import Testing
         #expect(!readable(client.descriptor, within: 100), "nothing answers before the server accepts")
 
         // The last method group registers, then the server adopts the listener.
-        server.router.register([.async("test.late") { _ in .string("late") }])
+        try #require(server.router).register([.async("test.late") { _ in .string("late") }])
         try server.start(adopting: listener)
         let response = try JSONValue.parse(Data(client.readLine().utf8))
         #expect(response["id"] == "early")
