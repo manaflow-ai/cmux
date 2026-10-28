@@ -232,6 +232,8 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         guard let restoreStallDelay else { return }
         let key = -arm  // attempts are positive: the deadline's task shares the table, so `.finish` cancels it
         core.withLock { core in
+            // A new arm makes the earlier ones stale: their waits end now instead of firing a no-op.
+            for stale in core.tasks.keys where stale < 0 && stale != key { core.tasks.removeValue(forKey: stale)?.cancel() }
             // The attempts' priority: the deadline changes what a visible pane says.
             core.tasks[key] = Task(priority: .userInitiated) { [owner = Owner(self)] in
                 defer { owner.value?.finishTask(key) }
