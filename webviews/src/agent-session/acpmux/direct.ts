@@ -85,6 +85,7 @@ import { shownPresence } from "./multiplayer/LivePresence";
 import { PresenceClient } from "./multiplayer/presenceClient";
 import { recordedConversationEvents } from "./conversation/exportEvents";
 import { markPullRequestActivityVersion, pullRequestRowKey } from "./summary/transcriptPullRequests";
+import { markRowDelta } from "./rowDelta";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 
 export type AcpmuxHostConfig = {
@@ -949,6 +950,11 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// The array handed to snapshots. Metadata updates can emit without changing a transcript row;
   /// reuse this reference so the pane's derived rows stay memoized.
   private snapshot: AcpmuxRow[] | undefined;
+  private previousSnapshot: AcpmuxRow[] | undefined;
+  private revision = 0;
+  private changedFrom = Number.POSITIVE_INFINITY;
+  private changedTo = 0;
+  private changedKind: "range" | "rebuild" = "rebuild";
   private pullRequestActivityVersion = Symbol();
 
   /// Puts back the earlier object of each row a rebuild made again unchanged (same kind, version and
@@ -970,7 +976,33 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       if (this.ordered && at !== undefined) this.ordered[at] = old;
       changed = true;
     }
-    if (changed) this.snapshot = undefined;
+    if (changed) {
+      if (this.snapshot) this.previousSnapshot ??= this.snapshot;
+      this.snapshot = undefined;
+      this.revision += 1;
+      this.changedFrom = 0;
+      this.changedTo = this.ordered?.length ?? 0;
+      this.changedKind = "rebuild";
+    }
+  }
+
+  private invalidateSnapshot(): void {
+    if (this.snapshot) this.previousSnapshot ??= this.snapshot;
+    this.snapshot = undefined;
+  }
+
+  private noteRebuild(): void {
+    this.revision += 1;
+    this.changedFrom = 0;
+    this.changedTo = this.ordered?.length ?? 0;
+    this.changedKind = "rebuild";
+  }
+
+  private noteRange(from: number, to: number): void {
+    this.revision += 1;
+    this.changedFrom = Math.min(this.changedFrom, Math.max(0, from));
+    this.changedTo = Math.max(this.changedTo, to);
+    if (this.changedKind !== "rebuild") this.changedKind = "range";
   }
 
   override set(id: string, row: AcpmuxRow): this {
@@ -979,7 +1011,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     const unchanged = known && previous === row;
     if (!unchanged && pullRequestRowKey(previous) !== pullRequestRowKey(row))
       this.pullRequestActivityVersion = Symbol();
-    if (!unchanged) this.snapshot = undefined;
+    if (!unchanged) this.invalidateSnapshot();
     if (!known) {
       if (this.current !== undefined) {
         this.order.set(id, this.current);
@@ -989,7 +1021,13 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
         this.local.add(id);
       }
     } else if (this.current !== undefined) this.latest = Math.max(this.latest, this.current);
-    if (this.ordered && !unchanged) this.keepOrdered(id, row, known);
+    if (this.ordered && !unchanged) {
+      const before = this.orderedIndex.get(id);
+      this.keepOrdered(id, row, known);
+      if (this.ordered && before !== undefined) this.noteRange(before, before + 1);
+      else if (this.ordered && !known) this.noteRange(this.ordered.length - 1, this.ordered.length);
+      else this.noteRebuild();
+    } else if (!unchanged) this.noteRebuild();
     return super.set(id, row);
   }
 
@@ -1039,7 +1077,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (!this.has(id)) return false;
     this.pullRequestActivityVersion = Symbol();
     this.ordered = undefined;
-    this.snapshot = undefined;
+    this.invalidateSnapshot();
+    this.noteRebuild();
     this.order.delete(id);
     this.local.delete(id);
     return super.delete(id);
@@ -1048,7 +1087,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   override clear(): void {
     this.pullRequestActivityVersion = Symbol();
     this.ordered = undefined;
-    this.snapshot = undefined;
+    this.invalidateSnapshot();
+    this.noteRebuild();
     this.order.clear();
     this.local.clear();
     this.latest = 0;
@@ -1068,7 +1108,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   placeLocalLast(): void {
     this.pullRequestActivityVersion = Symbol();
     this.ordered = undefined;
-    this.snapshot = undefined;
+    this.invalidateSnapshot();
+    this.noteRebuild();
     const local = [...this.local].sort((a, b) => (this.order.get(a) ?? 0) - (this.order.get(b) ?? 0));
     local.forEach((id, index) => this.order.set(id, this.latest + 0.5 + (index + 1) * 1e-6));
   }
@@ -1082,8 +1123,19 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       this.orderedIndex = new Map(this.ordered.map((row, index) => [row.id, index]));
     }
     if (!this.snapshot) {
+      const previous = this.previousSnapshot;
       this.snapshot = this.ordered.slice();
       markPullRequestActivityVersion(this.snapshot, this.pullRequestActivityVersion);
+      markRowDelta(this.snapshot, previous, {
+        revision: this.revision,
+        from: this.changedKind === "range" ? this.changedFrom : 0,
+        to: this.changedKind === "range" ? this.changedTo : this.snapshot.length,
+        kind: this.changedKind,
+      });
+      this.changedFrom = Number.POSITIVE_INFINITY;
+      this.changedTo = 0;
+      this.changedKind = "range";
+      this.previousSnapshot = undefined;
     }
     return this.snapshot;
   }

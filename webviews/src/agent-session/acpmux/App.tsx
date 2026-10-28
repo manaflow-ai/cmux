@@ -93,6 +93,7 @@ import { JUMP_CURVE, jumpDuration } from "./threadMinimap/model";
 import { cssTimeMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
 import type { RowsChange } from "./threadMinimap/model";
+import { rowDelta } from "./rowDelta";
 import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
@@ -2399,8 +2400,10 @@ export function VirtualTranscript({
   else if (knownFor.current !== rows) {
     // Rows before the first one that changed were all there last time.
     const previous = knownFor.current ?? [];
-    let from = 0;
-    while (from < rows.length && from < previous.length && rows[from] === previous[from]) from += 1;
+    const delta = rowDelta(rows);
+    let from = delta?.kind === "range" && delta.previous === previous ? delta.from : 0;
+    if (!(delta?.kind === "range" && delta.previous === previous))
+      while (from < rows.length && from < previous.length && rows[from] === previous[from]) from += 1;
     rowsChange.current = { base: previous, rows, from };
     // A page of older history lands above the first row that was already there (a date divider
     // moves up to the page's first turn, so the first known row, not the first row): those rows fade
@@ -2707,13 +2710,23 @@ export function VirtualTranscript({
       rowHeights.current = { registry, heights: new WeakMap() };
     const rowWidth = transcriptRowWidth(width, chatColumnOf(chatWidth, chatLook));
     const last = lastEstimate.current;
+    const delta = rowDelta(rows);
+    const previous =
+      !fresh &&
+      last &&
+      last.width === rowWidth &&
+      last.sessionId === sessionId &&
+      delta?.kind === "range" &&
+      delta.previous === last.rows
+        ? { ...last, changedFrom: delta.from }
+        : last;
     const layout = layoutConversation(
       rows,
       rowWidth,
       cache,
       (row, measureWidth) => registry[rowKind(row)]?.measure?.(row, measureWidth),
       measurementSession.current === sessionId ? rowHeights.current.heights : undefined,
-      !fresh && last && last.width === rowWidth && last.sessionId === sessionId ? last : undefined,
+      previous && previous.width === rowWidth && previous.sessionId === sessionId ? previous : undefined,
       sessionId,
     );
     lastEstimate.current = { rows, layout, width: rowWidth, sessionId };
@@ -2740,7 +2753,9 @@ export function VirtualTranscript({
       drawn.size > 0
     ) {
       const limit = Math.min(rows.length, last.rows.length);
-      while (kept < limit && rows[kept] === last.rows[kept]) kept += 1;
+      const delta = rowDelta(rows);
+      if (delta?.kind === "range" && delta.previous === last.rows) kept = Math.min(limit, delta.from);
+      else while (kept < limit && rows[kept] === last.rows[kept]) kept += 1;
       if (changed.size > 0) {
         let found = 0;
         const from = Math.max(0, last.first - DRAWN_SEARCH_ROWS);

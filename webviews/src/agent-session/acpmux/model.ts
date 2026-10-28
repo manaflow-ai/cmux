@@ -1,4 +1,5 @@
 import type { VideoInfo } from "./composer/videoAttachments";
+import { transcriptWork } from "./rowWork";
 import type { HarnessIconSpec } from "../shared/harnessIcons";
 import type { ChatUnavailable } from "./chatUnavailable";
 import type { ChatPresence, Participant } from "./multiplayer/participants";
@@ -1395,7 +1396,7 @@ export function layoutConversation(
   known?: RowHeights,
   /// The last layout at this width, whose rows (by object) the new rows may start with: those
   /// keep their places, and only the rows after the first change are placed again.
-  previous?: { rows: readonly AcpmuxRow[]; layout: ConversationLayout },
+  previous?: { rows: readonly AcpmuxRow[]; layout: ConversationLayout; changedFrom?: number },
   /// The chat the rows are from, which keys the messages the person opened (incomingOpened.ts).
   sessionId?: string,
 ): ConversationLayout {
@@ -1404,7 +1405,13 @@ export function layoutConversation(
   let start = 0;
   if (previous) {
     const limit = Math.min(rows.length, previous.rows.length);
-    while (start < limit && rows[start] === previous.rows[start]) start += 1;
+    if (previous.changedFrom !== undefined) start = Math.min(limit, Math.max(0, previous.changedFrom));
+    else
+      while (start < limit) {
+        if (transcriptWork.enabled) transcriptWork.layoutPrefixComparisons += 1;
+        if (rows[start] !== previous.rows[start]) break;
+        start += 1;
+      }
     // A row after the kept ones can change the height of the last kept row that draws (a footer
     // after a reply, a prompt after the last footer, past rows that draw nothing): place it again.
     let drawn = start - 1;

@@ -23,6 +23,8 @@ import { tailStart } from "./ToolGroupRow";
 import { awaitsPermission, isDraftCall, isRunning, toolGroups } from "./toolGroups";
 import { acpmuxSendCall } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
+import { markRowDelta, rowDelta } from "../rowDelta";
+import { transcriptWork } from "../rowWork";
 
 /// A row added by this pass: the "Worked for" disclosure of the turn opened by `turnId`.
 export const WORKED = "worked";
@@ -195,9 +197,21 @@ export function turnViewFrom(
     const shared = previous.source;
     if (rows === shared) reuse = previous.starts.length;
     else {
-      let from = 0;
-      while (from < rows.length && from < shared.length && rows[from] === shared[from]) from += 1;
-      while (reuse < previous.starts.length && previous.starts[reuse]! < from) reuse += 1;
+      const delta = rowDelta(rows);
+      const proven = delta?.kind === "range" && delta.previous === shared;
+      if (proven) {
+        const first = previous.starts.findIndex((start) => start >= delta.from);
+        const before = first < 0 ? previous.starts.length : first;
+        reuse = Math.max(0, before - 1);
+      } else {
+        let from = 0;
+        while (from < rows.length && from < shared.length) {
+          if (transcriptWork.enabled) transcriptWork.turnPrefixComparisons += 1;
+          if (rows[from] !== shared[from]) break;
+          from += 1;
+        }
+        while (reuse < previous.starts.length && previous.starts[reuse]! < from) reuse += 1;
+      }
     }
     reuse = Math.max(0, reuse - 1);
   }
@@ -273,6 +287,15 @@ export function turnViewFrom(
     ))
       out.push(row);
     ends.push(out.length);
+  }
+  const sourceDelta = rowDelta(rows);
+  if (previous && sourceDelta?.kind === "range" && sourceDelta.previous === previous.source && reuse > 0) {
+    markRowDelta(out, previous.rows, {
+      revision: sourceDelta.revision,
+      from: previous.ends[reuse - 1] ?? 0,
+      to: out.length,
+      kind: "range",
+    });
   }
   return {
     source: rows,
