@@ -1581,6 +1581,12 @@ path = "tests/test_cmux_tui_owner_wait_defers.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_tui_election_budget.py"
+lane = "linux-guard"
+# It asserts that a hanging election ends within seconds.
+serial = true
+
+[[test]]
 path = "tests/test_cmux_tui_tree_handoff.py"
 lane = "linux-guard"
 
