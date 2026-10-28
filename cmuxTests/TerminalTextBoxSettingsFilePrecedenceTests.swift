@@ -10,34 +10,33 @@ import Testing
 /// cmux.json owns `terminal.showTextBoxOnNewTerminals` and
 /// `terminal.focusTextBoxOnNewTerminals`: a stale app-defaults value must not
 /// hide the file's value at launch or after `cmux reload-config` (#26540).
+@MainActor
 @Suite("TextBox new-terminal settings file precedence", .serialized)
 struct TerminalTextBoxSettingsFilePrecedenceTests {
     private let showKey = TerminalTextBoxInputSettings.showOnNewTerminalsKey
     private let focusKey = TerminalTextBoxInputSettings.focusOnNewTerminalsKey
 
     @Test
-    func settingsFileWinsOverDivergedDefaultsAtLaunch() throws {
-        try withSettingsFile(show: true, focus: true) { defaults, settingsFileURL in
+    func settingsFileWinsOverDivergedDefaultsAtLaunch() async throws {
+        try await withSettingsFile { defaults, settingsFileURL in
             _ = makeStore(settingsFileURL: settingsFileURL, defaults: defaults)
             #expect(TerminalTextBoxInputSettings.showOnNewTerminals(defaults: defaults))
             #expect(TerminalTextBoxInputSettings.focusOnNewTerminals(defaults: defaults))
 
             // A Settings toggle or `defaults write` leaves app defaults behind
             // the unchanged cmux.json value.
-            defaults.set(false, forKey: showKey)
-            defaults.set(false, forKey: focusKey)
+            divergeDefaults(defaults)
 
             // Relaunch: a fresh store resolves the same file.
             _ = makeStore(settingsFileURL: settingsFileURL, defaults: defaults)
 
-            #expect(TerminalTextBoxInputSettings.showOnNewTerminals(defaults: defaults))
-            #expect(TerminalTextBoxInputSettings.focusOnNewTerminals(defaults: defaults))
+            expectFileValuesApplied(defaults)
         }
     }
 
     @Test
-    func reloadAppliesUnchangedSettingsFileOverDivergedDefaults() throws {
-        try withSettingsFile(show: true, focus: true) { defaults, settingsFileURL in
+    func reloadConfigAppliesUnchangedSettingsFileOverDivergedDefaults() async throws {
+        try await withSettingsFile { defaults, settingsFileURL in
             let notificationCenter = NotificationCenter()
             let store = makeStore(
                 settingsFileURL: settingsFileURL,
@@ -45,35 +44,67 @@ struct TerminalTextBoxSettingsFilePrecedenceTests {
                 notificationCenter: notificationCenter,
                 startWatching: true
             )
-            withExtendedLifetime(store) {
-                defaults.set(false, forKey: showKey)
-                defaults.set(false, forKey: focusKey)
+            try await withInstalledSettingsFileStore(store) {
+                divergeDefaults(defaults)
 
-                // Passive replay keeps an in-session Settings change (#3844).
+                // Passive replay runs on the main queue; drain it before
+                // checking that an in-session Settings change survives (#3844).
                 notificationCenter.post(name: UserDefaults.didChangeNotification, object: defaults)
-                #expect(!TerminalTextBoxInputSettings.showOnNewTerminals(defaults: defaults))
-                #expect(!TerminalTextBoxInputSettings.focusOnNewTerminals(defaults: defaults))
+                await drainMainQueue()
+                expectDivergedValuesKept(defaults)
+
+                // A Settings-driven Ghostty reload keeps the Settings change.
+                GhosttyApp.shared.reloadConfiguration(source: "settings.terminal.ghosttyOption")
+                await drainMainQueue()
+                expectDivergedValuesKept(defaults)
 
                 // `cmux reload-config` reloads the unchanged file.
-                store.reload()
+                TerminalController.shared.controlSidebarReloadConfig()
+                await drainMainQueue()
 
-                #expect(TerminalTextBoxInputSettings.showOnNewTerminals(defaults: defaults))
-                #expect(TerminalTextBoxInputSettings.focusOnNewTerminals(defaults: defaults))
+                expectFileValuesApplied(defaults)
             }
         }
     }
 
     @Test
-    func removingKeyFromSettingsFileRestoresSettingsValue() throws {
-        try withSettingsFile(show: true, focus: true, initialDefaults: false) { defaults, settingsFileURL in
+    func removingKeyFromSettingsFileRestoresSettingsValue() async throws {
+        try await withSettingsFile(initialDefaults: false) { defaults, settingsFileURL in
             let store = makeStore(settingsFileURL: settingsFileURL, defaults: defaults)
-            #expect(TerminalTextBoxInputSettings.showOnNewTerminals(defaults: defaults))
+            expectFileValuesApplied(defaults)
 
             try #"{"terminal":{}}"#.write(to: settingsFileURL, atomically: true, encoding: .utf8)
-            store.reload()
+            store.reload(appliesFileAuthoritativeKeys: true)
 
-            #expect(defaults.object(forKey: showKey) as? Bool == false)
-            #expect(defaults.object(forKey: focusKey) as? Bool == false)
+            expectDivergedValuesKept(defaults)
+        }
+    }
+
+    private func divergeDefaults(_ defaults: UserDefaults) {
+        defaults.set(false, forKey: showKey)
+        defaults.set(false, forKey: focusKey)
+    }
+
+    private func expectFileValuesApplied(
+        _ defaults: UserDefaults,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        #expect(TerminalTextBoxInputSettings.showOnNewTerminals(defaults: defaults), sourceLocation: sourceLocation)
+        #expect(TerminalTextBoxInputSettings.focusOnNewTerminals(defaults: defaults), sourceLocation: sourceLocation)
+    }
+
+    private func expectDivergedValuesKept(
+        _ defaults: UserDefaults,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        #expect(defaults.object(forKey: showKey) as? Bool == false, sourceLocation: sourceLocation)
+        #expect(defaults.object(forKey: focusKey) as? Bool == false, sourceLocation: sourceLocation)
+    }
+
+    /// Runs after every block already queued on the main queue.
+    private func drainMainQueue() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
         }
     }
 
@@ -94,12 +125,20 @@ struct TerminalTextBoxSettingsFilePrecedenceTests {
         )
     }
 
+    private func withInstalledSettingsFileStore(
+        _ store: KeyboardShortcutSettingsFileStore,
+        _ body: () async throws -> Void
+    ) async rethrows {
+        let originalStore = KeyboardShortcutSettings.settingsFileStore
+        KeyboardShortcutSettings.settingsFileStore = store
+        defer { KeyboardShortcutSettings.settingsFileStore = originalStore }
+        try await body()
+    }
+
     private func withSettingsFile(
-        show: Bool,
-        focus: Bool,
         initialDefaults: Bool? = nil,
-        _ body: (UserDefaults, URL) throws -> Void
-    ) throws {
+        _ body: (UserDefaults, URL) async throws -> Void
+    ) async throws {
         let suiteName = "cmux-textbox-settings-precedence-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -112,8 +151,8 @@ struct TerminalTextBoxSettingsFilePrecedenceTests {
         try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directoryURL) }
         let settingsFileURL = directoryURL.appendingPathComponent("cmux.json", isDirectory: false)
-        try #"{"terminal":{"showTextBoxOnNewTerminals":\#(show),"focusTextBoxOnNewTerminals":\#(focus)}}"#
+        try #"{"terminal":{"showTextBoxOnNewTerminals":true,"focusTextBoxOnNewTerminals":true}}"#
             .write(to: settingsFileURL, atomically: true, encoding: .utf8)
-        try body(defaults, settingsFileURL)
+        try await body(defaults, settingsFileURL)
     }
 }

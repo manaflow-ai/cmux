@@ -1901,6 +1901,8 @@ class GhosttyApp {
             soft: soft,
             source: source,
             reloadSettingsFromFile: reloadSettingsFromFile,
+            appliesSettingsFileAuthority: reloadSettingsFromFile
+                && TerminalPendingConfigurationReload.settingsFileAuthoritySources.contains(source),
             preferredColorScheme: preferredColorScheme,
             completions: completion.map { [$0] } ?? [],
             commitCompletions: commitCompletion.map { [$0] } ?? []
@@ -2015,6 +2017,7 @@ class GhosttyApp {
         let requestedSoft = request.soft
         let source = request.source
         let reloadSettingsFromFile = request.reloadSettingsFromFile
+        let appliesSettingsFileAuthority = request.appliesSettingsFileAuthority
         let preferredColorScheme = request.preferredColorScheme
         let fontTransaction =
             TerminalFontConfigurationReloadTransaction.prepare(
@@ -2023,7 +2026,9 @@ class GhosttyApp {
                 reloadSettings: {
                     if reloadSettingsFromFile {
                         KeyboardShortcutSettings
-                            .settingsFileStore.reload()
+                            .settingsFileStore.reload(
+                                appliesFileAuthoritativeKeys: appliesSettingsFileAuthority
+                            )
                     }
                     AppDelegate.shared?
                         .reloadCmuxConfigStores(source: source)
