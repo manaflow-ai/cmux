@@ -168,4 +168,22 @@ struct EarlyTerminalKeysTests {
             #expect(coordinator.heldCount(in: window) == 0, "the keys typed for the closed terminal still wait")
         }
     }
+
+    /// The creation replied, focus landed and the new terminal has the keyboard, but no focus settle came after that: the
+    /// next key goes straight to the terminal, it never waits for the hold's 2 s bound (first-keys-proof item 2, step
+    /// db4c7066: keys typed after the reply waited 2 s because only a settle ended the hold).
+    @Test func aKeyAfterTheReplyGoesOnWhenTheNewTerminalHasTheKeyboard() async throws {
+        try await Self.withTerminal { h in
+            let (controller, window) = (h.controller, h.window)
+            let router = h.services.keyRouter
+            let coordinator = router.creationInputCoordinator
+            let ticket = try #require(coordinator.begin(in: window, generation: controller.focus.state.generation))
+            coordinator.resolve(ticket, landed: true, in: window) // its flush runs in a later turn
+            #expect(window.firstResponder === h.entry.session.surfaceView, "the test needs the terminal to have the keyboard")
+            let typed = try Self.key("a", keyCode: 0, in: window)
+            let held = router.interceptKeyDown(typed, in: window)
+            #expect(!held, "a key typed into the new terminal that has the keyboard waited in the hold: \(Self.held(h))")
+            #expect(!coordinator.isHolding(in: window), "the hold outlived the moment its terminal took the keyboard")
+        }
+    }
 }
