@@ -372,6 +372,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         sendTopology()
         isApplying = true
         layoutView.syncWithModel() // focus the topology landed (a split's pane) rings in this frame
+        layoutModel.endCloseFallback() // the close's stand-in focus lived for this apply only
     }
 
     /// Runs `body` as part of an apply: pane changes inside it send no topology of their own (the caller sends one).

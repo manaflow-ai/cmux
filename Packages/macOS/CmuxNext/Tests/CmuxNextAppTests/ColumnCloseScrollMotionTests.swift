@@ -49,6 +49,7 @@ struct ColumnCloseScrollMotionTests {
             root.syncWithModel()
             model.focus(focus, notify: false)
             root.syncWithModel()
+            model.endCloseFallback()
         }
 
         @discardableResult
@@ -121,6 +122,17 @@ struct ColumnCloseScrollMotionTests {
         let strip = Strip(Self.columns(4), focused: "p4", arrival: .fade)
         strip.close(to: Self.columns(3), focus: "p3")
         strip.settle()
+        strip.model.focus("p1", notify: false, source: .keyboard)
+        strip.root.syncWithModel()
+        #expect(abs(strip.screen.scroll.value - strip.screen.scroll.target) > 1, "the focus move did not spring")
+    }
+
+    /// The coordinator keeps the stand-in (the successor is the pane the model chose): the apply ends the stand-in, so
+    /// the person's next focus move springs the camera as usual.
+    @Test func aFocusMoveAfterACloseThatKeptItsStandInStillSprings() throws {
+        let strip = Strip(Self.columns(4), focused: "p4", arrival: .fade)
+        strip.close(to: Self.columns(3), focus: "p3")
+        #expect(!strip.model.focusIsCloseFallback, "the stand-in outlived its apply")
         strip.model.focus("p1", notify: false, source: .keyboard)
         strip.root.syncWithModel()
         #expect(abs(strip.screen.scroll.value - strip.screen.scroll.target) > 1, "the focus move did not spring")

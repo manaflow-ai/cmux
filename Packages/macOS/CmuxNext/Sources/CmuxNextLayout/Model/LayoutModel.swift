@@ -21,10 +21,16 @@ public final class LayoutModel {
     public private(set) var activeScreenID: ScreenID?
     /// The focused pane. Client-local; drives the focus ring and column reveal.
     public private(set) var focusedPane: PaneID?
-    /// ``focusedPane`` is the stand-in ``apply(screens:cause:)`` chose because the focused pane closed, until the app's
-    /// focus coordinator (or anything else) focuses a pane: the layout view rests the camera on that replacement with
-    /// the close (a close laid out at once has one camera move).
+    /// ``focusedPane`` is the stand-in ``apply(screens:cause:)`` chose because the focused pane closed, until a pane is
+    /// focused or the apply that made it ends (``endCloseFallback()``): the layout view rests the camera on the
+    /// successor the app's focus coordinator picks in that apply, with the close (one camera move).
     public private(set) var focusIsCloseFallback = false
+
+    /// The apply that closed the focused pane ended (its last layout sync ran): a later focus change is the person's
+    /// or a script's, and moves the camera as usual.
+    public func endCloseFallback() {
+        if focusIsCloseFallback { focusIsCloseFallback = false }
+    }
     /// Dims panes other than the focused one.
     public var dimsInactivePanes = false
     /// Pins the column centering mode (tests, the demo); nil follows
