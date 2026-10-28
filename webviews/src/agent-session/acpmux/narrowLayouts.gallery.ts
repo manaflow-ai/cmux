@@ -295,7 +295,10 @@ export default agentPaneEntry({
         // the pane's left, under the menu's 220 px floor and 300 px width. The menu gives way and
         // keeps to the column, never past its edge.
         await ctx.press("Escape");
-        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-quick-menu"));
+        await ctx.waitFor(() => {
+          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-quick-menu");
+          return !menu || menu.style.visibility !== "visible";
+        });
         const column = ctx.document.querySelector<HTMLElement>(".acpmux-main");
         if (!column) throw new Error("no chat column");
         column.style.flex = "0 0 200px";
