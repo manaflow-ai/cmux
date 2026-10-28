@@ -1,6 +1,7 @@
 /* A Claude workflow's card in the transcript (WorkflowCard.tsx): a hairline box with fixed
    lines, so its height never changes as it runs. */
 .acpmux-workflow-card {
+  --acpmux-workflow-bar-height: 4px;
   /* Its own height wherever it sits (a flex column would stretch it). */
   flex: none;
   align-self: flex-start;
@@ -72,7 +73,7 @@
 }
 .acpmux-workflow-card__progress {
   display: block;
-  height: 4px;
+  height: var(--acpmux-workflow-bar-height);
   overflow: hidden;
   border-radius: 999px;
   background: color-mix(in oklab, var(--agent-muted) 18%, transparent);
@@ -95,7 +96,7 @@
 .acpmux-workflow-card__phases > span {
   flex: 1 1 0;
   min-width: 14px;
-  height: 4px;
+  height: var(--acpmux-workflow-bar-height);
   border-radius: 999px;
   background: color-mix(in oklab, var(--agent-muted) 24%, transparent);
 }

@@ -60,7 +60,10 @@ const latestAgentLine = (node: Subagent, agent: WorkflowAgent | undefined): stri
   // #26990 supplies `lastMessage` through foldWorkflows. Keep the fallback to the folded result
   // while that PR is in flight, then to the current action for older journals.
   const summaryAgent = agent as WorkflowAgent & { lastMessage?: string };
-  const raw = agent.index === undefined || !(node.workflowAgents instanceof Map) ? undefined : node.workflowAgents.get(agent.index);
+  const raw =
+    agent.index === undefined || !(node.workflowAgents instanceof Map)
+      ? undefined
+      : node.workflowAgents.get(agent.index);
   return summaryAgent.lastMessage ?? raw?.result ?? agent.doing;
 };
 
@@ -77,17 +80,18 @@ export function WorkflowCard({
   const counts = tally(workflow.agents);
   const running = workflow.state === "running" && counts.running > 0;
   const now = useNow(running);
-  const elapsed =
-    workflow.elapsedMs ?? (workflow.startedAt !== undefined ? Math.max(0, now - workflow.startedAt) : 0);
+  const elapsed = workflow.elapsedMs ?? (workflow.startedAt !== undefined ? Math.max(0, now - workflow.startedAt) : 0);
   const total = workflow.counts?.started ?? counts.total;
   const done = workflow.counts?.done ?? counts.done;
   const progress = total > 0 ? Math.min(1, done / total) : 0;
   const activeAgents = workflow.agents.filter((agent) => agent.state === "running" || agent.state === "paused");
   const focusAgent = activeAgents.at(-1) ?? workflow.agents.at(-1);
-  const currentPhase = workflow.phases.find((phase) => phase.state === "running") ??
+  const currentPhase =
+    workflow.phases.find((phase) => phase.state === "running") ??
     (focusAgent ? workflow.phases.find((phase) => phase.agentIds.includes(focusAgent.id)) : undefined);
   const focusElapsed = focusAgent
-    ? focusAgent.elapsedMs ?? (focusAgent.startedAt !== undefined ? Math.max(0, now - focusAgent.startedAt) : undefined)
+    ? (focusAgent.elapsedMs ??
+      (focusAgent.startedAt !== undefined ? Math.max(0, now - focusAgent.startedAt) : undefined))
     : undefined;
   const latest = latestAgentLine(node, focusAgent);
   const tokens = workflow.tokens ?? workflow.projectedTokens;
@@ -107,22 +111,46 @@ export function WorkflowCard({
       <span className="acpmux-workflow-card__meta">
         <span>{localizedState(t, workflow.state)}</span>
         {currentPhase?.name && <span>{currentPhase.name}</span>}
-        {total > 0 && <span>{done}/{total}</span>}
+        {total > 0 && (
+          <span>
+            {done}/{total}
+          </span>
+        )}
         <span>{formatDuration(elapsed)}</span>
         {tokens !== undefined && <span>{t("subagents.tokens", { n: tokens, tokens: compactTokens(tokens) })}</span>}
       </span>
       {presentation === "compact" ? (
-        <span className="acpmux-workflow-card__progress" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}>
+        <span
+          className="acpmux-workflow-card__progress"
+          // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a styled bar; <progress> cannot take the fill span.
+          role="progressbar"
+          aria-label={t("summary.subagents.done", { n: done })}
+          aria-valuemin={0}
+          aria-valuemax={total}
+          aria-valuenow={done}
+        >
           <span style={{ transform: `scaleX(${progress})` }} />
         </span>
       ) : presentation === "phases" ? (
         <span className="acpmux-workflow-card__phases" aria-label={currentPhase?.name}>
-          {workflow.phases.map((phase) => <span key={phase.id} data-state={phase.state} title={phase.name} />)}
+          {workflow.phases.map((phase) => (
+            <span key={phase.id} data-state={phase.state} title={phase.name} />
+          ))}
         </span>
       ) : (
         <>
-          <span className="acpmux-workflow-card__latest" title={latest}>{latest ?? ""}</span>
-          <span className="acpmux-workflow-card__progress" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done}>
+          <span className="acpmux-workflow-card__latest" title={latest}>
+            {latest ?? ""}
+          </span>
+          <span
+            className="acpmux-workflow-card__progress"
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a styled bar; <progress> cannot take the fill span.
+            role="progressbar"
+            aria-label={t("summary.subagents.done", { n: done })}
+            aria-valuemin={0}
+            aria-valuemax={total}
+            aria-valuenow={done}
+          >
             <span style={{ transform: `scaleX(${progress})` }} />
           </span>
           {focusAgent && (
