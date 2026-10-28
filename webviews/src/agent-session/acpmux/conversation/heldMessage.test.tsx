@@ -175,7 +175,10 @@ test("the client sends queue_approve and queue_decline, and a declined prompt le
       mux: "queued",
       msg: { promptId: "g-1", text: ASK, awaitingOwner: true, revision: 0, _meta: fromCy },
     });
-    daemon.emit(id, { mux: "queued", msg: { promptId: "g-2", text: "Keep it short", awaitingOwner: true, _meta: fromCy } });
+    daemon.emit(id, {
+      mux: "queued",
+      msg: { promptId: "g-2", text: "Keep it short", awaitingOwner: true, _meta: fromCy },
+    });
     await until(() => shown.queue?.length === 2);
     expect(shown.queueApproval).toBe(true);
     expect(shown.queue.map((entry) => [entry.id, entry.awaitingOwner, entry.author?.id])).toEqual([

@@ -194,7 +194,12 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
         >
           <Icon name="action.more" size={14} />
         </MenuButton>
-        <MenuPopup side="bottom" align="end" className="acpmux-quick-menu acpmux-queued-more" label={t("composer.queueActions")}>
+        <MenuPopup
+          side="bottom"
+          align="end"
+          className="acpmux-quick-menu acpmux-queued-more"
+          label={t("composer.queueActions")}
+        >
           <MenuItem className="acpmux-quick-item cv-held__primary" disabled={answering} onSelect={() => answer(true)}>
             {t("queue.held.approve")}
           </MenuItem>
