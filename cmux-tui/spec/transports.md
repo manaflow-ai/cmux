@@ -471,11 +471,14 @@ vNext adds client-generated `stream_id` to `subscribe` and `attach-surface`, ech
 
 ## Framed IPC grants
 
-Status: `attach-streams-v1` is in the daemon (p05-ipc-074,
-[events.md](events.md#attach-streams)); the other three are a grant rule
-only. The daemon advertises and grants a capability only after its
-transport is in the daemon, so `identify` lists only `attach-streams-v1` of
-the four and `set-client-info` grants only it. A request that names a
+Status: `attach-streams-v1` (p05-ipc-074,
+[events.md](events.md#attach-streams)) and `ipc-frames-v2` (REQUEST, REPLY,
+ERROR and CANCEL, p05-ipc-071; bound in p05-ipc-180) are in the daemon; the
+other two are a grant rule only. The daemon advertises and grants a
+capability only after its transport is in the daemon, so `identify` lists
+only those two of the four and `set-client-info` grants only them. A frame
+kind without a route (`SHARED_BUFFER` until its task) closes the connection
+with `bad_message` `unrouted_kind`. A request that names a
 `stream` on a connection without the grant is refused with
 `streams_not_granted`. The task that adds a transport also turns on its
 capability: p05-ipc-061 for `ipc-frames-v2` and the ring task for

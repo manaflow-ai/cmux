@@ -238,9 +238,23 @@ reply. The summary adds `request_round_trip`: p50/p95/p99/max in ms of the app's
 whole round trip (`round_trip_ms`). A line request carries no flow, so it has only the app's send until the daemon
 derives the flow itself (p09-observability-103); it counts in `request_flows` as unlinked and draws no chain.
 
-Record it through the Release rings (`trace.py record --app "$NX_APP" --release ...`: `trace.start` turns on
-every recording category, `daemon` included, in the app and the daemon), then read the chain in `trace.json.gz` and
-the legs with `trace.py summary OUT`.
+The app frames its requests only with the default-off feature `ipcRequestFrames` (its local daemon connection then
+asks for `ipc-frames-v2` with this build's schema; `CmuxNextApp.localDaemonWireUpgrades`), and the daemon offers frames
+only to a direct same-user peer at its own API revision (a tagged build's app and daemon). Record a split through the
+Release rings with the feature on (`trace.start` turns on every recording category, `daemon` included, in the app
+and the daemon; light-storm's Cmd-D chords split a pane every `--chord-every` keys):
+
+```
+nx-remote --needs gui --app-from-fleet cmux --tag ipc-180 --ref SHA -- \
+  python3 scripts/cmux-next/trace.py record --app "$NX_APP" --out "$NX_ARTIFACTS/trace-ipc-180" \
+    --release --scenario light-storm --enable-feature ipcRequestFrames
+python3 scripts/cmux-next/trace.py summary DIR
+```
+
+It passes when the summary's `Daemon request flows` line counts more than 0 round trips with a `framed round trips`
+row, and in `trace.json.gz` the `daemon request` tracks show, at a `splitRight` action, its `split` request (a JSON v12
+command, so in the daemon's `framed_methods`) as one chain of four slices and three arrows: send (app) -> receive (daemon) -> reply (daemon) -> reply received (app). Without the feature the same
+recording has 0 round trips: every request is a line.
 
 ## How to open it
 

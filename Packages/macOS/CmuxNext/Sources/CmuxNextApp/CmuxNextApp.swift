@@ -184,13 +184,15 @@ public struct CmuxNextApp {
         let terminalEnvironmentProvider = environment.terminalEnvironmentProvider()
         let resolvesShellIntegration = environment.resolvesShellIntegration, echoesPlacementShift = SidebarMirror.isLinked
         let featureHello = environment.daemonFeatureHello
+        // REQUEST frames to the local daemon with feature `ipcRequestFrames` (the service's start asks the same).
+        let wireUpgrades = Self.localDaemonWireUpgrades(features)
         let daemonStart = LaunchRead<DaemonLaunchStart>(on: work, mayBlock: .system) {
             let start = DaemonService.launchStart(work: work, launch: launch, terminalEnvironment: terminalEnvironment,
                                                   resolvedTerminalEnvironment: resolvedTerminalEnvironment,
                                                   terminalEnvironmentProvider: terminalEnvironmentProvider,
                                                   resolvesShellIntegration: resolvesShellIntegration,
                                                   echoesPlacementShift: echoesPlacementShift, wireStats: wireStats, hangWatch: hangWatch,
-                                                  featureHello: featureHello)
+                                                  featureHello: featureHello, wireUpgrades: wireUpgrades)
             guard let names = start.snapshotNames else { return start }
             let read = LaunchRead(on: work, dropped: LaunchSnapshot.Found.missing) {
                 LaunchSnapshot.find(session: names.session, stateDirectory: names.stateDirectory)
@@ -261,5 +263,12 @@ public struct CmuxNextApp {
         withExtendedLifetime(delegate) {
             app.run()
         }
+    }
+
+    /// What this launch's local daemon connections ask for: REQUEST frames with this build's schema while feature
+    /// `ipcRequestFrames` is on, else JSON lines. A daemon of other schema bytes or without `ipc-frames-v2` keeps
+    /// lines either way. `main` passes it to the prestart, `AppServices.startLocalDaemon` to the service's start.
+    nonisolated static func localDaemonWireUpgrades(_ features: FeatureList) -> DaemonWireUpgrades {
+        features.isEnabled(.ipcRequestFrames) ? DaemonWireUpgrades(frames: DaemonFrameSchema(table: .schema, identity: .built)) : .none
     }
 }

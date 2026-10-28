@@ -354,7 +354,7 @@ fn served_client(peer: &mut Peer) -> u64 {
 /// A connection the production lane serves, from a direct same-user peer
 /// with every framed IPC transport bound (p05-ipc-060's test seams: this
 /// in-process peer is the daemon's own binary, which accept classifies as a
-/// byte bridge, and this build binds no transport yet).
+/// byte bridge, and this build binds only frames and streams).
 fn same_user_peer(label: &str) -> Peer {
     let mut peer = connect(label, None);
     let client = served_client(&mut peer);

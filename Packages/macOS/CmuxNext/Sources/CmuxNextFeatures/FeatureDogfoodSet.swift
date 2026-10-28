@@ -48,6 +48,7 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "intentPrewarmHover",
         "intentPrewarmPress",
         "ipcMethodLatencyFieldData",
+        "ipcRequestFrames",
         "launchVisiblePanesOnly",
         "launchWindowsByOcclusion",
         "leftoverDaemonIdleExit",

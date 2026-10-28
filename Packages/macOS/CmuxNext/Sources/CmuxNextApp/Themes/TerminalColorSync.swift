@@ -84,7 +84,8 @@ extension AppServices {
                      terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                      resolvesShellIntegration: environment.resolvesShellIntegration, prestart: landed.prestart,
                      launchSnapshot: landed.launchSnapshot,
-                     featureHello: environment.daemonFeatureHello)
+                     featureHello: environment.daemonFeatureHello,
+                     wireUpgrades: CmuxNextApp.localDaemonWireUpgrades(features))
         daemon.launchSnapshot.endExpectedTake()  // a start that failed before its take holds no window
     }
 }

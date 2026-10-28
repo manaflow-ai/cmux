@@ -125,11 +125,13 @@ fn mux(name: &str) -> Arc<Mux> {
 fn ipc_grant_unbound_transports_are_never_advertised_or_granted() {
     let mux = Mux::new_for_test("ipc-grant-unbound", crate::SurfaceOptions::default());
     let local = Connection::local(&mux);
-    // The stream table is bound (p05-ipc-074); no frame reader or ring yet.
-    assert_eq!(local.advertised(), ["attach-streams-v1"]);
+    // Frames (REQUEST/REPLY/ERROR/CANCEL routes, p05-ipc-071; bound in
+    // p05-ipc-180) and the stream table (p05-ipc-074) are bound; attach
+    // frames and the ring are not yet.
+    assert_eq!(local.advertised(), ["ipc-frames-v2", "attach-streams-v1"]);
     assert_eq!(local.ask(13)["ok"], true);
-    assert_eq!(local.granted(), ["attach-streams-v1"]);
-    assert_eq!(local.recorded(), ["attach-streams-v1"]);
+    assert_eq!(local.granted(), ["ipc-frames-v2", "attach-streams-v1"]);
+    assert_eq!(local.recorded(), ["ipc-frames-v2", "attach-streams-v1"]);
     mux.shutdown();
 }
 
@@ -289,6 +291,10 @@ fn ipc_grant_rule_table() {
     assert_eq!(IpcCapability::offered(IpcPeer::Unverified, true, &bound), [AttachStreams]);
     assert_eq!(
         IpcCapability::offered(IpcPeer::Local, true, &IpcTransports::default()),
+        [Frames, AttachStreams]
+    );
+    assert_eq!(
+        IpcCapability::offered(IpcPeer::Bridged, true, &IpcTransports::default()),
         [AttachStreams]
     );
     assert!(AttachStreams.allowed(IpcPeer::Local, false));

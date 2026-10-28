@@ -105,6 +105,10 @@ Usage (a fleet GUI host, never Lawrence's Mac):
     python3 scripts/cmux-next/trace.py record --app "$NX_APP" --out "$NX_ARTIFACTS/trace" --scenario stress-storm
   trace.py record --app APP --out DIR [--scenario stress-storm|light-storm|launch-warm|launch-cold] [--seconds 20] [--system-trace]
                   [--recorder auto|xctrace|sample] [--no-cef] [--hang-ms 8] [--storm-hz 10] [--release]
+                  [--enable-feature NAME]...
+                  --enable-feature NAME: a default-off feature on for the launch (the tag's Labs local choice; the
+                  app strips an inherited CMUX_ENABLE_FEATURES). ipcRequestFrames sends daemon requests as REQUEST
+                  frames, which carry their flow id (trace.md "Daemon request flows")
                   --release (stress-storm and light-storm only): record through the Release trace path instead of the
                   DEBUG knobs (flow files, the daemon span file, the DevTools port): `cmux trace record --seconds N
                   --out DIR/rings --keys [--chromium]` runs for the window (trace.start: every recording category,
@@ -1280,7 +1284,10 @@ class TraceApp:
         elif not opts.no_cef and not launch:  # a launch traces Chromium through its own --trace-startup file
             self.cdp_port = opts.cdp_port or free_port()
             env["CMUX_NEXT_CEF_EXTRA_SWITCHES"] = f"remote-debugging-port={self.cdp_port}:remote-allow-origins=*"
-        self.bench = BenchApp(path, out=out, env=env, window=None, screen=None)
+        # --enable-feature: default-off features on for this launch, as the tag's Labs local choices (the app strips
+        # an inherited CMUX_ENABLE_FEATURES); options built by other scripts have none.
+        features = {name: True for name in getattr(opts, "enable_feature", None) or ()}
+        self.bench = BenchApp(path, out=out, env=env, window=None, screen=None, local_features=features)
 
     def startup_env(self, seconds):
         """The StartupTrace switches of the measured launch (p08-startup 004): trace `seconds` of the launch into
@@ -6790,7 +6797,8 @@ def check_release_trace(cli_source=RUST_CLI_TRACE):
     largest = RELEASE_RECORD_MAX_S - RELEASE_WINDOW_SETTLE_S
     for argv, why in ((["--bundle", "b", "--release", "--", "true"], "stress-storm or light-storm"),
                       (["--app", "a", "--release", "--scenario", "launch-warm"], "stress-storm or light-storm"),
-                      (["--app", "a", "--release", "--seconds", f"{largest + 0.5}"], f"at most {largest} s")):
+                      (["--app", "a", "--release", "--seconds", f"{largest + 0.5}"], f"at most {largest} s"),
+                      (["--bundle", "b", "--enable-feature", "ipcRequestFrames", "--", "true"], "--enable-feature needs --app")):
         done = subprocess.run([sys.executable, os.path.abspath(__file__), "record", "--out", "/nonexistent", *argv],
                               capture_output=True, text=True, timeout=60)
         assert done.returncode == 2 and why in done.stderr, (argv, done.returncode, done.stderr[-300:])
@@ -6910,6 +6918,10 @@ def main():
     rec.add_argument("--release", action="store_true",
                      help="record through the Release trace rings (`cmux trace record --keys --chromium`) instead of "
                           "the DEBUG knobs (flow files, daemon span file, DevTools port)")
+    rec.add_argument("--enable-feature", action="append", default=[], metavar="NAME",
+                     help="--app only, repeatable: a default-off feature on for the launch, as a Labs local choice of "
+                          "the tag (for example ipcRequestFrames: daemon requests go as REQUEST frames, so each "
+                          "carries its flow app -> daemon -> app)")
     rec.add_argument("--cdp-port", type=int, default=0, help="the DevTools port (default: a free one)")
     rec.add_argument("--hang-ms", type=int, default=8)
     rec.add_argument("--storm-hz", type=float, default=10)
@@ -6938,6 +6950,8 @@ def main():
             parser.error("record needs --app, or a COMMAND after --")
         if opts.command and opts.app:
             parser.error("wrap mode takes --bundle, not --app (the COMMAND launches the app)")
+        if opts.enable_feature and not opts.app:
+            parser.error("--enable-feature needs --app (in wrap mode the COMMAND launches the app with its own features)")
         if opts.release and (opts.command or opts.scenario in LAUNCH_SCENARIOS):
             parser.error("--release records a stress-storm or light-storm window (trace.start needs the running app)")
         if opts.release and math.ceil(opts.seconds + RELEASE_WINDOW_SETTLE_S) > RELEASE_RECORD_MAX_S:

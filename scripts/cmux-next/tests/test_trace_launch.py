@@ -431,7 +431,7 @@ class RecordPath(unittest.TestCase):
     def test_trace_app_launch_environment(self):
         app_dir = os.path.join(self.out, "cmux DEV fixture.app")
         os.makedirs(app_dir)
-        opts = types.SimpleNamespace(scenario="launch-warm", hang_ms=8, no_cef=False, cdp_port=0)
+        opts = types.SimpleNamespace(scenario="launch-warm", hang_ms=8, no_cef=False, cdp_port=0, release=False)
         launch = trace.TraceApp(app_dir, self.out, opts)
         self.assertIsNone(launch.cdp_port)
         self.assertEqual(launch.bench.extra_env["CMUX_NEXT_HANG_THRESHOLD_MS"], "4")
@@ -439,9 +439,19 @@ class RecordPath(unittest.TestCase):
         self.assertEqual(env["CMUX_TRACE_STARTUP"], "7")
         self.assertEqual(env["CMUX_TRACE_STARTUP_FILE"], os.path.join(self.out, "startup", "startup-app.json"))
         storm = trace.TraceApp(app_dir, self.out, types.SimpleNamespace(scenario="light-storm", hang_ms=8, no_cef=False,
-                                                                        cdp_port=4321))
+                                                                        cdp_port=4321, release=False))
         self.assertEqual(storm.cdp_port, 4321)  # unchanged for the storms
         self.assertEqual(storm.bench.extra_env["CMUX_NEXT_HANG_THRESHOLD_MS"], "8")
+        self.assertEqual(storm.bench.local_features, {})  # options without --enable-feature turn nothing on
+
+    def test_enable_feature_is_a_local_choice_of_the_launch(self):
+        app_dir = os.path.join(self.out, "cmux DEV fixture.app")
+        os.makedirs(app_dir)
+        opts = types.SimpleNamespace(scenario="light-storm", hang_ms=8, no_cef=False, cdp_port=4321, release=True,
+                                     enable_feature=["ipcRequestFrames"])
+        app = trace.TraceApp(app_dir, self.out, opts)
+        self.assertEqual(app.bench.local_features, {"ipcRequestFrames": True})
+        self.assertNotIn("CMUX_ENABLE_FEATURES", app.bench.extra_env)  # the app strips it (LaunchIdentity)
 
     def test_signpost_stream_sees_the_mark(self):
         stream = trace.SignpostStream(os.path.join(self.out, "s.ndjson"))

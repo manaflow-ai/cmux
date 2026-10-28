@@ -213,8 +213,11 @@ impl IpcCapability {
 pub(super) struct IpcTransports(AtomicU8);
 
 impl IpcTransports {
-    /// The capabilities whose transport this build serves.
-    const BOUND: [IpcCapability; 1] = [IpcCapability::AttachStreams];
+    /// The capabilities whose transport this build serves. `Frames`: REQUEST,
+    /// REPLY, ERROR and CANCEL have their routes (frame_dispatch.rs,
+    /// p05-ipc-071), so a client that echoes `ipc-frames-v2` gets the frames
+    /// it may send answered; one that does not keeps JSON lines.
+    const BOUND: [IpcCapability; 2] = [IpcCapability::Frames, IpcCapability::AttachStreams];
 
     pub(super) fn bound(&self, capability: IpcCapability) -> bool {
         self.0.load(Ordering::Acquire) & capability.bit() != 0

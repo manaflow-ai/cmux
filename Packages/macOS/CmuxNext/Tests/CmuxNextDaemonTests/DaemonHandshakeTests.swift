@@ -400,14 +400,11 @@ struct DaemonHandshakeLiveTests {
             #expect(try await upgraded.request(ListTerminals()) == h.connection.request(ListTerminals()))
             #expect(try await upgraded.request(ListTabGroups()) == h.connection.request(ListTabGroups()))
             let framed = try await Self.framedRequests(h.connection) - before
-            // The acceptance needs the three ops on frames. The daemon binds no `ipc-frames-v2` transport yet
-            // (capabilities.rs `IpcTransports::BOUND` is empty), so it offers none and every op above went as a
-            // line. The day it binds one this known issue is not recorded, the test fails, and the wrapper goes.
-            withKnownIssue("cmux-tui offers no ipc-frames-v2 yet: IpcTransports::BOUND is empty") {
-                try #require(h.identity.supports(WireNegotiation.framesCapability))
-                #expect(grants.frames)
-                #expect(framed >= 3)
-            }
+            // The three ops went as REQUEST frames: the daemon binds `ipc-frames-v2` (capabilities.rs
+            // `IpcTransports::BOUND`) and this connection echoed it.
+            try #require(h.identity.supports(WireNegotiation.framesCapability))
+            #expect(grants.frames)
+            #expect(framed >= 3)
         } catch {
             await upgraded.close()
             await h.stop()
