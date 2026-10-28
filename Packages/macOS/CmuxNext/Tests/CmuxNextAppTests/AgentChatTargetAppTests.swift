@@ -30,8 +30,12 @@ struct AgentChatTargetAppTests {
                                                                  TabSnapshot(surface: SurfaceID(rawValue: 3), title: "~")])
         let layout: LayoutNode = .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(first.id), b: .leaf(second.id))
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: layout, panes: [first, second])
+        // A second workspace no window shows (parked), with one tab.
+        let parkedPane = PaneSnapshot(id: PaneID(rawValue: 3), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 4), title: "~")])
+        let parkedScreen = ScreenSnapshot(id: ScreenID(rawValue: 2), layout: .leaf(parkedPane.id), panes: [parkedPane])
         var tree = DaemonTree(registryID: "s-local", workspaces: [
             WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "chat-target-ws"), name: "chat target", screens: [screen]),
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: WorkspaceKey(rawValue: "parked-ws"), name: "parked", screens: [parkedScreen]),
         ])
         tree.personal = PersonalState(workspaces: [PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: "chat-target-ws"), index: 0)])
         return tree
@@ -48,6 +52,8 @@ struct AgentChatTargetAppTests {
         let chatTab: String
         /// The second pane's other tab, a terminal its pane does not show.
         let behindTab: String
+        /// The tab of the workspace no window shows, with a cached chat page of its own.
+        let parkedTab: String
         let directory: URL
 
         init() async throws {
@@ -67,7 +73,7 @@ struct AgentChatTargetAppTests {
             let content = try #require(controller.workspaceContent)
             try #require(content.panes.count == 2, "the window never showed the workspace's two panes")
             content.contentView.layoutSubtreeIfNeeded()
-            let models = try #require(store.workspaces.first?.screens.first?.panes)
+            let models = try #require(store.workspaces.first { $0.key == WorkspaceKey(rawValue: "chat-target-ws") }?.screens.first?.panes)
             try #require(models.count == 2)
             terminal = try #require(content.paneController(key: models[0].id))
             chat = try #require(content.paneController(key: models[1].id))
@@ -76,6 +82,9 @@ struct AgentChatTargetAppTests {
             let shown = try #require(chat.currentTabKey, "the second pane shows no tab")
             chatTab = shown
             behindTab = try #require(models[1].tabs.first { $0.id != shown }?.id, "the second pane has no second tab")
+            let parked = try #require(store.workspaces.first { $0.key == WorkspaceKey(rawValue: "parked-ws") }?.screens.first?.panes.first)
+            try #require(services.paneController(for: parked) == nil, "a window shows the parked workspace")
+            parkedTab = try #require(parked.tabs.first?.id, "the parked workspace has no tab")
 
             directory = FileManager.default.temporaryDirectory.appending(path: "agent-chat-target-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -83,6 +92,8 @@ struct AgentChatTargetAppTests {
             try Data("<html><body></body></html>".utf8).write(to: file)
             let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), allowsTabConversion: true), source: .bundled(file)))
             services.agentTabs.views[chatTab] = page
+            services.agentTabs.views[parkedTab] = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), allowsTabConversion: true),
+                                                                             source: .bundled(file)))
 
             controller.focus.send(.focusPane(terminal.paneKey, source: .programmatic))
             services.registry.context.remove(.agentPaneFocused)
@@ -90,6 +101,7 @@ struct AgentChatTargetAppTests {
 
         func tearDown() {
             services.agentTabs.views[chatTab] = nil
+            services.agentTabs.views[parkedTab] = nil
             controller.teardown()
             controller.window?.close()
             try? FileManager.default.removeItem(at: directory)
@@ -193,15 +205,24 @@ struct AgentChatTargetAppTests {
 
     /// A tab target is its own tab, not the chat its pane shows: Set Agent Chat Model on the
     /// terminal tab behind the chat is refused by the App, alone and in a batch, before anything
-    /// applies.
+    /// applies. A parked workspace's tab, whose chat page is cached but no window shows its pane
+    /// (the handler cannot act on it), is refused the same way.
     @Test(arguments: [false, true])
     func aTerminalTabBehindAChatIsNotTheChat(staleSnapshot: Bool) async throws {
         let rig = try await Rig()
         defer { rig.tearDown() }
-        let topology = staleSnapshot ? rig.staleTopology : nil
-        let target = "tab:\(rig.behindTab)"
+        await expectRefusedAloneAndInABatch("tab:\(rig.behindTab)", rig, topology: staleSnapshot ? rig.staleTopology : nil)
+    }
+
+    @Test func aParkedWorkspacesCachedChatIsRefusedBeforeAnythingApplies() async throws {
+        let rig = try await Rig()
+        defer { rig.tearDown() }
+        await expectRefusedAloneAndInABatch("tab:\(rig.parkedTab)", rig, topology: nil)
+    }
+
+    private func expectRefusedAloneAndInABatch(_ target: String, _ rig: Rig, topology: ControlTopology?) async {
         guard case .failure(let alone) = await rig.setModel(target, topology: topology) else {
-            Issue.record("the terminal tab behind the chat took its model")
+            Issue.record("\(target) took a chat's model")
             return
         }
         #expect(alone.code == "unavailable", "\(alone)")
