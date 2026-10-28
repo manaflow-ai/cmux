@@ -54,6 +54,8 @@ struct PinnedByteMirror {
     term: Terminal,
     attach: AttachStream,
     replay_ended_mid_sequence: bool,
+    /// Grid replacements (`Resized`) this mirror rebuilt from.
+    replays: usize,
 }
 
 impl PinnedByteMirror {
@@ -67,7 +69,7 @@ impl PinnedByteMirror {
             &attach.pending_sequence,
             &mut replay_ended_mid_sequence,
         );
-        Self { term, attach, replay_ended_mid_sequence }
+        Self { term, attach, replay_ended_mid_sequence, replays: 0 }
     }
 
     fn from_replay(
@@ -94,6 +96,7 @@ impl PinnedByteMirror {
                 | AttachFrame::OutputWithColors { output, .. } => self.term.vt_write(&output),
                 AttachFrame::Resized { cols, rows, replay, pending_sequence, .. }
                 | AttachFrame::ResizedWithColors { cols, rows, replay, pending_sequence, .. } => {
+                    self.replays += 1;
                     self.term = Self::from_replay(
                         cols,
                         rows,
@@ -224,6 +227,173 @@ fn byte_mirrors_joining_during_owner_churn_converge_on_the_terminal() {
         }
     }
     assert!(failures.is_empty(), "byte mirrors diverged:\n{}", failures.join("\n"));
+}
+
+/// Steps of one resize burst (a divider drag or a window resize).
+const RESIZE_BURST_STEPS: u16 = 24;
+
+/// A divider drag or a window resize reaches the terminal as a burst of
+/// geometry steps, with output between them. A byte mirror must be rebuilt
+/// once for the burst, at its final grid, from one replay that also covers
+/// the output of the burst: not one full replay per step, built under the
+/// locks the reader and the frame path need (cmux-ad H10).
+#[test]
+fn resize_burst_builds_one_byte_mirror_replay_at_the_final_grid() {
+    let mux = Mux::new_for_test("mirror-resize-burst", SurfaceOptions::default());
+    let surface = mirror_test_surface(&mux);
+    let pty = surface.as_pty().unwrap();
+    let mut mirror = PinnedByteMirror::attach(&surface);
+    surface.apply_local_pty_output_for_test(MIRROR_TRANSCRIPT).unwrap();
+    pty.vt_replay_builds.store(0, Ordering::Release);
+
+    for step in 0..RESIZE_BURST_STEPS {
+        assert!(surface.resize(81 + step, 11 + step / 2).unwrap());
+        surface.apply_local_pty_output_for_test(format!("step {step}\r\n").as_bytes()).unwrap();
+    }
+
+    assert_eq!(mirror.divergence(&surface), None);
+    assert_eq!(
+        (pty.vt_replay_builds.load(Ordering::Acquire), mirror.replays),
+        (1, 1),
+        "a burst of {RESIZE_BURST_STEPS} resize steps must build and send one byte-mirror \
+         replay (builds, replays received)"
+    );
+}
+
+/// A terminal of 120x40 with 10k colored lines of scrollback, for the bench.
+fn deep_history_surface(mux: &Arc<Mux>, id: SurfaceId) -> Arc<Surface> {
+    let options = SurfaceOptions {
+        cols: 120,
+        rows: 40,
+        scrollback: 64 * 1024 * 1024,
+        ..SurfaceOptions::default()
+    };
+    let surface = Surface::spawn_for_test(id, options, Arc::downgrade(mux)).unwrap();
+    let mut history = Vec::new();
+    for line in 0..10_000 {
+        let color = line % 8;
+        history.extend_from_slice(
+            format!(
+                "\x1b[3{color}mline {line:05}\x1b[m the quick brown fox jumps over the dog\r\n"
+            )
+            .as_bytes(),
+        );
+    }
+    surface.apply_local_pty_output_for_test(&history).unwrap();
+    surface
+}
+
+fn percentiles(samples: &mut [Duration]) -> String {
+    samples.sort();
+    let at = |p: usize| samples[(samples.len() * p / 100).min(samples.len() - 1)];
+    format!("p50 {:?} p95 {:?} max {:?}", at(50), at(95), at(100))
+}
+
+/// Bench (cmux-ad H10): resize bursts over a terminal with 10k lines of
+/// scrollback and one byte mirror attached. Run with `cargo test -p
+/// cmux-tui-core --lib -- --ignored --nocapture
+/// resize_burst_terminal_lock_hold_bench`.
+///
+/// - burst: 24 steps back to back, then the mirror takes its frames (a view
+///   that is busy, or whose connection is full, during the burst).
+/// - drag: a 120 Hz drag (a step every 8 ms) while another thread takes the
+///   mirror's frames as they come (a view that keeps up).
+///
+/// - build: one replay of that terminal, built under the terminal lock.
+///
+/// Each prints the replays built per burst and how long each resize step
+/// takes (it holds the terminal lock throughout; in the drag it may first
+/// wait for the lock while the view builds a replay).
+#[test]
+#[ignore = "bench: prints lock hold times, asserts nothing"]
+fn resize_burst_terminal_lock_hold_bench() {
+    const BURSTS: u16 = 5;
+    const STEP_INTERVAL: Duration = Duration::from_millis(8);
+    let mux = Mux::new_for_test("mirror-resize-burst-bench", SurfaceOptions::default());
+    let grid = |burst: u16, step: u16| (100 + step + (burst % 2) * RESIZE_BURST_STEPS, 40);
+
+    let surface = deep_history_surface(&mux, 1);
+    let pty = surface.as_pty().unwrap();
+    let mut mirror = PinnedByteMirror::attach(&surface);
+    pty.vt_replay_builds.store(0, Ordering::Release);
+    let (mut steps, mut takes) = (Vec::new(), Vec::new());
+    for burst in 0..BURSTS {
+        for step in 0..RESIZE_BURST_STEPS {
+            let (cols, rows) = grid(burst, step);
+            let started = Instant::now();
+            surface.resize(cols, rows).unwrap();
+            steps.push(started.elapsed());
+        }
+        let started = Instant::now();
+        mirror.drain();
+        takes.push(started.elapsed());
+    }
+    let builds = pty.vt_replay_builds.load(Ordering::Acquire);
+    eprintln!(
+        "resize burst bench [burst]: {BURSTS} bursts of {RESIZE_BURST_STEPS} steps: replay \
+         builds {builds} ({:.1} per burst); resize step {}; mirror take after the burst {}; \
+         mirror diverged: {}",
+        builds as f64 / f64::from(BURSTS),
+        percentiles(&mut steps),
+        percentiles(&mut takes),
+        mirror.divergence(&surface).is_some(),
+    );
+    let mut builds = (0..10)
+        .map(|_| {
+            let mut term = pty.term.lock().unwrap();
+            let started = Instant::now();
+            term.vt_replay_bounded_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES).unwrap();
+            started.elapsed()
+        })
+        .collect::<Vec<_>>();
+    eprintln!("resize burst bench [build]: one replay build {}", percentiles(&mut builds));
+
+    let surface = deep_history_surface(&mux, 2);
+    let pty = surface.as_pty().unwrap();
+    let attach = surface.attach_stream().unwrap();
+    pty.vt_replay_builds.store(0, Ordering::Release);
+    let done = Arc::new(AtomicBool::new(false));
+    let view = {
+        let done = done.clone();
+        std::thread::spawn(move || {
+            let mut last_grid = None;
+            loop {
+                let finished = done.load(Ordering::Acquire);
+                match attach.stream.recv_timeout(Duration::from_millis(5)) {
+                    Ok(frame) => {
+                        if let Some(resize) = frame.resize() {
+                            last_grid = Some((resize.cols, resize.rows));
+                        }
+                    }
+                    Err(_) if finished => break,
+                    Err(_) => {}
+                }
+            }
+            (last_grid, attach.lifecycle.is_canceled())
+        })
+    };
+    let (mut steps, mut final_grid) = (Vec::new(), (0, 0));
+    for burst in 0..BURSTS {
+        for step in 0..RESIZE_BURST_STEPS {
+            final_grid = grid(burst, step);
+            let started = Instant::now();
+            surface.resize(final_grid.0, final_grid.1).unwrap();
+            steps.push(started.elapsed());
+            std::thread::sleep(STEP_INTERVAL.saturating_sub(started.elapsed()));
+        }
+        // The pause between two drags.
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    done.store(true, Ordering::Release);
+    let (last_grid, disconnected) = view.join().unwrap();
+    let builds = pty.vt_replay_builds.load(Ordering::Acquire);
+    eprintln!(
+        "resize burst bench [drag]: {BURSTS} bursts of {RESIZE_BURST_STEPS} steps every \
+         {STEP_INTERVAL:?}: replay builds {builds} ({:.1} per burst); resize step {}; mirror's \
+         last grid {last_grid:?} (final {final_grid:?}), disconnected {disconnected}",
+        builds as f64 / f64::from(BURSTS),
+        percentiles(&mut steps),
+    );
 }
 
 fn bytes_contain(haystack: &[u8], needle: &[u8]) -> bool {
