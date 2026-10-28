@@ -562,7 +562,10 @@ test("the search field filters every harness's models and names each row's harne
   const rows = modelRows(menu()!);
   expect(rows.length).toBeGreaterThan(0);
   expect(modelNames(menu()!).every((name) => name.toLowerCase().includes("gpt"))).toBe(true);
-  const harnessNames = rows.map((row) => row.querySelector(".acpmux-quick-value")?.textContent?.trim());
+  // Search hints name the harness first, followed by provider/effort details.
+  const harnessNames = rows.map((row) =>
+    row.querySelector(".acpmux-quick-value")?.textContent?.split(" · ")[0]?.trim(),
+  );
   expect(harnessNames.every((name) => name === "Codex" || name === "Vercel AI Gateway")).toBe(true);
   expect(new Set(harnessNames)).toEqual(new Set(["Codex", "Vercel AI Gateway"]));
   await typeIn("");
