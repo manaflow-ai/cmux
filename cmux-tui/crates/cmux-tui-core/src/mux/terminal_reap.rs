@@ -328,11 +328,9 @@ impl Mux {
         self.end_terminals(false)
     }
 
-    /// Ends every terminal host of this session that still runs, by its
-    /// record (incarnation-checked, so a reused pid is never signalled), and
-    /// waits for them; returns the hosts still running after the wait. For
-    /// an owner that must leave no host behind when [`Self::end_all_terminals`]
-    /// failed before its own survivor sweep (`--exit-with-pid`).
+    /// Ends every host still running by its record (incarnation-checked)
+    /// and returns those left after the wait: for `--exit-with-pid` when
+    /// [`Self::end_all_terminals`] failed before its own survivor sweep.
     #[cfg(any(unix, windows))]
     pub fn end_surviving_terminal_hosts(&self) -> Vec<String> {
         let root = self.surface_options.lock().unwrap().terminal_host_root.clone();

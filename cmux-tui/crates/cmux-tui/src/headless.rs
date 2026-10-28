@@ -15,9 +15,7 @@ pub(crate) use bound_owner::{BoundOwner, arm as arm_bound_owner};
 #[cfg(not(unix))]
 pub(crate) type BoundOwner = std::convert::Infallible;
 
-/// `bound` (`--exit-with-pid`, armed at startup and started before the
-/// owner reported ready) binds this owner to a process: once it dies the
-/// owner ends its terminals and leaves (bound_owner.rs).
+/// `bound`: the `--exit-with-pid` watch (bound_owner.rs), stopped on exit.
 pub(crate) fn run_headless<F>(
     mux: &Arc<Mux>,
     socket_path: &Path,

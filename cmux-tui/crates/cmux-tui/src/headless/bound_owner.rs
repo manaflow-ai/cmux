@@ -1,33 +1,14 @@
-//! `--exit-with-pid <pid>`: an owner bound to the process that started it.
-//!
-//! A detached owner outlives every client by design: the app's daemon keeps
-//! the person's terminals across an app quit, crash or relaunch, and the app
-//! re-attaches. A test or CI launcher is different: it starts an owner for
-//! itself and stops it in its cleanup (`server stop --end-terminals`). When
-//! the launcher is killed first (a cancelled job, SIGKILL), nothing stopped
-//! the owner, and it kept its terminals and the runner's work tree for days
-//! (HQ REPAIR.md "Orphaned cmux-tui holds runner dirs"). Such a launcher
-//! passes its own pid (`--headless --exit-with-pid $$`); once that
-//! process dies, the owner ends its terminals (no one will adopt them) and
-//! leaves through the normal shutdown path.
-//!
-//! The watch is armed at startup, before the owner reports itself ready, so
-//! an owner asked to exit with a process never runs unbound: a watch that
-//! cannot be armed (no pidfd on an old Linux kernel, a seccomp denial) fails
-//! the start. A launcher may pass the process's start time with its pid
-//! (`<pid>@<ms>`); without it the owner reads it before arming. Once the
-//! watch is armed the owner compares it, so a pid that was reused
-//! before the watch counts as the process having exited. When the owner
-//! stops while the bound process has exited too, its terminals still end.
-//!
-//! One thread waits on the kernel's exit event for the pid (kqueue
-//! `EVFILT_PROC`/`NOTE_EXIT` on macOS, a pidfd on Linux) together with a stop
-//! pipe; no timer and no poll. It ends when the process exits (after it has
-//! asked the owner to leave), when the wait itself fails (it then also asks
-//! the owner to leave: a bound owner never keeps running unwatched), or when
-//! the owner leaves for another reason: [`BoundOwner::stop`] closes the
-//! pipe's write end, the thread wakes on its end of file, and `stop` joins
-//! it.
+//! `--exit-with-pid <pid>[@<start ms>]`: an owner bound to its launcher.
+//! A detached owner outlives every client by design (the app's daemon keeps
+//! terminals across an app quit or crash). A CI launcher killed before its
+//! cleanup left its owner running for days (HQ REPAIR.md "Orphaned cmux-tui
+//! holds runner dirs"); a bound owner ends its terminals and shuts down once
+//! that process exits. The watch is armed and its thread started before the
+//! owner reports ready (failing either fails the start). The start time is
+//! checked after the kernel watch is registered, so a reused pid counts as
+//! exited. One thread blocks on the exit event (kqueue `NOTE_EXIT`, a Linux
+//! pidfd) and a stop pipe, no timer; it ends on the exit, a failed wait, or
+//! [`BoundOwner::stop`] (closes the pipe and joins it).
 
 use std::io;
 use std::sync::{Arc, Weak};
@@ -59,9 +40,7 @@ impl Process {
     }
 }
 
-/// Arms the watch on `bound`'s process. An error fails the owner's start.
-/// The start time comes from the launcher (`<pid>@<ms>`), else it is read
-/// here, before the watch, and the start fails when it cannot be.
+/// Arms the watch on `bound`'s process; an error fails the owner's start.
 pub(crate) fn arm(bound: BoundPid) -> io::Result<Armed> {
     let started_ms = match bound.started_ms {
         Some(started) => started,
@@ -91,7 +70,7 @@ impl Armed {
             .name("bound-owner".into())
             .spawn(move || run(&watch, reused, &weak, process));
         match thread {
-            Ok(thread) => Ok(BoundOwner { stop: Some(stop), thread: Some(thread) }),
+            Ok(thread) => Ok(BoundOwner { stop, thread }),
             Err(error) => {
                 end_every_terminal(mux);
                 Err(error)
@@ -102,16 +81,14 @@ impl Armed {
 
 /// The running watch; [`BoundOwner::stop`] ends and joins it.
 pub(crate) struct BoundOwner {
-    stop: Option<io::PipeWriter>,
-    thread: Option<std::thread::JoinHandle<()>>,
+    stop: io::PipeWriter,
+    thread: std::thread::JoinHandle<()>,
 }
 
 impl BoundOwner {
-    pub(crate) fn stop(mut self) {
-        drop(self.stop.take());
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
+    pub(crate) fn stop(self) {
+        drop(self.stop);
+        let _ = self.thread.join();
     }
 }
 
@@ -131,7 +108,8 @@ fn run(watch: &Watch, reused: bool, mux: &Weak<Mux>, process: Process) {
         // exited too (both events at once), its terminals still end: a
         // normal shutdown would keep them for an adopter that never comes.
         Ok(Woke::Stopped) => {
-            if process.gone()
+            // The kernel's event first: a zombie still has its start time.
+            if (watch.exited() || process.gone())
                 && let Some(mux) = mux.upgrade()
             {
                 crate::client_log::stderr_log!(
@@ -244,39 +222,50 @@ impl Watch {
         Ok(Self { queue, gone, _stop: stop })
     }
 
+    /// Whether the exit event is pending now (no wait).
+    fn exited(&self) -> bool {
+        let now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        self.gone || matches!(self.poll(&now), Ok(Some(Woke::Exited)))
+    }
+
     fn wait(&self) -> io::Result<Woke> {
-        use std::os::fd::AsRawFd;
         if self.gone {
             return Ok(Woke::Exited);
         }
         loop {
-            // SAFETY: kevent is plain data; all-zero is a valid value.
-            let mut events: [libc::kevent; 2] = unsafe { std::mem::zeroed() };
-            // SAFETY: no changes, two event slots, no timeout.
-            let n = unsafe {
-                libc::kevent(
-                    self.queue.as_raw_fd(),
-                    std::ptr::null(),
-                    0,
-                    events.as_mut_ptr(),
-                    2,
-                    std::ptr::null(),
-                )
-            };
-            if n < 0 {
-                let error = io::Error::last_os_error();
-                if error.kind() == io::ErrorKind::Interrupted {
-                    continue;
-                }
-                return Err(error);
+            if let Some(woke) = self.poll(std::ptr::null())? {
+                return Ok(woke);
             }
-            if n == 0 {
-                continue;
-            }
-            // The process's exit wins over a stop seen in the same call.
-            let exited = events[..n as usize].iter().any(|event| event.filter == libc::EVFILT_PROC);
-            return Ok(if exited { Woke::Exited } else { Woke::Stopped });
         }
+    }
+
+    /// One `kevent` call (`timeout` null: no timeout). `None`: no event, or
+    /// interrupted. The process's exit wins over a stop seen in the same call.
+    fn poll(&self, timeout: *const libc::timespec) -> io::Result<Option<Woke>> {
+        use std::os::fd::AsRawFd;
+        // SAFETY: kevent is plain data; all-zero is a valid value.
+        let mut events: [libc::kevent; 2] = unsafe { std::mem::zeroed() };
+        // SAFETY: no changes, two event slots, a null or live timeout.
+        let n = unsafe {
+            libc::kevent(
+                self.queue.as_raw_fd(),
+                std::ptr::null(),
+                0,
+                events.as_mut_ptr(),
+                2,
+                timeout,
+            )
+        };
+        if n < 0 {
+            let error = io::Error::last_os_error();
+            return if error.kind() == io::ErrorKind::Interrupted { Ok(None) } else { Err(error) };
+        }
+        let events = &events[..n as usize];
+        Ok(if events.iter().any(|event| event.filter == libc::EVFILT_PROC) {
+            Some(Woke::Exited)
+        } else {
+            (!events.is_empty()).then_some(Woke::Stopped)
+        })
     }
 }
 
@@ -307,32 +296,40 @@ impl Watch {
         Ok(Self { pidfd: Some(pidfd), stop })
     }
 
+    /// Whether the process has exited now (no wait): the pidfd is readable.
+    fn exited(&self) -> bool {
+        matches!(self.poll(0), Ok(Some(Woke::Exited)))
+    }
+
     fn wait(&self) -> io::Result<Woke> {
-        use std::os::fd::AsRawFd;
-        let Some(pidfd) = &self.pidfd else { return Ok(Woke::Exited) };
-        let mut fds = [
-            libc::pollfd { fd: self.stop.as_raw_fd(), events: libc::POLLIN, revents: 0 },
-            // The pidfd is readable once the process has exited.
-            libc::pollfd { fd: pidfd.as_raw_fd(), events: libc::POLLIN, revents: 0 },
-        ];
         loop {
-            // SAFETY: two live pollfds, no timeout.
-            let n = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as _, -1) };
-            if n < 0 {
-                let error = io::Error::last_os_error();
-                if error.kind() == io::ErrorKind::Interrupted {
-                    continue;
-                }
-                return Err(error);
-            }
-            // The process's exit wins over a stop seen in the same call.
-            if fds[1].revents != 0 {
-                return Ok(Woke::Exited);
-            }
-            if fds[0].revents != 0 {
-                return Ok(Woke::Stopped);
+            if let Some(woke) = self.poll(-1)? {
+                return Ok(woke);
             }
         }
+    }
+
+    /// One `poll` (`timeout` -1: no timeout). `None`: no event, or
+    /// interrupted. The process's exit wins over a stop seen in the same call.
+    fn poll(&self, timeout: libc::c_int) -> io::Result<Option<Woke>> {
+        use std::os::fd::AsRawFd;
+        let Some(pidfd) = &self.pidfd else { return Ok(Some(Woke::Exited)) };
+        let mut fds = [pidfd.as_raw_fd(), self.stop.as_raw_fd()].map(|fd| libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        });
+        // SAFETY: two live pollfds.
+        if unsafe { libc::poll(fds.as_mut_ptr(), 2, timeout) } < 0 {
+            let error = io::Error::last_os_error();
+            return if error.kind() == io::ErrorKind::Interrupted { Ok(None) } else { Err(error) };
+        }
+        // The pidfd is readable once the process has exited.
+        Ok(if fds[0].revents != 0 {
+            Some(Woke::Exited)
+        } else {
+            (fds[1].revents != 0).then_some(Woke::Stopped)
+        })
     }
 }
 
@@ -342,11 +339,13 @@ struct Watch;
 #[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
 impl Watch {
     fn new(_pid: u32, _stop: io::PipeReader) -> io::Result<Self> {
-        Err(io::Error::new(io::ErrorKind::Unsupported, "no process exit event on this platform"))
+        Err(io::ErrorKind::Unsupported.into())
     }
-
     fn wait(&self) -> io::Result<Woke> {
         Err(io::ErrorKind::Unsupported.into())
+    }
+    fn exited(&self) -> bool {
+        false
     }
 }
 
@@ -355,17 +354,10 @@ mod tests {
     use super::*;
     use std::process::{Child, Command, Stdio};
 
-    /// A child that runs until its stdin closes, and the pid of one that
-    /// has exited and been reaped.
+    /// A child that runs until its stdin closes.
     fn waiting_child() -> Child {
         let stdin = Stdio::piped();
         Command::new("/bin/sh").args(["-c", "read line"]).stdin(stdin).spawn().unwrap()
-    }
-
-    fn gone_pid() -> u32 {
-        let mut child = Command::new("/bin/sh").args(["-c", "exit 0"]).spawn().unwrap();
-        child.wait().unwrap();
-        child.id()
     }
 
     fn end(mut child: Child) {
@@ -385,10 +377,18 @@ mod tests {
         let child = waiting_child();
         let (reader, writer) = io::pipe().unwrap();
         let watch = Watch::new(child.id(), reader).unwrap();
-        let stopped = std::thread::spawn(move || watch.wait().unwrap());
         drop(writer);
-        assert_eq!(stopped.join().unwrap(), Woke::Stopped);
+        assert_eq!(watch.wait().unwrap(), Woke::Stopped);
+        assert!(!watch.exited(), "a running process counted as exited");
         end(child);
+        // Exited but not reaped (a zombie still has its start time): the
+        // kernel's event says so without a wait.
+        let mut zombie = Command::new("/bin/sh").args(["-c", "exit 0"]).spawn().unwrap();
+        let (reader, _writer) = io::pipe().unwrap();
+        let watch = Watch::new(zombie.id(), reader).unwrap();
+        assert_eq!(watch.wait().unwrap(), Woke::Exited);
+        assert!(watch.exited());
+        zombie.wait().unwrap();
     }
 
     #[test]
@@ -403,7 +403,10 @@ mod tests {
         assert!(arm(BoundPid { pid, started_ms: other }).unwrap().reused);
         end(child);
 
-        let gone = gone_pid();
+        // A process that exited and was reaped: its pid names nothing.
+        let mut gone = Command::new("/bin/sh").args(["-c", "exit 0"]).spawn().unwrap();
+        gone.wait().unwrap();
+        let gone = gone.id();
         assert!(arm(BoundPid { pid: gone, started_ms: None }).is_err());
         let (reader, _writer) = io::pipe().unwrap();
         assert_eq!(Watch::new(gone, reader).unwrap().wait().unwrap(), Woke::Exited);

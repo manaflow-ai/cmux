@@ -1002,8 +1002,8 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     if out.terminal.is_some() && !out.attach {
         return Err("--terminal requires `cmux attach`".to_string());
     }
-    if out.exit_with_pid.is_some() && !out.headless {
-        return Err("--exit-with-pid needs --headless (or `daemon start`)".to_string());
+    if out.exit_with_pid.is_some() && (!out.headless || out.attach) {
+        return Err("--exit-with-pid needs --headless (or `daemon start`), not attach".to_string());
     }
     #[cfg(not(unix))]
     if out.exit_with_pid.is_some() {
@@ -3012,7 +3012,6 @@ fn start_detached_owner_session(
         term: Some(owner_term),
         initial_host_colors: Some(host_colors),
         terminal_reap_grace: args.terminal_reap_grace,
-        exit_with_pid: None,
         install_key: None,
         chief_tools_socket: None,
         chief_brains: None,
