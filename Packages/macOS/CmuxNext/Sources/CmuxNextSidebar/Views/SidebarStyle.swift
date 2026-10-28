@@ -60,9 +60,10 @@ enum SidebarStyle {
     /// thing too big, revert to old icon sizes".
     static var avatarDiameter: CGFloat { iconBox }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
-    /// The margin under everything the sidebar draws (Leo 2026-10-20: the account row, the last
-    /// rows and the scroller sat on the window's bottom edge): space4, as the agent composer's.
-    static var bottomInset: CGFloat { Metrics.space4 }
+    /// The margin under everything the sidebar draws: the 4 pt grid step (space2 at compact). It was
+    /// space4 (8 pt) since Leo 2026-10-20. Lawrence 2026-10-27 (message 13901): the footer is still too
+    /// tall, so the margin is cut.
+    static var bottomInset: CGFloat { Metrics.space2 }
     static var autoscrollZone: CGFloat { Metrics.sidebarRowHeight }
     /// Rows realized past each edge of the visible list. A scroll draws rows as they come in
     /// (one or two a frame), so a deep overscan bought nothing and cost every frame: each realized
