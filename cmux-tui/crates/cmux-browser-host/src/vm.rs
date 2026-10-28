@@ -90,9 +90,11 @@ impl VmSession {
         let (tx, rx) = mpsc::channel();
         let loop_tx = tx.clone();
         // supervise-allow: this REPL session's VM; its state is the session's own, and a panic drops its receiver and each pending reply, so the session's evals answer "stopped" at once.
-        std::thread::Builder::new()
-            .name(format!("cmux-browser-host-vm-{}", config.session_id))
-            .spawn(move || run(config, host, rx, loop_tx))?;
+        cmux_threads::spawn(
+            format!("cmux-browser-host-vm-{}", config.session_id),
+            cmux_threads::ThreadQos::UserInitiated,
+            move || run(config, host, rx, loop_tx),
+        )?;
         Ok(VmSession { tx })
     }
 
@@ -360,9 +362,11 @@ fn run(
                 if timed_out {
                     let host = host.clone();
                     // supervise-allow: one cancel of a timed-out cell's fetches; a panic leaves those fetches to end at their own deadlines.
-                    let _ = std::thread::Builder::new()
-                        .name("cmux-browser-host-fetch-cancel".into())
-                        .spawn(move || host.cancel_fetches(cell));
+                    let _ = cmux_threads::spawn(
+                        "cmux-browser-host-fetch-cancel",
+                        cmux_threads::ThreadQos::Utility,
+                        move || host.cancel_fetches(cell),
+                    );
                 }
             }
             if running.is_none() && !queued.is_empty() {
@@ -565,13 +569,15 @@ fn install(
                     object.insert("cell".into(), json!(fetch_shared.borrow().cell));
                 }
                 // supervise-allow: one net.fetch for the VM; a panic drops `sender` with no result, so that call ends at the cell's deadline and the VM goes on.
-                let spawned = std::thread::Builder::new()
-                    .name("cmux-browser-host-fetch".into())
-                    .spawn(move || {
+                let spawned = cmux_threads::spawn(
+                    "cmux-browser-host-fetch",
+                    cmux_threads::ThreadQos::UserInitiated,
+                    move || {
                         let outcome =
                             host.driver_call("net.fetch", request).map(crate::driver::Reply::Value);
                         let _ = sender.send(Input::Result { call_id, outcome });
-                    });
+                    },
+                );
                 if spawned.is_err() {
                     let _ = results.send(Input::Result {
                         call_id,
@@ -628,12 +634,14 @@ fn install(
                 let sender = results.clone();
                 let params: Value = serde_json::from_str(&params).unwrap_or(json!({}));
                 // supervise-allow: one driver call for the VM; a panic drops `sender` with no result, so that call ends at the cell's deadline and the VM goes on.
-                let spawned = std::thread::Builder::new()
-                    .name("cmux-browser-host-driver-call".into())
-                    .spawn(move || {
+                let spawned = cmux_threads::spawn(
+                    "cmux-browser-host-driver-call",
+                    cmux_threads::ThreadQos::UserInitiated,
+                    move || {
                         let outcome = host.driver_call_reply(&method, params);
                         let _ = sender.send(Input::Result { call_id, outcome });
-                    });
+                    },
+                );
                 if spawned.is_err() {
                     let _ = results.send(Input::Result {
                         call_id,

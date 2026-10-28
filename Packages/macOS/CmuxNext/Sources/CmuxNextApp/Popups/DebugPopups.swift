@@ -104,7 +104,7 @@ enum DebugPopups {
             try await lanes.run(.userVisible, mayBlock: .files) {
                 try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true)
             }
-            try await NSWindow.encodeSnapshotPNG(image, to: url)
+            try await NSWindow.encodeSnapshotPNG(image, to: url, on: lanes)
             return .string(url.path)
         } catch {
             return .null

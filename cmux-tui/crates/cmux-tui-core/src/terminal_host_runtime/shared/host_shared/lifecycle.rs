@@ -92,10 +92,12 @@ impl HostShared {
             return;
         }
         let worker = self.clone();
-        if thread::Builder::new()
-            .name("terminal-host-terminate".into())
-            .spawn(move || worker.terminate_and_wait())
-            .is_err()
+        if cmux_threads::spawn(
+            "terminal-host-terminate",
+            cmux_threads::ThreadQos::Utility,
+            move || worker.terminate_and_wait(),
+        )
+        .is_err()
         {
             // Bounded fallback: even thread exhaustion cannot turn an
             // accepted Terminate into an unbounded or ignored request.
@@ -127,10 +129,10 @@ impl HostShared {
         requests: Receiver<()>,
     ) -> std::io::Result<()> {
         let host = Arc::downgrade(host);
-        thread::Builder::new()
-            .name("terminal-host-exit".into())
-            .spawn(move || Self::run_exit_publisher(host, requests))
-            .map(|_| ())
+        cmux_threads::spawn("terminal-host-exit", cmux_threads::ThreadQos::Utility, move || {
+            Self::run_exit_publisher(host, requests);
+        })
+        .map(|_| ())
     }
 
     pub(crate) fn run_exit_publisher(weak_host: Weak<Self>, requests: Receiver<()>) {

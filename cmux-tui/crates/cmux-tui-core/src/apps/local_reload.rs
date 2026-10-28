@@ -46,10 +46,15 @@ impl Supervisor {
             let inner = self.inner.lock().recover_poison();
             local_prints(inner.catalog.packages.values())
         };
-        let spawned =
-            supervised::spawn("apps-local-reload", Fatal, ShutdownBehavior::Continue, move || {
+        let spawned = supervised::spawn_at(
+            "apps-local-reload",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
                 watch(&me, local, customize, prints);
-            });
+            },
+        );
         if let Err(error) = spawned {
             eprintln!("cmux-tui: apps local reload thread did not start: {error}");
         }

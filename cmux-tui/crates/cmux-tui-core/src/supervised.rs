@@ -57,22 +57,10 @@ impl FailureSink for NotInstalled {
     }
 }
 
-/// Start `body` on thread `name` under the process's supervisor.
-pub(crate) fn spawn<F, T>(
-    name: impl Into<String>,
-    policy: Fatal,
-    shutdown: ShutdownBehavior,
-    body: F,
-) -> io::Result<SupervisedThread<T>>
-where
-    F: FnOnce() -> T + Send + 'static,
-    T: Send + 'static,
-{
-    spawn_on(process(), name.into(), None, policy, shutdown, body)
-}
-
-/// [`spawn`] for a thread registered with `cmux_threads` at `qos` (its row
-/// in the thread registry, its QoS set before `body` runs).
+/// Start `body` on thread `name` under the process's supervisor, registered
+/// with `cmux_threads` at `qos` (its row in the thread registry, its QoS set
+/// before `body` runs). Every thread this crate starts has a row and a class
+/// (p02-threads tasks 213-218), so there is no unregistered start.
 pub(crate) fn spawn_at<F, T>(
     name: impl Into<String>,
     qos: ThreadQos,
@@ -137,7 +125,7 @@ impl Registered {
     }
 }
 
-/// [`spawn`] or [`spawn_at`] under `supervisor` (tests pass their own sink).
+/// [`spawn_at`] and the others under `supervisor` (tests pass their own sink).
 pub(crate) fn spawn_on<F, T>(
     supervisor: &Supervisor,
     name: String,

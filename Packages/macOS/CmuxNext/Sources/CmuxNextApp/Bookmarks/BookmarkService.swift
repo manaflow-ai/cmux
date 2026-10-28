@@ -106,14 +106,14 @@ final class BookmarkService {
         services.machines.local.store.sideEvents.subscribe { [weak self] event in
             if case .bookmarksChanged(let profile, _) = event { self?.daemonChanged(profile) }
         }
-        let mainWork = services.mainWork
+        let mainWork = services.mainWork, work = services.work
         // task-owner: one-shot launch read of the bookmark file. The file actor reads off main; the trees apply as
         // one posted `visible` task (bars and stars show them), then the legacy imports migrate once.
         Task { @concurrent [weak self] in
             let loaded = await file.load()
             await mainWork.apply(.visible, owner: "BookmarkService.fileLoaded") { [weak self] () -> Void in self?.fileRead(loaded) }
             guard let importStore, let self else { return }
-            await self.migrateLegacyImports(store: importStore, directory: directory, mainWork: mainWork)
+            await self.migrateLegacyImports(store: importStore, directory: directory, mainWork: mainWork, work: work)
         }
     }
 

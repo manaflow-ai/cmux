@@ -77,14 +77,19 @@ impl OpRouter for MuxRouter {
         let Some(mux) = self.mux.upgrade() else { return };
         let events = mux.subscribe();
         drop(mux);
-        let _ =
-            supervised::spawn("cmux-apps-events", Fatal, ShutdownBehavior::Continue, move || {
+        let _ = supervised::spawn_at(
+            "cmux-apps-events",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
                 while let Ok(event) = events.recv() {
                     for stream in streams(&event) {
                         publish(stream);
                     }
                 }
-            });
+            },
+        );
     }
 
     fn spawn_backend_terminal(

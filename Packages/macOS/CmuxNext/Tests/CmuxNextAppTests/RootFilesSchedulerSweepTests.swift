@@ -101,7 +101,7 @@ import Testing
         let surface = SurfaceID(rawValue: 1)
         let attachment = TerminalAttachment.Target(surface: surface, terminalResourceID: nil, generation: nil)
         let io = DaemonTerminalIO(target: .init(attachment: attachment, initialSize: CellSize(cols: 80, rows: 24)), resizes: ResizeCoordinator(),
-                                  visible: false, endpoint: { throw CancellationError() })
+                                  visible: false, connection: { throw CancellationError() })
         // The session's view is in no window: nothing shows this terminal.
         let watch = TerminalLinkWatch(store: store, surface: surface, io: io, session: session, mainWork: work)
         defer { watch.stop() }

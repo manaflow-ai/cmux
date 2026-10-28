@@ -46,6 +46,8 @@ pub(crate) fn write(file: &mut File, buffer: &[u8]) -> io::Result<usize> {
             Cut::Write(length) => return file.write(&buffer[..length]),
             Cut::Wait if Instant::now() >= deadline => return file.write(buffer),
             Cut::Wait => {
+                // Part of the PTY write, which the blocking detector does not see yet (p02-threads 210b).
+                #[allow(clippy::disallowed_methods)]
                 std::thread::sleep(ROOM_POLL);
                 let Some(pending) = queued(file.as_raw_fd()) else { return file.write(buffer) };
                 room = CAPACITY.saturating_sub(pending);
