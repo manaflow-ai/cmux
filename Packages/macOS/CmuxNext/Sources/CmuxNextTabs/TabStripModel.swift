@@ -38,6 +38,9 @@ public final class TabStripModel {
     /// strip shows the new tab in that tab's cell, which leaves with no close, instead of growing
     /// one in while the other shrinks away (Leo 2026-10-13).
     @ObservationIgnored public var successors: [TabID: TabID] = [:]
+    /// What `id`'s hover card says beyond its title (`TabHoverFacts`), read when its card shows or redraws,
+    /// never observed: the facts follow terminal output and agent state, which the strip does not draw.
+    @ObservationIgnored public var hoverFacts: (TabID) -> TabHoverFacts = { _ in TabHoverFacts() }
 
     public init(
         stripID: UUID = UUID(),

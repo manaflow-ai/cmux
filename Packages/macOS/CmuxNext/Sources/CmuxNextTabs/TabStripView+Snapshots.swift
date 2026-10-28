@@ -41,5 +41,16 @@ extension TabStripView {
                 && (selectedID != other.selectedID || multiSelection != other.multiSelection) && tabs == other.tabs && groups == other.groups
                 && style == other.style && showsNewTabButton == other.showsNewTabButton
         }
+
+        /// The same strip, laid out the same, with only what tabs draw changed (a title, an icon, a status, a
+        /// spinner, presence): no tab came, went or moved, none changed its pin or group, and the groups,
+        /// selection and style are the same (`TabLayoutEngine` reads nothing else; a tab's width never
+        /// follows its title).
+        func differsOnlyInTabContent(from other: ModelSnapshot) -> Bool {
+            tabs != other.tabs && tabs.count == other.tabs.count && groups == other.groups && selectedID == other.selectedID
+                && multiSelection == other.multiSelection && style == other.style && showsNewTabButton == other.showsNewTabButton
+                && showsSelectedFullWidth == other.showsSelectedFullWidth
+                && zip(tabs, other.tabs).allSatisfy { $0.id == $1.id && $0.isPinned == $1.isPinned && $0.groupID == $1.groupID }
+        }
     }
 }

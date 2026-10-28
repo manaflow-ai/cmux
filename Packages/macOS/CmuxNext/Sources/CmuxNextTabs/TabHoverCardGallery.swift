@@ -10,29 +10,29 @@ import CmuxNextResources
 public struct TabHoverCardGallery {
     public init() {}
     @MainActor public static func cards(now: Date = Date()) -> [(name: String, view: NSView)] {
-        var running = TabItem(id: TabID("gallery-terminal"), title: "cargo build --release", subtitle: "~/Projects/cmux",
+        let running = TabItem(id: TabID("gallery-terminal"), title: "cargo build --release", subtitle: "~/Projects/cmux",
                               icon: .symbol("terminal"), isBusy: true)
-        running.hover = TabHoverFacts(kind: .terminal, activity: .running, since: now.addingTimeInterval(-12), branch: "main")
-        var failed = TabItem(id: TabID("gallery-terminal-failed"), title: "swift test", subtitle: "~/Projects/cmux",
+        let runningFacts = TabHoverFacts(kind: .terminal, activity: .running, since: now.addingTimeInterval(-12), branch: "main")
+        let failed = TabItem(id: TabID("gallery-terminal-failed"), title: "swift test", subtitle: "~/Projects/cmux",
                              icon: .symbol("terminal"), status: .failure)
-        failed.hover = TabHoverFacts(kind: .terminal, branch: "feat/shared-hover-card")
-        var page = TabItem(id: TabID("gallery-browser"), title: "cmux docs", subtitle: "https://cmux.com/docs/getting-started",
+        let failedFacts = TabHoverFacts(kind: .terminal, branch: "feat/shared-hover-card")
+        let page = TabItem(id: TabID("gallery-browser"), title: "cmux docs", subtitle: "https://cmux.com/docs/getting-started",
                            icon: favicon().map(TabIcon.image) ?? .icon(.browser))
-        page.hover = TabHoverFacts(kind: .browser)
-        var blank = TabItem(id: TabID("gallery-blank"), title: "about:blank", subtitle: "about:blank", icon: .icon(.browser))
-        blank.hover = TabHoverFacts(kind: .browser)
+        let pageFacts = TabHoverFacts(kind: .browser)
+        let blank = TabItem(id: TabID("gallery-blank"), title: "about:blank", subtitle: "about:blank", icon: .icon(.browser))
+        let blankFacts = TabHoverFacts(kind: .browser)
         var chat = TabItem(id: TabID("gallery-chat"), title: "Make the hover cards look like Codex's", subtitle: "~/Projects/cmux",
                            icon: .icon(.agentChat))
         chat.indicator = .working
-        chat.hover = TabHoverFacts(kind: .agentChat, activity: .working, since: now.addingTimeInterval(-185), model: "gpt-6.1-sol")
-        let samples: [(TabItem, [Double], UInt64)] = [
-            (running, [0.6, 1.2, 2.4, 3.1, 2.8, 3.4], 840), (failed, [], 0), (page, [0.05, 0.1, 0.02], 106), (blank, [], 0),
-            (chat, [0.2, 0.3, 0.25], 46),
+        let chatFacts = TabHoverFacts(kind: .agentChat, activity: .working, since: now.addingTimeInterval(-185), model: "gpt-6.1-sol")
+        let samples: [(TabItem, TabHoverFacts, [Double], UInt64)] = [
+            (running, runningFacts, [0.6, 1.2, 2.4, 3.1, 2.8, 3.4], 840), (failed, failedFacts, [], 0),
+            (page, pageFacts, [0.05, 0.1, 0.02], 106), (blank, blankFacts, [], 0), (chat, chatFacts, [0.2, 0.3, 0.25], 46),
         ]
         return [("Terminal running", 0), ("Terminal failed", 1), ("Browser tab", 2), ("Blank page", 3), ("Agent chat", 4)].map { name, index in
-            let (item, cpu, megabytes) = samples[index]
+            let (item, facts, cpu, megabytes) = samples[index]
             let card = TabHoverCardView()
-            card.configure(.tab(item))
+            card.configure(.tab(item, facts: facts))
             card.setThumbnailVisible(false)
             for value in cpu {
                 let usage = ResourceUsage(cpu: value, memoryBytes: megabytes << 20)

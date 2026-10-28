@@ -1,19 +1,20 @@
-import CmuxNextDaemon
-import CmuxNextTabs
+public import CmuxNextDaemon
+public import CmuxNextTabs
 import Foundation
 
 /// A tab's hover card facts (`TabHoverFacts`, Leo 2026-10-14): what kind of tab it is, what
 /// it is doing and since when, from the records the strip already reads. An agent chat's
 /// come from its acpmux session (`lane`, model, folder); a terminal's from its agent
 /// detector, how long its command has run or, at its prompt, when it last printed, with its branch.
+/// The strip's card reads them when it shows (`TabStripModel.hoverFacts`), never the strip's item.
 extension TabItemMapping {
-    func hoverFacts(_ tab: TabModel, turns: AgentTurnStateStore) -> (facts: TabHoverFacts, folder: String?) {
+    public func hoverFacts(_ tab: TabModel, turns: AgentTurnStateStore = .shared) -> TabHoverFacts {
         var facts = TabHoverFacts()
         switch tab.kind {
         case .browser:
             facts.kind = .browser
         case .conversation:
-            guard let ref = tab.agentSession else { return (facts, nil) }
+            guard let ref = tab.agentSession else { return facts }
             facts.kind = .agentChat
             let detail = turns.detail(for: ref)
             facts.model = detail?.model
@@ -25,7 +26,6 @@ extension TabItemMapping {
             default: nil
             }
             facts.since = detail?.laneSinceMs.map(SidebarMapping.date(ms:))
-            return (facts, detail?.cwd.map(SidebarMapping.shared.abbreviate))
         case .pty:
             facts.kind = .terminal
             facts.branch = tab.gitBranch.flatMap { $0.isEmpty || tab.gitDetached ? nil : $0 }
@@ -53,6 +53,12 @@ extension TabItemMapping {
         case .remoteTerminal, .other:
             break
         }
-        return (facts, nil)
+        return facts
+    }
+
+    /// An agent chat's folder (its acpmux session's), its strip subtitle; nil for any other tab.
+    func conversationFolder(_ tab: TabModel, turns: AgentTurnStateStore) -> String? {
+        guard tab.kind == .conversation, let ref = tab.agentSession else { return nil }
+        return turns.detail(for: ref)?.cwd.map(SidebarMapping.shared.abbreviate)
     }
 }

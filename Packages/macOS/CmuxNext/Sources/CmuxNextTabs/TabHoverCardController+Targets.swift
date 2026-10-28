@@ -7,18 +7,25 @@ extension TabHoverCardController {
     /// The tab or chip under `point` (the strip's coordinates) that may have
     /// a card now: none during any drag, an open group editor or a rename.
     func target(at point: CGPoint) -> (id: TabID, width: CGFloat, anchor: CGRect)? {
+        guard let strip else { return nil }
+        let chip = strip.chipGroup(at: point)
+        return target(at: point, chip: chip, tab: chip == nil ? strip.tabID(at: point) : nil)
+    }
+
+    /// The same for the chip or tab the strip's own hover found at `point` (`TabStripView.updateHover`).
+    func target(at point: CGPoint, chip: TabGroupID?, tab: TabID?) -> (id: TabID, width: CGFloat, anchor: CGRect)? {
         // Hidden strips (inactive screens share the frame) and clipped
         // parts never take a card.
         guard let strip, strip.visibleRect.contains(point), !strip.isHiddenOrHasHiddenAncestor, !isStripDragging(strip),
               !strip.groupEditor.isVisible, strip.inlineRename.field == nil, let window = strip.window else { return nil }
-        if let group = strip.chipGroup(at: point), let chip = strip.groups.chips[group] {
+        if let group = chip, let chip = strip.groups.chips[group] {
             // `sidebar.hoverCards.groups.tabGroups` off: a chip opens no card.
             guard DesignSettings.shared.groupHoverCard.tabGroups else { return nil }
             let anchor = window.convertToScreen(strip.tabsClip.convert(Self.drawn(chip.frame, pill: chip.pillFrame), to: nil))
             return (.groupChip(group), strip.metrics.minInactiveTabWidth, anchor)
         }
         // A New Tab page's card would only repeat its title (Leo 2026-10-11).
-        guard let id = strip.tabID(at: point), let cell = strip.cells[id], strip.model.tab(id)?.isNewTabPage != true else { return nil }
+        guard chip == nil, let id = tab, let cell = strip.cells[id], strip.model.tab(id)?.isNewTabPage != true else { return nil }
         // The speaker shows its own tooltip (Mute tab / Unmute tab), not the card over it.
         guard !strip.isInAudioButton(id, point) else { return nil }
         return (id, cell.frame.width, window.convertToScreen(strip.tabsClip.convert(Self.drawn(cell.frame, pill: cell.pillFrameInCell), to: nil)))
@@ -48,7 +55,14 @@ extension TabHoverCardController {
         if let group = id.chipGroupID {
             return strip.groups.byID[group].map(strip.groupHoverContent)
         }
-        return strip.model.tab(id).map(TabHoverCardContent.tab)
+        return strip.model.tab(id).map { .tab($0, facts: strip.model.hoverFacts($0.id)) }
+    }
+
+    /// Whether the strip still has `id` (its card has content), without reading its hover facts.
+    func hasContent(for id: TabID) -> Bool {
+        guard let strip else { return false }
+        if let group = id.chipGroupID { return strip.groups.byID[group] != nil }
+        return strip.model.tab(id) != nil
     }
 
     private func isStripDragging(_ strip: TabStripView) -> Bool {

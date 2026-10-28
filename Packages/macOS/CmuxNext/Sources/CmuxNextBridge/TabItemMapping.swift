@@ -46,9 +46,9 @@ public struct TabItemMapping {
         if item.status == .needsInput { item.blockedKind = StatusMapping.shared.blockedKind(tab) }
         item.presence = presence(tab)
         item.statusDetail = StatusMapping.shared.detail(tab)
-        let hover = hoverFacts(tab, turns: turns)
-        item.hover = hover.facts
-        if isConversation { item.subtitle = hover.folder }
+        // The hover facts are read when the card shows (`hoverFacts`), not mapped into the item: they follow
+        // terminal output, which would re-map and re-apply the strip on every line a shell at its prompt prints.
+        if isConversation { item.subtitle = conversationFolder(tab, turns: turns) }
         if restarting, tab.kind != .browser, tab.kind != .remoteTerminal, !isConversation {
             if item.icon == .icon(.terminalDead) { item.icon = .icon(.terminal) }
             if item.status == .failure { item.status = .none }
