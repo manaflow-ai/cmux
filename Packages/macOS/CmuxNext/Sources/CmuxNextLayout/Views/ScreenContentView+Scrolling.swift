@@ -10,8 +10,8 @@ extension ScreenContentView {
         ColumnStrip(layout: layout, geometry: geometry, gap: context.style.stripGap)
     }
 
-    /// Feeds the current layout, geometry and focus to the reducer and presents the result once (a close's
-    /// leading frame presents it instead, `leadIfPending`). Returns true if the spring needs frames. A reveal that snaps (animation off,
+    /// Feeds the layout, geometry and focus to the reducer and presents once (or a close's `leadIfPending` does).
+    /// Returns true if the spring needs frames. A reveal that snaps (animation off,
     /// Reduce Motion) shows the `auto` scrollbar like the spring frames it
     /// replaces, only when `showsScrollbarOnSnap`: the caller passes false
     /// for a window resize, launch, or a view out of its window.

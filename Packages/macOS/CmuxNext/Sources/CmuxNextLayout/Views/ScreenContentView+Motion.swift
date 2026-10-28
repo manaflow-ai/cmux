@@ -230,7 +230,6 @@ extension ScreenContentView {
             if let area = shownArea { pointerClip = pointerClip.map { $0.intersection(area) } ?? area }
             view.cursorClip = pointerClip
         }
-        updateScrollbar()
         // A pan with the finger down is layout motion too (hasMotion leaves user gestures out): motion-time content
         // (divider catcher panels, page windows) waits for the landing. The landing frame's advanceFrame clears it.
         let gesturing = isUserScrolling || rowScrolls.values.contains(where: \.state.isGestureActive)
@@ -246,6 +245,7 @@ extension ScreenContentView {
         // The handles moved under a still pointer, or the panes did (a zoom covers handles).
         if dividersChanged || changed { refreshDividerHover() }
         if dividersChanged || changed { context.overlayNeedsSync() }
+        updateScrollbar() // After the sync request: its thumb (a page occluder) rides that sync's page update.
     }
     /// Divider hover from the pointer and the current frames (`ScreenDividers`).
     func refreshDividerHover() { ScreenDividers(screen: self).refreshHover() }

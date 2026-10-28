@@ -29,6 +29,15 @@ public final class OverlayPlane: NSView {
         fatalError("init(coder:) is not supported")
     }
 
+    /// Whether the home's overlay sync is pending in this turn (a presentation moved panes): then the window's
+    /// pages hear a change made now (an occluder that moved with the panes) in that sync's one page update, which
+    /// this asks for, instead of in an update of their own.
+    public func carriesPageUpdate() -> Bool {
+        guard let root = home as? LayoutRootView, root.overlayIsStale, root.isLive, root.planeHost != nil else { return false }
+        root.context.stripClipsChanged = true
+        return true
+    }
+
     override public var isFlipped: Bool { true }
     override public func hitTest(_ point: NSPoint) -> NSView? { nil }
 

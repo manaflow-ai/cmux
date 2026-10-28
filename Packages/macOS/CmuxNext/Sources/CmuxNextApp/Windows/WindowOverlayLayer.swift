@@ -81,7 +81,7 @@ final class WindowOverlayLayer {
         // The sidebar reports from WindowRootView.layout(): inside the
         // window's layout pass the pages follow after it.
         WindowOverlayHost.host(for: window).onOccludersChange = { [weak self] in
-            guard let self else { return }
+            guard let self, !self.planes.contains(where: { $0.carriesPageUpdate() }) else { return }
             self.requestPageUpdate()
         }
         observers.append(center.addObserver(forName: NSWindow.didUpdateNotification, object: window, queue: .main) { [weak self] _ in
