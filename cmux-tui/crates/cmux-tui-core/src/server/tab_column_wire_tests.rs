@@ -108,20 +108,28 @@ fn layout_lines_fill_their_params() {
 
 #[test]
 fn tab_move_lines_fill_their_params() {
-    let Command::MoveTab { surface, pane, index, transaction } =
+    let Command::MoveTab(tabs_wire::MoveTabParams { surface, pane, index, transaction }) =
         parse("move-tab in a drag transaction")
     else {
         panic!("not move-tab")
     };
     assert_eq!((surface, pane, index, transaction.as_deref()), (7, 4, 0, Some("drag-1")));
-    let Command::MoveTabToWorkspace { surface, workspace, transaction } =
-        parse("move-tab-to-workspace with every field")
+    let Command::MoveTabToWorkspace(tabs_wire::MoveTabToWorkspaceParams {
+        surface,
+        workspace,
+        transaction,
+    }) = parse("move-tab-to-workspace with every field")
     else {
         panic!("not move-tab-to-workspace")
     };
     assert_eq!((surface, workspace, transaction.as_deref()), (7, Some(3), Some("drag-1")));
-    let Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } =
-        parse("move-tab-to-new-workspace with every field")
+    let Command::MoveTabToNewWorkspace(tabs_wire::MoveTabToNewWorkspaceParams {
+        surface,
+        group,
+        index,
+        name,
+        transaction,
+    }) = parse("move-tab-to-new-workspace with every field")
     else {
         panic!("not move-tab-to-new-workspace")
     };
@@ -129,8 +137,14 @@ fn tab_move_lines_fill_their_params() {
         (surface, group.as_deref(), index, name.as_deref(), transaction.as_deref()),
         (7, Some("grp_1"), Some(0), Some("Logs"), Some("drag-1"))
     );
-    let Command::MoveTabToSplit { edge, ratio, respawn, keep_focus, transaction, .. } =
-        parse("move-tab-to-split keeping focus with every field")
+    let Command::MoveTabToSplit(tabs_wire::MoveTabToSplitParams {
+        edge,
+        ratio,
+        respawn,
+        keep_focus,
+        transaction,
+        ..
+    }) = parse("move-tab-to-split keeping focus with every field")
     else {
         panic!("not move-tab-to-split")
     };
@@ -139,7 +153,8 @@ fn tab_move_lines_fill_their_params() {
         ("top", Some(0.5), true, Some("drag-1"))
     );
     assert!(respawn.is_none());
-    let Command::MoveTabToSplit { keep_focus, .. } = parse("move-tab-to-split with every field")
+    let Command::MoveTabToSplit(tabs_wire::MoveTabToSplitParams { keep_focus, .. }) =
+        parse("move-tab-to-split with every field")
     else {
         panic!("not move-tab-to-split")
     };
@@ -195,7 +210,10 @@ fn every_respawn_line_becomes_its_fresh_tab() {
     let mut seen = 0;
     for (name, line) in entries() {
         let respawn = match parse_line(&name, &line) {
-            Command::MoveTabToSplit { respawn: Some(respawn), .. } => respawn,
+            Command::MoveTabToSplit(tabs_wire::MoveTabToSplitParams {
+                respawn: Some(respawn),
+                ..
+            }) => respawn,
             Command::MoveTabToColumn(MoveTabToColumnParams { respawn: Some(respawn), .. }) => {
                 respawn
             }
