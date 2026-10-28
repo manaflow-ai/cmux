@@ -234,7 +234,9 @@ export function WorkflowSummaryRow({
                         <button
                           type="button"
                           disabled={!actions.onPullAgent && !actions.onOpenAgent}
-                          title={!actions.onPullAgent && !actions.onOpenAgent ? t("workflow.detailUnavailable") : undefined}
+                          title={
+                            !actions.onPullAgent && !actions.onOpenAgent ? t("workflow.detailUnavailable") : undefined
+                          }
                           aria-label={`${t("transcript.label")}: ${agent.name}`}
                           onClick={() => {
                             if (actions.onOpenAgent) return actions.onOpenAgent(agent);

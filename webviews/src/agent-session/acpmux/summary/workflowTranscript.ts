@@ -20,12 +20,24 @@ export function workflowPaneRequest(id: string | undefined): WorkflowDetailReque
 }
 
 export type TranscriptRead = (request: WorkflowDetailRequest & { before?: number; after?: number }) => Promise<unknown>;
-type Page = { start: number; end: number; lines: number; updates: unknown[]; truncated: boolean; offset: number };
+type Page = {
+  start: number;
+  end: number;
+  lines: number;
+  updates: unknown[];
+  truncated: boolean;
+  offset: number;
+};
 function pageOf(value: unknown): Page {
   const page = value as Page | null;
-  if (!page || !Array.isArray(page.updates) ||
-      ![page.start, page.end, page.lines].every((n) => Number.isSafeInteger(n) && n >= 0) ||
-      page.start > page.end || page.end > page.lines) throw new Error("Invalid transcript page");
+  if (
+    !page ||
+    !Array.isArray(page.updates) ||
+    ![page.start, page.end, page.lines].every((n) => Number.isSafeInteger(n) && n >= 0) ||
+    page.start > page.end ||
+    page.end > page.lines
+  )
+    throw new Error("Invalid transcript page");
   return { ...page, offset: 0 };
 }
 
@@ -41,17 +53,27 @@ export class WorkflowTranscript {
   rows: AcpmuxRow[] = [];
   loading = false;
   failed = false;
-  get canLoadOlder() { return (this.pages[0]?.start ?? 0) > 0; }
-  get truncated() { return this.pages.some((page) => page.truncated); }
+  get canLoadOlder() {
+    return (this.pages[0]?.start ?? 0) > 0;
+  }
+  get truncated() {
+    return this.pages.some((page) => page.truncated);
+  }
   constructor(
     readonly request: WorkflowDetailRequest,
     private readonly read: TranscriptRead,
     private readonly changed: () => void,
   ) {}
-  dispose() { this.stopped = true; this.pending = false; }
+  dispose() {
+    this.stopped = true;
+    this.pending = false;
+  }
   refresh(): Promise<void> {
     if (this.stopped) return Promise.resolve();
-    if (this.flight) { this.pending = true; return this.flight; }
+    if (this.flight) {
+      this.pending = true;
+      return this.flight;
+    }
     return this.run(false);
   }
   loadOlder(): Promise<void> {
@@ -62,13 +84,25 @@ export class WorkflowTranscript {
   private run(older: boolean): Promise<void> {
     this.loading = true;
     this.changed();
-    this.flight = this.pull(older).then(() => { this.failed = false; }, () => { this.failed = true; }).finally(() => {
-      this.flight = undefined;
-      if (this.stopped) return;
-      this.loading = false;
-      this.changed();
-      if (this.pending) { this.pending = false; void this.refresh(); }
-    });
+    this.flight = this.pull(older)
+      .then(
+        () => {
+          this.failed = false;
+        },
+        () => {
+          this.failed = true;
+        },
+      )
+      .finally(() => {
+        this.flight = undefined;
+        if (this.stopped) return;
+        this.loading = false;
+        this.changed();
+        if (this.pending) {
+          this.pending = false;
+          void this.refresh();
+        }
+      });
     return this.flight;
   }
   private async pull(older: boolean) {
@@ -93,7 +127,8 @@ export class WorkflowTranscript {
         const previous = page;
         page = pageOf(await this.read({ ...this.request, after: previous.end }));
         if (this.stopped) return;
-        if (page.start !== previous.end || page.end <= previous.end) throw new Error("Transcript cursor did not advance");
+        if (page.start !== previous.end || page.end <= previous.end)
+          throw new Error("Transcript cursor did not advance");
         page.offset = previous.offset + previous.updates.length;
         next.push(page);
       }
@@ -101,9 +136,11 @@ export class WorkflowTranscript {
     }
     this.version += 1;
     const entries: ChildEntry[] = [];
-    for (const chunk of this.pages) chunk.updates.forEach((update, index) =>
-      entries.push({ event: { seq: chunk.offset + index, at: 0 }, update }));
-    this.rows = childRows(workflowPaneId(this.request), entries, new Map(), this.version)
-      .map((row) => ({ ...row, version: this.version }));
+    for (const chunk of this.pages)
+      chunk.updates.forEach((update, index) => entries.push({ event: { seq: chunk.offset + index, at: 0 }, update }));
+    this.rows = childRows(workflowPaneId(this.request), entries, new Map(), this.version).map((row) => ({
+      ...row,
+      version: this.version,
+    }));
   }
 }

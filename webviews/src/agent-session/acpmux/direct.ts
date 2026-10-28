@@ -2759,7 +2759,13 @@ export class AcpmuxDirectClient {
   }
 
   /// Reads only this pane's selected chat; the native relay enforces the same scope.
-  readWorkflowAgent(params: { sessionId: string; runId: string; agentId: string; before?: number; after?: number }): Promise<unknown> {
+  readWorkflowAgent(params: {
+    sessionId: string;
+    runId: string;
+    agentId: string;
+    before?: number;
+    after?: number;
+  }): Promise<unknown> {
     if (params.sessionId !== this.selectedSessionId) return Promise.reject(new Error("Session changed"));
     return this.request("_acpmux/subagent_transcript", params, 15_000);
   }

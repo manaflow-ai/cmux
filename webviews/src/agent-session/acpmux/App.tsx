@@ -5009,19 +5009,38 @@ function AcpmuxPane() {
     [workflowLabsEnabled, workflowAdapter, freshAgents, shownSessionId],
   );
   const workflowRequest = useMemo(() => workflowPaneRequest(subagentView), [subagentView]);
-  const selectedWorkflowAgent = workflows.findLast((workflow) => workflow.runId === workflowRequest?.runId)
+  const selectedWorkflowAgent = workflows
+    .findLast((workflow) => workflow.runId === workflowRequest?.runId)
     ?.agents.find((agent) => agent.agentId === workflowRequest?.agentId);
-  const readWorkflowAgent = useCallback((request: WorkflowDetailRequest & { before?: number; after?: number }) =>
-    directClient.current?.readWorkflowAgent(request) ?? Promise.reject(new Error("Not connected")), []);
-  const workflowTranscript = useWorkflowTranscript(subagentView, shownSessionId, workflowLabsEnabled,
-    selectedWorkflowAgent, chatName, readWorkflowAgent);
+  const readWorkflowAgent = useCallback(
+    (request: WorkflowDetailRequest & { before?: number; after?: number }) =>
+      directClient.current?.readWorkflowAgent(request) ?? Promise.reject(new Error("Not connected")),
+    [],
+  );
+  const workflowTranscript = useWorkflowTranscript(
+    subagentView,
+    shownSessionId,
+    workflowLabsEnabled,
+    selectedWorkflowAgent,
+    chatName,
+    readWorkflowAgent,
+  );
   const childRows = useMemo(() => {
     if (workflowTranscript.rows) return workflowTranscript.rows;
     if (!subagentView) return undefined;
     if (!subagentTray) return childView(subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName);
     const view = childView(subagentView, snapshot.rows, snapshot.subagentViews, NO_EXPANDED, chatName);
     return view && (withSubagentLines(view, childDoneLines.current, workflowLabsEnabled) as AcpmuxRow[]);
-  }, [subagentView, snapshot.rows, snapshot.subagentViews, expanded, chatName, subagentTray, workflowLabsEnabled, workflowTranscript.rows]);
+  }, [
+    subagentView,
+    snapshot.rows,
+    snapshot.subagentViews,
+    expanded,
+    chatName,
+    subagentTray,
+    workflowLabsEnabled,
+    workflowTranscript.rows,
+  ]);
   // The session's edit rows for the edited-files card, the same array while they are the same rows.
   const lastEditRows = useRef<SessionEdits | undefined>(undefined);
   const editRows = useMemo(() => {
@@ -5338,7 +5357,9 @@ function AcpmuxPane() {
   // A subagent's pane shows the subagent read only, never the chat's composer, queue or pull
   // request: they are the chat's. Once it shows a chat ("Subagent of", a branch pill, another
   // harness), that chat's composer is back: a prompt there goes to the chat it shows.
-  const readOnlySubagent = workflowRequest !== undefined || (ownSubagentPane && (subagentView !== undefined || requestedSubagent !== undefined));
+  const readOnlySubagent =
+    workflowRequest !== undefined ||
+    (ownSubagentPane && (subagentView !== undefined || requestedSubagent !== undefined));
   // Find in Chat over the transcript (ChatFindScope, below the pane); the page actions read it
   // through `findRef`.
   const findRef = useRef<ChatFind | undefined>(undefined);
@@ -6085,11 +6106,14 @@ function AcpmuxPane() {
       if (!opened && focus) setSubagentView(id);
     });
   }, []);
-  const showWorkflowAgent = useCallback((agent: WorkflowAgent) => {
-    const workflow = workflows.find((entry) => entry.agents.some((candidate) => candidate.id === agent.id));
-    const request = workflow && workflowDetailRequest(workflow, agent);
-    if (request) showSubagent(workflowPaneId(request));
-  }, [workflows, showSubagent]);
+  const showWorkflowAgent = useCallback(
+    (agent: WorkflowAgent) => {
+      const workflow = workflows.find((entry) => entry.agents.some((candidate) => candidate.id === agent.id));
+      const request = workflow && workflowDetailRequest(workflow, agent);
+      if (request) showSubagent(workflowPaneId(request));
+    },
+    [workflows, showSubagent],
+  );
   const [autoOpenSubagents, setAutoOpenSubagents] = useAutoOpenSubagents();
   useOpenNewSubagents(
     quick || subagentPane.current ? undefined : shownSessionId,
@@ -6220,7 +6244,8 @@ function AcpmuxPane() {
   }, [closeDiff, closeInspector, artifactCovers]);
   // Labs: the chat's workflows head the Inspector's Background tasks (inspector/WorkflowTasks.tsx).
   const inspectorWorkflows = useMemo(
-    () => (workflows.length > 0 ? { list: workflows, onStop: stopSubagent, onOpenAgent: showWorkflowAgent } : undefined),
+    () =>
+      workflows.length > 0 ? { list: workflows, onStop: stopSubagent, onOpenAgent: showWorkflowAgent } : undefined,
     [workflows, stopSubagent, showWorkflowAgent],
   );
   const inspector = useChatInspector({
@@ -8886,10 +8911,16 @@ function AcpmuxPane() {
                                                       ? `${shownSessionId}:subagent:${subagentView}`
                                                       : shownSessionId
                                                   }
-                                                  canLoadOlder={workflowTranscript.rows ? workflowTranscript.canLoadOlder : !childRows && snapshot.canLoadOlder}
+                                                  canLoadOlder={
+                                                    workflowTranscript.rows
+                                                      ? workflowTranscript.canLoadOlder
+                                                      : !childRows && snapshot.canLoadOlder
+                                                  }
                                                   historyFrom={childRows ? undefined : snapshot.historyFrom}
                                                   onLoadOlder={() =>
-                                                    workflowTranscript.rows ? workflowTranscript.loadOlder() : directClient.current?.loadOlder() ?? Promise.resolve()
+                                                    workflowTranscript.rows
+                                                      ? workflowTranscript.loadOlder()
+                                                      : (directClient.current?.loadOlder() ?? Promise.resolve())
                                                   }
                                                   openAt={
                                                     !childRows &&

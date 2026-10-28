@@ -41,7 +41,11 @@ export function childRows(
     const text = textFromContent(update?.content);
     if (kind === "user_message_chunk" && text) {
       rows.set(`${id}:user-${event.seq}`, {
-        id: `${id}:user-${event.seq}`, version, at: event.at, kind: "user", text,
+        id: `${id}:user-${event.seq}`,
+        version,
+        at: event.at,
+        kind: "user",
+        text,
       });
       reply = undefined;
       activity = undefined;
