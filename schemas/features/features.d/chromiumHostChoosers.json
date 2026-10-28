@@ -3,7 +3,7 @@
   "name": "chromiumHostChoosers",
   "owner": "PL-cef-layer",
   "description": "In host mode, a Chromium page's color picker, Bluetooth, USB, HID and serial device choosers and screen-share picker open in cmux, and the Chromium host never shows a window of its own for them; needs a Chromium fork at API 31.",
-  "defaults": { "dev": false, "nightly": false, "release": false },
+  "defaults": { "dev": true, "nightly": true, "release": false },
   "kind": "labs",
   "process": "app",
   "params": [],
