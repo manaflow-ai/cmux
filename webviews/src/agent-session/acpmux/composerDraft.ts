@@ -11,9 +11,10 @@ export function composerDraft(draft: unknown): string | undefined {
 
 function daemonDraft(result: unknown): string | undefined {
   if (result && typeof result === "object" && "draft" in result) {
-    return composerDraft((result as { draft?: unknown }).draft);
+    const draft = (result as { draft?: unknown }).draft;
+    return draft === null ? "" : typeof draft === "string" ? draft : undefined;
   }
-  return composerDraft(result);
+  return typeof result === "string" ? result : undefined;
 }
 
 /** The composer text once a draft arrives: the draft, unless the user already typed something. */
@@ -217,16 +218,22 @@ export function readPersistedDraft(sessionId: string | undefined): string | unde
   }
 }
 
-/// Stores or clears an unsent prompt in the remount cache and daemon session state.
-export function writePersistedDraft(sessionId: string | undefined, text: string): void {
+/** Updates the remount cache without echoing restored state back to the daemon. */
+export function cachePersistedDraft(sessionId: string | undefined, text: string): void {
   const key = persistedDraftKey(sessionId);
-  if (!key || !sessionId?.trim()) return;
+  if (!key) return;
   try {
     if (text.trim()) globalThis.localStorage?.setItem(key, text);
     else globalThis.localStorage?.removeItem(key);
   } catch {
     // A storage failure must never interrupt typing or sending.
   }
+}
+
+/** Stores or clears an unsent prompt in the remount cache and daemon session state. */
+export function writePersistedDraft(sessionId: string | undefined, text: string): void {
+  if (!sessionId?.trim()) return;
+  cachePersistedDraft(sessionId, text);
   // Keep only the newest value per session. This preserves clear-after-type ordering when a
   // connection is down, without dropping the final clear or sending stale keystrokes on repair.
   pendingDraftWrites.set(sessionId, { sessionId, text, sequence: ++draftWriteSequence });

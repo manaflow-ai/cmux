@@ -58,6 +58,7 @@ import {
   forgetQueuedDraft,
   hasPendingDraftWrite,
   lastQueuedDraftText,
+  cachePersistedDraft,
   readDurableDraft,
   readPersistedDraft,
   seededText,
@@ -780,12 +781,16 @@ export function Composer({
       const currentText = field.current?.value() ?? textRef.current;
       const edited = editedBeforeHydration.current;
       editedBeforeHydration.current = false;
-      if (!hasPendingWrite && restored && !currentText && !edited) {
-        restoringSession.current = true;
-        notTyped();
-        setText(restored);
-        setCaret(restored.length);
-        pendingCaret.current = restored.length;
+      if (!hasPendingWrite && restored !== undefined && !edited) {
+        // A present durable value, including an empty clear, replaces only unedited local seeds.
+        cachePersistedDraft(sessionId, restored);
+        if (restored !== currentText) {
+          restoringSession.current = true;
+          notTyped();
+          setText(restored);
+          setCaret(restored.length);
+          pendingCaret.current = restored.length;
+        }
       } else if (!hasPendingWrite && (currentText.trim() || edited)) {
         // A local remount cache or keystroke arrived before the daemon read. Preserve it durably.
         writePersistedDraft(sessionId, currentText);
