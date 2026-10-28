@@ -1,5 +1,6 @@
-//! A leftover headless owner exits (p07-memory-063, behind the default-off
-//! `leftoverDaemonIdleExit` feature in `schemas/features/features.d`).
+//! A leftover headless owner exits (p07-memory-063, behind the
+//! `leftoverDaemonIdleExit` feature in `schemas/features/features.d`, on in
+//! every channel since audit C2; `CMUX_DISABLE_FEATURES` turns it off).
 //!
 //! With the feature on, a headless owner stops once it has had, for
 //! [`IDLE_EXIT_GRACE`], no client of any kind, no live terminal (own PTYs and
@@ -71,8 +72,8 @@ impl OrphanFacts for IdleFacts {
     }
 }
 
-/// Whether `leftoverDaemonIdleExit` is on for this owner (off on every
-/// channel by default; `CMUX_ENABLE_FEATURES` turns it on).
+/// Whether `leftoverDaemonIdleExit` is on for this owner (on in every
+/// channel by default; `CMUX_DISABLE_FEATURES` turns it off).
 fn enabled() -> bool {
     crate::feature_flags::daemon_features()
         .is_enabled(cmux_features::feature::LEFTOVER_DAEMON_IDLE_EXIT)

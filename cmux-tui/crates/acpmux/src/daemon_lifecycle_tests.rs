@@ -383,8 +383,8 @@ async fn idle_exit_owner_watch_sees_the_process_exit() {
         .expect("the watch of an owner already gone never fired");
 }
 
-/// The daemon's exit with `leftoverDaemonIdleExit` off (every channel's
-/// default, and v1.1's): the owning app's quit still ends an idle daemon.
+/// The daemon's exit with `leftoverDaemonIdleExit` off (`CMUX_DISABLE_FEATURES`,
+/// and v1.1's default): the owning app's quit still ends an idle daemon.
 struct OffRun {
     clock: Arc<ManualClock>,
     owner_exit: Option<tokio::sync::oneshot::Sender<()>>,

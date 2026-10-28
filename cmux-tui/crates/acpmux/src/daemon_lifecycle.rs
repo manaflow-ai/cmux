@@ -1,5 +1,6 @@
-//! A leftover daemon exits (p07-memory-063, behind the default-off
-//! `leftoverDaemonIdleExit` feature in `schemas/features/features.d`).
+//! A leftover daemon exits (p07-memory-063, behind the
+//! `leftoverDaemonIdleExit` feature in `schemas/features/features.d`, on in
+//! every channel since audit C2; `CMUX_DISABLE_FEATURES` turns it off).
 //!
 //! Every cmux app, tagged dev build and CLI start leaves an acpmux daemon
 //! running for good. With the feature on, the daemon exits once it has had,
@@ -595,7 +596,7 @@ pub(crate) fn daemon_features() -> cmux_features::Snapshot {
 }
 
 /// Resolves when the daemon should exit. With the idle exit on, as
-/// [`wait_for_idle_exit`] says. With it off (every channel's default), a
+/// [`wait_for_idle_exit`] says. With it off (`CMUX_DISABLE_FEATURES`), a
 /// daemon without an owning app never exits idle; one whose owning app
 /// exited (a quit) does, after [`OWNER_EXIT_GRACE`] with no client and no
 /// live work, as with the feature on: a helper the app started stops with
