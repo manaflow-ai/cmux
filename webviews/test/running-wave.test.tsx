@@ -106,6 +106,9 @@ test("the wave runs only with motion: Reduce Motion, the motion gate, static ind
   expect(rule).toContain(`animation: ${WAVE_KEYFRAMES} var(--cmux-wave-period)`);
   expect(rule).toContain("var(--wave-index, 0) * var(--cmux-wave-step) - 20 * var(--cmux-wave-period)");
   expect(css).toContain("--cmux-wave-period: 1.6s;");
+  expect(css).toContain("--cmux-wave-session-period: 2.4s;");
+  expect(css).toContain('[data-wave-speed="balanced"]');
+  expect(css).toContain("animation-duration: var(--cmux-wave-session-period)");
   // The keyframes change opacity only (compositor-only).
   const keyframes = css.indexOf(`@keyframes ${WAVE_KEYFRAMES}`);
   const frames = css.slice(keyframes, css.indexOf("@media", keyframes));

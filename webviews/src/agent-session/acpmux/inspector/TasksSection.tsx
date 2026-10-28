@@ -17,6 +17,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { openCommand } from "../processTerminal";
 import { useNow } from "../subagents/SubagentGroup";
+import { waveIndices, waveProps } from "../../../ui/wave";
 import type { SummaryWakeup } from "../summary/sessionSummary";
 import { arrivalKey, sendLabel, splitCommands, type BackgroundCommand } from "./processes";
 import { InspectorFold } from "./InspectorSection";
@@ -57,10 +58,18 @@ export function TasksSection({
   const t = useT();
   const [showFinished, setShowFinished] = useState(false);
   const { running, finished } = splitCommands(commands);
+  const wave = waveIndices(running, (command) => command.state === "running");
   const now = useNow(running.length > 0);
   // Every command's id, so opening the finished fold, or a command finishing, replays nothing.
   const { arrived, played } = useArrivals(commands.map(arrivalKey));
-  const row = (command: BackgroundCommand, time: string | undefined, state?: string, enters = false) => {
+  const row = (
+    command: BackgroundCommand,
+    time: string | undefined,
+    state?: string,
+    enters = false,
+    waveIndex?: number,
+  ) => {
+    const shimmer = waveProps(waveIndex);
     const toolCallId = command.toolCallId;
     // What a click opens: the terminal on this Mac (else the call, when the host refuses), the call
     // elsewhere; with neither, the row is not a button and its tooltip says why.
@@ -76,7 +85,10 @@ export function TasksSection({
       // it FLICKER").
       <li
         key={arrivalKey(command)}
-        className="acpmux-chat-inspector-task acpmux-chat-inspector-task--command"
+        className={["acpmux-chat-inspector-task acpmux-chat-inspector-task--command", shimmer.className]
+          .filter(Boolean)
+          .join(" ")}
+        style={shimmer.style}
         data-state={command.state}
         data-enter={enters ? "top" : undefined}
         title={why && t(why)}
@@ -107,7 +119,7 @@ export function TasksSection({
     <div className="acpmux-chat-inspector-scroll" data-section="tasks">
       {(running.length > 0 || scheduled.length > 0) && (
         <ul className="acpmux-chat-inspector-list">
-          {running.map((command) =>
+          {running.map((command, index) =>
             row(
               command,
               // A task only the transcript knows may not say when it started.
@@ -116,6 +128,7 @@ export function TasksSection({
                 : t(COMMAND_STATE.running),
               undefined,
               arrived.has(arrivalKey(command)),
+              wave[index],
             ),
           )}
           {scheduled.map((wakeup) => (

@@ -1,7 +1,8 @@
 // The Inspector: the right-hand panel of an agent chat, Chief included, opened by the header's
 // top-right toggle (Claude Code desktop calls its own the session rail, ChatGPT its pinned
 // summary). Leo, 2026-10-20: take the facts Claude Code's panel shows and ChatGPT's subagents row.
-// Top to bottom, in three blocks with no box around a section (`RAIL_LAYOUT`):
+// Top to bottom, as separated reorderable cards by default (`RAIL_LAYOUT`), with the original
+// grouped layouts retained in the gallery:
 //
 // - Where it runs: the Environment's rows, the machine, the folder, the repository, the branch or
 //   worktree (EnvironmentSection); then Context, how much of the context window the chat used, with a
@@ -91,6 +92,8 @@ import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
 import { WorkflowTasks } from "./WorkflowTasks";
+import { InspectorCard } from "./InspectorCard";
+import { moveSection, setInspectorOrder, useInspectorOrder, type InspectorOrderId } from "./sectionOrder";
 import type { WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
@@ -890,8 +893,8 @@ export function InspectorPanel({
 ///   open in place. What it made: Changes, Outputs. What it runs: Subagents, Background tasks.
 /// - `rules`: every section keeps its title, Environment's too, with a hairline between each.
 /// - `groups`: the same three blocks as `glance`, each one hairline card.
-export type RailLayout = "glance" | "rules" | "groups";
-export const RAIL_LAYOUT: RailLayout = "glance";
+export type RailLayout = "cards" | "glance" | "rules" | "groups";
+export const RAIL_LAYOUT: RailLayout = "cards";
 
 /// The sections for one chat.
 export function ChatInspector({
@@ -934,6 +937,9 @@ export function ChatInspector({
   banner,
   agent,
   layout = RAIL_LAYOUT,
+  cardSpacing = "balanced",
+  scrollEdgeVariant = "balanced",
+  waveSpeed = "balanced",
   projectRowLook,
 }: {
   summary?: Summary;
@@ -998,11 +1004,24 @@ export function ChatInspector({
   agent?: Subagent;
   /// How its sections are laid out (`RAIL_LAYOUT`); the gallery shows the others.
   layout?: RailLayout;
+  /// Reorderable cards persist this spacing treatment; gallery shows alternatives.
+  cardSpacing?: "quiet" | "balanced" | "roomy";
+  /// Shared CSS-only sticky-header blur treatment; gallery shows subtlety alternatives.
+  scrollEdgeVariant?: "subtle" | "balanced" | "roomy";
+  /// Gallery-only speed alternatives for the shared running-row shimmer.
+  waveSpeed?: "subtle" | "balanced" | "roomy";
   /// How Environment's project row reads (EnvironmentSection's `name`); the gallery shows the others.
   projectRowLook?: ProjectRowLook;
 }) {
   const t = useT();
   const language = usePaneLanguage();
+  const cardOrder = useInspectorOrder();
+  const moveCard = useCallback(
+    (id: InspectorOrderId, target: InspectorOrderId, after = false) => {
+      setInspectorOrder(moveSection(cardOrder, id, target, after));
+    },
+    [cardOrder],
+  );
   const inspectorState = useInspectorState();
   const stored = inspectorState.sections;
   const state = sections ?? stored;
@@ -1232,29 +1251,62 @@ export function ChatInspector({
       )}
     </InspectorSection>
   );
+  const cardNodes: Partial<Record<InspectorOrderId, ReactNode>> = {
+    environment,
+    context,
+    connectors,
+    changes,
+    sources: sourcesSection,
+    outputs: outputsSection,
+    subagents: subagentsSection,
+    tasks,
+  };
+  const orderedCards = cardOrder
+    .map((id) => [id, cardNodes[id]] as const)
+    .filter((entry): entry is readonly [InspectorOrderId, ReactNode] => entry[1] !== false && entry[1] != null)
+    .map(([id, node]) => (
+      <InspectorCard key={id} id={id} order={cardOrder} onMove={moveCard}>
+        {node}
+      </InspectorCard>
+    ));
   return (
-    <div ref={body} className="acpmux-chat-inspector__body" data-layout={layout}>
+    <div
+      ref={body}
+      className="acpmux-chat-inspector__body"
+      data-layout={layout}
+      data-card-spacing={cardSpacing}
+      data-scroll-edge-variant={scrollEdgeVariant}
+      data-wave-speed={waveSpeed}
+    >
       {banner}
-      {/* Where it runs. */}
-      <div className="acpmux-chat-inspector-group" data-group="about">
-        {environment}
-        {context}
-        {connectors}
-      </div>
-      {/* What it made. */}
-      {(changes || sourcesSection || outputsSection) && (
-        <div className="acpmux-chat-inspector-group" data-group="made">
-          {changes}
-          {sourcesSection}
-          {outputsSection}
+      {layout === "cards" ? (
+        <div className="acpmux-chat-inspector-cards" data-card-list="">
+          {orderedCards}
         </div>
-      )}
-      {/* What it runs. */}
-      {(subagentsSection || tasks) && (
-        <div className="acpmux-chat-inspector-group" data-group="running">
-          {subagentsSection}
-          {tasks}
-        </div>
+      ) : (
+        <>
+          {/* Where it runs. */}
+          <div className="acpmux-chat-inspector-group" data-group="about">
+            {environment}
+            {context}
+            {connectors}
+          </div>
+          {/* What it made. */}
+          {(changes || sourcesSection || outputsSection) && (
+            <div className="acpmux-chat-inspector-group" data-group="made">
+              {changes}
+              {sourcesSection}
+              {outputsSection}
+            </div>
+          )}
+          {/* What it runs. */}
+          {(subagentsSection || tasks) && (
+            <div className="acpmux-chat-inspector-group" data-group="running">
+              {subagentsSection}
+              {tasks}
+            </div>
+          )}
+        </>
       )}
       {gallery && (
         <GalleryDialog

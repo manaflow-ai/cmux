@@ -560,6 +560,42 @@ export default componentEntry<Props>({
       note: "Alternative (not shipped): the same three blocks as the shipped layout, each one hairline card (three boxes in place of eight). Groups well, but it is still boxes in a box.",
       props: { ...full, layout: "groups" },
     },
+    "cards-quiet": {
+      note: "Alternative: compact separated cards with a small handle in each title row. Efficient, but the cards read as one dense stack while dragging.",
+      props: { ...full, layout: "cards", cardSpacing: "quiet" },
+    },
+    "cards-balanced": {
+      note: "Chosen: separated glass cards with balanced gaps and a quiet six-dot handle at the top right. Arrow-Up and Arrow-Down reorder the focused card.",
+      props: { ...full, layout: "cards", cardSpacing: "balanced" },
+    },
+    "cards-roomy": {
+      note: "Alternative: larger gaps make each card unmistakable, but consume more of the floating panel's vertical room.",
+      props: { ...full, layout: "cards", cardSpacing: "roomy" },
+    },
+    "edge-subtle": {
+      note: "Alternative: the most integrated edge, with a short 12px band, 5px blur and 0.58 opacity.",
+      props: { ...full, layout: "cards", scrollEdgeVariant: "subtle" },
+    },
+    "edge-balanced": {
+      note: "Chosen: a 16px band with 8px blur and 0.82 opacity as rows pass beneath sticky section titles.",
+      props: { ...full, layout: "cards", scrollEdgeVariant: "balanced" },
+    },
+    "edge-roomy": {
+      note: "Alternative: a more pronounced 24px band with 12px blur and 0.9 opacity for long, dense lists.",
+      props: { ...full, layout: "cards", scrollEdgeVariant: "roomy" },
+    },
+    "wave-subtle": {
+      note: "Alternative: Session Info's running rows use the shared wave at 2.0s, just slower than the tray's 1.6s thinking shimmer.",
+      props: { ...full, layout: "cards", waveSpeed: "subtle" },
+    },
+    "wave-balanced": {
+      note: "Chosen: the shared running-row wave at 2.4s in Session Info, giving the panel a calm shimmer while the tray remains 1.6s.",
+      props: { ...full, layout: "cards", waveSpeed: "balanced" },
+    },
+    "wave-roomy": {
+      note: "Alternative: a slower 3.0s Session Info wave for the quietest running-row treatment.",
+      props: { ...full, layout: "cards", waveSpeed: "roomy" },
+    },
     "chrome-close-only": {
       note: "Chosen: the side panel has no title row, matching Codex and Claude desktop. Its close control floats at the top edge while the first Environment row starts below it, so the panel's content gets the space instead of repeating Session Info.",
       props: { ...full, closable: true, chrome: "close" },

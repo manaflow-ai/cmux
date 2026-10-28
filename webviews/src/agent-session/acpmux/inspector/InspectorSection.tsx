@@ -5,6 +5,7 @@
 // `bare` draws the body alone, with no head: rows that need no title over them.
 import type { ReactNode } from "react";
 import { Disclosure } from "../../../ui/Disclosure";
+import { ScrollEdge } from "../../../ui/ScrollEdge";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 
@@ -83,6 +84,7 @@ export function InspectorSection({
           open={open}
           onOpenChange={onOpenChange}
           className="acpmux-chat-inspector-section__disclosure"
+          triggerWrapper={(trigger) => <ScrollEdge>{trigger}</ScrollEdge>}
         >
           {children}
         </Disclosure>

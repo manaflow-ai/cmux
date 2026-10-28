@@ -9,10 +9,20 @@ export interface DisclosureProps {
   defaultOpen?: boolean;
   onOpenChange?(open: boolean): void;
   className?: string;
+  triggerWrapper?: (trigger: ReactNode) => ReactNode;
   children: ReactNode;
 }
 
-export function Disclosure({ label, open, defaultOpen, onOpenChange, className, children }: DisclosureProps) {
+export function Disclosure({
+  label,
+  open,
+  defaultOpen,
+  onOpenChange,
+  className,
+  triggerWrapper,
+  children,
+}: DisclosureProps) {
+  const trigger = <Collapsible.Trigger className="ui-button ui-disclosure-trigger">{label}</Collapsible.Trigger>;
   return (
     <Collapsible.Root
       className={cx("ui-disclosure", className)}
@@ -20,7 +30,7 @@ export function Disclosure({ label, open, defaultOpen, onOpenChange, className, 
       defaultOpen={defaultOpen}
       onOpenChange={onOpenChange ? (next) => onOpenChange(next) : undefined}
     >
-      <Collapsible.Trigger className="ui-button ui-disclosure-trigger">{label}</Collapsible.Trigger>
+      {triggerWrapper ? triggerWrapper(trigger) : trigger}
       <Collapsible.Panel className="ui-disclosure-panel">{children}</Collapsible.Panel>
     </Collapsible.Root>
   );
