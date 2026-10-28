@@ -933,7 +933,7 @@ export default agentPaneEntry({
       },
     },
     "file-not-attached": {
-      note: "A pasted file no content block takes, in a chat whose host saves nothing: no chip, and the note says why.",
+      note: "A pasted file no content block takes, in a chat whose host saves nothing: its failed attachment tile says why and offers Retry.",
       snapshot: chat(finished),
       // A host that saves nothing refuses both the staged upload and the older single call.
       native: {
@@ -949,7 +949,13 @@ export default agentPaneEntry({
         const paste = new view.Event("paste", { bubbles: true, cancelable: true });
         Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
         field.dispatchEvent(paste);
-        await ctx.waitFor(() => ctx.document.querySelector("output.acpmux-attachment-note"));
+        await ctx.waitFor(() => {
+          const failed = ctx.document.querySelector<HTMLElement>(".acpmux-attachment-failed");
+          return Boolean(
+            failed?.querySelector(".acpmux-attachment-failed-text")?.textContent?.includes("build-logs.zip") &&
+            failed.querySelector(".acpmux-attachment-retry"),
+          );
+        });
       },
     },
     "image-sent-as-path": {
