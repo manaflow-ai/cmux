@@ -25,6 +25,7 @@ use crate::workspace_registry::{
     TabGroupState, new_saved_tab_group_id, new_tab_group_id, validate_tab_group_color,
     validate_tab_group_name, validate_workspace_group_id,
 };
+use std::sync::PoisonError;
 mod blocks;
 pub(crate) use blocks::place_block;
 mod public_ids;
@@ -87,10 +88,14 @@ pub(crate) fn pane_tab_groups(
             .and_then(|tab| presentation.tab_groups.members.get(tab.as_str()))
             .and_then(|group| presentation.tab_groups.groups.get(group))
             .filter(|group| group.pane_id == pane_public.as_str());
+        if let Some(group) = group
+            && let Some(run) = open.and_then(|run| runs.get_mut(run))
+            && run.group.id == group.id
+        {
+            run.members.push(*surface);
+            continue;
+        }
         match group {
-            Some(group) if open.is_some_and(|run| runs[run].group.id == group.id) => {
-                runs[open.expect("checked open run")].members.push(*surface);
-            }
             Some(group) if !runs.iter().any(|run| run.group.id == group.id) => {
                 runs.push(PaneTabGroup {
                     group: group.clone(),
@@ -109,8 +114,8 @@ pub(crate) fn pane_tab_groups(
 pub(crate) fn group_members(state: &State, groups: &TabGroupState, group: &str) -> Vec<SurfaceId> {
     let Some(record) = groups.groups.get(group) else { return Vec::new() };
     let Some(pane) = pane_by_public_id(state, &record.pane_id) else { return Vec::new() };
-    state.panes[&pane]
-        .tabs
+    let Ok(pane) = state.live_pane(pane) else { return Vec::new() };
+    pane.tabs
         .iter()
         .copied()
         .filter(|surface| {
@@ -222,7 +227,8 @@ impl Mux {
             let members = group_members(state, &presentation.tab_groups, group);
             let workspace = pane
                 .and_then(|pane| state.screen_of(pane))
-                .map(|(workspace, _)| state.workspaces[workspace].id);
+                .and_then(|(workspace, _)| state.workspace_at(workspace).ok())
+                .map(|workspace| workspace.id);
             TabGroupOutcome { group: record, pane, members, workspace }
         })
     }
@@ -284,15 +290,13 @@ impl Mux {
                     "tab group {id} already exists"
                 );
                 let requested = tabs(state)?;
-                anyhow::ensure!(
-                    !requested.is_empty(),
-                    "bad request: a tab group needs at least one tab"
-                );
+                let Some(&first) = requested.first() else {
+                    anyhow::bail!("bad request: a tab group needs at least one tab");
+                };
                 let presentation = mux.presentation_snapshot();
-                let pane = state
-                    .pane_of(requested[0])
-                    .with_context(|| format!("unknown surface {}", requested[0]))?;
-                let tabs = state.panes[&pane].tabs.clone();
+                let pane =
+                    state.pane_of(first).with_context(|| format!("unknown surface {first}"))?;
+                let tabs = state.live_pane(pane)?.tabs.clone();
                 let mut members = Vec::new();
                 for surface in &requested {
                     anyhow::ensure!(
@@ -308,7 +312,10 @@ impl Mux {
                     }
                 }
                 members.sort_by_key(|surface| tabs.iter().position(|tab| tab == surface));
-                let anchor = tabs.iter().position(|tab| *tab == members[0]).unwrap_or(0);
+                let anchor = members
+                    .first()
+                    .and_then(|first| tabs.iter().position(|tab| tab == first))
+                    .unwrap_or(0);
                 place_block(state, pane, &members, anchor);
                 edit.groups.groups.insert(
                     id.clone(),
@@ -462,7 +469,7 @@ impl Mux {
                 let mut members = group_members(state, &edit.groups, &group_id);
                 members.retain(|surface| !added.contains(surface));
                 // Insertion index among the tabs that are not in the final block.
-                let strip = &state.panes[&pane].tabs;
+                let strip = &state.live_pane(pane)?.tabs;
                 let anchor = match members.first() {
                     Some(first) => strip
                         .iter()
@@ -517,7 +524,8 @@ impl Mux {
                 edit.groups.members.remove(&tab);
                 let last = members.iter().rev().find(|member| *member != surface);
                 if let (Some(pane), Some(last)) = (state.pane_of(*surface), last) {
-                    let rest = state.panes[&pane]
+                    let rest = state
+                        .live_pane(pane)?
                         .tabs
                         .iter()
                         .copied()
@@ -577,16 +585,20 @@ impl Mux {
             workspace_group.clone(),
             |mux, state, groups| {
                 let members = group_members(state, groups, &group_id);
-                anyhow::ensure!(!members.is_empty(), "unknown tab group {group_id}");
+                let Some(&first) = members.first() else {
+                    anyhow::bail!("unknown tab group {group_id}");
+                };
                 let target = match destination {
                     TabGroupDestination::Strip { pane, index } => {
                         anyhow::ensure!(state.panes.contains_key(&pane), "unknown pane {pane}");
-                        let others = state.panes[&pane]
+                        let others = state
+                            .live_pane(pane)?
                             .tabs
                             .iter()
                             .filter(|tab| !members.contains(tab))
                             .count();
-                        let pinned = state.panes[&pane]
+                        let pinned = state
+                            .live_pane(pane)?
                             .tabs
                             .iter()
                             .filter(|tab| {
@@ -601,7 +613,7 @@ impl Mux {
                         apply_tab_drag(
                             mux,
                             state,
-                            members[0],
+                            first,
                             TabDragDestination::Split { pane, edge, ratio, keep_focus: false },
                             &ids,
                             false,
@@ -619,7 +631,7 @@ impl Mux {
                         apply_tab_drag(
                             mux,
                             state,
-                            members[0],
+                            first,
                             TabDragDestination::Column {
                                 pane,
                                 after_column,
@@ -811,18 +823,23 @@ impl Mux {
             self.commit_tab_strip_change(request, None, move |mux, state, edit| {
                 let presentation = mux.presentation_snapshot();
                 let members = group_members(state, &edit.groups, &group_id);
-                if members.is_empty() {
+                let Some(&first) = members.first() else {
                     return Err(crate::state::commit::state_not_found("tab_group", &group_id));
-                }
+                };
                 let target = match &pane {
                     Some(pane) => pane_by_public_id(state, pane).ok_or_else(|| {
                         anyhow::Error::new(ResourceError::not_found("pane", pane))
                     })?,
-                    None => state.pane_of(members[0]).context("tab group pane is gone")?,
+                    None => state.pane_of(first).context("tab group pane is gone")?,
                 };
-                let others =
-                    state.panes[&target].tabs.iter().filter(|tab| !members.contains(tab)).count();
-                let pinned = state.panes[&target]
+                let others = state
+                    .live_pane(target)?
+                    .tabs
+                    .iter()
+                    .filter(|tab| !members.contains(tab))
+                    .count();
+                let pinned = state
+                    .live_pane(target)?
                     .tabs
                     .iter()
                     .filter(|tab| !members.contains(tab) && is_pinned(state, &presentation, **tab))
@@ -852,7 +869,7 @@ impl Mux {
         let public = self
             .workspace_registry
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .terminal_resource_id(terminal_id)?
             .context("terminal has no public identity")?;
         let destination =
@@ -949,7 +966,12 @@ impl Mux {
     ) -> anyhow::Result<String> {
         let commit =
             self.tab_group_save(StripRequest::local(actor, "tab.group.save"), group, None)?;
-        commit.result["id"].as_str().map(str::to_string).context("saved group has no id")
+        commit
+            .result
+            .get("id")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .context("saved group has no id")
     }
 
     /// Save a live group into `room` (default: its existing room, else
@@ -1009,7 +1031,7 @@ impl Mux {
             saved_id,
             true,
         )?;
-        Ok(commit.result["deleted"].as_bool().unwrap_or(false))
+        Ok(commit.result.get("deleted").and_then(Value::as_bool).unwrap_or(false))
     }
 
     #[track_caller]
