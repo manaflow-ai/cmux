@@ -42,7 +42,7 @@ struct RunawayPaneWarningBanner: View {
                 if !warning.canStop {
                     Text(String(
                         localized: "runawayPaneWarning.cannotStop",
-                        defaultValue: "cmux can't stop this tree from here because it runs in the terminal's shell. Stop it in the terminal."
+                        defaultValue: "cmux can't safely stop this process tree from here. Stop it in the terminal."
                     ))
                     .cmuxFont(size: 11.5)
                     .foregroundStyle(.secondary)

@@ -68,14 +68,15 @@ public struct RunawaySessionCensus: Sendable {
 extension RunawaySessionCensus {
     /// The usage of the session on `ttyDevice`, or nil when nothing is on it.
     ///
-    /// The dominant process is chosen among `candidateGroups` (the groups that
-    /// may be signalled) when any hold memory, so the label names the job
-    /// rather than the shell.
+    /// The dominant process names the actual largest consumer, even when its
+    /// group is protected. Excluded groups model the effect of a stop action.
     public func usage(
         ttyDevice: Int64,
-        candidateGroups: Set<Int> = []
+        excludingProcessGroupIDs: Set<Int> = []
     ) -> RunawaySessionUsage? {
-        let processes = processes(onTTYDevice: ttyDevice)
+        let processes = processes(onTTYDevice: ttyDevice).filter {
+            !($0.processGroupID.map(excludingProcessGroupIDs.contains) ?? false)
+        }
         guard !processes.isEmpty else { return nil }
         var memoryBytes: Int64 = 0
         var bytesByGroup: [Int: Int64] = [:]
@@ -86,8 +87,7 @@ extension RunawaySessionCensus {
                 bytesByGroup[group] = saturatingAdd(bytesByGroup[group] ?? 0, bytes)
             }
         }
-        let preferred = bytesByGroup.filter { candidateGroups.contains($0.key) && $0.value > 0 }
-        let ranked = (preferred.isEmpty ? bytesByGroup : preferred).sorted {
+        let ranked = bytesByGroup.sorted {
             if $0.value == $1.value { return $0.key < $1.key }
             return $0.value > $1.value
         }

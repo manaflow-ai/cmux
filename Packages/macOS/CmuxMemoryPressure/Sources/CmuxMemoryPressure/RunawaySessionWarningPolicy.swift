@@ -28,4 +28,16 @@ public struct RunawaySessionWarningPolicy: Equatable, Sendable {
         usage.memoryIsComplete && Double(usage.memoryBytes) < Double(memoryThresholdBytes) * clearFraction &&
             Double(usage.processCount) < Double(processCountThreshold) * clearFraction
     }
+
+    /// Whether stopping the eligible groups can resolve this warning.
+    /// Protected runaways must not cause unrelated bystander jobs to be stopped.
+    /// - Parameters:
+    ///   - ttyDevice: Controlling TTY of the warned terminal.
+    ///   - census: Complete process census used for the stop decision.
+    ///   - groups: Process groups whose ownership has been validated.
+    public func canResolve(ttyDevice: Int64, in census: RunawaySessionCensus, stopping groups: Set<Int>) -> Bool {
+        guard !groups.isEmpty, let current = census.usage(ttyDevice: ttyDevice), !hasCleared(current) else { return false }
+        guard let remaining = census.usage(ttyDevice: ttyDevice, excludingProcessGroupIDs: groups) else { return true }
+        return hasCleared(remaining)
+    }
 }

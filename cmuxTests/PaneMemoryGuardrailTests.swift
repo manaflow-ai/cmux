@@ -398,6 +398,32 @@ struct PaneMemoryGuardrailTests {
         #expect(workspaceIds.contains(bootstrapWorkspace.id))
         #expect(workspaceIds.contains(firstWindowWorkspace.id))
         #expect(workspaceIds.contains(secondWindowWorkspace.id))
+
+        let windowDock = app.windowDock(forWindowId: firstWindowId)
+        let dockPanel = TerminalPanel(
+            workspaceId: windowDock.workspaceId,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        windowDock.panels[dockPanel.id] = dockPanel
+        defer { windowDock.closeAllPanels() }
+        let dockDescriptor = try #require(
+            app.paneMemoryGuardrailDescriptors().first { $0.panelId == dockPanel.id }
+        )
+        #expect(dockDescriptor.workspaceId == firstWindowId)
+        #expect(dockDescriptor.workspaceTitle == "Dock")
+
+        let workspaceDock = firstWindowWorkspace.dockSplit
+        let workspaceDockPanel = TerminalPanel(
+            workspaceId: firstWindowWorkspace.id,
+            runtimeSpawnPolicy: .pacedSessionRestore
+        )
+        workspaceDock?.panels[workspaceDockPanel.id] = workspaceDockPanel
+        defer { workspaceDock?.closeAllPanels() }
+        let workspaceDockDescriptor = try #require(
+            app.paneMemoryGuardrailDescriptors().first { $0.panelId == workspaceDockPanel.id }
+        )
+        #expect(workspaceDockDescriptor.workspaceId == firstWindowWorkspace.id)
+        #expect(workspaceDockDescriptor.workspaceTitle == firstWindowWorkspace.title)
     }
 
     @MainActor
@@ -420,5 +446,40 @@ struct PaneMemoryGuardrailTests {
         let selectedWorkspaceIds = Set(app.paneMemoryGuardrailDescriptors().map(\.workspaceId))
         #expect(selectedWorkspaceIds.contains(firstWorkspace.id))
         #expect(selectedWorkspaceIds.contains(backgroundWorkspace.id))
+    }
+
+    @Test
+    func overlayRoutesGlobalDockWarningToItsOwningWindow() throws {
+        let workspaceID = UUID()
+        let windowID = UUID()
+        let workspaceWarning = RunawayPaneWarning(
+            key: PaneMemoryPaneKey(workspaceId: workspaceID, panelId: UUID()),
+            workspaceTitle: "Workspace", paneTitle: "workspace", ttyDevice: 1,
+            command: "node", processCount: 2_000, memoryBytes: 9 * threshold, canStop: true
+        )
+        let dockPanelID = UUID()
+        let dockWarning = RunawayPaneWarning(
+            key: PaneMemoryPaneKey(workspaceId: windowID, panelId: dockPanelID),
+            workspaceTitle: "Dock", paneTitle: "dock", ttyDevice: 2,
+            command: "node", processCount: 2_000, memoryBytes: 9 * threshold, canStop: true
+        )
+
+        let selected = try #require(RunawayPaneWarningOverlayHost.matchingWarning(
+            warnings: [dockWarning],
+            workspaceIDs: [workspaceID],
+            windowId: windowID,
+            windowDockPanelIDs: [dockPanelID],
+            isShowingWorkspaces: true
+        ))
+        #expect(selected.key == dockWarning.key)
+
+        let workspace = try #require(RunawayPaneWarningOverlayHost.matchingWarning(
+            warnings: [workspaceWarning, dockWarning],
+            workspaceIDs: [workspaceID],
+            windowId: windowID,
+            windowDockPanelIDs: [dockPanelID],
+            isShowingWorkspaces: true
+        ))
+        #expect(workspace.key == workspaceWarning.key)
     }
 }

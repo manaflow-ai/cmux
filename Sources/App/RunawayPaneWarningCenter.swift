@@ -174,11 +174,15 @@ final class RunawayPaneWarningCenter {
         let selector = makeSelector()
         let terminator = terminator
         let ttyDevice = warning.ttyDevice
+        let policy = RunawaySessionWarningPolicy(
+            memoryThresholdBytes: selector.thresholdBytes, processCountThreshold: processCountThreshold
+        )
         stopTasks[key] = Task { @MainActor [weak self] in
             let didSignal = await Self.stop(
                 ttyDevice: ttyDevice,
                 selector: selector,
                 terminator: terminator,
+                policy: policy,
                 sessionIdentifier: warning.sessionIdentifier,
                 isPaneLive: { [weak self] in
                     await self?.isPaneLive(key: key, device: ttyDevice) == true
@@ -300,7 +304,7 @@ final class RunawayPaneWarningCenter {
                 continue
             }
             let signallableGroups = selector.signallableProcessGroupIDs(ttyDevice: device, in: census) ?? []
-            guard let usage = census.usage(ttyDevice: device, candidateGroups: signallableGroups) else {
+            guard let usage = census.usage(ttyDevice: device) else {
                 recoveredKeys.insert(descriptor.key)
                 continue
             }
@@ -321,7 +325,7 @@ final class RunawayPaneWarningCenter {
                 command: command,
                 processCount: usage.processCount,
                 memoryBytes: usage.memoryBytes,
-                canStop: !signallableGroups.isEmpty,
+                canStop: policy.canResolve(ttyDevice: device, in: census, stopping: signallableGroups),
                 sessionIdentifier: census.sessionIdentifier(ttyDevice: device, appProcessID: selector.appProcessID),
                 memoryIsComplete: usage.memoryIsComplete
             )
@@ -341,6 +345,7 @@ final class RunawayPaneWarningCenter {
         ttyDevice: Int64,
         selector: RunawaySessionSelector,
         terminator: RunawayPaneTreeTerminator,
+        policy: RunawaySessionWarningPolicy,
         sessionIdentifier: String? = nil,
         isPaneLive: @Sendable () async -> Bool = { true }
     ) async -> Bool {
@@ -356,7 +361,10 @@ final class RunawayPaneWarningCenter {
             ttyDevice: ttyDevice,
             census: census,
             selector: selector,
-            shouldTerminate: { _ in await isPaneLive() },
+            shouldTerminate: { current in
+                guard policy.canResolve(ttyDevice: ttyDevice, in: current, stopping: groups) else { return false }
+                return await isPaneLive()
+            },
             shouldEscalate: { _ in await isPaneLive() }
         )
     }

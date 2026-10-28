@@ -24,11 +24,30 @@ extension AppDelegate {
     }
 
     func paneMemoryGuardrailDescriptors() -> [PaneMemoryDescriptor] {
-        paneMemoryGuardrailTabManagers().flatMap { manager in
-            manager.tabs.flatMap { workspace in
-                paneMemoryGuardrailDescriptors(in: workspace)
+        var descriptors: [PaneMemoryDescriptor] = []
+        var seenKeys: Set<PaneMemoryPaneKey> = []
+
+        func append(_ candidates: [PaneMemoryDescriptor]) {
+            for descriptor in candidates where seenKeys.insert(descriptor.key).inserted {
+                descriptors.append(descriptor)
             }
         }
+
+        for manager in paneMemoryGuardrailTabManagers() {
+            for workspace in manager.tabs {
+                append(paneMemoryGuardrailDescriptors(in: workspace))
+                if let dock = workspace._dockSplit {
+                    append(paneMemoryGuardrailDescriptors(in: dock, workspaceTitle: workspace.title))
+                }
+            }
+        }
+        for dock in existingWindowDocks {
+            append(paneMemoryGuardrailDescriptors(
+                in: dock,
+                workspaceTitle: String(localized: "dock.source.title", defaultValue: "Dock")
+            ))
+        }
+        return descriptors
     }
 
     func startMemoryPressureMonitorIfNeeded() {
@@ -96,6 +115,10 @@ extension AppDelegate {
     /// it reaches the user while cmux is in the background. Clicking it opens
     /// the terminal, where the banner offers Stop Process Tree.
     private func postRunawayPaneWarningNotification(_ warning: RunawayPaneWarning) {
+        guard notificationSurfaceOwner(
+            surfaceID: warning.panelId,
+            preferredTabID: warning.workspaceId
+        ) != nil else { return }
         notificationStore?.addNotification(
             tabId: warning.workspaceId,
             surfaceId: warning.panelId,
@@ -167,20 +190,49 @@ extension AppDelegate {
 
     private func paneMemoryGuardrailDescriptors(in workspace: Workspace) -> [PaneMemoryDescriptor] {
         workspace.panels.values.compactMap { panel in
-            guard let terminalPanel = panel as? TerminalPanel else { return nil }
-            let surface = terminalPanel.surface
-            let hasLiveSurface = surface.hasLiveSurface
-            let ttyName = hasLiveSurface ? surface.controllingTTYName()?
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-                : nil
-            return PaneMemoryDescriptor(
+            paneMemoryGuardrailDescriptor(
+                for: panel,
                 workspaceId: workspace.id,
-                panelId: terminalPanel.id,
-                workspaceTitle: workspace.title,
-                paneTitle: terminalPanel.displayTitle,
-                ttyName: ttyName?.isEmpty == false ? ttyName : nil,
-                foregroundPID: hasLiveSurface ? surface.foregroundProcessID() : nil
+                workspaceTitle: workspace.title
             )
         }
+    }
+
+    private func paneMemoryGuardrailDescriptors(
+        in dock: DockSplitStore,
+        workspaceTitle: String
+    ) -> [PaneMemoryDescriptor] {
+        var descriptors: [PaneMemoryDescriptor] = []
+        dock.forEachPanel { _, panel in
+            if let descriptor = paneMemoryGuardrailDescriptor(
+                for: panel,
+                workspaceId: dock.workspaceId,
+                workspaceTitle: workspaceTitle
+            ) {
+                descriptors.append(descriptor)
+            }
+        }
+        return descriptors
+    }
+
+    private func paneMemoryGuardrailDescriptor(
+        for panel: any Panel,
+        workspaceId: UUID,
+        workspaceTitle: String
+    ) -> PaneMemoryDescriptor? {
+        guard let terminalPanel = panel as? TerminalPanel else { return nil }
+        let surface = terminalPanel.surface
+        let hasLiveSurface = surface.hasLiveSurface
+        let ttyName = hasLiveSurface ? surface.controllingTTYName()?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            : nil
+        return PaneMemoryDescriptor(
+            workspaceId: workspaceId,
+            panelId: terminalPanel.id,
+            workspaceTitle: workspaceTitle,
+            paneTitle: terminalPanel.displayTitle,
+            ttyName: ttyName?.isEmpty == false ? ttyName : nil,
+            foregroundPID: hasLiveSurface ? surface.foregroundProcessID() : nil
+        )
     }
 }

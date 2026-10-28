@@ -461,4 +461,24 @@ struct RunawayPaneWarningCenterTests {
         await evaluate(center)
         #expect(center.warnings.map(\.key) == [warning.key])
     }
+
+    @Test
+    func protectedRunawayDoesNotOfferToStopAnUnrelatedJob() async throws {
+        var processes = Array(census(workers: 10, workerBytes: Self.gb, jobGroup: 200).processesByPID.values)
+        processes.append(process(700, parent: 200, name: "vim", group: 700, bytes: 50_000_000))
+        let source = WarningSnapshotSource(CmuxTopProcessSnapshot(
+            processes: processes, sampledAt: Date(), includesProcessDetails: false, includesCMUXScope: false
+        ))
+        let recorder = WarningSignalRecorder()
+        let center = makeCenter(source: source, recorder: recorder)
+        await evaluate(center)
+        let warning = try #require(center.warnings.first)
+        #expect(!warning.canStop)
+        #expect(warning.command == "zsh")
+        center.stopProcessTree(warning)
+        await center.stopTasks[warning.key]?.value
+        #expect(recorder.groups(for: SIGTERM).isEmpty)
+        #expect(center.warnings.map(\.key) == [warning.key])
+    }
+
 }

@@ -672367,55 +672367,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux can't stop this tree from here because it runs in the terminal's shell. Stop it in the terminal."
+            "value": "cmux can't safely stop this process tree from here. Stop it in the terminal."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا يستطيع cmux إيقاف هذه الشجرة من هنا لأنها تعمل في صدفة الطرفية. أوقفها من داخل الطرفية."
+            "value": "لا يمكن لـ cmux إيقاف شجرة العمليات هذه بأمان من هنا. أوقفها من الطرفية."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux kann diesen Baum hier nicht beenden, weil er in der Shell des Terminals läuft. Beende ihn im Terminal."
+            "value": "cmux kann diesen Prozessbaum von hier aus nicht sicher stoppen. Stoppe ihn im Terminal."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux no puede detener este árbol desde aquí porque se ejecuta en el shell del terminal. Detenlo en el terminal."
+            "value": "cmux no puede detener este árbol de procesos de forma segura desde aquí. Deténlo en el terminal."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux ne peut pas arrêter cette arborescence d’ici, car elle s’exécute dans le shell du terminal. Arrêtez-la dans le terminal."
+            "value": "cmux ne peut pas arrêter cet arbre de processus en toute sécurité depuis ici. Arrêtez-le dans le terminal."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このツリーはターミナルのシェル内で実行されているため、cmux はここから停止できません。ターミナルで停止してください。"
+            "value": "cmux はここからこのプロセスツリーを安全に停止できません。ターミナルで停止してください。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 트리는 터미널의 셸에서 실행 중이라 cmux가 여기서 중지할 수 없습니다. 터미널에서 중지하세요."
+            "value": "cmux가 여기서 이 프로세스 트리를 안전하게 중지할 수 없습니다. 터미널에서 중지하세요."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "此进程树在终端的 Shell 中运行，cmux 无法从这里停止。请在终端中停止它。"
+            "value": "cmux 无法从这里安全地停止此进程树。请在终端中停止它。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "此處理程序樹在終端機的 Shell 中執行，cmux 無法從這裡停止。請在終端機中停止它。"
+            "value": "cmux 無法從這裡安全地停止此處理程序樹。請在終端機中停止它。"
           }
         }
       }

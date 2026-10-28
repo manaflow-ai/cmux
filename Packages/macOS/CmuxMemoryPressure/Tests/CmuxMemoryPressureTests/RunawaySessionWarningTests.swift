@@ -46,7 +46,7 @@ struct RunawaySessionWarningTests {
     @Test("usage counts only the terminal's processes and names the job leader")
     func usageNamesTheJob() {
         let usage = forkStorm(workers: 1_200, workerBytes: 1_000_000)
-            .usage(ttyDevice: Self.tty, candidateGroups: [300])
+            .usage(ttyDevice: Self.tty)
 
         #expect(usage?.processCount == 1_203)
         #expect(usage?.dominantProcessID == 300)
@@ -56,7 +56,7 @@ struct RunawaySessionWarningTests {
     @Test("without its leader, the largest worker names the job")
     func usageFallsBackToTheLargestWorker() {
         let usage = forkStorm(workers: 10, workerBytes: Self.gb, includeLeader: false)
-            .usage(ttyDevice: Self.tty, candidateGroups: [300])
+            .usage(ttyDevice: Self.tty)
 
         #expect(usage?.dominantProcessID == 1_009)
         #expect(usage?.processCount == 12)
@@ -131,5 +131,19 @@ struct RunawaySessionWarningTests {
     ])
     func commandLabelsHideArguments(arguments: [String], name: String, expected: String) {
         #expect(RunawaySessionCommandLabeler().label(arguments: arguments, processName: name) == expected)
+    }
+
+    @Test("a protected culprit never redirects Stop toward a bystander")
+    func protectedRunawayKeepsItsIdentityAndBystanders() throws {
+        let census = RunawaySessionCensus(processes: [
+            process(100, parent: 50, name: "login", group: 100, bytes: 1),
+            process(200, parent: 100, name: "zsh", group: 200, bytes: 10 * Self.gb),
+            process(700, parent: 200, name: "vim", group: 700, bytes: 50_000_000),
+        ])
+        let selector = RunawaySessionSelector(appProcessID: 50, appProcessGroupID: 50, thresholdBytes: 8 * Self.gb)
+        let groups = try #require(selector.signallableProcessGroupIDs(ttyDevice: Self.tty, in: census))
+        #expect(groups == [700])
+        #expect(census.usage(ttyDevice: Self.tty)?.dominantProcessID == 200)
+        #expect(!policy.canResolve(ttyDevice: Self.tty, in: census, stopping: groups))
     }
 }
