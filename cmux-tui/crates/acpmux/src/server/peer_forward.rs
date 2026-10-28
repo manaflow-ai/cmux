@@ -45,6 +45,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
     method::MUX_SEND_QUEUE,
     method::MUX_SEND_STATUS,
+    // Forwarded by its own handler, which answers for a peer that is down (`session_auth.rs`).
+    method::MUX_SESSION_AUTH,
     // Agent pairs are this daemon's own (`hub/agent_pairs.rs`).
     method::MUX_AGENT_PAIR_RESUME,
     method::MUX_HANDOFF_PREPARE,
@@ -104,7 +106,11 @@ pub(super) async fn forward(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    forward_inner(hub, conn, m, params).await.transpose()
+    let reply = forward_inner(hub, conn, m, params).await.transpose();
+    if conn.origin == Origin::Peer {
+        return reply.map(|r| r.map_err(super::redact::hide_unreachable_peer));
+    }
+    reply
 }
 
 async fn forward_inner(
@@ -366,8 +372,11 @@ async fn forward_inner(
         return Ok(Some(result));
     }
     // `PEER/name` for a peer that is down and lists no such session: say
-    // the peer is unreachable, not that the session does not exist.
+    // the peer is unreachable, not that the session does not exist. A peer daemon's
+    // connection never learns this host's peers or their state (`redact::hide_peers_from_peer`):
+    // it gets the answer a name no peer has gets.
     if !SESSION_SCOPED_EXCLUDED.contains(&m)
+        && conn.origin != Origin::Peer
         && let Ok(key) = session_key(params)
         && hub.resolve(key).is_err()
         && let Some(e) = hub.peer_down_for(key)

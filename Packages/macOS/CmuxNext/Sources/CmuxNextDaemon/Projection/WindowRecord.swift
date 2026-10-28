@@ -79,6 +79,14 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     /// The workspaces the window shows side by side (Debug Settings `sidebar.multiView`); nil shows
     /// `workspaceKey` alone. Never written while the prototype is off.
     public var multiView: WindowViewLayout?
+    /// The window frame's docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md), at most one per edge; nil
+    /// when the window has none. Never written while Debug Settings `window.dockedWorkspaces` is off.
+    public var docks: [WindowDockRecord]?
+    /// Which docks own the frame's corners: `columnMajor` (side docks, the default when nil) or `rowMajor`.
+    public var dockOrientation: String?
+    /// The workspace the frame's stage shows while a docked workspace has focus (`workspace_key` names that one);
+    /// nil when the stage shows `workspace_key`.
+    public var stageKey: WorkspaceKey?
     /// The sidebar document items this window owns (pins, groups, links; #26632): it lists only these and those of
     /// the workspaces it lists, so a new window starts clean. Nil in records from older builds (nothing owned yet).
     public var bandItems: [String]?
@@ -124,6 +132,9 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         case focusedPanes = "focused_panes"
         case workspaceMachines = "workspace_machines"
         case multiView = "multi_view"
+        case docks
+        case dockOrientation = "dock_orientation"
+        case stageKey = "stage_key"
         case bandItems = "band_items"
     }
 
@@ -159,6 +170,9 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         page = try c.decodeIfPresent(String.self, forKey: .page)
         isClosed = try c.decodeIfPresent(Bool.self, forKey: .isClosed) ?? false
         multiView = try c.decodeIfPresent(WindowViewLayout.self, forKey: .multiView)
+        docks = try c.decodeIfPresent([WindowDockRecord].self, forKey: .docks)
+        dockOrientation = try c.decodeIfPresent(String.self, forKey: .dockOrientation)
+        stageKey = try c.decodeIfPresent(WorkspaceKey.self, forKey: .stageKey)
         bandItems = try c.decodeIfPresent([String].self, forKey: .bandItems)
     }
 }

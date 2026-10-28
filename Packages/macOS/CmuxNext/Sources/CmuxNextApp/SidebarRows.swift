@@ -74,17 +74,33 @@ final class SidebarRows {
     /// the sidebar document, whose band moves anchor on a drawn neighbour; the
     /// older owner's index ops count the stored layout; the bridge translates
     /// visible item indexes back to stored indexes before sending edits.
-    static func visibleLayout(_ document: SidebarLayoutDocument, window windowID: String, machines: MachineRegistry,
+    static func visibleLayout(_ document: SidebarLayoutDocument, window windowID: String, profile: ProfileID? = nil, machines: MachineRegistry,
                               registry: WindowRegistry, hidden: Set<String> = [], showAppStore: Bool = true) -> SidebarLayoutDocument {
         guard SidebarDocWiring.isActive else { return visibleLayout(document, showAppStore: showAppStore) }
+        let hides = bandHides(window: windowID, profile: profile, machines: machines, registry: registry)
         let refs = WorkspaceLayoutRefs(machines: machines)
         return visibleLayout(document, showAppStore: showAppStore).withoutItems(where: { item in
-            // An open workspace's item follows the window that lists it, wherever it was pinned.
-            if item.ref.kind == LayoutItemRef.workspaceKind, let id = refs.workspaceID(for: item.ref), let owner = registry.owner(of: id) {
-                return owner != windowID
-            }
-            return hidden.contains(item.id.rawValue)
+            guard item.ref.kind == LayoutItemRef.workspaceKind else { return hidden.contains(item.id.rawValue) }
+            if hides(item.ref.value) { return true }
+            // An open workspace's item follows the window that lists it, wherever it was pinned; a closed one's
+            // stays with the window it was pinned in.
+            return refs.workspaceID(for: item.ref).flatMap(registry.owner(of:)) == nil && hidden.contains(item.id.rawValue)
         })
+    }
+
+    /// Whether window `windowID`'s band leaves out the workspace item a layout ref value names: another
+    /// window owns the workspace, or the window's space `profile` does not show it
+    /// (plans/cmux-next/spaces-overhaul-DESIGN.md rule 1: a pin draws only in its own space, so a click on
+    /// it never switches the window's space). A closed workspace has no space and stays.
+    static func bandHides(window windowID: String, profile: ProfileID?, machines: MachineRegistry,
+                          registry: WindowRegistry) -> (String) -> Bool {
+        let refs = WorkspaceLayoutRefs(machines: machines)
+        let membership = profile == nil ? nil : WindowProfiles.membership(machines)
+        return { value in
+            if refs.ownedElsewhere(value, window: windowID, registry: registry) { return true }
+            guard let profile, let membership, let id = refs.workspaceID(for: .workspace(value)) else { return false }
+            return !WindowProfiles.shows(id, profile: profile, machines: machines, membership: membership)
+        }
     }
 
     /// Shows `live` (when given) with the pending edits applied, then the

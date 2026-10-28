@@ -137,6 +137,23 @@ const copyValue: Play = async (ctx) => {
     throw new Error("Copy feedback replaced or made the value unselectable");
 };
 
+const headerActionAlignment: Play = async (ctx) => {
+  const header = ctx.document.querySelector<HTMLElement>(".acpmux-harness-status__head");
+  const copy = ctx.document.querySelector<HTMLElement>(".acpmux-harness-status__copy-all");
+  const close = ctx.document.querySelector<HTMLElement>(".acpmux-harness-status__close");
+  const visibleCopy = copy?.querySelector<HTMLElement>('span[aria-hidden="false"]');
+  if (!header || !copy || !close || !visibleCopy) throw new Error("Session status header actions are missing");
+  const center = (rect: DOMRect) => rect.top + rect.height / 2;
+  const actionDelta = Math.abs(center(copy.getBoundingClientRect()) - center(close.getBoundingClientRect()));
+  if (actionDelta > 0.5) throw new Error(`Session status action centers differ by ${actionDelta.toFixed(2)} px`);
+  const copyRange = ctx.document.createRange();
+  copyRange.selectNodeContents(visibleCopy);
+  const closeRange = ctx.document.createRange();
+  closeRange.selectNodeContents(close);
+  const textDelta = Math.abs(center(copyRange.getBoundingClientRect()) - center(closeRange.getBoundingClientRect()));
+  if (textDelta > 0.5) throw new Error(`Session status action text centers differ by ${textDelta.toFixed(2)} px`);
+};
+
 const overlayPriority: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Open status test image" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-image-viewer") !== null);
@@ -195,6 +212,11 @@ export default componentEntry<Props>({
       note: "A copied Session value keeps its selectable text beside a quiet Copied confirmation, with all 11 status rows intact.",
       props: { harness: "claude" },
       play: copyValue,
+    },
+    "header-action-alignment": {
+      note: "Copy all and close share one centered action line in the Session status header.",
+      props: { harness: "claude" },
+      play: headerActionAlignment,
     },
     "overlay-escape-priority": {
       note: "The real image viewer, Summary popover and interactive Context ring card take Escape before Session status; the next press closes status.",

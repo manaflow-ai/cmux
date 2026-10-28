@@ -3,7 +3,6 @@ import type { AcpmuxSnapshot } from "./model";
 import type { Choice, Combo } from "./ComposerPickers";
 import type { QuickMenuExtras } from "./QuickModelMenu";
 import type { PickerProfile } from "./pickerProfiles";
-import type { SpeedTiers } from "./FastToggle";
 
 /// What the picker gets from ComposerPickers. Picks go through `onLand` (model, then its effort
 /// once the agent reports that model) and `onEffort`.
@@ -41,9 +40,10 @@ export type ModelPickerProps = {
     offValue: string;
     onLabel: string;
     offLabel: string;
+    lastOnValue?: string;
+    values?: readonly string[];
     onPick(value: string): void;
   };
-  speed?: SpeedTiers;
   /** Refreshes the host-backed model catalog; the host owns transport and live events. */
   catalogRefresh?: CatalogRefreshState;
   /// Starts a new chat in another harness; without it, other harnesses are not offered.
@@ -104,11 +104,9 @@ export type CatalogRefreshState = {
   refresh(): void | Promise<void>;
 };
 
-/// The keys and pointer moves the chip forwards to the open menu's body.
-/// The tallest the open picker gets (Lawrence 2026-10-13: it grew to the window's height when a
-/// machine lists many harnesses). Less when the pane has less room above or below the chip; the
-/// harness rail and the model list scroll inside it.
-export const MODEL_PICKER_MAX_HEIGHT = 480;
+/// A fallback while the anchor has not measured its available room yet. Once measured, the
+/// picker uses all the available height, with no fixed cap.
+const MODEL_PICKER_INITIAL_HEIGHT = 480;
 /// The shortest the open picker gets: the search field and about six model rows. A chip with less
 /// room than this, or a list that loads after the menu opened, never collapses the menu to its
 /// search field (Lawrence 2026-10-13). The menu opens on the side of the chip that has this much
@@ -121,16 +119,15 @@ export const MODEL_PICKER_MIN_HEIGHT = 220;
 /// session rail, summary column or sidebar beside it (a composer outside one keeps to the window).
 export const CHAT_COLUMN = ".acpmux-main";
 
-/// The open picker's height bounds: at most the anchor's room (`room`, when known) and
-/// MODEL_PICKER_MAX_HEIGHT, never below MODEL_PICKER_MIN_HEIGHT; at least its height when it
+/// The open picker's height bounds: at most the anchor's room (`room`, when known); at least
+/// MODEL_PICKER_MIN_HEIGHT when that fits, or its height when it
 /// opened (`opened`), so a narrowing search does not shrink it, while a list that loads later can
 /// still grow it.
 export function pickerHeightBounds(
   room: unknown,
   opened: number | undefined,
 ): { maxHeight: number; minHeight: number } {
-  const roomed = typeof room === "number" && Number.isFinite(room) ? room : MODEL_PICKER_MAX_HEIGHT;
-  const maxHeight = Math.max(MODEL_PICKER_MIN_HEIGHT, Math.min(roomed, MODEL_PICKER_MAX_HEIGHT));
+  const maxHeight = typeof room === "number" && Number.isFinite(room) ? Math.max(0, room) : MODEL_PICKER_INITIAL_HEIGHT;
   const minHeight = Math.min(maxHeight, Math.max(MODEL_PICKER_MIN_HEIGHT, opened ?? 0));
   return { maxHeight, minHeight };
 }

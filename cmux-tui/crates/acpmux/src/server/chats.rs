@@ -104,6 +104,9 @@ pub(super) async fn route(
     if let Some(reply) = super::processes::dispatch(hub, conn, m, &params).await {
         return reply;
     }
+    if let Some(reply) = super::bg_tasks::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // Moving a chat to another daemon (`hub/transfer_out.rs`): a bundle holds the whole chat and
     // runs its queue with the rules it was sent under, so only the local socket moves one.
     if m.starts_with("_acpmux/transfer_") {
