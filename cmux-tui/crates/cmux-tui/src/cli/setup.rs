@@ -172,7 +172,7 @@ const TASKS: &[Task] = &[
         check: &["cmux accounts list --json"],
         apply: &["cmux cloud sign-in"],
         person: Some("the cmux sign-in in the browser"),
-        prompt: "Check and recover my sign-ins: run `cmux accounts list --json`. If cmux is signed out, run `cmux cloud sign-in` and tell me to finish it in the browser; if the browser reports offline or Cloud unavailable, stop and tell me to reconnect before retrying. If a provider is missing or expired, open Settings > Accounts and use Sign In or Re-authenticate (or run `cmux accounts reauth --provider PROVIDER`), then run the list again. If I picked the wrong cmux account, use Switch Account in Settings > Accounts and verify the masked account; if a saved key is missing or unreadable, use Add Key there and save or send it without printing the secret. Tell me which providers remain unavailable and never claim an unknown or Keychain-backed sign-in is valid.",
+        prompt: "Check and recover my sign-ins: run `cmux accounts list --json`. If cmux is signed out, run `cmux cloud sign-in` and tell me to finish it in the browser; if the command or browser reports offline or Cloud unavailable, stop and tell me to reconnect before retrying. If a provider is missing or expired, open Settings > Accounts and use Sign In or Re-authenticate (or run `cmux accounts reauth --provider PROVIDER`), then run the list again. If I picked the wrong cmux account, use Switch Account in Settings > Accounts and verify the masked account; if a saved key is missing or unreadable, use Add Key there and save or send it without printing the secret. Tell me which providers remain unavailable and never claim an unknown or Keychain-backed sign-in is valid.",
     },
     Task {
         id: "cloud_machine",
@@ -414,7 +414,7 @@ mod tests {
         for phrase in [
             "cmux accounts list --json",
             "cmux cloud sign-in",
-            "offline or Cloud unavailable",
+            "command or browser reports offline or Cloud unavailable",
             "missing or expired",
             "cmux accounts reauth --provider PROVIDER",
             "Switch Account",
