@@ -42,7 +42,7 @@ struct AgentPaneQuestionReplyTests {
 
     @Test func claudeOtherPreservesExactTextAndCanonicalIntent() throws {
         let (_, question) = try Self.fixture()
-        let text = "Use PTYs with the existing resize lifecycle.\nKeep this answer exactly as typed."
+        let text = "Use the existing queue and its lifecycle.\nKeep this answer exactly as typed."
         let body: [String: Any] = ["optionId": "yes", "answers": ["Choose?": text]]
         let reply = try AgentPaneQuestionReply(question: question, replyJSON: Self.json(body))
         #expect(reply.question == question)
@@ -110,6 +110,23 @@ struct AgentPaneQuestionReplyTests {
         let (_, codex) = try Self.fixture(Self.prompt(harness: "codex"))
         #expect(try Self.failure(["optionId": "yes", "answers": ["q": ["answers": ["Glass"]]],
                                  "annotations": ["Choose?": ["notes": "x"]]], question: codex) == .annotations)
+    }
+
+    @Test func previewValidationReadsOriginalNativeInputNotOnlyNormalizedItems() throws {
+        var prompt = Self.prompt()
+        var request = try #require(prompt["request"] as? [String: Any])
+        var tool = try #require(request["toolCall"] as? [String: Any])
+        // Keep normalized question keys/options/preview unchanged while changing the source
+        // preview the owner validates. A retained key set or normalized-only copy is insufficient.
+        tool["rawInput"] = ["questions": [["question": "Choose?",
+                                          "options": [["label": "Glass", "preview": "<b>native</b>"]]]]]
+        request["toolCall"] = tool
+        prompt["request"] = request
+        let (_, question) = try Self.fixture(prompt)
+        #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Glass"],
+                                 "annotations": ["Choose?": ["preview": "<b>preview</b>"]]], question: question) == .annotations)
+        #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Glass"],
+                                 "annotations": ["Choose?": ["preview": "<b>native</b>"]]], question: question) == nil)
     }
 
     @Test func equalKeyReissueCannotValidateOldChoiceOrPreviewAsCurrent() throws {
