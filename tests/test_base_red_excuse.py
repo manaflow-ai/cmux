@@ -341,6 +341,15 @@ class CrashIsNeverABaseRed(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "signal 11"):
             self.judge()
 
+    def test_a_web_test_shard_that_timed_out_on_both_sides_still_blocks(self):
+        web = "web / react-apps-check (1)"
+        for job in self.gh.jobs.values():
+            job["name"] = web
+        self.gh.logs[1] = self.gh.logs[2] = log(web, TEST_STEP, "START src/a.test.ts (hard limit 300s)",
+                                                "TIMEOUT src/a.test.ts (limit 300s)")
+        with self.assertRaisesRegex(excuse.Refused, "src/a.test.ts timed out"):
+            self.judge()
+
     def test_a_red_test_the_base_does_not_fail_blocks(self):
         self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE, OTHER)
         self.gh.logs[2] = log(SWIFT, TEST_STEP, ISSUE)

@@ -168,6 +168,17 @@ class PerTest(unittest.TestCase):
         self.assertFalse(reds.read(pip).ran)
         self.assertIsNone(reds.classify(pip, pip, "cmux-next fast tier"))
 
+    def test_a_webviews_file_the_wrapper_timed_out_or_bun_crashed_is_the_heads_own(self):
+        timeout = log("START src/a.test.ts (hard limit 300s)", "TIMEOUT src/a.test.ts (limit 300s)")
+        verdict = reds.classify(timeout, timeout, "web / react-apps-check (1)")
+        self.assertTrue(verdict.own)
+        self.assertIn("src/a.test.ts timed out", verdict.reasons[0])
+        panic = log("START src/b.test.ts (hard limit 300s)", "panic(main thread): Segmentation fault at address 0x0",
+                    "FAIL src/b.test.ts (limit 300s)")
+        self.assertTrue(reds.classify(panic, panic, "web / react-apps-check (2)").own)
+        passing = log("START src/c.test.ts (hard limit 300s)", "PASS src/c.test.ts (raw log retained)")
+        self.assertIsNone(reds.classify(passing, passing, "web / react-apps-check (3)"))
+
     def test_a_compile_job_that_prints_fatal_error_is_left_to_the_caller(self):
         compile_log = log("Fatal error: module map file not found")
         self.assertIsNone(reds.classify(compile_log, compile_log, "cmux app scheme compile (Debug)"))
