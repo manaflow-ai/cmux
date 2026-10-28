@@ -31,6 +31,7 @@ pub(crate) mod dispatch;
 pub(crate) mod file_uploads;
 pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod fork;
+mod fork_transcript_auth;
 mod fork_at;
 pub mod forum;
 pub(crate) mod full_access_bound;
