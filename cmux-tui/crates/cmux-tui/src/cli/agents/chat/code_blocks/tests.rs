@@ -130,3 +130,80 @@ fn latest_code_block_refuses_a_transport_omission() {
     });
     assert!(result.is_err(), "must not claim the old block is the latest: {result:?}");
 }
+
+fn identified_text(seq: u64, id: &str, body: &str) -> Value {
+    let mut event = text(seq, body);
+    event["msg"]["params"]["update"]["messageId"] = json!(id);
+    event
+}
+
+fn superseded(seq: u64, old: &str, new: &str) -> Value {
+    json!({"seq": seq, "dir": "mux", "kind": "message_superseded",
+        "msg": {"oldMessageId": old, "newMessageId": new}})
+}
+
+#[test]
+fn code_block_ignores_superseded_answers_across_reverse_pages() {
+    let mut cursors = Vec::new();
+    let block = load(|before| {
+        cursors.push(before);
+        Ok(match before {
+            u64::MAX => json!({"events": [
+                superseded(3, "old", "new"), identified_text(4, "new", "No code needed."), end(5),
+            ], "hasMore": true}),
+            3 => json!({"events": [end(1), identified_text(2, "old", "```sh\necho obsolete\n```")], "hasMore": false}),
+            _ => panic!("unexpected cursor {before}"),
+        })
+    }).unwrap();
+    assert_eq!(block, Value::Null, "superseded code is no longer in the chat");
+    assert_eq!(cursors, [u64::MAX, 3]);
+}
+
+#[test]
+fn code_block_does_not_join_fences_from_different_assistant_messages() {
+    let block = load(|_| {
+        Ok(json!({"events": [
+        identified_text(1, "first", "```sh\necho unfinished\n"),
+        identified_text(2, "second", "```"), end(3),
+    ], "hasMore": false}))
+    })
+    .unwrap();
+    assert_eq!(block, Value::Null, "separate messages cannot complete each other's fences");
+}
+
+#[test]
+fn code_block_supersession_preserves_tools_and_transcript_pagination() {
+    let mut transcript = super::super::Transcript::default();
+    for event in [
+        identified_text(1, "old", "```sh\necho obsolete\n```"),
+        json!({"seq": 2, "dir": "in", "kind": "session/update", "msg": {
+            "method": "session/update", "params": {"update": {
+                "sessionUpdate": "tool_call", "toolCallId": "tool", "kind": "read", "status": "in_progress"
+            }}
+        }}),
+        identified_text(3, "old", "also obsolete"),
+        superseded(4, "old", "new"),
+        superseded(5, "old", "new"),
+        identified_text(6, "old", "late obsolete chunk"),
+        identified_text(7, "new", "```sh\necho current\n```"),
+        end(8),
+    ] {
+        transcript.apply(&event);
+    }
+    let first = transcript.page("chat", 0, 1, false, 8);
+    assert_eq!(first["items"][0]["role"], "tool");
+    assert_eq!(first["items"][0].get("partial"), None);
+    assert_eq!(first["next_after"], 2);
+    assert_eq!(first["has_more"], true);
+    let rest = transcript.page("chat", 2, 10, false, 8);
+    assert_eq!(rest["items"][0]["id"], 7);
+    assert_eq!(rest["items"].as_array().unwrap().len(), 2);
+    assert_eq!(rest["next_after"], 8);
+    assert_eq!(rest["has_more"], false);
+    assert!(!rest.to_string().contains("obsolete"));
+    assert_eq!(transcript.text_bytes, "```sh\necho current\n```".len());
+    assert_eq!(
+        super::from_transcript(&transcript, false),
+        Some(json!({"language": "sh", "code": "echo current"}))
+    );
+}
