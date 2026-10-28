@@ -58,6 +58,11 @@ nonisolated enum AcpmuxPaneMethods {
         // Withdraw or change a queued prompt of a session in the pane's scope (direct.ts
         // removeQueued, editQueued).
         "_acpmux/queue_remove", "_acpmux/queue_edit",
+        // The owner's Approve or Decline of a guest's prompt that waits for them (direct.ts answerHeld).
+        "_acpmux/queue_approve", "_acpmux/queue_decline",
+        // A held prompt's record read whole for the owner, so its card shows what Approve sends
+        // (direct.ts fetchHeldText). Read-only: no gesture.
+        "_acpmux/queue_get",
         // Hand-off (handoff/protocol.ts HANDOFF_OPS).
         "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
         "_acpmux/handoff_discard",
@@ -240,6 +245,7 @@ nonisolated enum AcpmuxPaneMethods {
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+        "_acpmux/queue_approve", "_acpmux/queue_decline", "_acpmux/queue_get",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
         "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
@@ -325,6 +331,8 @@ nonisolated enum AcpmuxPaneMethods {
         // Resume runs turns: the held messages go to both chats of the pair.
         "_acpmux/agent_pair_resume": .always,
         "_acpmux/app_reply": .always,
+        // Approve sends a guest's held prompt to the agent; Decline drops it: no gesture.
+        "_acpmux/queue_approve": .always,
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).

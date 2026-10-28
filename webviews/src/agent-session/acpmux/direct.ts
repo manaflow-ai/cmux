@@ -33,6 +33,7 @@ import type {
   StartSource,
   TurnTokenSplit,
 } from "./model";
+import { QUEUED_MESSAGE } from "./model";
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -5699,6 +5700,10 @@ export class AcpmuxDirectClient {
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
         this.streamingActivity = undefined;
+      } else if (event.kind === "queue_declined") {
+        // The owner declined a guest's prompt: one quiet line where it was declined, never gone silently.
+        this.declinedRow(event);
+        this.reduceLiveState(event);
       } else if (!reduceAgentPair(this.rows, event)) this.reduceLiveState(event);
       return;
     }
@@ -7166,6 +7171,23 @@ export class AcpmuxDirectClient {
   private queueApproval = false;
   /// Whether this acpmux reads a queued prompt whole (`_acpmux/queue_get`, feature `queueGet`).
   private queueGet = false;
+  /// A declined guest prompt's row (`queue_declined`), from its queue entry while the pane still has it.
+  private declinedRow(event: EventRecord): void {
+    const promptId = String(event.msg?.promptId ?? "");
+    const entry = this.queue.find((each) => each.id === promptId);
+    const text = entry?.prompt ?? (typeof event.msg?.text === "string" ? event.msg.text : "");
+    if (!promptId || !entry?.author) return;
+    this.rows.set(`declined-${promptId}`, {
+      id: `declined-${promptId}`,
+      version: 1,
+      at: event.at,
+      kind: QUEUED_MESSAGE,
+      text,
+      incoming: { kind: "message", message: { name: entry.author.name, text, raw: text } },
+      queuedMessage: { promptId, person: entry.author, declined: true },
+      untyped: true,
+    });
+  }
   /// Withdraws a queued prompt before its turn starts; `removed` is false once it started.
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {
     const sessionId = this.actingSessionId;

@@ -310,7 +310,22 @@ export type AcpmuxRow = {
   /// now already (acpmux marks it `next`; it runs right after the turn).
   /// `lead`: the first queued message, which explains a Stop hold for the run.
   /// `heldByStop`: the person's Stop holds it (QueuedPrompt `heldByStop`).
-  queuedMessage?: { promptId: string; next?: boolean; lead?: boolean; heldByStop?: boolean };
+  /// A person's (a guest's) waiting prompt names them (`person`): `held` while it waits for the
+  /// owner's Approve, `declined` once the owner declined it (one quiet line, never removed silently).
+  /// `revision` is the held prompt's as this row draws it, which Approve names (a guest's edit since
+  /// makes acpmux answer `queue.stale`).
+  queuedMessage?: {
+    promptId: string;
+    next?: boolean;
+    lead?: boolean;
+    heldByStop?: boolean;
+    person?: Participant;
+    held?: boolean;
+    declined?: boolean;
+    revision?: number;
+    /// A newer revision is on its way: the card says so and offers no Approve until it shows.
+    updating?: boolean;
+  };
   /// A flattened inbox delivery that came from a queued message. Keep the source queue target
   /// separate from `queuedMessage` so one wrapper prompt does not become every delivery's identity.
   inboxQueue?: { promptId: string; next?: boolean; lead?: boolean; heldByStop?: boolean };

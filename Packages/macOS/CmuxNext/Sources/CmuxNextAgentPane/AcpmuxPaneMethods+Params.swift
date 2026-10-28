@@ -78,6 +78,10 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/bookmark_get": (["sessionId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
+        // `revision`: the queue revision the owner saw (acpmux answers `queue.stale` on an older one).
+        "_acpmux/queue_approve": (["sessionId", "promptId", "revision"], []),
+        "_acpmux/queue_decline": (["sessionId", "promptId"], []),
+        "_acpmux/queue_get": (["sessionId", "promptId"], []),
         // `images`: an edit's kept image ids (acpmux attachment ids the queue lists); it names only
         // the prompt's own images, so it reaches nothing the chat does not already hold.
         "_acpmux/queue_edit": (["sessionId", "promptId", "op", "text", "images", "index"], []),
