@@ -149,8 +149,9 @@ public final class MotionInspector {
         guard isInspecting else { return }
         let wasPaused = timeScale == .paused
         let end = motionNow
-        // Each root gets its own time base back: an animation still running jumps to where real time has it (the
-        // documented cost of stopping mid-motion; going back to 1x first keeps every animation where it is).
+        // Each root gets its own time base back. A root that ran slowed lags real time by the time it lost, so a
+        // Core Animation animation still running at the stop jumps to where real time has it (often its end) and a
+        // loop's phase jumps: the cost of stopping mid-motion. Stop once the list shows nothing running to see none.
         for (layer, base) in originals.values {
             if let layer = layer.value { base.apply(to: layer) }
         }

@@ -55,7 +55,11 @@ public final class MotionClock {
 
     convenience init(window: NSWindow?) {
         self.init(scheduler: { [weak window] in window.map(FrameScheduler.forWindow) ?? .app })
+        if let window { windowGone = { [weak window] in window.map { !$0.isVisible && !$0.isMiniaturized } ?? true } }
     }
+
+    /// Whether this clock's window closed or went away (a window-less clock never does).
+    private var windowGone: @MainActor () -> Bool = { false }
 
     /// A clock on the scheduler `resolve` returns when it starts ticking (tests: a fake-link scheduler).
     init(scheduler resolve: @escaping @MainActor () -> FrameScheduler) {
@@ -187,10 +191,23 @@ public final class MotionClock {
     }
 
     /// The Motion Inspector left pause: a parked clock takes frames again.
+    /// A clock whose window closed (gone, or not visible and not minimized) meanwhile drops its animators (their layers show
+    /// nothing, as a closed window's clock does when its scheduler drops the client) and goes idle.
     func resumeFromInspector() {
         guard isParkedByInspector else { return }
         isParkedByInspector = false
-        if !entries.isEmpty { client.activate() }
+        guard !entries.isEmpty else { return }
+        guard !windowGone() else {
+            for (id, entry) in entries {
+                MotionTrace.end(entry.trace, id: id)
+                MotionInspector.noteEnded(entry.record)
+            }
+            entries.removeAll()
+            order.removeAll()
+            resumeIdleWaiters()
+            return
+        }
+        client.activate()
     }
 
     /// One frame of `seconds` while paused (the Motion Inspector's step forward). Returns true when an

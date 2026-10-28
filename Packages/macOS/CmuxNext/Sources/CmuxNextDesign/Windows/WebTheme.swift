@@ -354,12 +354,18 @@ public nonisolated struct WebTheme: Equatable, Sendable {
       var motionRate = 1;
       var baseRates = new WeakMap();
       function rate(a) {
+        if (motionRate === 1) {
+          // Back at real time: the page's own rate, and the next slow-down reads the rate the page has then.
+          if (baseRates.has(a)) { a.playbackRate = baseRates.get(a); baseRates.delete(a); }
+          return;
+        }
         if (!baseRates.has(a)) baseRates.set(a, a.playbackRate);
         a.playbackRate = baseRates.get(a) * motionRate;
       }
-      function rateAll(target) {
+      function rateAll(target, pseudo) {
         if (!target || !target.getAnimations) return;
-        target.getAnimations().forEach(rate);
+        // A pseudo-element's animation fires its event on the host element: its subtree holds it.
+        target.getAnimations(pseudo ? { subtree: true } : undefined).forEach(rate);
       }
       function setMotionRate(rate) {
         if (rate === motionRate) return;
@@ -367,7 +373,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         rateAll(document);
       }
       ['transitionrun', 'animationstart'].forEach(function (name) {
-        document.addEventListener(name, function (event) { if (motionRate !== 1) rateAll(event.target); }, true);
+        document.addEventListener(name, function (event) { if (motionRate !== 1) rateAll(event.target, event.pseudoElement); }, true);
       });
       // ui.animations.web off: script animations (Element.animate) and smooth scrolls end at once
       // too, which the stylesheet above cannot reach. One wrapper per prototype, read on each call,
