@@ -144,4 +144,20 @@ import Testing
         #expect(longest <= Self.daemonLineLimit, "a send line of \(longest) bytes passes the daemon's \(Self.daemonLineLimit)")
         #expect(bytes == expected, "the daemon got \(bytes.count) of \(expected.count) pasted bytes, or out of order")
     }
+
+    /// A paste larger than the writer takes (64 MiB of lines) is refused whole: no first part of it reaches the
+    /// program, and the connection stays for the next key.
+    @Test func aPasteTheWriterCannotTakeIsRefusedWholeAndTheConnectionStays() async throws {
+        let daemon = try FakeDaemon()
+        let transport = try connect(daemon)
+        defer { transport.close() }
+        let attachment = TerminalAttachment(transport: transport, surface: SurfaceID(rawValue: 7))
+        attachment.enqueueInput(Data(repeating: 0x61, count: 60 << 20))
+        #expect(!transport.isClosed, "a paste over the writer's room closed the connection")
+        attachment.enqueueInput(Data("k".utf8))
+        let request = try daemon.readRequest()
+        #expect(request["cmd"] as? String == "send")
+        #expect((request["bytes"] as? String).flatMap { Data(base64Encoded: $0) } == Data("k".utf8),
+                "part of the refused paste reached the daemon before the next key")
+    }
 }
