@@ -182,7 +182,7 @@
 .acpmux-composer[data-composer-look="codex"]:has(> .acpmux-composer-under) {
   padding-bottom: 0;
 }
-.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box:has(+ .acpmux-composer-under) {
+.acpmux-composer[data-composer-look="codex"] > .acpmux-composer-box:has(~ .acpmux-composer-under) {
   padding-bottom: 16px;
 }
 .acpmux-composer-under {

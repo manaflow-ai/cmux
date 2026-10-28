@@ -88,7 +88,7 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
       }));
       await page.close();
       expect(structure.footer).toBe(true);
-      expect(structure.inner).toBe(structure.look === "codex");
+      expect(structure.inner).toBe(structure.look !== "codex");
     });
 
     test(`${variant}: the quiet row has no harness label`, async () => {

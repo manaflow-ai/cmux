@@ -624,7 +624,7 @@ export function NewTabPage({
   // lays the row under the field out as Codex's (composerLook.css).
   const look = useComposerLook();
   const foot = useRef<HTMLDivElement>(null);
-  useRowFit(foot, `${plainFooter}:${look}`);
+  useRowFit(foot, `${kind}:${plainFooter}:${look}`);
 
   return (
     <div className="acpmux-newtab" data-kind={kind} data-composer-look={look === "codex" ? "codex" : undefined}>
