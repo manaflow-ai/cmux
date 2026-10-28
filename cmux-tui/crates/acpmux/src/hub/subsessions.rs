@@ -363,7 +363,7 @@ impl Drop for KeptWorktree {
     fn drop(&mut self) {
         if !self.kept {
             let (folder, made) = (self.folder.clone(), self.made.clone());
-            std::thread::spawn(move || crate::subsession_worktree::remove_worktree(&folder, &made));
+            crate::subsession_worktree::remove_worktree_in_background(folder, made);
         }
     }
 }
@@ -650,7 +650,9 @@ impl Hub {
         let worktree = if req.worktree {
             let mut kept = self.subsession_worktree(pm, &folder, &short).await?;
             kept.source_decided = decided;
-            cwd = std::fs::canonicalize(&kept.made.cwd).unwrap_or_else(|_| kept.made.cwd.clone());
+            cwd = tokio::fs::canonicalize(&kept.made.cwd)
+                .await
+                .unwrap_or_else(|_| kept.made.cwd.clone());
             Some(kept)
         } else {
             None

@@ -2,17 +2,22 @@
 # linux_run.sh: daemon-side oracle builds and suite runs on the Linux VM, every one through the
 # runnerd.py queue (p15-oracle-007, p15-oracle-024; spec plans/cmux-next/chrome-parity/p15-oracle.md 3F, 3G).
 #
-#   linux_run.sh build REF [--profile P] [--features F] [--mutant PATCH] [--leaf-rebuild] [--receipt FILE] [--fresh]
+#   linux_run.sh build REF [--profile P] [--features F] [--mutant PATCH] [--coverage] [--leaf-rebuild] [--receipt FILE] [--fresh]
 #       Builds cmux-tui at REF. The last stdout line is the binary path.
 #       The build receipt (cmux-oracle-build-v1: sha, every gitlink, rustc, cold or warm, times, binary
 #       sha256) is build.json next to the binary, copied to FILE. --leaf-rebuild also times a rebuild
 #       after touching crates/cmux-tui/src/main.rs (task 201's incremental number). --mutant applies a seeded
 #       fault (tests/oracle/mutants/daemon/<name>.patch, p15-oracle-026) to the job worktree before cargo runs;
 #       the receipt's `mutant` names it, and mutant builds share one target dir per SHA, apart from the clean one.
-#   linux_run.sh run REF [--suite S] [--arm A] [--side L] [--profile P] [--features F] [--mutant PATCH] [--fresh] [-- ORACLE_RUN_ARGS...]
+#       --coverage builds with `-C instrument-coverage` for the host target only (build scripts and proc
+#       macros stay plain), in its own target dir; the receipt's `coverage` names the llvm-profdata and
+#       llvm-cov of the SHA's own toolchain and the source root to strip from the mapped paths (p15-oracle-190).
+#   linux_run.sh run REF [--suite S] [--arm A] [--side L] [--profile P] [--features F] [--mutant PATCH] [--coverage] [--fresh] [-- ORACLE_RUN_ARGS...]
 #       Builds REF, then `oracle.py run --binary BIN --ref SHA` in the queue. The last stdout line is the
 #       run directory; the exit code is oracle.py's. --arm is NAME=old|new, launch-config or - (default).
 #       --side names one of two otherwise identical runs (a diff of one SHA against itself).
+#       --coverage runs the instrumented build with LLVM_PROFILE_FILE in the job (hermetic_env.py passes it
+#       to every case process) and merges the counters into RUN_DIR/coverage.profdata; coverage.py reads it.
 #   linux_run.sh diff BASE HEAD [--suite S] [--profile P] [--features F] [--mutant PATCH] [--out DIR] [--fresh] [-- ORACLE_RUN_ARGS...]
 #       Both runs (builds and suites in parallel, joined with any identical request), then
 #       `oracle.py diff --base-run --head-run --out DIR` (default /tmp/oracle/runs/linux-<time>-<pid>,
@@ -20,6 +25,16 @@
 #       (exact SHAs, every gitlink), both run dirs and the comparison. Exit code is oracle.py diff's.
 #       --mutant builds the head side with the patch: `diff SHA SHA --mutant PATCH` is one mutant's catch check
 #       (exit 1, divergences, means the oracle caught it).
+#   linux_run.sh walks REF [--profile P] [--features F] [--timeout SEC] [--fresh] [-- WALKS_OPTIONS...]
+#       The walks profile (p15-oracle-099): builds REF, then one queued job runs walks_scale.py run on that
+#       binary: 100,000 seeded walks of length 30 on arm old and arm new of every daemon switch
+#       (oracle.py diff --switch per chunk of 10,000, one build), and every failure minimized (ddmin)
+#       before the report. Once the report is written, the minimized walks are copied into
+#       tests/oracle/corpus/walks/ of this checkout (to commit). The last stdout line is the job's walks
+#       dir (receipt.json, index.md; or unminimized.json and exit 3, with nothing copied). The exit code is
+#       walks_scale.py's: 0 clean, 1 failures (all minimized), 2 infrastructure, 3 refused or unminimized.
+#       WALKS_OPTIONS: --switch, --seeds, --first-seed, --length, --chunk, --jobs, --minimize-all,
+#       --minimize-jobs, --keep. --timeout defaults to 86400 s.
 #   linux_run.sh status [--json] | gc [--budget-gb N]
 #
 # Each job is keyed (sha, suite, arm, profile) plus the content of this script and the oracle sources,
@@ -42,6 +57,7 @@ DEFAULT_FEATURES=oracle
 CARGO_JOBS=240
 BUILD_TIMEOUT=7200
 RUN_TIMEOUT=14400
+WALKS_TIMEOUT=86400
 
 die() {
   echo "linux_run.sh: $*" >&2
@@ -57,7 +73,7 @@ resolve_sha() {
 }
 
 in_job() {
-  [[ -n "${RUNNERD_JOB:-}" && -n "${RUNNERD_OUT:-}" ]] || die "$1 runs only inside a runnerd job (use build, run or diff)"
+  [[ -n "${RUNNERD_JOB:-}" && -n "${RUNNERD_OUT:-}" ]] || die "$1 runs only inside a runnerd job (use build, run, diff or walks)"
 }
 
 # mutant_patch PATCH: the absolute path of a daemon mutant, after patch_mutants.py validated its header and scope.
@@ -82,12 +98,13 @@ run_key_paths() {
 # --- build ------------------------------------------------------------------------------
 
 cmd_build() {
-  local ref="" profile="$DEFAULT_PROFILE" features="$DEFAULT_FEATURES" leaf=0 receipt="" fresh=() mutant=""
+  local ref="" profile="$DEFAULT_PROFILE" features="$DEFAULT_FEATURES" leaf=0 receipt="" fresh=() mutant="" coverage=0
   while (($#)); do
     case "$1" in
       --profile) profile="${2:?--profile needs a value}"; shift 2 ;;
       --features) features="${2?--features needs a value}"; shift 2 ;;
       --mutant) mutant="${2:?--mutant needs a patch}"; shift 2 ;;
+      --coverage) coverage=1; shift ;;
       --leaf-rebuild) leaf=1; shift ;;
       --receipt) receipt="${2:?--receipt needs a file}"; shift 2 ;;
       --fresh) fresh=(--fresh); shift ;;
@@ -108,10 +125,12 @@ cmd_build() {
     tag="$tag+mutant"
     mutant_args=(--key-path "$mutant" --extra "mutant=$(basename "$mutant" .patch)")
   fi
+  # Instrumented objects never share a target dir with plain ones.
+  ((coverage)) && tag="$tag+cov"
   binary="$(runnerd submit --sha "$sha" --suite build --profile "$profile" --target-cache --target-tag "${tag//,/+}" \
     --timeout "$BUILD_TIMEOUT" --key-path "$SELF" --extra "features=$features" --extra "leaf=$leaf" \
-    "${mutant_args[@]}" "${fresh[@]}" \
-    -- bash "$SELF" _build "$sha" "$profile" "$features" "$leaf" "${mutant:--}" | tail -n 1)"
+    --extra "coverage=$coverage" "${mutant_args[@]}" "${fresh[@]}" \
+    -- bash "$SELF" _build "$sha" "$profile" "$features" "$leaf" "${mutant:--}" "$coverage" | tail -n 1)"
   [[ -x "$binary" ]] || die "build of $sha gave no binary"
   if [[ -n "$receipt" ]]; then
     mkdir -p "$(dirname "$receipt")"
@@ -138,7 +157,7 @@ elapsed_ms() {
 
 job_build() {
   in_job _build
-  local sha="$1" profile="$2" features="$3" leaf="$4" mutant="${5:--}"
+  local sha="$1" profile="$2" features="$3" leaf="$4" mutant="${5:--}" coverage="${6:-0}"
   local target="${RUNNERD_TARGET_DIR:?_build needs runnerd --target-cache}"
   # runnerd removes its scratch dir when the job ends, a timeout or a recovery included.
   local JOB_WT="${RUNNERD_SCRATCH:?_build needs the runnerd scratch dir}/wt"
@@ -180,21 +199,40 @@ job_build() {
     *) grep -q "^\[profile\.$profile\]" "$JOB_WT/cmux-tui/Cargo.toml" \
          || die "$sha has no [profile.$profile] in cmux-tui/Cargo.toml (the oracle profile is p15-oracle-201)" ;;
   esac
-  local feature_args=()
-  [[ -z "$features" ]] || feature_args=(--features "$features")
+  local cargo_args=(build --locked --profile "$profile" -p cmux-tui -j "$CARGO_JOBS")
+  [[ -z "$features" ]] || cargo_args+=(--features "$features")
+  local out_dir="$target" cargo_env=() coverage_json=""
+  if ((coverage)); then
+    # An explicit --target keeps RUSTFLAGS off build scripts and proc macros, which would otherwise write
+    # counters into the job worktree while cargo runs them.
+    local host sysroot tools
+    host="$(cd "$JOB_WT/cmux-tui" && rustc -vV | sed -n 's/^host: //p')"
+    [[ -n "$host" ]] || die "rustc -vV names no host triple"
+    sysroot="$(cd "$JOB_WT/cmux-tui" && rustc --print sysroot)"
+    tools="$sysroot/lib/rustlib/$host/bin"
+    if [[ ! -x "$tools/llvm-profdata" || ! -x "$tools/llvm-cov" ]]; then
+      # The profile format follows rustc's LLVM, so the tools come from the SHA's own toolchain.
+      (cd "$JOB_WT/cmux-tui" && rustup component add llvm-tools) >&2
+    fi
+    [[ -x "$tools/llvm-profdata" && -x "$tools/llvm-cov" ]] || die "no llvm-profdata and llvm-cov in $tools"
+    cargo_args+=(--target "$host")
+    out_dir="$target/$host"
+    cargo_env=(RUSTFLAGS="-C instrument-coverage")
+    coverage_json="$(python3 -I -c 'import json, sys; print(json.dumps(dict(zip(
+      ("llvmProfdata", "llvmCov", "sourceRoot", "target"), sys.argv[1:]))))' \
+      "$tools/llvm-profdata" "$tools/llvm-cov" "$(cd "$JOB_WT" && pwd -P)" "$host")"
+  fi
   local built state=cold t0 build_ms leaf_ms=""
-  built="$target/$(profile_dir "$profile")/cmux-tui"
+  built="$out_dir/$(profile_dir "$profile")/cmux-tui"
   [[ -e "$built" ]] && state=warm
   t0="$(now)"
-  (cd "$JOB_WT/cmux-tui" && CARGO_TARGET_DIR="$target" cargo build --locked --profile "$profile" \
-    "${feature_args[@]}" -p cmux-tui -j "$CARGO_JOBS") >&2
+  (cd "$JOB_WT/cmux-tui" && env "${cargo_env[@]}" CARGO_TARGET_DIR="$target" cargo "${cargo_args[@]}") >&2
   build_ms="$(elapsed_ms "$t0" "$(now)")"
   echo "linux_run.sh: $state build of $sha in ${build_ms} ms" >&2
   if ((leaf)); then
     touch "$JOB_WT/cmux-tui/crates/cmux-tui/src/main.rs"
     t0="$(now)"
-    (cd "$JOB_WT/cmux-tui" && CARGO_TARGET_DIR="$target" cargo build --locked --profile "$profile" \
-      "${feature_args[@]}" -p cmux-tui -j "$CARGO_JOBS") >&2
+    (cd "$JOB_WT/cmux-tui" && env "${cargo_env[@]}" CARGO_TARGET_DIR="$target" cargo "${cargo_args[@]}") >&2
     leaf_ms="$(elapsed_ms "$t0" "$(now)")"
     echo "linux_run.sh: leaf rebuild of $sha in ${leaf_ms} ms" >&2
   fi
@@ -205,10 +243,10 @@ job_build() {
   git -C "$JOB_WT" ls-tree -r HEAD | awk '$2 == "commit" { print $4 "\t" $3 }' > "$RUNNERD_OUT/gitlinks.tsv"
   python3 -I - "$RUNNERD_OUT/build.json" "$sha" "$module" "$gitlink" "$profile" "$features" "$target" "$state" \
     "$build_ms" "$leaf_ms" "$binary" "$RUNNERD_OUT/gitlinks.tsv" "$(cd "$JOB_WT/cmux-tui" && rustc --version)" \
-    "$mutant_copy" "$mutant_json" <<'PY'
+    "$mutant_copy" "$mutant_json" "$coverage_json" <<'PY'
 import hashlib, json, os, platform, sys
 (out, sha, module, gitlink, profile, features, target_dir, state, build_ms, leaf_ms, binary, gitlinks,
- rustc, mutant, mutant_json) = sys.argv[1:]
+ rustc, mutant, mutant_json, coverage) = sys.argv[1:]
 def sha256(path):
     digest = hashlib.sha256()
     with open(path, "rb") as handle:
@@ -241,6 +279,7 @@ receipt = {
     "binary": binary,
     "binarySha256": sha256(binary),
     "mutant": mutant_record,
+    "coverage": json.loads(coverage) if coverage else None,
 }
 with open(out, "w", encoding="utf-8") as handle:
     json.dump(receipt, handle, indent=2, sort_keys=True)
@@ -254,7 +293,7 @@ PY
 # Parses the options shared by run and diff into OPT_* globals; the rest after -- goes to oracle.py run.
 parse_run_options() {
   OPT_SUITE=all OPT_ARM=- OPT_SIDE="" OPT_PROFILE="$DEFAULT_PROFILE" OPT_FEATURES="$DEFAULT_FEATURES" OPT_OUT="" OPT_MUTANT=""
-  OPT_FRESH=() OPT_REFS=() OPT_PASS=()
+  OPT_COVERAGE=() OPT_FRESH=() OPT_REFS=() OPT_PASS=()
   while (($#)); do
     case "$1" in
       --suite) OPT_SUITE="${2:?--suite needs a value}"; shift 2 ;;
@@ -263,6 +302,7 @@ parse_run_options() {
       --profile) OPT_PROFILE="${2:?--profile needs a value}"; shift 2 ;;
       --features) OPT_FEATURES="${2?--features needs a value}"; shift 2 ;;
       --mutant) OPT_MUTANT="${2:?--mutant needs a patch}"; shift 2 ;;
+      --coverage) OPT_COVERAGE=(--coverage); shift ;;
       --out) OPT_OUT="${2:?--out needs a value}"; shift 2 ;;
       --fresh) OPT_FRESH=(--fresh); shift ;;
       --) shift; OPT_PASS=("$@"); break ;;
@@ -295,7 +335,7 @@ run_one() {
   [[ -z "$receipt" ]] || receipt_args=(--receipt "$receipt")
   [[ -z "$mutant" ]] || mutant_args=(--mutant "$mutant")
   binary="$(cmd_build "$sha" --profile "$OPT_PROFILE" --features "$OPT_FEATURES" "${receipt_args[@]}" \
-    "${mutant_args[@]}" | tail -n 1)"
+    "${mutant_args[@]}" "${OPT_COVERAGE[@]}" | tail -n 1)"
   [[ -x "$binary" ]] || die "build of $sha gave no binary"
   local key_args=() extra_args=() arg
   mapfile -t key_args < <(run_key_paths)
@@ -332,12 +372,34 @@ job_run() {
     *=*) arm_args=(--switch "${arm%%=*}" --arm "${arm#*=}") ;;
     *) die "--arm $arm: NAME=old|new, launch-config or -" ;;
   esac
-  local out="$RUNNERD_OUT/run" code=0
-  python3 -I "$HERE/oracle.py" run --suite "$suite" "${arm_args[@]}" --binary "$binary" --ref "$sha" \
-    --out "$out" "$@" >&2 || code=$?
+  local out="$RUNNERD_OUT/run" code=0 profdata="" profraw="$RUNNERD_OUT/profraw"
+  # An instrumented build (its receipt has `coverage`) writes counters for every process that exits:
+  # one online-merged pool per binary signature (%8m) rather than a file per pid, as Chromium's
+  # test runner does (testing/test_env.py, docs/testing/code_coverage.md).
+  profdata="$(python3 -I -c 'import json, sys
+cov = json.load(open(sys.argv[1], encoding="utf-8")).get("coverage") or {}
+print(cov.get("llvmProfdata", ""))' "$(dirname "$binary")/build.json")"
+  local profile_env=()
+  if [[ -n "$profdata" ]]; then
+    mkdir -p "$profraw"
+    profile_env=(LLVM_PROFILE_FILE="$profraw/cmux-%8m.profraw")
+  fi
+  env "${profile_env[@]}" python3 -I "$HERE/oracle.py" run --suite "$suite" "${arm_args[@]}" --binary "$binary" \
+    --ref "$sha" --out "$out" "$@" >&2 || code=$?
   # The run dir goes to every waiter whatever the exit; a non-zero exit (unexpected results, flaky cases,
   # infra errors) also makes runnerd rerun the key on the next request instead of reusing this result.
   [[ -f "$out/receipt.json" ]] || exit "$((code == 0 ? 1 : code))"
+  if [[ -n "$profdata" ]]; then
+    local raws=("$profraw"/*.profraw)
+    if [[ -e "${raws[0]}" ]]; then
+      # A pool cut short by a SIGKILL during its write is skipped, not fatal to the others.
+      "$profdata" merge -sparse --failure-mode=all -o "$out/coverage.profdata" "${raws[@]}" >&2 \
+        || die "llvm-profdata could not merge the counters of $sha"
+      rm -rf "$profraw"
+    else
+      echo "linux_run.sh: no process of the $sha run wrote counters (none exited normally)" >&2
+    fi
+  fi
   echo "$out"
   exit "$code"
 }
@@ -348,6 +410,7 @@ cmd_diff() {
   parse_run_options "$@"
   ((${#OPT_REFS[@]} == 2)) || die "diff needs BASE and HEAD"
   [[ -z "$OPT_SIDE" ]] || die "diff: --side is for run (diff names its sides base and head)"
+  ((${#OPT_COVERAGE[@]} == 0)) || die "diff: --coverage is for run (coverage.py measures one SHA's runs)"
   local base head base_side="" head_side=""
   base="$(resolve_sha "${OPT_REFS[0]}")"
   head="$(resolve_sha "${OPT_REFS[1]}")"
@@ -412,6 +475,74 @@ PY
   return "$status"
 }
 
+# --- walks ------------------------------------------------------------------------------
+
+cmd_walks() {
+  local ref="" profile="$DEFAULT_PROFILE" features="$DEFAULT_FEATURES" timeout="$WALKS_TIMEOUT" fresh=() pass=()
+  while (($#)); do
+    case "$1" in
+      --profile) profile="${2:?--profile needs a value}"; shift 2 ;;
+      --features) features="${2?--features needs a value}"; shift 2 ;;
+      --timeout) timeout="${2:?--timeout needs seconds}"; shift 2 ;;
+      --fresh) fresh=(--fresh); shift ;;
+      --) shift; pass=("$@"); break ;;
+      -*) die "walks: unknown option $1 (walks_scale.py options go after --)" ;;
+      *) [[ -z "$ref" ]] || die "walks: one REF"; ref="$1"; shift ;;
+    esac
+  done
+  [[ -n "$ref" ]] || die "walks needs REF"
+  [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || die "--timeout $timeout: whole seconds"
+  local arg
+  for arg in "${pass[@]}"; do
+    case "$arg" in
+      --binary | --binary=* | --sha | --sha=* | --work | --work=* | --commit-dir | --commit-dir=* | --registry | --registry=*)
+        die "$arg: set by linux_run.sh walks" ;;
+    esac
+  done
+  local sha binary
+  sha="$(resolve_sha "$ref")"
+  binary="$(cmd_build "$sha" --profile "$profile" --features "$features" | tail -n 1)"
+  [[ -x "$binary" ]] || die "build of $sha gave no binary"
+  # Seeds, length and switches are in the arguments and the registry content is a key path, so a clean
+  # result (exit 0) of the same request is reused; failures, refusals and unminimized runs run again.
+  local key_args=() extra_args=() dir code=0
+  mapfile -t key_args < <(run_key_paths)
+  for arg in "${pass[@]}"; do
+    extra_args+=(--extra "arg=$arg")
+  done
+  dir="$(runnerd submit --sha "$sha" --suite walks-scale --arm daemon-switches --profile "$profile" \
+    --timeout "$timeout" --hold "$binary" "${key_args[@]}" --extra "binary=$binary" "${extra_args[@]}" \
+    "${fresh[@]}" -- bash "$SELF" _walks "$sha" "$binary" -- "${pass[@]}" | tail -n 1)" || code=$?
+  [[ -n "$dir" && -d "$dir" ]] || die "the walks job of $sha wrote no walks dir (exit $code)"
+  # No report means a failure is not minimized: nothing goes into the corpus then.
+  if [[ -f "$dir/receipt.json" ]]; then
+    local minimized corpus="$REPO/tests/oracle/corpus/walks" case_file
+    minimized="$(dirname "$dir")/minimized/walks"
+    for case_file in "$minimized"/*.json; do
+      [[ -f "$case_file" ]] || continue
+      mkdir -p "$corpus"
+      cp "$case_file" "$corpus/"
+      echo "linux_run.sh: minimized walk $corpus/$(basename "$case_file")" >&2
+    done
+  fi
+  echo "linux_run.sh: walks report $dir (walks_scale.py exit $code)" >&2
+  echo "$dir"
+  return "$code"
+}
+
+job_walks() {
+  in_job _walks
+  local sha="$1" binary="$2"
+  shift 2
+  [[ "${1:-}" == "--" ]] && shift
+  local work="$RUNNERD_OUT/walks" code=0
+  python3 -I "$HERE/walks_scale.py" run --binary "$binary" --sha "$sha" --work "$work" \
+    --commit-dir "$RUNNERD_OUT/minimized/walks" "$@" >&2 || code=$?
+  [[ -d "$work" ]] || exit "$((code == 0 ? 1 : code))"
+  echo "$work"
+  exit "$code"
+}
+
 # --- main -------------------------------------------------------------------------------
 
 main() {
@@ -423,9 +554,11 @@ main() {
     build) cmd_build "$@" ;;
     run) cmd_run "$@" ;;
     diff) cmd_diff "$@" ;;
+    walks) cmd_walks "$@" ;;
     status | gc) runnerd "$command" "$@" ;;
     _build) job_build "$@" ;;
     _run) job_run "$@" ;;
+    _walks) job_walks "$@" ;;
     *) sed -n '2,/^#$/p' "$SELF" | sed '$d; s/^# \{0,1\}//' >&2; exit 2 ;;
   esac
 }

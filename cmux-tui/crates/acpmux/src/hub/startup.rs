@@ -4,6 +4,7 @@
 
 use super::Hub;
 use crate::config::Config;
+use crate::supervised::{Fatal, ShutdownBehavior};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -24,7 +25,9 @@ impl Hub {
         // adopted agent is reached once startup is done (`child_for` waits for it).
         if self.config.read().await.permission_policy == crate::config::PermissionPolicy::DenyAll {
             let hub = self.clone();
-            tokio::spawn(async move { hub.follow_default_policy().await });
+            self.supervise("hub.default-policy", Fatal, ShutdownBehavior::Skip, async move {
+                hub.follow_default_policy().await
+            });
         }
         // Prompts queued under the previous daemon, after any adopted turn (`queue.rs`).
         self.resume_queues();
@@ -36,11 +39,11 @@ impl Hub {
             // A cache whose fingerprint matches applies at once; the shell
             // runs only when needed, and agent spawns wait for it (at most
             // two `login_env::TIMEOUT` reads) only when nothing else can stand in.
-            let plan = tokio::task::spawn_blocking(crate::login_env::begin)
+            let plan = crate::daemon::spawn_blocking(crate::login_env::begin)
                 .await
                 .unwrap_or(crate::login_env::Plan { run_shell: true, wait: true });
             // An edit to a startup file reads the shell again (D26).
-            crate::login_env::watch_startup_files();
+            crate::login_env::watch_startup_files(&self.supervisor);
             let cached = crate::login_env::outcome() == crate::login_env::Outcome::Cached;
             if cached {
                 reloaded = self.after_login_env().await;
@@ -51,7 +54,7 @@ impl Hub {
                 }
             } else if plan.run_shell {
                 let hub = self.clone();
-                tokio::spawn(async move {
+                self.supervise("hub.login-env-import", Fatal, ShutdownBehavior::Skip, async move {
                     if crate::login_env::import().await {
                         hub.after_login_env().await;
                     }
@@ -99,6 +102,7 @@ impl Hub {
     async fn verify_launchers(&self) {
         let mut probe = self.config.read().await.clone();
         let before = probe.harnesses.clone();
+        // `<launcher> --version` children: a WILL_BLOCK item, unwatched (`daemon/hang_watch.rs`).
         let Ok(probe) = tokio::task::spawn_blocking(move || {
             crate::config::verify_launchers(&mut probe);
             probe

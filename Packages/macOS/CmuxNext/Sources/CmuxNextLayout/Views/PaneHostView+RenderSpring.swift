@@ -20,8 +20,10 @@ extension PaneHostView {
     /// ``springToRest(_:spring:inPlane:landed:)``, after the plane placed the host's chrome at rest
     /// (`LayoutViewContext.overlaySyncNow`).
     func placeAtRest(_ move: SplitMotion.RenderMove, laysOut: Bool) {
-        // On the render server before the frame moves: the content is never held (`contentFrame(in:)`).
+        // On the render server before the frame moves: the content is never held (`contentFrame(in:)`), and a
+        // page in its own window hides while the frame still shows where it was (`showsRenderMove`).
         renderSpringsInFlight += 1
+        if move.from != move.to || !move.velocity.isZero { showsRenderMove = true }
         restSize = move.to.size
         isOnLayoutSpring = true
         announceRest()
@@ -45,7 +47,10 @@ extension PaneHostView {
         let finish: RenderSpring.Completion = { [weak self] _ in
             if let self {
                 renderSpringsInFlight -= 1
-                if renderSpringsInFlight == 0 { chrome.rideEnded() }
+                if renderSpringsInFlight == 0 {
+                    chrome.rideEnded()
+                    showsRenderMove = false
+                }
             }
             landed()
         }
@@ -56,11 +61,15 @@ extension PaneHostView {
         var moves = renderSpringMoves(from: move.from, velocity: move.velocity)
         if move.fromAlpha != move.toAlpha { moves.append(RenderSpring.Move(layer, .opacity, from: move.fromAlpha, to: move.toAlpha)) }
         // The chrome is off this rest only when the plane placed nothing (a root that is not live, a hidden host).
+        var rides = false
         if let superview, let rest = inPlane(bounds, self), Self.gap(rest, chrome.frame) < 0.01,
            let start = Self.converted(move.from, velocity: move.velocity, from: superview, by: inPlane) {
             moves += chrome.rideMoves(from: start.rect, velocity: start.velocity, fromAlpha: move.fromAlpha, toAlpha: move.toAlpha)
+            rides = true
         }
         spring.animateGroup(moves, in: self, completion: finish)
+        // The rings' sizes spring now; their glows' outlines follow them.
+        if rides { chrome.followRideShadows() }
     }
 
     /// `rect`, moving at `velocity`, in `view`'s coordinates, in the coordinates `convert` maps a rect of
@@ -117,5 +126,6 @@ extension PaneHostView {
     func stopRenderMoves() {
         if let layer { ScreenContentView.stopMoveSprings(layer) }
         chrome.stopRide()
+        showsRenderMove = false
     }
 }

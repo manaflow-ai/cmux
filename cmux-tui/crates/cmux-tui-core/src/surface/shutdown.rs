@@ -18,7 +18,7 @@ impl Surface {
         // exit; a teardown that publish runs is on the reaper's own thread or
         // work item (`EndingTerminal`) and must not wait for itself.
         let reaper = {
-            let mut slot = pty.reaper_thread.lock().unwrap();
+            let mut slot = pty.reaper_thread.lock().recover_poison();
             let own_thread = matches!(
                 slot.as_ref(),
                 Some(LocalReaper::Thread(reaper))
@@ -39,13 +39,13 @@ impl Surface {
                     eprintln!("cmux-tui: child reaper thread panicked during shutdown");
                 }
             } else {
-                *pty.reaper_thread.lock().unwrap() = Some(reaper);
+                *pty.reaper_thread.lock().recover_poison() = Some(reaper);
                 eprintln!(
                     "cmux-tui: child reaper did not stop before the shared shutdown deadline"
                 );
             }
         }
-        if let Some(reader) = pty.reader_thread.lock().unwrap().take() {
+        if let Some(reader) = pty.reader_thread.lock().recover_poison().take() {
             if pty.reader_completion.wait_until(deadline) {
                 if let TerminalReader::Thread(reader) = reader
                     && reader.join().is_err()
@@ -78,11 +78,17 @@ impl Surface {
         let pty = self.as_pty().expect("test reader requires a PTY surface");
         pty.reader_completion.reset();
         let completion = pty.reader_completion.clone();
-        let reader = std::thread::spawn(move || {
-            let result = reader.join();
-            completion.complete();
-            result.expect("installed test terminal reader panicked");
-        });
+        let reader = supervised::spawn(
+            "test-terminal-reader",
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                let result = reader.join();
+                completion.complete();
+                result.expect("installed test terminal reader panicked");
+            },
+        )
+        .expect("test reader thread starts");
         let previous = pty.reader_thread.lock().unwrap().replace(TerminalReader::Thread(reader));
         assert!(previous.is_none(), "test PTY already owns a reader thread");
     }
@@ -145,7 +151,7 @@ impl Surface {
                 // exists in the mux topology.
                 pty.owner_detaching.store(true, Ordering::Release);
                 {
-                    let mut runtime = pty.runtime.lock().unwrap();
+                    let mut runtime = pty.runtime.lock().recover_poison();
                     match &mut *runtime {
                         PtyRuntime::Local { killer, .. } => {
                             let _ = killer.kill();
@@ -183,18 +189,18 @@ impl Surface {
         match self {
             #[cfg(any(unix, windows))]
             Surface::Pty(pty) => {
-                if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
+                if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().recover_poison() {
                     pty.owner_detaching.store(true, Ordering::Release);
                     host.disconnect();
                     return;
                 }
-                if matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::ExitedHosted) {
+                if matches!(&*pty.runtime.lock().recover_poison(), PtyRuntime::ExitedHosted) {
                     return;
                 }
                 // The holder keeps the shell; the next daemon re-attaches.
                 #[cfg(unix)]
                 if let PtyRuntime::Local { holder: Some(holder), .. } =
-                    &*pty.runtime.lock().unwrap()
+                    &*pty.runtime.lock().recover_poison()
                 {
                     pty.owner_detaching.store(true, Ordering::Release);
                     holder.detach();
@@ -215,7 +221,7 @@ impl Surface {
         }
         #[cfg(any(unix, windows))]
         if let Some(pty) = self.as_pty() {
-            let runtime = pty.runtime.lock().unwrap();
+            let runtime = pty.runtime.lock().recover_poison();
             if let PtyRuntime::Hosted(host) = &*runtime {
                 pty.owner_detaching.store(true, Ordering::Release);
                 let mut gap = None;
@@ -246,7 +252,7 @@ impl Surface {
     pub(crate) fn persist_host_workspace(&self, workspace_key: &str) -> anyhow::Result<()> {
         #[cfg(any(unix, windows))]
         if let Some(pty) = self.as_pty()
-            && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().unwrap()
+            && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().recover_poison()
         {
             return host.persist_workspace(workspace_key);
         }
@@ -260,7 +266,7 @@ impl Surface {
         #[cfg(any(unix, windows))]
         {
             let Some(pty) = self.as_pty() else { return Ok(false) };
-            let mut runtime = pty.runtime.lock().unwrap();
+            let mut runtime = pty.runtime.lock().recover_poison();
             let PtyRuntime::Hosted(host) = &mut *runtime else { return Ok(false) };
             host.activate_launched_host().map_err(anyhow::Error::new)
         }

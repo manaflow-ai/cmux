@@ -34,6 +34,7 @@
       "CmuxNextBrowserCore"
     ],
     [
+      "CmuxNextAppearance",
       "CmuxNextBridge",
       "CmuxNextWorkspaceNaming",
       "CmuxNextCloud",
@@ -111,6 +112,7 @@
       "CmuxNextVSCodeServer",
       "CmuxNextRemoteFetch",
       "CmuxNextBrowserCore",
+      "CmuxNextAppearance",
       "CmuxNextBridge",
       "CmuxNextWorkspaceNaming",
       "CmuxNextCloud",
@@ -125,6 +127,7 @@
       "CmuxNextRemoteLocalhost",
       "CmuxNextServerHelper",
       "CmuxNextCLIInstall",
+      "CmuxNextInputModel",
       "CZlib"
     ],
     "testTargets": [
@@ -225,14 +228,10 @@
         "CmuxNextLayout",
         "CmuxNextSidebar",
         "CmuxNextTabs"
-      ],
-      "CmuxNextSettings": [
-        "CmuxNextDesign"
       ]
     },
     "absent": [
       "CmuxNextOracle",
-      "CmuxNextInputModel",
       "OracleReplay",
       "OracleInputWalk",
       "OracleConfigDump",

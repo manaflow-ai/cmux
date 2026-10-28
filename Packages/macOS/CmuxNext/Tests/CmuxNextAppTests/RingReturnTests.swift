@@ -91,14 +91,14 @@ import Testing
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { false },
                                      prober: UpdateProber(fetcher: StaticFeed(xml: feed), architecture: .arm64),
                                      defaults: defaults, enableSparkle: false, recordsUpdates: false,
-                                     work: BackgroundWork(label: "test.updater"))
+                                     work: BackgroundWork(label: "test.updater"), deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())))
         updater.announcementsFetch = false
         updater.follow(ring: "nightly")
         #expect(!updater.isProbing)
         updater.follow(ring: "dev")
         // The pick started the check itself; this only waits for it.
         #expect(updater.isProbing)
-        _ = await updater.probe().value
+        _ = await updater.probe(.visible).value
         guard case .updateAvailable(let item) = updater.lastProbe?.outcome else {
             Issue.record("\(String(describing: updater.lastProbe))")
             return

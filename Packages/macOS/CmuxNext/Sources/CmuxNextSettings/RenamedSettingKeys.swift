@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextAppearance
 
 /// Keys a newer key replaced while the app still applies the old one when the new key is absent.
 /// Settings reads the old key's value for the new row (``SettingDescriptor/storedValue(in:)``), and

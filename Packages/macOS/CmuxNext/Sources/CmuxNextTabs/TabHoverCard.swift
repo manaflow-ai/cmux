@@ -33,7 +33,7 @@ final class TabHoverCardController: HoverCardSource {
     weak var strip: TabStripView?
     /// Samples CPU and memory of the hovered tab while its card shows (first
     /// sample when it shows: a sweep across tabs samples none), never otherwise.
-    let resources = ResourceCardSampler(source: nil)
+    let resources = ResourceCardSampler()
     /// Pointer rest before a tab's card opens: `HoverCardTiming.showDelay`,
     /// or `sidebar.hoverCards.delay`; read on
     /// each hover so a Settings change applies at once. Every tab waits the
@@ -117,7 +117,7 @@ final class TabHoverCardController: HoverCardSource {
     /// A point in the strip on no tab (a gap, a New Tab page's tab): a shown card waits
     /// there for the next tab.
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool {
-        guard let strip, let window = strip.window, !strip.isHiddenOrHasHiddenAncestor else { return false }
+        guard let strip, let window = strip.window, strip.isShownInWindow else { return false }
         return strip.visibleRect.contains(strip.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
     }
 
@@ -258,8 +258,13 @@ final class TabHoverCardController: HoverCardSource {
         let scale = strip?.window?.backingScaleFactor ?? 2
         let size = CGSize(width: TabHoverCardView.thumbnailSize.width * scale, height: TabHoverCardView.thumbnailSize.height * scale)
         let target = Self.targetID(id)
+        // main-hop-allow: the providers picture their views on the main actor (TabContentCache, ScreenBarController); the card applies the image in this task's one resume, and a retarget cancels it
         thumbnailTask = Task { [weak self] in
             let image = await provider.previewImage(for: id, maxPixelSize: size)
+            // The kept thumbnail is made before the card's checks: with `purgeableImageCaches` on, its copy is
+            // drawn off the main actor.
+            var picture: PurgeablePicture?
+            if let image, let thumbnails = self?.thumbnails { picture = await thumbnails.picture(of: image) }
             guard let self, !Task.isCancelled, self.bodyID == target else { return }
             // No thumbnail (a page never captured): none, not the previous
             // tab's picture kept through the retarget or an empty frame.
@@ -270,7 +275,7 @@ final class TabHoverCardController: HoverCardSource {
                 self.coordinator.contentChanged(target)
                 return
             }
-            self.thumbnails.insert(image, for: id)
+            self.thumbnails.insert(picture, for: id)
             self.noThumbnail.remove(id)
             // A card that showed no frame (the last tab had none) grows one for it.
             let grows = self.body?.showsThumbnail == false
@@ -330,10 +335,10 @@ extension TabHoverCardController: MemoryConsumer {
         return .done
     }
 
-    /// Thumbnail pixels (bytes per row x height each). A sample is a few hundred bytes and
-    /// counts as an entry only.
+    /// Thumbnail pixels (bytes per row x height each), locked apart from volatile (p07-memory-107). A sample
+    /// is a few hundred bytes and counts as an entry only.
     var memoryUsage: MemoryUsage? {
-        MemoryUsage(footprintBytes: thumbnails.bytes, entries: thumbnails.count + lastReports.count)
+        thumbnails.usage(entries: thumbnails.count + lastReports.count)
     }
 
     /// How many tabs' samples it keeps now (tests).

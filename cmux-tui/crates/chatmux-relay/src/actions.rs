@@ -27,6 +27,8 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
 
+use crate::panic_free::filled;
+
 pub const READ_ONLY_VERBS: [&str; 4] = ["read", "ls", "grep", "find"];
 pub const ACTION_VERBS: [&str; 6] = ["exec", "read", "write", "ls", "grep", "find"];
 
@@ -127,9 +129,7 @@ pub fn validate_request_path(value: &str) -> Result<(), String> {
         return Err("ambiguous leading path separators are not accepted".to_owned());
     }
     if cfg!(windows) {
-        let drive_relative = value.len() >= 2
-            && value.as_bytes()[1] == b':'
-            && value.as_bytes()[0].is_ascii_alphabetic()
+        let drive_relative = matches!(value.as_bytes(), [drive, b':', ..] if drive.is_ascii_alphabetic())
             && !Path::new(value).is_absolute();
         if drive_relative {
             return Err("drive-relative paths are not accepted".to_owned());
@@ -357,17 +357,23 @@ fn open_dir_no_symlinks(path: &Path, create_missing: bool) -> Result<std::fs::Fi
     use std::os::fd::FromRawFd as _;
     use std::os::unix::ffi::OsStrExt as _;
 
-    let root = std::ffi::CString::new("/").expect("root has no NUL");
+    let root = c"/";
+    // SAFETY: `root` is a NUL-terminated C string literal with static lifetime; open does not keep
+    // the pointer.
     let root_fd =
         unsafe { libc::open(root.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC) };
     if root_fd < 0 {
         return Err(HostError::Io(std::io::Error::last_os_error()));
     }
+    // SAFETY: `root_fd` is non-negative, so open returned a fresh descriptor that nothing else
+    // owns; the File takes its sole ownership.
     let mut current = unsafe { std::fs::File::from_raw_fd(root_fd) };
     for component in path.components() {
         let Component::Normal(name) = component else { continue };
         let name = std::ffi::CString::new(name.as_bytes())
             .map_err(|_| HostError::Refusal("path contains an embedded NUL byte".to_owned()))?;
+        // SAFETY: `current` owns the directory descriptor for the call and `name` is a
+        // NUL-terminated CString that lives across it; openat keeps neither.
         let mut fd = unsafe {
             libc::openat(
                 std::os::fd::AsRawFd::as_raw_fd(&current),
@@ -376,12 +382,16 @@ fn open_dir_no_symlinks(path: &Path, create_missing: bool) -> Result<std::fs::Fi
             )
         };
         if fd < 0 && create_missing && is_not_found(&std::io::Error::last_os_error()) {
+            // SAFETY: `current` owns the directory descriptor for the call and `name` is a
+            // NUL-terminated CString that lives across it; mkdirat keeps neither.
             let made = unsafe {
                 libc::mkdirat(std::os::fd::AsRawFd::as_raw_fd(&current), name.as_ptr(), 0o777)
             };
             if made < 0 && !is_already_exists(&std::io::Error::last_os_error()) {
                 return Err(HostError::Io(std::io::Error::last_os_error()));
             }
+            // SAFETY: `current` owns the directory descriptor for the call and `name` is a
+            // NUL-terminated CString that lives across it; openat keeps neither.
             fd = unsafe {
                 libc::openat(
                     std::os::fd::AsRawFd::as_raw_fd(&current),
@@ -398,6 +408,8 @@ fn open_dir_no_symlinks(path: &Path, create_missing: bool) -> Result<std::fs::Fi
                 HostError::Io(error)
             });
         }
+        // SAFETY: `fd` is non-negative, so openat returned a fresh descriptor that nothing else
+        // owns; the File takes its sole ownership (the previous `current` closes its own).
         current = unsafe { std::fs::File::from_raw_fd(fd) };
     }
     Ok(current)
@@ -430,13 +442,15 @@ fn open_beneath(
             _ => Err(HostError::Refusal("invalid descriptor-relative path".to_owned())),
         })
         .collect::<Result<Vec<_>, _>>()?;
-    if parts.is_empty() {
+    let Some((last, parents)) = parts.split_last() else {
         return anchor.try_clone().map_err(HostError::Io);
-    }
+    };
     let mut current = anchor.try_clone()?;
-    for name in &parts[..parts.len() - 1] {
+    for name in parents {
         let name = std::ffi::CString::new(name.as_bytes())
             .map_err(|_| HostError::Refusal("path contains an embedded NUL byte".to_owned()))?;
+        // SAFETY: `current` owns the directory descriptor for the call and `name` is a
+        // NUL-terminated CString that lives across it; openat keeps neither.
         let mut fd = unsafe {
             libc::openat(
                 current.as_raw_fd(),
@@ -445,10 +459,14 @@ fn open_beneath(
             )
         };
         if fd < 0 && create_parents && is_not_found(&std::io::Error::last_os_error()) {
+            // SAFETY: `current` owns the directory descriptor for the call and `name` is a
+            // NUL-terminated CString that lives across it; mkdirat keeps neither.
             let made = unsafe { libc::mkdirat(current.as_raw_fd(), name.as_ptr(), 0o777) };
             if made < 0 && !is_already_exists(&std::io::Error::last_os_error()) {
                 return Err(HostError::Io(std::io::Error::last_os_error()));
             }
+            // SAFETY: `current` owns the directory descriptor for the call and `name` is a
+            // NUL-terminated CString that lives across it; openat keeps neither.
             fd = unsafe {
                 libc::openat(
                     current.as_raw_fd(),
@@ -465,10 +483,14 @@ fn open_beneath(
                 HostError::Io(error)
             });
         }
+        // SAFETY: `fd` is non-negative, so openat returned a fresh descriptor that nothing else
+        // owns; the File takes its sole ownership (the previous `current` closes its own).
         current = unsafe { std::fs::File::from_raw_fd(fd) };
     }
-    let name = std::ffi::CString::new(parts.last().expect("nonempty").as_bytes())
+    let name = std::ffi::CString::new(last.as_bytes())
         .map_err(|_| HostError::Refusal("path contains an embedded NUL byte".to_owned()))?;
+    // SAFETY: `current` owns the directory descriptor for the call and `name` is a NUL-terminated
+    // CString that lives across it; the mode is passed as the variadic int that O_CREAT reads.
     let fd = unsafe {
         libc::openat(
             current.as_raw_fd(),
@@ -485,6 +507,8 @@ fn open_beneath(
             HostError::Io(error)
         });
     }
+    // SAFETY: `fd` is non-negative, so openat returned a fresh descriptor that nothing else owns;
+    // the File takes its sole ownership.
     Ok(unsafe { std::fs::File::from_raw_fd(fd) })
 }
 
@@ -703,23 +727,34 @@ fn read_dir_scoped(path: &HostScopedPath) -> Result<ScopedDirEntries, HostError>
 
         let directory =
             open_beneath(&path.anchor, &path.relative, libc::O_RDONLY | libc::O_DIRECTORY, false)?;
+        // SAFETY: `directory` owns its descriptor for the call; dup takes no pointers.
         let fd = unsafe { libc::dup(directory.as_raw_fd()) };
         if fd < 0 {
             return Err(HostError::Io(std::io::Error::last_os_error()));
         }
+        // SAFETY: `fd` is a fresh descriptor from dup that only this function holds; fdopendir
+        // takes it over on success.
         let stream = unsafe { libc::fdopendir(fd) };
         if stream.is_null() {
+            // SAFETY: fdopendir failed, so `fd` is still ours alone and closing it here is its only
+            // close.
             unsafe { libc::close(fd) };
             return Err(HostError::Io(std::io::Error::last_os_error()));
         }
         let mut entries = Vec::with_capacity(MAX_LISTING_ENTRIES.min(64));
         let mut truncated = false;
         loop {
+            // SAFETY: `stream` is the non-null DIR from fdopendir, still open; it is closed only
+            // after this loop.
             let entry = unsafe { libc::readdir(stream) };
             if entry.is_null() {
                 break;
             }
+            // SAFETY: `entry` is non-null and readdir's dirent stays valid until the next readdir
+            // or closedir on `stream`, neither of which happens while this borrow lives.
             let entry = unsafe { &*entry };
+            // SAFETY: d_name is the NUL-terminated name inside the live dirent borrowed above; the
+            // bytes are copied before the next readdir.
             let name = unsafe { CStr::from_ptr(entry.d_name.as_ptr()) }.to_bytes();
             if name == b"." || name == b".." {
                 continue;
@@ -734,6 +769,8 @@ fn read_dir_scoped(path: &HostScopedPath) -> Result<ScopedDirEntries, HostError>
                 break;
             }
         }
+        // SAFETY: `stream` is the open DIR from fdopendir and this is its only closedir; it also
+        // closes `fd`.
         if unsafe { libc::closedir(stream) } != 0 {
             return Err(HostError::Io(std::io::Error::last_os_error()));
         }
@@ -773,6 +810,8 @@ fn inherited_path(path: &HostScopedPath) -> Result<(std::fs::File, String), Host
         return Err(HostError::Refusal("path must be a regular file or directory".to_owned()));
     };
     let fd = target.as_raw_fd();
+    // SAFETY: `fd` is owned by `target`, which lives across the call; F_SETFD takes an int flag
+    // set, no pointer.
     if unsafe { libc::fcntl(fd, libc::F_SETFD, 0) } < 0 {
         return Err(HostError::Io(std::io::Error::last_os_error()));
     }
@@ -1080,12 +1119,16 @@ impl ProcessTreeOwner {
     fn terminate(&self) {
         // The keeper keeps this PGID alive until cleanup. No existence probe
         // is needed, so there is no check-then-signal PID reuse window.
+        // SAFETY: kill takes integers only; the keeper keeps the group `pgid` alive, so the id is
+        // not reused.
         unsafe {
             libc::kill(-self.pgid, libc::SIGTERM);
         }
     }
 
     fn kill(&self) {
+        // SAFETY: kill takes integers only; the keeper keeps the group `pgid` alive, so the id is
+        // not reused.
         unsafe {
             libc::kill(-self.pgid, libc::SIGKILL);
         }
@@ -1108,6 +1151,8 @@ impl ProcessTreeOwner {
 impl Drop for ProcessTreeOwner {
     fn drop(&mut self) {
         if self.armed {
+            // SAFETY: kill takes integers only; the keeper keeps the group `pgid` alive, so the id
+            // is not reused.
             unsafe {
                 libc::kill(-self.pgid, libc::SIGKILL);
             }
@@ -1287,7 +1332,7 @@ async fn run_spec(
                     Ok(0) | Err(_) => stdout_open = false,
                     Ok(count) => {
                         if output.len() < byte_cap {
-                            output.extend_from_slice(&stdout_buf[..count]);
+                            output.extend_from_slice(filled(&stdout_buf, count));
                         }
                     }
                 }
@@ -1302,7 +1347,7 @@ async fn run_spec(
                     Ok(0) | Err(_) => stderr_open = false,
                     Ok(count) => {
                         if output.len() < byte_cap {
-                            output.extend_from_slice(&stderr_buf[..count]);
+                            output.extend_from_slice(filled(&stderr_buf, count));
                         }
                     }
                 }
@@ -1461,18 +1506,23 @@ impl WindowsJob {
             JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
             SetInformationJobObject,
         };
+        // SAFETY: both arguments are null, which CreateJobObjectW accepts as default security and
+        // no name.
         let raw_handle = unsafe { CreateJobObjectW(null_mut(), null_mut()) };
         if raw_handle.is_null() {
             return Err(());
         }
-        // CreateJobObjectW returns a newly owned kernel handle. OwnedHandle
-        // supplies the correct CloseHandle drop and is Send + Sync, so the
-        // job can remain alive while run_spec awaits on Tokio I/O.
+        // SAFETY: `raw_handle` is non-null, so CreateJobObjectW returned a newly
+        // owned kernel handle that nothing else closes. OwnedHandle supplies the
+        // CloseHandle drop and is Send + Sync, so the job can remain alive while
+        // run_spec awaits on Tokio I/O.
         let handle = unsafe { std::os::windows::io::OwnedHandle::from_raw_handle(raw_handle) };
         let mut information = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
         information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        let information_size = u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
-            .expect("Windows job information fits in u32");
+        let information_size =
+            u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>()).map_err(|_| ())?;
+        // SAFETY: `handle` owns the job for the call and the pointer is to the live local
+        // `information`, whose size is the length passed; SetInformationJobObject only reads it.
         if unsafe {
             SetInformationJobObject(
                 handle.as_raw_handle(),
@@ -1485,6 +1535,8 @@ impl WindowsJob {
             return Err(());
         }
         let process = child.raw_handle().ok_or(())?;
+        // SAFETY: `handle` owns the job and `process` is the live child's handle, both open for the
+        // call.
         if unsafe { AssignProcessToJobObject(handle.as_raw_handle(), process) } == 0 {
             return Err(());
         }
@@ -1493,6 +1545,8 @@ impl WindowsJob {
 
     fn terminate(&self) {
         use std::os::windows::io::AsRawHandle;
+        // SAFETY: `self.handle` owns the job handle, open for the call; TerminateJobObject takes no
+        // pointers.
         unsafe {
             windows_sys::Win32::System::JobObjects::TerminateJobObject(
                 self.handle.as_raw_handle(),
@@ -1502,16 +1556,18 @@ impl WindowsJob {
     }
 }
 
-fn cap_lines(output: &str, truncated: bool, limit: Option<&Value>) -> (String, bool) {
+pub(crate) fn cap_lines(output: &str, truncated: bool, limit: Option<&Value>) -> (String, bool) {
     let Some(limit) = limit.and_then(Value::as_f64).filter(|v| v.is_finite()) else {
         return (output.to_owned(), truncated);
     };
     let cap = (limit.trunc() as i64).clamp(1, 5_000) as usize;
     let lines: Vec<&str> = output.split('\n').collect();
-    if lines.len() <= cap {
+    let Some((kept, dropped)) =
+        lines.split_at_checked(cap).filter(|(_, dropped)| !dropped.is_empty())
+    else {
         return (output.to_owned(), truncated);
-    }
-    (format!("{}\n…[{} more lines]", lines[..cap].join("\n"), lines.len() - cap), true)
+    };
+    (format!("{}\n…[{} more lines]", kept.join("\n"), dropped.len()), true)
 }
 
 // ---------------------------------------------------------------------------
@@ -1531,22 +1587,27 @@ pub struct ActionContext {
     pub process_cancellation: tokio_util::sync::CancellationToken,
 }
 
-fn frame_roots(frame: &Value) -> Result<Option<Vec<String>>, &'static str> {
+pub(crate) fn frame_roots(frame: &Value) -> Result<Option<Vec<String>>, &'static str> {
     let Some(value) = frame.get("allowedRoots") else { return Ok(None) };
     if value.is_null() {
         return Ok(None);
     }
     let roots = value.as_array().ok_or("allowedRoots must be an array")?;
-    if roots.len() > 32 || roots.iter().any(|root| !root.is_string() || root.as_str() == Some("")) {
+    if roots.len() > 32 {
         return Err("invalid allowedRoots");
     }
-    if roots.iter().any(|root| validate_request_path(root.as_str().unwrap()).is_err()) {
+    let roots = roots
+        .iter()
+        .map(Value::as_str)
+        .collect::<Option<Vec<&str>>>()
+        .ok_or("invalid allowedRoots")?;
+    if roots.iter().any(|root| root.is_empty() || validate_request_path(root).is_err()) {
         return Err("invalid allowedRoots");
     }
-    if roots.iter().map(|root| root.as_str().unwrap().len()).sum::<usize>() > 16 * 1024 {
+    if roots.iter().map(|root| root.len()).sum::<usize>() > 16 * 1024 {
         return Err("invalid allowedRoots");
     }
-    Ok(Some(roots.iter().map(|root| root.as_str().unwrap().to_owned()).collect()))
+    Ok(Some(roots.into_iter().map(str::to_owned).collect()))
 }
 
 fn ok_result(version: i64, action_id: &str, result: Value) -> Value {
@@ -1816,9 +1877,9 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
     }
     let mut env = context.env.clone();
     env.extend(runtime.environment.clone());
-    let first_roots = root_lists.iter().flatten().find(|roots| !roots.is_empty());
-    let workdir = match first_roots {
-        Some(roots) => expand_path(&roots[0], &home, &home).display().to_string(),
+    let first_root = root_lists.iter().flatten().find_map(|roots| roots.first());
+    let workdir = match first_root {
+        Some(root) => expand_path(root, &home, &home).display().to_string(),
         None => home.display().to_string(),
     };
     let path_scope = OwnedPathScope {

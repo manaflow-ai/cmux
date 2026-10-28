@@ -147,11 +147,11 @@ impl Router {
         let policy = Arc::new(policy);
         let handle = |(stream, _): (tokio::net::TcpStream, std::net::SocketAddr)| {
             let (router, policy) = (self.clone(), policy.clone());
-            tokio::spawn(async move {
+            async move {
                 if let Ok((transport, origin)) = crate::ws::accept(stream, &policy).await {
                     let _ = router.serve_page(transport, origin).await;
                 }
-            });
+            }
         };
         let log = crate::net::log_accept_error("router page websocket");
         crate::net::accept_loop(|| crate::net::accept(&listener), handle, log).await;

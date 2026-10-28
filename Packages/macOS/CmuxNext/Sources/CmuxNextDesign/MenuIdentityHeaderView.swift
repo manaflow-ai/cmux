@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextInput
+public import CmuxNextDesignTokens
 
 /// The name-and-colors header of a right-click menu (Chrome's tab-group menu): a name field over a
 /// row of color swatches, inset as the menu's rows are. The app's `MenuIdentityHeader` builds it
@@ -187,6 +188,7 @@ public final class MenuSwatchStrip: NSView {
         clearChoice = clear
         self.clearIsCurrent = clear != nil && clearIsCurrent
         super.init(frame: NSRect(x: 0, y: 0, width: 0, height: Self.height))
+        // wakeup-allow: bounded a right-click menu opens over an inactive cmux window too; the area hears moves only while the menu shows
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
         setAccessibilityElement(true)
         setAccessibilityRole(.group)

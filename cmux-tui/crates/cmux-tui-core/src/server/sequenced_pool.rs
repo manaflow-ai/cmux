@@ -41,19 +41,29 @@
 //! - **Fences.** [`SequencedPool::fence`] runs a callback once other
 //!   sequences ran every task posted to them before the fence: the stream
 //!   barrier (stream_lanes.rs) is built on it.
+//! - **Delayed tasks.** [`Sequence::post_delayed`] queues a task that joins
+//!   its sequence once its delay passed (Chrome's `PostDelayedTask`, whose
+//!   DelayedTaskManager keeps one heap of due times,
+//!   base/task/thread_pool/delayed_task_manager.cc). An idle worker waits
+//!   until the earliest due time of its priority; a busy one moves due tasks
+//!   when it finishes its task. No timer thread.
 //! - **No idle wakeups.** An idle worker waits on its priority's condition
-//!   variable with no timeout; only a post wakes it.
+//!   variable with no timeout while no delayed task is pending; only a post
+//!   or a due delayed task wakes it.
 //!
 //! Lock order: a caller may hold its own state lock (a connection
 //! scheduler's) while it posts; the pool never calls out while it holds its
 //! lock (tasks and fence callbacks run after it is released).
 
+use cmux_threads::sync::{Condvar, Mutex};
 use std::cell::{Cell, RefCell};
-use std::collections::{HashMap, VecDeque};
+use std::cmp::Ordering as CmpOrdering;
+use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::io;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, MutexGuard};
+use std::time::{Duration, Instant};
 
 use cmux_threads::ThreadQos;
 
@@ -192,8 +202,10 @@ type Task = Box<dyn FnOnce() + Send + 'static>;
 
 type SpawnFn = dyn Fn(&'static str, ThreadQos, Task) -> io::Result<()> + Send + Sync;
 
-/// Starts a detached worker thread: `cmux_threads::spawn` by default, a
-/// stand-in that fails in tests.
+/// Starts a detached worker thread: a supervised thread (Fatal,
+/// p10-stability-112) by default, a stand-in that fails in tests. A task's
+/// own panic is caught in the worker loop; a failure of the worker itself
+/// ends the process.
 #[derive(Clone)]
 pub(crate) struct WorkerSpawner(Arc<SpawnFn>);
 
@@ -209,7 +221,16 @@ impl WorkerSpawner {
 impl Default for WorkerSpawner {
     fn default() -> Self {
         // The handle is dropped: the worker is detached.
-        Self(Arc::new(|name, qos, body| cmux_threads::spawn(name, qos, body).map(drop)))
+        Self(Arc::new(|name, qos, body| {
+            crate::supervised::spawn_at(
+                name,
+                qos,
+                crate::supervised::Fatal,
+                crate::supervised::ShutdownBehavior::Continue,
+                body,
+            )
+            .map(drop)
+        }))
     }
 }
 
@@ -241,6 +262,42 @@ struct FenceState {
     then: Task,
 }
 
+/// A task posted with a delay; it joins sequence `sequence` at `due`.
+struct DelayedTask {
+    due: Instant,
+    /// Post order, so tasks due at the same instant keep it.
+    order: u64,
+    sequence: u64,
+    task: Task,
+}
+
+impl DelayedTask {
+    fn key(&self) -> (Instant, u64) {
+        (self.due, self.order)
+    }
+}
+
+impl PartialEq for DelayedTask {
+    fn eq(&self, other: &Self) -> bool {
+        self.key() == other.key()
+    }
+}
+
+impl Eq for DelayedTask {}
+
+impl PartialOrd for DelayedTask {
+    fn partial_cmp(&self, other: &Self) -> Option<CmpOrdering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for DelayedTask {
+    /// Reversed: the heap's top is the earliest due task.
+    fn cmp(&self, other: &Self) -> CmpOrdering {
+        other.key().cmp(&self.key())
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 struct Workers {
     live: usize,
@@ -256,6 +313,8 @@ struct PoolState {
     fences: HashMap<u64, FenceState>,
     next_id: u64,
     ready: [VecDeque<u64>; 4],
+    /// Delayed tasks per priority, earliest due on top.
+    delayed: [BinaryHeap<DelayedTask>; 4],
     workers: [Workers; 4],
     shut_down: bool,
 }
@@ -304,6 +363,7 @@ impl SequencedPool {
                     fences: HashMap::new(),
                     next_id: 1,
                     ready: Default::default(),
+                    delayed: Default::default(),
                     workers: [Workers::default(); 4],
                     shut_down: false,
                 }),
@@ -400,7 +460,7 @@ impl SequencedPool {
 
 impl Drop for SequencedPool {
     fn drop(&mut self) {
-        let dropped = {
+        let (dropped, delayed) = {
             let mut state = self.shared.lock();
             state.shut_down = true;
             for ready in &mut state.ready {
@@ -412,7 +472,9 @@ impl Drop for SequencedPool {
                 sequence.tasks = 0;
                 dropped.extend(sequence.items.drain(..));
             }
-            dropped
+            let delayed: Vec<DelayedTask> =
+                state.delayed.iter_mut().flat_map(std::mem::take).collect();
+            (dropped, delayed)
         };
         for condvar in &self.shared.work {
             condvar.notify_all();
@@ -420,6 +482,7 @@ impl Drop for SequencedPool {
         // Queued tasks drop here, outside the lock: their captures may
         // take other locks as they go.
         drop(dropped);
+        drop(delayed);
     }
 }
 
@@ -491,6 +554,51 @@ impl Sequence {
         let item = sequence.items.pop_back()?;
         sequence.tasks -= 1;
         Some(item)
+    }
+
+    /// Queues `task` to join this sequence once `delay` passed: it then
+    /// runs behind every task posted before that instant. It counts against
+    /// no cap while it waits, and is dropped unrun when the sequence is gone
+    /// by then. Like [`Self::post`], it is refused ([`PostError::NoWorker`])
+    /// when no worker of the priority is live and none could start.
+    pub(crate) fn post_delayed<F>(&self, delay: Duration, task: F) -> Result<(), PostError>
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        let index = self.priority.index();
+        let mut state = self.shared.lock();
+        if state.shut_down || !state.sequences.contains_key(&self.id) {
+            return Err(PostError::ShutDown);
+        }
+        let order = state.next_id;
+        state.next_id += 1;
+        let delayed = DelayedTask {
+            due: Instant::now() + delay,
+            order,
+            sequence: self.id,
+            task: Box::new(task),
+        };
+        let heap = &mut state.delayed[index];
+        let earliest = heap.peek().is_none_or(|head| delayed.key() < head.key());
+        heap.push(delayed);
+        // A new earliest due time: one worker (re)computes its wait.
+        if !earliest || !self.shared.wake_or_reserve(&mut state, self.priority) {
+            return Ok(());
+        }
+        // As in `post`: the worker starts under the lock, so a delayed task
+        // that no worker could ever promote is refused, not kept.
+        if self.shared.spawn_worker_locked(&mut state, self.priority)
+            || state.workers[index].live > 0
+        {
+            return Ok(());
+        }
+        // It is the earliest, so the heap's top: nothing else moved.
+        let taken = state.delayed[index].pop();
+        debug_assert!(taken.as_ref().is_some_and(|delayed| delayed.order == order));
+        drop(state);
+        // The task drops outside the lock: its captures may take other locks.
+        drop(taken);
+        Err(PostError::NoWorker)
     }
 
     /// Queued tasks plus the running one.
@@ -647,10 +755,10 @@ impl Shared {
         }
     }
 
-    /// Starts a temporary worker whose slot [`Self::wake_or_reserve`]
-    /// reserved for a blocked task; one that does not start gives its slot
-    /// back and leaves the ready work to the live workers (the blocked
-    /// task's own among them).
+    /// Starts a worker whose slot [`Self::wake_or_reserve`] reserved from a
+    /// live worker (for a blocked task, or for sequences a due delayed task
+    /// made ready); one that does not start gives its slot back and leaves
+    /// the ready work to the live workers (the caller's own among them).
     fn spawn_worker(self: &Arc<Self>, priority: SequencePriority) {
         if let Err(error) = self.start_worker(priority) {
             eprintln!("cmux: could not start {} worker: {error}", priority.thread_name());
@@ -701,6 +809,17 @@ impl Shared {
                 state.workers[index].live -= 1;
                 return;
             }
+            let (spawns, orphans) = self.promote_due(&mut state, priority);
+            if spawns > 0 || !orphans.is_empty() {
+                drop(state);
+                // Outside the lock: an orphan's captures may take other locks.
+                drop(orphans);
+                for _ in 0..spawns {
+                    self.spawn_worker(priority);
+                }
+                state = self.lock();
+                continue;
+            }
             let Some(id) = state.ready[index].pop_front() else {
                 // A temporary worker whose blocked task left exits once it
                 // has nothing to run; it never waits.
@@ -709,7 +828,15 @@ impl Shared {
                     return;
                 }
                 state.workers[index].idle += 1;
-                state = self.work[index].wait(state).recover_poison();
+                let next_due = state.delayed[index].peek().map(|head| head.due);
+                state = match next_due {
+                    None => self.work[index].idle().wait(state).recover_poison(),
+                    Some(due) => {
+                        let wait = due.saturating_duration_since(Instant::now());
+                        // wakeup-allow: deadline the earliest delayed task's due time, armed only while one is pending
+                        self.work[index].idle().wait_timeout(state, wait).recover_poison().0
+                    }
+                };
                 self.wakeups.fetch_add(1, Ordering::Relaxed);
                 let workers = &mut state.workers[index];
                 workers.idle -= 1;
@@ -735,6 +862,36 @@ impl Shared {
                 state = self.lock();
             }
         }
+    }
+}
+
+impl Shared {
+    /// Moves the due delayed tasks of `priority` into their sequences.
+    /// Returns the workers to start for the sequences that became ready
+    /// beyond the one this worker takes, and the tasks whose sequence is
+    /// gone (to drop without the lock).
+    fn promote_due(&self, state: &mut PoolState, priority: SequencePriority) -> (usize, Vec<Task>) {
+        let index = priority.index();
+        if state.delayed[index].is_empty() {
+            return (0, Vec::new());
+        }
+        let now = Instant::now();
+        let (mut became_ready, mut orphans) = (0, Vec::new());
+        while state.delayed[index].peek().is_some_and(|head| head.due <= now) {
+            let Some(delayed) = state.delayed[index].pop() else { break };
+            let Some(sequence) = state.sequences.get_mut(&delayed.sequence) else {
+                orphans.push(delayed.task);
+                continue;
+            };
+            sequence.tasks += 1;
+            sequence.items.push_back(Item::Task(delayed.task));
+            if !sequence.running && sequence.tasks == 1 {
+                state.ready[index].push_back(delayed.sequence);
+                became_ready += 1;
+            }
+        }
+        let spawns = (1..became_ready).filter(|_| self.wake_or_reserve(state, priority)).count();
+        (spawns, orphans)
     }
 }
 

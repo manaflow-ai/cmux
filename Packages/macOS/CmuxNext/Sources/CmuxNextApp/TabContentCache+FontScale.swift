@@ -1,5 +1,6 @@
 import CmuxNextDaemon
 import CmuxNextTerminal
+import CmuxNextWakeups
 import Foundation
 
 // A terminal's font zoom lives on its tab record (`tab.update` zoom, the
@@ -10,23 +11,25 @@ extension TabContentCache {
     /// A session for `tab` that follows its record's font scale and the Ghostty config; its output
     /// lane is watched by `daemon`'s hang watch.
     func makeSession(io: any TerminalIO, tab: TabModel, daemon: DaemonService) -> TerminalSession {
+        let key = tab.id, tabNode = node(for: key)
         let session = TerminalSession(io: io, ownsGeometry: true, hangWatch: daemon.hangWatch, modifiers: terminalModifiers,
                                       pointerFrames: terminalPointerFrames,
-                                      mainWork: mainWork, node: node(for: tab.id), gpuResidency: gpuResidency)
-        let key = tab.id
+                                      mainWork: mainWork, node: tabNode, gpuResidency: gpuResidency,
+                                      externalCursor: terminalExternalCursor)
         // It lays out after a Ghostty config change only while its tab is visible (p06-scheduler-044).
-        session.view.followConfig(node(for: key), on: mainWork)
+        session.view.followConfig(tabNode, on: mainWork)
+        fontScaleWaits[key] = nil
         if daemon.store.session.known {
             if daemon.store.servesStateResources, let zoom = tab.zoom { TerminalFontScale(session.surfaceView).apply(zoom) }
         } else {
-            session.closeCancels.append(applyFontScaleWhenKnown(tab: key, session: session, daemon: daemon))
+            applyFontScaleWhenKnown(tab: key, session: session, daemon: daemon)
         }
-        TerminalFontScale(session.surfaceView).observe { [weak daemon, weak session] scale in
+        TerminalFontScale(session.surfaceView).observe { [weak daemon, weak session, weak tabNode] scale in
             guard let daemon else { return }
             Self.saveFontScale(scale, tab: key, daemon: daemon)
             // Ghostty handles Cmd+=/-/0 directly, so show the same transient readout
-            // as the action/palette path when the changed terminal owns the key window.
-            if let surfaceView = session?.surfaceView, surfaceView.window?.isKeyWindow == true, !surfaceView.isHiddenOrHasHiddenAncestor {
+            // as the action/palette path when the changed terminal shows in the key window.
+            if let surfaceView = session?.surfaceView, surfaceView.window?.isKeyWindow == true, tabNode?.isVisible == true {
                 SurfaceZoomIndicator.show(percent: Int(((scale ?? 1) * 100).rounded()), in: surfaceView.window)
             }
         }
@@ -37,11 +40,16 @@ extension TabContentCache {
     /// swapped it, cx-1bauj) its record's scale once the session stream's first snapshot arrives (cx-mer6v:
     /// a relaunch draws the launch window from the launch snapshot before the daemon answers). A surface
     /// whose font changed meanwhile (a reset too) saves its size instead; a replaced session does neither.
-    private func applyFontScaleWhenKnown(tab key: String, session: TerminalSession, daemon: DaemonService) -> Task<Void, Never> {
-        // task-owner: the session's close() cancels it; it also ends once the store knows its records or the daemon goes
-        Task { @MainActor [weak self, weak session, weak daemon] in
-            while daemon?.store.session.known == false, !Task.isCancelled { await daemon?.store.sessionStateResolved() }
-            guard !Task.isCancelled, let session, let daemon, self?.existingTerminal(key)?.session === session,
+    /// One ServiceObservation of `known`, held in ``fontScaleWaits`` until it applies or the tab goes: it
+    /// applies in a posted task, also while the terminal is hidden (the record is model state).
+    private func applyFontScaleWhenKnown(tab key: String, session: TerminalSession, daemon: DaemonService) {
+        let records = daemon.store.session
+        fontScaleWaits[key] = ServiceObservation(.visible, owner: "TerminalFontScale.whenKnown", on: mainWork) { [weak records] in
+            records?.known ?? true
+        } apply: { [weak self, weak session, weak daemon] known in
+            guard known, let self else { return }
+            fontScaleWaits[key] = nil
+            guard let session, let daemon, existingTerminal(key)?.session === session,
                   daemon.store.servesStateResources, let tab = Self.tabModel(key, daemon: daemon) else { return }
             let fontScale = TerminalFontScale(session.surfaceView)
             if fontScale.changed {

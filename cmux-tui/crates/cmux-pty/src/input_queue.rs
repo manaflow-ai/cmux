@@ -62,7 +62,8 @@ pub(crate) fn write(file: &mut File, buffer: &[u8]) -> io::Result<usize> {
 #[cfg(target_vendor = "apple")]
 pub fn queued(master: RawFd) -> Option<usize> {
     let mut count: libc::c_int = 0;
-    // SAFETY: FIONREAD writes one c_int into the live local `count`; the caller keeps `master` open.
+    // SAFETY: the caller keeps `master` open for the call, and FIONREAD writes one c_int through
+    // the pointer to `count`, a live local of that type.
     let status = unsafe { libc::ioctl(master, libc::FIONREAD, &mut count) };
     (status == 0 && count >= 0).then_some(count as usize)
 }

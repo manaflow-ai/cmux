@@ -9,20 +9,6 @@ import GhosttyNextKit
 // scrolls reach Ghostty at most twice per frame (``TerminalPointerFrames``);
 // every other event delivers what is pending first.
 extension TerminalSurfaceView {
-    public override func updateTrackingAreas() {
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(
-            rect: .zero,
-            // wakeup-allow: bounded mouse reporting and hover links follow the pointer over a terminal behind another app,
-            // as in Ghostty; moves arrive only while the pointer is over this surface's visible rect
-            options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways, .cursorUpdate],
-            owner: self
-        )
-        addTrackingArea(area)
-        trackingArea = area
-        super.updateTrackingAreas()
-    }
-
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     public override func mouseDown(with event: NSEvent) {
@@ -172,18 +158,16 @@ extension TerminalSurfaceView {
 
     // MARK: Cursor
 
+    /// The pointer entered the surface's cursor area (``addCursorUpdateArea(_:)`` in init, active in the
+    /// key window as the cursor rect was). No cursor rects (p04-input-090): a pane resize or a divider
+    /// drag rebuilds none of the window's.
     public override func cursorUpdate(with event: NSEvent) {
         cursor.set()
-    }
-
-    public override func resetCursorRects() {
-        addCursorRect(bounds, cursor: cursor)
     }
 
     func setCursor(_ newCursor: NSCursor) {
         guard newCursor != cursor else { return }
         cursor = newCursor
-        window?.invalidateCursorRects(for: self)
         // The pointer's own location: a key event or a late link-filter answer carries none.
         if let window, isShown, window.isVisible, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) {
             newCursor.set()

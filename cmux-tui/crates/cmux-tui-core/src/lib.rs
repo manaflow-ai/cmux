@@ -79,6 +79,7 @@ mod process_trace;
 mod program_status;
 mod prompt_mode_reset;
 pub mod provider_management;
+mod pty_input_fifo;
 mod pty_input_room;
 #[cfg(unix)]
 mod pty_write;
@@ -110,6 +111,8 @@ mod sidebar_resource;
 pub mod sizing_policy;
 mod state;
 pub mod store_schemas;
+/// Every thread this crate starts runs under the process supervisor (p10-stability-112).
+pub mod supervised;
 use cmux_tui_util::stream_interrupt;
 #[cfg(unix)]
 mod holder_runtime;

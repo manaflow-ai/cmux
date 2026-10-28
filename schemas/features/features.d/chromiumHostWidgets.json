@@ -3,7 +3,7 @@
   "name": "chromiumHostWidgets",
   "owner": "PL-cef-layer",
   "description": "In host mode, Chromium's extension popups, side panel, DevTools, popup windows and date and datalist popups show in cmux panels and panes from their layer contexts, with input sent to the host.",
-  "defaults": { "dev": false, "nightly": false, "release": false },
+  "defaults": { "dev": true, "nightly": true, "release": false },
   "kind": "labs",
   "process": "app",
   "params": [],

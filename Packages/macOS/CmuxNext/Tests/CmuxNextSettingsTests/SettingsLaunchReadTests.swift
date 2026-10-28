@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextDesign
+import CmuxNextDesignTokens
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 @testable import CmuxNextSettings
@@ -156,7 +156,7 @@ struct SettingsLaunchReadTests {
         // The app's widths: four user-blocking files slots.
         let work = BackgroundWork(label: "test.settings-launch-sequence")
         let reads = work.sequence("test.ledger-then-settings")
-        let ledger = CmuxNextDesign.LaunchRead<Int>(in: reads) {
+        let ledger = CmuxNextWakeups.LaunchRead<Int>(in: reads) {
             // A cold disk: outside the sequence, the settings read would start meanwhile on another slot.
             _ = DispatchSemaphore(value: 0).wait(timeout: .now() + .milliseconds(100))
             return 1
@@ -220,6 +220,43 @@ struct SettingsLaunchReadTests {
         #expect(registry.disabledFeatures == [.cloud])
         #expect(forced["DisabledFeatures"] == disabled)
         #expect(reader.reads.withLock { $0 } == 0, "a launch step read the managed preferences again on the main thread")
+    }
+
+    /// p08-startup-079: the launch applies its read as the first load before any watch (the first frame in the
+    /// file's look, no read on the main thread, the MDM status posted), and the watches the app arms after the first
+    /// frame reload once, so an edit made in between applies.
+    @Test func theLaunchReadAppliesBeforeTheWatchesAndAnEditInBetweenApplies() async throws {
+        let url = try Self.file(#"{ "appearance": { "density": "compact" } }"#)
+        let directory = url.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let launch = try await Self.endedRead(of: url)
+        let reader = CountingManagedReader(ManagedPreferences())
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), fileURL: url, managedReader: reader, managedWatchFiles: [],
+                                          launch: launch)
+        var posted = 0
+        settings.writeManagedStatus(to: directory.appending(path: "status.json"), context: .init(appVersion: "1", bundleID: "test")) { _ in posted += 1 }
+        settings.adoptLaunchRead()
+        #expect(settings.loadCount == 1)
+        #expect(settings.snapshot.density == "compact", "the first frame would draw in the defaults")
+        #expect(reader.reads.withLock { $0 } == 0, "the adopt read the managed preferences on the main thread")
+        #expect(posted == 1, "the launch load did not post its MDM status")
+        settings.adoptLaunchRead()
+        #expect(settings.loadCount == 1, "a second adopt loaded again")
+        try Data(#"{ "appearance": { "density": "cozy" } }"#.utf8).write(to: url)
+        settings.start()
+        defer { settings.stop() }
+        await settings.waitForLoad(atLeast: 2)
+        #expect(settings.snapshot.density == "cozy", "an edit made before the watches were armed did not apply")
+    }
+
+    /// A controller made without a launch read adopts nothing: no file or managed read on the calling thread.
+    @Test func withoutALaunchReadTheAdoptLoadsNothing() {
+        let reader = CountingManagedReader(ManagedPreferences())
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), fileURL: URL(filePath: "/nonexistent/cmux-next.json"),
+                                          managedReader: reader, managedWatchFiles: [])
+        settings.adoptLaunchRead()
+        #expect(settings.loadCount == 0)
+        #expect(reader.reads.withLock { $0 } == 0, "the adopt read the managed preferences")
     }
 
     /// The activation backstop for MDM profile changes: each app activation reloads, through the

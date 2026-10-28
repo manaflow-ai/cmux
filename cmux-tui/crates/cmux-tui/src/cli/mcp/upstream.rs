@@ -295,7 +295,16 @@ impl Upstream {
             let stdin = Box::new(clone()?);
             return Ok(Conn { peer: Peer::Daemon(stream), stdin, lines, next_id: 1 });
         }
-        let mut child = Command::new(&self.spec.command)
+        let mut command = Command::new(&self.spec.command);
+        // In the shared host the server is the client's: its environment and
+        // folder, not the host's.
+        if let Some(caller) = super::super::caller_env::current() {
+            command.env_clear().envs(caller.vars());
+            if let Some(cwd) = caller.cwd() {
+                command.current_dir(cwd);
+            }
+        }
+        let mut child = command
             .args(&self.spec.args)
             // This server's own folding and allowlist stay with it.
             .env_remove(ENV)
@@ -317,6 +326,7 @@ impl Upstream {
         output: impl std::io::Read + Send + 'static,
     ) -> Result<mpsc::Receiver<String>, String> {
         let (tx, lines) = mpsc::channel();
+        // supervise-allow: one upstream connection's output reader; it ends at EOF, and a panic drops `tx`, so requests to that upstream fail.
         std::thread::Builder::new()
             .name(format!("cmux-mcp-upstream-{}", self.prefix))
             .spawn(move || {

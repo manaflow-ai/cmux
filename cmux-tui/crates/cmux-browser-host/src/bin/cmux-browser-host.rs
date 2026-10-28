@@ -15,7 +15,13 @@
 
 #[cfg(unix)]
 fn main() {
-    std::process::exit(unix::run(std::env::args().skip(1).collect()));
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    // The host's black box first (p09-observability-095), in the app's trace
+    // folder; the short-lived client commands (eval, list, ...) keep none.
+    if args.first().is_some_and(|command| command == "serve") {
+        drop(cmux_trace::init_blackbox(cmux_trace::process_dir(), cmux_trace::Role::BrowserHost));
+    }
+    std::process::exit(unix::run(args));
 }
 
 #[cfg(not(unix))]
@@ -204,6 +210,7 @@ mod unix {
         }
         // SAFETY: fstat(2) on an fd number with a zeroed out buffer.
         let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: fstat writes one stat into `stat`, a live local; a closed fd fails with EBADF.
         if unsafe { libc::fstat(fd, &mut stat) } != 0
             || (stat.st_mode & libc::S_IFMT) != libc::S_IFIFO
         {
@@ -229,6 +236,7 @@ mod unix {
     ) -> Result<(), String> {
         let slot = engines.provider_slot();
         let bundle: Arc<str> = agent_bundle().into();
+        // supervise-allow: the provider listener; its loop only accepts, checks the peer and starts one thread per handshake (a handshake's panic stays on that thread), so it ends only when the listener fails, which leaves the host without app tabs until the daemon restarts it.
         std::thread::Builder::new()
             .name("cmux-browser-host-providers".into())
             .spawn(move || {
@@ -353,6 +361,7 @@ mod unix {
             supervise_from_stdin();
         }
         if let Some(idle) = idle {
+            // supervise-allow: the idle stop; a panic ends the idle stop only, and the host keeps serving until its daemon stops it, as when this thread cannot start.
             let spawned =
                 std::thread::Builder::new().name("supervisor-idle".into()).spawn(move || {
                     if idle.wait() {
@@ -384,11 +393,14 @@ mod unix {
             std::process::exit(0);
         }
         drop(stdout);
+        // supervise-allow: the stdin watch, Fatal by hand: the host exits at the end of stdin or at a panic in the watch, so it never outlives its daemon.
         let spawned = std::thread::Builder::new().name("supervisor-stdin".into()).spawn(|| {
-            let mut sink = [0_u8; 256];
-            let mut stdin = std::io::stdin().lock();
-            // Bytes from the daemon mean nothing; only the end does.
-            while matches!(stdin.read(&mut sink), Ok(n) if n > 0) {}
+            let _ = std::panic::catch_unwind(|| {
+                let mut sink = [0_u8; 256];
+                let mut stdin = std::io::stdin().lock();
+                // Bytes from the daemon mean nothing; only the end does.
+                while matches!(stdin.read(&mut sink), Ok(n) if n > 0) {}
+            });
             // crash-allow: the end of stdin means the daemon stopped or died; the host stops with it.
             std::process::exit(0);
         });

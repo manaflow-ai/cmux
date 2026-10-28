@@ -125,7 +125,7 @@ impl Hub {
         let hub = Arc::downgrade(self);
         *CARE.why.lock().unwrap_or_else(|e| e.into_inner()) = "startup";
         CARE.wake.notify_one();
-        tokio::spawn(async move {
+        self.supervise("hub.worktree-care", Fatal, ShutdownBehavior::Skip, async move {
             loop {
                 CARE.wake.notified().await;
                 let Some(hub) = hub.upgrade() else { return };
@@ -140,7 +140,7 @@ impl Hub {
         if CARE.running.load(Ordering::SeqCst) {
             return;
         }
-        let due = tokio::task::spawn_blocking(move || {
+        let due = crate::daemon::spawn_blocking(move || {
             if !auto_cleanup_enabled() {
                 return false;
             }
@@ -326,7 +326,7 @@ impl Hub {
         let _one = CARE.restoring.lock().await;
         let restored = tokio::task::spawn_blocking(move || {
             // Another session's start may have brought it back meanwhile.
-            if cwd.exists() {
+            if cmux_blocking::fs::metadata(&cwd).is_ok() {
                 return None;
             }
             let store = archive_store().ok()?;

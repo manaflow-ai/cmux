@@ -23,7 +23,7 @@ impl PtyTerminalRuntime {
 impl Surface {
     /// The terminal's OSC 9;4 progress while one is shown.
     pub(crate) fn terminal_progress(&self) -> Option<crate::terminal_metadata::TerminalProgress> {
-        self.as_pty()?.terminal_metadata.lock().unwrap().progress()
+        self.as_pty()?.terminal_metadata.lock().recover_poison().progress()
     }
 
     /// The terminal's running shell command: how it uses the terminal and
@@ -105,7 +105,7 @@ impl Surface {
     pub(crate) fn publish_pending_progress(&self) {
         let Some(pty) = self.as_pty() else { return };
         let (progress_changed, records) = {
-            let mut metadata = pty.terminal_metadata.lock().unwrap();
+            let mut metadata = pty.terminal_metadata.lock().recover_poison();
             let progress = metadata.take_progress_change().is_some();
             (metadata.take_busy_change() || progress, metadata.program_status())
         };
@@ -142,9 +142,59 @@ impl Surface {
         }
     }
 
+    /// Hands the publications this terminal's output asked for (its cwd, its
+    /// progress and program status upserts) to the mux's work lane. Each is
+    /// a SQLite workspace registry commit, which an output thread
+    /// (`surface-<id>-reader`, `surface-<id>-host`: echo threads with
+    /// blocking disallowed) may not make (MQ-13, p02-threads-303): in the
+    /// detector's panic mode the reader panicked holding the registry and
+    /// state locks. Chromium posts such work as a `MayBlock` task
+    /// (base/task/task_traits.h). The check here is memory only; at most one
+    /// publication is queued per terminal, in the terminal's own sequence,
+    /// and it publishes the newest state when it runs, so a burst of output
+    /// asks for one commit.
+    pub(crate) fn post_pending_publications(&self) {
+        let Some(pty) = self.as_pty() else { return };
+        if !self.has_pending_publication() {
+            return;
+        }
+        if pty.publication_posted.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let posted = pty
+            .mux
+            .upgrade()
+            .is_some_and(|mux| mux.post_terminal_publications(self.id, &pty.publications));
+        if !posted {
+            pty.publication_posted.store(false, Ordering::Release);
+        }
+    }
+
+    /// Hands the notifications this terminal's output asked for to the
+    /// work lane, in the terminal's publication sequence
+    /// (`Mux::post_terminal_notifications_off_output`): the output thread
+    /// may not post them itself.
+    pub(crate) fn post_output_notifications(
+        &self,
+        notifications: Vec<crate::terminal_metadata::TerminalNotification>,
+    ) {
+        let Some(pty) = self.as_pty() else { return };
+        let Some(mux) = pty.mux.upgrade() else { return };
+        mux.post_terminal_notifications_off_output(self.id, &pty.publications, notifications);
+    }
+
+    /// The queued publication ([`Self::post_pending_publications`]), on the
+    /// work lane: the next change queues another.
+    pub(crate) fn publish_posted_publications(&self) {
+        let Some(pty) = self.as_pty() else { return };
+        pty.publication_posted.store(false, Ordering::Release);
+        self.publish_pending_directory();
+        self.publish_pending_progress();
+    }
+
     /// Raw VT state is only a candidate. Public state changes after its ordered commit.
     pub(crate) fn published_directory(&self) -> Option<String> {
-        self.as_pty().and_then(|pty| match &*pty.published_directory.lock().unwrap() {
+        self.as_pty().and_then(|pty| match &*pty.published_directory.lock().recover_poison() {
             PublishedDirectory::Unreported | PublishedDirectory::Cleared => None,
             PublishedDirectory::Reported(value) => value.clone(),
         })
@@ -158,7 +208,7 @@ impl Surface {
     /// committed yet must not turn the initial absent state into a clear.
     pub(crate) fn presented_directory(&self) -> Option<String> {
         let pty = self.as_pty()?;
-        match &*pty.published_directory.lock().unwrap() {
+        match &*pty.published_directory.lock().recover_poison() {
             PublishedDirectory::Reported(Some(directory)) => Some(directory.clone()),
             PublishedDirectory::Cleared => None,
             PublishedDirectory::Reported(None) | PublishedDirectory::Unreported => pty.cwd.clone(),
@@ -172,7 +222,7 @@ impl Surface {
     }
 
     pub(crate) fn directory_publication_matches(&self, directory: &Option<String>) -> bool {
-        self.as_pty().is_some_and(|pty| match &*pty.published_directory.lock().unwrap() {
+        self.as_pty().is_some_and(|pty| match &*pty.published_directory.lock().recover_poison() {
             PublishedDirectory::Unreported => false,
             PublishedDirectory::Cleared => directory.is_none(),
             PublishedDirectory::Reported(value) => value == directory,
@@ -181,7 +231,7 @@ impl Surface {
 
     pub(crate) fn commit_published_directory(&self, directory: Option<String>) {
         if let Some(pty) = self.as_pty() {
-            let mut published = pty.published_directory.lock().unwrap();
+            let mut published = pty.published_directory.lock().recover_poison();
             let cleared = directory.is_none()
                 && matches!(
                     *published,
@@ -200,10 +250,10 @@ impl Surface {
         if !pty.directory_pending.load(Ordering::Acquire) {
             return;
         }
-        let raw = pty.pwd.lock().unwrap().clone();
+        let raw = pty.pwd.lock().recover_poison().clone();
         #[cfg(any(unix, windows))]
         let hosted = matches!(
-            &*pty.runtime.lock().unwrap(),
+            &*pty.runtime.lock().recover_poison(),
             PtyRuntime::Hosted(_) | PtyRuntime::ExitedHosted
         );
         #[cfg(not(any(unix, windows)))]
@@ -221,7 +271,7 @@ impl Surface {
         let Some(mux) = pty.mux.upgrade() else { return };
         match mux.publish_terminal_directory(self, &raw, directory) {
             Ok(true) => {
-                let current = pty.pwd.lock().unwrap();
+                let current = pty.pwd.lock().recover_poison();
                 if *current == raw {
                     pty.directory_pending.store(false, Ordering::Release);
                 }
@@ -240,7 +290,7 @@ impl PtyTerminalRuntime {
         if value.is_some() {
             self.directory_reported.store(true, Ordering::Release);
         }
-        let mut previous = self.pwd.lock().unwrap();
+        let mut previous = self.pwd.lock().recover_poison();
         if *previous != value {
             *previous = value;
             self.directory_pending.store(true, Ordering::Release);

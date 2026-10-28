@@ -23,13 +23,13 @@ public final class CmuxToastAvoidance {
     /// alive. Never empty while the link is attached (the last host to leave detaches it).
     private let hosts = NSHashTable<AnyObject>.weakObjects()
 
-    private static var key: UInt8 = 0
+    private static let links = ObjectAssociation<CmuxToastAvoidance>()
 
     private init() {}
 
     /// `window`'s link if a host shows a toast there (never makes one).
     private static func existing(in window: NSWindow) -> CmuxToastAvoidance? {
-        objc_getAssociatedObject(window, &key) as? CmuxToastAvoidance
+        links.value(on: window)
     }
 
     /// Adds `host` to the hosts that move `window`'s toasts when an avoided view there changes.
@@ -40,7 +40,7 @@ public final class CmuxToastAvoidance {
         }
         let link = CmuxToastAvoidance()
         link.hosts.add(host)
-        objc_setAssociatedObject(window, &key, link, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        links.set(link, on: window)
     }
 
     /// Removes `host` from `window`'s link once it shows no toast there; the last host to leave
@@ -48,7 +48,7 @@ public final class CmuxToastAvoidance {
     static func unregister(_ host: any CmuxToastReanchoring, from window: NSWindow) {
         guard let link = existing(in: window) else { return }
         link.hosts.remove(host)
-        if link.hosts.anyObject == nil { objc_setAssociatedObject(window, &key, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+        if link.hosts.anyObject == nil { links.set(nil, on: window) }
     }
 
     /// An avoided view in `window` changed its rect: each host registered in the window moves
@@ -63,6 +63,8 @@ public final class CmuxToastAvoidance {
     public static func avoidanceChanged(in window: NSWindow) -> Task<Void, Never>? {
         guard let link = existing(in: window), link.hosts.anyObject != nil else { return nil }
         // task-owner: one hop past the caller's layout pass; moves this window's toasts once
+        // main-hop-allow: AppKit's layout order: moving the toasts inside the caller's layout() would lay the window
+        // out again within its own pass, so the move waits one job; it is one per change and window
         return Task { [weak link, weak window] in
             guard let window, let link else { return }
             for case let host as any CmuxToastReanchoring in link.hosts.allObjects { host.reanchor(in: window) }

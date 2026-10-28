@@ -50,6 +50,25 @@
       }
     },
     {
+      "id": "fx-workspace-group",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "workspace_group.create",
+        "params": {
+          "name": "oracle"
+        },
+        "idempotencyKey": "workspace-place-ok.fx-workspace-group"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "mcp",
       "target": {
@@ -61,6 +80,7 @@
         "tool": "workspace_place",
         "arguments": {
           "workspace": "$step:fx-workspace#/value/workspace_id",
+          "group": "$step:fx-workspace-group#/value/id",
           "idempotency_key": "workspace-place-ok.call"
         }
       },
@@ -72,7 +92,7 @@
         "before",
         "settled"
       ],
-      "note": "the daemon-ops call as the MCP tool workspace_place; every required field from its catalog type"
+      "note": "the daemon-ops call as the MCP tool workspace_place; the fixture workspace moves into the fixture workspace group"
     },
     {
       "id": "retry",
@@ -84,7 +104,9 @@
       },
       "args": {
         "method": "workspace.place",
-        "params": {},
+        "params": {
+          "group": "$step:fx-workspace-group#/value/id"
+        },
         "idempotencyKey": "workspace-place-ok.call"
       },
       "expect": {

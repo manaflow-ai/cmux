@@ -118,6 +118,7 @@ public final class AgentCLIUpdateActions {
                 throw ActionFailure(message: RefusalStrings.personOnlyFromPage)
             }
             if let original = invocation["intent"]?.stringValue {
+                // main-hop-allow: the person's Resume, userBlocking rest (p06 rule 2), tracked for a capturing caller: resume awaits the owner route's main-actor async ledger, start and observe
                 registry?.track(Task {
                     do { _ = try await self.resume(original); return nil }
                     catch { return ActionWorkFailure(Self.text(error), mayHaveApplied: true, terminalMayAppear: true) }
@@ -139,17 +140,20 @@ public final class AgentCLIUpdateActions {
             if intent.work == nil {
                 // task-owner: one explicit UI intent, retained for same-key replies;
                 // observation and page cancellation never cancel the owner's process.
+                // main-hop-allow: the person's Update, userBlocking rest (p06 rule 2): start awaits the owner route's main-actor async ledger, inventory and start between its main-actor checks
                 intent.work = Task { try await self.start(intent, key: key) }
             }
             guard let work = intent.work, let registry else { return }
             guard registry.isCapturingWork else {
                 // task-owner: a run no caller waits for (the palette) shows its failure
                 // once the owner answers; it never cancels the update itself.
+                // main-hop-allow: it only awaits the intent's work and shows its refusal on main in its one resume
                 Task { [weak registry] in
                     do { _ = try await work.value } catch { registry?.refuse(Self.text(error)) }
                 }
                 return
             }
+            // main-hop-allow: the capturing caller's answer: it awaits the intent's work and reads its main-actor jobs once, in its one resume
             registry.track(Task {
                 do { _ = try await work.value; return nil }
                 catch { return ActionWorkFailure(Self.text(error), mayHaveApplied: !intent.jobs.isEmpty,

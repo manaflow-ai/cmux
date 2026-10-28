@@ -1,5 +1,6 @@
 import CryptoKit
 public import Foundation
+public import CmuxNextAppearance
 
 /// Full images of the art that does not ship in the app (cx-t2x.7): fetched once from
 /// files.cmux.com by the SHA-256 the manifest records, kept in the backgrounds folder only when

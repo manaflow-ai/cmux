@@ -15,6 +15,9 @@ import Foundation
 public final class AcpmuxPersonLine {
     private let line: AcpmuxCheckedLine
     private let timer: MainDeadline
+    /// The app's main-thread scheduler and this line's owner on it: a refused proof ends its wait there.
+    private let mainWork: MainWorkScheduler
+    private let owner: MainTaskOwner
     private var nextID = 10
     private var waiters: [Int: OnceContinuation<ResultBox?, OnceContinuationError>] = [:]
     private var closed = false
@@ -24,10 +27,14 @@ public final class AcpmuxPersonLine {
     private init(environment: AcpmuxEnvironment, deadlines: MainDeadlineScheduler) {
         line = AcpmuxCheckedLine(environment: environment)
         timer = MainDeadline(owner: "acpmux.person-line", workClass: .visible, scheduler: deadlines)
+        mainWork = deadlines.work
+        owner = deadlines.work.board.owner("acpmux.person-line")
     }
 
     /// Connects, initializes and proves the person; nil when no acpmux answers. A connection
-    /// whose proof was refused still reads and denies (``isPerson`` is false).
+    /// whose proof was refused still reads and denies (``isPerson`` is false). It reads no file on
+    /// the caller's thread: a missing socket fails the connect on the line's queue
+    /// (``AcpmuxCheckedLine``), which closes this connection and answers nil.
     ///
     /// - Parameters:
     ///   - environment: This app's acpmux.
@@ -35,7 +42,6 @@ public final class AcpmuxPersonLine {
     ///   - deadline: How long the connection may live.
     public static func open(_ environment: AcpmuxEnvironment, deadlines: MainDeadlineScheduler,
                             deadline: Duration = .seconds(5)) async -> AcpmuxPersonLine? {
-        guard FileManager.default.fileExists(atPath: environment.socketPath) else { return nil }
         let connection = AcpmuxPersonLine(environment: environment, deadlines: deadlines)
         connection.timer.schedule(after: deadline) { [weak connection] in connection?.close() }
         guard let initialized = await connection.start() else {
@@ -43,11 +49,32 @@ public final class AcpmuxPersonLine {
             return nil
         }
         let challenge = ((initialized["_meta"] as? [String: Any])?["acpmux"] as? [String: Any])?["personChallenge"] as? [String: Any]
-        if let nonce = challenge?["nonce"] as? String, let id = challenge?["connection"] as? String,
-           let proof = connection.line.personProof(nonce: nonce, connection: id) {
-            connection.isPerson = (await connection.call("_acpmux/person_prove", ["proof": proof]))?["person"] as? Bool ?? false
+        if let nonce = challenge?["nonce"] as? String, let id = challenge?["connection"] as? String {
+            connection.isPerson = await connection.prove(nonce: nonce, connection: id)
         }
         return connection
+    }
+
+    /// `_acpmux/person_prove` with the proof for this connection's challenge, made and sent on the
+    /// line's queue (``AcpmuxCheckedLine/sendPersonProof(nonce:connection:request:refused:)``);
+    /// whether acpmux took it. False with no proof (no key for this daemon) or no reply.
+    private func prove(nonce: String, connection: String) async -> Bool {
+        guard !closed else { return false }
+        nextID += 1
+        let id = nextID
+        let mainWork = mainWork, owner = owner
+        let reply: ResultBox? = try? await withOnceContinuation { (waiter: OnceContinuation<ResultBox?, OnceContinuationError>) in
+            waiters[id] = waiter
+            line.sendPersonProof(nonce: nonce, connection: connection, request: { proof in
+                AcpmuxPermissionPrompt.frame(id: id, method: "_acpmux/person_prove", params: ["proof": proof])
+            }, refused: { [weak self] in
+                // The banner or dialog that opened this line waits on the answer: a visible task ends its wait.
+                mainWork.postFromAnyThread(.visible, owner: owner) { [weak self] in
+                    self?.waiters.removeValue(forKey: id)?.resume(returning: nil)
+                }
+            })
+        }
+        return reply?.value["person"] as? Bool ?? false
     }
 
     /// One request; its `result`, or nil when it failed or the connection closed.
