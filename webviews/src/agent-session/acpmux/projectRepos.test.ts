@@ -336,10 +336,20 @@ test("a folder named like a lane but outside a lane root stays listed", () => {
   const plain: RepoFolder[] = [
     { id: "/Users/me/leo--feature", label: "leo--feature" },
     { id: "/Users/me/Projects/design--notes", label: "design--notes" },
+    { id: "/Users/me/session", label: "session" },
+    { id: "/Users/me/ffffff", label: "ffffff" },
+    { id: "/Users/me/wt-foldC", label: "wt-foldC" },
+    { id: "/Users/me/summary-menu-visual-triage", label: "summary-menu-visual-triage" },
+    { id: "/Users/me/a1b2c3", label: "a1b2c3" },
   ];
   expect(groupByRepo(plain).map((group) => group.lead.id)).toEqual([
     "/Users/me/leo--feature",
     "/Users/me/Projects/design--notes",
+    "/Users/me/session",
+    "/Users/me/ffffff",
+    "/Users/me/wt-foldC",
+    "/Users/me/summary-menu-visual-triage",
+    "/Users/me/a1b2c3",
   ]);
   expect(projectRows(plain.map((folder) => ({ cwd: folder.id, label: folder.label }))).length).toBe(2);
 });
