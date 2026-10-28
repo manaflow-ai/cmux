@@ -10,6 +10,7 @@
 // takes a column), hides a section with nothing in it, and shows five pull
 // requests under Changes and five running subagents, each then Show more (Claude Code desktop's).
 import { readFileSync } from "node:fs";
+import { accessibleName, resolveTarget } from "../src/gallery/play";
 
 import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
 import { act, useState, type ReactNode } from "react";
@@ -1164,4 +1165,27 @@ test("a forty-agent compact card keeps four avatars and the full count", async (
   });
   expect(compactButton(container).querySelectorAll(".acpmux-summary-avatar")).toHaveLength(4);
   expect(compactButton(container).textContent).toContain(translate("summary.subagents.done", { n: 40 }));
+});
+
+test("the ended-row gallery target stays distinct from the agent summary and opens its list", async () => {
+  const container = installDom(true);
+  const agents = [...Array.from({ length: 40 }, (_, index) => subagent(index, "completed")), subagent(40, "failed")];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<ChatInspector agents={agents} onOpenSubagent={noop} />);
+  });
+  const target = { role: "button", name: /40 done · 1 failed/ };
+  const matches = [...container.querySelectorAll("button")].filter((button) =>
+    target.name.test(accessibleName(button)),
+  );
+  expect(matches).toHaveLength(1);
+  const ended = endedRow(section(container, "subagents")!)!;
+  expect(resolveTarget(container, target)).toBe(ended);
+  expect(accessibleName(ended)).toBe("40 done · 1 failed");
+  expect(container.querySelector(".acpmux-chat-inspector-subagents__list")).toBeNull();
+  const selected = resolveTarget(container, target);
+  if (!(selected instanceof dom!.window.HTMLElement)) throw new Error("The ended row was not found");
+  await click(selected);
+  expect(ended.getAttribute("aria-expanded")).toBe("true");
+  expect(lines(container.querySelector(".acpmux-chat-inspector-subagents__list")!)).toHaveLength(41);
 });

@@ -95,7 +95,7 @@ export function SubagentSummaryCard({
     <button
       type="button"
       className="acpmux-chat-inspector-agent-summary"
-      aria-label={`${t("summary.subagents")} · ${labels.join(" · ")}`}
+      aria-label={`${t("subagents.open", { name: t("summary.subagents") })}: ${labels.join(", ")}`}
       onClick={onOpen}
       disabled={!onOpen}
     >
