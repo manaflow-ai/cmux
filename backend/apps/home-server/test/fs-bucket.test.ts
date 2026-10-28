@@ -174,6 +174,9 @@ describe("self-hosted attachment bucket", () => {
       writeFileSync(join(root, ".multipart", "stray"), "s")
       writeFileSync(join(root, ".multipart", "stray.meta.json"), JSON.stringify({ etag: "e", size: 1, uploaded: 0 }))
       symlinkSync(join(root, "missing"), join(root, ".multipart", "dangling"))
+      // A file no key could have written (a backslash in its name) is skipped, not listed under a key get would refuse.
+      writeFileSync(join(root, "home", "v1", "odd\\name"), "o")
+      writeFileSync(join(root, "home", "v1", "odd\\name.meta.json"), JSON.stringify({ etag: "e", size: 1, uploaded: 0 }))
 
       expect((await bucket.list()).objects.map((o) => o.key)).toEqual(["home/v1/.multipart/b", "home/v1/a"])
       expect((await bucket.list({ prefix: "home/" })).objects.map((o) => o.key)).toEqual(["home/v1/.multipart/b", "home/v1/a"])
