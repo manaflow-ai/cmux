@@ -534,9 +534,10 @@ function resolveCreateAutosize(
   planId: string,
 ): { readonly ok: true; readonly pick: AutosizePick | null } | { readonly ok: false; readonly response: Response } {
   const request = parseAutosizeRequest(candidate.autosize);
-  if (request === null || typeof request === "string" || candidate.memoryMb !== undefined || !vmCapabilitiesFor(provider).sizing) {
-    return { ok: true, pick: null };
-  }
+  if (request === null || typeof request === "string") return { ok: true, pick: null };
+  // A GPU is refused whatever else the request says: no machine would have one.
+  if (request.gpu) return { ok: false, response: autosizeRefusalResponse("gpu_unavailable", "No cloud machine has a GPU yet.") };
+  if (candidate.memoryMb !== undefined || !vmCapabilitiesFor(provider).sizing) return { ok: true, pick: null };
   const result = pickMachineSize({
     taskKind: request.taskKind,
     repo: request.repo,
@@ -544,23 +545,22 @@ function resolveCreateAutosize(
     measuredRuns: [],
     planMemoryOptionsMb: memoryOptionsMbForPlan(planId, process.env),
   });
-  if (!result.ok) {
-    return {
-      ok: false,
-      response: vmErrorResponse({
-        error: result.code === "gpu_unavailable" ? "vm_gpu_unavailable" : "vm_no_plan_sizes",
-        status: 400,
-        message: result.message,
-        action: result.code === "gpu_unavailable" ? "Send `autosize` without `gpu`." : "Send `memoryMb`, or choose a plan with Cloud machines.",
-      }),
-    };
-  }
+  if (!result.ok) return { ok: false, response: autosizeRefusalResponse(result.code, result.message) };
   setSpanAttributes(span, {
     "cmux.vm.autosize_task": request.taskKind,
     "cmux.vm.autosize_pick": result.pick,
     "cmux.vm.autosize_capped": result.capped,
   });
   return { ok: true, pick: result };
+}
+
+function autosizeRefusalResponse(code: "gpu_unavailable" | "no_plan_sizes", message: string): Response {
+  return vmErrorResponse({
+    error: code === "gpu_unavailable" ? "vm_gpu_unavailable" : "vm_no_plan_sizes",
+    status: 400,
+    message,
+    action: code === "gpu_unavailable" ? "Send `autosize` without `gpu`." : "Send `memoryMb`, or choose a plan with Cloud machines.",
+  });
 }
 
 /** The machine's memory: the caller's `memoryMb` (the override), else the auto-size pick, else the plan default. */
