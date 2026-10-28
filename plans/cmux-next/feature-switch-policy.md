@@ -35,7 +35,8 @@ and then the flag and its old code go.
 - **Passing bench:** the switch's lab story (its `stories`) or the bench its plan task names, run on optimized
   builds on one host, at least 5 rounds per arm, with three arms:
   - **on:** the commit with the switch on: an optimized DEV or NIGHTLY build where it is on by default, or a
-    Release-channel build launched with `CMUX_ENABLE_FEATURES=<name>`;
+    Release-channel build launched with `CMUX_ENABLE_FEATURES=<name>`; for a `benchOnly` switch, which only
+    DEBUG and `CMUX_BENCH_HOOKS` builds declare, an `-O` build with `CMUX_BENCH_HOOKS`;
   - **trunk:** the perf/chrome-parity tip the switch's branch is based on, which for a landed switch is the same
     build with the switch off (`CMUX_DISABLE_FEATURES`);
   - **classic:** classic cmux (main) running the same story. When classic cannot run the story (it has no such
@@ -70,9 +71,9 @@ name is not a claim: write it as "not measured".
 2. **Measurement window.** The lead may turn a perf claim on in DEV and NIGHTLY when its unit tests pass but
    before its bench, so that the optimized dogfood build can measure it (Chrome's Canary field trial). This does
    not move the date of rule 3: the 7 days still count from the day the switch landed.
-3. **Off and removed 7 days after it landed.** A switch with no owner, a perf claim with no passing bench, or a
-   switch with no unit test that reads it, 7 days after it landed (for switches that landed before 2026-10-28:
-   on 2026-11-04), goes off on every channel and is removed: the JSON file, the generated handle and the new code
+3. **Off and removed 7 days after it landed.** A switch with no owner, a perf claim with no passing bench, or
+   (the lead's addition) a switch with no unit test that reads the switch or the code it gates, 7 days after it
+   landed (for switches that landed before 2026-10-28: on 2026-11-04), goes off on every channel and is removed: the JSON file, the generated handle and the new code
    path, which only ran when the switch was on. An owner keeps a switch past the date only with a passing bench
    (or, for a switch that is not a perf claim, a passing unit test) in the branch that keeps it. A switch that
    loses its owner after the date goes 7 days after the lead writes "no owner" in the table. `benchOnly`
@@ -94,7 +95,8 @@ name is not a claim: write it as "not measured".
    2026-11-04 at the latest; a dogfood build then has no list of its own. `benchOnly` switches in the list
    (`cefHelperHost`, `chromiumHostIdleExit`) do not count toward that condition: rule 7 never turns them on.
 7. **Never on by default** (lead's additions, 2026-10-28): bench-only switches (`benchOnly`, for example
-   `perfLabCanary` and `perfLabKillProbe`); switches whose own description says to wait for something (for
+   `perfLabCanary`, which delays every key), except `perfLabKillProbe`, which changes nothing and is on so that a
+   remote document can prove the kill path by turning it off; switches whose own description says to wait for something (for
    example `hangReportsSchema3` waits for the server); and switches that change socket, relay, permission or
    auth policy, until they have the `risk:high` review receipt.
 
