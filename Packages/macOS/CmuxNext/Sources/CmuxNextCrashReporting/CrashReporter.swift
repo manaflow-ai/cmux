@@ -1,5 +1,6 @@
 public import CmuxNextTrace
 public import CmuxSentryReporting
+public import CmuxSentryScrubbing
 public import Darwin
 public import Foundation
 public import Sentry
@@ -79,25 +80,35 @@ public final class CrashReporter: Sendable {
 
     public let policy: CrashReportingPolicy
     public let hangTracking: HangTracking
-    private let sentryHandlers = Mutex<SignalActions?>(nil)
+    /// The previous run's crash keys and black box, put on its crash event at this launch (task 079).
+    public let previousRun: PreviousRunCrashEvidence?
+    private let sentryHandlers = Mutex<SignalActions?>(nil, rank: .crashReporterSentryHandlers)
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// With `CMUX_NEXT_SENTRY_RECORDER=<dir>`, every event goes to a file in `<dir>` instead of Sentry.
     private let recorder: SentryRecorderTransport?
 
-    /// - Parameter recorder: Records events instead of sending them; by default the one the process
-    ///   environment asks for (``SentryRecorderTransport/environmentKey``).
+    /// - Parameters:
+    ///   - previousRun: The previous run's files, read when its crash event is sent; nil after a clean
+    ///     exit or outside the app process.
+    ///   - recorder: Records events instead of sending them; by default the one the process
+    ///     environment asks for (``SentryRecorderTransport/environmentKey``).
     public init(policy: CrashReportingPolicy,
                 hangTracking: HangTracking = .sentry,
+                previousRun: PreviousRunCrashEvidence? = nil,
                 recorder: SentryRecorderTransport? = SentryRecorderTransport(environment: ProcessInfo.processInfo.environment)) {
         self.policy = policy
         self.hangTracking = hangTracking
+        self.previousRun = previousRun
         self.recorder = recorder
     }
     #else
-    public init(policy: CrashReportingPolicy, hangTracking: HangTracking = .sentry) {
+    /// - Parameter previousRun: The previous run's files, read when its crash event is sent; nil after a clean
+    ///   exit or outside the app process.
+    public init(policy: CrashReportingPolicy, hangTracking: HangTracking = .sentry, previousRun: PreviousRunCrashEvidence? = nil) {
         self.policy = policy
         self.hangTracking = hangTracking
+        self.previousRun = previousRun
     }
     #endif
 
@@ -141,12 +152,26 @@ public final class CrashReporter: Sendable {
             labels.apply(to: scrubbed)
             return scrubbed
         }
-        options.beforeSend = { event in prepare(event) }
+        if let previousRun {
+            // The hint form of beforeSend: only its hint can add an attachment to one event (the previous run's
+            // crash). The previous run's tags go on before the scrub, so they are scrubbed with the rest.
+            // sentry-cocoa 9 calls only this one when it is set, never `beforeSend` too.
+            let prepareWithHint: (Event, Hint) -> Event = { event, hint in
+                previousRun.decorate(event, hint: hint)
+                return prepare(event)
+            }
+            options.beforeSendWithHint = { event, hint in prepareWithHint(event, hint) }
+            #if DEBUG || CMUX_BENCH_HOOKS
+            recorder?.install(on: options, prepareWithHint: prepareWithHint)
+            #endif
+        } else {
+            options.beforeSend = { event in prepare(event) }
+            #if DEBUG || CMUX_BENCH_HOOKS
+            recorder?.install(on: options, prepare: prepare)
+            #endif
+        }
         options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
         options.beforeSendSpan = { span in scrubber.scrub(span) }
-        #if DEBUG || CMUX_BENCH_HOOKS
-        recorder?.install(on: options, prepare: prepare)
-        #endif
         return options
     }
 
@@ -323,15 +348,32 @@ public final class CrashReporter: Sendable {
         SentrySDK.capture(event: event)
     }
 
-    /// The previous run's black box as the crash event's `blackbox.txt` (p09-observability-128): nil without
-    /// the hang-reports opt-in, and never a key-timing, per-key PTY or flow record (``TraceBlackBoxUpload``).
-    /// The caller passes it through the scrubber like every other attachment.
-    public func blackboxAttachment(_ records: [TraceBlackBoxUpload.Record], hangReportsOptIn: Bool) -> Attachment? {
+    /// Sends a Chromium helper's Crashpad dump (``ChromiumMinidumpCollector``, p01-process task 226) as a crash
+    /// event, under the same consent as the app's own crashes: nothing while Sentry is off (consent, a debug
+    /// build), and a dump found while it was off is never sent later. The event holds the crashed thread's
+    /// frames and the image list (``ChromiumMinidumpReport/systemReport``), no annotation and no memory.
+    /// The host's own dump is not sent: its crash also reaches macOS's crash reporter
+    /// (`BrowserCrashForwardingEnabled` in crash_reporter.cfg), whose `.ips` report ``SystemCrashForwarder``
+    /// sends, and two events would count one crash twice. Any thread.
+    public func sendChromiumDump(_ report: ChromiumMinidumpReport) {
+        guard isStarted, !report.isBrowserProcess else { return }
+        // A clean scope, as SystemCrashForwarder's: the app's breadcrumbs do not describe a helper's crash.
+        SentrySDK.capture(event: SystemCrashEvent(report: report.systemReport, source: .crashpad).event(), scope: Scope())
+    }
+
+    /// The previous run's black box as the crash event's `blackbox.txt` (p09-observability-128, 079): nil without
+    /// the hang-reports opt-in, never a key-timing, per-key PTY or flow record (``TraceBlackBoxUpload``), and
+    /// passed through `scrubber` like every other text that leaves the Mac.
+    public static func blackboxAttachment(_ records: [TraceBlackBoxUpload.Record], hangReportsOptIn: Bool,
+                                          scrubber: SentryScrubber = SentryScrubber()) -> Attachment? {
         guard let text = TraceBlackBoxUpload().crashAttachmentText(records, hangReportsOptIn: hangReportsOptIn) else {
             return nil
         }
-        return Attachment(data: Data(text.utf8), filename: "blackbox.txt", contentType: "text/plain")
+        return Attachment(data: Data(scrubber.scrub(text).utf8), filename: blackboxFileName, contentType: "text/plain")
     }
+
+    /// The black box attachment's file name.
+    public static let blackboxFileName = "blackbox.txt"
 
     /// Tags the current scope so a crash this process causes on purpose
     /// (`debug.crash.app`, `debug.crash.exception`) can be filtered out.

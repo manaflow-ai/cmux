@@ -30,7 +30,9 @@
 //! ([`ConnectionSurfaceScheduler::when_settled`]); a closed connection's
 //! requests get at most [`CONNECTION_SURFACE_SHUTDOWN_TIMEOUT`] to end.
 //!
-//! REQUEST and CANCEL frames go to [`frame_dispatch`] (p05-ipc-071).
+//! REQUEST and CANCEL frames go to [`frame_dispatch`] (p05-ipc-071), and so
+//! do INPUT frames, which queue on the stream they name until its opener is
+//! answered ([`pending_streams`], p05-ipc-087).
 
 use std::fmt;
 
@@ -196,6 +198,9 @@ pub(super) enum ConnectionBadMessage {
     Wire(BadMessage),
     /// A valid frame of a kind this daemon does not route.
     UnroutedKind { kind: FrameKind },
+    /// A stream frame (INPUT) naming a stream this connection never
+    /// announced (server/pending_streams.rs).
+    UnknownStream { kind: FrameKind, stream: u16 },
     /// A REQUEST or CANCEL frame that its method or the requests in flight
     /// refuse.
     Call(frame_dispatch::CallRefusal),
@@ -209,6 +214,7 @@ impl ConnectionBadMessage {
         match self {
             ConnectionBadMessage::Wire(bad) => bad.reason(),
             ConnectionBadMessage::UnroutedKind { .. } => "unrouted_kind",
+            ConnectionBadMessage::UnknownStream { .. } => "unknown_stream",
             ConnectionBadMessage::Call(refusal) => refusal.reason(),
             ConnectionBadMessage::UnexpectedFds => "unexpected_fds",
         }
@@ -221,6 +227,9 @@ impl fmt::Display for ConnectionBadMessage {
             ConnectionBadMessage::Wire(bad) => write!(f, "{bad}"),
             ConnectionBadMessage::UnroutedKind { kind } => {
                 write!(f, "no route for {} frames", kind.name())
+            }
+            ConnectionBadMessage::UnknownStream { kind, stream } => {
+                write!(f, "{} frame on never-announced stream {stream}", kind.name())
             }
             ConnectionBadMessage::Call(refusal) => write!(f, "{refusal}"),
             ConnectionBadMessage::UnexpectedFds => write!(f, "a file descriptor arrived"),
@@ -616,3 +625,11 @@ mod tests;
 #[cfg(all(test, unix))]
 #[path = "echo_thread_rows_tests.rs"]
 mod echo_thread_rows_tests;
+
+#[cfg(all(test, unix))]
+#[path = "line_connection_panic_mode_tests.rs"]
+mod panic_mode_tests;
+
+#[cfg(all(test, unix))]
+#[path = "request_work_panic_mode_tests.rs"]
+mod request_work_panic_mode_tests;

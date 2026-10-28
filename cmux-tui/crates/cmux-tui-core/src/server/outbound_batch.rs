@@ -13,8 +13,6 @@ use super::{BoundedOutbound, OutboundItem};
 use crate::diagnostics::IpcStats;
 use crate::panic_free::RecoverPoison;
 use cmux_ipc::HEADER_LEN;
-#[cfg(any(test, not(unix)))]
-use cmux_threads::checked::sync as waits;
 use std::io::{ErrorKind, IoSlice, Write};
 
 #[cfg(test)]
@@ -44,14 +42,16 @@ impl BoundedOutbound {
     /// Waits for the next item, then takes it and every item ready behind
     /// it in write order into `batch`, until the batch holds
     /// [`WRITE_BATCH_BYTES`] or [`WRITE_BATCH_ITEMS`]. A flush or a chunk
-    /// ends a batch. `false` once the queue is closed and empty.
+    /// ends a batch. `false` once the queue is closed and empty. The wait is
+    /// an idle wait, so a writer that disallows blocking may take it.
     #[cfg(any(test, not(unix)))]
     pub(in crate::server) fn recv_batch(&self, batch: &mut Vec<OutboundItem>) -> bool {
         let mut state = self.state.lock().recover_poison();
         loop {
             match self.take_batch(state, batch) {
                 Ok(poll) => return poll == BatchPoll::Taken,
-                Err(empty) => state = waits::wait(&self.changed, empty).recover_poison(),
+                // The writer's idle wait for its own queue (p02-threads 308).
+                Err(empty) => state = self.changed.idle().wait(empty).recover_poison(),
             }
         }
     }

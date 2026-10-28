@@ -17,7 +17,8 @@
 /// ``launchStartupTask``, ``launchStartupComplete``, ``launchReadDone``, ``stallPaletteOpen``, ``stallIconPickerOpen``,
 /// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep``, ``createTab``,
 /// ``createWorkspace``, ``stallGhosttyRuntimePhase``, ``switchWorkspace``, ``switchTab``, ``switchPaneFocus``,
-/// ``burstEvent``, ``motionLateCommits``, ``actionPresentedEstimate`` and ``cefMemoryPressureVote`` have an emitter
+/// ``burstEvent``, ``motionLateCommits``, ``actionPresentedEstimate``, ``cefMemoryPressureVote`` and
+/// ``launchActionCatalogFirstMainAccess`` have an emitter
 /// today. The
 /// other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
@@ -417,7 +418,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// (`AgentPaneLaunchTimings.Step`).
     case webuiAgentPaneStep = 78
     /// One phase of the libghostty runtime's one-time start on main (`TerminalTimings`): `ghostty_init`, the
-    /// config load, `ghostty_app_new`. Message: `phase=<name>`. Ring: instant at the phase's end; arg0 the
+    /// config load, `ghostty_app_new`, then its first surface's (`TerminalFirstSurfaceSplit`). Message: `phase=<name>`. Ring: instant at the phase's end; arg0 the
     /// phase's code (`TerminalTimings.RuntimePhase`), arg1 its duration in ns.
     case stallGhosttyRuntimePhase = 79
 
@@ -476,6 +477,15 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Debug and bench builds whose GhosttyNextKit has the report (`GHOSTTY_LOCK_WAIT`). Message:
     /// `wait_us=<wait>`. Ring: instant; arg0 the wait in ns.
     case ghosttyLockWait = 87
+
+    // MARK: launch catalog read (emitter: CmuxNextActions `ActionCatalogLaunch`, task p08-startup-092)
+
+    /// The registry's first read of the action catalog on the main thread (`ActionCatalogLaunch.descriptors()`),
+    /// from its start to its return: 0 when the launch warm-up thread had built the catalog, the rest of that build
+    /// when it was still running, the whole build when main claimed it. Message: `outcome=<ready|waited|
+    /// built_on_main>`. Ring: B/E; begin arg0 the outcome (`ActionCatalogMainAccess.Outcome`'s raw value). Once
+    /// per launch.
+    case launchActionCatalogFirstMainAccess = 88
 
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
@@ -567,6 +577,8 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .actionPresented: "action.presented"
         case .cefMemoryPressureVote: "cef.memory_pressure_vote"
         case .ghosttyLockWait: "ghostty.lock_wait"
+
+        case .launchActionCatalogFirstMainAccess: "launch.action_catalog_first_main_access"
         }
     }
 }

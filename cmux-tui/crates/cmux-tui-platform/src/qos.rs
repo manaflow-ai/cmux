@@ -10,8 +10,10 @@
 //!   (base/task/thread_pool/thread_group_impl.cc); here the thread changes
 //!   class per request instead, because one connection thread runs them all.
 //! - [`LockBoost`]: taken before the thread blocks on a ranked lock and held
-//!   with it. The outermost boost of a thread lowered by a [`WorkQos`]
-//!   raises it to USER_INITIATED until that lock is released (Chromium's
+//!   with it. The outermost boost of a thread lowered by a [`WorkQos`], or
+//!   of a thread declared below Default at its start (a utility watcher, an
+//!   idle worker, `cmux_threads::spawn`), raises it to USER_INITIATED until
+//!   that lock is released (Chromium's
 //!   `ScopedBoostPriority`, base/threading/scoped_thread_priority.h, entered
 //!   before the wait too). A lock that hands itself to a parked waiter
 //!   (parking_lot's eventual fairness, a fair pthread mutex) then never
@@ -25,8 +27,10 @@
 //!   (a new thread inherits its creator's class on macOS and its nice value
 //!   on Linux, so it states its class when it starts).
 //!
-//! The scopes are thread-local and nest. A boost costs one thread-local read
-//! when the thread is not lowered, and one QoS change each way when it is. A
+//! The scopes are thread-local and nest. A boost costs two thread-local
+//! reads when the thread is not lowered (its request class and its declared
+//! class, cached after the first boost), and one QoS change each way when it
+//! is. A
 //! [`WorkQos`] entered while a boost is held changes nothing: the lock
 //! holder stays raised until its lock is released.
 //!
@@ -55,6 +59,9 @@ thread_local! {
     static BOOST_DEPTH: Cell<u32> = const { Cell::new(0) };
     /// The raise of the outermost boost, when it raised the thread.
     static RAISE: RefCell<Option<QosScope>> = const { RefCell::new(None) };
+    /// The class this thread declared at its start, read once it is
+    /// registered: a registered thread's declared class never changes.
+    static DECLARED: Cell<Option<ThreadQos>> = const { Cell::new(None) };
 }
 
 /// The class this thread's innermost applied [`WorkQos`] runs it at.
@@ -65,6 +72,30 @@ pub fn work_qos() -> Option<ThreadQos> {
 /// True while a [`LockBoost`] raises this thread.
 pub fn boosted() -> bool {
     RAISE.with(|raise| raise.borrow().as_ref().is_some_and(QosScope::applied))
+}
+
+/// The class this thread declared when it started (`cmux_threads::spawn`);
+/// `None` for a thread that is not registered.
+fn declared() -> Option<ThreadQos> {
+    DECLARED.with(|cache| {
+        if let Some(declared) = cache.get() {
+            return Some(declared);
+        }
+        let declared = cmux_threads::current_slot().map(|slot| slot.declared())?;
+        cache.set(Some(declared));
+        Some(declared)
+    })
+}
+
+/// Whether a lock this thread takes now must raise it: it runs a [`WorkQos`]
+/// below [`LOCK_HOLDER_QOS`], or outside every request it rests at a class
+/// it declared below Default and could be raised from and lowered back to
+/// (on Linux: nice 0 again, [`reversible`]).
+fn holder_needs_raise() -> bool {
+    match work_qos() {
+        Some(qos) => qos < LOCK_HOLDER_QOS,
+        None => declared().is_some_and(|qos| qos < ThreadQos::Default && reversible(qos)),
+    }
 }
 
 /// Whether the process can enter `qos` and take it back
@@ -128,7 +159,8 @@ impl Drop for WorkQos {
 }
 
 /// Taken before the thread blocks on a ranked lock and held with it: the
-/// outermost one raises a lowered thread to [`LOCK_HOLDER_QOS`] until it
+/// outermost one raises a lowered thread (a [`WorkQos`] below it, or a
+/// declared utility or background thread) to [`LOCK_HOLDER_QOS`] until it
 /// drops. Hold it in the lock guard, declared after the lock, so the lock is
 /// released first.
 #[must_use = "the boost holds only while the guard lives"]
@@ -145,7 +177,7 @@ impl LockBoost {
             depth.set(next);
             next
         });
-        if depth == 1 && work_qos().is_some_and(|qos| qos < LOCK_HOLDER_QOS) {
+        if depth == 1 && holder_needs_raise() {
             let scope = QosScope::enter(LOCK_HOLDER_QOS);
             RAISE.with(|raise| *raise.borrow_mut() = Some(scope));
         }
@@ -196,7 +228,51 @@ where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
+    // supervise-allow: a spawn primitive: it returns the JoinHandle, so each caller keeps it and owns its thread's failure policy.
     cmux_threads::spawn(name, outside_request_class(), f)
+}
+
+/// Starts thread `name` through [`cmux_threads::spawn`] at `qos`, a class
+/// below Default (a watcher at Utility, an idle loop at Background), for a
+/// thread that may take a ranked lock: a lock it waits for or holds raises
+/// it to [`LOCK_HOLDER_QOS`] ([`LockBoost`]). Where the process could not
+/// take that raise back ([`cmux_threads::reversible`]: Linux without root or
+/// an `RLIMIT_NICE` that allows nice 0) it starts at Default instead, so it
+/// never holds a lock below the threads that wait for it, or at the
+/// creator's own class where Default is out of reach too
+/// ([`raisable_class`]). `stack` is its
+/// stack size in bytes, `None` for the platform default.
+pub fn spawn_raisable<F, T>(
+    name: impl Into<String>,
+    qos: ThreadQos,
+    stack: Option<usize>,
+    f: F,
+) -> std::io::Result<std::thread::JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let class = raisable_class(qos);
+    match stack {
+        Some(bytes) => cmux_threads::spawn_with_stack(name, class, bytes, f),
+        None => cmux_threads::spawn(name, class, f),
+    }
+}
+
+/// The class [`spawn_raisable`] starts a thread at for `qos`, asked on the
+/// creator. A class it could not raise for a lock falls back to Default, or,
+/// where the creator cannot reach Default either (a daemon started under
+/// `nice -n 10` without the right to lower nice), to the highest class
+/// below it that the creator can reach: its own, which the new thread
+/// starts at anyway, so its start is never a refused change.
+pub fn raisable_class(qos: ThreadQos) -> ThreadQos {
+    if qos >= ThreadQos::Default || cmux_threads::reversible(qos) {
+        return qos;
+    }
+    [ThreadQos::Default, ThreadQos::Utility, ThreadQos::Background]
+        .into_iter()
+        .find(|&class| cmux_threads::reachable(class))
+        .unwrap_or(qos)
 }
 
 /// The class of a thread the calling thread starts now: the class the

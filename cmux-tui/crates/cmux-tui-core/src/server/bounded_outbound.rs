@@ -452,6 +452,24 @@ impl BoundedOutbound {
         Ok(())
     }
 
+    /// Ends `stream` now: closes it, drops its unwritten items, and queues
+    /// `text` in the control FIFO, in one step. Unlike `push_terminal`, it
+    /// queues `text` when the stream queued its own terminal already.
+    pub(super) fn push_stream_end(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        let mut state = self.state.lock().recover_poison();
+        stream.close();
+        Self::purge_stream_locked(&mut state, stream.id);
+        state.mark_terminal_queued(stream);
+        Self::push_control_locked(&mut state, text)?;
+        drop(state);
+        self.changed.notify_one();
+        Ok(())
+    }
+
     /// Gracefully closes a stream after every item already admitted for it.
     ///
     /// Overflow and cancellation use `push_terminal`, which intentionally
@@ -647,6 +665,12 @@ impl BoundedOutbound {
         }
     }
 
+    /// The writer's next item, or `None` once the queue is closed and empty.
+    /// Only the connection's writer (`mux-line-out`, `mux-ws-out`) calls it,
+    /// at the top of its loop: with nothing queued it is idle, holding no
+    /// one else's work, so the wait is an idle wait (Chromium's
+    /// `WaitableEvent::declare_only_used_while_idle`, which
+    /// `MessagePumpDefault` uses), not a blocking call (p02-threads 308).
     pub(super) fn recv(&self) -> Option<OutboundItem> {
         let mut state = self.state.lock().recover_poison();
         loop {
@@ -660,7 +684,7 @@ impl BoundedOutbound {
             if state.closed {
                 return None;
             }
-            state = waits::wait(&self.changed, state).recover_poison();
+            state = self.changed.idle().wait(state).recover_poison();
         }
     }
 

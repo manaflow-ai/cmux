@@ -382,6 +382,7 @@ public final class MainJobGate: Sendable {
         }
     }
 
+    /// What the gate held and passed since launch.
     public var counters: Counters {
         Counters(heldByOrigin: Self.named(Origin.allCases, heldCounts, \.name),
                  exemptByRule: Self.named(ExemptRule.allCases, exemptCounts, \.name),

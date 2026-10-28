@@ -998,19 +998,30 @@ impl GraphicsWriter {
         let slot = Arc::new(Mutex::new(PendingGraphics::default()));
         let completion = Arc::new(Mutex::new(None));
         let control = Arc::new(WriterControl::default());
-        let handle = std::thread::Builder::new().name("mux-graphics-writer".into()).spawn({
-            let slot = slot.clone();
-            let completion = completion.clone();
-            let control = control.clone();
-            move || {
-                writer_loop(
-                    WriterLoopState { slot, completion, notifications: rx, stdout_lock, control },
-                    output,
-                    processing_fence,
-                    on_ready,
-                );
-            }
-        })?;
+        // supervise-allow: owned by GraphicsWriter and joined at its drop; a panic ends graphics output only.
+        let handle = cmux_threads::spawn(
+            "mux-graphics-writer",
+            cmux_tui_core::thread_qos::ThreadType::Interactive.qos(),
+            {
+                let slot = slot.clone();
+                let completion = completion.clone();
+                let control = control.clone();
+                move || {
+                    writer_loop(
+                        WriterLoopState {
+                            slot,
+                            completion,
+                            notifications: rx,
+                            stdout_lock,
+                            control,
+                        },
+                        output,
+                        processing_fence,
+                        on_ready,
+                    );
+                }
+            },
+        )?;
         Ok(Self { slot, completion, notify: Some(tx), control, handle: Some(handle) })
     }
 

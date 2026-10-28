@@ -1297,6 +1297,35 @@
         "required": true
       }
     },
+    "event:input-failed": {
+      "/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"input-failed\""
+        ]
+      },
+      "/reason": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "attach_failed",
+          "daemon_handoff",
+          "not_a_terminal",
+          "overflow",
+          "terminal_ended",
+          "write_failed"
+        ]
+      },
+      "/stream": {
+        "ty": "uint16",
+        "required": true
+      }
+    },
     "event:keybindings-changed": {
       "/cause": {
         "ty": "enum",
@@ -10941,6 +10970,7 @@
         "required": true
       }
     },
+    "request:memory-report": {},
     "request:mint-terminal-renderer": {
       "/surface": {
         "ty": "uint64",
@@ -20127,6 +20157,13 @@
           "1"
         ]
       },
+      "/data/framed_methods": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/data/framed_methods/*": {
+        "ty": "uint16"
+      },
       "/data/generation": {
         "ty": "string",
         "required": true
@@ -20184,6 +20221,10 @@
       "/data/registry_id": {
         "ty": "string",
         "required": true
+      },
+      "/data/sdk_schema_digest": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/session": {
         "ty": "string",
@@ -21202,6 +21243,12 @@
       }
     },
     "response:mark-workspaces-provider-managed": {},
+    "response:memory-report": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:mint-terminal-renderer": {
       "/data/endpoint": {
         "ty": "string",
@@ -22817,6 +22864,32 @@
       },
       "/data/dispatch_queue_us/p99": {
         "ty": "uint64",
+        "required": true
+      },
+      "/data/hangs": {
+        "ty": "object"
+      },
+      "/data/hangs/over_250ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hangs/records": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/hangs/records/*": {
+        "ty": "object"
+      },
+      "/data/hangs/records/*/duration_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hangs/records/*/sequence": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/hangs/records/*/span": {
+        "ty": "string",
         "required": true
       },
       "/data/ipc": {

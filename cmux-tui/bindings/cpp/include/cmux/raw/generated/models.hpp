@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "0099f55a8d73eeccd65a50020e3ff0c8be1ac82f5723a1d6b384ce58b5e9108c";
+inline constexpr std::string_view kProtocolIrSha256 = "6c411d6bdd4ecf7ff0394081a5e55ff142d573370a7193e692cfde5e51fa96bd";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -225,6 +225,8 @@ struct SavedTabGroupRecord;
 struct Screen;
 struct SendExpectAgent;
 struct ServerStatsConnections;
+struct ServerStatsHangRecord;
+struct ServerStatsHangs;
 struct ServerStatsHistogram;
 struct ServerStatsIpc;
 struct ServerStatsIpcKind;
@@ -598,6 +600,8 @@ struct MachineCatalogPublishRequest;
 struct MachineListeningTcpRequest;
 struct MachineUsageRequest;
 struct MarkWorkspacesProviderManagedRequest;
+struct MemoryReportRequest;
+struct MemoryReportResult;
 struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
 struct MoveBookmarkRequest;
@@ -806,6 +810,7 @@ struct FrameEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
 struct HistoryChangedEvent;
+struct InputFailedEvent;
 struct KeybindingsChangedEvent;
 struct LayoutChangedEvent;
 struct LoopbackClosedEvent;
@@ -905,6 +910,7 @@ enum class BrowserStateEventStatus;
 enum class ChiefChangedEventChange;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
+enum class InputFailedEventReason;
 enum class KeybindingsChangedEventOrigin;
 enum class ServerDiagnosticSiteEventFamily;
 enum class SettingsChangedEventOrigin;
@@ -4559,6 +4565,7 @@ struct IdentifyResult {
     std::optional<std::vector<std::string>> capabilities{};
     Field<std::string> cli_path{};
     Field<std::string> crate_version{};
+    Field<std::vector<std::uint16_t>> framed_methods{};
     std::string generation{};
     Field<std::string> ghostty_commit{};
     Field<std::string> install{};
@@ -4572,6 +4579,7 @@ struct IdentifyResult {
     std::uint32_t pid{};
     std::uint32_t protocol{};
     std::string registry_id{};
+    Field<std::string> sdk_schema_digest{};
     std::string session{};
     std::optional<std::string> session_id{};
     std::uint64_t terminal_revision{};
@@ -4623,6 +4631,22 @@ struct ImportSessionOrganizationRequest {
     std::string session_id{};
     std::optional<std::vector<JsonValue>> workspaces{};
     friend bool operator==(const ImportSessionOrganizationRequest&, const ImportSessionOrganizationRequest&) = default;
+};
+
+enum class InputFailedEventReason {
+    terminal_ended,
+    not_a_terminal,
+    write_failed,
+    daemon_handoff,
+    overflow,
+    attach_failed,
+};
+
+struct InputFailedEvent {
+    std::uint64_t bytes{};
+    InputFailedEventReason reason{};
+    std::uint16_t stream{};
+    friend bool operator==(const InputFailedEvent&, const InputFailedEvent&) = default;
 };
 
 struct JournalFrontendEventRequest {
@@ -5133,6 +5157,15 @@ struct MachineUsageResult {
 struct MarkWorkspacesProviderManagedRequest {
     std::string authority{};
     friend bool operator==(const MarkWorkspacesProviderManagedRequest&, const MarkWorkspacesProviderManagedRequest&) = default;
+};
+
+struct MemoryReportRequest {
+    friend bool operator==(const MemoryReportRequest&, const MemoryReportRequest&) = default;
+};
+
+struct MemoryReportResult {
+    Json value{};
+    friend bool operator==(const MemoryReportResult&, const MemoryReportResult&) = default;
 };
 
 struct MintTerminalRendererByTerminalRequest {
@@ -6386,6 +6419,19 @@ struct ServerStatsConnections {
     friend bool operator==(const ServerStatsConnections&, const ServerStatsConnections&) = default;
 };
 
+struct ServerStatsHangRecord {
+    std::uint64_t duration_ms{};
+    std::uint64_t sequence{};
+    std::string span{};
+    friend bool operator==(const ServerStatsHangRecord&, const ServerStatsHangRecord&) = default;
+};
+
+struct ServerStatsHangs {
+    std::uint64_t over_250ms{};
+    std::vector<ServerStatsHangRecord> records{};
+    friend bool operator==(const ServerStatsHangs&, const ServerStatsHangs&) = default;
+};
+
 struct ServerStatsHistogram {
     std::uint64_t count{};
     std::uint64_t max{};
@@ -6661,6 +6707,7 @@ struct ServerStatsWritePath {
 struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsHistogram> dispatch_queue_us{};
+    std::optional<ServerStatsHangs> hangs{};
     std::optional<ServerStatsIpc> ipc{};
     std::optional<std::vector<ServerStatsMethodLatency>> ipc_methods{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
@@ -9060,6 +9107,18 @@ struct Codec<ServerStatsConnections> {
 };
 
 template <>
+struct Codec<ServerStatsHangRecord> {
+    static Result<Json> encode(const ServerStatsHangRecord& value);
+    static Result<ServerStatsHangRecord> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsHangs> {
+    static Result<Json> encode(const ServerStatsHangs& value);
+    static Result<ServerStatsHangs> decode(const Json& value);
+};
+
+template <>
 struct Codec<ServerStatsHistogram> {
     static Result<Json> encode(const ServerStatsHistogram& value);
     static Result<ServerStatsHistogram> decode(const Json& value);
@@ -11298,6 +11357,18 @@ struct Codec<MarkWorkspacesProviderManagedRequest> {
 };
 
 template <>
+struct Codec<MemoryReportRequest> {
+    static Result<Json> encode(const MemoryReportRequest& value);
+    static Result<MemoryReportRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MemoryReportResult> {
+    static Result<Json> encode(const MemoryReportResult& value);
+    static Result<MemoryReportResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<MintTerminalRendererRequest> {
     static Result<Json> encode(const MintTerminalRendererRequest& value);
     static Result<MintTerminalRendererRequest> decode(const Json& value);
@@ -12546,6 +12617,12 @@ struct Codec<HistoryChangedEvent> {
 };
 
 template <>
+struct Codec<InputFailedEvent> {
+    static Result<Json> encode(const InputFailedEvent& value);
+    static Result<InputFailedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<KeybindingsChangedEvent> {
     static Result<Json> encode(const KeybindingsChangedEvent& value);
     static Result<KeybindingsChangedEvent> decode(const Json& value);
@@ -13137,6 +13214,12 @@ template <>
 struct Codec<GraphicsStatusEventKind> {
     static Result<Json> encode(const GraphicsStatusEventKind& value);
     static Result<GraphicsStatusEventKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<InputFailedEventReason> {
+    static Result<Json> encode(const InputFailedEventReason& value);
+    static Result<InputFailedEventReason> decode(const Json& value);
 };
 
 template <>

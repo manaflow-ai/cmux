@@ -142,6 +142,9 @@ impl LineConnection {
     /// One task of the sequence: opens the session first, then handles up
     /// to [`TURN_MESSAGES`] messages and yields to the other sequences.
     fn drain(&self) {
+        // Declared before the slot's guard, so it runs after that guard is
+        // released when a handler panics.
+        let _unwind = EndOnUnwind(self);
         let mut slot = self.session.lock().recover_poison();
         match &*slot {
             SessionSlot::Opening(_) => {
@@ -193,7 +196,7 @@ impl LineConnection {
         let _ = work.post(Priority::UserBlocking, Lane::Files, Shutdown::SkipOnShutdown, {
             move || {
                 let Some(opening) = identify.opening.take() else { return };
-                let peer = origin_gate::AcceptedPeer::read(&opening.mux, &*opening.peer);
+                let peer = origin_gate::AcceptedPeer::resolve(&opening.mux, &*opening.peer);
                 let connection = identify.connection.clone();
                 let (task, writer) = (connection.clone(), opening.writer.clone());
                 let opened = connection.sequence.post(move || task.opened(*opening, peer));
@@ -285,6 +288,21 @@ impl LineConnection {
     }
 }
 
+/// Ends the connection when a handler panics on its sequence: the pool's
+/// worker survives the panic (server/sequenced_pool.rs), so without it the
+/// connection would keep its client and its socket and never drain again,
+/// and its client would wait forever. Its teardown takes only locks that
+/// recover from poison.
+struct EndOnUnwind<'a>(&'a LineConnection);
+
+impl Drop for EndOnUnwind<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.0.abandon();
+        }
+    }
+}
+
 /// The peer identity's work item. Dropped unrun (a refused post, a queued
 /// item dropped at shutdown), it abandons the connection.
 struct Identify {
@@ -332,7 +350,7 @@ impl LineSession {
         let client = mux.control_clients.register(transport, writer.clone());
         let ipc = mux.ipc_stats().clone();
         let stream = ipc.stream_opened_owned();
-        peer.record(&mux, client);
+        origin_gate::set_peer_identity_at_accept(&mux, client, &peer);
         if !admission.registered(&mux, client) {
             // Refused before its first frame (the remote entry's revocation
             // limits): nothing is read or dispatched.

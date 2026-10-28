@@ -234,11 +234,11 @@ fn the_app_processs_other_connections_are_the_persons() {
     let other = connect_peer(&mux, Some("token:9999.1"));
     mux.control_clients.classify_connection(other);
     let relay = connect_peer(&mux, None);
-    assert!(set_hello(&mux, relay, HelloRole::PageRelay, Some(app_key.into()), false, None));
+    assert!(set_hello(&mux, relay, HelloRole::PageRelay, Some(app_key.into()), false, None, false));
     mux.control_clients.classify_connection(relay);
 
     let app = connect_peer(&mux, None);
-    assert!(set_hello(&mux, app, HelloRole::Main, Some(app_key.into()), false, None));
+    assert!(set_hello(&mux, app, HelloRole::Main, Some(app_key.into()), false, None, false));
     assert_eq!(early_class.get(), ConnectionClass::Automation, "not proved yet");
     assert!(set_install_proved(&mux, app, "install_1"));
     assert_eq!(early_class.get(), ConnectionClass::Person, "reclassed by the proof");
@@ -271,7 +271,8 @@ fn a_signed_app_hello_reclasses_its_processs_connections() {
         HelloRole::Main,
         Some(app_key.into()),
         true,
-        None
+        None,
+        false
     ));
     assert_eq!(early_class.get(), ConnectionClass::Person);
     mux.shutdown();
@@ -469,7 +470,8 @@ fn the_apps_terminal_attachment_lines_run_at_the_echo_class() {
         HelloRole::Main,
         Some(own_peer_key()),
         true,
-        None
+        None,
+        false
     ));
 
     let (server, mut client) = UnixStream::pair().unwrap();
@@ -587,7 +589,8 @@ fn echo_latency_under_an_agent_burst() {
         HelloRole::Main,
         Some(own_peer_key()),
         true,
-        None
+        None,
+        false
     ));
     let (server, mut client) = UnixStream::pair().unwrap();
     client.set_read_timeout(Some(WAIT)).unwrap();

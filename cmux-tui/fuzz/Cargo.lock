@@ -16,6 +16,7 @@ dependencies = [
  "cmux-codex-acp",
  "cmux-features",
  "cmux-git",
+ "cmux-hang-watch",
  "cmux-link",
  "cmux-local-auth",
  "cmux-lock-rank",
@@ -622,6 +623,7 @@ name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
  "cmux-threads",
+ "cmux-trace",
  "libc",
  "serde",
  "serde_json",
@@ -720,6 +722,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-threads",
  "core-foundation",
  "core-foundation-sys",
  "notify",
@@ -776,6 +779,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-hang-watch"
+version = "0.1.0"
+dependencies = [
+ "cmux-trace",
+ "libc",
+]
+
+[[package]]
 name = "cmux-history"
 version = "0.1.0"
 dependencies = [
@@ -793,8 +804,10 @@ name = "cmux-holder"
 version = "0.1.0"
 dependencies = [
  "cmux-flow-trace",
+ "cmux-hang-watch",
  "cmux-ipc",
  "cmux-memory",
+ "cmux-panic-log",
  "cmux-threads",
  "cmux-trace",
  "libc",
@@ -884,6 +897,7 @@ dependencies = [
  "cmux-blocking",
  "cmux-local-auth",
  "cmux-panic-log",
+ "cmux-threads",
  "futures-util",
  "getrandom 0.3.4",
  "jsonschema",
@@ -1056,6 +1070,7 @@ name = "cmux-threads"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "tokio",
 ]
 
 [[package]]
@@ -1079,10 +1094,12 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-blocking",
  "cmux-build-identity",
  "cmux-config",
  "cmux-features",
+ "cmux-hang-watch",
  "cmux-holder",
  "cmux-host",
  "cmux-ipc",
@@ -1179,6 +1196,7 @@ dependencies = [
  "cmux-feed-core",
  "cmux-flow-trace",
  "cmux-git",
+ "cmux-hang-watch",
  "cmux-history",
  "cmux-holder",
  "cmux-ipc",
@@ -1353,6 +1371,7 @@ dependencies = [
  "getrandom 0.3.4",
  "libc",
  "rusqlite",
+ "serde",
  "serde_json",
 ]
 

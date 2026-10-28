@@ -57,6 +57,14 @@ pub(super) fn subscribe_command(
             .subscribe_surface_session(surface)
             .ok_or_else(|| anyhow::anyhow!("unknown surface {surface}"))?,
         (None, Some(kinds)) => mux.subscribe_kinds(kinds),
+        (None, None)
+            if matches!(
+                super::origin_gate::connection_actor(mux, client),
+                crate::workspace_registry::Actor::Frontend { .. }
+            ) =>
+        {
+            mux.subscribe_frontend()
+        }
         (None, None) => mux.subscribe(),
     };
     #[cfg(test)]
@@ -398,7 +406,8 @@ impl AttachDrain for SubscriptionDrain {
             }
             let value = match self.initial.pop_front() {
                 Some(value) => value,
-                None => match self.events.try_recv_caused() {
+                // Rendered from the event every subscriber shares, never copied.
+                None => match self.events.try_recv_shared() {
                     Ok((event, cause)) => match self.filter.render(&event, cause) {
                         Some(value) => value,
                         None => continue,

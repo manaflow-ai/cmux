@@ -298,6 +298,14 @@ impl MessageSink for QueuedSink {
         self.outbound.try_push_ordered_terminal(text, stream, on_room)
     }
 
+    fn send_stream_end(
+        &self,
+        text: Arc<BudgetedText>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        self.outbound.push_stream_end(text, stream)
+    }
+
     fn is_open(&self) -> bool {
         self.outbound.is_open()
     }

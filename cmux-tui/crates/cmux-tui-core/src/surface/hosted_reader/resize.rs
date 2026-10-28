@@ -14,18 +14,19 @@ impl HostedReader {
         cell_pixels: Option<(u16, u16)>,
     ) -> Flow {
         let mux = self.mux.clone();
-        let mut geometry = pty.geometry.lock().unwrap();
+        let mut geometry = pty.geometry.lock().recover_poison();
         let next_geometry = PtyGeometry {
             cols,
             rows,
             cell_width: cell_pixels.map(|pixels| pixels.0).unwrap_or(geometry.cell_width),
             cell_height: cell_pixels.map(|pixels| pixels.1).unwrap_or(geometry.cell_height),
         };
-        let changed = match pty.commit_hosted_geometry(&mut geometry, next_geometry, false) {
-            Ok(changed) => changed,
+        let commit = match pty.commit_hosted_geometry(&mut geometry, next_geometry, false) {
+            Ok(commit) => commit,
             Err(_) => return Flow::Break,
         };
         drop(geometry);
+        let changed = pty.publish_geometry_commit(commit);
         if changed && let Some(mux) = mux.upgrade() {
             mux.emit(MuxEvent::SurfaceResized {
                 surface: surface.id,
@@ -52,7 +53,7 @@ impl HostedReader {
         colors: TerminalColorOverrides,
     ) -> Flow {
         let mux = self.mux.clone();
-        let mut geometry = pty.geometry.lock().unwrap();
+        let mut geometry = pty.geometry.lock().recover_poison();
         let next_geometry =
             PtyGeometry { cols, rows, cell_width: cell_pixels.0, cell_height: cell_pixels.1 };
         let defaults = mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
@@ -92,13 +93,13 @@ impl HostedReader {
         let generation = pty.with_terminal_stream_update(|term| {
             let before = terminal_scroll_position(term);
             *term = replacement;
-            pty.mouse_encoders.lock().unwrap().sync_from_terminal(term);
+            pty.mouse_encoders.lock().recover_poison().sync_from_terminal(term);
             *geometry = next_geometry;
             pty.journal_geometry(next_geometry);
             title_moved =
-                std::mem::replace(&mut *pty.title.lock().unwrap(), title.clone()) != title;
+                std::mem::replace(&mut *pty.title.lock().recover_poison(), title.clone()) != title;
             pty.record_directory(pwd);
-            *pty.kitty_graphics_limits.lock().unwrap() = kitty_state.limits;
+            *pty.kitty_graphics_limits.lock().recover_poison() = kitty_state.limits;
             self.applied_color_overrides = colors;
             self.applied_color_revision = term.color_revision();
             self.applied_cursor_activity = term.cursor_activity().ok();
@@ -124,8 +125,7 @@ impl HostedReader {
             pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
         });
         drop(geometry);
-        surface.publish_pending_directory();
-        surface.publish_pending_progress();
+        surface.post_pending_publications();
         pty.stream_progress.notify();
         pty.request_frame(generation);
         if let Some(mux) = mux.upgrade() {
