@@ -159,7 +159,7 @@ pub struct Controller {
     hostname: String,
     inner: Mutex<Inner>,
     changes: broadcast::Sender<Snapshot>,
-    lifecycle: tokio::sync::Mutex<()>,
+    lifecycle: Arc<tokio::sync::Mutex<()>>,
     stopping: Arc<AtomicBool>,
 }
 
@@ -177,7 +177,7 @@ impl Controller {
                 closed: false,
             }),
             changes,
-            lifecycle: tokio::sync::Mutex::new(()),
+            lifecycle: Arc::new(tokio::sync::Mutex::new(())),
             stopping: Arc::new(AtomicBool::new(false)),
         })
     }
@@ -228,22 +228,23 @@ impl Controller {
         self.publish_locked(&inner.snapshot);
     }
 
-    pub(crate) async fn listener_failed(&self, failed: &Arc<Node>) {
-        self.listener_failed_inner(Some(failed)).await;
-    }
-
-    async fn listener_failed_inner(&self, failed: Option<&Arc<Node>>) {
+    pub(crate) async fn listener_failed(self: &Arc<Self>, failed: &Arc<Node>) {
         // Retire the failed identity before waiting for a request (login or
         // logout) that may hold the lifecycle lock for a long LocalAPI call.
         // The supervisor timeout may cancel the close, but it must never
         // cancel this state transition and allow an automatic restart.
-        let node = self.retire_node(failed, "stopped");
-        let _lifecycle = self.lifecycle.lock().await;
-        let Some(node) = node else { return };
-        let _ = tokio::task::spawn_blocking(move || node.close().map_err(|e| e.0))
-            .await
-            .map_err(|error| error.to_string());
-        self.note_listener_error();
+        let Some(node) = self.retire_node(Some(failed), "stopped") else { return };
+        let controller = Arc::clone(self);
+        let cleanup = spawn_after_lifecycle(Arc::clone(&self.lifecycle), move || async move {
+            let _ = tokio::task::spawn_blocking(move || node.close().map_err(|e| e.0))
+                .await
+                .map_err(|error| error.to_string());
+            controller.note_listener_error();
+        });
+        // Dropping this join handle (for example when the supervisor's close
+        // timeout expires) does not cancel the detached cleanup task. It owns
+        // the retired node until close completes.
+        let _ = cleanup.await;
     }
 
     /// Start the node without waiting for login. A saved login resumes; an
@@ -549,6 +550,20 @@ fn release_on_background<T: Send + 'static>(value: T) {
         .spawn(move || drop(value));
 }
 
+fn spawn_after_lifecycle<F, Fut>(
+    lifecycle: Arc<tokio::sync::Mutex<()>>,
+    action: F,
+) -> tokio::task::JoinHandle<()>
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
+    tokio::spawn(async move {
+        let _lifecycle = lifecycle.lock().await;
+        action().await;
+    })
+}
+
 pub(crate) fn release_node(node: Arc<Node>) {
     release_on_background(node);
 }
@@ -768,17 +783,21 @@ mod tests {
         // supervisor's three-second close bound. Retirement must happen before
         // the cleanup task waits for that lock, so cancellation cannot restart
         // this node automatically.
-        assert!(
-            tokio::time::timeout(
-                std::time::Duration::from_millis(10),
-                controller.listener_failed_inner(None),
-            )
-            .await
-            .is_err()
-        );
+        controller.retire_node(None, "stopped");
+        let (closed, closed_rx) = tokio::sync::oneshot::channel();
+        let cleanup =
+            spawn_after_lifecycle(Arc::clone(&controller.lifecycle), move || async move {
+                let _ = closed.send(());
+            });
+        assert!(tokio::time::timeout(std::time::Duration::from_millis(10), cleanup).await.is_err());
         assert_eq!(controller.snapshot().state, "stopped");
         assert!(controller.node().is_none());
         drop(lifecycle);
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            closed_rx.await.expect("detached close sent completion");
+        })
+        .await
+        .expect("detached close completed after lifecycle lock was released");
     }
 
     #[test]
