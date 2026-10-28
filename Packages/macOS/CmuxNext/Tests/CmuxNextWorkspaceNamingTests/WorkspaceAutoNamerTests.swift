@@ -273,73 +273,60 @@ struct WorkspaceAutoNamerTests {
                 "a late failure for First title must not shed the newer Second title submission")
     }
 
-    @Test(.timeLimit(.minutes(1)))
-    func aFailedAcceptedSendStaysIdleUntilRealTitleInput() async {
+    // The three tests below follow the stores as the app does (`follow(on:)`) on a scheduler whose posted turns the
+    // test runs itself (`WorkspaceAutoNamerFollowTests.Turns`): "stays idle" is an empty turn queue, never a wait.
+
+    @Test func aFailedAcceptedSendStaysIdleUntilRealTitleInput() {
         let fixture = Fixture()
         fixture.title("First title")
         fixture.acceptsThenFails = true
-        let events = AsyncStream<String>.makeStream()
-        fixture.onAttempt = { events.continuation.yield($0) }
-        let worker = Task { await fixture.namer.run() }
-        defer { worker.cancel(); events.continuation.finish() }
-        var iterator = events.stream.makeAsyncIterator()
-        #expect(await iterator.next() == "First title")
+        let scheduler = WorkspaceAutoNamerFollowTests.Turns()
+        let follow = fixture.namer.follow(on: scheduler.work)
+        defer { withExtendedLifetime(follow) {} }
+        scheduler.run()
+        #expect(fixture.attempts == ["First title"])
         #expect(fixture.acceptedFailures.count == 1)
 
         fixture.acceptedFailures.removeFirst()()
-        try? await Task.sleep(for: .milliseconds(30))
+        scheduler.run()
         #expect(fixture.attempts == ["First title"],
                 "an RPC failure releases the candidate without an immediate retry loop")
 
         fixture.acceptsThenFails = false
         fixture.title("Second title")
-        #expect(await iterator.next() == "Second title")
-        try? await Task.sleep(for: .milliseconds(30))
+        scheduler.run()
+        #expect(fixture.attempts == ["First title", "Second title"])
         #expect(fixture.sent == ["Second title"])
-        worker.cancel()
-        await worker.value
     }
 
-    @Test(.timeLimit(.minutes(1)))
-    func aQueueRefusalStaysIdleUntilRealDataChanges() async throws {
+    @Test func aQueueRefusalStaysIdleUntilRealDataChanges() {
         let fixture = Fixture()
         fixture.title("First title")
         fixture.rejectsQueue = true
-        let events = AsyncStream<String>.makeStream()
-        fixture.onAttempt = { events.continuation.yield($0) }
-        let worker = Task { await fixture.namer.run() }
-        defer { worker.cancel(); events.continuation.finish() }
-        var iterator = events.stream.makeAsyncIterator()
-        #expect(await iterator.next() == "First title")
-
-        // The quiet interval is the oracle: a refused queue must not schedule itself.
-        try await Task.sleep(for: .milliseconds(30))
+        let scheduler = WorkspaceAutoNamerFollowTests.Turns()
+        let follow = fixture.namer.follow(on: scheduler.work)
+        defer { withExtendedLifetime(follow) {} }
+        scheduler.run()
+        // The drained queue is the oracle: a refused queue must not schedule itself.
+        #expect(fixture.attempts == ["First title"])
+        scheduler.run()
         #expect(fixture.attempts == ["First title"])
 
         fixture.title("Second title")
-        #expect(await iterator.next() == "Second title")
-        try await Task.sleep(for: .milliseconds(30))
+        scheduler.run()
         #expect(fixture.attempts == ["First title", "Second title"])
-        worker.cancel()
-        await worker.value
     }
 
-    @Test(.timeLimit(.minutes(1)))
-    func aCanceledSendRetriesWhenItsCandidateReturnsBeforeObservation() async {
+    @Test func aCanceledSendRetriesWhenItsCandidateReturnsBeforeObservation() {
         let fixture = Fixture()
         fixture.title("First title")
         fixture.cancelsFirstQueue = true
-        let events = AsyncStream<String>.makeStream()
-        fixture.onAttempt = { events.continuation.yield($0) }
-        let worker = Task { await fixture.namer.run() }
-        defer { worker.cancel(); events.continuation.finish() }
-        var iterator = events.stream.makeAsyncIterator()
-        #expect(await iterator.next() == "First title")
-        #expect(await iterator.next() == "First title")
+        let scheduler = WorkspaceAutoNamerFollowTests.Turns()
+        let follow = fixture.namer.follow(on: scheduler.work)
+        defer { withExtendedLifetime(follow) {} }
+        scheduler.run()
         #expect(fixture.attempts == ["First title", "First title"])
         #expect(fixture.sent == ["First title"])
-        worker.cancel()
-        await worker.value
     }
 
     @Test func aRemovedTargetDoesNotKeepALifetimeSubmission() {

@@ -42,7 +42,11 @@ import Testing
                                                daemonGeneration: nil, nameSource: .auto, nameRevision: 0)
         let renames = Renames(), scheduler = Turns()
         let namer = WorkspaceAutoNamer(names: TornOffWorkspaceNameTests.reader(turns), workspaces: { [target] },
-                                       selection: { _, _ in nil }, rename: { _, name in renames.names.append(name) })
+                                       selection: { _, _ in nil }, rename: { _, name, maySend, _ in
+                                           guard maySend() else { return false }
+                                           renames.names.append(name)
+                                           return true
+                                       })
         let follow = namer.follow(on: scheduler.work)
         defer { withExtendedLifetime(follow) {} }
         #expect(renames.names.isEmpty, "an untitled chat renamed its workspace")
