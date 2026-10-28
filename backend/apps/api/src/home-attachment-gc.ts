@@ -48,21 +48,31 @@ export const runAttachmentWake = async (deps: AttachmentGcDeps, entity: string |
   if (failure !== undefined) throw failure
 }
 
+/** Due slots one wake expires: its subrequests stay bounded; the alarm comes back at once while more are due. */
+export const EXPIRE_PER_WAKE = 100
+
 /**
- * Slots whose time is up: their object key is deleted (a PUT that never committed, or a re-PUT
- * to a presigned URL after the slot ended), a slot that never committed is refunded, then the
- * row goes. Each step is idempotent, so a failed wake retries safely.
+ * Slots whose time is up, oldest first: their object keys are deleted (a PUT that never committed,
+ * or a re-PUT to a presigned URL after the slot ended), a multipart slot's R2 upload is aborted, a
+ * slot that never committed is refunded, then the row goes, so the next wake reads the next page.
+ * An abort that fails (an upload R2 already ended or no longer knows) is logged and skipped: R2's
+ * own lifecycle ends incomplete uploads, and one bad upload never holds back the slots after it.
+ * Each step is idempotent, so a failed wake retries safely.
  */
 const expireSlots = async (deps: AttachmentGcDeps, now: number): Promise<void> => {
-  for (;;) {
-    const due = store.dueSlots(deps.sql, now, 100)
-    if (due.length === 0) return
-    if (deps.env.HOME_ATTACHMENTS) await deps.env.HOME_ATTACHMENTS.delete(due.flatMap(store.slotKeys))
+  const due = store.dueSlots(deps.sql, now, EXPIRE_PER_WAKE)
+  if (due.length === 0) return
+  const bucket = deps.env.HOME_ATTACHMENTS
+  if (bucket) {
+    await bucket.delete(due.flatMap(store.slotKeys))
     for (const slot of due) {
-      if (slot.state !== "tombstone") await deps.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
-      store.removeSlot(deps.sql, slot.id)
+      if (!slot.multipart_upload_id) continue
+      await bucket.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id).abort().catch((e: unknown) => console.error(JSON.stringify({ msg: "attachment multipart abort failed", object_key: slot.object_key, error: String(e).slice(0, 200) })))
     }
-    if (due.length < 100) return
+  }
+  for (const slot of due) {
+    if (slot.state !== "tombstone") await deps.users(slot.quota_user).refundAttachmentQuota(slot.quota_user, slot.id)
+    store.removeSlot(deps.sql, slot.id)
   }
 }
 

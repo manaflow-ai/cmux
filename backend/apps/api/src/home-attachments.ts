@@ -7,7 +7,7 @@ import { principalForOwner } from "./team-select.ts"
 import type { AttachmentAccess, DownloadAccess } from "./conversation-do.ts"
 import type { Env } from "./env.ts"
 import { derivedReady, randomId, slotKeys, type UploadSlot } from "./home-attachment-store.ts"
-import { streamInto } from "./home-attachment-stream.ts"
+import { ResumableSha256, streamInto, streamPartInto } from "./home-attachment-stream.ts"
 import { ssoGate } from "./policy-gate.ts"
 import { presignUrl, type Presigner } from "./r2-presign.ts"
 
@@ -18,9 +18,11 @@ import { presignUrl, type Presigner } from "./r2-presign.ts"
  *   A current participant only; allow list, 100 MB cap, per-user quota. Answers
  *   {state: "exists"} for a hash this caller can already use here, otherwise a single-use slot:
  *   up to 32 MB {mode: "stream", upload_url} (PUT through the Worker, which hashes the bytes);
- *   above {mode: "presigned", upload_url, headers, slot} (PUT straight to the private bucket,
- *   then POST /v1/home/attachments/commit {conversation, slot}). The presigned PUT signs
- *   `if-none-match: *`, so the URL cannot overwrite an object that is already there.
+ *   larger files, when the intent says `multipart: true`, {mode: "multipart", upload_url,
+ *   part_size, part_count, slot}: each part in order is one PUT through the Worker (header
+ *   `x-cmux-part-number`) into one R2 part, its bytes hashed onto the SHA-256 the owner keeps;
+ *   then POST /v1/home/attachments/multipart/complete {conversation, slot}. Every request does
+ *   the same bounded work whatever the file's size (home-core `multipartPlan`).
  *   A video may declare `poster {sha256, byte_count, mime_type: image/jpeg|image/webp}` (2 MB):
  *   the answer adds `poster_upload` (PUT through the Worker, once, before the video commits);
  *   the poster is stored at `<object key>.poster` under the same slot and recorded on the video's record.
@@ -59,6 +61,9 @@ interface ConversationAttachments {
   derivedSlot(entity: string, id: string): Promise<UploadSlot | null>
   settleDerived(entity: string, id: string, etag: string | null): Promise<void>
   settleSlot(entity: string, id: string): Promise<void>
+  setMultipartUpload(entity: string, id: string, uploadId: string): Promise<boolean>
+  recordMultipartPart(entity: string, id: string, part: number, etag: string, before: string | null, after: string): Promise<boolean>
+  multipartEtags(entity: string, id: string): Promise<Array<string>>
   commitAttachment(entity: string, slotId: string, etag?: string): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; derived?: Image } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }>
   downloadAccess(entity: string, actor: string, by: { hash: string } | { object_id: string }, at?: { message_id: string; part_index: number }): Promise<DownloadAccess | "forbidden">
 }
@@ -97,6 +102,9 @@ const UPLOAD = "home-attachment-upload"
 /** Each derived image is its own token purpose: an image token is never a poster or preview token, nor the other way. */
 const derivedPurpose = (variant: Variant) => `home-attachment-${variant}-upload`
 const DOWNLOAD = "home-attachment-download"
+/** A part number names one of the slot's planned parts: an integer from 1 to its part count (R2: at most 10,000). */
+const partNumberIn = (value: unknown, parts: number): value is number => Number.isInteger(value) && (value as number) >= 1 && (value as number) <= Math.min(parts, homeConversation.MULTIPART_PART_COUNT)
+const partInvalid = (parts: number) => failure({ status: 400, code: "attachment.part_invalid", message: `part number must be an integer from 1 to ${parts}` })
 
 const uploadToken = (env: Env, conversation: string, slot: string, purpose = UPLOAD) => {
   const kid = currentKid(env)
@@ -209,7 +217,7 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
   if (isFail(caller)) return failure(caller)
   const off = configured(env)
   if (off) return failure(off)
-  const body = await readJson<{ conversation?: unknown }>(request)
+  const body = await readJson<{ conversation?: unknown; multipart?: unknown }>(request)
   if (!body || typeof body.conversation !== "string" || !CONVERSATION_ID.test(body.conversation)) return failure({ status: 400, code: "validation.invalid", message: "conversation id required" })
   const conversation = body.conversation
   const checked = homeConversation.validateAttachmentMeta(body)
@@ -218,9 +226,9 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
   const derivedCheck = homeConversation.validateDerivedImages(body as Record<string, unknown>, checked.class)
   if (!derivedCheck.ok) return failure({ status: derivedCheck.code === "attachment.too_large" ? 413 : derivedCheck.code === "attachment.type_refused" ? 415 : 400, code: derivedCheck.code, message: derivedCheck.message })
   const derived = derivedCheck.derived
-  const mode: UploadSlot["mode"] = meta.byte_count > L.streamMaxBytes ? "presigned" : "stream"
+  const mode: UploadSlot["mode"] = meta.byte_count > L.streamMaxBytes ? (body.multipart === true ? "multipart" : "presigned") : "stream"
   const s3 = s3Config(env)
-  if (mode === "presigned" && !s3) return failure({ status: 503, code: "attachment.large_unavailable", message: `files over ${L.streamMaxBytes} bytes are not enabled on this deployment` })
+  if (mode === "presigned" && !s3) return failure({ status: 503, code: "attachment.large_unavailable", message: "large attachments are not enabled on this deployment" })
   const slow = await limited(env, caller.user)
   if (slow) return failure(slow)
   // Participant check before any quota, slot or storage.
@@ -265,6 +273,29 @@ export const handleAttachmentIntent = async (request: Request, env: Env, presign
       ...derivedUpload
     })
   }
+  if (mode === "multipart") {
+    // The R2 upload is made with the slot and kept on it, so expiry aborts it whatever the client does.
+    const upload = await env.HOME_ATTACHMENTS!.createMultipartUpload(slot.object_key, { httpMetadata: { contentType: slot.mime_type } })
+    if (!(await conversationOf(env, conversation).setMultipartUpload(conversation, slot.id, upload.uploadId))) {
+      await upload.abort()
+      return failure({ status: 403, code: "attachment.slot_invalid", message: "the upload slot is invalid, used or expired; ask for a new one" })
+    }
+    const plan = homeConversation.multipartPlan(meta.byte_count)
+    return success({
+      state: "upload",
+      mode,
+      method: "PUT",
+      upload_url: `${origin}/v1/home/attachments/multipart/${conversation}/${uploadToken(env, conversation, slot.id)}`,
+      headers: { "x-cmux-part-size": String(plan.partBytes) },
+      part_size: plan.partBytes,
+      part_count: plan.parts,
+      slot: slot.id,
+      expires_at: slot.expires_at,
+      ...derivedUpload
+    })
+  }
+  // Legacy presigned path retained for deployments that explicitly select it.
+  if (!s3) return failure({ status: 503, code: "attachment.large_unavailable", message: "large attachments are not enabled on this deployment" })
   // Signed headers the client must send as given: the length, the checksum (R2 rejects other bytes) and
   // `if-none-match: *` (R2 rejects a PUT to a key that already holds an object, so the URL cannot overwrite after commit).
   const headers = { "content-length": String(meta.byte_count), "if-none-match": "*", "x-amz-checksum-sha256": Buffer.from(meta.sha256, "hex").toString("base64") }
@@ -306,6 +337,90 @@ export const handleAttachmentUpload = async (request: Request, env: Env, convers
     return failure({ status: 400, code: put.code, message: put.code === "attachment.hash_mismatch" ? "the bytes do not match the declared sha256" : `expected exactly ${slot.byte_count} bytes` })
   }
   return finish(env, conversation, slot, put.etag)
+}
+
+/**
+ * PUT /v1/home/attachments/multipart/<conversation>/<slot token> with `x-cmux-part-number`: the next
+ * part, in order, streamed into its R2 part while its bytes extend the slot's SHA-256. The last part
+ * must complete the declared hash. A constant number of subrequests per part, whatever the file size.
+ */
+export const handleAttachmentMultipartPart = async (request: Request, env: Env, conversation: string, token: string): Promise<Response> => {
+  const off = configured(env)
+  if (off) return failure(off)
+  const invalid = failure({ status: 403, code: "attachment.slot_invalid", message: "the upload slot is invalid, used or expired; ask for a new one" })
+  const [id, kid, sig, extra] = token.split(".")
+  if (!id || !kid || !sig || extra !== undefined || !verify(env, kid, UPLOAD, [conversation, id], sig)) return invalid
+  const partText = request.headers.get("x-cmux-part-number") ?? ""
+  if (!/^[1-9]\d{0,4}$/.test(partText)) return partInvalid(homeConversation.MULTIPART_PART_COUNT)
+  const part = Number(partText)
+  const conv = conversationOf(env, conversation)
+  const slot = await conv.uploadSlot(conversation, id, "multipart", false)
+  if (!slot?.multipart_upload_id) return invalid
+  const missing = derivedMissing(slot)
+  if (missing) return missing
+  const plan = homeConversation.multipartPlan(slot.byte_count)
+  if (!partNumberIn(part, plan.parts)) return partInvalid(plan.parts)
+  const sha = new ResumableSha256(slot.multipart_hash)
+  const next = sha.bytes / plan.partBytes + 1
+  if (part !== next) return failure({ status: 409, code: "attachment.part_order", message: Number.isInteger(next) ? `send part ${next} next` : "every part is stored; complete the upload" })
+  const length = Math.min(plan.partBytes, slot.byte_count - sha.bytes)
+  const upload = env.HOME_ATTACHMENTS!.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
+  const uploaded = await streamPartInto(upload, part, request, length, sha)
+  if (!uploaded) return failure({ status: 400, code: "attachment.size_mismatch", message: `part ${part} must be exactly ${length} bytes` })
+  const after = part < plan.parts ? sha.state() : `${sha.digest()}:${sha.bytes}`
+  if (part === plan.parts && after !== `${slot.hash}:${slot.byte_count}`) {
+    // The parts so far are hashed: no retry can fix the file, so the slot ends here.
+    const used = await conv.uploadSlot(conversation, id, "multipart", true)
+    await upload.abort().catch(() => undefined)
+    if (used) await conv.settleSlot(conversation, id)
+    return failure({ status: 400, code: "attachment.hash_mismatch", message: "the bytes do not match the declared sha256" })
+  }
+  // Another PUT of this part (or the expiry) came first: its etag is the one recorded.
+  if (!(await conv.recordMultipartPart(conversation, id, part, uploaded.etag, slot.multipart_hash ?? null, after))) return failure({ status: 409, code: "attachment.part_order", message: "that part was already stored, or the slot ended" })
+  return success({ part_number: part, byte_count: length, etag: uploaded.etag })
+}
+
+/**
+ * POST /v1/home/attachments/multipart/complete {conversation, slot, parts?}: once every part is
+ * stored and the hash matched, R2 joins the recorded parts in one call and the owner commits the
+ * object. `parts` (the client's own list, optional) must name the same parts and etags.
+ */
+export const handleAttachmentMultipartComplete = async (request: Request, env: Env, admitted?: Principal): Promise<Response> => {
+  const caller = await callerOf(request, env, "mutate-shared", admitted)
+  if (isFail(caller)) return failure(caller)
+  const off = configured(env)
+  if (off) return failure(off)
+  const body = await readJson<{ conversation?: unknown; slot?: unknown; parts?: unknown }>(request)
+  if (!body || typeof body.conversation !== "string" || !CONVERSATION_ID.test(body.conversation) || typeof body.slot !== "string" || !/^[0-9a-f]{32}$/.test(body.slot)) return failure({ status: 400, code: "validation.invalid", message: "conversation and slot required" })
+  const conversation = body.conversation
+  const conv = conversationOf(env, conversation)
+  const invalid = failure({ status: 403, code: "attachment.slot_invalid", message: "the upload slot is invalid, used or expired; ask for a new one" })
+  const peek = await conv.uploadSlot(conversation, body.slot, "multipart", false, caller.actor)
+  if (!peek?.multipart_upload_id) return invalid
+  const missing = derivedMissing(peek)
+  if (missing) return missing
+  const { parts } = homeConversation.multipartPlan(peek.byte_count)
+  const listed = body.parts
+  if (listed !== undefined && (!Array.isArray(listed) || listed.length !== parts || listed.some((p, i) => !partNumberIn(p?.part_number, parts) || p.part_number !== i + 1 || typeof p.etag !== "string"))) return failure({ status: 400, code: "attachment.parts_invalid", message: `parts must be numbered 1 to ${parts}, in order, each with its etag` })
+  const etags = await conv.multipartEtags(conversation, peek.id)
+  if (etags.length !== parts || peek.multipart_hash !== `${peek.hash}:${peek.byte_count}`) return failure({ status: 409, code: "attachment.part_missing", message: "one or more upload parts are missing" })
+  if (listed?.some((p: { etag: string }, i: number) => p.etag !== etags[i])) return failure({ status: 409, code: "attachment.part_missing", message: "the parts do not match the stored parts" })
+  const slot = await conv.uploadSlot(conversation, peek.id, "multipart", true, caller.actor)
+  if (!slot?.multipart_upload_id) return invalid
+  const bucket = env.HOME_ATTACHMENTS!
+  const upload = bucket.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
+  let etag: string
+  try {
+    const object = await upload.complete(etags.map((tag, i) => ({ partNumber: i + 1, etag: tag })))
+    if (object.size !== slot.byte_count) throw new Error("size")
+    etag = object.etag
+  } catch {
+    await upload.abort().catch(() => undefined)
+    await bucket.delete(slotKeys(slot))
+    await conv.settleSlot(conversation, slot.id)
+    return failure({ status: 400, code: "attachment.size_mismatch", message: "the stored parts do not form the declared file" })
+  }
+  return finish(env, conversation, slot, etag)
 }
 
 /**

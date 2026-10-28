@@ -9,7 +9,7 @@ public struct HomeAttachmentPolicy {
     /// Per file, every type (decimal megabytes, like the owner).
     public static let maxBytes = 100_000_000
     /// Up to this size a source streams the bytes through the owner's
-    /// Worker; larger files go to a presigned PUT followed by a commit call.
+    /// Worker; larger files use bounded multipart pieces through the Worker.
     public static let streamMaxBytes = 32_000_000
     /// At most this many parts per message (attachments plus text).
     public static let maxParts = 16

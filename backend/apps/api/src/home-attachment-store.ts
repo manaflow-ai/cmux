@@ -10,7 +10,7 @@ import type { SqlStore } from "@cmux/ownership"
  *   The `poster*` columns hold the attachment's derived image, a video's poster or an image's
  *   preview (home-core `derivedVariantOf` picks the variant by type); the names predate previews.
  * - `home_attachment_slots`: upload slots made at intent time. States: `open` (issued),
- *   `uploading` (its one PUT or commit started), `tombstone` (a presigned slot that ended without
+ *   `uploading` (its PUT, multipart completion or commit started), `tombstone` (a remote slot that ended without
  *   keeping its object: its URL may still be used until it expires). A slot row lives until the
  *   alarm deletes its object key at expiry (refunding the bytes of a slot that never committed),
  *   so no upload outside a record survives.
@@ -33,9 +33,12 @@ export interface UploadSlot {
   readonly quota_user: string
   readonly object_id: string
   readonly object_key: string
-  readonly mode: "stream" | "presigned"
+  readonly mode: "stream" | "presigned" | "multipart"
   readonly expires_at: number
   readonly state?: "open" | "uploading" | "tombstone"
+  /** A multipart slot's R2 upload (made with the slot) and its SHA-256 state after the parts so far. */
+  readonly multipart_upload_id?: string | null
+  readonly multipart_hash?: string | null
   /** The declared poster (video) or preview (image): uploaded once through the Worker (`open` -> `uploading` -> `stored`) before the attachment commits. */
   readonly derived?: Image
   readonly derived_state?: "open" | "uploading" | "stored"
@@ -44,9 +47,9 @@ export interface UploadSlot {
 
 /**
  * How long after its expiry a slot that may still receive bytes is kept: an `uploading` slot (its
- * Worker PUT may still be streaming) and every presigned slot, open or tombstone (S3 checks the
+ * Worker PUT may still be streaming) and every remote slot, open or tombstone (S3 checks the
  * URL's expiry only when a request starts, so a PUT that began in time may finish later). One
- * hour covers a maximum-size (100 MB) PUT down to about 230 kbit/s; the alarm deletes the key,
+ * hour covers a bounded multipart piece down to about 230 kbit/s; the alarm deletes the key,
  * refunds and drops the row only after it, so a late PUT never leaves an object outside the quota.
  */
 export const UPLOADING_GRACE_MS = 3_600_000
@@ -59,6 +62,8 @@ const SLOTS = "home_attachment_slots"
 const SWEEP = "home_attachment_sweep"
 /** Records the store forgot whose R2 objects and stored-bytes release are still to do (retried by the next wake). */
 const DROPS = "home_attachment_drops"
+/** The R2 etag of each stored part of a multipart slot, in order (the completion names them). */
+const PARTS = "home_attachment_parts"
 /** The main engine's row table (OwnerEngine default prefix `own_`). */
 const ENGINE_ROWS = "own_rows"
 const MAX_UPLOADERS = 64
@@ -70,6 +75,8 @@ const LATER_COLUMNS: ReadonlyArray<[string, string]> = [
   [SLOTS, "poster TEXT"],
   [SLOTS, "poster_state TEXT"],
   [SLOTS, "poster_etag TEXT"],
+  [SLOTS, "multipart_upload_id TEXT"],
+  [SLOTS, "multipart_hash TEXT"],
   // 1 from a batch until its markSwept: a release in between (during the R2 delete) queues another pass.
   [SWEEP, "running INTEGER NOT NULL DEFAULT 0"],
   // After conversation storage deletion: when to delete the prefix again (a URL the deletion dropped may still finish a PUT).
@@ -85,6 +92,7 @@ const ensure = (sql: Sql) => {
   sql.exec(
     `CREATE TABLE IF NOT EXISTS ${SLOTS} (id TEXT PRIMARY KEY, hash TEXT NOT NULL, byte_count INTEGER NOT NULL, mime_type TEXT NOT NULL, actor TEXT NOT NULL, quota_user TEXT NOT NULL, object_id TEXT NOT NULL, object_key TEXT NOT NULL, mode TEXT NOT NULL, expires_at INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'open')`
   )
+  sql.exec(`CREATE TABLE IF NOT EXISTS ${PARTS} (slot TEXT NOT NULL, part INTEGER NOT NULL, etag TEXT NOT NULL, PRIMARY KEY (slot, part))`)
   sql.exec(`CREATE TABLE IF NOT EXISTS ${SWEEP} (id INTEGER PRIMARY KEY CHECK (id = 1), cutoff INTEGER NOT NULL, dirty_at INTEGER, cursor_at INTEGER, cursor_hash TEXT, redo INTEGER NOT NULL DEFAULT 0)`)
   if (migrated.has(sql)) return
   for (const [table, column] of LATER_COLUMNS) {
@@ -191,6 +199,22 @@ export const takeSlot = (sql: Sql, id: string, mode: UploadSlot["mode"], consume
   return { ...s, state: consume ? "uploading" : "open" }
 }
 
+/**
+ * Records part `part` of open multipart slot `id` only if no other part was recorded since its PUT
+ * read `before` (the hash state it resumed), so parts land once and in order. Each part renews the
+ * idle lease: total upload time has no fixed ceiling.
+ */
+export const recordMultipartPart = (sql: Sql, id: string, part: number, etag: string, before: string | null, after: string): boolean => {
+  const slot = slotIn(sql, id, "open")
+  if (!slot || slot.mode !== "multipart" || (slot.multipart_hash ?? null) !== before || slot.expires_at + UPLOADING_GRACE_MS <= Date.now()) return false
+  sql.exec(`INSERT INTO ${PARTS} (slot, part, etag) VALUES (?, ?, ?)`, id, part, etag)
+  sql.exec(`UPDATE ${SLOTS} SET multipart_hash = ?, expires_at = ? WHERE id = ?`, after, Date.now() + conversation.ATTACHMENT_LIMITS.uploadTtlMs, id)
+  return true
+}
+
+/** The recorded part etags of slot `id`, in part order. */
+export const multipartEtags = (sql: Sql, id: string): Array<string> => sql.exec<{ etag: string }>(`SELECT etag FROM ${PARTS} WHERE slot = ? ORDER BY part`, id).map((r) => r.etag)
+
 /** Whether the slot's declared derived image (if any) is stored, so the attachment may commit. */
 export const derivedReady = (slot: UploadSlot): boolean => !slot.derived || slot.derived_state === "stored"
 
@@ -214,17 +238,21 @@ export const settleDerived = (sql: Sql, id: string, etag: string | null): void =
  * URL expires, so the alarm deletes anything PUT to the key later.
  */
 export const settleSlot = (sql: Sql, slot: UploadSlot, kept: boolean): void => {
-  if (kept || slot.mode === "stream") sql.exec(`DELETE FROM ${SLOTS} WHERE id = ?`, slot.id)
+  if (kept || slot.mode === "stream") removeSlot(sql, slot.id)
   else sql.exec(`UPDATE ${SLOTS} SET state = 'tombstone' WHERE id = ?`, slot.id)
 }
 
-const DUE = `CASE WHEN state = 'uploading' OR mode = 'presigned' THEN expires_at + ${UPLOADING_GRACE_MS} ELSE expires_at END`
+const DUE = `CASE WHEN state = 'uploading' OR mode IN ('presigned', 'multipart') THEN expires_at + ${UPLOADING_GRACE_MS} ELSE expires_at END`
 
-/** Slots whose time is up: open stream slots at expiry; uploading and presigned slots (open or tombstone) after the grace. */
+/** Slots whose time is up: open stream slots at expiry; uploading and remote slots (open or tombstone) after the grace. */
 export const dueSlots = (sql: Sql, now: number, limit: number): Array<UploadSlot> =>
   has(sql, SLOTS) ? sql.exec<SlotRow>(`SELECT * FROM ${SLOTS} WHERE ${DUE} <= ? ORDER BY ${DUE} LIMIT ?`, now, limit).map(slotRow) : []
 
-export const removeSlot = (sql: Sql, id: string): void => void sql.exec(`DELETE FROM ${SLOTS} WHERE id = ?`, id)
+export const removeSlot = (sql: Sql, id: string): void => {
+  sql.exec(`DELETE FROM ${SLOTS} WHERE id = ?`, id)
+  // A slot made before the parts table existed has none.
+  if (has(sql, PARTS)) sql.exec(`DELETE FROM ${PARTS} WHERE slot = ?`, id)
+}
 
 export const nextSlotDue = (sql: Sql): number | null => {
   if (!has(sql, SLOTS)) return null
@@ -323,6 +351,7 @@ export const forgetAll = (sql: Sql): { records: Array<Record>; slots: Array<Uplo
   const slots = sql.exec<SlotRow>(`SELECT * FROM ${SLOTS}`).map(slotRow)
   sql.exec(`DELETE FROM ${OBJECTS}`)
   sql.exec(`DELETE FROM ${SLOTS}`)
+  if (has(sql, PARTS)) sql.exec(`DELETE FROM ${PARTS}`)
   queueDrops(sql, records)
   return { records, slots }
 }
@@ -435,3 +464,11 @@ export const failDrop = (sql: Sql, objectKey: string, now: number): boolean => {
 }
 
 export const clearDrop = (sql: Sql, objectKey: string): void => void sql.exec(`DELETE FROM ${DROPS} WHERE object_key = ?`, objectKey)
+
+/** Keeps the R2 upload of a new multipart slot, so expiry aborts it whatever happens to the client. */
+export const setMultipartUpload = (sql: Sql, id: string, uploadId: string): boolean => {
+  ensure(sql)
+  if (!slotIn(sql, id, "open")) return false
+  sql.exec(`UPDATE ${SLOTS} SET multipart_upload_id = ? WHERE id = ?`, uploadId, id)
+  return true
+}

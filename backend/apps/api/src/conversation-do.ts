@@ -582,6 +582,22 @@ export class ConversationDO extends OwnerDO<Head> {
     if (this.existingState(entity)) store.settleDerived(this.sqlStore, id, etag)
   }
 
+  async setMultipartUpload(entity: string, id: string, uploadId: string): Promise<boolean> {
+    return this.existingState(entity) ? store.setMultipartUpload(this.sqlStore, id, uploadId) : false
+  }
+
+  /** Records a verified part of an open multipart slot (store.recordMultipartPart): false when another part or the expiry came first. */
+  async recordMultipartPart(entity: string, id: string, part: number, etag: string, before: string | null, after: string): Promise<boolean> {
+    if (!this.existingState(entity)) return false
+    const recorded = store.recordMultipartPart(this.sqlStore, id, part, etag, before, after)
+    this.scheduleAlarm()
+    return recorded
+  }
+
+  async multipartEtags(entity: string, id: string): Promise<Array<string>> {
+    return this.existingState(entity) ? store.multipartEtags(this.sqlStore, id) : []
+  }
+
   /** Ends an `uploading` slot whose bytes failed verification (the Worker deleted its object). */
   async settleSlot(entity: string, id: string): Promise<void> {
     if (!this.existingState(entity)) return

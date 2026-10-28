@@ -2,14 +2,14 @@ public import Foundation
 import UniformTypeIdentifiers
 
 // WireHomeSource's attachments over the owner's attachment routes
-// (backend/apps/api/src/home-attachments.ts): intent, PUT (through the Worker
-// up to 32 MB, else presigned with a commit), and signed download URLs.
+// (backend/apps/api/src/home-attachments.ts): intent, bounded PUT/multipart
+// upload, and signed download URLs.
 extension WireHomeSource {
     public func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
         try Self.requireConversationID(file.conversation)
         let ref = file.ref
         var intent: [String: HomeWireJSON] = [
-            "conversation": .string(file.conversation.rawValue), "sha256": .string(ref.hash),
+            "conversation": .string(file.conversation.rawValue), "sha256": .string(ref.hash), "multipart": .bool(true),
             "byte_count": .number(Double(ref.byteCount)), "mime_type": .string(ref.mimeType), "name": .string(ref.name),
         ]
         if let width = ref.width { intent["width"] = .number(Double(width)) }
@@ -30,9 +30,16 @@ extension WireHomeSource {
             // 409: stored by an earlier attempt of this slot.
             if reply.status != 409 { _ = try HomeWireClient.check(reply, effect: .mutation) }
         }
-        let presigned = value["mode"].string == "presigned"
-        let reply = try await put(value, from: file.fileURL, toWorker: !presigned)
-        if presigned {
+        if value["mode"].string == "multipart" {
+            let parts = try await putMultipart(value, from: file.fileURL)
+            guard let slot = value["slot"].string else { throw HomeRejection.invalid("attachment.bad_answer") }
+            _ = try await client.post("/v1/home/attachments/multipart/complete", [
+                "conversation": .string(file.conversation.rawValue), "slot": .string(slot), "parts": .array(parts)
+            ], effect: .mutation)
+        } else {
+            let presigned = value["mode"].string == "presigned"
+            let reply = try await put(value, from: file.fileURL, toWorker: !presigned)
+            if presigned {
             // 412: a retried presigned PUT whose first attempt landed (`if-none-match: *`).
             guard (200...299).contains(reply.status) || reply.status == 412 else {
                 throw reply.status >= 500 ? HomeRejection.indeterminate : HomeRejection.invalid("attachment.upload_refused")
@@ -40,8 +47,9 @@ extension WireHomeSource {
             guard let slot = value["slot"].string else { throw HomeRejection.invalid("attachment.bad_answer") }
             _ = try await client.post("/v1/home/attachments/commit",
                                       ["conversation": .string(file.conversation.rawValue), "slot": .string(slot)], effect: .mutation)
-        } else {
-            _ = try HomeWireClient.check(reply, effect: .mutation)
+            } else {
+                _ = try HomeWireClient.check(reply, effect: .mutation)
+            }
         }
         file.progress(1)
         return ref
@@ -131,6 +139,43 @@ extension WireHomeSource {
         } catch {
             throw HomeRejection.indeterminate
         }
+    }
+
+    /// Sends a large original in bounded Worker requests. The server verifies
+    /// each piece, then streams the ordered objects into one hash-checked file.
+    private func putMultipart(_ answer: HomeWireJSON, from file: URL) async throws -> [HomeWireJSON] {
+        guard let url = answer["upload_url"].string.flatMap(URL.init(string:)) else { throw HomeRejection.invalid("attachment.bad_answer") }
+        let size = Int(answer["part_size"].double ?? 0)
+        guard size > 0 else { throw HomeRejection.invalid("attachment.bad_answer") }
+        let handle = try FileHandle(forReadingFrom: file)
+        defer { try? handle.close() }
+        var parts: [HomeWireJSON] = []
+        var number = 1
+        while true {
+            try Task.checkCancellation()
+            guard let data = try handle.read(upToCount: size), !data.isEmpty else { break }
+            var request = URLRequest(url: url)
+            request.httpMethod = answer["method"].string ?? "PUT"
+            for (name, value) in answer["headers"].object ?? [:] {
+                if let text = value.string { request.setValue(text, forHTTPHeaderField: name) }
+            }
+            request.setValue(String(number), forHTTPHeaderField: "x-cmux-part-number")
+            request.setValue(String(data.count), forHTTPHeaderField: "content-length")
+            request.httpBody = data
+            let http = client.http
+            let reply = try await client.exchange(request, effect: .mutation) { try await http.send($0) }
+            let body = try HomeWireClient.check(reply, effect: .mutation)
+            guard let part = body["value"]["part_number"].int, part == number,
+                  let count = body["value"]["byte_count"].int, count == data.count else {
+                throw HomeRejection.invalid("attachment.bad_answer")
+            }
+            var value: [String: HomeWireJSON] = ["part_number": .number(Double(number)), "byte_count": .number(Double(data.count))]
+            if let etag = body["value"]["etag"].string { value["etag"] = .string(etag) }
+            parts.append(.object(value))
+            number += 1
+        }
+        guard !parts.isEmpty else { throw HomeRejection.invalid("attachment.bad_answer") }
+        return parts
     }
 
     private static func derived(_ image: AttachmentDerivedImage) -> HomeWireJSON {
