@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 /// One configured MCP server: its command and args, each arg split on whitespace as `ps` prints.
 /// `resolved`: for a command given by name, the program the harness's `PATH` runs for it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Sidecar {
+pub(crate) struct Sidecar {
     command: String,
     args: Vec<String>,
     resolved: Option<String>,
