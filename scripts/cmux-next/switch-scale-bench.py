@@ -40,6 +40,8 @@ Per switch (even switches are "clean": no request until the switch window ends; 
   input_to_commit  the app's own timer row (debug.workspace_switch / debug.tab_switch / debug.pane_focus):
                    input_ms (the event's age at the intent; none for action.run) + commit_ms (to the Core Animation
                    commit that carries the new content); late_vsyncs is the frames it missed
+  input_to_present clean: the input latency tracker's slot for the input (`debug.input` reset before, `slots` after;
+                   builds with that action): the event to the presented frame after it, the largest slot of the switch
   content_seen     sampled: first debug.surfaces sample that shows the new target (an upper bound: sample period)
   main_busy        clean: the main run loop's busy ms in the frames of the switch window (debug.frames main_ms) less
                    the idle frames' median busy ms per frame; turn_ms is the timer's commit_ms
@@ -205,11 +207,25 @@ def slot_main(opts, rest):
         stage = f"/Users/Shared/cmux-capture/bench-restore/{job}"
         run = f"{stage}/ss-{time.strftime('%H%M%S')}-{os.getpid()}"
         state["run"] = run
-        ssh(host, f"""export PATH=$HOME/.local/bin:$PATH; set -e; mkdir -p '{stage}' '{run}'
-          if ! find '{stage}' -maxdepth 1 -name '*.app' | grep -q .; then
-            tmp=$(mktemp -d '{stage}/unzip.XXXXXX') && cmux-ci artifact '{job}' "$tmp/app.zip" >/dev/null && ditto -x -k "$tmp/app.zip" "$tmp" &&
-            for a in "$tmp"/*.app; do mv "$a" '{stage}/'; done; rm -rf "$tmp"
-          fi""", check=True)
+        ssh(host, f"mkdir -p '{stage}' '{run}'", check=True)
+        staged = ssh(host, f"find '{stage}' -maxdepth 1 -name '*.app' | head -1").stdout.strip()
+        if not staged and opts.slot_artifact:
+            # The build's zip from this VM (the controller's artifact reads time out under load).
+            subprocess.run(["scp", "-q", opts.slot_artifact, f"{host}:{run}/app.zip"], check=True, timeout=900)
+            ssh(host, f"""set -e; tmp=$(mktemp -d '{stage}/unzip.XXXXXX'); ditto -x -k '{run}/app.zip' "$tmp"
+              for a in "$tmp"/*.app; do [ -e '{stage}/'"$(basename "$a")" ] || mv "$a" '{stage}/'; done; rm -rf "$tmp" '{run}/app.zip'""",
+                check=True, timeout=900)
+        elif not staged:
+            for attempt in range(3):
+                done = ssh(host, f"""export PATH=$HOME/.local/bin:$PATH; set -e; tmp=$(mktemp -d '{stage}/unzip.XXXXXX')
+                  trap 'rm -rf "$tmp"' EXIT; cmux-ci artifact '{job}' "$tmp/app.zip" >/dev/null; ditto -x -k "$tmp/app.zip" "$tmp"
+                  for a in "$tmp"/*.app; do [ -e '{stage}/'"$(basename "$a")" ] || mv "$a" '{stage}/'; done""", timeout=900)
+                if done.returncode == 0:
+                    break
+                say(f"artifact download on {host} failed (try {attempt + 1}): {(done.stdout + done.stderr)[-300:]}")
+                time.sleep(20)
+        if not ssh(host, f"find '{stage}' -maxdepth 1 -name '*.app' | head -1").stdout.strip():
+            sys.exit(f"build {job} is not staged on {host} (artifact download failed; --slot-artifact ZIP stages it from here)")
         # This script and what it imports, from this checkout's working tree.
         bundle = os.path.join(tempfile.mkdtemp(prefix="ss-slot-"), "repo.tgz")
         with tarfile.open(bundle, "w:gz") as tar:
@@ -288,6 +304,7 @@ class Bench:
         self.pages = None
         self.lock = threading.Lock()
         self.term_tab = {}
+        self.key_slots = None  # debug.input slots: None untried, False absent, True present
 
     # ---------------------------------------------------------------- plumbing
     def say(self, text):
@@ -866,6 +883,13 @@ class Bench:
             return not (pane.get("frame_held") or surface.get("replay_applied"))
         return False
 
+    @staticmethod
+    def typed_text(text):
+        """A terminal's text with the busy lines and line breaks taken out: in a busy terminal the tty echoes each typed
+        key where the cursor is, so the loop's next line lands between two keys of the marker."""
+        text = re.sub(r"\d+ \d+ switch-scale busy line \d+", "", text or "")
+        return re.sub(r"\s+", "", text)
+
     def frames(self, action, raw=False):
         return self.rpc("debug.frames", {"action": action, "raw": raw}) or {}
 
@@ -878,6 +902,20 @@ class Bench:
             if isinstance(reply, dict) and "error" not in reply:
                 out[method] = reply.get("switches") or reply.get("moves") or []
         return out
+
+    def input_slots(self):
+        """The input latency tracker's closed slots since the last `debug.input reset` (builds with the `slots` action;
+        v2.2.4 also opens one for a debug.key key to a window that is not key): event to the presented frame, per
+        input. None when the build has no such action (then never asked again)."""
+        reply = self.rpc("debug.input", {"action": "slots"}, timeout=10)
+        if self.failed(reply) or not isinstance(reply.get("slots"), list):
+            if self.key_slots is None:
+                self.key_slots = False
+                self.say(f"debug.input slots: not in this build ({str(reply)[:160]})")
+            return None
+        self.key_slots = True
+        return [{k: s.get(k) for k in ("kind", "target", "entrypoint", "total_ms", "stages_ms")}
+                for s in reply["slots"] if isinstance(s, dict)]
 
     def idle_baseline(self):
         self.frames("start")
@@ -894,6 +932,8 @@ class Bench:
         person types after a switch. `expect(report)` says whether a debug.surfaces report shows the new target."""
         row = {"sampled": sampled}
         if not sampled:
+            if self.key_slots is not False:
+                self.rpc("debug.input", {"action": "reset"}, timeout=10)
             self.frames("start")
             t0 = time.monotonic()
             reply = send()
@@ -909,6 +949,13 @@ class Bench:
             row["main_busy_ms"] = round(max(0.0, sum(busy) - baseline["main_per_frame_ms"] * len(busy)), 2)
             row["main_max_frame_ms"] = stats.get("main_max_ms")
             row["view_layouts"] = stats.get("view_layouts")
+            if self.key_slots is not False:
+                slots = self.input_slots()
+                if slots is not None:
+                    row["input_slots"] = slots
+                    totals = [s["total_ms"] for s in slots if isinstance(s.get("total_ms"), (int, float))]
+                    if totals:
+                        row["input_to_present_ms"] = round(max(totals), 2)
             row["seen"] = bool(expect(self.surfaces()))
             return row
         sent = {}
@@ -939,6 +986,9 @@ class Bench:
             panes = self.visible_panes(report, window_number)
             new_blank = [p for p in panes if self.pane_blank(p) and p.get("pane") not in self.rest_blank]
             if new_blank:
+                if blank_samples == 0:
+                    row["blank_detail"] = [{k: (json.dumps(v)[:400] if isinstance(v, (dict, list)) else v)
+                                            for k, v in p.items() if k != "text"} for p in new_blank[:3]]
                 blank_samples += 1
                 for p in new_blank:
                     blank_kinds[p.get("kind")] = blank_kinds.get(p.get("kind"), 0) + 1
@@ -950,7 +1000,7 @@ class Bench:
             focused = next((p for p in panes if p.get("focused")), None)
             if focused:
                 focused_kind = focused.get("kind")
-            if marker and echo_at is None and focused and marker in (focused.get("text") or ""):
+            if marker and echo_at is None and focused and marker in self.typed_text(focused.get("text")):
                 echo_at = t
             if (seen_at and not new_blank and not thread.is_alive()
                     and (not marker or echo_at or (focused_kind and focused_kind != "terminal"))):
@@ -1037,6 +1087,8 @@ class Bench:
             "switches": len(rows), "clean": len(clean), "sampled": len(sampled), "refresh_ms": round(refresh, 3),
             "timer": timer_used, "timer_rows": len(commits), "timer_no_input_age": no_input_age,
             "input_to_commit_ms": block(commits), "turn_ms": block(turn), "late_vsyncs": block(late),
+            "input_to_present_ms": block([r.get("input_to_present_ms") for r in clean]),
+            "input_slots_missing": sum(1 for r in clean if "input_slots" in r and not r.get("input_to_present_ms")),
             "content_seen_ms": block([r.get("content_seen_ms") for r in sampled]),
             "main_busy_ms": block([r.get("main_busy_ms") for r in clean]),
             "main_max_frame_ms": block([r.get("main_max_frame_ms") for r in clean]),
@@ -1360,6 +1412,7 @@ class Bench:
                 metrics = {
                     "input_to_commit": [t["commit_ms"] + (t.get("input_ms") or 0) for t in timer
                                         if isinstance(t.get("commit_ms"), (int, float))],
+                    "input_to_present": [r["input_to_present_ms"] for r in rows if r.get("input_to_present_ms") is not None],
                     "content_seen": [r["content_seen_ms"] for r in rows if r.get("content_seen_ms") is not None],
                     "main_busy": [r["main_busy_ms"] for r in rows if r.get("main_busy_ms") is not None],
                     "blank_frames": [round((r.get("blank_ms") or 0) / (got.get("refresh_ms") or 16.67), 2)
@@ -1382,7 +1435,7 @@ class Bench:
             self.say(f"result-v1 {metric}: {type(error).__name__}: {error}")
 
     def table(self):
-        lines = ["kind | size | input->commit p50/p99 ms | content seen p50/p99 | main busy p50/p99 | blank frames | "
+        lines = ["kind | size | input->commit p50/p99 ms | input->present (slots) p50/p99 | content seen p50/p99 | main busy p50/p99 | blank frames | "
                  "missed frames | keys live p50/p99 | n"]
         for size, entry in self.results["sizes"].items():
             for kind, got in (entry.get("kinds") or {}).items():
@@ -1392,6 +1445,7 @@ class Bench:
                     continue
                 f = lambda b: f"{b['p50']}/{b['p99']}"  # noqa: E731
                 lines.append(f"{kind} | {size} | {f(got['input_to_commit_ms'])} ({got['timer'] or 'no timer'}) | "
+                             f"{f(got.get('input_to_present_ms') or {'p50': None, 'p99': None})} | "
                              f"{f(got['content_seen_ms'])} | {f(got['main_busy_ms'])} | {got['blank_frames_total']} "
                              f"({got['switches_with_blank']} sw) | {got['missed_frames_total']} | {f(got['keys_live_ms'])} | "
                              f"{got['switches']}")
@@ -1463,6 +1517,7 @@ def main(argv=None):
                         help="`sample` the app for the first seconds of each kind (OUT/sample-<kind>-<size>.txt); "
                              "the sampler slows the app, so a sampled run is a profile, not a number")
     parser.add_argument("--slot-job", help="from the fleet VM: lease a capture slot and run there on build JOB")
+    parser.add_argument("--slot-artifact", help="the build's app zip on this machine, staged by scp when the host lacks it")
     parser.add_argument("--slot-hosts", help="capture hosts to lease from (spaces), never cmux16")
     parser.add_argument("--lease-seconds", type=int, default=600)
     opts = parser.parse_args(argv)
