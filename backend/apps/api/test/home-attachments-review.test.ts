@@ -245,6 +245,31 @@ describe("Home attachments: re-check blockers (sweep cursor, orphan slots, requi
     await expect(testEnv.HOME_ATTACHMENTS.resumeMultipartUpload(row.object_key, row.multipart_upload_id).uploadPart(2, new Uint8Array(17))).rejects.toThrow()
   })
 
+  it("expiry pages through every due multipart slot, at most 100 per wake, and an upload that is already gone does not stop the rest", async () => {
+    const alice = await signIn("att-expire-pages")
+    const g = await group(alice)
+    const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(g.id))
+    const conv = stub as unknown as {
+      createUploadSlot(e: string, actor: string, quotaUser: string, meta: unknown, mode: string, id: string): Promise<{ id: string; object_key: string }>
+      setMultipartUpload(e: string, id: string, uploadId: string): Promise<boolean>
+    }
+    const uploads: Array<R2MultipartUpload> = []
+    for (let i = 0; i < 150; i++) {
+      const slot = await conv.createUploadSlot(g.id, alice.user, alice.user, { hash: sha(bytesOf(`f${i}`)), byte_count: 40_000_000, mime_type: "application/octet-stream" }, "multipart", crypto.randomUUID().replaceAll("-", ""))
+      const upload = await testEnv.HOME_ATTACHMENTS.createMultipartUpload(slot.object_key)
+      expect(await conv.setMultipartUpload(g.id, slot.id, upload.uploadId)).toBe(true)
+      uploads.push(upload)
+    }
+    await expireSlots(stub)
+    // The first slot due names an upload R2 no longer knows (its abort throws), as after R2's own cleanup.
+    await runInDurableObject(stub, async (_i, state) => void state.storage.sql.exec("UPDATE home_attachment_slots SET expires_at = expires_at - 1, multipart_upload_id = 'gone' WHERE multipart_upload_id = ?", uploads[0]!.uploadId))
+    await fireAlarm(stub)
+    expect(await slotRows(stub)).toHaveLength(50)
+    await drainAlarms(stub)
+    expect(await slotRows(stub)).toEqual([])
+    for (const upload of uploads.slice(1)) await expect(upload.uploadPart(1, new Uint8Array(1))).rejects.toThrow()
+  })
+
   it("P1: the sweep keeps a cursor past 500 referenced old records, collects the unreferenced ones after them, and stops rescheduling", async () => {
     const alice = await signIn("att-cursor-alice")
     const g = await group(alice)
