@@ -344,8 +344,8 @@
    "unreachable": 0,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 69,
-   "string_slice": 7,
+   "indexing_slicing": 0,
+   "string_slice": 0,
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 56,
    "cast_possible_truncation": 5
@@ -435,10 +435,10 @@
    "unreachable": 0,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 58,
+   "indexing_slicing": 0,
    "string_slice": 0,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 46,
+   "arithmetic_side_effects": 39,
    "cast_possible_truncation": 1
   },
   "cmux-pane-protocol": {
