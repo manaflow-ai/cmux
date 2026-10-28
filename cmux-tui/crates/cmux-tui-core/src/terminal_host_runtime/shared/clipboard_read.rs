@@ -521,9 +521,15 @@ impl ClipboardReads {
     pub(crate) fn start_timer(&self, host: &Arc<HostShared>) -> std::io::Result<()> {
         let shared = self.shared.clone();
         let host = Arc::downgrade(host);
-        supervised::spawn("terminal-host-clipboard", Fatal, ShutdownBehavior::Continue, move || {
-            shared.run_timer(&host);
-        })
+        supervised::spawn_at(
+            "terminal-host-clipboard",
+            cmux_threads::ThreadQos::UserInitiated,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                shared.run_timer(&host);
+            },
+        )
         .map(drop)
     }
 }

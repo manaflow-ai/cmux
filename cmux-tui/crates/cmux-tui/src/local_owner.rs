@@ -809,7 +809,7 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     let reaper = move || reap_on_tick(&reaper_state);
     // supervise-allow: reaps one detached owner; it ends when the owner exits, and a panic leaves only that child to init.
     if let Err(_error) =
-        std::thread::Builder::new().name("local-owner-reaper".to_string()).spawn(reaper)
+        cmux_threads::spawn("local-owner-reaper", cmux_threads::ThreadQos::Utility, reaper)
     {
         // If the helper thread cannot be created, reap synchronously before
         // returning. This preserves the no-zombie guarantee even under

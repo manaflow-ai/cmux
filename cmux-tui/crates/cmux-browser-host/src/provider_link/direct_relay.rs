@@ -419,9 +419,11 @@ impl DirectRelays {
             self.end_link(&previous, "the relay link was replaced");
         }
         let reading = link.clone();
-        let spawned = std::thread::Builder::new()
-            .name("cmux-browser-host-relay-link".into())
-            .spawn(move || {
+        // supervise-allow: this relay link's reader, ending with the link; its end closes the link's relays.
+        let spawned = cmux_threads::spawn(
+            "cmux-browser-host-relay-link",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
                 let link = reading;
                 let reason = loop {
                     let frame = read_frame(&mut reader);
@@ -455,7 +457,8 @@ impl DirectRelays {
                     direct.link_closed(&link, &reason);
                 }
                 (link.shutdown)();
-            });
+            },
+        );
         if let Err(error) = spawned {
             link.ended.store(true, Ordering::Release);
             self.link_closed(&link, "the relay link's reader could not start");

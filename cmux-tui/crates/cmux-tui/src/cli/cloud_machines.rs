@@ -60,14 +60,11 @@ fn app_found() -> bool {
 fn read_by_deadline(socket: PathBuf) -> Result<Vec<Value>, String> {
     let (sender, receiver) = mpsc::channel();
     // supervise-allow: one-shot helper whose result comes back on a channel; a panic drops the sender, so the caller's wait ends with an error.
-    std::thread::Builder::new()
-        .name("cmux-cloud-machines".into())
-        .spawn(move || {
-            let cloud =
-                super::app::connect(&socket).and_then(|mut stream| cloud_machines(&mut stream));
-            let _ = sender.send(cloud);
-        })
-        .map_err(|error| error.to_string())?;
+    cmux_threads::spawn("cmux-cloud-machines", cmux_threads::ThreadQos::Utility, move || {
+        let cloud = super::app::connect(&socket).and_then(|mut stream| cloud_machines(&mut stream));
+        let _ = sender.send(cloud);
+    })
+    .map_err(|error| error.to_string())?;
     crate::blocking::sync::recv_timeout(&receiver, CLOUD_READ_TIMEOUT).unwrap_or_else(|_| {
         let messages = &crate::localization::catalog().app_control;
         Err(messages.timeout.replace("{seconds}", &CLOUD_READ_TIMEOUT.as_secs().to_string()))
