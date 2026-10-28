@@ -153,6 +153,35 @@ struct AcpmuxPendingQuestionsTests {
         #expect(!ledger.isCurrent(reconnected))
     }
 
+    @Test func settlementBeforeDelayedPendingAndRepeatedSnapshotCannotReopen() {
+        let ledger = ledger()
+        ledger.observe(Self.event("permission_decision", seq: 11), replyTo: nil, connection: 1)
+        ledger.observe(Self.live(seq: 10), replyTo: nil, connection: 1)
+        ledger.observe(Self.snapshot([Self.prompt()], seq: 11), replyTo: "_acpmux/attach", connection: 1)
+        #expect(ledger.question(session: "s", permission: "p", connection: 1) == nil)
+        ledger.observe(Self.snapshot([], seq: 12), replyTo: "_acpmux/attach", connection: 1)
+        ledger.observe(Self.snapshot([Self.prompt()], seq: 12), replyTo: "_acpmux/attach", connection: 1)
+        #expect(ledger.question(session: "s", permission: "p", connection: 1) == nil)
+    }
+
+    @Test func socketCloseAndSessionPurgeRetireImmediately() throws {
+        let ledger = ledger()
+        ledger.observe(Self.live(), replyTo: nil, connection: 1)
+        let first = try #require(ledger.question(session: "s", permission: "p", connection: 1))
+        ledger.observe(["method": "_acpmux/session_changed",
+                        "params": ["kind": "purged", "seq": 11, "session": ["sessionId": "s"]]],
+                       replyTo: nil, connection: 1)
+        ledger.observe(Self.snapshot([Self.prompt()], seq: 10), replyTo: "_acpmux/attach", connection: 1)
+        #expect(!ledger.isCurrent(first))
+        ledger.reset(connection: 2)
+        ledger.observe(Self.live(), replyTo: nil, connection: 2)
+        let second = try #require(ledger.question(session: "s", permission: "p", connection: 2))
+        ledger.end(connection: 1)
+        #expect(ledger.isCurrent(second))
+        ledger.end(connection: 2)
+        #expect(!ledger.isCurrent(second))
+    }
+
     @Test func malformedUnknownAndModelContentCannotGrantMembership() {
         let ledger = ledger()
         var missingNonce = Self.prompt()
