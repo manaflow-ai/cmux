@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextFeatures
 import CmuxNextHibernation
 import CmuxNextResources
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -76,7 +77,8 @@ struct TaskManagerMemorySavedTests {
     @Test func offByDefaultListsNoDiscardedItems() async {
         let docs = TaskManagerDiscardedItem(id: "tab_docs", title: "Docs", savedBytes: 80 * Self.mb)
         let source = Source([TaskManagerSampleSet(resources: Self.resources(), discarded: [docs])])
-        let model = TaskManagerModel(source: source, kill: { _ in })
+        let model = TaskManagerModel(source: source, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
+                                     kill: { _ in })
         await model.refresh()
         #expect(!model.memorySaved)
         #expect(model.snapshot.discarded.isEmpty)
@@ -87,7 +89,8 @@ struct TaskManagerMemorySavedTests {
         let docs = TaskManagerDiscardedItem(id: "tab_docs", title: "Docs", savedBytes: 80 * Self.mb)
         let old = TaskManagerDiscardedItem(id: "tab_old", title: "Old")
         let source = Source([TaskManagerSampleSet(resources: Self.resources(), discarded: [docs, old])])
-        let model = TaskManagerModel(source: source, memorySaved: true, kill: { _ in })
+        let model = TaskManagerModel(source: source, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
+                                     memorySaved: true, kill: { _ in })
         await model.refresh()
         #expect(model.snapshot.discarded.map(\.savedBytes) == [80 * Self.mb, nil])
         #expect(model.snapshot.freedBytes == 80 * Self.mb, "an item with no measurement adds nothing to the total")
@@ -98,7 +101,8 @@ struct TaskManagerMemorySavedTests {
     @Test func closingAndOpeningThePageAgainShowsTheSameNumber() async {
         let mail = TaskManagerDiscardedItem(id: "tab_mail", title: "Mail", savedBytes: 60 * Self.mb)
         let source = Source([TaskManagerSampleSet(resources: Self.resources(), discarded: [mail])])
-        let model = TaskManagerModel(source: source, memorySaved: true, kill: { _ in })
+        let model = TaskManagerModel(source: source, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
+                                     memorySaved: true, kill: { _ in })
         await model.refresh()
         model.stop()
         await model.refresh()
@@ -118,16 +122,18 @@ struct TaskManagerMemorySavedTests {
 
     // MARK: The app
 
-    static func services(enabling names: Set<String> = []) -> AppServices {
+    /// Services whose features turn `names` on and `disabled` off over the DEV defaults (where
+    /// `taskManagerMemorySaved` is on by default: feature-switch-policy.md).
+    static func services(enabling names: Set<String> = [], disabling disabled: Set<String> = []) -> AppServices {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         services.features = FeatureList(registry: FeatureRegistry(), channel: .dev,
-                                        overrides: FeatureOverrides(environmentEnabled: names))
+                                        overrides: FeatureOverrides(environmentDisabled: disabled, environmentEnabled: names))
         return services
     }
 
     @Test func thePageServiceFollowsTheFeature() {
-        let off = Self.services()
+        let off = Self.services(disabling: [Feature.taskManagerMemorySaved.name])
         #expect(!off.taskManager.memorySaved)
         #expect(!off.taskManager.source.memorySaved)
 

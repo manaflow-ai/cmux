@@ -5927,7 +5927,7 @@ export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
 }
 
 /// Whether the person can see the page: WebKit reports `hidden` for a web view out of its window,
-/// hidden, or in an occluded window; a frozen or parked page is not shown either.
+/// hidden, or in an occluded window; a frozen page is not shown either.
 function pageShown(): boolean {
   return pageIsActive();
 }

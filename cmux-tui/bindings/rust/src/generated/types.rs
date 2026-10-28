@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d.
+// cmux-tui mux protocol 12, IR 7eb0d8fcc1fcd2e08b9ee438f00a912bc444483f3223f60cf30047b093765ee6.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -643,6 +643,12 @@ pub struct BookmarkImportNode {
     /// Required for a url node; refused for a folder.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BridgeHelloResult {
+    pub features: Vec<String>,
 }
 
 #[rustfmt::skip]
@@ -2805,6 +2811,22 @@ pub struct SetSizeCountsResult {
 pub struct SetSizePolicyResult {
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub state: Option<SizeState>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SetStreamPriorityResultOutcome {
+    #[serde(rename = "applied")]
+    Applied,
+    #[serde(rename = "ended")]
+    Ended,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetStreamPriorityResult {
+    pub outcome: SetStreamPriorityResultOutcome,
+    pub stream: u16,
 }
 
 #[rustfmt::skip]

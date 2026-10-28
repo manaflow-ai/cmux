@@ -25,13 +25,21 @@ extension CEFPaneHost {
     }
 
     /// Host mode: the pane's page view, made on first use at the bottom of ``hostView`` and filling
-    /// it, under the find bar, prompt bar and every other subview. Its input stays with
-    /// ``hostView`` (``ChromiumHostPageView/InputTarget/pageWindow``) until the input route to the
-    /// host lands (tasks 041 and 042). Its input method ops already go to the host
-    /// (``sendTextInput(_:)``).
+    /// it, under the find bar, prompt bar and every other subview. With the host's input route
+    /// (feature `chromiumHostInputRing`, ``CEFHostStart/inputRoute``) it is the page's input
+    /// target: its keys, clicks, moves and wheel ticks go into the host's ring for the pane's shown
+    /// tab, paced by the host's acks. Without it its input stays with ``hostView``
+    /// (``ChromiumHostPageView/InputTarget/pageWindow``). Its input method ops go to the host
+    /// either way (``sendTextInput(_:)``).
     func hostedPage() -> ChromiumHostPageView {
         if let hostedPageView { return hostedPageView }
-        let page = ChromiumHostPageView(frame: hostView.bounds, inputTarget: .pageWindow)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let route = runtime.hostStart?.inputRoute
+        let target: ChromiumHostPageView.InputTarget = route == nil ? .pageWindow : .view
+        #else
+        let target = ChromiumHostPageView.InputTarget.pageWindow
+        #endif
+        let page = ChromiumHostPageView(frame: hostView.bounds, inputTarget: target)
         page.wireToken = runtime.mintPageViewToken()
         // The page's focus follows the view's first responder state (``CEFTab/applyFocus(_:browser:)``).
         page.onFocusChange = { [weak self] focused in self?.visibleTab?.hostedPageFocusChanged(focused) }
@@ -64,6 +72,8 @@ extension CEFPaneHost {
             guard let self, let page, let tab = visibleTab else { return false }
             return runtime.swipeNavigation.handleHosted(event, tab: tab, page: page)
         }
+        // The page's keys, clicks, moves and wheel ticks into the host's ring for the shown tab (task 042).
+        route?.attach(page) { [weak self] in self?.visibleTab?.browserID }
         #endif
         // The host's page window takes the view's size in the same commit as the pane (task 052).
         page.onGeometry = { [weak self, weak page] geometry in

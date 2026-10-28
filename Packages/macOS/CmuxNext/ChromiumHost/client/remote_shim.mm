@@ -15,12 +15,15 @@
 //                             its op ran, so its pending marks clear first; a password reveal's
 //                             (PostPasswordReveal) to its own sink only: one bytes field, the
 //                             password, or none
+//                 kOpInputAck (i32 browser, i32 kind, u32 seq) per dispatched move or wheel tick,
+//                             to the input ack callback (chromium_host_tlv.h)
 //                 kOpInputDispatched, kOpHostHang  the ring input the host's UI thread
 //                             dispatched and its hangs (host_hang_watcher.h), to the host watch
 //                             callback; kOpAck and kOpReply ack control-channel input there too
 // Anything else from the host is malformed and ends it, as bad_message::ReceivedBadMessage ends
 // a renderer (content/browser/bad_message.cc).
 
+#include "chromium_host_wire.h"
 #include "cmux_cef_shim.h"
 #include "cmux_page_path.h"
 #include "host_energy_saver.h"
@@ -58,6 +61,7 @@ using cmux_host::control::Channel;
 using cmux_host::control::End;
 using cmux_host::control::Field;
 using cmux_host::control::kOpHello;
+using cmux_host::control::kOpInputAck;
 using cmux_host::control::kTagNull;
 using cmux_host::control::Message;
 
@@ -267,6 +271,12 @@ class Runtime {
     CMUX_REMOTE_ASSERT_MAIN();
     reply_ = reply;
     reply_ctx_ = ctx;
+  }
+
+  void SetInputAck(void* ctx, cmux_remote_input_ack_fn ack) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    input_ack_ = ack;
+    input_ack_ctx_ = ctx;
   }
 
   void SetEnded(void* ctx, cmux_remote_ended_fn ended) {
@@ -803,6 +813,32 @@ class Runtime {
     closing_.erase(generation);
   }
 
+  // kOpInputAck: every record is checked before any reaches the callback, so a malformed ack
+  // moves no page's input on.
+  bool ApplyInputAck(const Message& message) {
+    if (message.reply || message.token != 0) return false;
+    struct Record {
+      int32_t browser, kind;
+      uint32_t seq;
+    };
+    std::vector<Record> records;
+    TlvReader r(message.fields);
+    while (!r.AtEnd()) {
+      const Record record{r.I32(), r.I32(), r.U32()};
+      if (!r.ok() || (record.kind != cmux_host::kMouse && record.kind != cmux_host::kWheel)) return false;
+      records.push_back(record);
+    }
+    if (records.empty()) return false;
+    for (const Record& record : records) {
+      if (input_ack_) {
+        input_ack_(input_ack_ctx_, record.browser, record.kind, record.seq);
+      } else {
+        ++stats_.input_acks_unhandled;
+      }
+    }
+    return true;
+  }
+
   // False for a malformed frame.
   bool Apply(const Message& message) {
     TlvReader r(message.fields);
@@ -874,6 +910,8 @@ class Runtime {
         }
         return true;
       }
+      case kOpInputAck:
+        return ApplyInputAck(message);
       case kOpHello: {
         const std::optional<std::string> wire = r.Str();
         std::vector<std::string> exports = r.StrList();
@@ -943,6 +981,9 @@ class Runtime {
   // Where REPLY frames go: the configured callback, or cmux_remote_shim_set_reply's.
   cmux_remote_reply_fn reply_ = nullptr;
   void* reply_ctx_ = nullptr;
+  // Where kOpInputAck records go (cmux_remote_shim_set_input_ack).
+  cmux_remote_input_ack_fn input_ack_ = nullptr;
+  void* input_ack_ctx_ = nullptr;
   // Where the channel's end goes: the configured callback, or cmux_remote_shim_set_ended's.
   cmux_remote_ended_fn ended_ = nullptr;
   void* ended_ctx_ = nullptr;
@@ -1104,6 +1145,10 @@ void cmux_remote_shim_set_reply(void* ctx, cmux_remote_reply_fn reply) {
   R().SetReply(ctx, reply);
 }
 
+void cmux_remote_shim_set_input_ack(void* ctx, cmux_remote_input_ack_fn ack) {
+  R().SetInputAck(ctx, ack);
+}
+
 void cmux_remote_shim_set_ended(void* ctx, cmux_remote_ended_fn ended) {
   R().SetEnded(ctx, ended);
 }
@@ -1179,6 +1224,12 @@ CMUX_SHIM_EXPORT int cmux_shim_initialize(const char* framework_dir,
 
 // No external message pump in host mode (task 034).
 CMUX_SHIM_EXPORT void cmux_shim_do_work(void) {}
+
+// No external message pump in host mode: the host's own pump slices its passes.
+CMUX_SHIM_EXPORT int cmux_shim_set_pump_time_slice(int64_t slice_us) {
+  (void)slice_us;
+  return 0;
+}
 
 // No external message pump in host mode: delayed work never reaches the app.
 CMUX_SHIM_EXPORT int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_fn schedule_delayed) {

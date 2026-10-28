@@ -5,6 +5,7 @@ import CoreGraphics
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
+import CmuxNextCompat
 
 /// `browser.page.screenshot`: the page's pixels as a PNG file in the
 /// temporary directory (`path`, as the old app wrote one), and inline as
@@ -101,14 +102,13 @@ extension AppBrowserPage {
     /// modified before `cutoff`. Best effort: a file another save is
     /// writing or a reader holds open is left for the next prune.
     nonisolated static func prune(_ directory: URL, keeping: Int, newerThan cutoff: Date) {
-        let manager = FileManager.default
-        guard let files = try? manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey],
+        guard let files = try? FileManager.checked.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey],
                                                            options: [.skipsHiddenFiles]) else { return }
         let dated = files.filter { $0.pathExtension == "png" }.map { file in
             (file, (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast)
         }.sorted { $0.1 > $1.1 }
         for (index, (file, modified)) in dated.enumerated() where index >= keeping || modified < cutoff {
-            try? manager.removeItem(at: file)
+            try? FileManager.checked.removeItem(at: file)
         }
     }
 }

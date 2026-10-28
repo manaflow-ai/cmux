@@ -153,8 +153,12 @@ extension AppServices {
         // The lanes whose startup fence holds a predicted start's framework read (p08-startup-045).
         let prefetchWork = features.isEnabled(.cefPrefetchBehindFence) ? work : nil
         let mergeWork = features.isEnabled(.cefMergedEvents) ? mainWork : nil // page events per frame (p06-scheduler-219)
+        let pumpFrames = features.isEnabled(.cefPumpFrameDeadline) ? mainWork : nil // pump slices to the frame (p03-rendering-116)
+        let hangFollowsVisibility = features.isEnabled(.chromiumHangFollowsVisibility) // Chrome's hidden-tab hang rules (p01-process-072)
         // Host mode only: the host's widgets in cmux panels and panes (p01-process-066).
         chromiumRuntime.source.showsHostWidgets = features.isEnabled(.chromiumHostWidgets)
+        // Host mode only: hosted pages' input through the host's input ring (p01-process-042).
+        chromiumRuntime.source.routesHostInput = features.isEnabled(.chromiumHostInputRing)
         // Host mode only: drags onto a page as Chrome's own drop (p01-process-050).
         chromiumRuntime.source.takesHostDrags = features.isEnabled(.chromiumHostDragIn)
         chromiumRuntime.source.fencesHostResizes = features.isEnabled(.chromiumHostResizeFence) // p01-process-052
@@ -188,7 +192,8 @@ extension AppServices {
                                                        prefetchWork: prefetchWork,
                                                        launch: launchOrder).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
                                           .hostingEveryPage(everyPage).votingMemoryPressure(of: memoryCoordinator).mergingEvents(on: mergeWork)
-                                          .cappingSharedRendererMemory(rendererCaps).usingResizeFence(resizeFence)
+                                          .followingVisibilityForRendererHangs(hangFollowsVisibility)
+                                          .slicingPumpToFrames(of: pumpFrames).cappingSharedRendererMemory(rendererCaps).usingResizeFence(resizeFence)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   stability: rendererStability,

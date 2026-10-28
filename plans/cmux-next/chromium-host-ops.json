@@ -1242,6 +1242,32 @@
       "reason": "Returns 1 when sent: a caller checks fork_api_version (mirror) >= 31 for support and loads the URL itself without it, as tab_restore_navigation's callers do (task 093)."
     },
     {
+      "name": "cmux_shim_browser_composition_bounds_watch",
+      "class": "local",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "fn",
+          "type": "void (*)(void* context, int browser_id, const void* bounds)",
+          "function_pointer": true
+        },
+        {
+          "name": "context",
+          "type": "void*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Function-pointer arg. As text_input_watch, the client code is task 014b's (client/remote_shim_local.mm): it keeps fn per browser and calls it on main in the event batch from the host's push of the composition bounds (task 044, with TEXT_INPUT_STATE); only the watch on/off crosses the wire."
+    },
+    {
       "name": "cmux_shim_set_new_tab_page_url",
       "class": "preinit",
       "args": [
@@ -1374,6 +1400,25 @@
       "pending_keys": [],
       "reply_event": null,
       "reason": "The external message pump does not exist in host mode (CefRunMessageLoop runs in the host, task 034): a no-op."
+    },
+    {
+      "name": "cmux_shim_set_pump_time_slice",
+      "class": "local",
+      "args": [
+        {
+          "name": "slice_us",
+          "type": "int64_t"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFInProcessPump.swift"
+      ],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The slice of the next external message pump pass, which does not exist in host mode (CefRunMessageLoop runs in the host, task 034): the remote shim returns 0, and CEFInProcessPump calls it only in process (p03-rendering-116)."
     },
     {
       "name": "cmux_shim_set_schedule_delayed",
@@ -5144,7 +5189,7 @@
       "pending_keys": [],
       "reply_event": "wire:REPLY",
       "reason": "A first-party page's renderer group (p13-webui-011) is set before initialize, after its page_scheme_add_first_party; the client returns its own check when it queues the op, and the host's refusal is the reply.",
-      "fork_api": 29
+      "fork_api": 42
     },
     {
       "name": "cmux_shim_tab_discard",
@@ -5164,7 +5209,7 @@
       "pending_keys": [],
       "reply_event": "wire:REPLY",
       "reason": "WebContents::Discard refuses a page Chromium counts visible, which only the host knows. In process CEFTab.discard() reads the answer and the page host closes the page on a refusal; in host mode the return only says the op was sent, so CEFShimLibrary binds no tabDiscard there and the page host closes the page until CEFTab.discard() awaits the reply (host_mode_rewrites, p13-webui-031).",
-      "fork_api": 29
+      "fork_api": 39
     },
     {
       "name": "cmux_shim_widget_set_geometry",
@@ -5443,7 +5488,7 @@
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
       "reason": "The fork's cmux_browser_capture (p13-webui-077): the page as it last drew, fitted inside max_width x max_height and encoded on Chromium's thread pool (format 0 PNG with alpha, 1 JPEG), with no DevTools agent. Answered as cmux_shim_download_favicon is: CMUX_SHIM_REPLY under the caller's reply id, value = width | height << 32 in pixels (0: no picture), json = the encoded image in base64. 1 when started (p13-webui-078).",
-      "fork_api": 38
+      "fork_api": 40
     },
     {
       "name": "cmux_shim_tab_send_mouse_move",
@@ -5475,7 +5520,7 @@
       "pending_keys": [],
       "reply_event": null,
       "reason": "CefBrowserHost::SendMouseMoveEvent with no button held (p13-webui-077 and 078): a scripted hover with no DevTools agent, in call order with other input as cmux_shim_tab_send_click.",
-      "fork_api": 38
+      "fork_api": 40
     }
   ],
   "optional_events": [

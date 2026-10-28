@@ -36,12 +36,12 @@ const header = (offset: number, startedAt: number) => {
 
 test("a running subagent on a session a minute ahead counts in the session's clock", () => {
   const offset = -60_000;
-  const sessionNow = Date.now() - offset;
+  const sessionNow = Math.floor(Date.now() / 1000) * 1000 - offset;
   expect(header(offset, sessionNow - 5_000)).toBe("5s");
 });
 
 test("a running subagent on a session a minute behind does not read a minute too long", () => {
   const offset = 60_000;
-  const sessionNow = Date.now() - offset;
+  const sessionNow = Math.floor(Date.now() / 1000) * 1000 - offset;
   expect(header(offset, sessionNow - 5_000)).toBe("5s");
 });

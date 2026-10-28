@@ -362,6 +362,8 @@ impl Hub {
         if self.shutting_down() {
             return Err(super::shutdown::shutting_down_error());
         }
+        // An agent started below inherits the daemon's priority: normal first.
+        self.clients.foreground();
         if let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
         {
@@ -617,6 +619,7 @@ impl Hub {
                     Some((plan.program, plan.args)),
                     Some(tr),
                     Some((&session.id, &meta.name)),
+                    &self.supervisor,
                 )
                 .await
                 .map_err(|e| {
@@ -635,6 +638,7 @@ impl Hub {
                 None,
                 None,
                 Some((&session.id, &meta.name)),
+                &self.supervisor,
             )
             .await
             .map_err(|e| {
@@ -664,9 +668,7 @@ impl Hub {
 
         // Start the inbound loop for this session once.
         if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            tokio::spawn(async move { hub.inbound_loop(s, rx).await });
+            self.start_inbound_loop(session, rx);
         }
 
         let init = match child.request(method::INITIALIZE, super::pool::initialize_params()).await {
@@ -1051,7 +1053,7 @@ impl Hub {
             .unwrap_or_else(|_| std::env::temp_dir());
         let mut resolved = profile.clone();
         resolved.argv = self.resolved_launcher_argv(resolved.argv);
-        let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;
+        let child = ChildAgent::spawn(name, &resolved, &cwd, tx, tap, &self.supervisor).await?;
         // Drain anything the agent sends so its writer never blocks.
         let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
         let result = tokio::time::timeout(std::time::Duration::from_secs(50), async {

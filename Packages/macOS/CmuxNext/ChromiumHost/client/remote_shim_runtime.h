@@ -70,7 +70,13 @@ typedef struct {
   uint64_t unsendable;         // ops not sent: over a frame bound, or no host
   uint64_t replies_unhandled;  // REPLY frames with no reply callback
   uint64_t unsupported;        // optional ops refused: the host's HELLO did not list the export
+  uint64_t input_acks_unhandled;  // input ack records with no input ack callback
 } cmux_remote_shim_stats;
+
+// Main thread. The host dispatched a page's pointer move (kind 3) or wheel tick (kind 4) with
+// input seq `seq` on its UI thread (kOpInputAck, task p01-process-042): the page view sends that
+// page's next waiting one (ChromiumHostInputPacer).
+typedef void (*cmux_remote_input_ack_fn)(void* ctx, int32_t browser_id, int32_t kind, uint32_t seq);
 
 // Main thread, before the first attach; the callbacks are copied.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_configure(const cmux_remote_shim_callbacks* callbacks);
@@ -100,6 +106,9 @@ CMUX_REMOTE_EXPORT uint32_t cmux_remote_shim_last_reply_token(void);
 // callback and its ctx (task 018: CEFRemoteShim hands them to CEFHostReplies); NULL drops them
 // (replies_unhandled). The next cmux_remote_shim_configure sets them again.
 CMUX_REMOTE_EXPORT void cmux_remote_shim_set_reply(void* ctx, cmux_remote_reply_fn reply);
+// Main thread. kOpInputAck records go to `ack(ctx, ...)`, in the host's dispatch order; NULL
+// drops them (input_acks_unhandled). Detach keeps it: the next host's acks go there too.
+CMUX_REMOTE_EXPORT void cmux_remote_shim_set_input_ack(void* ctx, cmux_remote_input_ack_fn ack);
 // Main thread. The channel's end goes to `ended(ctx, reason)` from now on, in place of the
 // configured callback and its ctx (task 091: CEFRemoteShim hands it to CEFHostReplies, whose
 // tokens then resolve as hostGone in that turn); NULL drops it. A detach cmux asks for is never

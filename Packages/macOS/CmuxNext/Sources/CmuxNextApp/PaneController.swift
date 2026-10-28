@@ -105,7 +105,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         view.stripView.previewProvider = services.previews
         view.stripView.hoverFrameInput = services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
         view.stripView.scrollFrameInput = services.tabScrollFrameInput  // scroll by translation once per frame (`tabStripScrollFrames`)
-        view.stripView.resourceSource = services.resources
+        view.stripView.setResourceSource(services.resources, deadlines: services.mainDeadlines)
         view.stripView.contextMenuProvider = { [weak self] target in self?.contextMenu(for: target) }
         view.stripView.attachHoverCards(services.hoverCards, memory: services.memoryCoordinator, thumbnailPages: services.cache.imageCaches.pictureAllocator, energy: services.cache.hibernation?.highEnergy) // p07-memory-005, p07-memory-107, p14-energy-125
         view.stripView.onHoverTab = { [weak self] id in self?.noteHover(id) }

@@ -82,7 +82,7 @@ import Testing
 @MainActor private final class KeyWindowRecordingPresenter: SettingsDiagnosticPresenting {
     var followers: [@MainActor () -> Void] = []
 
-    func show(_ toast: CmuxToast, onAction: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)? { nil }
+    func show(_ notice: SettingsDiagnosticToast, onAction: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)? { nil }
 
     func followKeyWindows(_ windowBecameKey: @escaping @MainActor () -> Void) { followers.append(windowBecameKey) }
 }

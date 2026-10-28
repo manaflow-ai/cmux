@@ -1,69 +1,24 @@
 extension MainFrameBudget {
-    /// `duration` in whole nanoseconds (negative durations count as zero).
-    public static func nanos(_ duration: Duration) -> UInt64 {
+    /// `duration` in whole nanoseconds (negative durations count as zero). Pure arithmetic: callable
+    /// off the main actor (``FrameBudgets/passTargetNanos(intervalNanos:renderNanos:)``).
+    public nonisolated static func nanos(_ duration: Duration) -> UInt64 {
         let (seconds, attoseconds) = duration.components
         return UInt64(clamping: seconds) &* 1_000_000_000 &+ UInt64(clamping: attoseconds / 1_000_000_000)
     }
 
-    /// Per-frame budgets of the budgeted classes.
-    ///
-    /// The target is no main-thread stall over 8 ms (perf-lead.md section 1: key to frame p95
-    /// under 8 ms). A frame's pass runs: the person's input dispatch (under 2 ms a key, PL-typing
-    /// batch 1), the scheduled tasks, and the Core Animation commit of what they changed. The
-    /// scheduled classes together get 4 ms, so input plus commit keep at least 4 ms of the 8:
-    /// visible updates 2.5 ms (the store's batch and the row patches it causes), automation 1 ms
-    /// (agent and CLI requests, below the person's own updates), background 0.5 ms. The previous
-    /// control work queue's 4 ms budget for one class alone is the upper bound this splits.
-    ///
-    /// The 4 ms split assumes input plus commit fit in the other 4 ms; the commit is measured
-    /// (``RenderPassMeter``) and a longer one lowers the next frame's scheduled work
-    /// (``passTarget``), so a request whose commit is expensive pays for it.
-    ///
-    /// The shares hold while a person's input is pending. With none pending, a class may go past
-    /// its share into the time the others left, up to ``total`` (``MainFrameBudget/mayRun(_:)``):
-    /// a CLI storm on an otherwise idle main thread gets the whole 4 ms a frame, as the control
-    /// work queue had before the split.
-    public struct Budgets: Sendable, Equatable {
-        /// The share of screen updates no action of the person caused (2.5 ms by default).
-        public var visible: Duration
-        /// The share of work an agent, the CLI or another process asked for (1 ms by default).
-        public var automation: Duration
-        /// The share of work nobody waits on (0.5 ms by default).
-        public var background: Duration
+    /// Per-frame budgets of the budgeted classes (``FrameBudgets``: the 60 Hz split, its refresh
+    /// scaling and the pass targets of both batch placements).
+    public typealias Budgets = FrameBudgets
 
-        /// Shares per class; the defaults split the 4 ms of scheduled work a frame may hold.
-        public init(visible: Duration = .microseconds(2_500), automation: Duration = .milliseconds(1),
-                    background: Duration = .microseconds(500)) {
-            self.visible = visible
-            self.automation = automation
-            self.background = background
-        }
+    /// The after-commit placement's budget turn begins (the ``MainWorkScheduler``'s turn after the
+    /// tick's commit): the turn meter counts the turn as a budget turn.
+    public func beginBudgetTurn() {
+        turns.noteTurn(.budget)
+    }
 
-        /// The scheduled work one frame may hold in all (the sum of the shares): one main run loop
-        /// pass stays under the 8 ms stall target with input dispatch and the commit. userBlocking
-        /// work counts in it too.
-        public var total: Duration { visible + automation + background }
-
-        /// The cap of ``MainWorkClass/userBlocking``: the visible + automation shares
-        /// (p06-scheduler.md, section 3A). It never runs past it on idle frame time, so a flood of it
-        /// leaves the background share and the first task of every other class.
-        public var userBlocking: Duration { visible + automation }
-
-        /// The main run loop pass the budget protects: no main-thread stall over 8 ms
-        /// (perf-lead.md section 1). The scheduled work of a frame plus the last render pass (layout,
-        /// display, commit) stays under it: past 4 ms of render, the scheduled work gets less.
-        public var passTarget: Duration = .milliseconds(8)
-
-        /// The budget of `workClass`; nil for the unbudgeted classes (idle work has a deadline per
-        /// idle period instead, ``IdleDeadline``).
-        public func budget(_ workClass: MainWorkClass) -> Duration? {
-            switch workClass {
-            case .input, .frame, .idle: nil
-            case .userBlocking: userBlocking
-            case .visible: visible
-            case .automation: automation
-            case .background: background
-            }
-        }
+    /// The budget turn's work ended: counted in ``budgetTurnStats``, late when it ended past the
+    /// frame's deadline (the next vsync less the commit estimate).
+    public func endBudgetTurn() {
+        budgetTurnStats.noteEnded(at: uptimeNanos(), deadline: deadline)
     }
 }

@@ -186,7 +186,7 @@ pub(crate) fn daemon_acpmux_handoff(
 fn installed_exe(exe: &Path) -> Result<PathBuf, String> {
     let text = exe.to_string_lossy();
     let path = text.strip_suffix(" (deleted)").map_or_else(|| exe.to_path_buf(), PathBuf::from);
-    if path.is_file() {
+    if cmux_blocking::fs::metadata(&path).is_ok_and(|metadata| metadata.is_file()) {
         Ok(path)
     } else {
         Err(format!("no cmux binary is installed at {}", path.display()))

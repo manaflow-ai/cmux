@@ -2,8 +2,10 @@
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, channel};
-use std::sync::{Condvar, Mutex, MutexGuard};
+use std::sync::{Mutex, MutexGuard};
 use std::time::Instant;
+
+use cmux_threads::sync::Condvar;
 
 use super::dev_orphan_exit::{OrphanClock, WatchState};
 use super::*;

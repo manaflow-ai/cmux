@@ -53,7 +53,7 @@ impl ReaderCompletion {
 pub(super) enum TerminalReader {
     /// A thread of its own: a hosted terminal's host reader, a holder or
     /// byte-backend terminal's reader. Shutdown joins it.
-    Thread(std::thread::JoinHandle<()>),
+    Thread(SupervisedThread<()>),
     /// A source on the owner's read loop (`mux::TerminalReads`): a
     /// daemon-local PTY. Nothing to join.
     #[cfg(unix)]

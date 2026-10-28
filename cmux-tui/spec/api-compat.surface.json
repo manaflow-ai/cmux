@@ -8261,6 +8261,15 @@
         "required": true
       }
     },
+    "request:bridge-hello": {
+      "/features": {
+        "ty": "array",
+        "required": true
+      },
+      "/features/*": {
+        "ty": "string"
+      }
+    },
     "request:browser-activate": {
       "/surface": {
         "ty": "uint64",
@@ -10970,6 +10979,7 @@
         "required": true
       }
     },
+    "request:memory-report": {},
     "request:mint-terminal-renderer": {
       "/surface": {
         "ty": "uint64",
@@ -13138,6 +13148,21 @@
       "/transaction": {
         "ty": "uint64",
         "nullable": true
+      }
+    },
+    "request:set-stream-priority": {
+      "/priority": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "focused",
+          "hidden",
+          "visible"
+        ]
+      },
+      "/stream": {
+        "ty": "uint16",
+        "required": true
       }
     },
     "request:set-tab-pinned": {
@@ -15455,6 +15480,15 @@
       "/data/surface": {
         "ty": "uint64",
         "required": true
+      }
+    },
+    "response:bridge-hello": {
+      "/data/features": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/features/*": {
+        "ty": "string"
       }
     },
     "response:browser-activate": {},
@@ -21242,6 +21276,12 @@
       }
     },
     "response:mark-workspaces-provider-managed": {},
+    "response:memory-report": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
     "response:mint-terminal-renderer": {
       "/data/endpoint": {
         "ty": "string",
@@ -25072,6 +25112,20 @@
       }
     },
     "response:set-split-ratio": {},
+    "response:set-stream-priority": {
+      "/data/outcome": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "applied",
+          "ended"
+        ]
+      },
+      "/data/stream": {
+        "ty": "uint16",
+        "required": true
+      }
+    },
     "response:set-tab-pinned": {
       "/data": {
         "ty": "json",
