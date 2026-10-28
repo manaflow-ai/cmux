@@ -166,7 +166,8 @@ final class ExternalOpenController {
         case .terminal(let cwd, let command): pane.newTerminalTab(cwd: cwd, typing: command.map { $0 + "\n" })
         // The one file path every opener takes (Open File..., `file.open`); a refusal shows its reason.
         case .file(let url): services?.viewers.openFile(url, in: pane, markdown: false)
-        case .deepLink, .unsupported: return
+        // An opened script never types from here: it waits for the person's Run (`confirmRun`).
+        case .confirmRun, .deepLink, .unsupported: return
         }
     }
 }
