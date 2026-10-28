@@ -34,7 +34,7 @@ test("a non-message row ends a fold and the next run starts independently", () =
   const third = message("m3");
   const assistant: AcpmuxRow = { id: "answer", version: 1, at: 1, kind: "assistant", text: "done" };
   const result = groupAgentMessages([first, second, assistant, third, message("m4")]);
-  expect(result.map((row) => row.id)).toEqual(["messages-m1", "answer", "m3"]);
+  expect(result.map((row) => row.id)).toEqual(["messages-m1", "answer", "messages-m3"]);
   expect(result[0]?.joined).toEqual(["m1", "m2"]);
   expect(result[2]?.waiting?.rows.map((row) => row.id)).toEqual(["m3", "m4"]);
 });
