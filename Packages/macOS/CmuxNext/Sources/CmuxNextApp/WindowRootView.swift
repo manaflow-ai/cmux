@@ -233,6 +233,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     }
     /// The host pressure indicator after the band and the badge (`layoutTitlebarAccessories`).
     var hostPressureIndicator: NSView? { didSet { guard hostPressureIndicator !== oldValue else { return }; oldValue?.removeFromSuperview(); hostPressureIndicator.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
+    /// The trace recording indicator after the host pressure indicator (`layoutTitlebarAccessories`).
+    var traceRecordingIndicator: NSView? { didSet { guard traceRecordingIndicator !== oldValue else { return }; oldValue?.removeFromSuperview(); traceRecordingIndicator.map { addSubview($0, positioned: .above, relativeTo: nil) }; needsLayout = true } }
+    /// The indicators after the band and the badge, in order.
+    var topRowIndicators: [NSView] { [hostPressureIndicator, traceRecordingIndicator].compactMap(\.self) }
 
     var onHintGeometryChange: (() -> Void)?
     /// Called from layout when the band's presence changed, so strips under

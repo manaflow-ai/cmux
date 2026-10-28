@@ -27,13 +27,15 @@
 //!   `TracePacket.machine_id` would keep them apart too, but trace_processor (v58) joins flows
 //!   only within one machine, and a key's flow crosses into the remote daemon.
 //! - Chromium's JSON trace ([`ChromiumInput`]) is merged on the local clock after its measured
-//!   offset ([`chromium`]).
+//!   offset ([`chromium`]), with every URL-like arg, name and label written as `__stripped__`
+//!   ([`url_filter`]: `url`, `src`, `href`, data URIs and any `scheme://` string).
 //!
 //! It reads only the decoded rings: no clock, file or process of its own.
 
 mod chromium;
 mod ring;
 mod tracks;
+mod url_filter;
 
 use std::io::{self, Write};
 
@@ -178,6 +180,8 @@ pub struct ExportStats {
     pub chromium_events: u64,
     /// Chromium events of a phase this exporter does not convert (objects, samples, marks).
     pub chromium_skipped: u64,
+    /// URL-like Chromium args, names and process labels written as `__stripped__`.
+    pub chromium_urls_stripped: u64,
 }
 
 /// Why an export failed.

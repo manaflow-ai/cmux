@@ -380,6 +380,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextInputModel",
                 "CmuxNextOracle",
                 "CmuxNextInputDiagnostics",
+                "CmuxNextTraceUI",
                 // The app-daemon wire (p05-ipc): the generated `cmux.protocol/2` requests History,
                 // Home and the page relay send (task 047).
                 "CmuxNextIPC",
@@ -813,6 +814,21 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The trace recording indicator (p09-observability task 133): "Recording trace" with Stop in each window's
+        // top row while `trace.start` records, and the state TraceControl shows and hides.
+        .target(
+            name: "CmuxNextTraceUI",
+            dependencies: ["CmuxNextControl", "CmuxNextDesign", "CmuxNextWakeups"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextTraceUITests",
+            dependencies: ["CmuxNextTraceUI", "CmuxNextCompat", "CmuxNextControl", "CmuxNextSettings", "CmuxNextTrace", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The macOS Computer Use helper (moved out of CmuxNextApp/ComputerUse): helper

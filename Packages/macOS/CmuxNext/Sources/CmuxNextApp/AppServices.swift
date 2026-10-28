@@ -43,6 +43,7 @@ import CmuxNextSidebar
 import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextTrace
+import CmuxNextTraceUI
 import CmuxNextUpdater
 import CmuxNextVSCodeServer
 import CmuxNextWakeups
@@ -128,6 +129,8 @@ final class AppServices {
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self), mainWork: mainWork)
     private(set) lazy var devices = DeviceDirectory.app(self)
     let machineHealth = MachineHealthStore()
+    /// Whether a trace recording runs (`trace.start`): every window's top row shows it with Stop (p09-observability 133).
+    private(set) lazy var traceRecording = TraceRecordingState(work: work)
     /// Layout passes and tree changes of off-screen workspaces, all windows (`debug.layout_counters`).
     let hiddenLayoutWork = HiddenLayoutWork()
     /// What the visibility tree ran for what shows (`appearance_applies`); every root the app makes counts here.

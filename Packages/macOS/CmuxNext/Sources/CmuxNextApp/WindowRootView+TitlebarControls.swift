@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextHistory
+import CmuxNextTraceUI
 
 // The top row's controls as tests and strips see them: the static sidebar
 // toggle and history buttons in the toolbar band (R68, R69), the traffic
@@ -24,16 +25,16 @@ extension WindowRootView {
     }
 
     /// What strips under the top row keep clear (window coordinates): the
-    /// toolbar band and, while they show, the badge and the host pressure
-    /// indicator after it.
+    /// toolbar band and, while they show, the badge and the indicators after it.
     var titlebarAccessoryFrame: CGRect {
         let band = toolbarBand.convert(toolbarBand.bounds, to: nil)
-        let shown = [titlebarBadgeFrame, hostPressureIndicator.flatMap { $0.isHidden ? nil : $0.convert($0.bounds, to: nil) }]
-        return shown.compactMap(\.self).reduce(band) { $0.union($1) }
+        let indicators = topRowIndicators.filter { !$0.isHidden }.map { $0.convert($0.bounds, to: nil) }
+        return ([titlebarBadgeFrame].compactMap(\.self) + indicators).reduce(band) { $0.union($1) }
     }
 
     /// After the band, the badge while `showsTitlebarBadge`, then the host
-    /// pressure indicator while it shows, `space2` apart, centered on `midY`.
+    /// pressure and trace recording indicators while they show, `space2` apart,
+    /// centered on `midY`.
     func layoutTitlebarAccessories(midY: CGFloat) {
         var x = toolbarBand.frame.maxX + Metrics.space2
         if let badge = titlebarBadge {
@@ -44,9 +45,11 @@ extension WindowRootView {
                 x = badge.frame.maxX + Metrics.space2
             }
         }
-        guard let indicator = hostPressureIndicator, !indicator.isHidden else { return }
         let side = TitlebarBandButton.side
-        let width = (indicator as? HostPressureIndicatorView)?.width ?? side
-        indicator.frame = CGRect(x: x, y: (midY - side / 2).rounded(), width: width, height: side)
+        for indicator in topRowIndicators where !indicator.isHidden {
+            let width = (indicator as? HostPressureIndicatorView)?.width ?? (indicator as? TraceRecordingIndicatorView)?.width ?? side
+            indicator.frame = CGRect(x: x, y: (midY - side / 2).rounded(), width: width, height: side)
+            x = indicator.frame.maxX + Metrics.space2
+        }
     }
 }

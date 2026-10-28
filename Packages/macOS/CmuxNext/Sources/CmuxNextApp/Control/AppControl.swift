@@ -18,6 +18,7 @@ import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextTrace
+import CmuxNextTraceUI
 import CmuxNextWakeups
 import os
 import class CmuxSafeConcurrency.OnceContinuation
@@ -176,7 +177,10 @@ final class AppControl {
         ])
         router.register(DebugHibernationControl.methods(services)) // debug.memory and debug.discards serve release builds too
         // trace.start, trace.stop and trace.status (p09-observability 020), behind the default-off traceControl feature.
-        if services.features.isEnabled(.traceControl) { router.register(services.daemon.traceMethods(blackBox: services.traceBlackBox?.blackBox, work: services.work)) }
+        if services.features.isEnabled(.traceControl) {
+            router.register(services.daemon.traceMethods(blackBox: services.traceBlackBox?.blackBox, work: services.work,
+                                                         indicator: services.traceRecording))
+        }
     }
 
     func startSnapshotPublisher(_ services: AppServices, on router: ControlRouter) {

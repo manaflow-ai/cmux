@@ -8,7 +8,8 @@
 //!   threads and end where they arrive; counters; one ClockSnapshot per machine, the remote one
 //!   tied by its offset; a remote machine's processes and threads are named tracks, apart from
 //!   local ones with the same pid and tid;
-//! - Chromium's JSON merges on the local clock after its offset, zero-length slices included;
+//! - Chromium's JSON merges on the local clock after its offset, zero-length slices included, and
+//!   no planted URL survives it (task 133);
 //! - the `#[ignore]`d `trace_processor` tests import the output with Perfetto's
 //!   `trace_processor_shell` (`CMUX_TRACE_PROCESSOR`, else `PATH`, else the Perfetto Python
 //!   package's `~/.local/share/perfetto/prebuilts`) and fail when it is missing:
@@ -474,7 +475,7 @@ fn daemon_ring(pid: u32, tid: u64) -> Decoded {
 const CHROMIUM: &str = r#"{"traceEvents":[
  {"ph":"M","pid":77,"tid":77,"name":"process_name","args":{"name":"Browser"}},
  {"ph":"M","pid":77,"tid":5,"name":"thread_name","args":{"name":"CrBrowserMain"}},
- {"ph":"X","pid":77,"tid":5,"ts":2.5,"dur":1,"cat":"toplevel","name":"RunTask","args":{"src":"a.cc","n":3}},
+ {"ph":"X","pid":77,"tid":5,"ts":2.5,"dur":1,"cat":"toplevel","name":"RunTask","args":{"src_file":"a.cc","n":3}},
  {"ph":"X","pid":77,"tid":5,"ts":2,"dur":3,"cat":"toplevel","name":"ThreadControllerImpl::RunTask","bind_id":"0x9","flow_out":true},
  {"ph":"X","pid":77,"tid":6,"ts":4,"dur":0.5,"cat":"ipc","name":"Receive","bind_id":"0x9","flow_in":true},
  {"ph":"b","pid":77,"tid":5,"ts":2,"cat":"latency","name":"EventLatency","id":"0x1"},
@@ -791,7 +792,7 @@ fn export_chromium_merges_on_the_local_clock_after_its_offset() {
     let run = main[1];
     assert_eq!(
         run.args,
-        [("src".to_owned(), "string a.cc".to_owned()), ("n".to_owned(), "int 3".to_owned())]
+        [("src_file".to_owned(), "string a.cc".to_owned()), ("n".to_owned(), "int 3".to_owned())]
     );
     let latency: Vec<&Event> =
         parsed.events.iter().filter(|event| event.categories == ["latency"]).collect();
@@ -896,6 +897,50 @@ fn export_estimated_instant_is_marked() {
         parsed.events.iter().find(|event| event.name == "frame.present_estimate").unwrap();
     assert!(present.args.contains(&("estimated".to_owned(), "bool 1".to_owned())));
     assert!(present.args.contains(&("arg0".to_owned(), "uint 60".to_owned())));
+}
+
+/// URLs planted every way a Chromium trace carries one: `url`, `src` and `href` args, a data URI,
+/// a `scheme://` string under another name, nested members, an event name and a process label.
+const CHROMIUM_URLS: &str = r##"[
+ {"ph":"M","pid":7,"tid":7,"name":"process_name","args":{"name":"Renderer"}},
+ {"ph":"M","pid":7,"tid":7,"name":"process_labels","args":{"labels":"https://planted.example/label"}},
+ {"ph":"X","pid":7,"tid":1,"ts":1,"dur":2,"cat":"navigation","name":"Navigate","args":{"url":"https://planted.example/a?q=1","src_file":"a.cc"}},
+ {"ph":"i","pid":7,"tid":1,"ts":2,"cat":"blink","name":"Load","s":"t","args":{"src":"/relative/planted.png","href":"#planted","URL":"about:planted"}},
+ {"ph":"i","pid":7,"tid":1,"ts":3,"cat":"blink","name":"Image","s":"t","args":{"image":"data:image/png;base64,cGxhbnRlZA==","note":"see wss://planted.example/ws"}},
+ {"ph":"i","pid":7,"tid":1,"ts":4,"cat":"loading","name":"Frame","s":"t","args":{"data":{"frame":"F1","documentURL":"https://planted.example/doc","children":["chrome-extension://planted/x.js","kept"]}}},
+ {"ph":"i","pid":7,"tid":1,"ts":5,"cat":"loading","name":"Fetch https://planted.example/name","s":"t"}
+]"##;
+
+#[test]
+fn export_filter_planted_urls_are_absent() {
+    let (trace, stats) = export_chromium(CHROMIUM_URLS);
+    for planted in ["planted", "data:image", "://"] {
+        assert!(
+            !trace.windows(planted.len()).any(|window| window == planted.as_bytes()),
+            "{planted:?} reached the export"
+        );
+    }
+    assert_eq!(stats.chromium_urls_stripped, 10);
+    let parsed = parse(&trace);
+    let navigate = parsed.events.iter().find(|event| event.name == "Navigate").unwrap();
+    assert_eq!(
+        navigate.args,
+        [
+            ("url".to_owned(), "string __stripped__".to_owned()),
+            ("src_file".to_owned(), "string a.cc".to_owned())
+        ],
+        "a URL is marked the way Chromium's argument filter marks it; the rest stays"
+    );
+    let frame = parsed.events.iter().find(|event| event.name == "Frame").unwrap();
+    assert_eq!(
+        frame.args,
+        [(
+            "data".to_owned(),
+            r#"json {"frame":"F1","documentURL":"__stripped__","children":["__stripped__","kept"]}"#
+                .to_owned()
+        )]
+    );
+    assert!(parsed.events.iter().any(|event| event.name == "__stripped__"), "the URL name");
 }
 
 #[test]

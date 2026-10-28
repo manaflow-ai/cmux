@@ -36,7 +36,7 @@ event seq=4 t=1500 clock=5 type=4 track=2 name="" cat=[] flows=[] end_flows=[] c
 event seq=4 t=1500 clock=5 type=4 track=0 name="" cat=[] flows=[] end_flows=[] counter=Some(20.0) args=[]
 event seq=4 t=1600 clock=5 type=3 track=15 name="Mark" cat=["input"] flows=[] end_flows=[] counter=None args=[]
 event seq=4 t=1700 clock=5 type=1 track=5 name="EventLatency" cat=["latency"] flows=[] end_flows=[] counter=None args=[]
-event seq=4 t=2000 clock=5 type=1 track=6 name="RunTask" cat=["toplevel"] flows=[] end_flows=[] counter=None args=[("src", "string a.cc"), ("n", "int 3")]
+event seq=4 t=2000 clock=5 type=1 track=6 name="RunTask" cat=["toplevel"] flows=[] end_flows=[] counter=None args=[("src_file", "string a.cc"), ("n", "int 3")]
 event seq=4 t=2500 clock=5 type=2 track=13 name="" cat=["latency"] flows=[] end_flows=[] counter=None args=[]
 event seq=4 t=3000 clock=5 type=2 track=6 name="" cat=["toplevel"] flows=[] end_flows=[] counter=None args=[]
 event seq=4 t=3000 clock=5 type=2 track=5 name="" cat=["latency"] flows=[] end_flows=[] counter=None args=[("nested", "json {\"a\":[1]}")]

@@ -1,7 +1,9 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextPages
+import CmuxNextTraceUI
 import CmuxNextWakeups
 
 extension WindowController {
@@ -22,14 +24,20 @@ extension WindowController {
         root.collapsedBand.stripLayers = { [weak self] in
             (self?.content?.panes.values.map({ $0 }) ?? []).flatMap { $0.view.stripView.windowControlsLayers }
         }
-        // The host pressure indicator joins the top row after the band and badge (cmuxterm-hq#2995).
-        root.hostPressureIndicator = HostPressureIndicatorView(services: services) { [weak self] in
-            // The top row places it (layoutTitlebarAccessories), then strips avoid it.
-            // invalidate: the indicator showed, hid or changed width (it calls this on a change only).
+        let placeIndicators: () -> Void = { [weak self] in
+            // The top row places them (layoutTitlebarAccessories), then strips avoid them.
+            // invalidate: an indicator showed, hid or changed width (each calls this on a change only).
             self?.root.needsLayout = true
             // sync-layout: relayoutTopRowStrips reads the indicator's frame the root's layout places.
             self?.root.layoutSubtreeIfNeeded()
             self?.relayoutTopRowStrips()
+        }
+        // The host pressure indicator joins the top row after the band and badge (cmuxterm-hq#2995).
+        root.hostPressureIndicator = HostPressureIndicatorView(services: services, onVisibilityChange: placeIndicators)
+        // While `trace.start` records, "Recording trace" with Stop follows it (p09-observability 133).
+        if services.features.isEnabled(.traceControl) {
+            root.traceRecordingIndicator = TraceRecordingIndicatorView(state: services.traceRecording, node: visibility,
+                                                                       mainWork: services.mainWork, onVisibilityChange: placeIndicators)
         }
         let model = sidebar.model
         // A service observation: the hover cards (another owner) and the pages hear it while the window is hidden.

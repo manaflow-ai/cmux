@@ -82,7 +82,7 @@ extension WindowRootView {
     func followSidebarSlide() -> () -> [RenderSpring.Move] {
         let cardX = contentHost.frame.minX, titleX = titlebar.frame.minX
         let topRow: [NSView?] = [toolbarBand, toolbarBand.sidebarToggle, toolbarBand.backButton, toolbarBand.forwardButton,
-                                 titlebarBadge, hostPressureIndicator]
+                                 titlebarBadge, hostPressureIndicator, traceRecordingIndicator]
         let places = topRow.compactMap { view in view.flatMap { RenderSpring.Start($0, keys: [.positionX, .boundsWidth, .opacity]) } }
         let strips = topRowStripsSlide()
         return { [weak self] in

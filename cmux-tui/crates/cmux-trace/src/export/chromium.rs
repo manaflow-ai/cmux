@@ -20,8 +20,12 @@
 //! right before its own end. So a complete event that Chromium wrote after its children (it writes
 //! `X` at the slice's end) still opens before them, an instant at a slice's begin is inside it, and
 //! a `dur: 0` slice never closes its parent.
+//!
+//! No URL reaches the export: URL-like args, names and process labels are written as
+//! `__stripped__` ([`url_filter`], task 133).
 
 use super::tracks::{Track, TrackKind, uuid_of};
+use super::url_filter;
 use super::{Builder, ChromiumInput, CounterValue, Event, Machine, field};
 use crate::json::{self, JsonError, Value};
 use crate::proto::Message;
@@ -90,6 +94,7 @@ pub(super) fn merge(
     pending.sort_by_key(Pending::sort_key);
     let sequence = builder.sequence(sequence_id, Machine::Local);
     for event in &pending {
+        builder.stats.chromium_urls_stripped += url_filter::stripped_in(event.args);
         let proto = Event {
             kind: event.kind,
             track: event.track,
@@ -197,6 +202,10 @@ fn convert<'a>(
     let Some(ts) = event.get("ts").and_then(Value::as_micros_in_ns) else { return false };
     let t_ns = shifted(ts, offset_ns);
     let name = text(event, "name");
+    if url_filter::is_url_text(name) {
+        builder.stats.chromium_urls_stripped += 1;
+    }
+    let name = url_filter::scrub(name);
     let category = text(event, "cat");
     let args = event.get("args");
     let pending = Pending {
@@ -385,7 +394,11 @@ fn counters<'a>(
 /// `M`: `process_name`, `process_labels` and `thread_name` name the tracks; the rest are skipped.
 fn metadata(builder: &mut Builder, event: &Value<'_>, pid: i64, tid: i64) -> bool {
     let value = event.get("args").and_then(|args| args.get("name").or_else(|| args.get("labels")));
-    let Some(value) = value.and_then(Value::as_str).map(str::to_owned) else { return false };
+    let Some(value) = value.and_then(Value::as_str) else { return false };
+    if url_filter::is_url_text(value) {
+        builder.stats.chromium_urls_stripped += 1;
+    }
+    let value = url_filter::scrub(value).to_owned();
     let track = match text(event, "name") {
         "process_name" | "process_labels" => process_track(builder, pid),
         "thread_name" => thread_track(builder, pid, tid),
@@ -404,12 +417,16 @@ fn metadata(builder: &mut Builder, event: &Value<'_>, pid: i64, tid: i64) -> boo
 }
 
 /// `args` as debug annotations with inline names: numbers, booleans and strings as themselves,
-/// nested values as their JSON.
+/// nested values as their JSON, and each URL-like value as `__stripped__` ([`url_filter`]).
 fn write_args(message: &mut Message, args: Option<&Value<'_>>) {
     let Some(entries) = args.and_then(Value::as_object) else { return };
     for (key, value) in entries {
         message.message(field::EVENT_DEBUG_ANNOTATIONS, |annotation| {
             annotation.string(field::ANNOTATION_NAME, key);
+            if url_filter::is_url_key(key) {
+                annotation.string(field::ANNOTATION_STRING, url_filter::STRIPPED);
+                return;
+            }
             match value {
                 Value::Null => {
                     annotation.string(field::ANNOTATION_LEGACY_JSON, "null");
@@ -418,7 +435,7 @@ fn write_args(message: &mut Message, args: Option<&Value<'_>>) {
                     annotation.bool(field::ANNOTATION_BOOL, *flag);
                 }
                 Value::String(text) => {
-                    annotation.string(field::ANNOTATION_STRING, text);
+                    annotation.string(field::ANNOTATION_STRING, url_filter::scrub(text));
                 }
                 Value::Number(_) => {
                     if let Some(int) = value.as_i64() {
@@ -429,9 +446,15 @@ fn write_args(message: &mut Message, args: Option<&Value<'_>>) {
                         annotation.double(field::ANNOTATION_DOUBLE, value.as_f64().unwrap_or(0.0));
                     }
                 }
-                Value::Array(..) | Value::Object(..) => {
-                    annotation.string(field::ANNOTATION_LEGACY_JSON, value.raw().unwrap_or("null"));
-                }
+                Value::Array(..) | Value::Object(..) => match url_filter::nested_json(value) {
+                    Some(filtered) => {
+                        annotation.string(field::ANNOTATION_LEGACY_JSON, &filtered);
+                    }
+                    None => {
+                        annotation
+                            .string(field::ANNOTATION_LEGACY_JSON, value.raw().unwrap_or("null"));
+                    }
+                },
             }
         });
     }

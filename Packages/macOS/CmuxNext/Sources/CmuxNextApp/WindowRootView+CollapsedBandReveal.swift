@@ -16,7 +16,7 @@ extension WindowRootView {
         collapsedBand.shownPresence = { [weak self] in self?.toolbarBandPresence ?? 0 }
         collapsedBand.riders = { [weak self] in
             guard let self else { return (nil, []) }
-            let accessories = [titlebarBadge, hostPressureIndicator].compactMap(\.self).filter { !$0.isHidden }
+            let accessories = ([titlebarBadge].compactMap(\.self) + topRowIndicators).filter { !$0.isHidden }
             return (toolbarBand, accessories)
         }
         collapsedBand.reveal = titlebarReveal

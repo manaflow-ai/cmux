@@ -11,16 +11,17 @@ extension DaemonService {
     }
 
     /// `trace.start`, `trace.stop` and `trace.status` over the app's ring (`blackBox` maps the recording ring on
-    /// `work`'s `.files` lane), this daemon and its children, and the secure-input gate. Chromium tracing (task
-    /// 051), the typing flows (019) and the indicator (133) join ``TraceControlParts`` as they land; until then
-    /// each reports `unsupported`.
+    /// `work`'s `.files` lane), this daemon and its children, the recording indicator (task 133) and the
+    /// secure-input gate. Chromium tracing (task 051) and the typing flows (019) join ``TraceControlParts`` as
+    /// they land; until then each reports `unsupported`.
     ///
     /// - Parameters:
     ///   - blackBox: The app's black box; nil when this launch records none.
     ///   - work: The app's blocking-work lanes.
-    public func traceMethods(blackBox: TraceBlackBox?, work: any MayBlockRunner) -> [ControlMethod] {
+    ///   - indicator: The indicator every window shows while a recording runs.
+    public func traceMethods(blackBox: TraceBlackBox?, work: any MayBlockRunner, indicator: (any TraceRecordingIndicator)?) -> [ControlMethod] {
         let parts = TraceControlParts(app: RuntimeTraceRecording(blackBox: blackBox, work: work), daemon: traceLink,
-                                      secureInput: SystemSecureInput())
+                                      indicator: indicator, secureInput: SystemSecureInput())
         return TraceControl(parts: parts).methods
     }
 }
