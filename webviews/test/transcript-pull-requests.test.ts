@@ -692,6 +692,8 @@ const shellRegressionCases: [string, string, number[]][] = [
   ],
   ["brace group merge", "true && { gh pr merge 41 -R acme/app; }", [41]],
   ["brace argument is not a group", "echo {gh pr merge 41 -R acme/app}", []],
+  ["brace-prefixed argument stays literal", "{gh pr merge 41 -R acme/app; true", []],
+  ["attached brace is not a group", "{gh pr merge 41 -R acme/app}; true", []],
   ["fallback after skipped and", "false && echo no || gh pr merge 41 -R acme/app", [41]],
   ["false and chain", "false && echo skipped && gh pr merge 41 -R acme/app; true", []],
   ["false and true fallback", "false && true || gh pr merge 41 -R acme/app", [41]],
@@ -841,6 +843,12 @@ test("brace group create attributes its output", () => {
   );
   expect(sessionPullRequests(rows)).toMatchObject([{ repo: "acme/app", number: 8, opened: true, changed: true }]);
 });
+test("payload option requires a shell word boundary", () => {
+  const rows = toolsRows(shell("echo x--body https://github.com/acme/app/pull/9"));
+  expect(sessionSummary(rows, "acme/app").sources.map((source) => source.url)).toEqual([
+    "https://github.com/acme/app/pull/9",
+  ]);
+});
 
 test("escaped payload separators stay inside one shell command", () => {
   const rows = [activity([shell("gh pr edit 41 -R acme/app --title x\\; gh pr close 42 -R acme/app")], 1)];
@@ -868,4 +876,11 @@ test("title payload URLs are data, not pull request activity or Sources", () => 
     expect(refs(rows)).not.toContain("acme/app#99");
     expect(sessionSummary(rows).sources.some((source) => source.url?.includes("/99"))).toBe(false);
   }
+});
+test("escaped whitespace keeps the whole title payload out of Sources", () => {
+  const rows = toolsRows(
+    shell(String.raw`gh pr edit 41 -R acme/app --title prefix\ https://github.com/acme/app/pull/99`),
+  );
+  expect(transcriptPullRequests(rows).map((pr) => pr.number)).toEqual([41]);
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
 });
