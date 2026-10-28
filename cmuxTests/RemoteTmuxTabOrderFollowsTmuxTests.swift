@@ -205,10 +205,17 @@ import Testing
         defer { client.stop() }
         for command in attachCommands { client.write(command) }
         let subscriptions = attachCommands.filter { $0.hasPrefix("refresh-client -B") }.count
-        // tmux checks subscriptions once a second and reports each one's first value.
-        _ = client.waitForLines(timeout: 3) { lines in
+        // tmux checks subscriptions once a second and reports each one's first value. Without
+        // the full baseline, a late first value would land after `mark` and pass the swap check
+        // on its own. The deadline only bounds the failure path.
+        let baseline = client.waitForLines(timeout: 15) { lines in
             lines.filter { $0.hasPrefix("%subscription-changed ") }.count >= subscriptions
         }
+        let baselineCount = baseline.filter { $0.hasPrefix("%subscription-changed ") }.count
+        try #require(
+            baselineCount >= subscriptions,
+            "only \(baselineCount) of \(subscriptions) subscriptions reported a first value before the swap"
+        )
         let mark = client.lines.count
         try server.run(["swap-window", "-d", "-s", swap.0, "-t", swap.1])
         let lines = client.waitForLines(timeout: 4) { lines in
