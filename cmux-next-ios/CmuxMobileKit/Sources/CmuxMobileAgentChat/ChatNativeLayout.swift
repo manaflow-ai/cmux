@@ -55,6 +55,17 @@ struct ChatNativeLayout: @unchecked Sendable {
         case retry
     }
 
+    /// A tap region and how assistive technologies present it (a button with this label).
+    struct HitArea {
+        var frame: CGRect
+        var hit: Hit
+        var label: String
+        /// The edited-files card's file index (its label adds "viewed" when the file is).
+        var file: Int?
+        /// The region is a disclosure ("collapsed" until opened).
+        var isDisclosure = false
+    }
+
     /// Text runs, SF symbols, boxes, separators and tap regions, positioned in the row.
     struct Drawn {
         var boxes: [Box] = []
@@ -66,7 +77,7 @@ struct ChatNativeLayout: @unchecked Sendable {
         /// Hairlines in the separator color (a card's dividers).
         var separators: [CGRect] = []
         var scrollers: [Scroller] = []
-        var hits: [(frame: CGRect, hit: Hit)] = []
+        var hits: [HitArea] = []
         /// A button that opens the row's "More" menu.
         var menuButton: CGRect?
         /// The whole row is one accessibility element with this label.
@@ -111,6 +122,8 @@ struct ChatNativeLayout: @unchecked Sendable {
 
     /// nil: the row stays SwiftUI (math needs the web renderer).
     static func make(_ kind: ChatRow.Kind, id: String, expanded: Bool, environment: ChatNativeEnvironment) -> ChatNativeLayout? {
+        // At accessibility sizes the SwiftUI rows stack and wrap (`ChatNativeEligibility`).
+        guard !environment.category.isAccessibilityCategory else { return nil }
         let styles = NativeTextStyles(category: environment.category)
         let width = environment.width
         switch kind {

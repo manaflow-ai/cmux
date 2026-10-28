@@ -227,3 +227,45 @@ import Testing
         #expect(preview.long.lines == long.lines && preview.long.remaining == long.remaining)
     }
 }
+
+/// Review round 3: native rows at accessibility sizes, and revisions of rows that leave and return.
+@Suite struct ChatNativeEligibilityTests {
+    static func row(_ kind: ChatRow.Kind, id: String = "r") -> ChatRow { ChatRow(id: id, turnID: "t", kind: kind, gap: 0) }
+
+    @Test func everyKindIsSwiftUIAtAccessibilitySizes() {
+        let call = ACPToolCall(id: "c", title: "Read a.swift", kind: .read, status: .completed)
+        let kinds: [ChatRow.Kind] = [
+            .sessionStart(Date()), .prompt(text: "hi", attachments: [], at: Date(), isLast: true),
+            .block(messageID: "m", block: MarkdownBlock(id: 0, kind: .paragraph("text"))),
+            .block(messageID: "m", block: MarkdownBlock(id: 1, kind: .code(language: "swift", code: "let x = 1", isClosed: true))),
+            .thought(text: "t", isLive: false), .tool(call), .toolGroup([call, call], turnRunning: false),
+            .edit(call, files: []), .actions(AgentTurn(id: "t", prompt: "p", promptAt: Date()), isLast: true),
+        ]
+        for kind in kinds {
+            #expect(ChatNativeEligibility.drawsNatively(Self.row(kind), accessibilitySize: false) { _ in nil }, "\(kind) is native at standard sizes")
+            #expect(!ChatNativeEligibility.drawsNatively(Self.row(kind), accessibilitySize: true) { _ in nil }, "\(kind) is SwiftUI at AX sizes")
+        }
+    }
+
+    @Test func openRowsAndMathStaySwiftUI() {
+        let call = ACPToolCall(id: "c", title: "Read a.swift", kind: .read, status: .completed)
+        #expect(!ChatNativeEligibility.drawsNatively(Self.row(.tool(call)), accessibilitySize: false) { $0 == "tool-c" ? true : nil })
+        #expect(!ChatNativeEligibility.drawsNatively(Self.row(.thought(text: "t", isLive: false), id: "th"), accessibilitySize: false) { $0 == "thought-th" ? false : nil })
+        let math = Self.row(.block(messageID: "m", block: MarkdownBlock(id: 0, kind: .math("x^2"))))
+        #expect(!ChatNativeEligibility.drawsNatively(math, accessibilitySize: false) { _ in nil })
+    }
+
+    @Test func aRowThatReturnsGetsANewRevision() {
+        var revisions = ChatRowRevisions()
+        let first = revisions.bump("w-t1")
+        revisions.bump("m-1#0")
+        // The working label leaves (a tool row took its place) and comes back.
+        revisions.retain(["m-1#0"])
+        #expect(revisions["w-t1"] == nil)
+        let again = revisions.bump("w-t1")
+        #expect(again > first, "a returning row must not reuse revision \(first)")
+        #expect(revisions.next == again + 1)
+        revisions.removeAll()
+        #expect(revisions.bump("w-t1") > again)
+    }
+}
