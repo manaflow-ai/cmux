@@ -208,13 +208,10 @@ fn optional_bool(fields: &Map<String, Value>, name: &str) -> Result<Option<bool>
 fn optional_u64(fields: &Map<String, Value>, name: &str) -> Result<Option<u64>, ResourceError> {
     match fields.get(name) {
         None => Ok(None),
-        Some(Value::Number(value)) => value.as_u64().map(Some).ok_or_else(|| {
-            validation_error(&format!("{name} must be a nonnegative integer"), json!({"field": name}))
-        }),
-        Some(_) => Err(validation_error(
-            &format!("{name} must be a nonnegative integer"),
-            json!({"field": name}),
-        )),
+        Some(value) => serde_json::from_value::<WireDecimal>(value.clone())
+            .map(WireDecimal::get)
+            .map(Some)
+            .map_err(|error| validation_error(&format!("{name} must be an unsigned decimal string"), json!({"field": name, "error": error.to_string()}))),
     }
 }
 

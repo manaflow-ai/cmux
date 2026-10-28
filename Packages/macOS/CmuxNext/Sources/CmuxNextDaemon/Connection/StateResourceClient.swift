@@ -221,7 +221,7 @@ extension StateResourceClient {
         // tab-attention-v1: the person read the tab an agent marked; the caller checks the capability.
         if let clearsAttentionAtMs {
             params["attention"] = .null
-            params["attention_at_ms"] = .number(Double(clearsAttentionAtMs))
+            params["attention_at_ms"] = .string(clearsAttentionAtMs.description)
         }
         Self.field(zoom, into: &params, "zoom") { .number($0) }
         Self.field(icon, into: &params, "icon") { .string($0) }
