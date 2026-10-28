@@ -18,7 +18,7 @@ Chrome reference (chromium/src):
 - The CQ's "(retry shards with patch)": the first retry reruns the whole shard with the same
   config, so an order-dependent failure reproduces before the case runs alone.
 
-Subcommands owned here: run, diff, merge, check, gen, rebaseline. These delegate to the
+Subcommands owned here: run, diff, bisect-switches, merge, check, gen, rebaseline. These delegate to the
 sibling script that owns them (`oracle.py <cmd> ARGS` runs `python3 -I <script> ARGS`):
 confirm, select, bisect, report, minimize, switches, route, coverage, selftest.
 `selftest --mutants` is the mutation smoke run (mutant_catch.py, p15-oracle-115): every seeded patch
@@ -60,7 +60,7 @@ compact JSON) and decides flakiness by hashes; diff.py compares the snapshot val
 
 Run directory (`run --out DIR`; the format diff.py (014) reads, with the extra fields below):
     receipt.json       {"schema": "cmux-oracle-run-v1", "runId", "sha", "host": {"name", "os",
-                        "osVersion", "arch"}, "platform", "product", "arm" (baseline arm or null),
+                        "osVersion", "arch", "display"}, "platform", "product", "arm" (baseline arm or null),
                         "shards": [i], "seeds": {"i": seed}, "selection", "isolation" (the run's case
                         isolation: "mode" asked, "kind" netns|none got, "reason", "uid"; merge refuses
                         shards of different kinds), "cases": {"<suite>/<case>": {"suite", "result"
@@ -74,7 +74,9 @@ Run directory (`run --out DIR`; the format diff.py (014) reads, with the extra f
                         "reason"}], "counts", "switch_hits" (cases and launches), "launch_switch_hits",
                         "switch_readback" ({name: {arm: attempts}}), "arm_applied", "arm_exercised",
                         "arm_not_applied" (null, or {"verdict", "case", "phase", "problems",
-                        "readback"}), ...}
+                        "readback"}), "arms_read_back" (null when the run requested no switch, else
+                        {"ok", "missing" (requested, never read back), "wrong" ({name: arms} read back
+                        other than requested)}; not ok makes `ok` false and a diff refuses the side), ...}
                         A leak is {"case", "pointers" (first differing RFC 6901 pointers; "" is
                         the whole snapshot), "count",
                         "error", "launch_order" (the cases that ran in its launch, up to it),
@@ -88,6 +90,16 @@ Run directory (`run --out DIR`; the format diff.py (014) reads, with the extra f
 `oracle.py rebaseline --run DIR [baselines.py options]` writes the golden cases of DIR in the
 run format baselines.py (016) reads (a `cases` list, the case name without its suite) and runs
 `baselines.py rebaseline` on it.
+
+`run --arm launch-config` sets every registry switch to its `planned` arm; `diff --arm launch-config` runs it against
+all-default. `run --switches NAME=ARM,...` runs one explicit set (a bisect probe; other switches at their default).
+`bisect-switches CASE` (task 183) names the smallest switch set at its planned arm whose run of CASE diverges from
+all-default: switches.bisect_switch_set (ddmin in an order shuffled by --seed, then a size-ascending proof) over
+probes that each run that set and compare it with one all-default run. A switch planned at its default arm is
+`inert` and never a suspect. It writes OUT/bisect.json (cmux-oracle-bisect-switches-v1: case, seed, planned,
+inert, order, verdict, switches, minimality, reason, every probe with its run dir and comparison)
+and exits 1 when it names a set, 0 when every switch at its planned arm does not diverge, 3 when a probe was
+flaky or refused (arms not read back), 2 on bad input.
 
 Engine parity (spec 3F.4, task 113): `run --engine webkit|chromium` is one engine arm (the app's
 browser.defaultEngine, also the engine of a case that pins one; recorded as config.engine), and
@@ -271,14 +283,52 @@ def current_platform() -> str:
     return "linux"
 
 
-def host_info() -> Dict[str, str]:
-    """The host keys diff.py checks (3F.1: base and head run on one host)."""
+def host_info(read_displays: Optional[Callable[[], Optional[Dict[str, Any]]]] = None) -> Dict[str, Optional[str]]:
+    """The host keys diff.py checks (3F.1, task 008: base and head run on one host, OS and display)."""
     return {
         "name": socket.gethostname(),
         "os": platform_mod.system(),
         "osVersion": platform_mod.mac_ver()[0] or platform_mod.release(),
         "arch": platform_mod.machine(),
+        "display": display_info(read_displays or system_displays),
     }
+
+
+def system_displays() -> Optional[Dict[str, Any]]:
+    """`system_profiler SPDisplaysDataType -json` on macOS; None when it cannot be read."""
+    try:
+        proc = subprocess.run(["/usr/sbin/system_profiler", "SPDisplaysDataType", "-json"], check=False,
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, timeout=60)
+        profile = json.loads(proc.stdout)
+    except (OSError, subprocess.TimeoutExpired, ValueError):
+        return None
+    return profile if proc.returncode == 0 and isinstance(profile, dict) else None
+
+
+def display_info(read_displays: Callable[[], Optional[Dict[str, Any]]]) -> Optional[str]:
+    """The main display the app opens on: points and refresh, pixels, and how many displays there are.
+
+    "none" off macOS and on a Mac with no display; None (diff.py refuses it as not recorded) when the
+    profile cannot be read or names no main display, so an unknown display never compares equal.
+    """
+    if sys.platform != "darwin":
+        return "none"
+    profile = read_displays()
+    if profile is None:
+        return None
+    displays = [d for gpu in profile.get("SPDisplaysDataType") or [] if isinstance(gpu, dict)
+                for d in gpu.get("spdisplays_ndrvs") or [] if isinstance(d, dict)]
+    if not displays:
+        return "none"
+    main = [d for d in displays if d.get("spdisplays_main") == "spdisplays_yes"]
+    chosen = main[0] if len(main) == 1 else (displays[0] if len(displays) == 1 else None)
+    if chosen is None:
+        return None
+    resolution, pixels = chosen.get("_spdisplays_resolution"), chosen.get("_spdisplays_pixels")
+    if not resolution and not pixels:
+        return None
+    count = f"{len(displays)} display" + ("" if len(displays) == 1 else "s")
+    return f"{resolution or 'unknown points'} ({pixels or 'unknown'} px), {count}"
 
 
 def digest(items: Iterable[str]) -> str:
@@ -1133,6 +1183,15 @@ def arms_seen(counts: Mapping[str, Mapping[str, int]], name: str) -> List[str]:
     return sorted(arm for arm, n in (counts.get(name) or {}).items() if n)
 
 
+def arms_read_back(requested: Mapping[str, str], readback: Mapping[str, Mapping[str, int]]) -> Dict[str, Any]:
+    """Whether every requested switch read back its requested arm and nothing else (Chrome's
+    base/feature_list.cc: a field trial counts only once the frozen FeatureList reported it active)."""
+    missing = sorted(name for name in requested if not arms_seen(readback, name))
+    wrong = {name: arms_seen(readback, name) for name in sorted(requested)
+             if arms_seen(readback, name) and arms_seen(readback, name) != [requested[name]]}
+    return {"ok": not missing and not wrong, "missing": missing, "wrong": wrong}
+
+
 def run_summary(cases: Mapping[str, Mapping[str, Any]], *, hits: Dict[str, Dict[str, int]],
                 readback: Dict[str, Dict[str, int]], config: Mapping[str, Any],
                 dry_run: bool, infra_errors: Sequence[str],
@@ -1145,11 +1204,14 @@ def run_summary(cases: Mapping[str, Mapping[str, Any]], *, hits: Dict[str, Dict[
     arm_exercised: Optional[bool] = None
     arm_applied: Optional[bool] = None
     switch, arm = config.get("switch"), config.get("arm")
-    if switch and arm and not dry_run and any(r["attempts"] for r in cases.values()):
+    ran = not dry_run and any(r["attempts"] for r in cases.values())
+    if switch and arm and ran:
         arm_exercised = hits.get(switch, {}).get(arm, 0) > 0
         arm_applied = arms_seen(readback, switch) == [arm]
     if arm_not_applied is not None:
         arm_applied = False
+    requested = config.get("switches") or {}
+    read_back_check = arms_read_back(requested, readback) if requested and ran else None
     counts: Dict[str, int] = {}
     for record in cases.values():
         counts[record["outcome"]] = counts.get(record["outcome"], 0) + 1
@@ -1166,8 +1228,9 @@ def run_summary(cases: Mapping[str, Mapping[str, Any]], *, hits: Dict[str, Dict[
         "arm_exercised": arm_exercised,
         "arm_applied": arm_applied,
         "arm_not_applied": arm_not_applied,
+        "arms_read_back": read_back_check,
         "ok": (not unexpected and not leaked and not infra_errors and arm_exercised is not False
-               and arm_applied is not False),
+               and arm_applied is not False and (read_back_check is None or read_back_check["ok"])),
     }
 
 
@@ -1602,6 +1665,32 @@ def check_engine_exercised(record: Dict[str, Any], dirs: Tuple[Path, Path]) -> O
 ORDER_KEYS = frozenset({"seed", "batch_limit", "shard_index", "jobs", "binary"})
 
 
+def read_back_refusal(a: RunView, b: RunView) -> Optional[str]:
+    """A side whose requested switches did not read back, or two sides that asked for different switches
+    and read back the same arms: either way the comparison would not compare the arms it names. A `--switch`
+    arm run is left to switch_verdict, whose arm-not-applied and arms-read-back-same name the one switch."""
+    if any(side.receipt["config"].get("switch") for side in (a, b)):
+        return None
+    for label, side in (("a", a), ("b", b)):
+        stopped = side.receipt.get("arm_not_applied")
+        if stopped:
+            # The driver stopped the run (task 049): the side's cases ran on other arms or not at all.
+            return f"{ARM_NOT_APPLIED}: side {label}; " + "; ".join(stopped.get("problems") or ())
+        check = side.receipt.get("arms_read_back")
+        if check and not check["ok"]:
+            wrong = ", ".join(f"{name} read back {'/'.join(arms)}" for name, arms in check["wrong"].items())
+            missing = ", ".join(check["missing"])
+            return (f"arms-not-read-back: side {label}"
+                    + (f"; never read back: {missing}" if missing else "") + (f"; {wrong}" if wrong else ""))
+    asked = [side.receipt["config"].get("switches") or {} for side in (a, b)]
+    got = [{name: arms_seen(counts, name) for name in sorted(counts) if arms_seen(counts, name)}
+           for counts in (side.receipt.get("switch_readback") or {} for side in (a, b))]
+    if asked[0] != asked[1] and got[0] and got[0] == got[1]:
+        return "arms-read-back-same: both sides read back " + ", ".join(
+            f"{name}={'/'.join(arms)}" for name, arms in got[0].items())
+    return None
+
+
 def comparability(a: RunView, b: RunView, *, partial: bool, order_parity: bool = False) -> Optional[str]:
     """Why two sides cannot be compared as a full (or, with --partial, a shard-subset) result.
 
@@ -1611,6 +1700,9 @@ def comparability(a: RunView, b: RunView, *, partial: bool, order_parity: bool =
     """
     if a.receipt.get("dry_run") or b.receipt.get("dry_run"):
         return "a dry run has no results"
+    refusal = read_back_refusal(a, b)
+    if refusal:
+        return refusal
     if order_parity:
         mine, theirs = ({k: v for k, v in side.receipt["config"].items() if k not in ORDER_KEYS} for side in (a, b))
         if mine != theirs:
@@ -1989,7 +2081,35 @@ def switch_verdict(name: str, views: Mapping[str, RunView]) -> Tuple[Optional[st
     return (reasons[0] if reasons else None), block
 
 
-def resolve_switches(registry: Dict[str, Dict[str, Any]], switch: Optional[str], arm: Optional[str]) -> Dict[str, str]:
+
+
+def parse_switch_set(registry: Dict[str, Dict[str, Any]], text: str) -> Dict[str, str]:
+    """`--switches NAME=ARM,...`: one explicit set of registry switches (every other switch at its default)."""
+    out: Dict[str, str] = {}
+    for item in parse_list([text]):
+        name, sep, arm = item.partition("=")
+        if not sep or arm not in ARMS:
+            raise UsageError(f"--switches {item}: NAME=old or NAME=new")
+        if name not in registry:
+            raise UsageError(f"--switches {name}: no plans/cmux-next/refactor-switches/{name}.json")
+        if name in out:
+            raise UsageError(f"--switches names {name} twice")
+        out[name] = arm
+    if not out:
+        raise UsageError("--switches needs NAME=ARM[,NAME=ARM...]")
+    return dict(sorted(out.items()))
+
+
+def format_switch_set(switches: Mapping[str, str]) -> str:
+    return ",".join(f"{name}={arm}" for name, arm in sorted(switches.items()))
+
+
+def resolve_switches(registry: Dict[str, Dict[str, Any]], switch: Optional[str], arm: Optional[str],
+                     explicit: Optional[str] = None) -> Dict[str, str]:
+    if explicit is not None:
+        if switch or arm not in (None, "default"):
+            raise UsageError("--switches is one explicit set: no --switch or --arm with it")
+        return parse_switch_set(registry, explicit)
     if switch:
         if switch not in registry:
             raise UsageError(f"--switch {switch}: no plans/cmux-next/refactor-switches/{switch}.json")
@@ -2195,7 +2315,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         raise UsageError(f"{QUEUE_HINT}; `oracle.py run` itself runs only inside a runnerd job")
     run_id = args.run_id or new_run_id()
     out = args.out or DEFAULT_OUT_BASE / run_id
-    switches = resolve_switches(load_switch_registry(args.switch_registry), args.switch, args.arm)
+    switches = resolve_switches(load_switch_registry(args.switch_registry), args.switch, args.arm, args.switches)
     options = options_from_args(args, retry_default=None, out=out, run_id=run_id, switch=args.switch, arm=args.arm,
                                 switches=switches, ref=args.ref, binary=args.binary, engine=args.engine)
     receipt, code = run_one(options)
@@ -2471,6 +2591,40 @@ def side_arm(side: Side) -> str:
     return f"{side.switch}={side.arm}" if side.switch else side.arm or "-"
 
 
+def side_run_args(side: Side) -> List[str]:
+    """`oracle.py run` options of an explicit switch set (a side with switches but no arm)."""
+    explicit = side.switches and not side.switch and side.arm is None
+    return ["--switches", format_switch_set(side.switches)] if explicit else []
+
+
+def queued_side_command(args: argparse.Namespace, side: Side, sha: str, run_args: Sequence[str],
+                        same: bool) -> List[str]:
+    """The `linux_run.sh run` request of one side; `same` labels each of two otherwise identical requests."""
+    suites = ",".join(parse_list(args.suite)) or "all"
+    command = ["bash", str(HERE / "linux_run.sh"), "run", sha, "--suite", suites, "--arm", side_arm(side)]
+    command += ["--side", side.label] if same else []
+    command += ["--fresh"] if args.fresh else []
+    command += ["--", *run_args, *side_run_args(side)]
+    command += ["--run-id", f"{args.run_id}-{side.label}"] if args.run_id else []
+    return command
+
+
+def queued_side_view(side: Side, stdout: str, code: int) -> Optional[Tuple[RunView, Path]]:
+    """The run dir `linux_run.sh run` printed last, loaded as one side; None (printed as refused) when it wrote
+    no receipt: a side that did not build or run is a refused diff, not bad input (bisect_case.py skips that commit)."""
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    run_dir = Path(lines[-1]) if lines else None
+    if run_dir is None or not (run_dir / "receipt.json").is_file():
+        print(f"refused: the {side.label} run of {side.ref} wrote no receipt (linux_run.sh exit {code})",
+              file=sys.stderr)
+        return None
+    print(f"{side.label}: {side.ref} run {run_dir} (oracle.py run exit {code})")
+    view, errors = merge_runs([run_dir], require_complete=False)
+    if errors:
+        raise UsageError("; ".join(errors))
+    return view, run_dir
+
+
 def queued_run_args(args: argparse.Namespace) -> List[str]:
     """The diff's selection as `oracle.py run` options, defaults left out so that an identical
     `linux_run.sh run` request has the same key and joins the same queued job."""
@@ -2512,40 +2666,165 @@ def queued_diff(args: argparse.Namespace, sides: Tuple[Side, Side], expected: Li
             raise UsageError(f"{QUEUE_HINT}; --switch and --arm launch-config need --ref to build")
     shas = [resolve_commit(side.ref) for side in sides]
     # One SHA and arm on both sides (a determinism check) must run twice, not join one job.
-    same = shas[0] == shas[1] and side_arm(sides[0]) == side_arm(sides[1])
-    suites = ",".join(parse_list(args.suite)) or "all"
+    same = shas[0] == shas[1] and len({(side_arm(side), tuple(side_run_args(side))) for side in sides}) == 1
     run_args = queued_run_args(args)
-    procs = []
-    for side, sha in zip(sides, shas):
-        command = ["bash", str(HERE / "linux_run.sh"), "run", sha, "--suite", suites, "--arm", side_arm(side)]
-        command += ["--side", side.label] if same else []
-        command += ["--fresh"] if args.fresh else []
-        command += ["--", *run_args]
-        command += ["--run-id", f"{args.run_id}-{side.label}"] if args.run_id else []
-        procs.append(subprocess.Popen(command, stdout=subprocess.PIPE, text=True))
+    procs = [subprocess.Popen(queued_side_command(args, side, sha, run_args, same), stdout=subprocess.PIPE, text=True)
+             for side, sha in zip(sides, shas)]
     finished = [(proc.communicate()[0], proc.returncode) for proc in procs]
     views, dirs = [], []
     for side, (stdout, code) in zip(sides, finished):
-        lines = [line.strip() for line in stdout.splitlines() if line.strip()]
-        run_dir = Path(lines[-1]) if lines else None
-        if run_dir is None or not (run_dir / "receipt.json").is_file():
-            # A side that did not build or run is a refused diff, not bad input: bisect_case.py skips that commit.
-            print(f"refused: the {side.label} run of {side.ref} wrote no receipt (linux_run.sh exit {code})",
-                  file=sys.stderr)
+        loaded = queued_side_view(side, stdout, code)
+        if loaded is None:
             return EXIT_REFUSED
-        print(f"{side.label}: {side.ref} run {run_dir} (oracle.py run exit {code})")
+        view, run_dir = loaded
         refused = side_refusal(read_receipt(run_dir), side)
         if refused:
             print(refused)
             return EXIT_REFUSED
-        view, errors = merge_runs([run_dir], require_complete=False)
-        if errors:
-            raise UsageError("; ".join(errors))
         views.append(view)
         dirs.append(run_dir)
     return compare_views(views[0], views[1], a_dir=dirs[0], b_dir=dirs[1], out=out,
                          labels=(sides[0].label, sides[1].label), partial=args.partial, expected=expected,
                          rules=comparison_rules(views[1], args.expectations_root), as_json=args.json)
+
+
+BISECT_SCHEMA = "cmux-oracle-bisect-switches-v1"
+
+
+class SwitchBisectRefused(Exception):
+    """The all-default run of a bisect wrote no receipt: nothing to compare a probe with (exit 3)."""
+
+
+class SwitchBisect:
+    """`bisect-switches CASE`: one all-default run of CASE, then one run per switch set the search probes,
+    each compared with that run through compare_views (diff.py, the sets' expected_differences, the
+    Expectations pointer rules). A probe's verdict is divergent, same (equal or explained), flaky, or
+    refused (a side whose arms did not read back, a host mismatch, a queued run that wrote no receipt)."""
+
+    def __init__(self, args: argparse.Namespace, registry: Dict[str, Dict[str, Any]], out: Path,
+                 open_session: Optional[SessionOpener]) -> None:
+        self.args = args
+        self.registry = registry
+        self.planned = resolve_switches(registry, None, "launch-config")
+        self.out = out
+        self.open_session = open_session
+        self.queued = open_session is None and outside_vm_queue(args.product)
+        self.run_args = queued_run_args(args) if self.queued else []
+        if self.queued and args.switch_registry.resolve() != SWITCH_REGISTRY.resolve():
+            self.run_args += ["--switch-registry", str(args.switch_registry.resolve())]
+        self.run_id = args.run_id or new_run_id()
+        self.probes: List[Dict[str, Any]] = []
+        default = self.run_side(Side("default", None, "default", {}, args.ref, args.binary))
+        if default is None:
+            raise SwitchBisectRefused("the all-default run wrote no receipt")
+        self.default_view, self.default_dir = default
+        order = self.default_view.receipt["order"]
+        if order != [args.case]:
+            raise UsageError(f"{args.case} selects {len(order)} cases on {args.product} ({', '.join(order[:5])}): "
+                             "bisect-switches takes one case id")
+
+    def run_side(self, side: Side) -> Optional[Tuple[RunView, Path]]:
+        if self.queued:
+            if side.binary or not side.ref:
+                raise UsageError(f"{QUEUE_HINT}; bisect-switches on the VM builds --ref and takes no --binary")
+            command = queued_side_command(self.args, side, resolve_commit(side.ref), self.run_args, same=False)
+            proc = subprocess.run(command, check=False, stdout=subprocess.PIPE, text=True)
+            return queued_side_view(side, proc.stdout, proc.returncode)
+        options = options_from_args(self.args, retry_default=DEFAULT_RETRY_LIMIT, out=self.out / side.label,
+                                    run_id=f"{self.run_id}-{side.label}", switch=None, arm=side.arm,
+                                    switches=side.switches, ref=side.ref, binary=side.binary)
+        run_one(options, open_session=self.open_session)
+        view, errors = merge_runs([options.out], require_complete=False)
+        if errors:
+            raise UsageError("; ".join(errors))
+        return view, options.out
+
+    def probe(self, names: Tuple[str, ...]) -> str:
+        label = f"probe-{len(self.probes):03d}"
+        switches = {name: self.planned[name] for name in names}
+        ran = self.run_side(Side(label, None, None, switches, self.args.ref, self.args.binary))
+        if ran is None:
+            verdict = "refused: the probe run wrote no receipt"
+            self.probes.append({"probe": label, "switches": switches, "verdict": verdict, "run": None,
+                                "comparison": None})
+            return verdict
+        view, run_dir = ran
+        compare_dir = self.out / f"{label}-compare"
+        compare_dir.mkdir(parents=True, exist_ok=True)
+        compare_views(self.default_view, view, a_dir=self.default_dir, b_dir=run_dir, out=compare_dir,
+                      labels=("default", label), partial=False,
+                      expected=switch_expected_files(self.registry, names, self.args.switch_registry),
+                      rules=comparison_rules(view, self.args.expectations_root))
+        comparison = json.loads((compare_dir / "comparison.json").read_text(encoding="utf-8"))
+        case = self.args.case
+        if comparison["refused"]:
+            verdict = f"refused: {comparison['refused']}"
+        elif case in comparison["divergent"]:
+            verdict = "divergent"
+        elif case in comparison["flaky_excluded"]:
+            verdict = "flaky"
+        else:
+            verdict = "same" if comparison["compared"] else "not compared"
+        self.probes.append({"probe": label, "switches": switches, "verdict": verdict, "run": str(run_dir),
+                            "comparison": str(compare_dir / "comparison.json")})
+        return verdict
+
+
+def bisect_switches(args: argparse.Namespace, *, open_session: Optional[SessionOpener] = None) -> int:
+    if args.dry_run:
+        raise UsageError("bisect-switches runs its probes: no --dry-run")
+    if args.suite or args.filter or args.shard != "0/1":
+        raise UsageError("bisect-switches selects its one CASE: no --suite, --filter or --shard")
+    switches_py = require_sibling("switches", "p15-oracle-018")
+    registry = load_switch_registry(args.switch_registry)
+    if not registry:
+        raise UsageError(f"no switches in {args.switch_registry}: nothing to bisect")
+    if args.max_proof_probes is None:
+        args.max_proof_probes = switches_py.DEFAULT_MAX_PROOF_PROBES
+    if args.max_proof_probes < 0:
+        raise UsageError("--max-proof-probes must be >= 0")
+    args.filter = [args.case]
+    # One seed orders the search and every run, so both sides of each probe run one order.
+    args.seed = args.seed if args.seed is not None else new_seed()
+    out = args.out or DEFAULT_OUT_BASE / ("bisect-switches-" + new_run_id())
+    check_out_dir(out)
+    out.mkdir(parents=True, exist_ok=True)
+    try:
+        bisect = SwitchBisect(args, registry, out, open_session)
+    except SwitchBisectRefused as refused:
+        print(f"refused: bisect-switches {args.case}: {refused}", file=sys.stderr)
+        return EXIT_REFUSED
+    # A switch planned at its default arm runs all-default either way (its read back proves it): not a suspect.
+    inert = sorted(name for name, arm in bisect.planned.items() if arm == registry[name].get("default"))
+    suspects = sorted(set(bisect.planned) - set(inert))
+    found = switches_py.bisect_switch_set(suspects, bisect.probe, seed=args.seed,
+                                          max_proof_probes=args.max_proof_probes)
+    document = {
+        "schema": BISECT_SCHEMA,
+        "case": args.case,
+        "product": args.product,
+        "ref": args.ref,
+        "seed": args.seed,
+        "registry": str(args.switch_registry),
+        "planned": bisect.planned,
+        "inert": inert,
+        "order": list(found.order),
+        "verdict": found.verdict,
+        "switches": {name: bisect.planned[name] for name in found.switches},
+        "minimality": found.minimality,
+        "reason": found.reason,
+        "default_run": str(bisect.default_dir),
+        "probes": bisect.probes,
+    }
+    write_json(out / "bisect.json", document)
+    if args.json:
+        print(json.dumps(document, indent=1, sort_keys=True))
+    else:
+        named = format_switch_set(document["switches"]) or "-"
+        detail = f"{named} ({found.minimality})" if found.verdict == "found" else found.reason
+        print(f"bisect-switches {args.case}: {found.verdict}: {detail}; {len(bisect.probes)} probes, seed {args.seed}")
+        print(f"  receipt: {out / 'bisect.json'}")
+    return {"found": DIFF_DIVERGENT, "not-reproducible": DIFF_OK}.get(found.verdict, EXIT_REFUSED)
 
 
 def cmd_merge(args: argparse.Namespace) -> int:
@@ -2768,6 +3047,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_selection_args(run)
     run.add_argument("--switch", help="refactor switch name (plans/cmux-next/refactor-switches)")
     run.add_argument("--arm", help="old or new with --switch; launch-config or default without")
+    run.add_argument("--switches", metavar="NAME=ARM,...",
+                     help="one explicit switch set, every other switch at its default (a bisect-switches probe)")
     run.add_argument("--ref", help="source ref recorded in the receipt")
     run.add_argument("--engine", choices=sorted(ENGINE_READBACK),
                      help="engine arm: every launch's browser.defaultEngine, and the engine of a case that pins one")
@@ -2798,6 +3079,18 @@ def build_parser() -> argparse.ArgumentParser:
                       help="on the VM, rerun both sides even when the queue has a receipt (confirm, flake checks)")
     diff.add_argument("--out", type=Path, help="comparison directory")
     diff.set_defaults(func=cmd_diff)
+
+    bisect = sub.add_parser("bisect-switches", help="the smallest switch set at its planned arm whose run of CASE "
+                                                    "diverges from all-default")
+    bisect.add_argument("case", help="one case id (suite/case)")
+    add_selection_args(bisect)
+    bisect.add_argument("--ref", help="source ref (on the VM: built in the runnerd queue)")
+    bisect.add_argument("--max-proof-probes", type=int,
+                        help="probes the smallest-set proof may spend below ddmin's set, else the set is only "
+                             "1-minimal (default switches.py DEFAULT_MAX_PROOF_PROBES)")
+    bisect.add_argument("--fresh", action="store_true", help="on the VM, rerun every probe even when the queue has it")
+    bisect.add_argument("--out", type=Path, help="bisect directory (bisect.json, each probe's run and comparison)")
+    bisect.set_defaults(func=bisect_switches)
 
     merge = sub.add_parser("merge", help="merge shard run directories; refuses a gap or an overlap")
     merge.add_argument("dirs", type=Path, nargs="+")

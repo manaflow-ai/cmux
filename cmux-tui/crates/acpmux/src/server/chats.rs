@@ -387,7 +387,7 @@ async fn blocking(
 /// Sends every index change to `conn` until it closes or turns watching off.
 fn forward(hub: Arc<Hub>, service: Arc<ChatService>, conn: Arc<Conn>, generation: u64) {
     let mut rx = service.subscribe();
-    tokio::spawn(async move {
+    crate::supervised::spawn_scoped(async move {
         loop {
             let next = tokio::select! {
                 () = conn.out.closed() => break,

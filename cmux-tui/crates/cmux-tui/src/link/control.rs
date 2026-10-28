@@ -109,7 +109,11 @@ pub(super) async fn serve_local<O: Overlay, S: ConnectInfoSource>(
     status: Arc<str>,
 ) -> io::Result<()> {
     let mut failures = 0u32;
+    // The listener owns its requests: a panic ends that request only, and
+    // ending the listener ends them.
+    let mut requests = tokio::task::JoinSet::new();
     loop {
+        while requests.try_join_next().is_some() {}
         let stream = match listener.accept().await {
             Ok((stream, _)) => {
                 failures = 0;
@@ -123,7 +127,7 @@ pub(super) async fn serve_local<O: Overlay, S: ConnectInfoSource>(
                 continue;
             }
         };
-        tokio::spawn(serve_local_request(
+        requests.spawn(serve_local_request(
             stream,
             overlay.clone(),
             peers.clone(),
@@ -179,14 +183,18 @@ pub(super) async fn serve_overlay<L: OverlayListener>(
     session_socket: Option<PathBuf>,
     owner: Option<Arc<OwnerSession>>,
 ) {
+    // The listener owns its streams: a panic ends that stream only, and
+    // ending the listener ends them.
+    let mut streams = tokio::task::JoinSet::new();
     while let Some((stream, key, address)) = listener.accept().await {
+        while streams.try_join_next().is_some() {}
         let Some(session_socket) = session_socket.clone() else { continue };
         let pairings = peers.snapshot();
         let owner = owner.clone();
         let revocations = peers.revocations();
         // Cover the gap before the spawned handler gets its first poll.
         let accepted = revocations.open.enter(key);
-        tokio::spawn(async move {
+        streams.spawn(async move {
             let _accepted = accepted;
             let served = serve_inbound_watched(
                 stream,

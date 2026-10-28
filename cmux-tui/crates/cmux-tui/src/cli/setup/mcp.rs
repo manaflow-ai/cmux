@@ -476,6 +476,7 @@ fn run_cli(client: Client, args: &[String]) -> Result<(), String> {
     // Read on its own thread, so a CLI that writes more than the pipe holds
     // never blocks on it.
     let stderr = child.stderr.take().map(|mut pipe| {
+        // supervise-allow: reads one CLI's stderr and is joined after the wait; a panic loses only that text.
         std::thread::spawn(move || {
             let mut text = String::new();
             let _ = pipe.read_to_string(&mut text);

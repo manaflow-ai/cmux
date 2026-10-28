@@ -92,6 +92,7 @@ pub(super) fn start(
     let mut watches = Watches { file, by_dir: BTreeMap::new(), names: HashMap::new() };
     watches.rearm(&files).map_err(notify::Error::io)?;
     let (stop, stopped) = UnixStream::pair().map_err(notify::Error::io)?;
+    // supervise-allow: owned by Handle, which keeps it and joins it at drop; a panic ends config change hints only, and the loaded config stays in effect.
     let thread = cmux_threads::spawn("cmux-config-watch", super::WATCH_THREAD_QOS, move || {
         on_hint();
         run(&mut watches, &stopped, &files, &mut on_hint);

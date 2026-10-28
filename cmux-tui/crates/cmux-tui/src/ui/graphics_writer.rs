@@ -998,6 +998,7 @@ impl GraphicsWriter {
         let slot = Arc::new(Mutex::new(PendingGraphics::default()));
         let completion = Arc::new(Mutex::new(None));
         let control = Arc::new(WriterControl::default());
+        // supervise-allow: owned by GraphicsWriter and joined at its drop; a panic ends graphics output only.
         let handle = cmux_threads::spawn(
             "mux-graphics-writer",
             cmux_tui_core::thread_qos::ThreadType::Interactive.qos(),

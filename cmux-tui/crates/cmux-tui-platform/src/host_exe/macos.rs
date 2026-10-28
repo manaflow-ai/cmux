@@ -144,6 +144,7 @@ pub(super) fn prepare_in_background() {
                 .status();
         };
         // Best-effort warm-up that no request waits on.
+        // supervise-allow: a one-shot warm-up; a panic skips the warm-up only, and spawns still use the copy.
         let _ = cmux_threads::spawn("cmux-host-exe", cmux_threads::ThreadQos::Utility, warm);
     });
 }

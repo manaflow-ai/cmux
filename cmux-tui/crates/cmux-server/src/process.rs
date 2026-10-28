@@ -137,6 +137,7 @@ impl Runner for SystemRunner {
         // early closes the pipe; its exit status reports why.
         let writer = match (cmd.stdin.clone(), child.stdin.take()) {
             (Some(bytes), Some(mut pipe)) => {
+                // supervise-allow: joined below after the child's output; a panic ends the stdin write only, and the child sees the pipe close.
                 let stdin = cmux_threads::spawn(
                     "cmux-server-stdin",
                     cmux_threads::HELPER_CHILD,

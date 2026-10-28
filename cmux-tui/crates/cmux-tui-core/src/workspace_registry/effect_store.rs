@@ -464,53 +464,44 @@ impl WorkspaceRegistry {
                 "recovery":"retry_new_idempotency_key",
             }));
         };
-        let mut result = json!({
-            "correlation_key":correlation_key,
-            "operation":stored.operation,
-            "idempotency_key":stored.idempotency_key,
-        });
-        match stored.state.as_str() {
-            "prepared" => {
-                result["state"] = json!("not_applied");
-                result["recovery"] = json!("retry_same_idempotency_key");
-            }
-            "not_applied" => {
-                result["state"] = json!("not_applied");
-                result["recovery"] = json!("retry_new_idempotency_key");
-            }
-            "executing"
-                if stored.execution_generation.as_deref() == Some(self.generation.as_str()) =>
-            {
-                result["state"] = json!("pending");
-                result["recovery"] = json!("wait");
-            }
-            "executing" | "indeterminate" => {
-                result["state"] = json!("indeterminate");
-                result["recovery"] = json!("do_not_retry");
-            }
-            "created" => {
-                result["state"] = json!("created");
-                result["recovery"] = json!("none");
-                result["created_path"] = serde_json::from_str(
-                    stored
-                        .created_path_json
-                        .as_deref()
-                        .ok_or_else(|| anyhow::anyhow!("created resource omitted its path"))?,
-                )?;
-                result["generation"] = json!(stored.generation.ok_or_else(|| {
-                    anyhow::anyhow!("created resource omitted its generation")
-                })?);
-                result["revision"] = json!(
-                    u64::try_from(stored.committed_revision.ok_or_else(|| {
-                        anyhow::anyhow!("created resource omitted its revision")
-                    })?)
-                    .context("stored creation revision is negative")?
-                    .to_string()
-                );
-            }
-            other => anyhow::bail!("invalid resource creation state {other:?}"),
-        }
-        Ok(result)
+        let mut result = serde_json::Map::from_iter([
+            ("correlation_key".to_string(), json!(correlation_key)),
+            ("operation".to_string(), json!(stored.operation)),
+            ("idempotency_key".to_string(), json!(stored.idempotency_key)),
+        ]);
+        let (state, recovery) =
+            match stored.state.as_str() {
+                "prepared" => ("not_applied", "retry_same_idempotency_key"),
+                "not_applied" => ("not_applied", "retry_new_idempotency_key"),
+                "executing"
+                    if stored.execution_generation.as_deref() == Some(self.generation.as_str()) =>
+                {
+                    ("pending", "wait")
+                }
+                "executing" | "indeterminate" => ("indeterminate", "do_not_retry"),
+                "created" => {
+                    let created_path: Value =
+                        serde_json::from_str(stored.created_path_json.as_deref().ok_or_else(
+                            || anyhow::anyhow!("created resource omitted its path"),
+                        )?)?;
+                    let generation = stored.generation.ok_or_else(|| {
+                        anyhow::anyhow!("created resource omitted its generation")
+                    })?;
+                    let revision =
+                        u64::try_from(stored.committed_revision.ok_or_else(|| {
+                            anyhow::anyhow!("created resource omitted its revision")
+                        })?)
+                        .context("stored creation revision is negative")?;
+                    result.insert("created_path".into(), created_path);
+                    result.insert("generation".into(), json!(generation));
+                    result.insert("revision".into(), json!(revision.to_string()));
+                    ("created", "none")
+                }
+                other => anyhow::bail!("invalid resource creation state {other:?}"),
+            };
+        result.insert("state".into(), json!(state));
+        result.insert("recovery".into(), json!(recovery));
+        Ok(Value::Object(result))
     }
 
     #[track_caller]

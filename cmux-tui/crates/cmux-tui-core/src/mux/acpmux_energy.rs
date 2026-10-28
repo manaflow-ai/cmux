@@ -35,6 +35,7 @@ use serde_json::{Value, json};
 
 use crate::memory::DaemonMemory;
 use crate::server::memory_limit::WireLevel;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::wake::{EnergyMode, EnergyWatch};
 
 /// acpmux's Energy Saver method (`acpmux/src/rpc.rs`, `MUX_ENERGY`).
@@ -80,7 +81,13 @@ impl AcpmuxEnergy {
         }));
         let mode = Arc::clone(mode);
         let memory = Arc::clone(memory);
-        cmux_threads::spawn(THREAD_NAME, ThreadQos::Utility, move || run(&mode, &memory, &relay))?;
+        supervised::spawn_at(
+            THREAD_NAME,
+            ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || run(&mode, &memory, &relay),
+        )?;
         Ok(Self { inbox, _watch: watch })
     }
 

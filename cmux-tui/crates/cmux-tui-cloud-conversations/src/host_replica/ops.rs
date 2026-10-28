@@ -9,6 +9,7 @@ use serde_json::{Map, Value, json};
 
 use super::super::service::{CloudWire, WireRecv};
 use super::{DECIDED_KEYS, Driver, Ended, MAX_KEY_CHARS, Phase, Use};
+use crate::panic_free::JsonFields as _;
 
 /// One decided forwarded op: its answer frames without `to`.
 #[derive(Clone)]
@@ -54,7 +55,7 @@ impl Driver {
         let send = |wire: &mut dyn CloudWire, frames: &[Value]| -> Result<(), String> {
             for f in frames {
                 let mut f = f.clone();
-                f["to"] = json!(to);
+                f.insert("to", json!(to));
                 wire.send(&f.to_string()).map_err(|error| error.0)?;
             }
             Ok(())
@@ -90,10 +91,11 @@ impl Driver {
                 json!({ "t": "request-settled", "tx": tx, "idempotency_key": key, "stream": stream, "sequence": 0, "ok": false }),
             ],
         };
-        let principal_user = frame["principal"]["user"].as_str().unwrap_or("");
+        let principal_user = frame.field("principal").field("user").as_str().unwrap_or("");
         let answer = if frame["stream"].as_str() != Some(stream) {
             refuse("validation.invalid", "not a stream of this host".into(), false)
-        } else if principal_user != lease.user || !frame["principal"]["agent"].is_null() {
+        } else if principal_user != lease.user || !frame.field("principal").field("agent").is_null()
+        {
             // HostDO admits only the owner; the host checks again.
             refuse("auth.forbidden", "only the host's owner may change it".into(), false)
         } else {
@@ -117,7 +119,8 @@ impl Driver {
                 Err(refusal) => refuse(&refusal.code, refusal.message, refusal.retryable),
             }
         };
-        let retryable_refusal = answer.frames[0]["retryable"] == true;
+        let retryable_refusal =
+            answer.frames.first().is_some_and(|first| first.field("retryable") == true);
         send(wire, &answer.frames)?;
         // A retryable refusal decides nothing: the same key may run later.
         if !retryable_refusal {
@@ -137,7 +140,7 @@ impl Driver {
             match wire.recv(self.inner.options.poll) {
                 WireRecv::Text(text) => {
                     let frame = serde_json::from_str::<Value>(&text).unwrap_or(Value::Null);
-                    if frame["t"] == "replica.purged" {
+                    if frame.field("t") == "replica.purged" {
                         let mut state = self.inner.lock();
                         if state.lease.as_ref().map(|l| l.generation) == Some(lease.generation) {
                             state.lease = None;
@@ -150,12 +153,12 @@ impl Driver {
                         self.last_state = None;
                         return Ended::Purged;
                     }
-                    if frame["t"] == "op"
-                        && let Some(to) = frame["to"].as_str()
+                    if frame.field("t") == "op"
+                        && let Some(to) = frame.field("to").as_str()
                     {
                         // An op that arrives while the replica turns off is not run.
-                        let key = frame["idempotency_key"].as_str().unwrap_or("");
-                        let stream = frame["stream"].as_str().unwrap_or("");
+                        let key = frame.field("idempotency_key").as_str().unwrap_or("");
+                        let stream = frame.field("stream").as_str().unwrap_or("");
                         let tx = self.inner.tx();
                         for f in [
                             json!({ "t": "reject", "to": to, "tx": tx, "stream": stream, "idempotency_key": key, "code": "owner_unreachable",

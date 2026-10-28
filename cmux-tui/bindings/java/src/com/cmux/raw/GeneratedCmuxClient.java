@@ -1077,6 +1077,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final Object memoryReport() throws CmuxException {
+        Object result = execute(Commands.MEMORY_REPORT, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final MintTerminalRendererResult mintTerminalRenderer(MintTerminalRendererRequest request) throws CmuxException {
         Object result = execute(Commands.MINT_TERMINAL_RENDERER, request.toWire());
         return MintTerminalRendererResult.fromWire(result);
@@ -1585,6 +1590,11 @@ public abstract class GeneratedCmuxClient {
     public final EmptyResult setSplitRatio(SetSplitRatioRequest request) throws CmuxException {
         Object result = execute(Commands.SET_SPLIT_RATIO, request.toWire());
         return EmptyResult.fromWire(result);
+    }
+
+    public final SetStreamPriorityResult setStreamPriority(SetStreamPriorityRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_STREAM_PRIORITY, request.toWire());
+        return SetStreamPriorityResult.fromWire(result);
     }
 
     public final Object setTabPinned(SetTabPinnedRequest request) throws CmuxException {

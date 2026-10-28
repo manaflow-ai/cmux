@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Tests for fleet.py and scripts/measure/oracle.sh (p15-oracle-050): shards merge into one receipt, waits never
-resubmit, refusals and lost pairs are reported, never maclease.
+resubmit, refusals and lost pairs are reported, never maclease; a diff pair on two hosts, OS versions or displays is
+refused as host-mismatch (p15-oracle-008).
 
 Run: python3 -I scripts/cmux-next/oracle/fleet_test.py (stdlib unittest; no fleet, no build). A fake `cmux-ci`
 (FAKE_CLIENT below) stands in for the controller: `run` prints the step line the real client prints, then runs
@@ -21,6 +22,7 @@ import tarfile
 import tempfile
 import time
 import unittest
+import unittest.mock
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 
@@ -285,6 +287,48 @@ class DiffTests(FleetHarness):
         head = self.record(out)["sides"]["head"]["shards"][0]
         self.assertIn("ignored --target-worker", head["error"])
         self.assertNotIn("comparison", self.record(out))
+
+    def diff_with_head_host(self, change, run_id: str) -> int:
+        """A base/head diff of 2 shards whose head receipts, in shard 1 only, get `change` applied to their host."""
+        original = fleet.Fleet.fetch
+
+        def fetch(fleet_self, shard, *, failed):
+            run = original(fleet_self, shard, failed=failed)
+            if run is not None and shard.side == "head" and shard.index == 1:
+                receipt = json.loads((run / "receipt.json").read_text())
+                receipt["host"] = change(dict(receipt["host"]))
+                (run / "receipt.json").write_text(json.dumps(receipt))
+            return run
+
+        with unittest.mock.patch.object(fleet.Fleet, "fetch", fetch):
+            return self.fleet("diff", "--base", SHA, "--head", OTHER_SHA, "--shards", "2",
+                              "--out", str(self.tmp / run_id), "--run-id", run_id)
+
+    def test_every_receipt_records_host_os_and_display(self) -> None:
+        out = self.tmp / "out"
+        self.fleet("diff", "--base", SHA, "--head", OTHER_SHA, "--shards", "1", "--out", str(out), "--run-id", "h0")
+        for side in ("base", "head"):
+            host = json.loads((out / "shards" / side / "0" / "unpacked" / "run" / "receipt.json").read_text())["host"]
+            self.assertEqual(set(host), {"name", "os", "osVersion", "arch", "display"})
+            self.assertIsNotNone(host["display"])
+
+    def test_forced_cross_host_os_or_display_pairs_are_refused(self) -> None:
+        for run_id, change, field in (
+                ("h1", lambda host: {**host, "name": "aws-m4pro-6"}, "name"),
+                ("h2", lambda host: {**host, "osVersion": "27.0"}, "osVersion"),
+                ("h3", lambda host: {**host, "display": "1600 x 1000 @ 120.00Hz (1600 x 1000 px), 2 displays"},
+                 "display"),
+                ("h4", lambda host: {k: v for k, v in host.items() if k != "display"}, "display (not recorded)")):
+            with self.subTest(field=field):
+                self.assertEqual(self.diff_with_head_host(change, run_id), fleet.EXIT_INCOMPLETE, self.output)
+                record = self.record(self.tmp / run_id)
+                self.assertEqual(record["verdict"], "host-mismatch")
+                self.assertEqual(list(record["mismatched"]), ["shard 1"])
+                self.assertTrue(record["mismatched"]["shard 1"][0].startswith(field), record["mismatched"])
+                self.assertNotIn("comparison", record)
+                self.assertFalse(record["ok"])
+                self.assertFalse((self.tmp / run_id / "compare").exists())
+                self.assertIn("host-mismatch", self.output)
 
 
 FIXTURE_SWIFT = "Packages/macOS/CmuxNext/Sources/Fixture/Index.swift"

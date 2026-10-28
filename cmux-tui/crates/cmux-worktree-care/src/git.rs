@@ -97,6 +97,7 @@ pub(crate) fn run_within(
     let child = command.spawn().map_err(|error| format!("could not run: {error}"))?;
     let (sender, receiver) = std::sync::mpsc::channel();
     let id = child.id();
+    // supervise-allow: one git run's waiter; a panic drops `sender`, so the recv_timeout below fails at once and this run reports an error.
     let waiter =
         cmux_threads::spawn("worktree-care-git-wait", cmux_threads::HELPER_CHILD, move || {
             let _ = sender.send(child.wait_with_output());

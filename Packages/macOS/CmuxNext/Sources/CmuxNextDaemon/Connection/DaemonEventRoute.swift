@@ -132,8 +132,9 @@ final class DaemonEventRoute: Sendable {
     ///
     /// - Parameters:
     ///   - bytes: The event's line bytes, counted until a consumer takes the backlog.
-    ///   - parksReader: True only on the reader thread: past ``highWater`` it marks the reader parked,
-    ///     and the reader waits in ``waitWhileReaderParked()`` once it has handled the line.
+    ///   - parksReader: True only for an event the reader routed (its handler runs on the connection's decode
+    ///     lane): past ``highWater`` it marks the reader parked, and the reader waits in
+    ///     ``waitWhileReaderParked()`` after a line it handles.
     func emit(_ envelope: DaemonEventEnvelope, bytes: Int = 0, parksReader: Bool = false) {
         let (woken, release) = state.withLock { state -> ((OnceContinuation<Step, OnceContinuationError>, Step)?, Bool) in
             guard !state.finished else { return (nil, false) }
@@ -168,7 +169,7 @@ final class DaemonEventRoute: Sendable {
     }
 
     /// The reader's backpressure wait, after it handled a line and outside the line's hang scope
-    /// (`LineTransport`'s `waitForConsumer`): when an emit parked it, it waits until the consumer has
+    /// (`LineTransport`'s ``EventDispatch/readerWait``): when an emit parked it, it waits until the consumer has
     /// taken the backlog, stopped taking it, a sink took over, or the route finished. Returns at once
     /// otherwise.
     func waitWhileReaderParked() {

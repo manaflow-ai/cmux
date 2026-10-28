@@ -87,8 +87,12 @@ impl HolderLink {
             version,
         });
         let weak = Arc::downgrade(&link);
+        // supervise-allow: the link's reader; a panic in it counts as a lost link, so the link closes and on_lost reconnects as when the holder dies.
         std::thread::Builder::new().name("holder-link".into()).spawn(move || {
-            let end = read_loop(&stream, reader, &weak);
+            let end = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                read_loop(&stream, reader, &weak)
+            }))
+            .unwrap_or(LinkEnd::Lost);
             if let Some(link) = weak.upgrade() {
                 link.lost();
             }

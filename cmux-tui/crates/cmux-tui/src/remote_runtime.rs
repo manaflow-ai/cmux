@@ -224,6 +224,7 @@ fn build_remote_runtime(thread_name: &str) -> anyhow::Result<tokio::runtime::Run
 fn reap_failed_startup(runtime_thread: thread::JoinHandle<anyhow::Result<()>>, runtime_name: &str) {
     let (finished_tx, finished_rx) = mpsc::sync_channel(1);
     let reaper_name = format!("{runtime_name}-startup-reaper");
+    // supervise-allow: owned by its runtime handle: is_finished and shutdown see its end, a panic included.
     let reaper = thread::Builder::new().name(reaper_name).spawn(move || {
         let _ = finished_tx.send(runtime_thread.join());
     });
@@ -378,6 +379,7 @@ impl DaemonRuntimeHandle {
         self.finished.load(Ordering::Acquire)
     }
 
+    #[allow(clippy::expect_used, reason = "INVARIANT: thread is set at spawn, taken only here")]
     pub fn shutdown(mut self) -> anyhow::Result<()> {
         let _ = self.shutdown.send(true);
         match self.thread.take().expect("daemon runtime thread is present").join() {
@@ -620,6 +622,7 @@ impl ClientRuntimeHandle {
         self.finished.clone()
     }
 
+    #[allow(clippy::expect_used, reason = "INVARIANT: thread is set at spawn, taken only here")]
     pub fn shutdown(mut self) -> anyhow::Result<()> {
         let _ = self.shutdown.send(true);
         match self.thread.take().expect("client runtime thread is present").join() {
@@ -647,6 +650,7 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (finished_tx, finished_rx) = watch::channel(false);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+    // supervise-allow: owned by its runtime handle: is_finished and shutdown see its end, a panic included.
     let thread = thread::Builder::new()
         .name("cmux-remote-client".into())
         .spawn(move || {
@@ -954,12 +958,12 @@ async fn select_initial_route<T: Send>(
     upgrade: bool,
     attempt: &mut impl InitialRouteAttempt<T>,
 ) -> Result<T, InitialRouteSelectionError> {
-    if routes.is_empty() {
+    let Some(first) = routes.first() else {
         return Err(InitialRouteSelectionError::terminal(anyhow!(
             "remote connection has no route candidates"
         )));
-    }
-    if upgrade && routes[0].endpoint.scheme() != "ssh" {
+    };
+    if upgrade && first.endpoint.scheme() != "ssh" {
         return Err(InitialRouteSelectionError::terminal(anyhow!(
             "--upgrade requires SSH to be the initial route"
         )));
@@ -1290,20 +1294,20 @@ async fn select_reconnect_route<T: Send>(
         return Err(ProviderError::Configuration("no reconnect routes configured".into()));
     }
     let mut failures = Vec::new();
-    for offset in 0..routes.len() {
-        let index = (start + offset) % routes.len();
-        if !routes[index].supports_client_auth(auth) {
+    let rotation = routes.iter().enumerate().cycle().skip(start % routes.len());
+    for (index, route) in rotation.take(routes.len()) {
+        if !route.supports_client_auth(auth) {
             failures.push(format!(
                 "{}: {}",
-                sanitized_route(&routes[index].endpoint),
+                sanitized_route(&route.endpoint),
                 ProviderError::UnsupportedClientAuth {
-                    scheme: routes[index].endpoint.scheme().into(),
-                    auth,
+                    scheme: route.endpoint.scheme().into(),
+                    auth
                 }
             ));
             continue;
         }
-        let request = connect_request(&routes[index], session, lane_policy)
+        let request = connect_request(route, session, lane_policy)
             .map_err(|error| ProviderError::Configuration(error.to_string()))?;
         let endpoint = request.endpoint.clone();
         let display_endpoint = sanitized_route(&endpoint);
@@ -1370,11 +1374,11 @@ impl RuntimeReconnectGroups {
         self.options
             .routes
             .iter()
-            .enumerate()
-            .filter(|(index, candidate)| {
+            .zip(&self.prepared_ssh)
+            .filter(|(candidate, prepared)| {
                 candidate.endpoint.scheme() == "ssh"
                     && candidate.supports_client_auth(auth)
-                    && !self.prepared_ssh[*index].load(Ordering::Acquire)
+                    && !prepared.load(Ordering::Acquire)
             })
             .count()
     }
@@ -1828,9 +1832,9 @@ fn private_socket_directory(
         let parent = record.parent().ok_or_else(|| anyhow!("socket record has no parent"))?;
         ensure_secure_directory(parent, DirectoryAccess::OwnerControlled)
             .with_context(|| format!("could not prepare {}", parent.display()))?;
-        let suffix = uuid::Uuid::new_v4().simple().to_string();
         // Keep the name short: socket paths must fit in sun_path.
-        let candidate = base.join(format!("{prefix}-{}", &suffix[..8]));
+        let suffix = uuid::Uuid::new_v4().simple().to_string().chars().take(8).collect::<String>();
+        let candidate = base.join(format!("{prefix}-{suffix}"));
         match fs::DirBuilder::new().mode(0o700).create(&candidate) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -2058,6 +2062,7 @@ fn start_daemon_runtime_with_timeout(
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let finished = Arc::new(AtomicBool::new(false));
     let thread_finished = finished.clone();
+    // supervise-allow: owned by its runtime handle: is_finished and shutdown see its end, a panic included.
     let thread = thread::Builder::new()
         .name(format!("cmux-remote-{}", options.session))
         .spawn(move || {
@@ -2264,7 +2269,7 @@ async fn run_daemon(
                         return Err(anyhow!("remote daemon startup was cancelled"));
                     }
                 };
-                let result = result.expect("a non-empty relay task set has a result");
+                let Some(result) = result else { break };
                 relays.push(result.context("relay registration task failed")??);
             }
 
@@ -2586,11 +2591,11 @@ fn verify_previous_shutdown_outcome(
     }
 }
 
-fn combine_shutdown_failures(mut failures: Vec<anyhow::Error>) -> anyhow::Result<()> {
-    match failures.len() {
-        0 => Ok(()),
-        1 => Err(failures.pop().expect("one shutdown failure is present")),
-        _ => Err(anyhow!(
+fn combine_shutdown_failures(failures: Vec<anyhow::Error>) -> anyhow::Result<()> {
+    match <[anyhow::Error; 1]>::try_from(failures) {
+        Ok([only]) => Err(only),
+        Err(failures) if failures.is_empty() => Ok(()),
+        Err(failures) => Err(anyhow!(
             "remote daemon shutdown encountered multiple failures: {}",
             failures.into_iter().map(|error| format!("{error:#}")).collect::<Vec<_>>().join("; ")
         )),
@@ -3224,6 +3229,7 @@ mod tests {
 
     #[cfg(unix)]
     mod initial_route_budget;
+    mod panic_free;
 
     /// flock(2) on a test's own lock file: 0, or -1 with errno set.
     #[cfg(unix)]

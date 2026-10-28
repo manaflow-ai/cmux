@@ -369,6 +369,7 @@ impl ProviderMachineController {
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
         let (sender, receiver) = mpsc::sync_channel(8);
+        // supervise-allow: owned by its update stream and joined at stop; a panic drops its sender, so the app sees the stream end.
         let worker =
             std::thread::Builder::new().name("machine-local-overlay".into()).spawn(move || {
                 while !worker_stop.load(Ordering::Acquire) {
@@ -1148,6 +1149,7 @@ impl ProviderMachineRuntime {
         let worker_snapshot_refresh_pending = snapshot_refresh_pending.clone();
         let refresh_stop = stop.clone();
         let refresh_output = sender.clone();
+        // supervise-allow: owned by its update stream and joined at stop; a panic drops its sender, so the app sees the stream end.
         let refresh_worker = std::thread::Builder::new()
             .name("machine-provider-refresh".into())
             .spawn(move || {
@@ -1467,6 +1469,7 @@ impl ProviderMachineRuntime {
                 }
             })?;
         refresh_sender.send(ProviderRefreshSignal::Refresh(None))?;
+        // supervise-allow: owned by its update stream and joined at stop; a panic drops its sender, so the app sees the stream end.
         let worker = std::thread::Builder::new().name("machine-provider-events".into()).spawn(
             move || {
                 while !thread_stop.load(Ordering::Acquire) {

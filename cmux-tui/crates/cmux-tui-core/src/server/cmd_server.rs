@@ -79,6 +79,17 @@ pub(super) fn trace_control(
     Ok(run_live(mux, call()?)?)
 }
 
+/// `memory-report` (server/memory_report.rs): owner only, refused before
+/// anything is read.
+pub(super) fn memory_report(mux: &Arc<Mux>, client: u64) -> anyhow::Result<Value> {
+    use super::memory_report::{MemoryReportRefused, report};
+    // A local socket with a bound `cmux link` peer is remote as well.
+    if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+        return Err(MemoryReportRefused::NotLocal.into());
+    }
+    Ok(report(mux))
+}
+
 pub(super) fn identify(
     mux: &Arc<Mux>,
     client: u64,

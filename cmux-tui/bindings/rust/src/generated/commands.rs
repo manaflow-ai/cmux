@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d.
+// cmux-tui mux protocol 12, IR 974986b7d253aacd825bed6d8efd6c978efd265af55140e73b402e8a32e4e3bc.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3021,6 +3021,14 @@ pub struct MarkWorkspacesProviderManagedRequest {
 pub type MarkWorkspacesProviderManagedResult = T::EmptyResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MemoryReportRequest {
+}
+
+#[rustfmt::skip]
+pub type MemoryReportResult = serde_json::Value;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MintTerminalRendererRequest {
     pub surface: T::Id,
@@ -4518,6 +4526,24 @@ pub struct SetSplitRatioRequest {
 
 #[rustfmt::skip]
 pub type SetSplitRatioResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SetStreamPriorityRequestPriority {
+    #[serde(rename = "focused")]
+    Focused,
+    #[serde(rename = "visible")]
+    Visible,
+    #[serde(rename = "hidden")]
+    Hidden,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetStreamPriorityRequest {
+    pub priority: SetStreamPriorityRequestPriority,
+    pub stream: u16,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -6147,6 +6173,10 @@ impl CmuxClient {
         self.execute(&MARK_WORKSPACES_PROVIDER_MANAGED_METADATA, &request)
     }
 
+    pub fn memory_report(&mut self, request: MemoryReportRequest) -> Result<MemoryReportResult> {
+        self.execute(&MEMORY_REPORT_METADATA, &request)
+    }
+
     pub fn mint_terminal_renderer(&mut self, request: MintTerminalRendererRequest) -> Result<T::MintTerminalRendererResult> {
         self.execute(&MINT_TERMINAL_RENDERER_METADATA, &request)
     }
@@ -6856,6 +6886,10 @@ impl CmuxClient {
             self.require_capability_field("set-split-ratio", "layout-undo-v1")?;
         }
         self.execute(&SET_SPLIT_RATIO_METADATA, &request)
+    }
+
+    pub fn set_stream_priority(&mut self, request: SetStreamPriorityRequest) -> Result<T::SetStreamPriorityResult> {
+        self.execute(&SET_STREAM_PRIORITY_METADATA, &request)
     }
 
     pub fn set_tab_pinned(&mut self, request: SetTabPinnedRequest) -> Result<SetTabPinnedResult> {
