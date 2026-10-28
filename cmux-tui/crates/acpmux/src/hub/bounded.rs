@@ -175,7 +175,9 @@ impl<M: SuffixMetric> TrimmedText<M> {
         } else {
             if !self.pending_whitespace.is_empty() {
                 let pending = self.pending_whitespace.string();
+                let pending_total = self.pending_whitespace.total();
                 self.content.push_str(&pending);
+                self.content.add_total(pending_total.saturating_sub(M::len(&pending)));
                 self.pending_whitespace.clear();
             }
             self.content.push_str(run);
