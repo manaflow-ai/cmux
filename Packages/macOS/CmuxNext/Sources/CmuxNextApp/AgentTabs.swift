@@ -120,6 +120,9 @@ final class AgentTabStore {
     var recycle: ((AgentPaneView) -> Bool)?
     /// The prewarmed New Tab page, for a first page that has no view yet (NewTabSparePool).
     var takeSpare: (() -> AgentPaneView?)?
+    /// Tab `key` got a page (built or adopted from the spare), drawn or not: a page built while its
+    /// tab does not draw starts its hidden clock (`AgentPageHibernation.pageBuilt`).
+    var onPageBuilt: ((String) -> Void)?
     /// Closed pages leave the view tree at once; their teardown waits (R81).
     let retirer = AgentPageRetirer()
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
@@ -372,6 +375,7 @@ final class AgentTabStore {
            seed?.holdsOnlyFolder ?? true, wakeStates[key] == nil, !relaunchWake.mayHold(key), let spare = takeSpare?() {
             adoptSpare(spare, key: key, page: newTab.page)
             track(key, in: store)
+            onPageBuilt?(key)
             return spare
         }
         let model = AgentPaneModel(
@@ -404,6 +408,7 @@ final class AgentTabStore {
         }
         views[key] = view
         track(key, in: store)
+        onPageBuilt?(key)
         return view
     }
 

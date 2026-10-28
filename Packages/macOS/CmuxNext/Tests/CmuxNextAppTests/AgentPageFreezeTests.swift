@@ -138,11 +138,33 @@ struct AgentPageFreezeTests {
         let rig = Self.rig()
         rig.hibernation.update(setting: .fallback, pressure: .normal)
         rig.hibernation.isRendering = { rig.rendering.contains($0) }
+        // As the App wires the store (`AgentTabStore.onPageBuilt`).
+        rig.tabs.onPageBuilt = { rig.hibernation.pageBuilt($0) }
         rig.records["tab_bg"] = AgentSessionRef(host: AgentPageHibernationTests.thisMac, hostName: "This Mac", session: "s-bg", harness: "claude")
         _ = try #require(rig.tabs.view(for: "tab_bg"))
-        rig.hibernation.replan()
+        // The build itself started the clock and armed the deadline: no other event comes.
+        #expect(rig.hibernation.hasFreezeDeadline, "a chat built in the background armed no freeze deadline")
         advance(rig, seconds: 31)
         #expect(page(rig, "tab_bg")?.frozen == true, "a chat built in the background never froze")
+    }
+
+    /// The frame pacer sends a hidden page the pushes it waits on (a reply, a turn's end, a
+    /// backlog): a frozen page thaws before the push goes, and freezes again once idle that long.
+    @Test func aPushForAFrozenChatThawsItFirst() throws {
+        let rig = Self.rig()
+        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        let view = try rig.hiddenChat("tab_push", session: "s-push")
+        advance(rig, seconds: 31)
+        let control = try #require(page(rig, "tab_push"))
+        #expect(control.frozen)
+        let wake = try #require(view.model.transport.willDeliver, "a frozen page's transport has no wake")
+        wake()
+        #expect(!control.frozen, "a push went to a frozen page")
+        #expect(view.model.transport.willDeliver == nil)
+        advance(rig, seconds: 20)
+        #expect(!control.frozen, "froze again before freezeHiddenTabs")
+        advance(rig, seconds: 11)
+        #expect(control.frozen, "a page woken for a push never froze again")
     }
 
     /// Release asks the page what it holds and for its frame: a frozen page thaws first.

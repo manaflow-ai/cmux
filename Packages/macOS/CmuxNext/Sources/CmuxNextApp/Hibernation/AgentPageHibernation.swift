@@ -74,9 +74,9 @@ final class AgentPageHibernation {
     var hasDeadline: Bool { deadline.isScheduled }
     /// Hidden pages frozen now (`browser.freezeHiddenTabs`).
     private(set) var frozen: Set<String> = []
-    /// When the engine last refused to freeze a page (it still counted it visible): asked again
-    /// `freezeSeconds` later, as for a browser tab.
-    private var freezeRefusedAt: [String: ContinuousClock.Instant] = [:]
+    /// When a hidden page last had to stay awake: the engine refused to freeze it (it still counted
+    /// it visible), or the transport woke it for a push. It freezes `freezeSeconds` after that.
+    private var awakeSince: [String: ContinuousClock.Instant] = [:]
     /// The one deadline for the next page to freeze; cancelled when no hidden page is due.
     private let freezeDeadline = DemandTimer(owner: "AgentPageFreeze")
     /// A page is due to freeze later and the timer for it runs (tests).
@@ -164,7 +164,7 @@ final class AgentPageHibernation {
 
     func forget(_ key: String) {
         frozen.remove(key)
-        freezeRefusedAt[key] = nil
+        awakeSince[key] = nil
         shown.remove(key)
         workspaceDue.remove(key)
         hiddenAt[key] = nil
@@ -177,7 +177,7 @@ final class AgentPageHibernation {
         hiddenAt = hiddenAt.filter { tabs.existingView($0.key) != nil }
         shown = shown.filter { tabs.existingView($0) != nil }
         frozen = frozen.filter { tabs.existingView($0) != nil }
-        freezeRefusedAt = freezeRefusedAt.filter { tabs.existingView($0.key) != nil }
+        awakeSince = awakeSince.filter { tabs.existingView($0.key) != nil }
         startUnseenClocks(tabs)
         replanFreeze()
         guard setting.discardsAutomatically,
@@ -299,6 +299,14 @@ final class AgentPageHibernation {
 
     // MARK: Freeze
 
+    /// Tab `key` got a page (`AgentTabStore.onPageBuilt`): built while its tab does not draw (restored
+    /// or opened in the background), it never hides, so its hidden clock starts now.
+    func pageBuilt(_ key: String) {
+        guard let tabs = store(), hiddenAt[key] == nil, !shown.contains(key), !isRendering(key) else { return }
+        startUnseenClocks(tabs)
+        replan()
+    }
+
     /// Pages built while their tab does not draw, and never seen to hide, start their hidden clock now.
     private func startUnseenClocks(_ tabs: AgentTabStore) {
         let current = now()
@@ -319,7 +327,7 @@ final class AgentPageHibernation {
         var next: Double?
         for (key, at) in hiddenAt where !frozen.contains(key) && !releasing.contains(key) && keepsAwake(key, onScreen: false) == nil {
             var remaining = threshold - (current - at).seconds
-            if let refused = freezeRefusedAt[key] { remaining = max(remaining, threshold - (current - refused).seconds) }
+            if let awake = awakeSince[key] { remaining = max(remaining, threshold - (current - awake).seconds) }
             if remaining > 0 {
                 next = min(next ?? remaining, remaining)
             } else if keepsAwake(key) != nil {
@@ -364,21 +372,36 @@ final class AgentPageHibernation {
     private func freeze(_ key: String) -> Bool {
         guard let view = store()?.existingView(key), let page = freezer(view) else { return true }
         guard page.setFrozen(true) else {
-            freezeRefusedAt[key] = now()
+            awakeSince[key] = now()
             logger.debug("agent page \(key, privacy: .public) freeze refused")
             return false
         }
-        freezeRefusedAt[key] = nil
+        awakeSince[key] = nil
         frozen.insert(key)
+        // A push the frame pacer sends a hidden page (one the page waits on: a reply, a turn's end,
+        // a backlog) wakes it first.
+        view.model.transport.willDeliver = { [weak self] in self?.transportNeeds(key) }
         logger.debug("froze agent page \(key, privacy: .public)")
         return true
     }
 
-    /// Thaws a frozen page (shown, its turn started, or about to be released).
+    /// Thaws a frozen page (shown, its turn started, a push for it, or about to be released).
     private func thaw(_ key: String) {
         guard frozen.remove(key) != nil else { return }
-        if let view = store()?.existingView(key) { freezer(view)?.setFrozen(false) }
+        if let view = store()?.existingView(key) {
+            view.model.transport.willDeliver = nil
+            freezer(view)?.setFrozen(false)
+        }
         logger.debug("thawed agent page \(key, privacy: .public)")
+    }
+
+    /// The transport has a push for frozen page `key`: it thaws before the push goes, and freezes
+    /// again `freezeSeconds` later if it is still hidden and idle.
+    private func transportNeeds(_ key: String) {
+        guard frozen.contains(key) else { return }
+        thaw(key)
+        awakeSince[key] = now()
+        replan()
     }
 
     private func isDue(_ key: String, _ view: AgentPaneView, in tabs: AgentTabStore) -> Bool {
