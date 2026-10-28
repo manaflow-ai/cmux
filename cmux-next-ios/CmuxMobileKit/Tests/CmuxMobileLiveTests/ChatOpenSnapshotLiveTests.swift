@@ -253,7 +253,11 @@ import Testing
         await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
         let store = AgentChatStore(source: hub.source(sessionID: "s1", summary: Self.summary))
         let shown = long ? 400 : total  // 2000 records kept: the newest 400 turns
-        for _ in 0..<200_000 where store.turns.count < shown { await Task.yield() }
+        // Five pages through the mock link: wait with the main actor free (a yield loop
+        // this long starves the other main-actor suites running beside it).
+        let clock = ContinuousClock()
+        let deadline = clock.now + .seconds(30)
+        while store.turns.count < shown, clock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
         #expect(store.turns.count == shown)
         #expect(store.turns.first?.id == "t\(total - shown)")
         #expect(store.hasEarlierHistory == long)
