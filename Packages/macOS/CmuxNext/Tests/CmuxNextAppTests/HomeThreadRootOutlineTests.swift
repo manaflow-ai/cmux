@@ -79,9 +79,11 @@ import Testing
         checkMyRootOutline()
     }
 
-    /// The same check with the process at 1x (a Home pane on a 1x CI mini's screen sets the fallback scale),
-    /// in a scope so no other test sees it.
-    @Test func myRootOutlineHoldsWhenTheProcessScaleIs1x() {
+    /// A guard on this suite, not the product: the same check when the scale around it is 1x, as in the full
+    /// run on a 1x CI mini (a Home pane there sets the process fallback; a 1x scope here, so no other test sees
+    /// it). It passes because `render` and `preview` draw in their own 2x scope; without that scope it was red
+    /// (edge 224 from blue, PR 26884's first commit), the same red as the full run.
+    @Test func theOutlineCheckDrawsAt2xWhateverTheScaleAroundIt() {
         Fixture.withRenderScale(1) { checkMyRootOutline() }
     }
 
