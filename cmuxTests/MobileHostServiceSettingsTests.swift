@@ -187,6 +187,27 @@ struct MobileHostV2LifecycleTests {
         }
     }
 
+    @Test func tailscalePairingRemainsAvailableWhenIrohNetworkingIsDisabled() async throws {
+        try await withDefaults { defaults in
+            defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
+            defaults.set(52_075, forKey: MobileHostService.portDefaultsKey)
+            // This probe models DisableIrohNetworking: the secure Iroh owner
+            // must stay stopped while the independently opted-in TCP listener
+            // remains available for legacy Tailscale pairing.
+            let runtime = MobileHostRuntimeProbe(allowed: false)
+            let service = MobileHostService(defaults: defaults, runtime: runtime)
+            defer { service.stop() }
+
+            service.syncToSettings()
+            let status = try await waitForTailscaleListener(service)
+            #expect(status.tailscaleIsRunning)
+            #expect(status.tailscalePort == 52_075)
+            #expect(status.irohPort == nil)
+            #expect(!status.isPairingReady)
+
+        }
+    }
+
     @Test func disabledAndInvalidPortEditsCannotStartNetworking() async throws {
         try await withDefaults { defaults in
             let runtime = MobileHostRuntimeProbe(allowed: false)

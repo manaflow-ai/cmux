@@ -942,7 +942,8 @@ final class MobileHostService {
         let runtime = pairingRuntime
         if !runtime.isNetworkingAllowed { runtime.prepareForStop() }
         await runtime.applyManagedNetworkingPolicy()
-        if runtime.isNetworkingAllowed, Self.isListeningEnabled(defaults: defaults) {
+        let tailscaleEnabled = Self.isListeningEnabled(defaults: defaults)
+        if tailscaleEnabled {
             // A Tailscale bind failure is independent of Iroh readiness. An
             // explicit pairing refresh is the user's retry action, so retry
             // the TCP listener even when the Iroh endpoint is already settled.
@@ -996,19 +997,16 @@ final class MobileHostService {
         let runtime = pairingRuntime
         if !runtime.isNetworkingAllowed { runtime.prepareForStop() }
         Task { @MainActor in await runtime.applyManagedNetworkingPolicy() }
-        if runtime.isNetworkingAllowed {
-            if Self.isListeningEnabled(defaults: defaults) {
-                startTailscaleListenerIfNeeded()
-                startNetworkPathMonitorIfNeeded()
-            } else {
-                stopTailscaleListener()
-                stopNetworkPathMonitor()
-            }
+        if Self.isListeningEnabled(defaults: defaults) {
+            startTailscaleListenerIfNeeded()
+            startNetworkPathMonitorIfNeeded()
         } else {
             stopTailscaleListener()
             stopNetworkPathMonitor()
-            for connection in MobileHostConnectionRegistry.shared.removeAll() {
-                Task { await connection.close(reason: "iOS pairing disabled") }
+        }
+        if !runtime.isNetworkingAllowed {
+            for connection in MobileHostConnectionRegistry.shared.removeAllIrohConnections() {
+                Task { await connection.close(reason: "Iroh networking disabled") }
             }
         }
     }
