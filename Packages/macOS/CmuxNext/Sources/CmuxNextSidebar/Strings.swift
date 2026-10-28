@@ -11,6 +11,11 @@ enum Strings {
             String(localized: "sidebar.tabDrop.pinnedArea", defaultValue: "The pinned area holds no new workspace.", bundle: .module)
         }
     }
+    static var workspaceClosed: String { String(localized: "sidebar.close.workspaceClosed", defaultValue: "Workspace closed", bundle: .module) }
+    /// The Undo button of the Workspace closed toast, with Reopen Closed's key ("Undo (⇧⌘T)").
+    static func undoWithShortcut(_ shortcut: String) -> String {
+        String(localized: "sidebar.close.undoWithShortcut", defaultValue: "Undo (\(shortcut))", bundle: .module)
+    }
     static var closeRefused: String { String(localized: "sidebar.close.refused", defaultValue: "The workspace could not be closed.", bundle: .module) }
     static var dismissCard: String { String(localized: "sidebar.card.dismiss", defaultValue: "Dismiss", bundle: .module) }
     static var newWorkspace: String { String(localized: "sidebar.newWorkspace", defaultValue: "New Workspace", bundle: .module) }

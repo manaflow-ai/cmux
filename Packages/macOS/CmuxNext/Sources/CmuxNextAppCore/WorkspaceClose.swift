@@ -33,10 +33,12 @@ public enum WorkspaceClose {
 
     /// `reason` `.sessionEnd`: a workspace its creator closes again because its first tab did not start, kept out of Recently
     /// Closed (`close-reason-v1`). `ifEmpty`: only while it has no tab (`close-workspace-if-empty-v1`; else `workspace_not_empty`).
+    /// `keepsTerminals`: the terminals are detached, not ended, so they run through the daemon's reap grace and an Undo
+    /// (Reopen Closed) gives them back with their processes, as a closed tab's terminal (Cmd-W on a workspace's last tab).
     public static func close(_ key: WorkspaceKey, terminals: [Terminal], on connection: DaemonConnection,
-                      reason: CloseReason? = nil, ifEmpty: Bool = false) async throws {
+                      reason: CloseReason? = nil, ifEmpty: Bool = false, keepsTerminals: Bool = false) async throws {
         if await connection.supportsBatchClose {
-            _ = try await connection.closeWorkspace(key, endTerminals: true, reason: reason, ifEmpty: ifEmpty)
+            _ = try await connection.closeWorkspace(key, endTerminals: !keepsTerminals, reason: reason, ifEmpty: ifEmpty)
             return
         }
         for terminal in terminals { try? await connection.closeTerminal(terminal.id, incarnation: terminal.incarnation) }

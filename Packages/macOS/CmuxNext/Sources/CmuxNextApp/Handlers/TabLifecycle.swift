@@ -433,6 +433,12 @@ enum TabLifecycle {
                 }
             }
             let empties = TabCloseGuard.empties(pane, closing: [id])
+            // The person's Cmd-W on the workspace's last tab closes the workspace, in this turn (audit C).
+            if invocation.origin == .user, empties, let content = pane.workspace, content.workspace.id != ctx.services.home.homeWorkspace?.id,
+               content.panes.values.allSatisfy({ $0 === pane || TabCloseGuard.empties($0, closing: []) }) {
+                let target = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: content.workspace.id), origin: .user)
+                return AppActions.closeWorkspace(ctx.services, target, lastTab: true)
+            }
             if invocation.origin == .user {
                 if empties { pane.workspace?.focus.noteEmptied(pane.paneKey, by: press) }
                 trace.closed(tabs: [id.rawValue], emptiesPane: empties, input: input)

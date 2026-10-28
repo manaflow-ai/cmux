@@ -224,7 +224,9 @@ extension AppActions {
     /// window's earlier creates and closes (`WorkspaceLanes`). The workspace
     /// is resolved at the press and its row leaves then; a person's run asks
     /// about running programs afterwards (`WorkspaceCloseFlow`).
-    private static func closeWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
+    /// `lastTab`: a person's Cmd-W on the workspace's last tab (audit C): its terminals are kept through the reap grace
+    /// for Undo, a 5 s "Workspace closed" toast offers Reopen Closed, and the window's last workspace gives way to Home.
+    static func closeWorkspace(_ services: AppServices, _ invocation: ActionInvocation, lastTab: Bool = false) {
         let window = services.windows.active?.state.id
         let lanes = WorkspaceLanes.shared
         if invocation.target == nil, invocation["workspace"] == nil, let window,
@@ -233,7 +235,7 @@ extension AppActions {
               !ClosingWorkspaces.shared.ids.contains(workspace.id), !WorkspaceCloseFlow.running.contains(workspace.id)
         else { return } // a second press during the close sends nothing
         // A person's close of one of several selected rows closes them all, as the sidebar's Delete does.
-        if invocation.origin == .user, !invocation.closesRowOnly, let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
+        if invocation.origin == .user, !lastTab, !invocation.closesRowOnly, let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
            case let ids = sidebar.closeTargets(for: SidebarWorkspaceID(workspace.id)), ids.count > 1 { return sidebar.send(.close(ids)) }
         // The workspace's own machine, for the question and the close alike. `offline`: a person's close on a machine that is
         // not connected (a paused Cloud VM): its row leaves as any other, and the close waits for the machine outside the
@@ -247,6 +249,10 @@ extension AppActions {
             // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass.
             hide: {
                 let hidden = InstantClose.begin(id, in: owner, windows: services.windows)
+                // The window's last workspace: the window shows Home now, never an emptied workspace or no window.
+                if !hidden, lastTab, shownAtPress, let controller, let home = services.home.homeWorkspace, home.id != id {
+                    services.windows.show(workspaceID: home.id, in: controller.state)
+                }
                 selected.afterPress = controller?.state.workspaceID
                 return hidden
             },
@@ -268,7 +274,14 @@ extension AppActions {
                 let close: @MainActor () async -> ActionWorkFailure? = {
                     let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in
                         try await ClosingWorkspaces.shared.refusal()
-                        try await WorkspaceClose.close(key, terminals: terminals, on: connection)
+                        try await WorkspaceClose.close(key, terminals: terminals, on: connection, keepsTerminals: lastTab)
+                    }
+                    // Its Undo reopens this close's record, so the toast shows once the store has it.
+                    if lastTab, failure == nil, let connection = daemon.connection, let window = controller?.window ?? services.windows.active?.window {
+                        await daemon.appliedThroughReply(on: connection, after: "close workspace")
+                        WorkspaceClosedToast.show(in: window, shortcut: services.registry.shortcutDisplay(for: "reopenClosedBrowserPanel")) { [weak services] in
+                            _ = services?.registry.perform("reopenClosedBrowserPanel", invocation: ActionInvocation(origin: .user))
+                        }
                     }
                     guard hidden else { return failure }
                     // A close that went through stays hidden until the store has applied its events (the row is gone there).
@@ -281,6 +294,11 @@ extension AppActions {
             // Cancel: the row is listed again, and the window shows it again unless the person moved on meanwhile
             // (or it closed another way meanwhile).
             restore: { hidden in
+                // The window showed Home for its last workspace: the workspace comes back while Home still shows.
+                if !hidden, lastTab, shownAtPress, let controller, services.workspace(id: id) != nil,
+                   controller.state.workspaceID == services.home.homeWorkspace?.id {
+                    services.windows.show(workspaceID: id, in: controller.state)
+                }
                 guard hidden else { return }
                 ClosingWorkspaces.shared.end(id, refused: false, in: nil)
                 if shownAtPress, services.workspace(id: id) != nil, let controller, controller.state.workspaceID == selected.afterPress {
