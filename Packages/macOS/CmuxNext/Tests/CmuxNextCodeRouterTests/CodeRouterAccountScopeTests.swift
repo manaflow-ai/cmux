@@ -77,6 +77,20 @@ struct CodeRouterAccountScopeTests {
         catch { return false }
     }
 
+    @Test func startingSignedOutReportsNotSignedIn() async throws {
+        let account = Account()
+        account.codeRouterAccountID = nil
+        let (client, session) = try fixture(account)
+        defer { session.invalidateAndCancel() }
+        do {
+            _ = try await client.request("GET", "/api/coderouter/accounts")
+            Issue.record("a signed-out account unexpectedly made a request")
+        } catch let error as CodeRouterError {
+            #expect(error == .notSignedIn)
+            #expect(Transport.requests.withLock { $0.isEmpty })
+        }
+    }
+
     @Test(arguments: Change.allCases)
     private func switchingDuringCredentialAcquisitionUploadsNothing(_ change: Change) async throws {
         let account = Account()

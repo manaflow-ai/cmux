@@ -23,7 +23,8 @@ extension CodeRouterClient {
         let tokens: Tokens = { @MainActor in
             func checkScope() throws {
                 try Task.checkCancellation()
-                guard userID != nil, account.codeRouterAccountID == userID, account.teamID == teamID else {
+                guard userID != nil else { throw CodeRouterError.notSignedIn }
+                guard account.codeRouterAccountID == userID, account.teamID == teamID else {
                     throw CodeRouterError.scopeChanged
                 }
             }
