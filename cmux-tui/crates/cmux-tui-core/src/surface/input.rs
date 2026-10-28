@@ -1,14 +1,23 @@
 //! Input delivery on `Surface`: raw and receipted writes and bounded paste.
 //!
+//! Every write takes a turn of the terminal's input FIFO
+//! ([`crate::pty_input_fifo::PtyInputFifo`]) and writes all of its bytes in it.
+//! A caller whose one input is several writes (`send`: text, bytes and its
+//! Return) takes one turn with [`Surface::input_turn`] and writes each part
+//! with the `_in` variants, so no other input lands between them.
+//!
 //! A local PTY with a descriptor writes through its input sink
 //! (`pty_write::PtyInputSink`, p05-ipc-157): one nonblocking try, the rest
-//! queued in order and drained by the read loop, so no input caller waits
-//! for a child that does not read. Hosted input goes to the host, whose
-//! own PTY writes go through the same sink.
+//! queued in order and drained by the read loop, so no input waits for a
+//! child that does not read, and a turn never outlasts its own bytes'
+//! submit. Hosted input goes to the host, whose own PTY writes go through
+//! the same sink and report what it refuses (`FLAG_INPUT_FAILURES`).
 
 use super::*;
+use crate::input_receipt::InputReceipt;
+use crate::pty_input_fifo::InputTurn;
 #[cfg(unix)]
-use crate::pty_write::{InputFailure, InputReceipt, InputSinkError, Submitted};
+use crate::pty_write::{InputFailure, InputSinkError, Submitted};
 use std::sync::PoisonError;
 #[cfg(unix)]
 use std::sync::mpsc::SyncSender;
@@ -19,14 +28,15 @@ use std::sync::mpsc::SyncSender;
 const LOCAL_CONFIRMED_INPUT_WAIT: Duration = crate::terminal_host_runtime::CONTROL_RESPONSE_TIMEOUT;
 
 /// Writes `bytes` to a local runtime's PTY: through its input sink when it
-/// has one (never waits), else synchronously through `writer`. `Ok(false)`:
-/// wheel or motion input the child had no room for was dropped.
+/// has one (never waits), else synchronously through `writer`, which waits
+/// while the child does not read. `Ok(false)`: wheel or motion input the
+/// child had no room for was dropped.
 fn write_local(
     writer: &mut dyn Write,
     master: Option<&dyn MasterPty>,
     #[cfg(unix)] input: Option<&crate::pty_write::LocalInput>,
     bytes: &[u8],
-    #[cfg(unix)] receipt: Option<Arc<dyn InputReceipt>>,
+    receipt: Option<Arc<dyn InputReceipt>>,
 ) -> std::io::Result<bool> {
     #[cfg(unix)]
     if let Some(sink) = input.map(crate::pty_write::LocalInput::sink) {
@@ -38,11 +48,17 @@ fn write_local(
         sink.submit(bytes, receipt)?;
         return Ok(true);
     }
-    // Waits while the child does not read its input.
-    crate::request_path::will_block(|| crate::pty_input_room::write_input(master, writer, bytes))
+    #[cfg(not(unix))]
+    let _ = receipt;
+    cmux_threads::work::will_block(|| {
+        crate::request_path::will_block(|| {
+            crate::pty_input_room::write_input(master, writer, bytes)
+        })
+    })
 }
 
-/// The `input-failed` reason of an error from [`Surface::submit_input_flow`].
+/// The `input-failed` reason of an error from [`Surface::submit_input_flow`]:
+/// the sink's, or a failed write.
 #[cfg(unix)]
 pub(crate) fn input_failure_of(error: &std::io::Error) -> InputFailure {
     match error.get_ref().and_then(|inner| inner.downcast_ref::<InputSinkError>()) {
@@ -69,17 +85,17 @@ impl InputReceipt for ConfirmedLocalInput {
 
 /// How long hosted input waits for a lost host connection to come back (a
 /// reconnect or an in-place replacement host, cx-6so.49) before it fails.
-#[cfg(any(unix, windows))]
 ///
 /// The wait blocks its caller: one control connection's next request, or
 /// the TUI's input worker. It applies only while a host connection is lost,
 /// and a replacement host usually installs within a second.
-const HOST_INPUT_RECONNECT_WAIT: Duration = Duration::from_secs(5);
+#[cfg(any(unix, windows))]
+pub(super) const HOST_INPUT_RECONNECT_WAIT: Duration = Duration::from_secs(5);
 
 /// Whether a host send failed because the host connection is gone (the
 /// host died or its stream broke), not because the frame was refused.
 #[cfg(any(unix, windows))]
-fn host_connection_lost(error: &std::io::Error) -> bool {
+pub(super) fn host_connection_lost(error: &std::io::Error) -> bool {
     matches!(
         error.kind(),
         std::io::ErrorKind::BrokenPipe
@@ -103,7 +119,32 @@ fn flow_holder(pty: &PtySurface, flow: u64) -> Option<Arc<crate::holder_runtime:
     }
 }
 
+/// The error of an input write to a browser surface.
+fn not_a_terminal() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "browser surface does not accept PTY bytes",
+    )
+}
+
 impl Surface {
+    /// Takes this terminal's next input turn, after every input that took
+    /// one before it (any connection, any thread); `None` for a browser
+    /// surface. The `_in` writes take it; every other write takes its own.
+    /// It ranks after `Mux::state` (crate::lock_rank `PtyInput`): take the
+    /// state lock, the registry and the creating-input flush before it.
+    #[track_caller]
+    pub(crate) fn input_turn(&self) -> Option<InputTurn<'_>> {
+        self.as_pty().map(|pty| pty.input_fifo.enter())
+    }
+
+    /// The PTY surface `turn` is a turn of.
+    fn pty_in(&self, turn: &InputTurn<'_>) -> std::io::Result<&PtySurface> {
+        let pty = self.as_pty().ok_or_else(not_a_terminal)?;
+        debug_assert!(turn.is_of(&pty.input_fifo), "an input turn of another terminal");
+        Ok(pty)
+    }
+
     /// Write input bytes to the PTY child.
     pub fn write_bytes(&self, bytes: &[u8]) -> std::io::Result<()> {
         self.write_bytes_flow(bytes, 0)
@@ -117,34 +158,49 @@ impl Surface {
     /// next read (a holder terminal's: the holder's next output). Input
     /// that is dropped or fails arms nothing.
     pub(crate) fn write_bytes_flow(&self, bytes: &[u8], flow: u64) -> std::io::Result<()> {
-        self.submit_input_flow(
-            bytes,
-            flow,
-            #[cfg(unix)]
-            None,
-        )
+        self.submit_input_flow(bytes, flow, None)
     }
 
     /// [`Self::write_bytes_flow`] for a sender that hears what becomes of
-    /// queued input: a local PTY with an input sink takes the bytes without
+    /// its input: a local PTY with an input sink takes the bytes without
     /// waiting, and `receipt` is told once if queued bytes never reach the
-    /// PTY. An error here means none of `bytes` was written or queued: a
-    /// full backlog is an error whose inner error is the sink's
+    /// PTY; a host that reports refused input (`FLAG_INPUT_FAILURES`) tells
+    /// it the same. An error here means none of `bytes` was written or
+    /// queued: a full backlog is an error whose inner error is the sink's
     /// `InputSinkError::Overflow` ([`input_failure_of`]).
     pub(crate) fn submit_input_flow(
         &self,
         bytes: &[u8],
         flow: u64,
-        #[cfg(unix)] receipt: Option<Arc<dyn InputReceipt>>,
+        receipt: Option<Arc<dyn InputReceipt>>,
     ) -> std::io::Result<()> {
-        let Some(pty) = self.as_pty() else {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "browser surface does not accept PTY bytes",
-            ));
-        };
+        let turn = self.input_turn().ok_or_else(not_a_terminal)?;
+        self.submit_input_in(&turn, bytes, flow, receipt)
+    }
+
+    /// [`Self::write_bytes_flow`] in the input turn `turn` of this terminal.
+    pub(crate) fn write_bytes_in(
+        &self,
+        turn: &InputTurn<'_>,
+        bytes: &[u8],
+        flow: u64,
+    ) -> std::io::Result<()> {
+        self.submit_input_in(turn, bytes, flow, None)
+    }
+
+    /// [`Self::submit_input_flow`] in the input turn `turn`.
+    fn submit_input_in(
+        &self,
+        turn: &InputTurn<'_>,
+        bytes: &[u8],
+        flow: u64,
+        receipt: Option<Arc<dyn InputReceipt>>,
+    ) -> std::io::Result<()> {
+        let pty = self.pty_in(turn)?;
         #[cfg(any(unix, windows))]
-        if let Some(result) = Self::send_hosted_input(pty, MessageKind::Input, bytes, flow) {
+        if let Some(result) =
+            Self::send_hosted_input(turn, pty, MessageKind::Input, bytes, flow, receipt.as_ref())
+        {
             return result;
         }
         // Not hosted: the daemon writes the PTY itself (the holder model's custody master). Marked
@@ -175,12 +231,15 @@ impl Surface {
                 #[cfg(not(unix))]
                 PtyRuntime::Local { writer, master, .. } => {
                     let master = master.as_deref().map(|master| master as &dyn MasterPty);
-                    write_local(writer.as_mut(), master, bytes)
+                    write_local(writer.as_mut(), master, bytes, receipt)
                 }
                 // The host stamps its own read of the echo.
                 #[cfg(any(unix, windows))]
-                PtyRuntime::Hosted(host) => crate::request_path::will_block(|| {
-                    host.send_flow(MessageKind::Input, bytes, flow).map(|()| false)
+                PtyRuntime::Hosted(host) => cmux_threads::work::will_block(|| {
+                    crate::request_path::will_block(|| {
+                        host.send_input(MessageKind::Input, bytes, flow, receipt.as_ref())
+                            .map(|()| false)
+                    })
                 }),
                 // A keep-on-exit terminal outlives its child, so typing into the
                 // dead PTY is an expected interaction: drop the bytes silently
@@ -202,18 +261,22 @@ impl Surface {
     /// replacement host; a send in that window fails with EPIPE although the
     /// shell lives. Such a send waits for the reader's next stream change
     /// (it notifies after it installed the new attachment) and is sent again
-    /// to the new host, until [`HOST_INPUT_RECONNECT_WAIT`] passes or the
-    /// reader gives up or ends. A frame that failed with a lost connection never
+    /// to the new host, until [`HOST_INPUT_RECONNECT_WAIT`] passed since the
+    /// input asked for its `turn` ([`InputTurn::queued_at`]: inputs queued
+    /// during one outage wait it out together) or the reader gives up or
+    /// ends. A frame that failed with a lost connection never
     /// reached a live reader, so the retry cannot duplicate it. `None` when
     /// the runtime is not hosted (the caller writes locally).
     #[cfg(any(unix, windows))]
     fn send_hosted_input(
+        turn: &InputTurn<'_>,
         pty: &PtySurface,
         kind: MessageKind,
         bytes: &[u8],
         flow: u64,
+        receipt: Option<&Arc<dyn InputReceipt>>,
     ) -> Option<std::io::Result<()>> {
-        let deadline = Instant::now() + HOST_INPUT_RECONNECT_WAIT;
+        let deadline = turn.queued_at() + HOST_INPUT_RECONNECT_WAIT;
         let mut first_error = None;
         loop {
             // Read the revision before the send: an install after it wakes
@@ -224,7 +287,7 @@ impl Surface {
                 // reads it continuously, and its own PTY writes go through
                 // its input sink, so this waits only for a stalled host.
                 PtyRuntime::Hosted(host) => cmux_threads::work::will_block(|| {
-                    crate::request_path::will_block(|| host.send_flow(kind, bytes, flow))
+                    crate::request_path::will_block(|| host.send_input(kind, bytes, flow, receipt))
                 }),
                 // Keep-on-exit: the final screen drops input (see
                 // write_bytes). Input that already failed to reach the host
@@ -249,8 +312,10 @@ impl Surface {
             ) || pty.reader_completion.is_complete()
                 || pty.owner_detaching.load(Ordering::Acquire)
                 || Instant::now() >= deadline
-                || crate::request_path::will_block(|| {
-                    pty.stream_progress.wait_for_change(observed, deadline)
+                || cmux_threads::work::will_block(|| {
+                    crate::request_path::will_block(|| {
+                        pty.stream_progress.wait_for_change(observed, deadline)
+                    })
                 })
                 .is_none()
             {
@@ -268,11 +333,11 @@ impl Surface {
     /// earlier caller is waiting. Interactive input continues to use `write_bytes`.
     pub(crate) fn write_bytes_confirmed(&self, bytes: &[u8]) -> Result<(), ConfirmedInputFailure> {
         let Some(pty) = self.as_pty() else {
-            return Err(ConfirmedInputFailure::Known(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "browser surface does not accept PTY bytes",
-            )));
+            return Err(ConfirmedInputFailure::Known(not_a_terminal()));
         };
+        // The request is sent in its turn; its acknowledgement is awaited
+        // after the turn ended, as after the runtime lock.
+        let turn = pty.input_fifo.enter();
         let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
         match &mut *runtime {
             #[cfg(unix)]
@@ -281,6 +346,7 @@ impl Surface {
                 let receipt: Arc<dyn InputReceipt> = Arc::new(ConfirmedLocalInput(sender));
                 let submitted = input.sink().submit(bytes, Some(receipt));
                 drop(runtime);
+                drop(turn);
                 match submitted {
                     Ok(Submitted::Written) => Ok(()),
                     // Nothing of it was written or queued.
@@ -312,6 +378,7 @@ impl Surface {
             PtyRuntime::Hosted(host) => {
                 let receipt = host.begin_input_confirmed(bytes)?;
                 drop(runtime);
+                drop(turn);
                 crate::request_path::will_block(|| receipt.wait())
                     .map_err(ConfirmedInputFailure::Indeterminate)
             }
@@ -349,19 +416,27 @@ impl Surface {
         bytes: &[u8],
         timeout: Option<Duration>,
     ) -> std::io::Result<()> {
-        let Some(pty) = self.as_pty() else {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "browser surface does not accept PTY bytes",
-            ));
-        };
+        let turn = self.input_turn().ok_or_else(not_a_terminal)?;
+        self.write_paste_in(&turn, bytes, timeout)
+    }
+
+    /// [`Self::write_paste`] (with the local write bound `timeout`) in the
+    /// input turn `turn` of this terminal.
+    pub(crate) fn write_paste_in(
+        &self,
+        turn: &InputTurn<'_>,
+        bytes: &[u8],
+        timeout: Option<Duration>,
+    ) -> std::io::Result<()> {
+        let pty = self.pty_in(turn)?;
         if bytes.is_empty() {
             return Ok(());
         }
         // Keep-on-exit terminals accept and drop paste input the same way
         // as keystrokes: the final screen is read-only, not broken.
         #[cfg(any(unix, windows))]
-        if let Some(result) = Self::send_hosted_input(pty, MessageKind::Paste, bytes, 0) {
+        if let Some(result) = Self::send_hosted_input(turn, pty, MessageKind::Paste, bytes, 0, None)
+        {
             return result;
         }
         let bracketed = {

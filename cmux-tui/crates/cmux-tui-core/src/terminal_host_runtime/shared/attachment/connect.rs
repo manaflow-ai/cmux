@@ -182,6 +182,13 @@ pub(crate) fn connect_record_at_version(
     if input_flow_requested {
         hello_frame.flags |= FLAG_INPUT_FLOW;
     }
+    // Refused input comes back to its stream (p05-ipc-157).
+    let input_failures_requested = protocol_version == PROTOCOL_VERSION
+        && hello.requested_rights.contains(CapabilityRights::INPUT)
+        && record.supports_input_failures;
+    if input_failures_requested {
+        hello_frame.flags |= FLAG_INPUT_FAILURES;
+    }
     write_frame(&mut stream, &hello_frame)?;
     let hello_frame = read_host_hello(&mut stream)?;
     if hello_frame.kind != MessageKind::HostHello
@@ -193,7 +200,8 @@ pub(crate) fn connect_record_at_version(
                 | FLAG_TERMINAL_METADATA
                 | FLAG_PROGRAM_STATUS
                 | FLAG_SHELL_ACTIVITY
-                | FLAG_INPUT_FLOW)
+                | FLAG_INPUT_FLOW
+                | FLAG_INPUT_FAILURES)
             != 0
         || hello_frame.request_id != 1
         || hello_frame.sequence != 0
@@ -202,6 +210,7 @@ pub(crate) fn connect_record_at_version(
         || (!program_status_requested && hello_frame.flags & FLAG_PROGRAM_STATUS != 0)
         || (!shell_activity_requested && hello_frame.flags & FLAG_SHELL_ACTIVITY != 0)
         || (!input_flow_requested && hello_frame.flags & FLAG_INPUT_FLOW != 0)
+        || (!input_failures_requested && hello_frame.flags & FLAG_INPUT_FAILURES != 0)
     {
         anyhow::bail!("terminal host rejected owner handshake");
     }
@@ -287,6 +296,7 @@ pub(crate) fn connect_record_at_version(
         viewer_size: Mutex::new(Some(snapshot_size)),
         viewer_size_acks: hello_frame.flags & FLAG_VIEWER_SIZE_ACKS != 0,
         input_flow: hello_frame.flags & FLAG_INPUT_FLOW != 0,
+        input_failures: hello_frame.flags & FLAG_INPUT_FAILURES != 0,
         launch_process: None,
         launch_activation_pending,
         pty_custody: None,

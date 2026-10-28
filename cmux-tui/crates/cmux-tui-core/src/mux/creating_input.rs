@@ -193,10 +193,12 @@ impl Mux {
                 terminals = inputs.terminals.lock().unwrap_or_else(PoisonError::into_inner);
                 continue;
             }
-            terminals =
+            // A work-lane caller (a stream's INPUT) frees its slot meanwhile.
+            terminals = cmux_threads::work::will_block(|| {
                 cmux_threads::checked::sync::wait_timeout(&inputs.ended, terminals, deadline - now)
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .0;
+            })
+            .unwrap_or_else(PoisonError::into_inner)
+            .0;
         }
     }
 

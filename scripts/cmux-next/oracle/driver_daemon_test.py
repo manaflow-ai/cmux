@@ -519,8 +519,8 @@ class RunBatchTests(unittest.TestCase):
             case = oracle.Case(f"s/c{index}", "s", Path("c.json"), data)
             batches.append((oracle.Work(case, {"case_id": case.id, "state_root": str(base / f"{index:06d}")}),))
         try:
-            results, errors, _logs = oracle.run_phase(batches, StubWorker, {"run_id": "batch-test"}, 8,
-                                                      itertools.count())
+            results, errors, _logs, _refusals = oracle.run_phase(batches, StubWorker, {"run_id": "batch-test"}, 8,
+                                                                 itertools.count())
         finally:
             shutil.rmtree(base, ignore_errors=True)
         self.assertEqual(errors, [])
@@ -659,27 +659,32 @@ class RestorePreviewTraceTests(unittest.TestCase):
         captures = [d.Capture("create-ws", "before", self.snapshot, reply),
                     d.Capture("create-ws", "settled", self.snapshot, reply),
                     d.Capture("read", "settled", self.snapshot, None)]
-        steps = [{"id": "create-ws", "op": "resource.call"}, {"id": "read", "op": "snapshot"},
-                 {"id": "not-reached", "op": "settle"}]
-        trace = d.case_trace("t/i9", steps, captures)
-        self.assertEqual([s["id"] for s in trace["steps"]], ["create-ws", "read"])
+        steps = [{"id": "create-ws", "op": "resource.call"}, {"id": "read", "op": "snapshot"}]
+        trace = traced_case("t/i9", steps, captures)
         self.assertEqual(sorted(trace["steps"][0]["restorePreviews"]), ["before", "settled"])
         self.assertNotIn("restorePreviews", trace["steps"][1])
         report = self.inv.check_trace(json.loads(json.dumps(trace)), schema=self.schema)
         self.assertEqual(report.checked.get("I9"), 2)
         self.assertEqual([v for v in report.violations if v.invariant == "I9"], [])
-        self.assertIsNone(d.case_trace("t/i9", steps, []))
 
     def test_a_trace_catches_the_skip_journal_append_mutant(self):
         """The preview a daemon gives when a step's journal record was never appended: I9 fails."""
         stale = copy.deepcopy(self.raw)
         stale["workspaces"][0]["name"] = "before the rename"
-        trace = d.case_trace("t/i9", [{"id": "rename", "op": "resource.call"}],
-                             [d.Capture("rename", "settled", self.snapshot,
-                                        self.inv._restore_reply(stale, self.head))])
+        trace = traced_case("t/i9", [{"id": "rename", "op": "resource.call"}],
+                            [d.Capture("rename", "settled", self.snapshot,
+                                       self.inv._restore_reply(stale, self.head))])
         report = self.inv.check_trace(trace, schema=self.schema)
         self.assertEqual([(v.invariant, v.pointer) for v in report.violations if v.invariant == "I9"],
                          [("I9", "/daemon/session/workspaces/0/name")])
+
+
+def traced_case(case_id: str, steps: list, captures: list) -> dict:
+    """The trace CaseRun.trace_doc gives for these captures: each step's record, filled by trace_capture."""
+    records = {step["id"]: dict(step, checkpoints={}) for step in steps}
+    for capture in captures:
+        d.trace_capture(records[capture.step], capture.checkpoint, capture.snapshot, capture.restore_preview)
+    return {"schema": d.invariants.TRACE_SCHEMA, "case": case_id, "steps": list(records.values())}
 
 
 def holder_crash_case(arm: str) -> dict:

@@ -27,7 +27,8 @@
 //! terminal's input sink as it comes (p05-ipc-157), which never waits for
 //! the child to read. Bytes the sink refuses (its backlog is full) or later
 //! fails to write (the PTY ended) are reported in one `input-failed` per
-//! refusal or failure, with the sink's reason.
+//! refusal or failure, with the sink's reason; a hosted terminal's host
+//! reports the same over its connection (`FLAG_INPUT_FAILURES`).
 //!
 //! Chrome: an associated endpoint is usable as soon as it is sent, and the
 //! router queues the messages of an endpoint that has no client bound yet,
@@ -38,6 +39,7 @@
 //! validation error that closes the pipe.
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock, Weak};
 
 use bytes::Bytes;
@@ -46,14 +48,16 @@ use cmux_threads::sync::Mutex;
 use cmux_threads::work::{Lane, Priority, will_block};
 use serde_json::{Value, json};
 
+use super::cmd_terminal_io::{self, InputFailure};
 use super::frame_dispatch::{CallRefusal, FrameCall};
 use super::line_connection::{ConnectionBadMessage, FrameConnection};
 use super::{
     CONNECTION_SURFACE_QUEUE_CAPACITY, ConnectionSurfaceScheduler, MessageWriter, OutboundStream,
-    Request, RequestArrival, detach_committed_attach, get_surface,
-    handle_request_with_cancellation, lock_caller_scope, send_bad_request, send_request_error,
+    Request, RequestArrival, detach_committed_attach, handle_request_with_cancellation,
+    lock_caller_scope, send_bad_request, send_request_error,
 };
 use crate::event_cause::EventCause;
+use crate::input_receipt::InputReceipt;
 use crate::mux::mux_work::Sequence;
 use crate::panic_free::RecoverPoison;
 use crate::{Mux, SurfaceId};
@@ -67,22 +71,17 @@ pub(super) const STREAM_REQUEST_CAPACITY: usize = CONNECTION_SURFACE_QUEUE_CAPAC
 /// The methods whose REQUEST on stream S announces S.
 const STREAM_OPENERS: [&str; 1] = ["attach-surface"];
 
-/// The `input-failed` reason of INPUT that reached a bound stream and could
-/// not be written (the surface closed, or is not a terminal).
-const INPUT_WRITE_FAILED: &str = "write_failed";
-
 /// A bound stream's sender in its terminal's input sink: one `input-failed`
 /// for all of the stream's queued bytes the PTY will never take.
-#[cfg(unix)]
 struct StreamInputReceipt {
     stream: u16,
     writer: MessageWriter,
 }
 
-#[cfg(unix)]
-impl crate::pty_write::InputReceipt for StreamInputReceipt {
-    fn failed(&self, reason: crate::pty_write::InputFailure, bytes: usize) {
-        let _ = self.writer.send_control(&input_failed_json(self.stream, reason.as_str(), bytes));
+impl InputReceipt for StreamInputReceipt {
+    fn failed(&self, reason: crate::input_receipt::InputFailure, bytes: usize) {
+        let failure = InputFailure::of_sink(reason);
+        let _ = self.writer.send_control(&failure.event(self.stream, bytes));
     }
 }
 
@@ -139,7 +138,13 @@ struct StreamRequest {
 }
 
 enum StreamItem {
-    Input { bytes: Bytes, flow: u64 },
+    /// An INPUT frame's bytes, its flow id (0: none) and the connection's
+    /// cause, under which they are written.
+    Input {
+        bytes: Bytes,
+        flow: u64,
+        cause: EventCause,
+    },
     Request(StreamRequest),
 }
 
@@ -217,9 +222,13 @@ pub(super) struct StreamEndpoint {
     /// (the view detached or overflowed) the stream ended and its id is
     /// free.
     view: OnceLock<OutboundStream>,
+    /// Whether the stream's terminal ended since an INPUT write last reached
+    /// it: an ended terminal gives one `input-failed`, not one per frame. An
+    /// endpoint is one open of the stream id, so a reopened stream reports
+    /// the end again.
+    input_ended: AtomicBool,
     /// Its sender in the input sink, made with its first INPUT.
-    #[cfg(unix)]
-    input_receipt: OnceLock<Arc<dyn crate::pty_write::InputReceipt>>,
+    input_receipt: OnceLock<Arc<dyn InputReceipt>>,
     #[cfg(test)]
     probe: Option<Arc<dyn StreamProbe>>,
 }
@@ -238,7 +247,7 @@ impl StreamEndpoint {
                 held: Held::default(),
             }),
             view: OnceLock::new(),
-            #[cfg(unix)]
+            input_ended: AtomicBool::new(false),
             input_receipt: OnceLock::new(),
             #[cfg(test)]
             probe: None,
@@ -468,7 +477,9 @@ impl StreamEndpoint {
             return;
         }
         match item {
-            StreamItem::Input { bytes, flow } => self.write_input(mux, surface, &bytes, flow),
+            StreamItem::Input { bytes, flow, cause } => {
+                self.write_input(mux, surface, &bytes, flow, cause);
+            }
             StreamItem::Request(request) => {
                 if let Some(mux) = mux.upgrade() {
                     self.run_request(&mux, request);
@@ -477,41 +488,49 @@ impl StreamEndpoint {
         }
     }
 
-    fn write_input(&self, mux: &Weak<Mux>, surface: SurfaceId, bytes: &[u8], flow: u64) {
-        // The mux is held only to find the surface, not across the write.
-        let target = mux.upgrade().and_then(|mux| get_surface(&mux, surface).ok());
-        let written = match target {
-            // A local PTY's sink never waits for the program to read; a
-            // hosted terminal's send marks its own wait (`send_hosted_input`).
-            #[cfg(unix)]
-            Some(target) => {
-                let receipt = self.input_receipt.get_or_init(|| {
-                    Arc::new(StreamInputReceipt {
-                        stream: self.stream,
-                        writer: self.writer.clone(),
-                    })
-                });
-                target
-                    .submit_input_flow(bytes, flow, Some(receipt.clone()))
-                    .map_err(|error| crate::surface::input_failure_of(&error).as_str())
-            }
-            #[cfg(not(unix))]
-            Some(target) => {
-                will_block(|| target.write_bytes_flow(bytes, flow)).map_err(|_| INPUT_WRITE_FAILED)
-            }
-            None => Err(INPUT_WRITE_FAILED),
+    /// Writes an INPUT frame's bytes as `send` writes them (p05-ipc-078),
+    /// under the connection's cause, caller class and request path, as a
+    /// request runs. A failure is the stream's `input-failed`, once per end
+    /// of its terminal.
+    fn write_input(
+        &self,
+        mux: &Weak<Mux>,
+        surface: SurfaceId,
+        bytes: &[u8],
+        flow: u64,
+        cause: EventCause,
+    ) {
+        let Some((stats, qos)) =
+            mux.upgrade().map(|mux| (mux.request_path_stats().clone(), mux.request_qos()))
+        else {
+            return;
         };
+        let _request_path = crate::request_path::RequestPathScope::enter(&stats);
+        let _lock_caller = lock_caller_scope(&self.writer);
+        let _cause = qos.enter(cause);
+        let receipt = self.input_receipt.get_or_init(|| {
+            Arc::new(StreamInputReceipt { stream: self.stream, writer: self.writer.clone() })
+        });
+        // Not inside `will_block`: a local PTY's sink never waits for the
+        // program to read; each wait on the way (the creating-input flush, a
+        // hosted send or reconnect, a writer with no sink) marks its own.
+        let written =
+            cmd_terminal_io::write_input(mux, self.client, surface, bytes, flow, receipt.clone());
         match written {
-            Err(reason) => {
-                let _ =
-                    self.writer.send_control(&input_failed_json(self.stream, reason, bytes.len()));
-            }
-            Ok(()) => {
-                if let Some(mux) = mux.upgrade() {
-                    mux.note_terminal_input(surface, self.client);
+            Ok(()) => self.input_ended.store(false, Ordering::Release),
+            Err(failure) => {
+                if failure.is_final() && self.input_ended.swap(true, Ordering::AcqRel) {
+                    return;
                 }
+                self.input_failed(failure, bytes.len());
             }
         }
+    }
+
+    /// Reports `bytes` bytes of INPUT on this stream that did not reach its
+    /// terminal.
+    fn input_failed(&self, failure: InputFailure, bytes: usize) {
+        let _ = self.writer.send_control(&failure.event(self.stream, bytes));
     }
 
     /// Runs a stream request on the stream's sequence, as the dispatcher
@@ -626,8 +645,14 @@ impl ClientStreams {
         endpoint
     }
 
-    /// Queues an INPUT frame on its stream.
-    pub(super) fn input(&self, frame: Frame) -> Result<(), ConnectionBadMessage> {
+    /// Queues an INPUT frame on its stream, written under `cause`; with
+    /// `refused`, its bytes are reported not written instead.
+    pub(super) fn input(
+        &self,
+        frame: Frame,
+        cause: EventCause,
+        refused: Option<InputFailure>,
+    ) -> Result<(), ConnectionBadMessage> {
         let header = *frame.header();
         let stream = header.stream();
         let endpoint = self
@@ -639,8 +664,12 @@ impl ClientStreams {
             Aux::Offset(_) | Aux::SharedBufferSize(_) | Aux::Call(_) => 0,
         };
         let bytes = frame.into_payload();
-        if !bytes.is_empty() {
-            endpoint.post(StreamItem::Input { bytes, flow });
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        match refused {
+            Some(failure) => endpoint.input_failed(failure, bytes.len()),
+            None => endpoint.post(StreamItem::Input { bytes, flow, cause }),
         }
         Ok(())
     }

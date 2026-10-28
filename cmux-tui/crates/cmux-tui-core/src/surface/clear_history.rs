@@ -61,8 +61,11 @@ impl Surface {
         // releasing it: the surface's reader delivers that acknowledgement,
         // and after a reconnect it takes the runtime lock before it reads
         // the new stream.
+        // The host may type the fallback key: the request is sent in an
+        // input turn, so it never lands inside another input.
         #[cfg(any(unix, windows))]
         {
+            let turn = pty.input_fifo.enter();
             let pending = match &*pty.runtime.lock().recover_poison() {
                 PtyRuntime::Hosted(host) => Some(host.begin_clear_history(fallback_key)?),
                 PtyRuntime::ExitedHosted => {
@@ -72,6 +75,7 @@ impl Surface {
                 }
                 PtyRuntime::Local { .. } => None,
             };
+            drop(turn);
             match pending {
                 Some(Some(pending)) => return pending.wait(),
                 Some(None) => {
@@ -88,6 +92,9 @@ impl Surface {
         let mut observed_progress = pty.stream_progress.revision();
         let mut stream_wait = None;
         loop {
+            // The fallback key is input: it is written in a turn of the
+            // input FIFO, taken before the terminal lock (crate::lock_rank).
+            let turn = pty.input_fifo.enter();
             let mut term = pty.term.lock().recover_poison();
             let before = terminal_scroll_position(&term);
             let scroll_changed = match apply_clear_history_transition(&mut term, fallback_key)
@@ -95,6 +102,7 @@ impl Surface {
             {
                 ClearHistoryTransition::Blocked => {
                     drop(term);
+                    drop(turn);
                     let wait = stream_wait.get_or_insert_with(|| {
                         pty.stream_progress
                             .begin_clear_history_wait(CLEAR_HISTORY_STREAM_WAIT_TIMEOUT)
@@ -153,6 +161,7 @@ impl Surface {
                 }
             };
             drop(term);
+            drop(turn);
             if let Some((offset, at_bottom)) = scroll_changed
                 && let Some(mux) = pty.mux.upgrade()
             {
@@ -242,16 +251,22 @@ fn clear_history_write_failure(error: std::io::Error, delivered: usize) -> Clear
     }
 }
 
-pub(crate) fn write_clear_history_fallback(
-    master: &dyn MasterPty,
-    writer: &mut dyn Write,
-    bytes: &[u8],
-) -> Result<(), ClearHistoryFailure> {
+/// Refuses an encoded clear-history fallback key longer than any key encodes to.
+pub(crate) fn check_clear_history_fallback_len(bytes: &[u8]) -> Result<(), ClearHistoryFailure> {
     if bytes.len() > CLEAR_HISTORY_FALLBACK_MAX_BYTES {
         return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
             "encoded clear-history fallback exceeds {CLEAR_HISTORY_FALLBACK_MAX_BYTES} bytes"
         )));
     }
+    Ok(())
+}
+
+pub(crate) fn write_clear_history_fallback(
+    master: &dyn MasterPty,
+    writer: &mut dyn Write,
+    bytes: &[u8],
+) -> Result<(), ClearHistoryFailure> {
+    check_clear_history_fallback_len(bytes)?;
 
     #[cfg(unix)]
     if let Some(fd) = master.as_raw_fd() {

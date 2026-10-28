@@ -246,6 +246,11 @@ let daemonSwiftSettings: [SwiftSetting] = [
 ///   `TerminalHostFramePresenter` calls it ahead of each commit with a resized terminal.
 /// - GHOSTTY_LOCK_WAIT: `ghostty_surface_set_lock_wait_callback` (ghostty-next cp/p04-input-078, not in
 ///   723c4ab93): `GhosttyLockWaitSignpost` records `ghostty.lock_wait` in Debug and bench builds.
+/// - GHOSTTY_EXTERNAL_VSYNC: external vsync (ghostty-next cp/p03-rendering-082 7436f3b9a, not in 723c4ab93): the
+///   surface config's `bool vsync_external`, `ghostty_surface_vsync_wanted_cb vsync_wanted_cb` and
+///   `void *vsync_userdata`, and `void ghostty_surface_vsync(ghostty_surface_t)`. With a `VSyncHub` (feature
+///   `vsyncHub`) each surface makes no display link and ticks from its display's hub thread while it draws and
+///   wants frames (`TerminalVSync`, p03-rendering-083).
 /// - GHOSTTY_EXTERNAL_CURSOR: the external cursor (ghostty-next cp/p03-rendering-090 1d35a0460, not in 723c4ab93):
 ///   the surface config's `bool cursor_external` (the renderer neither draws nor blinks the cursor),
 ///   `ghostty_surface_cursor_cb cursor_cb` and `void *cursor_userdata`. The callback,
@@ -267,6 +272,7 @@ let ghosttyNextKitHasEnergySaver = false
 let ghosttyNextKitHasRendererFrames = false
 let ghosttyNextKitHasPresentNeverWaits = false
 let ghosttyNextKitHasLockWait = false
+let ghosttyNextKitHasExternalVSync = false
 let ghosttyNextKitHasExternalCursor = false
 let ghosttyNextKitCapabilities: [SwiftSetting] =
     (ghosttyNextKitHasGPUResident ? [.define("GHOSTTY_GPU_RESIDENT")] : [])
@@ -275,6 +281,7 @@ let ghosttyNextKitCapabilities: [SwiftSetting] =
     + (ghosttyNextKitHasRendererFrames ? [.define("GHOSTTY_RENDERER_FRAMES")] : [])
     + (ghosttyNextKitHasPresentNeverWaits ? [.define("GHOSTTY_PRESENT_NEVER_WAITS")] : [])
     + (ghosttyNextKitHasLockWait ? [.define("GHOSTTY_LOCK_WAIT")] : [])
+    + (ghosttyNextKitHasExternalVSync ? [.define("GHOSTTY_EXTERNAL_VSYNC")] : [])
     + (ghosttyNextKitHasExternalCursor ? [.define("GHOSTTY_EXTERNAL_CURSOR")] : [])
 
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
@@ -1102,7 +1109,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPopupsTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextDesign", "CmuxNextInput", "CmuxNextPopups", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextDesign", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextPopups", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The one owner of what happens to a workspace with no pane: a last-tab
@@ -1546,7 +1553,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(name: "CmuxNextProfileRuntimeC"),
         .testTarget(
             name: "CmuxNextLaunchTests",
-            // Compat, Signposts and Trace: LaunchReadEventTests reads the `launch.read_done` record of a test trace runtime.
+            // Compat, Signposts and Trace: LaunchReadEventTests reads the `launch.read_done` record of a test trace runtime;
+            // LaunchCounterLogTests journals with Compat's Mutex.
             // Design: LaunchViewQueueTests gates a tab on a LaunchReveal pane region; BrowserLaunchPicturesTests holds the launch read with its own LaunchFileReader.
             dependencies: ["CmuxNextLaunch", "CmuxNextDesign", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat",
                            "CmuxNextSignposts", "CmuxNextTrace", .product(name: "CmuxTheme", package: "CmuxTheme")],
@@ -1657,6 +1665,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextCrashReportingTests",
             dependencies: [
                 "CmuxNextCrashReporting",
+                // ChromiumMinidumpTests: a fake ProcessRunning for the dump symbolizer's atos runs.
+                "CmuxNextWakeups",
                 // InvariantSinkTests binds the blocking detector's scoped table.
                 "CmuxNextCompat",
                 // PreviousRunCrashEvidenceTests writes a previous run's black box and crash-key page.
@@ -2138,8 +2148,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextBrowserTests",
             // Signposts: CEFTabSwitchShowTests' switch.tab interval.
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextFavicons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
-                           "CmuxNextTestSupport"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextFavicons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
+                           "CmuxNextTestSupport",
+                           // CmuxSafeConcurrency: OnceContinuation (CEFPasswordTests, as PasswordRevealBox takes it).
+                           .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: uiSwiftSettings
         ),
         // The WebKit driver for the Rust browser host (plans/cmux-next/browser-host.md).
@@ -2315,6 +2327,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextRemoteViewSessions",
                 "CmuxNextScreenshots",
                 "CmuxNextServerHelper",
+                "CmuxNextSettings",
                 "CmuxNextSignposts",
                 "CmuxNextStash",
                 "CmuxNextTabs",

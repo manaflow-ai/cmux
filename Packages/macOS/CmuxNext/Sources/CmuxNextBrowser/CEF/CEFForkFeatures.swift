@@ -5,9 +5,14 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// the renderer, script evaluation without DevTools, `SetPageFrozen`, a native click, and the
     /// `cmux-process-reuse-per-renderer-devtools` switch (CEF cmux.35).
     static let rendererPathsForkAPI: Int32 = 29
-    /// The first fork API with `cmux_cef_set_energy_saver` (p14-energy-029): the one after the resize fence
-    /// (``CEFLayerHosting/resizeFenceForkAPI``), which the fork bundle p14-energy-136 sets with its pin.
-    static let energySaverForkAPI: Int32 = 33
+    /// The p14 energy bundle (p14-energy-136, manaflow-ai/cef `cp/p14-energy-136`): every p14 fork patch
+    /// under the one number after ``CEFLayerHosting/resizeFenceForkAPI``. A pump pass holds the main thread
+    /// for at most 2 ms plus one task (037), and the fork has `cmux_set_on_schedule_delayed` (046),
+    /// `cmux_cef_browser_renderer_pid` (124) and `cmux_cef_set_energy_saver` (029). The shim binds those by
+    /// symbol, so an older fork keeps the millisecond pump path, no renderer pid and no saver.
+    static let p14BundleForkAPI: Int32 = 33
+    /// The first fork API with `cmux_cef_set_energy_saver` (p14-energy-029): the p14 bundle.
+    static let energySaverForkAPI: Int32 = p14BundleForkAPI
 
     /// The first fork API that reads PL-memory's `cmux-page-scheme-process-per-site` (manaflow-ai/cef
     /// `cp/p13-webui-011` at 17a7f8ff, `libcef/browser/cmux/cmux_page_groups.cc`). That commit has no
@@ -31,6 +36,14 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// `cp/p13-webui-079` on `cp/p06-scheduler-212`): a string to a cmux-page document's receiver, with no script.
     /// Max + 1 of the fork lines and of the numbers the app claims (38 is ``surfaceCopyForkAPI``).
     static let pagePushForkAPI: Int32 = 39
+
+    /// The first fork API whose page window joins the app's Core Animation commit only for a deadline
+    /// the app set (`cmux_browser_set_resize_sync`). With none, `UpdateWindowGeometry` does not call
+    /// `CATransactionCoordinator::Synchronize`, so a resize waits neither before the commit (up to
+    /// `kUIPaintTimeout`, 500 ms) nor after it for the GPU's reply (`kPostCommitTimeout`, 50 ms):
+    /// Chromium's `ui/accelerated_widget_mac/ca_transaction_observer.mm`, fork e07a2f78
+    /// (`cef_cmux.h` "API 27"; the earlier, never released API 27 commits lack the skip).
+    static let resizeSyncForkAPI: Int32 = 27
 
     /// `cmux_shim_fork_api_version()`; 0 for stock CEF or no shim.
     var forkAPIVersion: Int32
@@ -75,6 +88,10 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// receiver with `cmuxPageListen` and each push calls it with a string, as Chrome's WebUI pages get Mojo
     /// messages instead of a script per call. Below this API, or with an older shim, every delivery is a script.
     var pagePush: Bool { shimHasPagePush && forkAPIVersion >= Self.pagePushForkAPI }
+
+    /// A page-window resize holds the app's commit only while the app gives that page a deadline.
+    /// Below it Chromium 154 waits on every resize, so `CEFSwitches` keeps `AsyncLiveResize` on.
+    var resizeWaitsOnlyForDeadline: Bool { forkAPIVersion >= Self.resizeSyncForkAPI }
 }
 
 extension CEFForkFeatures {

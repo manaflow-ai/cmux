@@ -38,6 +38,7 @@ pub(crate) mod spawn;
 mod stream_progress;
 mod terminal_runtime;
 mod terminal_stream;
+mod thread_qos;
 pub use color_overrides::apply_terminal_color_overrides;
 #[cfg(unix)]
 pub(crate) use holder_spawn::{HolderAdoption, HolderSpawn};
@@ -52,7 +53,7 @@ pub use clear_history::{
 };
 pub(crate) use clear_history::{
     CLEAR_HISTORY_KEY_TEXT_MAX_BYTES, CLEAR_HISTORY_STREAM_WAIT_TIMEOUT, ClearHistoryTransition,
-    apply_clear_history_transition, write_clear_history_fallback,
+    apply_clear_history_transition, check_clear_history_fallback_len, write_clear_history_fallback,
 };
 #[cfg(any(unix, windows, test))]
 use color_overrides::{
@@ -793,6 +794,7 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                thread_qos: cmux_threads::DesiredQos::new(crate::echo_thread::ECHO_PATH_QOS),
                 reaper_thread: Mutex::new(None),
                 reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: terminal_runtime::TerminalCell::new(Box::new(term)),
@@ -867,6 +869,7 @@ impl Surface {
                 attach_colors_pending: AtomicBool::new(false),
                 attach_colors_force_pending: AtomicBool::new(false),
                 last_input_flow: Default::default(),
+                input_fifo: Default::default(),
                 snapshot_position: Default::default(),
                 last_attach_colors: RankedMutex::new(
                     LockRank::Leaf,
@@ -928,11 +931,13 @@ impl Surface {
             resync_backoff: TerminalHostReconnectBackoff::default(),
             connected_at: None,
         };
-        // Echo path class; blocking is disallowed while it streams a host
-        // connection (`HostedReader::run`), not between connections.
-        let reader_thread = cmux_threads::spawn(
+        // Echo path class, or utility while no view shows the terminal
+        // (surface/thread_qos.rs); blocking is disallowed while it streams a
+        // host connection (`HostedReader::run`), not between connections.
+        let reader_thread = cmux_threads::spawn_following(
             format!("surface-{id}-host"),
             crate::echo_thread::ECHO_PATH_QOS,
+            terminal.thread_qos.clone(),
             {
                 let surface = surface.clone();
                 move || hosted_reader.run(surface, reader)

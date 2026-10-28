@@ -81,6 +81,8 @@ extension CEFRuntime {
             browserCreated(browser, request: request, window: window, created: created)
         case .popup, .unknown: break // AFTER_CREATED of a popup's tab carries its URL, disposition and gesture (pending popups)
         case .createFailed(let browser, let request): CEFCreateFailure(browser: browser, request: request).apply(to: self)
+        case .windowRequestResult(let result):
+            windowRequests.hostDecided(result)
         case .chromeCommand(let browser, let command):
             chromeWindowCommandBlocked(command, browser: browser)
         case .beforeClose(let browser):
@@ -152,8 +154,8 @@ extension CEFRuntime {
         case .keyUnhandledChord(let browser, let seq): redispatchUnhandledKey(seq: seq, browser: browser)
         case .bookmarks(let json, let path):
             CEFBookmarkBridge.shared.arrived(json: json, cachePath: path)
-        case .renderTerminated(_, let status, let code, _, let end):
-            rendererEnded(.cef(status: status, code: code), end: end) // counted whether or not a tab shows it
+        case .renderTerminated(_, let status, let code, _, let end, let client):
+            rendererEnded(.cef(status: status, code: code), end: end, client: client) // counted whether or not a tab shows it
             fallthrough
         default:
             if let browser = event.browserID, let tab = tabsByBrowser[browser] {

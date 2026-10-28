@@ -861,7 +861,10 @@ every task that changes behavior or performance and is not repeated per row.
   remove AnimatedFrame stepping for structural kinds from step(); DisplayLinkDriver starts only for gestures.
 - Acceptance: the decision text and video link are in both docs in the same PR; MQ-springs count reaches 0 or
   annotated `// input-driven:`; the PR is risk:normal with the behavior behind the tunable (off restores cpuStep until
-  the cpuStep code is deleted in a follow-up after one Nightly).
+  the cpuStep code is deleted in a follow-up after one Nightly). Deferred here from task 100: also edit
+  `.../CmuxNextSidebar/Views/SidebarContainerView.swift` and remove the sidebar slide's main-thread width animator,
+  `rg -n 'Motion\.animator\(widthConstraint' .../CmuxNextSidebar` = 0; the tunable off restores cpuStep for the
+  structural layout kinds only (the sidebar slides on the render server, or lands in one frame with the gate off).
 - Test phase: full DC2/DC3 set on 26 and 27; every-action sweep motion rows.
 - Size M. Depends: 022b, 023-033, 036, 098, 106, 007.
 
@@ -1435,6 +1438,23 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: fake hub: hidden 0 subscriptions, idle visible disarms after one empty tick; DC1 holds.
 - Test phase: DC1, DC6, DC7r; bench-typing.py not worse.
 - Size M. Depends: 014, 082.
+- As built (cp/p03-rendering-083): `TerminalVSync` (one per surface, owned by its `SurfaceBridge`, which is
+  the `vsync_userdata` of 082's `vsync_wanted_cb` and is released only after `ghostty_surface_free`, never when the
+  view is freed off main) holds one disarmed hub subscription while the surface draws (`pause == nil`), on
+  `appliedDisplayID`, and none while it is hidden, parked, suspended, occluded or out of a window. When that display
+  has no screen it ticks on the main display's clock; with no screen there either it ticks on a 60 Hz deadline
+  (injected clock) while Ghostty wants frames, as Chrome's `DelayBasedTimeSource`. Off its own display's clock it
+  tries that display again on every follow and every 100 ms (injected clock). The wanted edge (renderer thread)
+  arms it, so wanted edges never reach main; each armed tick calls `ghostty_surface_vsync`, and the first tick after
+  wanted false returns `.done`. While armed on a subscription a stall deadline runs (`DisplayClock.stallTimeout`,
+  injected clock), because the hub rebuilds a link only when asked and no frame scheduler may be on that display: a
+  timeout with no tick refreshes the surface once, `DisplayClock.stallsBeforeRebuild` in a row call
+  `Subscription.relink()`, and a link that cannot be rebuilt is left for the main display's clock or the 60 Hz
+  deadline. `close()` runs before the free, and a tick holds the pacer's `Mutex` across
+  `ghostty_surface_vsync` (a notify), so no tick reaches a freed surface. Compiled in only with
+  `GHOSTTY_EXTERNAL_VSYNC` (Package.swift, off until the GhosttyNextKit pin carries 082) and used only with a
+  `VSyncHub` (feature `vsyncHub`, default off); otherwise each surface keeps Ghostty's own link. Tests:
+  `TerminalVSyncTests`.
 
 #### p03-rendering-084 Pre-commit present never waits; frame sequence
 - Files: `ghostty-next/src/renderer/Metal.zig` (presentHostSized), `.../CmuxNextTerminal/TerminalHostFramePresenter.swift`.
@@ -1698,7 +1718,8 @@ every task that changes behavior or performance and is not repeated per row.
   resize); RenderSpring slides the sidebar panel layer (position.x) and the content host (additive position.x from
   the old offset to 0); fade variant on panel layer opacity; isWidthAnimating clears in the completion; watchdog
   stays. Registered as a MotionBackend kind.
-- Acceptance: diff removes `Motion.animator(widthConstraint`; test: constant set once, layout passes = 1, grids per
+- Acceptance (the removal of `Motion.animator(widthConstraint` is deferred to task 022c: until the default flips,
+  the main-thread slide is the switch-off fallback, and this task adds no `Motion.animator(` site); test: constant set once, layout passes = 1, grids per
   terminal = 1, completion once, gate off one frame; frame_sets frames 2..n = 0.
 - Test phase: motion-main-work.py and motion-hitches.py sidebar-toggle light and STRESS: main p99 <= 0.5 ms, 0
   hitches; bench-terminal-resize.py reflows per toggle = 1.

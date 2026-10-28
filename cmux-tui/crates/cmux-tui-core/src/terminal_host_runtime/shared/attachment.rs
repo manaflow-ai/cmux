@@ -125,6 +125,10 @@ pub struct HostAttachment {
     /// The host takes a key press's flow on interactive input
     /// (`FLAG_INPUT_FLOW`, p09-observability-018).
     pub(crate) input_flow: bool,
+    /// The host reports interactive input it refused or never wrote to
+    /// the sender named in the `Input` frame (`FLAG_INPUT_FAILURES`,
+    /// p05-ipc-157).
+    pub(crate) input_failures: bool,
     /// Exact process ownership retained only between a successful launch
     /// handshake and complete Surface materialization. Adoption never
     /// carries this guard.
@@ -196,24 +200,42 @@ impl HostAttachment {
     /// an `Input` frame with `FLAG_INPUT_FLOW` and the flow trailer, so the
     /// host stamps its next PTY read with it. A host that did not negotiate
     /// the flag, any other kind and flow 0 get the plain frame: never a
-    /// trailer the host would write into the shell.
-    pub(crate) fn send_flow(
+    /// trailer the host would write into the shell. `sender` hears of
+    /// interactive input the host refuses or never writes, on a host that
+    /// reports it (`FLAG_INPUT_FAILURES`): the frame's request id names the
+    /// sender ([`ControlResponses::input_senders`]).
+    pub(crate) fn send_input(
         &self,
         kind: MessageKind,
         payload: &[u8],
         flow: u64,
+        sender: Option<&Arc<dyn crate::input_receipt::InputReceipt>>,
     ) -> std::io::Result<()> {
+        let sender = sender.filter(|_| self.input_failures && kind == MessageKind::Input);
         // Input too large for the trailer goes plain: a flow is a trace mark, never a refusal.
-        if flow == 0
-            || !self.input_flow
-            || kind != MessageKind::Input
-            || payload.len() > MAX_FRAME_PAYLOAD - size_of::<u64>()
+        let flow = if self.input_flow
+            && kind == MessageKind::Input
+            && payload.len() <= MAX_FRAME_PAYLOAD - size_of::<u64>()
         {
+            flow
+        } else {
+            0
+        };
+        if flow == 0 && sender.is_none() {
             return self.send(kind, payload);
         }
-        let mut frame = Frame::new(kind, flow_trailer_payload(payload, flow));
+        let mut frame = if flow == 0 {
+            Frame::new(kind, payload.to_vec())
+        } else {
+            let mut frame = Frame::new(kind, flow_trailer_payload(payload, flow));
+            frame.flags = FLAG_INPUT_FLOW;
+            frame
+        };
         frame.version = self.protocol_version;
-        frame.flags = FLAG_INPUT_FLOW;
+        if let Some(sender) = sender {
+            frame.flags |= FLAG_INPUT_FAILURES;
+            frame.request_id = self.control_responses.input_senders.id_of(sender);
+        }
         write_host_frame(&self.writer, &frame)
     }
 

@@ -197,11 +197,13 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                 | FLAG_PTY_CUSTODY
                 | FLAG_PROGRAM_STATUS
                 | FLAG_SHELL_ACTIVITY
-                | FLAG_INPUT_FLOW)
+                | FLAG_INPUT_FLOW
+                | FLAG_INPUT_FAILURES)
             != 0
         || (hello_frame.flags & FLAG_TERMINAL_METADATA != 0
             && hello_frame.version != PROTOCOL_VERSION)
         || (hello_frame.flags & FLAG_INPUT_FLOW != 0 && hello_frame.version != PROTOCOL_VERSION)
+        || (hello_frame.flags & FLAG_INPUT_FAILURES != 0 && hello_frame.version != PROTOCOL_VERSION)
         || (hello_frame.flags & FLAG_PROGRAM_STATUS != 0
             && hello_frame.flags & FLAG_TERMINAL_METADATA == 0)
         || (hello_frame.flags & FLAG_SHELL_ACTIVITY != 0
@@ -270,6 +272,13 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         && granted_rights.contains(CapabilityRights::INPUT);
     if input_flow {
         hello_response.flags |= FLAG_INPUT_FLOW;
+    }
+    // Input failures (p05-ipc-157): only a client that may write input.
+    let input_failures = hello_frame.flags & FLAG_INPUT_FAILURES != 0
+        && selected_version == PROTOCOL_VERSION
+        && granted_rights.contains(CapabilityRights::INPUT);
+    if input_failures {
+        hello_response.flags |= FLAG_INPUT_FAILURES;
     }
     hello_response.request_id = hello_frame.request_id;
     write_frame(&mut stream, &hello_response)?;
@@ -458,6 +467,8 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         smart_renderer,
         viewer_size_acks,
         input_flow,
+        input_senders: input_failures
+            .then(|| super::input_failures::HostInputSenders::new(&host, command_sender.clone())),
         ended: AtomicBool::new(false),
     });
     let serve_input = move |command_stream: &mut crate::echo_thread::OwnHostStream<'_>| {
@@ -545,20 +556,27 @@ struct ClientFrames {
     smart_renderer: bool,
     viewer_size_acks: bool,
     input_flow: bool,
+    /// The senders of a client that negotiated `FLAG_INPUT_FAILURES`.
+    input_senders: Option<super::input_failures::HostInputSenders>,
     /// The client ended ([`ClientEnd`]): no frame runs after it.
     ended: AtomicBool,
 }
 
 impl ClientFrames {
-    /// Client-to-host messages define one flag (a negotiated
-    /// FLAG_INPUT_FLOW on interactive Input) and never participate in the
-    /// host live-stream sequence.
+    /// Client-to-host messages define two flags, each negotiated, both on
+    /// Input only: FLAG_INPUT_FLOW on interactive Input, and
+    /// FLAG_INPUT_FAILURES, whose request id names the sender. They never
+    /// participate in the host live-stream sequence.
     fn frame_is_valid(&self, frame: &Frame) -> bool {
+        let failures = frame.flags & FLAG_INPUT_FAILURES != 0;
+        let flow_valid = frame.flags & FLAG_INPUT_FLOW == 0
+            || (self.input_flow && (frame.request_id == 0 || failures));
+        let failures_valid = !failures || (self.input_senders.is_some() && frame.request_id != 0);
         let flags_valid = frame.flags == 0
-            || (self.input_flow
-                && frame.flags == FLAG_INPUT_FLOW
-                && frame.kind == MessageKind::Input
-                && frame.request_id == 0);
+            || (frame.kind == MessageKind::Input
+                && frame.flags & !(FLAG_INPUT_FLOW | FLAG_INPUT_FAILURES) == 0
+                && flow_valid
+                && failures_valid);
         frame.version == self.selected_version && flags_valid && frame.sequence == 0
     }
 
@@ -592,9 +610,15 @@ impl ClientFrames {
                 let Some((input, flow)) = split_flow_trailer(frame.flags, &frame.payload) else {
                     return FrameStep::Close;
                 };
+                // A sender's interactive input: its request id names the
+                // sender, and asks for no InputAck.
+                let failures = (frame.flags & FLAG_INPUT_FAILURES != 0)
+                    .then(|| ctx.input_senders.as_ref().map(|s| s.receipt(frame.request_id)))
+                    .flatten();
+                let request_id = if failures.is_some() { 0 } else { frame.request_id };
                 if !ctx.granted_rights.contains(CapabilityRights::INPUT)
-                    || !input_request_is_supported(ctx.selected_version, frame.request_id)
-                    || !ctx.host.write_input(input, frame.request_id, flow, &ctx.sender)
+                    || !input_request_is_supported(ctx.selected_version, request_id)
+                    || !ctx.host.write_input(input, request_id, flow, failures, &ctx.sender)
                 {
                     return FrameStep::Close;
                 }
@@ -709,6 +733,18 @@ impl ClientFrames {
                     return FrameStep::Close;
                 };
                 ctx.host.set_default_colors(colors);
+            }
+            MessageKind::SetThreadQos => {
+                if !ctx.granted_rights.contains(CapabilityRights::MINT_CAPABILITY)
+                    || frame.request_id != 0
+                {
+                    return FrameStep::Close;
+                }
+                let Some(qos) = super::thread_qos::decode_thread_qos(&frame.payload) else {
+                    return FrameStep::Close;
+                };
+                // One atomic store: no parser wait, so it runs inline.
+                ctx.host.set_thread_qos(qos);
             }
             MessageKind::SetCellPixelSize if frame.request_id != 0 && frame.payload.len() == 4 => {
                 if !ctx.granted_rights.contains(CapabilityRights::RESIZE) {

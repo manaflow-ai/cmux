@@ -58,6 +58,8 @@ pub fn validate_terminal_host_record(
             || record.supports_shell_activity
             || record.supports_trace_control
             || record.supports_input_flow
+            || record.supports_thread_qos
+            || record.supports_input_failures
         {
             anyhow::bail!("legacy terminal-host record has unexpected liveness fields");
         }
@@ -92,6 +94,12 @@ pub fn validate_terminal_host_record(
         }
         if record.record_version < HOST_RECORD_VERSION && record.supports_input_flow {
             anyhow::bail!("pre-v4 terminal-host record advertises input flows");
+        }
+        if record.record_version < HOST_RECORD_VERSION && record.supports_input_failures {
+            anyhow::bail!("pre-v4 terminal-host record advertises input failures");
+        }
+        if record.record_version < HOST_RECORD_VERSION && record.supports_thread_qos {
+            anyhow::bail!("pre-v4 terminal-host record advertises thread QoS");
         }
         let nonce = decode_lower_hex_array::<HOST_START_NONCE_LEN>(
             &record.host_start_nonce,

@@ -43,6 +43,9 @@ pub(crate) struct ControlResponses {
     pub(crate) pending_input_acks: Mutex<PendingInputAckWindow>,
     pub(crate) input_ack_shutdown: Mutex<Option<Arc<HostStream>>>,
     pub(crate) clipboard_reads: ClipboardReadInbox,
+    /// The senders of interactive input whose refusals the host reports
+    /// (`FLAG_INPUT_FAILURES`).
+    pub(crate) input_senders: super::input_failures::InputSenders,
 }
 
 impl ControlResponses {
@@ -54,6 +57,7 @@ impl ControlResponses {
             pending_input_acks: Mutex::new(PendingInputAckWindow::default()),
             input_ack_shutdown: Mutex::new(None),
             clipboard_reads: ClipboardReadInbox::default(),
+            input_senders: Default::default(),
         }
     }
 

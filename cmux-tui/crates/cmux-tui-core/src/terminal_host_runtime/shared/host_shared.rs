@@ -107,6 +107,10 @@ pub(crate) struct HostShared {
     /// Answers the daemon's `TraceControl` frames one at a time, in the
     /// order they arrive (`host_trace.rs`).
     pub(crate) trace_control: super::host_trace::HostTraceQueue,
+    /// The class the PTY reader and parser threads run at, set by the
+    /// daemon's `SetThreadQos` and applied by each thread after its next
+    /// wake (p02-threads-236).
+    pub(crate) thread_qos: cmux_threads::DesiredQos,
     #[cfg(test)]
     pub(crate) fail_next_resize_publication: AtomicBool,
 }
@@ -249,6 +253,14 @@ impl HostShared {
         let mut writer = self.pty_writer();
         writer.write_all(bytes).and_then(|()| writer.flush())?;
         Ok(PtyInputWrite::Written)
+    }
+
+    /// Whether the program's input goes through an input sink.
+    pub(crate) fn has_input_sink(&self) -> bool {
+        #[cfg(unix)]
+        return self.input.is_some();
+        #[cfg(not(unix))]
+        false
     }
 
     /// Input bytes waiting for the program to read them.
@@ -491,9 +503,11 @@ impl HostShared {
                     observed_progress = progress;
                 }
                 ParserClearHistoryResult::EncodedFallback(encoded) => {
-                    // Behind queued input the key goes in order after it: a
-                    // bounded write now would pass it.
-                    if self.queued_pty_input() > 0 {
+                    // Through the input sink, as every other input: the key
+                    // goes in order after queued input, never between the
+                    // halves of a paste another client's submit queued.
+                    if self.has_input_sink() {
+                        check_clear_history_fallback_len(&encoded)?;
                         return self
                             .submit_pty_input(
                                 &encoded,
@@ -553,12 +567,15 @@ impl HostShared {
 
     /// Write `payload` to the PTY; `flow` (0: none) is the key press it
     /// carries, which the reader's next PTY read takes (`last_input_flow`)
-    /// when the bytes reached the PTY.
+    /// when the bytes reached the PTY. `failures` (interactive input of a
+    /// `FLAG_INPUT_FAILURES` sender) hears of bytes the input sink refuses
+    /// now or never writes.
     pub(crate) fn write_input(
         self: &Arc<Self>,
         payload: &[u8],
         request_id: u64,
         flow: u64,
+        failures: Option<Arc<dyn crate::input_receipt::InputReceipt>>,
         target: &HostTap,
     ) -> bool {
         // Marked before the writer lock, so the mark never runs under it.
@@ -579,13 +596,15 @@ impl HostShared {
                 crate::pty_input_room::admits_behind(&**master, payload, queued)
             };
             #[cfg(unix)]
-            let receipt = (request_id != 0).then(|| {
-                Arc::new(InputAckWhenWritten {
+            let receipt = if request_id != 0 {
+                Some(Arc::new(InputAckWhenWritten {
                     host: Arc::downgrade(self),
                     request_id,
                     target: target.clone(),
-                }) as Arc<dyn crate::pty_write::InputReceipt>
-            });
+                }) as Arc<dyn crate::pty_write::InputReceipt>)
+            } else {
+                failures.clone()
+            };
             let (outcome, queued) = if !admitted {
                 (InputWrite::Dropped, false)
             } else {
@@ -598,9 +617,19 @@ impl HostShared {
                 ) {
                     Ok(PtyInputWrite::Written) => (InputWrite::Written, false),
                     Ok(PtyInputWrite::Queued) => (InputWrite::Written, true),
-                    Err(_) => {
+                    Err(error) => {
                         // No echo comes: the next unrelated read must not take the flow.
                         self.last_input_flow.withdraw(flow);
+                        if let Some(failures) = failures.as_ref() {
+                            #[cfg(unix)]
+                            let reason = crate::surface::input_failure_of(&error);
+                            #[cfg(not(unix))]
+                            let reason = {
+                                let _ = &error;
+                                crate::input_receipt::InputFailure::WriteFailed
+                            };
+                            failures.failed(reason, payload.len());
+                        }
                         (InputWrite::Failed, false)
                     }
                 }

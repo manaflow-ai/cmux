@@ -166,7 +166,7 @@ fn echo_flow_a_failed_host_write_arms_nothing() {
     let (tap_sender, _tap_receiver) = mpsc_channel();
     let (socket, _peer) = UnixStream::pair().unwrap();
     let tap = HostTap::new(tap_sender, Arc::new(socket), usize::MAX);
-    assert!(host.write_input(b"a", 0, 42, &tap), "interactive input stays best effort");
+    assert!(host.write_input(b"a", 0, 42, None, &tap), "interactive input stays best effort");
     assert_eq!(host.last_input_flow.take(), 0, "a failed write armed its flow");
 }
 
@@ -176,19 +176,19 @@ fn echo_flow_owner_sends_the_trailer_only_when_negotiated() {
     host.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
     let mut next = || read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
 
-    attachment.send_flow(MessageKind::Input, b"ls", 42).unwrap();
+    attachment.send_input(MessageKind::Input, b"ls", 42, None).unwrap();
     let plain = next();
     assert_eq!((plain.flags, plain.payload.as_slice()), (0, &b"ls"[..]), "an older host");
 
     attachment.input_flow = true;
-    attachment.send_flow(MessageKind::Input, b"ls", 42).unwrap();
+    attachment.send_input(MessageKind::Input, b"ls", 42, None).unwrap();
     let flagged = next();
     assert_eq!(flagged.flags, FLAG_INPUT_FLOW);
     assert_eq!(split_flow_trailer(flagged.flags, &flagged.payload), Some((&b"ls"[..], 42)));
 
-    attachment.send_flow(MessageKind::Input, b"ls", 0).unwrap();
+    attachment.send_input(MessageKind::Input, b"ls", 0, None).unwrap();
     assert_eq!(next().flags, 0, "no flow, no trailer");
-    attachment.send_flow(MessageKind::Paste, b"ls", 42).unwrap();
+    attachment.send_input(MessageKind::Paste, b"ls", 42, None).unwrap();
     let paste = next();
     assert_eq!((paste.kind, paste.flags), (MessageKind::Paste, 0), "paste takes no trailer");
 }

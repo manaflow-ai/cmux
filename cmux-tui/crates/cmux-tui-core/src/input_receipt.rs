@@ -15,6 +15,7 @@ pub(crate) enum InputFailure {
 }
 
 impl InputFailure {
+    #[cfg_attr(not(unix), allow(dead_code, reason = "only the Unix input sink names its failures"))]
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             InputFailure::Overflow => "overflow",

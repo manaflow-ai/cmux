@@ -219,8 +219,9 @@ fn a_payload_larger_than_the_capacity_reaches_a_reading_child_whole() {
 #[test]
 fn a_backlog_holds_at_most_the_capacity_behind_its_first_payload() {
     let (sink, _child) = sink_pair();
-    sink.submit(&vec![b'l'; INPUT_SINK_CAPACITY + 1], None).unwrap();
-    assert!(sink.backlog_bytes() > 0, "the socket took the whole payload");
+    // More than the socket takes plus the capacity: the backlog passes it.
+    sink.submit(&vec![b'l'; 2 * INPUT_SINK_CAPACITY], None).unwrap();
+    assert!(sink.backlog_bytes() > INPUT_SINK_CAPACITY);
     let refused = sink.submit(b"k", None).unwrap_err();
     assert!(matches!(refused, InputSinkError::Overflow { len: 1, .. }), "{refused}");
 }

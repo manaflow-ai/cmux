@@ -21,10 +21,22 @@ pub(super) fn test_host_shared_with(
 /// [`test_host_shared_with`] whose parser budget admits `parser_budget`
 /// queued bytes, for tests that publish real PTY reads.
 pub(super) fn test_host_shared_with_budget(
+    term: Terminal,
+    parser_commands: SyncSender<ParserCommand>,
+    clipboard: ClipboardReads,
+    parser_budget: usize,
+) -> Arc<HostShared> {
+    test_host_shared_with_input(term, parser_commands, clipboard, parser_budget, None)
+}
+
+/// [`test_host_shared_with_budget`] whose PTY input goes through `input`
+/// (p05-ipc-157), as a host with a real master's does.
+pub(super) fn test_host_shared_with_input(
     mut term: Terminal,
     parser_commands: SyncSender<ParserCommand>,
     clipboard: ClipboardReads,
     parser_budget: usize,
+    input: Option<crate::pty_write::LocalInput>,
 ) -> Arc<HostShared> {
     term.resize(80, 24, u32::from(DEFAULT_CELL_PIXELS.0), u32::from(DEFAULT_CELL_PIXELS.1))
         .unwrap();
@@ -40,7 +52,7 @@ pub(super) fn test_host_shared_with_budget(
         default_colors: Mutex::new(DefaultColors::default()),
         stream_progress: TerminalStreamProgress::default(),
         writer: Mutex::new(Box::new(std::io::sink())),
-        input: None,
+        input,
         master: Mutex::new(Box::new(TestHostMaster {
             size: Mutex::new(pty_size(80, 24, DEFAULT_CELL_PIXELS)),
         })),
@@ -88,6 +100,7 @@ pub(super) fn test_host_shared_with_budget(
         session_cleanup: session_cleanup::SessionCleanup::new(),
         adopted_session: None,
         trace_control: shared::host_trace::HostTraceQueue::default(),
+        thread_qos: cmux_threads::DesiredQos::new(crate::echo_thread::ECHO_PATH_QOS),
         fail_next_resize_publication: AtomicBool::new(false),
     });
     HostShared::start_exit_publisher(&host, exit_publish_receiver).unwrap();

@@ -9,6 +9,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextHibernation
 import CmuxNextLayout
 import CmuxNextWakeups
@@ -93,13 +94,15 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebar.container.sidebarView.onTurnOffEnergySaver = { [weak registry = services.registry] in
             _ = registry?.perform("energy.saver.turnOffForNow", invocation: ActionInvocation(origin: .user))
         }
-        root = WindowRootView(sidebar: sidebar.container, revealDeadlines: services.mainDeadlines, signals: services.appearance, slideHoldsContent: WindowRootView.slideHoldsContent(in: services.features))
+        root = WindowRootView(sidebar: sidebar.container, revealDeadlines: services.mainDeadlines, signals: services.appearance, slideHoldsContent: WindowRootView.slideHoldsContent(in: services.features),
+                              rendersMotionOnServer: { LayoutTunables.motionRenderServer.value })
         root.contentHost.hiddenDetach = services.makeHiddenWorkspaceDetach()
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
         }
         let window = premade ?? ShellWindow.main(frame: frame)
+        window.zoomHoldsContent = services.features.isEnabled(.windowFrameAnimationHoldsContent)
         window.keyRouter = services.keyRouter
         // Before any view, overlay or panel of the window reads it; fixed for the process, as the backend is.
         window.pageSurface = services.chromiumRuntime.source.backend.pageSurface
@@ -107,6 +110,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         // Before any view reaches the window, so its views find this node under the app, not a root of their own.
         let node = services.appVisibility.windowNode(window, name: "window:\(state.id)")
         visibility = node
+        root.follow(on: node, work: services.mainWork) // its settings follow while this window shows
         let registry = services.registry
         root.toolbarBand.follow(on: node, work: services.mainWork, title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
                                 shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
@@ -127,6 +131,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focus.crashKeys = services.crashKeys
         focus.keyInput = services.keyRouter.keyInput
         focus.inputDispatch = services.inputDispatch
+        focus.personIntent = { [weak services, weak window] input in
+            services?.keyRouter.creationInputCoordinator.personActed(in: window, event: input)
+        }
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observeRoom()
@@ -145,6 +152,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func teardown() {
         tornDown = true
+        services.keyRouter.creationInputCoordinator.windowClosed(window)
         stopShortcutHints()
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()
@@ -423,6 +431,11 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
     private var zoomState = WindowZoom()
     override func zoom(_ sender: Any?) { if !zoomState.zoom(self) { super.zoom(sender) } }
+    /// Feature `windowFrameAnimationHoldsContent`: a zoom holds the window's terminal grids until it lands.
+    var zoomHoldsContent: Bool {
+        get { zoomState.holdsContent }
+        set { zoomState.holdsContent = newValue }
+    }
     override var isZoomed: Bool { zoomState.isZoomingIn ?? super.isZoomed }
     func windowZoomFinished(_ generation: Int) { zoomState.end(generation) }
 

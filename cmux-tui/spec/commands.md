@@ -1086,8 +1086,8 @@ result, `clients` included (the connections are read just after the cut).
 the same locked state as `session`; `subscriptions` is read just after it.
 `switches` maps each daemon refactor switch to the arm this daemon runs,
 `old` or `new`, frozen at the first read. The one switch so far is
-`terminal-holder` (`new` when the `terminalHolder` feature is on, or with the
-alias `CMUX_TUI_TERMINAL_HOST_MODEL=holder`); the
+`terminal-holder` (`new` when the `terminalHolder` feature is on, the default;
+`old` with a disable of it or the alias `CMUX_TUI_TERMINAL_HOST_MODEL=hosts`); the
 `CMUX_TUI_SWITCHES` parse of p15-oracle task 020 replaces that source.
 `terminalAttach` counts the terminal catalog: `dead`
 terminals have no process, `attached` ones are shown in at least one pane
@@ -5278,7 +5278,10 @@ Sets (`true`/`false`) or clears (`null`) one participant's counts-toward-size
 override. At most one selector: `client:uint64` (that client's view of this
 placement), `lease:string` (the caller's own leased view), `view:string` (the
 caller's relay sub-view), or `participant:string`. Without a selector it
-targets the caller's own view.
+targets the caller's own view. With `lease`, `counts:false` also says the
+view is hidden and `null` that it shows again: with daemon feature
+`hiddenTerminalQos`, a terminal no view shows runs its threads at utility. The
+other selectors set only the sizing choice; the view still shows the terminal.
 
 Params: required `surface:Id` and `counts:bool|null`, plus the optional
 selector.

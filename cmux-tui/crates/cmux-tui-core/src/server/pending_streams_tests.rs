@@ -531,13 +531,14 @@ fn stream_pending_a_bound_stream_carries_input_past_the_pending_cap() {
 /// p05-ipc-157: a child that never reads while 10k INPUT frames arrive on
 /// its stream. Every frame is taken without a worker waiting for the child
 /// (no lane item inside `will_block`, no `host_wait`), pings on the control
-/// sequence stay fast meanwhile, and once the child reads, every byte
-/// arrives in order with no `input-failed`.
+/// sequence are answered meanwhile, and once the child reads, every byte
+/// arrives in order with no `input-failed`. Only deterministic properties
+/// are asserted here; the ping latency bound is measured by
+/// `bench-daemon-latency`, not in a parallel unit-test run.
 #[cfg(unix)]
 #[test]
 fn async_input_sink_a_child_that_does_not_read_blocks_no_worker() {
     use std::io::Read;
-    use std::time::Instant;
 
     const FRAMES: usize = 10_000;
     const PING_EVERY: usize = 100;
@@ -551,7 +552,6 @@ fn async_input_sink_a_child_that_does_not_read_blocks_no_worker() {
 
     // 64 bytes a frame: 640 KB, past any socket buffer, inside the backlog.
     let mut expected = Vec::with_capacity(FRAMES * 64);
-    let mut pings = Vec::new();
     let mut blocked = 0;
     for index in 0..FRAMES {
         let key = format!("{index:063};");
@@ -559,10 +559,8 @@ fn async_input_sink_a_child_that_does_not_read_blocks_no_worker() {
         expected.extend_from_slice(key.as_bytes());
         if (index + 1) % PING_EVERY == 0 {
             let request_id = 1_000 + u32::try_from(index).unwrap();
-            let started = Instant::now();
             client.send(&request(request_id, &json!({"cmd": "ping"})));
             let seen = until_answer(&mut client, request_id);
-            pings.push(started.elapsed());
             assert!(!seen.iter().any(|seen| is_event(seen, "input-failed", 7)), "{seen:?}");
             blocked += client.mux.work.stats().iter().map(|lane| lane.blocked).sum::<usize>();
         }
@@ -571,9 +569,6 @@ fn async_input_sink_a_child_that_does_not_read_blocks_no_worker() {
     let seen = until_answer(&mut client, 11);
     assert!(!seen.iter().any(|seen| is_event(seen, "input-failed", 7)), "{seen:?}");
 
-    pings.sort();
-    let p99 = pings[pings.len() * 99 / 100];
-    assert!(p99 < Duration::from_millis(2), "ping p99 {p99:?} behind a child that does not read");
     assert_eq!(blocked, 0, "a worker waited for the child");
     let request_path =
         crate::request_path::RequestPathIoSnapshot::of(client.mux.request_path_stats());

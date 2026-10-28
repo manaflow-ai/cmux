@@ -19,13 +19,16 @@ import threading
 import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import replace
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import driver_app  # noqa: E402
 import oracle  # noqa: E402
+import switches  # noqa: E402 - the ArmNotApplied a driver raises (p15-oracle-049)
 
 HAS_EXPECTATIONS = (HERE / "expectations.py").is_file()
 EXAMPLE_SNAPSHOT_TEXT = (oracle.REPO / "schemas" / "oracle" / "fixtures" / "snapshot-example.json").read_text(
@@ -48,15 +51,21 @@ class FakeDriver:
     """`script` maps a case id to the statuses of its successive runs (the last one repeats).
 
     `value_of(cid, n)` is the snapshot value of the n-th run of a case; `hits` are switch hits
-    reported per case run.
+    reported per case run, `launch_hits` once per session (its first case), `readback` the arms
+    every case reads back; a case in `wrong_arms` raises switches.ArmNotApplied.
     """
 
-    def __init__(self, script=None, value_of=None, dirty=(), raises=(), hits=None):
+    def __init__(self, script=None, value_of=None, dirty=(), raises=(), hits=None, launch_hits=None, readback=None,
+                 wrong_arms=()):
         self.script = script or {}
         self.value_of = value_of or (lambda cid, n: "v-" + cid)
         self.dirty = set(dirty)
         self.raises = set(raises)
         self.hits = hits
+        self.launch_hits = launch_hits
+        self.readback = readback
+        self.wrong_arms = set(wrong_arms)
+        self.launched = set()
         self.calls = []
         self.sessions = 0
         self.closed = 0
@@ -76,6 +85,8 @@ class FakeDriver:
             self.calls.append((cid, ctx["phase"], ctx["attempt"], session, ctx))
         if cid in self.raises and n == 0:
             raise RuntimeError("driver lost the app")
+        if cid in self.wrong_arms:
+            raise switches.ArmNotApplied(["f6=new: snapshot.switches read back app.f6=old"], {"f6": "old"})
         statuses = self.script.get(cid, ["Pass"])
         status = statuses[min(n, len(statuses) - 1)]
         result = {
@@ -88,6 +99,13 @@ class FakeDriver:
         }
         if self.hits is not None:
             result["switch_hits"] = self.hits
+        if self.readback is not None:
+            result["switch_readback"] = self.readback
+        with self.mutex:
+            first_of_session = session not in self.launched
+            self.launched.add(session)
+        if self.launch_hits is not None and first_of_session:
+            result["launch_switch_hits"] = self.launch_hits
         return result
 
 
@@ -289,6 +307,97 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(oracle.coerce_result({"status": "Pass", "checkpoints": [
             {"step": "s", "checkpoint": "settled", "snapshot": {"x": float("nan")}}]})["status"], "Crash")
         self.assertEqual(oracle.coerce_result({"status": "Fine"})["status"], "Crash")
+
+
+class SwitchArmReceiptTests(unittest.TestCase):
+    """p15-oracle-049: the receipt logs each arm read back, and an arm-not-applied stops the run."""
+
+    def setUp(self):
+        raw = tempfile.TemporaryDirectory()
+        self.addCleanup(raw.cleanup)
+        self.tmp = Path(raw.name)
+        write_corpus(self.tmp / "corpus", per_suite=4)
+
+    def test_the_readback_is_logged_per_case_and_per_run(self):
+        driver = FakeDriver(hits={"f6": {"new": 1}}, launch_hits={"f6": {"new": 2}}, readback={"f6": "new"})
+        receipt, code = run_cases(self.tmp, driver, switch="f6", arm="new", batch_limit=4, jobs=1)
+        self.assertEqual(code, 0, receipt)
+        self.assertEqual(receipt["switch_readback"], {"f6": {"new": 12}})
+        self.assertEqual(receipt["cases"]["alpha/case-000"]["switch_readback"], {"f6": "new"})
+        self.assertTrue(receipt["arm_applied"])
+        self.assertIsNone(receipt["arm_not_applied"])
+        # 3 launches of 4 cases each: launch hits count with the case hits.
+        self.assertEqual(receipt["launch_switch_hits"], {"f6": {"new": 6}})
+        self.assertEqual(receipt["switch_hits"], {"f6": {"new": 18}})
+        on_disk = json.loads((self.tmp / "out" / "receipt.json").read_text())
+        self.assertEqual(on_disk["switch_readback"], {"f6": {"new": 12}})
+        self.assertEqual(on_disk["cases"]["beta/case-003"]["switch_readback"], {"f6": "new"})
+
+    def test_a_launch_only_site_exercises_the_arm(self):
+        driver = FakeDriver(launch_hits={"f6": {"new": 1}}, readback={"f6": "new"})
+        receipt, code = run_cases(self.tmp, driver, switch="f6", arm="new", batch_limit=12, jobs=1)
+        self.assertEqual(code, 0, receipt)
+        self.assertTrue(receipt["arm_exercised"])
+
+    def test_another_arm_read_back_fails_the_run(self):
+        driver = FakeDriver(hits={"f6": {"new": 1}}, readback={"f6": "old"})
+        receipt, code = run_cases(self.tmp, driver, switch="f6", arm="new")
+        self.assertEqual(code, 1)
+        self.assertFalse(receipt["arm_applied"])
+        driver = FakeDriver(hits={"f6": {"new": 1}})
+        receipt, code = run_cases(self.tmp, driver, switch="f6", arm="new")
+        self.assertFalse(receipt["arm_applied"], "no readback proves no arm")
+
+    def test_a_malformed_readback_is_a_crash(self):
+        result = oracle.coerce_result({"status": "Pass", "switch_readback": {"f6": 1}})
+        self.assertEqual(result["status"], "Crash")
+        self.assertIn("malformed switch_readback", result["message"])
+
+    def test_one_arm_mismatch_stops_the_run_with_no_retry(self):
+        driver = FakeDriver(wrong_arms={"alpha/case-000"})
+        receipt, code = run_cases(self.tmp, driver, switch="f6", arm="new", batch_limit=4, jobs=1, retry_limit=3)
+        self.assertEqual(code, 1)
+        self.assertEqual(driver.sessions, 1, "one launch, no relaunch per case")
+        self.assertEqual([(cid, phase) for cid, phase, *_ in driver.calls], [("alpha/case-000", "run")])
+        self.assertEqual(receipt["arm_not_applied"], {
+            "verdict": "arm-not-applied", "case": "alpha/case-000", "phase": "run",
+            "problems": ["f6=new: snapshot.switches read back app.f6=old"], "readback": {"f6": "old"}})
+        self.assertEqual(receipt["counts"], {"not-run": 12})
+        self.assertEqual(receipt["switch_readback"], {"f6": {"old": 1}})
+        self.assertFalse(receipt["arm_applied"])
+        self.assertFalse(receipt["ok"])
+        self.assertIn("arm-not-applied at alpha/case-000", (self.tmp / "out" / "index.md").read_text())
+
+    def test_parallel_batches_stop_too(self):
+        driver = FakeDriver(wrong_arms={f"{s}/case-{i:03d}" for s in ("alpha", "beta", "gamma") for i in range(4)})
+        receipt, code = run_cases(self.tmp, driver, batch_limit=1, jobs=4, retry_limit=3)
+        self.assertEqual(code, 1)
+        self.assertTrue(all(phase == "run" for _, phase, *_ in driver.calls), "no retry phase ran")
+        self.assertLessEqual(len(driver.calls), 4, "only batches already running reach a case")
+        self.assertEqual(receipt["arm_not_applied"]["verdict"], "arm-not-applied")
+
+    def test_the_merge_keeps_the_refusal_and_sums_the_readback(self):
+        outs = []
+        for i in range(2):
+            out = self.tmp / f"s{i}"
+            driver = FakeDriver(readback={"f6": "new"}, hits={"f6": {"new": 1}},
+                                wrong_arms={"gamma/case-003"} if i == 1 else ())
+            run_cases(self.tmp, driver, shard=(i, 2), out=out, run_id=f"r{i}", switch="f6", arm="new", jobs=1)
+            outs.append(out)
+        view, errors = oracle.merge_runs(outs, require_complete=True)
+        self.assertEqual(errors, [])
+        self.assertEqual(view.receipt["arm_not_applied"]["case"], "gamma/case-003")
+        self.assertFalse(view.receipt["ok"])
+        side = oracle.Side("new", "f6", "new", {"f6": "new"}, None, None)
+        self.assertIn("arm-not-applied: the new side f6=new: snapshot.switches read back app.f6=old",
+                      oracle.side_refusal(view.receipt, side))
+
+    def test_an_unknown_switch_aborts_before_any_product_starts(self):
+        opened = []
+        with self.assertRaisesRegex(oracle.UsageError, r"unknown switch: ghost: no .*ghost\.json; nothing ran"):
+            oracle.run_one(options(self.tmp, switch="ghost", arm="new", switches={"ghost": "new"}),
+                           open_session=lambda ctx: opened.append(ctx))
+        self.assertEqual(opened, [])
 
 
 class RunTests(unittest.TestCase):
@@ -635,6 +744,219 @@ class CompareTests(unittest.TestCase):
             code = quiet(oracle.main, ["diff", "--base-run", str(tmp / "base"), "--head-run", str(tmp / "head"),
                                        "--out", str(tmp / "cmp")])
             self.assertEqual(code, 2)
+
+
+SWITCH = "layer-hosting"
+APP_KEY = "browserResize.layerHosting"
+
+
+class ArmSession:
+    def __init__(self, driver: "ArmDriver", ctx) -> None:
+        self.driver = driver
+        self.arm = ctx["switches"].get(SWITCH)
+
+    def run_case(self, case, ctx):
+        return self.driver.run(case, ctx, self.arm)
+
+    def close(self) -> None:
+        pass
+
+
+class ArmDriver:
+    """A product that applies the switch arm it is launched with and counts its site hits.
+
+    Each knob breaks one thing the switch diff must catch: `readback` overrides the arm the
+    product reports, `facet_arm` the arm its snapshots show, `hits` the site counts per arm
+    (`{arm: {other_arm: n}}`), `value_of(cid, arm)` the compared value.
+    """
+
+    def __init__(self, readback=None, facet_arm=None, hits=None, value_of=None, unexercised=()):
+        self.readback = readback or {}
+        self.facet_arm = facet_arm or {}
+        self.hits = hits
+        self.value_of = value_of or (lambda cid, arm: "v-" + cid)
+        self.unexercised = set(unexercised)
+        self.order = []
+        self.mutex = threading.Lock()  # test-only bookkeeping across the runner's worker threads
+
+    def open_session(self, ctx):
+        return ArmSession(self, ctx)
+
+    def run(self, case, ctx, arm):
+        cid = ctx["case_id"]
+        with self.mutex:
+            self.order.append((arm, cid))
+        shown = self.facet_arm.get(arm, arm)
+        snapshot = {"facets": {"switches": {"arms": {APP_KEY: shown},
+                                            "hits": [{"switch": SWITCH, "site": "BrowserPaneView.resize", "hit": arm == "new",
+                                                      "count": 1}]},
+                               "layout": {"value": self.value_of(cid, arm)}}}
+        hits = self.hits[arm] if self.hits is not None else {arm: 1}
+        return {
+            "status": "Pass",
+            "checkpoints": [{"step": "s1", "checkpoint": "settled", "snapshot": snapshot}],
+            "switch_readback": {SWITCH: self.readback.get(arm, arm)},
+            "switch_hits": {} if cid in self.unexercised else {SWITCH: hits},
+        }
+
+
+def write_registry(root: Path, expected_differences=()) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / f"{SWITCH}.json").write_text(json.dumps({
+        "name": SWITCH, "owner": "p03-rendering", "plan": "plans/cmux-next/chrome-parity/p15-oracle.md", "read": "launch",
+        "app_key": APP_KEY, "default": "old", "planned": "new", "created": "2026-10-20", "expires": "2026-11-03",
+        "suites": ["tabs", "layout"], "expected_differences": list(expected_differences),
+    }))
+    return root
+
+
+class SwitchDiffTests(unittest.TestCase):
+    """`oracle.py diff --switch` (p15-oracle-111): one build, two arms, refused unless both arms ran."""
+
+    def setUp(self):
+        raw = tempfile.TemporaryDirectory()
+        self.addCleanup(raw.cleanup)
+        self.tmp = Path(raw.name)
+        tabs = {f"tabs/t{i}": {"id": f"tabs/t{i}", "switches": [SWITCH], "steps": [{"id": "s1", "op": "snapshot"}]}
+                for i in range(6)}
+        write_corpus(self.tmp / "corpus", suites=("layout", "other"), per_suite=4, extra=tabs)
+        self.registry = write_registry(self.tmp / "switches")
+        # run_one checks each switch's key in the product catalog before anything starts (p15-oracle-049);
+        # the registry's app key is in this test's catalog, not in the checkout's.
+        catalog = self.tmp / "RefactorSwitches.swift"
+        catalog.write_text(f'public enum RefactorSwitchKey: String {{\n    case layerHosting = "{APP_KEY}"\n}}\n')
+        roots = oracle.switch_roots
+        patch = mock.patch.object(oracle, "switch_roots",
+                                  lambda registry: replace(roots(registry), app_catalog=catalog))
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def argv(self, *extra):
+        return ["diff", "--switch", SWITCH, "--switch-registry", str(self.registry), "--corpus", str(self.tmp / "corpus"),
+                "--expectations-root", str(self.tmp / "expectations"), "--out", str(self.tmp / "cmp"), "--jobs", "4",
+                "--ref", "0" * 40, "--isolation", "none", *extra]
+
+    def diff(self, driver, *extra):
+        args = oracle.build_parser().parse_args(self.argv(*extra))
+        code = quiet(oracle.diff_switch, args, self.tmp / "cmp", driver.open_session)
+        return code, json.loads((self.tmp / "cmp" / "comparison.json").read_text())
+
+    def divergences(self):
+        text = (self.tmp / "cmp" / "divergences.jsonl").read_text()
+        return [json.loads(line) for line in text.splitlines() if line.strip()]
+
+    def test_both_arms_applied_and_exercised_pass(self):
+        driver = ArmDriver()
+        code, cmp = self.diff(driver, "--shards", "3")
+        self.assertEqual(code, 0, cmp["refused"])
+        self.assertTrue(cmp["ok"])
+        # The registry's suites only: tabs (6) and layout (4), never `other`.
+        self.assertEqual(cmp["compared"], 10)
+        self.assertEqual(cmp["shards"], [0, 1, 2])
+        self.assertTrue(cmp["complete"])
+        block = cmp["switch"]
+        self.assertEqual((block["name"], block["refusals"], block["suites_not_run"]), (SWITCH, [], []))
+        self.assertEqual(block["arms"]["old"]["readback"], ["old"])
+        self.assertEqual(block["arms"]["new"]["readback"], ["new"])
+        self.assertEqual(block["readback_snapshots"], 10)
+        self.assertEqual(self.divergences(), [])
+        # Shard by shard, arm old then arm new, so the two arms of a case run back to back.
+        arms = [arm for arm, _ in driver.order]
+        shard_runs = [arm for i, arm in enumerate(arms) if i == 0 or arms[i - 1] != arm]
+        self.assertEqual(shard_runs, ["old", "new"] * 3)
+        for arm in oracle.ARMS:
+            self.assertEqual(sorted(p.name for p in (self.tmp / "cmp" / arm).iterdir()), ["shard-0", "shard-1", "shard-2"])
+
+    def test_a_product_that_ignores_the_switch_is_refused(self):
+        code, cmp = self.diff(ArmDriver(readback={"new": "old"}, facet_arm={"new": "old"}))
+        self.assertEqual(code, oracle.EXIT_REFUSED)
+        self.assertTrue(cmp["refused"].startswith("arms-read-back-same"), cmp["refused"])
+        self.assertIn("arm-not-applied: layer-hosting read back old on the new arm", cmp["switch"]["refusals"])
+        self.assertFalse(cmp["ok"])
+        self.assertEqual(self.divergences(), [])
+
+    def test_snapshots_that_read_back_one_arm_are_refused_by_diff_py(self):
+        # The receipts look right, but the facet shows the same arm on both sides.
+        code, cmp = self.diff(ArmDriver(facet_arm={"new": "old"}))
+        self.assertEqual(code, oracle.EXIT_REFUSED)
+        self.assertTrue(cmp["refused"].startswith("arms-read-back-same: 10 snapshots"), cmp["refused"])
+        self.assertEqual(cmp["diff_exit"], oracle.DIFF_ARMS_SAME)
+
+    def test_zero_hits_on_an_arm_is_not_exercised(self):
+        code, cmp = self.diff(ArmDriver(hits={"old": {"old": 1}, "new": {}}))
+        self.assertEqual(code, oracle.EXIT_REFUSED)
+        self.assertEqual(cmp["refused"], "arm-not-exercised: 0 hits of layer-hosting on the new arm")
+
+    def test_hits_of_the_other_arm_are_not_applied(self):
+        code, cmp = self.diff(ArmDriver(hits={"old": {"old": 1}, "new": {"new": 1, "old": 1}}))
+        self.assertEqual(code, oracle.EXIT_REFUSED)
+        self.assertTrue(cmp["refused"].startswith("arm-not-applied: the new arm ran 10 old-arm site hits"), cmp["refused"])
+
+    def test_a_listed_case_with_no_hits_is_not_exercised(self):
+        code, cmp = self.diff(ArmDriver(unexercised={"tabs/t3"}))
+        self.assertEqual(code, oracle.EXIT_REFUSED)
+        self.assertIn("1 cases that list layer-hosting had 0 hits on the old arm: tabs/t3", cmp["refused"])
+        self.assertEqual(cmp["switch"]["arms"]["new"]["unexercised_cases"], ["tabs/t3"])
+
+    def test_divergence_goes_to_divergences_jsonl(self):
+        value_of = lambda cid, arm: f"{cid}-{arm}" if cid == "tabs/t2" else cid  # noqa: E731
+        code, cmp = self.diff(ArmDriver(value_of=value_of))
+        self.assertEqual(code, 1)
+        self.assertEqual(cmp["divergent"], ["tabs/t2"])
+        [row] = self.divergences()
+        self.assertEqual((row["journey"], row["pointer"], row["a"], row["b"]),
+                         ("tabs/t2", "/facets/layout/value", "tabs/t2-old", "tabs/t2-new"))
+        self.assertEqual((row["switch"], row["a_label"], row["b_label"]), (SWITCH, f"{SWITCH}=old", f"{SWITCH}=new"))
+        self.assertIn("--arm-pointer", row["replay"])
+
+    def test_expected_differences_explain_the_intended_change(self):
+        write_registry(self.registry, [{"pointer": "/facets/layout/value", "case": "tabs/*", "reason": "new arm resizes in one commit"}])
+        value_of = lambda cid, arm: f"{cid}-{arm}" if cid.startswith("tabs/") else cid  # noqa: E731
+        code, cmp = self.diff(ArmDriver(value_of=value_of))
+        self.assertEqual(code, 0, cmp["refused"])
+        self.assertEqual(len(cmp["explained"]), 10)  # the hits facet differs by arm in every case
+        report = json.loads(Path(cmp["divergence"]).read_text())
+        reasons = {e["reason"] for c in report["cases"] if c["case"].startswith("tabs/") for e in c["explained"]}
+        self.assertIn("new arm resizes in one commit", reasons)
+
+    def test_worker_shard_runs_compare_through_base_and_head_runs(self):
+        cases, _ = oracle.load_corpus(self.tmp / "corpus")
+        driver = ArmDriver()
+        for arm in oracle.ARMS:
+            for i in range(2):
+                oracle.perform_run(
+                    options(self.tmp, suites=("tabs", "layout"), shard=(i, 2), out=self.tmp / f"{arm}{i}", run_id=f"{arm}{i}",
+                            switch=SWITCH, arm=arm, switches={SWITCH: arm}, ref="0" * 40, corpus=self.tmp / "corpus"),
+                    cases, driver.open_session, None, {})
+        runs = [a for arm, flag in (("old", "--base-run"), ("new", "--head-run")) for i in range(2)
+                for a in (flag, str(self.tmp / f"{arm}{i}"))]
+        code, cmp = self.diff(driver, *runs)
+        self.assertEqual(code, 0, cmp["refused"])
+        self.assertEqual(cmp["compared"], 10)
+        # The arms swapped are not an old/new pair.
+        swapped = [a.replace("--base-run", "--x").replace("--head-run", "--base-run").replace("--x", "--head-run") for a in runs]
+        self.assertEqual(quiet(oracle.main, self.argv(*swapped)), 2)
+
+    def test_arms_of_two_builds_are_refused(self):
+        cases, _ = oracle.load_corpus(self.tmp / "corpus")
+        driver = ArmDriver()
+        for arm, ref in (("old", "0" * 40), ("new", "1" * 40)):
+            oracle.perform_run(options(self.tmp, suites=("tabs", "layout"), out=self.tmp / arm, run_id=arm, switch=SWITCH,
+                                       arm=arm, switches={SWITCH: arm}, ref=ref, corpus=self.tmp / "corpus"),
+                               cases, driver.open_session, None, {})
+        code, cmp = self.diff(driver, "--base-run", str(self.tmp / "old"), "--head-run", str(self.tmp / "new"))
+        self.assertEqual(code, oracle.EXIT_REFUSED)
+        self.assertTrue(cmp["refused"].startswith("arms-differ-beyond-switch: ref"), cmp["refused"])
+
+    def test_a_narrower_suite_is_recorded(self):
+        code, cmp = self.diff(ArmDriver(), "--suite", "tabs")
+        self.assertEqual(code, 0, cmp["refused"])
+        self.assertEqual(cmp["switch"]["suites_not_run"], ["layout"])
+
+    def test_shards_and_shard_are_exclusive(self):
+        self.assertEqual(quiet(oracle.main, self.argv("--shards", "2", "--shard", "1/2")), 2)
+        self.assertEqual(quiet(oracle.main, ["diff", "--shards", "2", "--base-run", "x", "--head-run", "y",
+                                             "--out", str(self.tmp / "c2")]), 2)
 
 
 class EngineSession(FakeSession):
