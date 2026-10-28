@@ -165,7 +165,7 @@ export function ComposerBox({
     }),
     [inline],
   );
-  const placed = new Set(inlineTokenIds(field.value));
+  const placed = new Set(inlineTokenIds(field.value, inline.known));
   const { onBeforeInput, onKeyDown } = field;
   // A press on the card around the text (the field's padding, the gap around the button row, the
   // card's edge) focuses the prompt where its caret was, as in Codex and Claude Code, whose whole
@@ -215,7 +215,10 @@ export function ComposerBox({
           {...(onCancelAttachment ? { onCancel: inline.cancel } : {})}
           {...(onRetryAttachment ? { onRetry: onRetryAttachment } : {})}
           onReorder={onReorderAttachment ?? inline.reorder}
-          onExpand={pastedChips.expand}
+          onExpand={(id) => {
+            pastedChips.expand(id);
+            prompt.current?.removeInline(id);
+          }}
         />
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
         <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={onFieldMenuOpen}>
@@ -251,11 +254,11 @@ export function ComposerBox({
                 : backspacedAttachment(
                     event,
                     prompt.current?.atStart() ?? false,
-                    attachments.filter((chip) => !placed.has(chip.id)),
+                    attachments.filter((chip) => attachmentView === "strip" || !placed.has(chip.id)),
                   );
               if (backspaced) {
                 event.preventDefault();
-                setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
+                inline.remove(backspaced.id);
                 return;
               }
               onKeyDown?.(event);

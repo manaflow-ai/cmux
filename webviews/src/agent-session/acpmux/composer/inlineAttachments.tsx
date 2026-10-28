@@ -8,7 +8,13 @@
 // the text's order.
 import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { type ComposerAttachment, type DroppedKind, inlineTokenIds, orderedByMarks } from "../attachments";
+import {
+  type ComposerAttachment,
+  type DroppedKind,
+  inlineTokenIds,
+  inlineCopyParent,
+  orderedByMarks,
+} from "../attachments";
 import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
@@ -70,6 +76,19 @@ export function useInlineAttachments(options: Options) {
     }
   }, [options.pending, options.attachments]);
 
+  const sourceFor = (id: string): ComposerAttachment | undefined => {
+    let parent: string | undefined = id;
+    while (parent !== undefined) {
+      const found =
+        live.current.attachmentsRef.current.find((item) => item.id === parent) ?? removed.current.get(parent);
+      if (found) return found;
+      parent = inlineCopyParent(parent);
+    }
+    return undefined;
+  };
+  const known = (id: string) =>
+    placed.current.has(id) || live.current.pending.some((chip) => chip.id === id) || sourceFor(id) !== undefined;
+
   const [api] = useState(() => ({
     /// The person's paste or drop made `chips`: each goes in at the caret, images and files alike, so
     /// the prompt reads text, image, text, file as written (attachmentIntake.tsx `place`).
@@ -83,7 +102,7 @@ export function useInlineAttachments(options: Options) {
     ready() {
       const { attachments, field, placing } = live.current;
       if (!placing()) return;
-      const marks = new Set(inlineTokenIds(field.current?.value() ?? seen.current));
+      const marks = new Set(inlineTokenIds(field.current?.value() ?? seen.current, known));
       const fresh = attachments.filter((chip) => !marks.has(chip.id) && !removed.current.has(chip.id));
       if (fresh.length) field.current?.insertInline(fresh.map((chip) => chip.id));
     },
@@ -91,8 +110,8 @@ export function useInlineAttachments(options: Options) {
     edited(markdown: string) {
       const before = seen.current;
       seen.current = markdown;
-      const was = inlineTokenIds(before);
-      const now = inlineTokenIds(markdown);
+      const was = inlineTokenIds(before, known);
+      const now = inlineTokenIds(markdown, known);
       if (!was.length && !now.length) return;
       const kept = new Set(now);
       const had = new Set(was);
@@ -107,12 +126,7 @@ export function useInlineAttachments(options: Options) {
           if (next.some((attachment) => attachment.id === id)) continue;
           // Undo, or a cut pasted back: the same attachment. A copy pasted beside its original: a
           // copy of it under the node's own id.
-          const root = id.split("~")[0]!;
-          const source =
-            removed.current.get(id) ??
-            next.find((attachment) => attachment.id === root) ??
-            removed.current.get(root) ??
-            next.find((attachment) => attachment.id.split("~")[0] === root);
+          const source = sourceFor(id);
           if (source) next = [...next, { ...source, id }];
         }
         return orderedByMarks(next, now);
@@ -141,7 +155,7 @@ export function useInlineAttachments(options: Options) {
       const next = reordered(attachmentsRef.current, id, index);
       attachmentsRef.current = next;
       setAttachments(() => next);
-      const inText = new Set(inlineTokenIds(seen.current));
+      const inText = new Set(inlineTokenIds(seen.current, known));
       if (inText.size > 1)
         field.current?.orderInline(next.filter((each) => inText.has(each.id)).map((each) => each.id));
     },
@@ -149,13 +163,7 @@ export function useInlineAttachments(options: Options) {
     sent(ids: Iterable<string>) {
       for (const id of ids) removed.current.delete(id);
     },
-    known(id: string) {
-      return (
-        placed.current.has(id) ||
-        removed.current.has(id) ||
-        live.current.attachmentsRef.current.some((item) => item.id === id)
-      );
-    },
+    known,
     onInlineViews: setViews,
   }));
 
@@ -201,7 +209,8 @@ function InlineChip({
 
   const [thumb, setThumb] = useState(() => keptThumb(id));
   useEffect(() => {
-    if (!thumb && attachment) setThumb(keptThumb(attachment.id.split("~")[0]!) ?? keptThumb(attachment.id));
+    if (!thumb && attachment)
+      setThumb(keptThumb(inlineCopyParent(attachment.id) ?? attachment.id) ?? keptThumb(attachment.id));
   }, [attachment, thumb]);
   // A node whose attachment is not here (yet: a chat's kept chips still on their way) draws nothing.
   if (!attachment && !pending) return null;
