@@ -49,6 +49,24 @@ import Testing
             == [Self.occluded, Self.visible, Self.hidden, Self.visible, Self.hidden, Self.visible])
     }
 
+    /// One visibility source per window (audit D7): the page follows its window's node, so a window an opaque
+    /// cmux window covers (its ``WindowOcclusionFamily``, which AppKit still reports visible) occludes the page,
+    /// and uncovering it shows the page again, with no AppKit notice at all.
+    @Test func aWindowItsFamilyCoversOccludesThePage() throws {
+        let runtime = try Self.runtime()
+        let (host, tab) = try Self.livePane(runtime)
+        let window = FakeWindow()
+        try Self.watch(host, window)
+        host.present(tab, in: window.container)
+        VisibilitySpy.reset()
+
+        WindowOcclusionFamily.of(window.window).set(occluded: true)
+        WindowOcclusionFamily.of(window.window).set(occluded: false)
+
+        #expect(VisibilitySpy.posts.map(\.visibility) == [Self.occluded, Self.visible],
+                "the page did not follow its window's visibility source")
+    }
+
     @Test func leavingTheWindowHidesThePage() throws {
         let runtime = try Self.runtime()
         let (host, tab) = try Self.livePane(runtime)
