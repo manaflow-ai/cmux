@@ -1,4 +1,4 @@
-import CmuxNextDictation
+@testable import CmuxNextDictation
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -101,6 +101,36 @@ struct AgentPaneDictationAudioTests {
         #expect(mode == 0o600)
     }
 
+    /// A finish between a tap taking its second of samples and that second's write: the header
+    /// counted the second and the file did not hold it, and the late write opened a new file.
+    @Test func aFinishDuringATapsFlushKeepsEverySample() async throws {
+        let folder = FileManager.default.temporaryDirectory.appending(path: "dictation-test-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let finished = FinishBox()
+        let holder = RecordingHolder()
+        let recording = DictationAudioRecording(file: folder.appending(path: "race.wav"), flushTaken: {
+            // The tap's thread, after it took the flush: the session ends right here.
+            let done = DispatchSemaphore(value: 0)
+            Task.detached {
+                await finished.set(await holder.recording?.finish())
+                done.signal()
+            }
+            done.wait()
+        })
+        holder.recording = recording
+        // Exactly one second, so this append takes the flush and fires the hook.
+        let second = [Float](repeating: 0.25, count: 16_000)
+        await Task.detached { second.withUnsafeBufferPointer { recording.append($0, sampleRate: 16_000) } }.value
+        let audio = try #require(await finished.value)
+        let wav = try #require(audio.data)
+        let dataBytes = wav[40..<44].enumerated().reduce(0) { $0 | Int($1.element) << (8 * $1.offset) }
+        #expect(dataBytes == 16_000 * 2, "the header counts every sample")
+        #expect(wav.count == 44 + dataBytes, "and the file holds every sample it counts")
+        // No second file appears after the finish.
+        try await Task.sleep(for: .milliseconds(100))
+        #expect((try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.isEmpty ?? true)
+    }
+
     @Test func aDiscardedRecordingLeavesNoFile() async throws {
         let (recording, folder) = recording()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -136,4 +166,13 @@ struct AgentPaneDictationAudioTests {
         #expect(payload["audio"] == nil)
         #expect(AgentPaneDictation.payload(DictationUpdate(phase: .idle, text: "fix the build"))["audioOmitted"] == nil)
     }
+}
+
+private actor FinishBox {
+    private(set) var value: DictationAudio?
+    func set(_ audio: DictationAudio?) { value = audio }
+}
+
+private final class RecordingHolder: @unchecked Sendable {
+    var recording: DictationAudioRecording?
 }

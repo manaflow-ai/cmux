@@ -72,9 +72,17 @@ public final class DictationAudioRecording: Sendable {
         var failed = false
     }
 
+    /// Called after a tap took a full second for the file (tests interleave a finish there).
+    private let flushTaken: (@Sendable () -> Void)?
+
     /// A recording into `file` (made owner-only at the first second heard).
-    public init(file: URL) {
+    public convenience init(file: URL) {
+        self.init(file: file, flushTaken: nil)
+    }
+
+    init(file: URL, flushTaken: (@Sendable () -> Void)?) {
         self.file = file
+        self.flushTaken = flushTaken
     }
 
     /// A recording in `folder` (default: this user's temporary folder) under a fresh name.
@@ -123,7 +131,9 @@ public final class DictationAudioRecording: Sendable {
             state.written += state.pending.count
             return state.pending
         }
-        if let full { writer.async { self.write(full) } }
+        guard let full else { return }
+        flushTaken?()
+        writer.async { self.write(full) }
     }
 
     /// Why ``finish()`` has nothing, when the session's audio was left out rather than silent.
