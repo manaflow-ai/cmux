@@ -52,6 +52,10 @@ public nonisolated enum CrashKeySlot: UInt16, Sendable, CaseIterable {
     /// 64 words: the stalled main thread's frames, innermost first; each is the image's index in
     /// ``hangInProgressImages`` (high 16 bits) and the offset in that image (low 48 bits).
     case hangInProgressFrames = 56
+    /// The maker of the last agent pane freed without its `close()` (`AgentPaneMaker`'s raw value; 0: none), set
+    /// as it is freed: an abort in that pane's teardown names its owner (2026-10-28,
+    /// handoff/cef-parent-tracker-crash.md). One word after ``hangInProgressFrames``' 64.
+    case unclosedAgentPaneMaker = 120
 
     /// The number of 64-bit words the slot holds.
     public var wordCount: Int {
@@ -83,6 +87,7 @@ public nonisolated enum CrashKeySlot: UInt16, Sendable, CaseIterable {
         case .hangInProgressFrameCount: "hang_in_progress_frame_count"
         case .hangInProgressImages: "hang_in_progress_images"
         case .hangInProgressFrames: "hang_in_progress_frames"
+        case .unclosedAgentPaneMaker: "unclosed_agent_pane_maker"
         }
     }
 
