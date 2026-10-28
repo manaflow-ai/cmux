@@ -66,7 +66,7 @@ struct SessionRemoteWorkspaceEternalTerminalRestoreTests {
         #expect(command.contains("'\\''--port'\\'' '\\''2400'\\''"), "\(command)")
         #expect(command.contains("/opt/et/etterminal"), "\(command)")
         #expect(command.contains("Port=2222"), "\(command)")
-        #expect(command.contains("IdentityFile=/tmp/id with space"), "\(command)")
+        #expect(command.contains(#"IdentityFile="/tmp/id with space""#), "\(command)")
         #expect(command.contains("ProxyJump=bastion"), "\(command)")
         #expect(command.contains("dev@example.com"), "\(command)")
         #expect(!command.contains("mosh"), "\(command)")

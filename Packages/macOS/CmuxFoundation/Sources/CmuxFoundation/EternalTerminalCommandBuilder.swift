@@ -137,7 +137,10 @@ public struct EternalTerminalCommandBuilder: Sendable {
                 options.append("Port=\(value)")
                 index += 2
             case ("-i", let value?):
-                options.append("IdentityFile=\(value)")
+                // `-o` values parse like ssh_config lines, so a path with
+                // spaces needs config quoting to stay one argument.
+                let quoted = value.contains(where: \.isWhitespace) ? "\"\(value)\"" : value
+                options.append("IdentityFile=\(quoted)")
                 index += 2
             default:
                 index += 1
