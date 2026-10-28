@@ -1081,6 +1081,11 @@ export class HomeChannelsStore {
         undefined,
       );
       const history: HomeRun[] = [];
+      // A report can answer a loaded question without a posted reply key and start before the
+      // oldest visible message. Once a page contains answer-bearing runs, keep walking the
+      // timestamp cursor until the owner says history ends; the boundary timestamp alone cannot
+      // prove that those older answer runs are covered.
+      let answerBearingHistory = false;
       let beforeStartedAt: number | undefined;
       let page = 0;
       for (;;) {
@@ -1090,6 +1095,7 @@ export class HomeChannelsStore {
         const list = await this.client.call<HomeRunList>(HomeOps.runs, params);
         if (generation !== this.generation || life !== this.life) return;
         history.push(...list.runs);
+        answerBearingHistory ||= list.runs.some((run) => run.answers.length > 0);
         for (const run of list.runs) {
           if (run.turn) unresolvedReplies.delete(`${run.author}\0${run.turn}`);
         }
@@ -1100,7 +1106,7 @@ export class HomeChannelsStore {
         if (
           !list.hasMore ||
           oldestRun === undefined ||
-          (unresolvedReplies.size === 0 && oldestMessageAt !== undefined && oldestRun <= oldestMessageAt)
+          (unresolvedReplies.size === 0 && !answerBearingHistory && oldestMessageAt !== undefined && oldestRun <= oldestMessageAt)
         )
           break;
         // The protocol uses a strict less-than cursor; guard malformed owners that do not move it.
