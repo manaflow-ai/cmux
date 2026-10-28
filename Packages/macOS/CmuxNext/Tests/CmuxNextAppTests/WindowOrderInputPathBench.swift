@@ -10,9 +10,9 @@ import Testing
 /// main thread, first-seconds evidence). The app keeps its own front-to-back record (the window
 /// registry's recency, updated on every order-in and key change), which the input path reads instead.
 ///
-/// The timing loop runs only with `CMUX_BENCH=1` (Release: `CMUX_BENCH=1 swift test -c release --filter
-/// WindowOrderInputPathBench`) and prints one `WINDOW-ORDER-BENCH {json}` line per path; the agent reads
-/// the numbers before and after. Without it the cases only check the order itself.
+/// Each case checks the order, then times its path (a few hundred rounds, well under a second) and prints
+/// one `WINDOW-ORDER-BENCH {json}` line; the agent reads the numbers before and after. It asserts no time.
+/// `CMUX_BENCH=1` runs ten times the rounds.
 @MainActor @Suite(.serialized) struct WindowOrderInputPathBench {
     private struct World {
         let services: AppServices
@@ -41,9 +41,9 @@ import Testing
 
     private static var benching: Bool { ProcessInfo.processInfo.environment["CMUX_BENCH"] == "1" }
 
-    private static func time(_ label: String, rounds: Int = 2000, _ body: () -> Void) {
-        guard benching else { return body() }
-        for _ in 0..<50 { body() }  // warm
+    private static func time(_ label: String, rounds base: Int = 300, _ body: () -> Void) {
+        let rounds = benching ? base * 10 : base
+        for _ in 0..<20 { body() }  // warm
         var samples: [Double] = []
         samples.reserveCapacity(rounds)
         for _ in 0..<rounds {
@@ -86,8 +86,7 @@ import Testing
         world.services.windows.dispatching(eventFrom: shell2) { _ = registry.perform("selectNextWindow") }
         // From window 2 (front), the next window front to back is window 3.
         #expect(shown === world.windows[2].window, "Select Next Window from window 2 showed \(shown.map { "\($0.windowNumber)" } ?? "nothing")")
-        guard Self.benching else { return }
-        Self.time("select-next-window", rounds: 200) {
+        Self.time("select-next-window", rounds: 100) {
             world.services.windows.dispatching(eventFrom: shell2) { _ = registry.perform("selectNextWindow") }
         }
     }
