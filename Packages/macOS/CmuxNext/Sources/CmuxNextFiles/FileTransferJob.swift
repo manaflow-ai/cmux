@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextCompat
 
 /// One copy or move run by ``FileOperator/transfer(_:to:mode:resolve:)``.
 struct FileTransferJob: Sendable {
@@ -9,7 +10,6 @@ struct FileTransferJob: Sendable {
     let resolve: @Sendable (FileConflict) async -> ConflictAnswer
 
     func run(_ emit: (TransferEvent) -> Void) async throws {
-        let fm = FileManager.default
         var progress = TransferProgress(itemsDone: 0, itemsTotal: sources.count, bytesDone: 0,
                                         bytesTotal: sources.reduce(0) { $0 + Self.bytes(at: $1) }, current: nil)
         emit(.progress(progress))
@@ -35,11 +35,11 @@ struct FileTransferJob: Sendable {
                 emit(.progress(progress))
                 continue
             }
-            if fm.fileExists(atPath: target.path) {
+            if FileManager.checked.fileExists(atPath: target.path) {
                 var isDir: ObjCBool = false
                 // SAFETY: `isDir` is a local that outlives the call; Foundation writes one ObjCBool through the
                 // pointer and keeps no reference to it after returning.
-                unsafe fm.fileExists(atPath: target.path, isDirectory: &isDir)
+                unsafe FileManager.checked.fileExists(atPath: target.path, isDirectory: &isDir)
                 let sourceIsDir = (try? source.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
                 let choice: ConflictChoice
                 if let standing {
@@ -67,7 +67,7 @@ struct FileTransferJob: Sendable {
                     do {
                         // SAFETY: `trashed` is a local that outlives the call; Foundation stores at most one
                         // autoreleased NSURL through the pointer and keeps no reference to it.
-                        try unsafe fm.trashItem(at: target, resultingItemURL: &trashed)
+                        try unsafe FileManager.checked.trashItem(at: target, resultingItemURL: &trashed)
                     } catch {
                         throw FileBrowserError.failed(error.localizedDescription)
                     }
@@ -79,12 +79,12 @@ struct FileTransferJob: Sendable {
             case .move:
                 if Self.sameVolume(source, folder) {
                     // SAFETY: rename reads the NUL-terminated copies of both paths made for the call.
-                    guard unsafe Darwin.rename(source.path, target.path) == 0 else {
+                    guard unsafe blockingRename(source.path, target.path) == 0 else {
                         throw FileBrowserError.posix(errno)
                     }
                 } else {
                     try copy(source, to: target, base: base, progress: &progress, gate: &gate, emit: emit)
-                    try? fm.removeItem(at: source)
+                    try? FileManager.checked.removeItem(at: source)
                 }
             case .copy:
                 try copy(source, to: target, base: base, progress: &progress, gate: &gate, emit: emit)
@@ -117,7 +117,7 @@ struct FileTransferJob: Sendable {
         var info = stat()
         // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
         // `info`, a local live for the call.
-        guard unsafe lstat(url.path, &info) == 0 else { return 0 }
+        guard unsafe blockingLstat(url.path, &info) == 0 else { return 0 }
         if info.st_mode & S_IFMT != S_IFDIR { return Int64(info.st_size) }
         var total: Int64 = 0
         let keys: [URLResourceKey] = [.fileSizeKey, .isRegularFileKey]
@@ -134,7 +134,7 @@ struct FileTransferJob: Sendable {
         var sa = stat(), sb = stat()
         // SAFETY: lstat and stat read the NUL-terminated copies of the paths made for each call and write one struct
         // stat each into `sa` and `sb`, locals live for the calls.
-        guard unsafe lstat(a.path, &sa) == 0, unsafe stat(b.path, &sb) == 0 else { return false }
+        guard unsafe blockingLstat(a.path, &sa) == 0, unsafe blockingStat(b.path, &sb) == 0 else { return false }
         return sa.st_dev == sb.st_dev
     }
 }

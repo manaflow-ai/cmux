@@ -11,6 +11,13 @@ import Foundation
 /// user cannot write, or an editor or `git checkout` that replaced the file and dropped them. The
 /// copy is one file per path, bounded to ``fallbackLimit`` files, oldest first out.
 actor MarkdownTableWidthRepository: MarkdownTableWidthStoring {
+    /// The actor's own serial queue: its file calls block this queue, never a cooperative pool thread
+    /// (Chrome runs file work on a MayBlock sequence, base/task/task_traits.h).
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.files.table-widths", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     /// The extended attribute's name.
     static let attributeName = "com.cmux.markdown.tables"
     /// The largest value kept; the page's own cap keeps far below it.
@@ -30,7 +37,6 @@ actor MarkdownTableWidthRepository: MarkdownTableWidthStoring {
     /// The largest value this store keeps.
     let maxBytes: Int
     private let fallback: URL?
-    private let fileManager: FileManager
     private let limit: Int
     private var writes = 0
 
@@ -49,8 +55,6 @@ actor MarkdownTableWidthRepository: MarkdownTableWidthStoring {
         self.maxBytes = maxBytes
         self.fallback = fallback
         self.limit = fallbackLimit
-        // FileManager.default is documented thread-safe for these calls.
-        self.fileManager = .default
     }
 
     /// `~/Library/Application Support/<bundle id>/MarkdownTableWidths` (per tagged build).
@@ -65,7 +69,7 @@ actor MarkdownTableWidthRepository: MarkdownTableWidthStoring {
         guard let url = copyURL(for: path), let data = try? Data(contentsOf: url),
               let copy = try? JSONDecoder().blockingDecode(Copy.self, from: data), copy.path == path else { return nil }
         // Reading counts as use for the oldest-first pruning.
-        try? fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
+        try? FileManager.checked.setAttributes([.modificationDate: Date()], ofItemAtPath: url.path)
         return Data(copy.value.utf8)
     }
 
@@ -95,11 +99,11 @@ actor MarkdownTableWidthRepository: MarkdownTableWidthStoring {
     private func writeCopy(_ path: String, _ value: Data?) -> Bool {
         guard let fallback, let url = copyURL(for: path) else { return false }
         guard let value, let text = String(data: value, encoding: .utf8) else {
-            try? fileManager.removeItem(at: url)
-            return !fileManager.fileExists(atPath: url.path)
+            try? FileManager.checked.removeItem(at: url)
+            return !FileManager.checked.fileExists(atPath: url.path)
         }
         do {
-            try fileManager.createDirectory(at: fallback, withIntermediateDirectories: true)
+            try FileManager.checked.createDirectory(at: fallback, withIntermediateDirectories: true)
             try JSONEncoder().encode(Copy(path: path, value: text)).write(to: url, options: .atomic)
         } catch {
             return false
@@ -112,13 +116,13 @@ actor MarkdownTableWidthRepository: MarkdownTableWidthStoring {
     /// Drops the least recently used copies past ``limit``.
     private func prune(_ folder: URL) {
         let keys: [URLResourceKey] = [.contentModificationDateKey]
-        guard let files = try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys),
+        guard let files = try? FileManager.checked.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys),
               files.count > limit else { return }
         let dated = files.map { file in
             (file, (try? file.resourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast)
         }
         for (file, _) in dated.sorted(by: { $0.1 < $1.1 }).prefix(files.count - limit) {
-            try? fileManager.removeItem(at: file)
+            try? FileManager.checked.removeItem(at: file)
         }
     }
 }
