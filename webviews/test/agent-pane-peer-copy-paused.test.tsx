@@ -160,6 +160,8 @@ test("a starting machine is read again until it leaves the starting stages, and 
     expect(banner()?.dataset.machine).toBeUndefined();
     expect(cleared).toEqual([1]);
     expect(timers.length).toBe(1);
+    // Leaving the starting stages asks for no read of its own.
+    expect(reads(app.calls)).toBe(before + 2);
     // The chat's machine answers again: the banner goes and nothing more is read.
     const after = reads(app.calls);
     await mount(undefined, app.call);
@@ -169,6 +171,50 @@ test("a starting machine is read again until it leaves the starting stages, and 
     globalThis.setInterval = realSet;
     globalThis.clearInterval = realClear;
   }
+});
+
+test("a machine stuck starting is read at most STARTING_READS times", async () => {
+  const { STARTING_READS } = await import("../src/agent-session/acpmux/peerCloudMachine");
+  const app = fakeApp([{ ...paused, stage: "booting" }]);
+  const timers: (() => void)[] = [];
+  const cleared: unknown[] = [];
+  const realSet = globalThis.setInterval;
+  const realClear = globalThis.clearInterval;
+  globalThis.setInterval = ((fn: () => void) => (timers.push(fn), timers.length)) as typeof setInterval;
+  globalThis.clearInterval = ((id: unknown) => void cleared.push(id)) as typeof clearInterval;
+  try {
+    await mount(PEER, app.call);
+    const before = reads(app.calls);
+    await act(async () => {
+      for (let i = 0; i < STARTING_READS; i++) timers[0]!();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(reads(app.calls)).toBe(before + STARTING_READS);
+    expect(cleared).toContain(1);
+    // Still starting, as far as the list knows: the banner keeps saying so, with no Resume.
+    expect(banner()?.dataset.machine).toBe("starting");
+    expect(timers.length).toBe(1);
+  } finally {
+    globalThis.setInterval = realSet;
+    globalThis.clearInterval = realClear;
+  }
+});
+
+test("a Resume still running for one machine never makes another read as starting", async () => {
+  const other: CloudMachine = { id: "vm_b", name: "build-box", stage: "paused" };
+  const app = fakeApp([paused, other]);
+  // The app never answers this Resume.
+  const call = (method: string, params?: Record<string, unknown>) =>
+    method === "cloudMachine.resume" ? new Promise<unknown>(() => undefined) : app.call(method, params);
+  await mount(PEER, call);
+  await act(async () => {
+    resumeButton()!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(banner()?.dataset.machine).toBe("starting");
+  await mount("build-box", call);
+  expect(banner()?.dataset.machine).toBe("paused");
+  expect(resumeButton()).toBeTruthy();
 });
 
 test("a machine the account does not list, or one that is ready, reads offline as before", async () => {
