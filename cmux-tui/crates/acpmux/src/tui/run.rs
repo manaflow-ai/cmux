@@ -48,7 +48,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         if let Some(i) = app
             .sessions
             .iter()
-            .position(|s| s.get("sessionId").and_then(Value::as_str) == Some(&id))
+            .position(|s| initial_session_matches(s, &id))
         {
             app.select(i);
         }
@@ -227,6 +227,25 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
         println!("acpmux: agents keep running. Web dashboard: {u}");
     }
     result
+}
+
+fn initial_session_matches(session: &Value, id: &str) -> bool {
+    session.get("sessionId").and_then(Value::as_str) == Some(id)
+        || session.get("qualifiedSessionId").and_then(Value::as_str) == Some(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::initial_session_matches;
+    use serde_json::json;
+
+    #[test]
+    fn initial_selection_accepts_a_peer_qualified_id() {
+        let session = json!({"sessionId": "raw", "qualifiedSessionId": "peer/raw"});
+        assert!(initial_session_matches(&session, "peer/raw"));
+        assert!(initial_session_matches(&session, "raw"));
+        assert!(!initial_session_matches(&session, "other/raw"));
+    }
 }
 
 pub(super) fn make_app(
