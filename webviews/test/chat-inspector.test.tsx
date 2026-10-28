@@ -858,21 +858,22 @@ test("200 streamed tokens do not render the completed avatar preview again", asy
   };
   try {
     await paint(0);
-    expect(avatarRenders).toHaveBeenCalledTimes(4);
+    // The compact agent summary previews four avatars in addition to the detailed ended preview.
+    expect(avatarRenders).toHaveBeenCalledTimes(8);
     const initialHashes = toneHashes.mock.calls.length;
     for (let token = 1; token <= 200; token++) await paint(token);
     expect(container.querySelector("p")?.textContent?.trim().split(" ")).toHaveLength(200);
-    expect(avatarRenders).toHaveBeenCalledTimes(4);
+    expect(avatarRenders).toHaveBeenCalledTimes(8);
     expect(toneHashes).toHaveBeenCalledTimes(initialHashes);
     expect(endedRow(container)?.textContent).toBe("31 done");
 
     // A new ended agent changes the preview; real changes must not be frozen by memoization.
     await paint(201, [...completed, subagent(31, "completed")]);
-    expect(avatarRenders).toHaveBeenCalledTimes(8);
+    expect(avatarRenders).toHaveBeenCalledTimes(12);
     expect(endedRow(container)?.textContent).toBe("32 done");
     // The same identity can receive corrected state/harness metadata after its first snapshot.
     await paint(202, [...completed, { ...subagent(31, "failed"), harness: "codex" }]);
-    expect(avatarRenders).toHaveBeenCalledTimes(12);
+    expect(avatarRenders).toHaveBeenCalledTimes(16);
     expect(endedRow(container)?.querySelector(".cv-subagent-avatar")?.getAttribute("data-state")).toBe("failed");
   } finally {
     avatarRenders.mockRestore();

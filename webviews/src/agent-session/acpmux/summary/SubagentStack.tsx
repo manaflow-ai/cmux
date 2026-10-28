@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo } from "react";
 import { useT } from "../i18n";
 import type { SummarySubagent } from "./sessionSummary";
 import { Avatar, STATE_LABEL } from "../subagents/SubagentGroup";
@@ -12,17 +12,30 @@ const DOT_STATE = { running: STATE_LABEL.running, done: STATE_LABEL.completed, f
 /// The compact stack used by summary surfaces that have the folded acpmux agent records. It keeps
 /// the same overlap and tone treatment as the transcript summary stack, while retaining each
 /// harness avatar when the full record is available.
-export function AgentAvatarStack({ agents }: { agents: readonly Subagent[] }) {
-  return (
-    <span className="acpmux-summary-stack acpmux-summary-stack--avatars" aria-hidden="true">
-      {agents.slice(0, STACK).map((agent, index) => (
-        <span key={agent.id} className="acpmux-summary-avatar" data-tone={index % STACK}>
-          <Avatar agent={agent} />
-        </span>
-      ))}
-    </span>
-  );
-}
+export const AgentAvatarStack = memo(
+  function AgentAvatarStack({ agents }: { agents: readonly Subagent[] }) {
+    return (
+      <span className="acpmux-summary-stack acpmux-summary-stack--avatars" aria-hidden="true">
+        {agents.slice(0, STACK).map((agent, index) => (
+          <span key={agent.id} className="acpmux-summary-avatar" data-tone={index % STACK}>
+            <Avatar agent={agent} />
+          </span>
+        ))}
+      </span>
+    );
+  },
+  (previous, next) => {
+    const before = previous.agents.slice(0, STACK);
+    const after = next.agents.slice(0, STACK);
+    return (
+      before.length === after.length &&
+      before.every(
+        (agent, index) =>
+          agent.id === after[index]!.id && agent.state === after[index]!.state && agent.harness === after[index]!.harness,
+      )
+    );
+  },
+);
 
 /// The chat's subagents as one line: a dot per subagent, overlapping, then the counts by state
 /// ("2 running · 19 done"). Each dot's tooltip names its subagent and its state, so the state is
