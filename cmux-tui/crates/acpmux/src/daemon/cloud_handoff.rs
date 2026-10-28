@@ -16,22 +16,32 @@
 //! Turns: the owner opens each turn of a hand-off (`POST
 //! /v1/handoffs/:id/turns`) and then sends the turn's prompt with a prompt id
 //! that names it, `handoff-<turn>-<unique>` (`_meta.acpmux.promptId`, which
-//! acpmux carries on the turn's records). A turn that begins here reports on
-//! exactly the turn its prompt names, and every later report of it stays on
-//! that turn, so a report never lands on another turn however long it waited
-//! in the queue. A prompt that names no turn (one the owner did not open a turn
-//! for) is not reported. A turn the store refuses (no hand-off for the
-//! session, an older or not-yet-opened turn, its turn already ended, or the
-//! hand-off closed) reports nothing more; a closed hand-off gets no more
-//! reports. A closed session reports nothing until it reopens.
+//! acpmux carries on the turn's `turn_started` and `turn_result` records). A
+//! turn's begin and end each report on exactly the turn their prompt names; a
+//! needs-you or running step reports on the turn whose begin was reported. So
+//! a report never lands on another turn however long it waited in the queue,
+//! and a turn that failed before it started still reports its failure. A
+//! prompt that names no turn (one the owner did not open a turn for) is not
+//! reported. A turn the store refuses (no hand-off for the session, an older
+//! or not-yet-opened turn, its turn already ended, or the hand-off closed)
+//! reports nothing more; a closed hand-off gets no more reports. A closed
+//! session reports nothing until it reopens.
+//!
+//! A turn that failed on an error acpmux retries by itself (`hub/auto_resume.rs`:
+//! a connection cut, no capacity) is not reported failed yet: its continuation
+//! (`<prompt id>~resume-<n>`, naming the same turn) goes on with it. It is
+//! reported failed once no continuation comes (`auto_resume_settled`,
+//! `_exhausted` or `_skipped`), another prompt begins, the session closes, or
+//! [`RETRY_WAIT_MAX`] passed.
 //!
 //! The hub's events are only read and queued here; one worker sends the
-//! reports in order, one at a time, so a slow API never holds the event
-//! stream. The queue holds at most [`QUEUE_CAP`] steps. Past
-//! [`QUEUE_SOFT_CAP`] waiting steps a needs-you or running step is dropped;
-//! past [`QUEUE_CAP`] any step is, and the worker then stops following every
-//! turn it was reporting (it may have missed one's end), so no report goes on
-//! a turn it lost track of.
+//! reports in order, one at a time, and reads a finished turn's reply (only
+//! that turn's records), so a slow API or disk never holds the event stream.
+//! The queue holds at most [`QUEUE_CAP`] steps. Past [`QUEUE_SOFT_CAP`]
+//! waiting steps a needs-you or running step is dropped; past [`QUEUE_CAP`]
+//! any step is. Then, or when the event stream lags, the queue's steps from
+//! before the loss start no turn and report no needs-you or running, and every
+//! turn being reported stops being followed (one's end may be lost).
 
 use crate::hub::Hub;
 use serde_json::{Map, Value, json};
@@ -39,7 +49,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
 
@@ -68,6 +78,9 @@ const RETRY_AFTER: [Duration; 2] = [Duration::from_secs(2), Duration::from_secs(
 /// An agent that took the line and never answered (one from before hand-off reports reads the
 /// line and says nothing) is not asked again for this long: its sessions' steps are skipped.
 const SILENT_FOR: Duration = Duration::from_secs(15 * 60);
+/// A failed turn that acpmux retries by itself is reported failed after this long without
+/// another step of its own (the longest wait `autoResumeDelaysMs` takes is an hour).
+const RETRY_WAIT_MAX: Duration = Duration::from_secs(65 * 60);
 /// A finished turn's summary: the start of its last reply.
 const DONE_CHARS: usize = 600;
 /// A failed turn's summary, and what a permission or question asks.
@@ -85,8 +98,11 @@ pub(super) enum Step {
     Asks(Option<String>),
     /// The session runs again (after an ask was answered).
     Runs,
-    /// The turn ended.
-    Ended(End),
+    /// A turn ended: how, and the hand-off turn its prompt names, if it names one.
+    Ended(End, Option<u64>),
+    /// A failed turn's automatic continuation will not come (`auto_resume_settled`,
+    /// `auto_resume_exhausted`, `auto_resume_skipped`).
+    NoRetry,
     /// The session was closed.
     Closed,
     /// A closed session was opened again.
@@ -104,17 +120,22 @@ impl Step {
 pub(super) enum End {
     /// Finished, with the start of its last reply when it was read.
     Completed(Option<String>),
-    /// Why it failed (masked, cut).
-    Failed(String),
+    /// Why it failed (masked, cut), and whether acpmux decides on a continuation of it
+    /// (`turn_errors::resume_cause`, as `hub/auto_resume.rs` does).
+    Failed { why: String, retried: bool },
     /// Stopped before it finished.
     Cancelled,
 }
 
 /// The step a record is, or `None` for every record a hand-off does not follow. A completed
-/// turn's reply is read by the caller (`handoff_loop`), when the turn ends.
+/// turn's reply is read by the worker (`handoff_loop`), from that turn's records.
 pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
+    let named = || named_turn(msg["promptId"].as_str());
     match kind {
-        "turn_started" => Some(Step::Began(named_turn(msg["promptId"].as_str()))),
+        "turn_started" => Some(Step::Began(named())),
+        "auto_resume_settled" | "auto_resume_exhausted" | "auto_resume_skipped" => {
+            Some(Step::NoRetry)
+        }
         "permission_request" => Some(Step::Asks(ask_text(&msg["request"]))),
         "reopened" => Some(Step::Reopened),
         "status" => match msg["status"].as_str()? {
@@ -123,14 +144,18 @@ pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
             "closed" => Some(Step::Closed),
             _ => None,
         },
-        "turn_result" => Some(Step::Ended(match msg["status"].as_str() {
-            Some("completed") => End::Completed(None),
-            Some("cancelled") => End::Cancelled,
-            _ => {
-                let why = msg["errorText"].as_str().or(msg["error"].as_str()).unwrap_or("");
-                End::Failed(cut(why, NOTE_CHARS))
-            }
-        })),
+        "turn_result" => {
+            let end = match msg["status"].as_str() {
+                Some("completed") => End::Completed(None),
+                Some("cancelled") => End::Cancelled,
+                _ => {
+                    let why = msg["errorText"].as_str().or(msg["error"].as_str()).unwrap_or("");
+                    let retried = crate::hub::turn_errors::resume_cause(why, why).is_some();
+                    End::Failed { why: cut(why, NOTE_CHARS), retried }
+                }
+            };
+            Some(Step::Ended(end, named()))
+        }
         _ => None,
     }
 }
@@ -255,9 +280,11 @@ struct Track {
     now: Now,
     /// The hand-off is closed: nothing more is reported.
     closed: bool,
+    /// The last turn the store refused (or had no hand-off for): its end is not sent.
+    refused: Option<u64>,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 enum Now {
     /// No turn running here, or one this hand-off does not follow.
     #[default]
@@ -265,6 +292,9 @@ enum Now {
     /// A turn reported on hand-off turn `turn`; `last` is the status the store has from it
     /// (`None`: its begin was not answered).
     Reporting { turn: u64, last: Option<&'static str> },
+    /// Turn `turn` failed and acpmux may continue it: `why` is reported once no continuation
+    /// comes. `since`: when it failed.
+    Retrying { turn: u64, why: String, since: tokio::time::Instant },
 }
 
 /// The worker's state: each session's track. Steps come in order, one at a time.
@@ -323,9 +353,26 @@ impl<I: Io> Reporter<I> {
         if track.closed {
             return;
         }
-        let now = track.now;
+        let mut now = track.now.clone();
+        // A continuation that never came (a daemon restart dropped its wait).
+        if let Now::Retrying { turn, since, .. } = &now
+            && since.elapsed() >= RETRY_WAIT_MAX
+        {
+            let turn = *turn;
+            self.give_up_retry(session, turn).await;
+            now = Now::Quiet;
+        }
         match (step, now) {
-            (Step::Began(turn), _) => self.begin(session, turn).await,
+            (Step::Began(named), now) => {
+                // Another prompt took the chat: the failed turn is not continued.
+                if let Now::Retrying { turn, .. } = now
+                    && named != Some(turn)
+                {
+                    self.give_up_retry(session, turn).await;
+                }
+                self.begin(session, named).await;
+            }
+            (Step::NoRetry, Now::Retrying { turn, .. }) => self.give_up_retry(session, turn).await,
             (Step::Asks(what), Now::Reporting { turn, last })
                 if last != Some("needs-you") || what.is_some() =>
             {
@@ -334,18 +381,51 @@ impl<I: Io> Reporter<I> {
             (Step::Runs, Now::Reporting { turn, last: Some("needs-you") }) => {
                 self.follow(session, turn, "running", None).await;
             }
-            (Step::Ended(end), Now::Reporting { turn, .. }) => {
-                let (status, note) = match end {
-                    End::Completed(reply) => ("done", reply.filter(|r| !r.is_empty())),
-                    End::Failed(why) => ("failed", Some(why).filter(|w| !w.is_empty())),
-                    End::Cancelled => ("failed", Some("Stopped before it finished.".to_owned())),
-                };
-                self.follow(session, turn, status, note).await;
-                if let Some(track) = self.tracks.get_mut(session) {
-                    track.now = Now::Quiet;
-                }
-            }
+            (Step::Ended(end, named), now) => self.end(session, end, named, now).await,
             _ => {}
+        }
+    }
+
+    /// A turn ended: reported on the turn its prompt names, unless the store refused that turn,
+    /// or acpmux may continue it.
+    async fn end(&mut self, session: &str, end: End, named: Option<u64>, now: Now) {
+        let refused = self.tracks.get(session).and_then(|t| t.refused);
+        let Some(turn) = named.filter(|turn| refused != Some(*turn)) else {
+            // A prompt that names no hand-off turn, or one the store refused.
+            self.set_now(session, Now::Quiet);
+            return;
+        };
+        if let Now::Retrying { turn: other, .. } = now
+            && other != turn
+        {
+            self.give_up_retry(session, other).await;
+        }
+        let (status, note) = match end {
+            End::Completed(reply) => ("done", reply.filter(|r| !r.is_empty())),
+            End::Failed { why, retried: true } => {
+                let since = tokio::time::Instant::now();
+                return self.set_now(session, Now::Retrying { turn, why, since });
+            }
+            End::Failed { why, retried: false } => ("failed", Some(why).filter(|w| !w.is_empty())),
+            End::Cancelled => ("failed", Some("Stopped before it finished.".to_owned())),
+        };
+        self.report(session, turn, status, note).await;
+        self.set_now(session, Now::Quiet);
+    }
+
+    /// A failed turn acpmux was to continue gets no continuation: reported failed now.
+    async fn give_up_retry(&mut self, session: &str, turn: u64) {
+        let Some(Now::Retrying { why, .. }) = self.tracks.get(session).map(|t| t.now.clone())
+        else {
+            return;
+        };
+        self.report(session, turn, "failed", Some(why).filter(|w| !w.is_empty())).await;
+        self.set_now(session, Now::Quiet);
+    }
+
+    fn set_now(&mut self, session: &str, now: Now) {
+        if let Some(track) = self.tracks.get_mut(session) {
+            track.now = now;
         }
     }
 
@@ -362,13 +442,18 @@ impl<I: Io> Reporter<I> {
         }
         let Some(track) = self.tracks.remove(session) else { return };
         let silent = self.silent_until.is_some_and(|until| tokio::time::Instant::now() < until);
-        if let Now::Reporting { turn, last } = track.now
-            && !track.closed
-            && !silent
-            && self.io.present()
-            && !matches!(last, Some("done" | "failed"))
-        {
-            let note = Some("The session was closed before the turn finished.".to_owned());
+        if track.closed || silent || !self.io.present() {
+            return;
+        }
+        let closed = || Some("The session was closed before the turn finished.".to_owned());
+        let ended = match track.now {
+            Now::Reporting { turn, last } if !matches!(last, Some("done" | "failed")) => {
+                Some((turn, closed()))
+            }
+            Now::Retrying { turn, why, .. } => Some((turn, Some(why).filter(|w| !w.is_empty()))),
+            _ => None,
+        };
+        if let Some((turn, note)) = ended {
             self.report(session, turn, "failed", note).await;
         }
     }
@@ -405,10 +490,13 @@ impl<I: Io> Reporter<I> {
         };
     }
 
-    /// Stops following every turn (the queue dropped steps, so one's end may be lost).
+    /// Stops following every reported turn (the queue dropped steps, so one's end may be lost).
+    /// A failed turn waiting for its continuation stays: its own records name it.
     pub(super) fn forget_turns(&mut self) {
         for track in self.tracks.values_mut() {
-            track.now = Now::Quiet;
+            if matches!(track.now, Now::Reporting { .. }) {
+                track.now = Now::Quiet;
+            }
         }
     }
 
@@ -462,16 +550,18 @@ impl<I: Io> Reporter<I> {
             }
         }
         match answer {
-            Outcome::Accepted | Outcome::Refused => {}
+            Outcome::Accepted => {}
             Outcome::Closed => {
                 if let Some(track) = self.tracks.get_mut(session) {
                     track.closed = true;
                     track.now = Now::Quiet;
                 }
             }
-            // Not handed off: nothing to remember.
-            Outcome::NotFound => {
-                self.tracks.remove(session);
+            // Not this turn, or no hand-off for the session: its end is not sent.
+            Outcome::Refused | Outcome::NotFound => {
+                if let Some(track) = self.tracks.get_mut(session) {
+                    track.refused = Some(turn);
+                }
             }
             Outcome::Unsent => tracing::warn!(session, turn, status, "hand-off report not sent"),
         }
@@ -510,16 +600,39 @@ impl Io for AgentSocket {
 /// hand-offs while the Cloud agent's socket is there.
 pub(super) async fn handoff_loop(hub: Arc<Hub>) {
     let path = std::env::var_os(SOCKET_ENV).map_or_else(|| PathBuf::from(SOCKET), PathBuf::from);
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<(String, Step)>(QUEUE_CAP);
-    let overflowed = Arc::new(AtomicBool::new(false));
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Queued>(QUEUE_CAP);
+    // Bumped when steps were lost (a full queue, a lagging event stream).
+    let losses = Arc::new(AtomicU64::new(0));
     let mut reporter = Reporter::new(AgentSocket { path: path.clone() });
-    let lost = overflowed.clone();
+    let (lost, reader) = (losses.clone(), hub.clone());
     tokio::spawn(async move {
-        while let Some((session, step)) = rx.recv().await {
-            if lost.swap(false, Ordering::SeqCst) {
+        let mut seen = 0;
+        while let Some(mut queued) = rx.recv().await {
+            let now = lost.load(Ordering::SeqCst);
+            if now != seen {
                 reporter.forget_turns();
+                seen = now;
             }
-            reporter.step(&session, step).await;
+            // Queued before a loss: it may follow a lost turn's end, so it starts no turn and
+            // reports no needs-you or running (ends, closes and reopens name their own).
+            if queued.losses != now
+                && matches!(queued.step, Step::Began(_) | Step::Asks(_) | Step::Runs)
+            {
+                continue;
+            }
+            if let (Step::Ended(End::Completed(reply), _), Some((after, upto))) =
+                (&mut queued.step, queued.reply)
+            {
+                let (hub, id) = (reader.clone(), queued.session.clone());
+                let read =
+                    move || hub.resolve(&id).ok().and_then(|s| hub.reply_between(&s, after, upto));
+                *reply = tokio::task::spawn_blocking(read)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|r| cut(&r, DONE_CHARS));
+            }
+            reporter.step(&queued.session, queued.step).await;
         }
     });
     let mut events = hub.subscribe();
@@ -528,7 +641,7 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
             Ok(ev) => ev,
             Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                 tracing::warn!(missed = n, "hand-off reports: the event stream lagged");
-                overflowed.store(true, Ordering::SeqCst);
+                losses.fetch_add(1, Ordering::SeqCst);
                 continue;
             }
             Err(_) => break,
@@ -536,7 +649,7 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
         if ev.remote.is_some() || ev.record.dir != "mux" {
             continue;
         }
-        let Some(mut step) = step_of(&ev.record.kind, &ev.record.msg) else {
+        let Some(step) = step_of(&ev.record.kind, &ev.record.msg) else {
             continue;
         };
         // Off a Cloud machine only a session's close and reopen are kept (a few bytes each).
@@ -544,26 +657,41 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
         if !cloud && !matches!(step, Step::Closed | Step::Reopened) {
             continue;
         }
-        // The reply of the turn that just ended, read now: a later turn's never stands in for it.
-        if let Step::Ended(End::Completed(reply)) = &mut step {
-            let (hub, id) = (hub.clone(), ev.session_id.clone());
-            let read = move || hub.resolve(&id).ok().and_then(|s| hub.last_reply(&s));
-            *reply =
-                tokio::task::spawn_blocking(read).await.ok().flatten().map(|r| cut(&r, DONE_CHARS));
-        }
         if !step.lifecycle() && tx.capacity() <= QUEUE_CAP - QUEUE_SOFT_CAP {
             tracing::warn!(session = %ev.session_id, "hand-off reports: queue long, a step dropped");
             continue;
         }
-        match tx.try_send((ev.session_id.clone(), step)) {
+        // A completed turn's reply: its records from its `turn_started` to this `turn_result`.
+        let reply = matches!(step, Step::Ended(End::Completed(_), Some(_)))
+            .then(|| ev.record.msg["turnSeq"].as_u64())
+            .flatten()
+            .filter(|from| *from > 0 && *from < ev.record.seq)
+            .map(|from| (from, ev.record.seq));
+        let queued = Queued {
+            session: ev.session_id.clone(),
+            step,
+            reply,
+            losses: losses.load(Ordering::SeqCst),
+        };
+        match tx.try_send(queued) {
             Ok(()) => {}
             Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
                 tracing::warn!(session = %ev.session_id, "hand-off reports: queue full, a step dropped");
-                overflowed.store(true, Ordering::SeqCst);
+                losses.fetch_add(1, Ordering::SeqCst);
             }
             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => break,
         }
     }
+}
+
+/// One step waiting for the worker.
+struct Queued {
+    session: String,
+    step: Step,
+    /// A completed turn's records to read its reply from: after this seq, up to that one.
+    reply: Option<(u64, u64)>,
+    /// The loss count when it was queued.
+    losses: u64,
 }
 
 #[cfg(test)]

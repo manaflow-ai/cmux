@@ -69,8 +69,13 @@ fn busy() -> Reply {
     Reply::Answer(json!({"ok": false, "error": {"code": "busy", "message": "m"}}))
 }
 
-fn done(reply: &str) -> Step {
-    Step::Ended(End::Completed(Some(reply.to_owned())))
+fn done(turn: u64, reply: &str) -> Step {
+    Step::Ended(End::Completed(Some(reply.to_owned())), Some(turn))
+}
+
+/// A failure acpmux does not retry by itself.
+fn failed(why: &str) -> End {
+    End::Failed { why: why.to_owned(), retried: false }
 }
 
 const S: &str = "acp_s1";
@@ -108,20 +113,32 @@ fn records_map_to_steps() {
     assert_eq!(step_of("status", &json!({"status": "closed"})), Some(Step::Closed));
     assert_eq!(step_of("status", &json!({"status": "ready"})), None);
     assert_eq!(
-        step_of("turn_result", &json!({"status": "completed"})),
-        Some(Step::Ended(End::Completed(None)))
+        step_of("turn_result", &json!({"status": "completed", "promptId": "handoff-2-a"})),
+        Some(Step::Ended(End::Completed(None), Some(2)))
     );
     assert_eq!(
         step_of("turn_result", &json!({"status": "cancelled"})),
-        Some(Step::Ended(End::Cancelled))
+        Some(Step::Ended(End::Cancelled, None))
     );
     assert_eq!(
         step_of(
             "turn_result",
             &json!({"status": "failed", "error": "raw", "errorText": "Credit balance too low"}),
         ),
-        Some(Step::Ended(End::Failed("Credit balance too low".into())))
+        Some(Step::Ended(failed("Credit balance too low"), None))
     );
+    // A connection cut: acpmux continues the turn by itself.
+    let cut_off = json!({"status": "failed", "errorText": "stream disconnected before completion", "promptId": "handoff-4-a~resume-1"});
+    assert_eq!(
+        step_of("turn_result", &cut_off),
+        Some(Step::Ended(
+            End::Failed { why: "stream disconnected before completion".into(), retried: true },
+            Some(4)
+        ))
+    );
+    for kind in ["auto_resume_settled", "auto_resume_exhausted", "auto_resume_skipped"] {
+        assert_eq!(step_of(kind, &json!({"turnId": "t1"})), Some(Step::NoRetry), "{kind}");
+    }
     assert_eq!(step_of("agent_message_chunk", &json!({})), None);
 }
 
@@ -133,7 +150,7 @@ fn summaries_are_masked_and_cut() {
         "turn_result",
         &json!({"status": "failed", "error": format!("push failed with {token}")}),
     );
-    let Some(Step::Ended(End::Failed(why))) = failed else { panic!("{failed:?}") };
+    let Some(Step::Ended(End::Failed { why, .. }, _)) = failed else { panic!("{failed:?}") };
     assert!(!why.contains(&token), "{why}");
     let long = cut(&"word ".repeat(400), NOTE_CHARS);
     assert_eq!(long.chars().count(), NOTE_CHARS + 1);
@@ -162,7 +179,7 @@ async fn a_turn_reports_running_needs_you_running_and_done() {
     r.step(S, Step::Asks(Some("Permission: Run npm install".into()))).await;
     r.step(S, Step::Asks(None)).await; // the status record of the same ask
     r.step(S, Step::Runs).await;
-    r.step(S, done("Fixed the flaky test. It was a race.")).await;
+    r.step(S, done(1, "Fixed the flaky test. It was a race.")).await;
     assert_eq!(
         fake.take(),
         [
@@ -180,7 +197,7 @@ async fn each_turn_reports_on_the_turn_its_prompt_names() {
     let (mut r, fake) = reporter();
     fake.answer([ok(3, "running"), ok(3, "failed"), ok(4, "running")]);
     r.step(S, began(3)).await;
-    r.step(S, Step::Ended(End::Failed("Credit balance too low".into()))).await;
+    r.step(S, Step::Ended(failed("Credit balance too low"), Some(3))).await;
     r.step(S, began(4)).await;
     assert_eq!(
         fake.take(),
@@ -200,7 +217,7 @@ async fn a_queued_begin_never_lands_on_a_newer_turn() {
     fake.answer([refused("handoff.stale", 2, "starting")]);
     r.step(S, began(1)).await;
     r.step(S, Step::Asks(None)).await;
-    r.step(S, Step::Ended(End::Completed(None))).await;
+    r.step(S, Step::Ended(End::Completed(None), Some(1))).await;
     assert_eq!(fake.take(), [s(1, "running", None)]);
 }
 
@@ -211,7 +228,7 @@ async fn a_late_report_never_lands_on_a_newer_turn() {
     r.step(S, began(1)).await;
     // The owner stopped turn 1 and opened turn 2 meanwhile: turn 1's end is stale and is not
     // sent again on turn 2.
-    r.step(S, Step::Ended(End::Completed(None))).await;
+    r.step(S, Step::Ended(End::Completed(None), Some(1))).await;
     r.step(S, Step::Asks(None)).await;
     assert_eq!(fake.take(), [s(1, "running", None), s(1, "done", None)]);
 }
@@ -221,11 +238,11 @@ async fn a_prompt_that_names_no_turn_is_not_reported() {
     let (mut r, fake) = reporter();
     fake.answer([ok(1, "running"), ok(1, "done")]);
     r.step(S, began(1)).await;
-    r.step(S, Step::Ended(End::Completed(None))).await;
+    r.step(S, Step::Ended(End::Completed(None), Some(1))).await;
     // A second prompt from a client that opened no turn for it: nothing of that turn is sent.
     r.step(S, Step::Began(None)).await;
     r.step(S, Step::Asks(Some("Ship it?".into()))).await;
-    r.step(S, Step::Ended(End::Completed(None))).await;
+    r.step(S, Step::Ended(End::Completed(None), None)).await;
     assert_eq!(fake.take(), [s(1, "running", None), s(1, "done", None)]);
 }
 
@@ -234,7 +251,7 @@ async fn a_turn_the_store_finished_is_not_reported_again() {
     let (mut r, fake) = reporter();
     fake.answer([refused("handoff.turn_finished", 1, "done")]);
     r.step(S, began(1)).await;
-    r.step(S, Step::Ended(End::Completed(None))).await;
+    r.step(S, Step::Ended(End::Completed(None), Some(1))).await;
     assert_eq!(fake.take(), [s(1, "running", None)]);
 }
 
@@ -245,7 +262,7 @@ async fn a_session_with_no_hand_off_sends_one_report_a_turn() {
     for turn in 1..=2 {
         r.step(S, began(turn)).await;
         r.step(S, Step::Asks(None)).await;
-        r.step(S, Step::Ended(End::Completed(None))).await;
+        r.step(S, Step::Ended(End::Completed(None), Some(turn))).await;
     }
     assert_eq!(fake.take(), [s(1, "running", None), s(2, "running", None)]);
 }
@@ -261,7 +278,7 @@ async fn a_closed_hand_off_gets_no_more_reports() {
     ]);
     r.step(S, began(1)).await;
     r.step(S, Step::Asks(None)).await;
-    r.step(S, Step::Ended(End::Completed(None))).await;
+    r.step(S, Step::Ended(End::Completed(None), Some(1))).await;
     r.step(S, began(2)).await;
     assert_eq!(fake.take(), [s(1, "running", None), s(1, "needs-you", None)]);
 }
@@ -271,7 +288,7 @@ async fn a_stopped_turn_and_a_closed_session_end_the_turn_failed() {
     let (mut r, fake) = reporter();
     fake.answer([ok(1, "running"), ok(1, "failed"), ok(2, "running"), ok(2, "failed")]);
     r.step(S, began(1)).await;
-    r.step(S, Step::Ended(End::Cancelled)).await;
+    r.step(S, Step::Ended(End::Cancelled, Some(1))).await;
     r.step(S, began(2)).await;
     r.step(S, Step::Closed).await;
     // Closed again: nothing more is sent.
@@ -295,7 +312,7 @@ async fn a_report_the_store_did_not_get_is_sent_again() {
     );
     fake.answer([ok(1, "running"), busy(), unreachable, ok(1, "done")]);
     r.step(S, began(1)).await;
-    r.step(S, Step::Ended(End::Completed(None))).await;
+    r.step(S, Step::Ended(End::Completed(None), Some(1))).await;
     assert_eq!(
         fake.take(),
         [s(1, "running", None), s(1, "done", None), s(1, "done", None), s(1, "done", None)]
@@ -314,7 +331,7 @@ async fn an_unanswered_begin_keeps_its_turn() {
     let (mut r, fake) = reporter();
     fake.answer([busy(), busy(), busy(), ok(3, "done")]);
     r.step(S, began(3)).await;
-    r.step(S, done("Done.")).await;
+    r.step(S, done(3, "Done.")).await;
     assert_eq!(
         fake.take(),
         [
@@ -334,7 +351,7 @@ async fn an_agent_that_never_answers_is_not_asked_again_for_a_while() {
     fake.answer([Reply::Silent]);
     r.step(S, began(1)).await;
     r.step(S, Step::Asks(None)).await;
-    r.step(S, Step::Ended(End::Completed(None))).await;
+    r.step(S, Step::Ended(End::Completed(None), Some(1))).await;
     r.step(S, began(2)).await;
     assert_eq!(fake.take(), [s(1, "running", None)], "one try, no retries, no later steps");
     tokio::time::advance(SILENT_FOR).await;
@@ -371,7 +388,7 @@ async fn a_closed_session_reports_nothing_until_it_reopens() {
     r.step(S, Step::Closed).await;
     r.step(S, began(2)).await;
     r.step(S, Step::Asks(Some("Ship it?".into()))).await;
-    r.step(S, Step::Ended(End::Completed(None))).await;
+    r.step(S, Step::Ended(End::Completed(None), Some(2))).await;
     assert_eq!(
         fake.take(),
         [
@@ -421,7 +438,7 @@ async fn the_followed_sessions_are_bounded() {
     for i in 0..MAX_TRACKS {
         r.tracks.insert(
             format!("acp_{i}"),
-            Track { now: Now::Reporting { turn: 1, last: None }, closed: false },
+            Track { now: Now::Reporting { turn: 1, last: None }, closed: false, refused: None },
         );
     }
     r.step(S, began(1)).await;
@@ -435,16 +452,87 @@ async fn the_followed_sessions_are_bounded() {
     assert_eq!(fake.take(), [s(1, "running", None)]);
 }
 
-/// After the queue dropped steps, no turn being reported goes on: its end may be lost.
+/// After the queue dropped steps, no needs-you or running goes on a turn being reported (its
+/// end may be lost, and these records name no turn); an end, which names its turn, still does.
 #[tokio::test]
-async fn forgetting_turns_stops_their_reports() {
+async fn forgotten_turns_report_no_needs_you_but_still_their_end() {
     let (mut r, fake) = reporter();
-    fake.answer([ok(1, "running")]);
+    fake.answer([ok(1, "running"), ok(1, "done")]);
     r.step(S, began(1)).await;
     r.forget_turns();
     r.step(S, Step::Asks(None)).await;
-    r.step(S, Step::Ended(End::Completed(None))).await;
-    assert_eq!(fake.take(), [s(1, "running", None)]);
+    r.step(S, Step::Ended(End::Completed(None), Some(1))).await;
+    // An end of a prompt that names no turn ends nothing.
+    r.step(S, Step::Ended(End::Completed(None), None)).await;
+    assert_eq!(fake.take(), [s(1, "running", None), s(1, "done", None)]);
+}
+
+/// A turn that failed before it started (no `turn_started`) still reports its failure.
+#[tokio::test]
+async fn a_turn_that_failed_before_it_started_reports_its_failure() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(2, "failed")]);
+    r.step(S, Step::Ended(failed("agent could not start"), Some(2))).await;
+    assert_eq!(fake.take(), [s(2, "failed", Some("agent could not start"))]);
+}
+
+fn cut_off(turn: u64) -> Step {
+    Step::Ended(End::Failed { why: "stream disconnected".into(), retried: true }, Some(turn))
+}
+
+/// A turn acpmux continues by itself is not failed on the hand-off: its continuation goes on
+/// on the same turn, and its end is the turn's.
+#[tokio::test]
+async fn a_cut_turn_goes_on_with_its_continuation() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running"), ok(1, "running"), ok(1, "done")]);
+    r.step(S, began(1)).await;
+    r.step(S, cut_off(1)).await;
+    assert_eq!(fake.take(), [s(1, "running", None)], "no failure while a continuation may come");
+    // `handoff-1-a~resume-1` names turn 1.
+    r.step(S, began(1)).await;
+    r.step(S, done(1, "Picked up where it stopped.")).await;
+    assert_eq!(
+        fake.take(),
+        [s(1, "running", None), s(1, "done", Some("Picked up where it stopped."))]
+    );
+}
+
+/// A cut turn with no continuation coming is reported failed: no retry, another prompt, a close,
+/// or too long a wait.
+#[tokio::test(start_paused = true)]
+async fn a_cut_turn_with_no_continuation_ends_failed() {
+    let failed_1 = || s(1, "failed", Some("stream disconnected"));
+    // No retry is decided.
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running"), ok(1, "failed")]);
+    r.step(S, began(1)).await;
+    r.step(S, cut_off(1)).await;
+    r.step(S, Step::NoRetry).await;
+    r.step(S, Step::NoRetry).await;
+    assert_eq!(fake.take(), [s(1, "running", None), failed_1()]);
+    // Another prompt takes the chat.
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running"), ok(1, "failed"), ok(2, "running")]);
+    r.step(S, began(1)).await;
+    r.step(S, cut_off(1)).await;
+    r.step(S, began(2)).await;
+    assert_eq!(fake.take(), [s(1, "running", None), failed_1(), s(2, "running", None)]);
+    // The session closes.
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running"), ok(1, "failed")]);
+    r.step(S, began(1)).await;
+    r.step(S, cut_off(1)).await;
+    r.step(S, Step::Closed).await;
+    assert_eq!(fake.take(), [s(1, "running", None), failed_1()]);
+    // Nothing comes for longer than any wait: the next step of the session ends it.
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running"), ok(1, "failed")]);
+    r.step(S, began(1)).await;
+    r.step(S, cut_off(1)).await;
+    tokio::time::advance(RETRY_WAIT_MAX).await;
+    r.step(S, Step::Asks(None)).await;
+    assert_eq!(fake.take(), [s(1, "running", None), failed_1()]);
 }
 
 #[tokio::test]
