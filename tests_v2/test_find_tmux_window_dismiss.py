@@ -53,9 +53,28 @@ def _set_palette_visible(client: cmux, window_id: str, visible: bool) -> None:
     )
 
 
+def _snapshot(client: cmux, window_id: str) -> dict:
+    return client.command_palette_results(window_id=window_id, limit=20) or {}
+
+
 def _top_command_id(client: cmux, window_id: str) -> str:
-    rows = client.command_palette_results(window_id=window_id, limit=5).get("results") or []
+    rows = _snapshot(client, window_id).get("results") or []
     return str((rows[0] or {}).get("command_id") or "") if rows else ""
+
+
+def _palette_field_focused(client: cmux, window_id: str) -> bool:
+    payload = client._call("debug.command_palette.rename_input.selection", {"window_id": window_id}) or {}
+    return bool(payload.get("focused"))
+
+
+def _wait_for_find_window(client: cmux, window_id: str, step: str) -> None:
+    """Waits until find-window, not the palette, is the overlay showing and its field has focus."""
+    _wait_until(
+        lambda: _palette_visible(client, window_id)
+        and _snapshot(client, window_id).get("mode") == "find_tmux_window"
+        and _palette_field_focused(client, window_id),
+        message=f"{step}: Find tmux Window is not the overlay showing",
+    )
 
 
 def _local_terminal(client: cmux, window_id: str) -> tuple[str, str]:
@@ -84,8 +103,12 @@ def _assert_terminal_takes_focus(client: cmux, window_id: str, surface: str, ste
 
 def _open_find_window_from_palette(client: cmux, window_id: str) -> None:
     client.simulate_shortcut("cmd+shift+p")
-    _wait_until(lambda: _palette_visible(client, window_id), message="cmd+shift+p did not open the palette")
-    time.sleep(0.2)
+    _wait_until(
+        lambda: _palette_visible(client, window_id)
+        and _snapshot(client, window_id).get("mode") == "commands"
+        and _palette_field_focused(client, window_id),
+        message="cmd+shift+p did not open the palette with its field focused",
+    )
     client.simulate_type("find tmux window")
     _wait_until(
         lambda: _top_command_id(client, window_id) == FIND_COMMAND_ID,
@@ -97,11 +120,9 @@ def _open_find_window_from_palette(client: cmux, window_id: str) -> None:
 def main() -> int:
     with cmux(SOCKET_PATH) as client:
         client.activate_app()
-        time.sleep(0.2)
         window_id = client.current_window()
         client.focus_window(window_id)
         client.activate_app()
-        time.sleep(0.2)
         _set_palette_visible(client, window_id, False)
 
         workspace, terminal = _local_terminal(client, window_id)
@@ -110,25 +131,29 @@ def main() -> int:
 
         # Palette -> Find tmux Window -> query -> Escape.
         _open_find_window_from_palette(client, window_id)
-        time.sleep(0.5)
-        if not _palette_visible(client, window_id):
-            raise cmuxError("Find tmux Window did not open from the palette")
+        _wait_for_find_window(client, window_id, "palette")
         client.simulate_type("no-such-text")
-        time.sleep(0.2)
+        _wait_until(
+            lambda: _snapshot(client, window_id).get("query") == "no-such-text",
+            message="palette: the query never reached Find tmux Window",
+        )
         client.simulate_shortcut("escape")
         _assert_terminal_takes_focus(client, window_id, terminal, "palette then Escape")
 
         # Ctrl+Cmd+Shift+F -> Escape.
         client.simulate_shortcut("ctrl+cmd+shift+f")
-        _wait_until(lambda: _palette_visible(client, window_id), message="ctrl+cmd+shift+f did not open Find tmux Window")
-        time.sleep(0.3)
+        _wait_for_find_window(client, window_id, "shortcut")
         client.simulate_shortcut("escape")
         _assert_terminal_takes_focus(client, window_id, terminal, "shortcut then Escape")
 
         # Ctrl+Cmd+Shift+F -> Enter jumps to the first listed window and closes the panel.
         client.simulate_shortcut("ctrl+cmd+shift+f")
-        _wait_until(lambda: _palette_visible(client, window_id), message="ctrl+cmd+shift+f did not reopen Find tmux Window")
-        time.sleep(0.5)
+        _wait_for_find_window(client, window_id, "jump")
+        # With no query the panel lists every window; Enter needs one to jump to.
+        _wait_until(
+            lambda: bool(_snapshot(client, window_id).get("results")),
+            message="jump: Find tmux Window listed no windows",
+        )
         client.simulate_shortcut("enter")
         _wait_until(
             lambda: not _palette_visible(client, window_id),
