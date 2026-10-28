@@ -206,11 +206,15 @@ struct SidebarRowsMoveOnRenderServerTests {
     func aReloadWithoutMotionMidMoveShowsTheSlotsAtOnce() throws {
         let (model, list, _, restore) = try Self.sidebar(Self.grouped((1...8).map { "w\($0)" }))
         defer { restore() }
-        model.sections = Self.grouped(["new"] + (1...8).map { "w\($0)" })
+        // Remove a realized row while the insert starts its move: it stays as a closing subview with
+        // its render-server spring until the animated move ends.
+        model.sections = Self.grouped(["new"] + (1...7).map { "w\($0)" })
         list.reload(animated: true)
         try #require(!Self.springing(list).isEmpty, "the insert did not move on the render server")
 
-        model.sections = Self.grouped(["new"] + (1...7).map { "w\($0)" })
+        // Reintroduce that same key before the close ends. A calm reload must recycle the old leaving
+        // view first, so the replacement is at its slot with no stale close spring attached.
+        model.sections = Self.grouped(["new"] + (1...8).map { "w\($0)" })
         list.reload(animated: false)
 
         #expect(Self.springing(list).isEmpty, "still springing after a reload without motion: \(Self.springing(list))")
