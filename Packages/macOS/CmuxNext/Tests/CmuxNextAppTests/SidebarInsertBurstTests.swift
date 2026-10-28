@@ -111,6 +111,28 @@ struct SidebarInsertBurstTests {
         #expect(view.frame == list.frame(for: try #require(list.displayed.row(for: key))))
     }
 
+    /// A new row inserted just below the viewport (a new workspace after the current one near the bottom): the reveal
+    /// scrolls a little, and the row, drawn in this apply, opens with its gap, so the row below it, which springs down
+    /// from the new row's slot, never draws over a whole row (review of df204f50462).
+    @Test func aNewRowJustBelowTheViewportOpensWithItsGap() throws {
+        var ids = Array(1...40)
+        let (model, list, restore) = try Self.sidebar(ids)
+        defer { restore() }
+        let clip = try #require(list.enclosingScrollView?.contentView)
+        let height = clip.bounds.height
+        // The first row whose bottom is past the viewport: insert after the row before it.
+        let rows = list.displayed.rows.filter { if case .workspace = $0.key { true } else { false } }
+        let index = try #require(rows.firstIndex { list.frame(for: $0).maxY > height }, "the list fits the viewport")
+        ids.insert(500, at: index)
+        let sections = Self.sections(ids)
+        model.sections = sections
+        model.activeWorkspaceID = try #require(sections.first?.workspaces.first { $0.title == "w500" }?.id)
+        list.reload(animated: true)
+        let key = try Self.key(500)
+        #expect(list.rowViews[key] != nil, "the new row has no view")
+        #expect(list.openingRows[key] != nil, "the new row was shown whole while the row below sprang over it")
+    }
+
     /// Cmd-N with the list at its top and taller than the viewport: no scroll at all, so the rows below are pushed down
     /// on their springs while the new row opens (its gap and its content together). The anchor shift moved the rows
     /// and the offset down at once and the reveal jumped back, so the rows stood in their new slots with no motion and
