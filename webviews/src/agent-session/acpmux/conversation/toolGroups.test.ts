@@ -227,6 +227,47 @@ test("kindless observational MCP calls preserve recorded bodies without trusting
   }
 });
 
+test("a mutating MCP name overrides observational ACP kinds for recorded message bodies", () => {
+  const writer = item({
+    title: "Bash",
+    kind: "execute",
+    command: "cat > /tmp/mislabeled-mcp.md <<'EOF'\nrecorded old body\nEOF",
+    startedAt: 1,
+    endedAt: 2,
+  });
+  const send = item({
+    title: "Bash",
+    kind: "execute",
+    command: "acpmux send lane - < /tmp/mislabeled-mcp.md",
+    startedAt: 5,
+    endedAt: 6,
+  });
+  for (const kind of ["read", "search", "fetch"])
+    for (const name of ["write_file", "read_and_write", "delete_file", "read_file"])
+      for (const fields of [
+        { title: `mcp__fs__${name}`, inputSummary: JSON.stringify({ path: "/tmp/mislabeled-mcp.md" }) },
+        {
+          title: `fs.${name} call`,
+          inputSummary: JSON.stringify({
+            server: "fs",
+            tool: name,
+            arguments: { path: "/tmp/mislabeled-mcp.md" },
+          }),
+        },
+      ]) {
+        const call = item({ ...fields, kind, startedAt: 3, endedAt: 4 });
+        const group = toolGroups([writer, call, send]).find((entry) => entry.type === "send");
+        expect(group?.type).toBe("send");
+        if (group?.type === "send") {
+          try {
+            expect(group.send.text).toBe(name === "read_file" ? "recorded old body\n" : undefined);
+          } catch (error) {
+            throw new Error(`${kind} ${name}: ${String(error)}`);
+          }
+        }
+      }
+});
+
 test("mutation capable and ambiguous tools still invalidate recorded message bodies", () => {
   const writer = item({
     title: "Bash",
