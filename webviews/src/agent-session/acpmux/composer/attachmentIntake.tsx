@@ -157,10 +157,10 @@ export function chipRemoved(state: {
 }
 
 /// `file`: a promise while its bytes are still being made (MadeFile). `make`: a chip the host makes
-/// (attachLater), with the note its failure shows.
+/// (attachLater), with the note its failure shows and what stops it.
 type PendingSource =
   | { file: File | Promise<File>; uploads: boolean }
-  | { make: () => Promise<ComposerAttachment | undefined>; name: string; failure: string };
+  | { make: () => Promise<ComposerAttachment | undefined>; name: string; failure: string; stop?: () => void };
 
 /// A file whose bytes are still being made (pastedText.ts pastedTextFile): its tile shows at once,
 /// by its name and type, and it is read once `file` settles.
@@ -338,14 +338,17 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       });
     }
   });
+  /// The pending host-made chips whose `make` has not answered yet, each with what stops it (attachLater).
+  const stops = useRef(new Map<string, () => void>());
   /// A chip the host makes from something of its own (a long dictation recording it sends to the
   /// chat's machine): its tile shows at once, drawn before this returns so a send made in the same
   /// task (dictation's auto-send) waits for it, as for a file still being read. `make` answers the
   /// chip, or undefined (or throws) and the tile fails with `failure` and Retry, which runs `make`
   /// again. A send keeps waiting through a failure (`holdsSend`): it goes with the chip once Retry
-  /// makes it, or without it once its × drops it (and whatever `make` answers later).
+  /// makes it, or without it once its × drops it (and whatever `make` answers later). Its × while
+  /// `make` still runs calls `stop` (the host's upload stops), as does the composer going away.
   const [attachLater] = useState(
-    () => (name: string, make: () => Promise<ComposerAttachment | undefined>, failure: string, _stop?: () => void) => {
+    () => (name: string, make: () => Promise<ComposerAttachment | undefined>, failure: string, stop?: () => void) => {
       const batch = { scope: live.current.options.scope, hostMade: true };
       const chip: PendingAttachment = {
         id: crypto.randomUUID(),
@@ -354,12 +357,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         scope: batch.scope,
         holdsSend: true,
       };
-      sources.current.set(chip.id, { make, name, failure });
+      sources.current.set(chip.id, { make, name, failure, stop });
+      if (stop) stops.current.set(chip.id, stop);
       batches.current.add(batch);
       flushSync(() => setPending((chips) => [...chips, chip]));
       void make()
         .catch(() => undefined)
         .then((attachment) => {
+          stops.current.delete(chip.id);
           batches.current.delete(batch);
           if (!sources.current.has(chip.id)) return;
           if (!attachment) {
@@ -378,9 +383,21 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         });
     },
   );
-  /// A pending chip's ×: it goes, and whatever its read makes later is dropped.
+  // The composer goes away: a host-made chip still being made has nowhere to land, so it stops.
+  useEffect(
+    () => () => {
+      for (const stop of stops.current.values()) stop();
+      stops.current.clear();
+    },
+    [],
+  );
+  /// A pending chip's ×: it goes, and whatever its read makes later is dropped; a host-made one
+  /// still being made stops (attachLater's `stop`).
   const [cancel] = useState(() => (id: string) => {
     sources.current.delete(id);
+    const stop = stops.current.get(id);
+    stops.current.delete(id);
+    stop?.();
     setPending((chips) => chips.filter((chip) => chip.id !== id));
   });
   /// A failed chip's Retry: its file is read again (and uploaded again when it was).
@@ -388,7 +405,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const source = sources.current.get(id);
     if (source && "make" in source) {
       cancel(id);
-      attachLater(source.name, source.make, source.failure);
+      attachLater(source.name, source.make, source.failure, source.stop);
       return;
     }
     const file = source?.file;

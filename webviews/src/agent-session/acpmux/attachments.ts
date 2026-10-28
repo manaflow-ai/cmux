@@ -650,12 +650,17 @@ export async function remoteRecordingAttachment(
   }
 }
 
-/// Stops the host's upload of a long recording whose pending chip went (`dictation.recording.cancel`,
-/// the same path). Red stub: nothing is asked.
+/// Stops the host's upload of a long recording whose pending chip went (its ×, or the composer went
+/// away) before the upload answered (`dictation.recording.cancel`, the same path): the host stops at
+/// its next chunk and drops what it staged on the chat's machine. The upload's answer, `cancelled`,
+/// is ignored (the chip is gone). A refusal (it already finished, an older host) changes nothing.
 export function stopRemoteRecording(
-  _audio: DictationRecording,
-  _call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
-): void {}
+  audio: DictationRecording,
+  call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+): void {
+  if (!audio.path) return;
+  call("dictation.recording.cancel", { path: audio.path }).catch(() => {});
+}
 
 /// The notice for a recording that goes no further than its transcript: the host left it out
 /// (`DictationUpdate.audioOmitted`), `audioAttachment` refused it past `MAX_AUDIO_BYTES` (an old

@@ -15,11 +15,24 @@ import Foundation
 /// `cmux link access upload` for Cloud), one chunk in memory at a time, and the page gets where it
 /// went on that machine. No gesture is asked: the bytes are the host's own recording, which the
 /// person started in this pane, never something the page chose.
+///
+/// The page's `dictation.recording.cancel {path}` (the pending chip's ×) stops an upload while it
+/// streams: ``cancel(_:in:)`` marks it, and the upload sees that before its next chunk, cancels the
+/// stage and answers `cancelled`, which the page ignores.
 @MainActor
 struct AgentPaneDictationUpload {
     /// The most one chunk carries; the App's stagers take this much (their `chunkSize`). The file is
     /// read off the main thread, a chunk at a time, while the person waits for the chip.
     static let chunkBytes = 512 * 1024
+
+    /// One upload in flight (``AgentPaneModel/dictationUploads``): the chat it goes to, and whether
+    /// the page cancelled it. Owned by its ``respond(_:in:)``, which adds and removes it.
+    @MainActor
+    final class Running {
+        let session: String
+        var cancelled = false
+        init(session: String) { self.session = session }
+    }
 
     static func respond(_ path: String, in model: AgentPaneModel) async -> [String: Any] {
         guard let stager = model.onUploadStage?(), let session = model.sessionId else {
@@ -28,21 +41,46 @@ struct AgentPaneDictationUpload {
         guard let file = model.onDictationRecording?(path, session) else {
             return AgentPaneReply.failure(code: "dictation.not_a_recording", message: "Not a recording this pane made.")
         }
-        let reply = await send(file, through: stager, session: session)
-        // A failed upload gives the recording back, so the chip's Retry can send it again.
-        if reply["ok"] as? Bool != true { model.onDictationRecordingUnsent?(file, session) }
+        // Taken once (above), so no other upload of this path runs; registered before any await, so
+        // a cancel sent right after the upload finds it.
+        let running = Running(session: session)
+        model.dictationUploads[path] = running
+        defer { if model.dictationUploads[path] === running { model.dictationUploads[path] = nil } }
+        let reply = await send(file, through: stager, session: session, cancelled: { running.cancelled })
+        // A failed upload gives the recording back, so the chip's Retry can send it again; a
+        // cancelled one does not (the person removed it).
+        if reply["ok"] as? Bool != true, !running.cancelled { model.onDictationRecordingUnsent?(file, session) }
         return reply
     }
 
+    /// The page's cancel of the upload of `path`: refused unless this pane is sending it and still
+    /// shows the chat it goes to (the chat whose recording it is). The upload stops at its next chunk.
+    static func cancel(_ path: String, in model: AgentPaneModel) -> [String: Any] {
+        guard let running = model.dictationUploads[path], running.session == model.sessionId else {
+            return AgentPaneReply.failure(code: "dictation.not_uploading", message: "That recording is not being sent in this chat.")
+        }
+        running.cancelled = true
+        return AgentPaneReply.success()
+    }
+
     /// Streams `file` through `stager` for chat `session`: `{path}` on the chat's machine, or the
-    /// stager's failure (a stage it began is cancelled, so it drops what it staged).
-    static func send(_ file: URL, through stager: AgentPaneUploadStager, session: String) async -> [String: Any] {
+    /// stager's failure (a stage it began is cancelled, so it drops what it staged). `cancelled` is
+    /// asked before each chunk and before the finish; once it says yes, nothing more is read, the
+    /// stage is cancelled and the answer is `cancelled`.
+    static func send(
+        _ file: URL,
+        through stager: AgentPaneUploadStager,
+        session: String,
+        cancelled: () -> Bool = { false }
+    ) async -> [String: Any] {
         let failed = AgentPaneReply.failure(code: "upload_failed", message: "The recording could not be sent.")
+        let stopped = AgentPaneReply.failure(code: "cancelled", message: "The recording's upload was stopped.")
         // Opened once, without following a link, and read only through that descriptor: a path
         // swapped for a symlink after this check never sends the file the link names.
         guard let opened = await Task.detached(priority: .userInitiated, operation: { Self.openRegular(file) }).value else { return failed }
         defer { try? opened.handle.close() }
         let size = opened.size
+        if cancelled() { return stopped }
         let begun = await stager(.begin(name: file.lastPathComponent, size: size, batchToken: nil, batch: nil), session)
         guard let started = value(begun) else { return begun }
         guard let token = started["token"] as? String else { return failed }
@@ -53,6 +91,10 @@ struct AgentPaneDictationUpload {
         let chunk = min(offered, chunkBytes)
         var offset = 0
         while offset < size {
+            if cancelled() {
+                _ = await stager(.cancel(token: token), session)
+                return stopped
+            }
             let at = offset, count = min(chunk, size - offset)
             let answer: [String: Any]
             if let bytes = await Task.detached(priority: .userInitiated, operation: { Self.read(opened.handle, at: at, count: count) }).value, bytes.count == count {
@@ -65,6 +107,10 @@ struct AgentPaneDictationUpload {
                 return value(answer) == nil ? answer : failed
             }
             offset += count
+        }
+        if cancelled() {
+            _ = await stager(.cancel(token: token), session)
+            return stopped
         }
         let finished = await stager(.finish(token: token), session)
         guard let reply = value(finished) else { return finished }

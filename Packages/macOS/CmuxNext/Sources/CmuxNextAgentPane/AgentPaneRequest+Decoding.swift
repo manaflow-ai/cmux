@@ -455,9 +455,9 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "dictation.recording.upload":
+        case "dictation.recording.upload", "dictation.recording.cancel":
             if let path = params?["path"] as? String, path.hasPrefix("/"), path.utf8.count <= 4096 {
-                self = .dictationRecordingUpload(path: path)
+                self = method == "dictation.recording.upload" ? .dictationRecordingUpload(path: path) : .dictationRecordingCancel(path: path)
             } else {
                 self = .unsupported(method)
             }

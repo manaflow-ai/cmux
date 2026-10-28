@@ -134,6 +134,7 @@ import {
   recordingAttachment,
   recordingLeftOutNotice,
   remoteRecordingAttachment,
+  stopRemoteRecording,
 } from "./attachments";
 import { type KeptAttachments, keepRecordingWithChat } from "./composer/keptAttachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
@@ -6584,12 +6585,14 @@ function AcpmuxPane() {
       // is a pending chip that a send (Return, Send, the auto-send) waits for, as for a dropped
       // file still uploading; one that fails says so on its chip, with Retry, and the send keeps
       // waiting until Retry makes it or its × takes it out. A chip made after the
-      // pane moved to another chat is that chat's (it names a file on that chat's machine).
+      // pane moved to another chat is that chat's (it names a file on that chat's machine). Its ×
+      // while the host still sends it stops that upload.
       else
         composerHandle.current?.attachLater(
           `${name}.wav`,
           () => remoteRecordingAttachment(audio, name, callNative),
           translate(recordingLeftOutNotice("elsewhere")),
+          () => stopRemoteRecording(audio, callNative),
         );
     },
     omitted: (reason) => directClient.current?.notice(translate(recordingLeftOutNotice(reason))),
