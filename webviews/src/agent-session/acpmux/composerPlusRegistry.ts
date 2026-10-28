@@ -1,3 +1,4 @@
+import type { Translate } from "./i18n";
 import type { SlashCommand } from "./slashCommands";
 
 /**
@@ -31,6 +32,8 @@ export type ComposerPlusExtension = Omit<ComposerPlusEntry, "section"> & {
 export type ComposerPlusRegistryOptions = {
   /** The commands advertised by the harness; skills and prompts become Add rows. */
   commands?: readonly SlashCommand[];
+  /** The pane translator keeps existing composer actions localized. */
+  translate?: Translate;
   /** A harness can omit screenshots/window capture when its capture bridge is unavailable. */
   canCapture?: boolean;
   /** Whether this surface can select a project/cwd before sending. */
@@ -73,14 +76,18 @@ function extensionKey(entry: ComposerPlusEntry): string {
  * section field keeps rows interoperable with the native command-palette section ordering.
  */
 export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}): ComposerPlusEntry[] {
-  const rows: ComposerPlusEntry[] = [...staticRows];
+  const label = (key: Parameters<Translate>[0], fallback: string) => options.translate?.(key) ?? fallback;
+  const rows: ComposerPlusEntry[] = staticRows.map((row) => ({
+    ...row,
+    name: label("composer.menu.attachFiles", row.name),
+  }));
 
   if (options.canCapture !== false) {
     rows.push(
       {
         id: "add.screenshot",
         section: "add",
-        name: "Attach a screenshot",
+        name: label("composer.attachScreenshot", "Attach a screenshot"),
         description: "Capture the screen and attach it",
         icon: "site.permission.camera",
         keywords: ["capture", "screen", "image"],
@@ -89,7 +96,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       {
         id: "add.window",
         section: "add",
-        name: "Attach a window",
+        name: label("composer.attachWindow", "Attach a window"),
         description: "Capture a window and attach it",
         icon: "site.permission.windowmanagement",
         keywords: ["capture", "window", "image"],
@@ -102,7 +109,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     rows.push({
       id: "add.project",
       section: "add",
-      name: "Choose a project",
+      name: label("project.choose", "Choose a project"),
       description: "Pick the folder or cwd for this chat",
       icon: "folder",
       keywords: ["project", "folder", "cwd", "workspace"],
@@ -127,7 +134,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     rows.push({
       id: "add.goal",
       section: "add",
-      name: "Set a goal",
+      name: label("goal.label", "Set a goal"),
       description: "Keep pursuing a goal across turns",
       icon: "agent.chat",
       keywords: ["goal", "objective", "task"],
@@ -154,7 +161,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     {
       id: "add.mention",
       section: "add",
-      name: "Mention",
+      name: label("composer.mention", "Mention"),
       description: "Reference a file or chat in the prompt",
       icon: "composer.mention",
       keywords: ["@", "mention", "file", "chat"],
@@ -163,7 +170,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
     {
       id: "add.commands",
       section: "add",
-      name: "Commands",
+      name: label("composer.commands", "Commands"),
       description: "Choose a command advertised by this harness",
       icon: "terminal",
       keywords: ["/", "slash", "commands"],
@@ -174,7 +181,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
   rows.push({
     id: "files.search",
     section: "files",
-    name: "Files and chats",
+    name: label("files.search", "Files and chats"),
     description: "Search files or chats to attach as context",
     icon: "search",
     keywords: ["files", "chats", "search", "context"],
