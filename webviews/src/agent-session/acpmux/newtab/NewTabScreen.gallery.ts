@@ -673,6 +673,31 @@ export default agentPaneEntry({
         if (!input || !input.multiple) throw new Error("the New Tab attachment chooser is missing or single-file");
       },
     },
+    "plus-search-all": {
+      note: "The New Tab + menu uses the chat menu's searchable, sectioned glass list for Add, Files and chats, and Pages.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-newtab-plus .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-menu-search") === true);
+        for (const id of ["attach", "chats", "pages"])
+          if (!ctx.document.querySelector(`.acpmux-newtab-plus [data-value="${id}"]`))
+            throw new Error(`New Tab + lost ${id}`);
+      },
+    },
+    "plus-search-pages": {
+      note: "Filtering the New Tab + menu to pages keeps one whole actionable row and its section.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-newtab-plus .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-menu-search") === true);
+        await ctx.type("pages");
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-newtab-plus [role='option']").length === 1);
+        if (!ctx.document.querySelector('.acpmux-newtab-plus [data-value="pages"]'))
+          throw new Error("New Tab + lost Search pages while filtering");
+      },
+    },
     // The widget view (Debug Settings `newTab.widgets`, Leo 2026-10-18): soft cards under the create
     // actions, from the page's own data. Projects: this Mac, then its recent projects, the one a chat
     // starts in checked. Needs you: the chats asking for input or that hit an error, each with ×.

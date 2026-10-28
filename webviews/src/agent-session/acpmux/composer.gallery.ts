@@ -49,6 +49,13 @@ const SEND_ARRIVES = {
   },
 };
 
+const PLUS_OPENS = {
+  layoutShiftMax: {
+    value: 0.07,
+    reason: "The overlay itself enters the layout-shift observer; composer and transcript anchors stay fixed.",
+  },
+};
+
 /// The one model button (Leo 2026-10-20: "Opus 5.5  Medium"): it names the model and its effort and
 /// opens the one menu, whose Effort row opens the levels beside it.
 const MODEL_BUTTON = { selector: ".acpmux-model .acpmux-picker-button" };
@@ -1552,6 +1559,7 @@ export default agentPaneEntry({
       },
     },
     "add-menu": {
+      checks: PLUS_OPENS,
       note: "Play: open +; Attach files or images comes first and opens the file chooser, and the menu rises out of +.",
       snapshot: chat(finished, {
         commands: [{ name: "compact", description: "Clear conversation history but keep a summary in context" }],
@@ -1559,6 +1567,32 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="attach"]'));
+      },
+    },
+    "add-menu-search-chats": {
+      checks: PLUS_OPENS,
+      note: "The + menu groups search actions; typing chats leaves the existing Search chats palette action highlighted.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-menu-search") === true);
+        await ctx.type("chats");
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-composer-plus [role='option']").length === 1);
+        if (!ctx.document.querySelector('.acpmux-composer-plus [data-value="chats"]'))
+          throw new Error("Search chats was not left in the filtered + menu");
+      },
+    },
+    "add-menu-search-pages": {
+      checks: PLUS_OPENS,
+      note: "Typing pages leaves the existing visited-page search action, with no unrelated + rows.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-menu-search") === true);
+        await ctx.type("pages");
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-composer-plus [role='option']").length === 1);
+        if (!ctx.document.querySelector('.acpmux-composer-plus [data-value="pages"]'))
+          throw new Error("Search pages was not left in the filtered + menu");
       },
     },
     // cx-ncc.71 (Codex parity): + > Attach Screenshot… and Attach Window… take a capture through the

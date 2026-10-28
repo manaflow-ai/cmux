@@ -31,7 +31,8 @@ import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
 import { OpenTabsList } from "./OpenTabsList";
 import { type NowPlayingCommand, NowPlayingPlayer } from "./NowPlayingPlayer";
-import { ArrowUpIcon, PaperclipIcon, Picker, PlusIcon } from "../ComposerPickers";
+import { ArrowUpIcon, PaperclipIcon, Picker, PlusIcon, SearchIcon } from "../ComposerPickers";
+import { postNative } from "../native";
 import { newTabStart, useNewTabChipModel } from "./chipDefaults";
 import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
@@ -1138,12 +1139,39 @@ export function NewTabScreen(props: Props) {
         button={<PlusIcon />}
         align="start"
         returnFocus={false}
+        searchPlaceholder={t("sidebar.searchPlaceholder")}
+        emptyLabel={t("composer.noMatchingCommands")}
         sections={[
           {
+            title: t("composer.add"),
             choices: [{ id: "attach", name: t("composer.attach"), icon: <PaperclipIcon /> }],
             onPick: (id) => {
               if (id === "attach") chooser.current?.click();
             },
+          },
+          {
+            title: t("composer.plusFilesChats"),
+            choices: [
+              {
+                id: "chats",
+                name: t("sidebar.search"),
+                description: t("composer.plusChatsHint"),
+                icon: <SearchIcon size={18} />,
+              },
+            ],
+            onPick: () => props.onShowAll(),
+          },
+          {
+            title: t("composer.plusPages"),
+            choices: [
+              {
+                id: "pages",
+                name: t("composer.plusSearchPages"),
+                description: t("composer.plusPagesHint"),
+                icon: <SearchIcon size={18} />,
+              },
+            ],
+            onPick: () => void postNative("action.run", { id: "history.search" }).catch(() => undefined),
           },
         ]}
       />

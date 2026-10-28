@@ -1555,6 +1555,8 @@ export function Picker({
   returnFocus = true,
   heading,
   tooltip,
+  searchPlaceholder,
+  emptyLabel,
 }: {
   label: string;
   className: string;
@@ -1569,11 +1571,16 @@ export function Picker({
   /// What the menu holds, as the trigger's tooltip: only a trigger that draws an icon and no text
   /// passes one (a picker showing its choice's name needs none).
   tooltip?: string;
+  /// The + menu filters its sections in place. Other select-only pickers stay unchanged.
+  searchPlaceholder?: string;
+  emptyLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  const [query, setQuery] = useState("");
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const searchField = useRef<HTMLInputElement>(null);
   const menu = useRef<HTMLDivElement | null>(null);
   const menuId = useId();
   const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
@@ -1594,7 +1601,16 @@ export function Picker({
     kind: "list",
     active: ".acpmux-menu-active",
   });
-  const rows = sections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
+  const matching = query.trim().toLocaleLowerCase();
+  const visibleSections = sections.map((section) => ({
+    ...section,
+    choices: matching
+      ? section.choices.filter((choice) =>
+          `${choice.name} ${choice.description ?? ""}`.toLocaleLowerCase().includes(matching),
+        )
+      : section.choices,
+  }));
+  const rows = visibleSections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
   // A live update can shrink the list under the highlight.
   const selected = Math.min(active, Math.max(rows.length - 1, 0));
 
@@ -1617,13 +1633,22 @@ export function Picker({
   // A mouse press is opening it (cg-composer click polish): the focus it moves here is not drawn.
   const byPointer = useRef(false);
   const show = () => {
-    const current = rows.findIndex((row) => row.choice.id === sections[row.section].current);
+    const current = sections
+      .flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })))
+      .findIndex((row) => row.choice.id === sections[row.section].current);
+    setQuery("");
     setActive(Math.max(current, 0));
     setOpen(true);
     // WebKit doesn't focus a clicked button; the keys must reach the menu, not the prompt. After a
     // key was typed WebKit draws a programmatic focus as keyboard focus, so a press says it is not.
     focusWithRing(trigger.current, byPointer.current ? { focusVisible: false } : undefined);
   };
+  useEffect(() => {
+    if (!open || !searchPlaceholder) return;
+    // Browser click focus runs after the trigger handler; focus the field on the next frame.
+    const frame = requestAnimationFrame(() => searchField.current?.focus({ preventScroll: true }));
+    return () => cancelAnimationFrame(frame);
+  }, [open, searchPlaceholder]);
   const showRef = useRef(show);
   showRef.current = show;
   // Like a click, which takes focus off the prompt first: that closes the slash menu and restores the draft.
@@ -1675,11 +1700,11 @@ export function Picker({
       pick(selected);
     }
     // A button clicks on Space's keyup; pick there and cancel that click, or it would reopen the menu.
-    else if (event.key === " ") event.preventDefault();
+    else if (event.key === " " && !searchPlaceholder) event.preventDefault();
     else if (event.key === "Tab") setOpen(false);
   };
   const keyUp = (event: React.KeyboardEvent) => {
-    if (open && event.key === " ") {
+    if (open && event.key === " " && !searchPlaceholder) {
       event.preventDefault();
       pick(selected);
     }
@@ -1699,7 +1724,7 @@ export function Picker({
         ref={trigger}
         type="button"
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
-        role="combobox"
+        role={searchPlaceholder ? undefined : "combobox"}
         className="acpmux-picker-button"
         data-menu={label}
         aria-label={label}
@@ -1708,7 +1733,7 @@ export function Picker({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        aria-activedescendant={open && rows.length > 0 ? `${menuId}-${selected}` : undefined}
+        aria-activedescendant={open && !searchPlaceholder && rows.length > 0 ? `${menuId}-${selected}` : undefined}
         onKeyDown={keyDown}
         onKeyUp={keyUp}
         {...press}
@@ -1728,15 +1753,40 @@ export function Picker({
           className={`ui-popup ui-glass acpmux-menu acpmux-menu-${align}`}
           data-side="above"
         >
+          {searchPlaceholder && (
+            <input
+              ref={searchField}
+              className="acpmux-menu-search"
+              type="search"
+              // oxlint-disable-next-line jsx-a11y/no-redundant-roles
+              role="combobox"
+              aria-label={searchPlaceholder}
+              aria-controls={menuId}
+              aria-expanded={true}
+              aria-activedescendant={rows.length > 0 ? `${menuId}-${selected}` : undefined}
+              aria-autocomplete="list"
+              placeholder={searchPlaceholder}
+              spellCheck={false}
+              autoComplete="off"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setActive(0);
+              }}
+              onKeyDown={keyDown}
+            />
+          )}
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
           <div id={menuId} role="listbox" aria-label={heading ?? label}>
+            {rows.length === 0 && emptyLabel && <div className="acpmux-menu-empty">{emptyLabel}</div>}
             {heading && (
               <div className="acpmux-menu-heading" aria-hidden="true">
                 {heading}
               </div>
             )}
-            {sections.map((section, s) => {
-              const titled = section.title && sections.length > 1;
+            {visibleSections.map((section, s) => {
+              if (section.choices.length === 0) return null;
+              const titled = section.title && visibleSections.filter((group) => group.choices.length > 0).length > 1;
               return (
                 <div
                   key={s}

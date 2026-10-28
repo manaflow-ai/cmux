@@ -32,6 +32,7 @@ import {
   type ComposerPermissionAccess,
 } from "./ComposerPickers";
 import { FileSearch } from "./FileSearch";
+import { postNative } from "./native";
 import { PromptFocus } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
 import { Icon } from "./icons/Icon";
@@ -1866,8 +1867,11 @@ export function Composer({
                 button={<PlusIcon />}
                 align="start"
                 returnFocus={false}
+                searchPlaceholder={t("sidebar.searchPlaceholder")}
+                emptyLabel={t(COMPOSER_LABELS.noMatchingCommands)}
                 sections={[
                   {
+                    title: t(COMPOSER_LABELS.add),
                     choices: [
                       { id: "attach", name: t(COMPOSER_LABELS.attach), icon: <PaperclipIcon /> },
                       // A harness without images would refuse the capture after the whole pick.
@@ -1886,9 +1890,6 @@ export function Composer({
                           ]
                         : []),
                       { id: "mention", name: t(COMPOSER_LABELS.mention), icon: <AtIcon />, hint: "@" },
-                      ...(searchFiles
-                        ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }]
-                        : []),
                       ...(commands?.length
                         ? [
                             {
@@ -1923,9 +1924,44 @@ export function Composer({
                                 })
                             : id === "mention"
                               ? mention()
-                              : id === "files"
-                                ? setFindingFiles(true)
-                                : openCommands(),
+                              : openCommands(),
+                  },
+                  {
+                    title: t("composer.plusFilesChats"),
+                    choices: [
+                      ...(searchFiles
+                        ? [
+                            {
+                              id: "files",
+                              name: t("files.search"),
+                              description: t("files.hint"),
+                              icon: <SearchIcon size={18} />,
+                            },
+                          ]
+                        : []),
+                      {
+                        id: "chats",
+                        name: t("sidebar.search"),
+                        description: t("composer.plusChatsHint"),
+                        icon: <SearchIcon size={18} />,
+                      },
+                    ],
+                    onPick: (id) => {
+                      if (id === "files") setFindingFiles(true);
+                      else void postNative("action.run", { id: "agentPane.searchChats" }).catch(() => undefined);
+                    },
+                  },
+                  {
+                    title: t("composer.plusPages"),
+                    choices: [
+                      {
+                        id: "pages",
+                        name: t("composer.plusSearchPages"),
+                        description: t("composer.plusPagesHint"),
+                        icon: <SearchIcon size={18} />,
+                      },
+                    ],
+                    onPick: () => void postNative("action.run", { id: "history.search" }).catch(() => undefined),
                   },
                 ]}
               />
