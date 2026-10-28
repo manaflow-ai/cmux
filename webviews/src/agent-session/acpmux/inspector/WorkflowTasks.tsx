@@ -22,7 +22,6 @@ import "../summary/workflowDots.css";
 const ROW_ICON = rowIconSize(12);
 
 const isRunning = (workflow: WorkflowSummary) => workflow.state === "running";
-const agentIsRunning = (agent: WorkflowAgent) => agent.state === "running" || agent.state === "paused";
 
 export type WorkflowAgentRowVariant = "compact" | "detail" | "grid";
 

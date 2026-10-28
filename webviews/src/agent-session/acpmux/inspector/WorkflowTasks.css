@@ -112,7 +112,7 @@
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 38px;
+  min-height: calc(var(--ds-control-row) + var(--ds-space-2) + var(--cmux-hairline, 0.5px) * 4);
   padding: 4px 4px 4px 8px;
   box-sizing: border-box;
   border: 0;
@@ -150,8 +150,8 @@
 }
 .acpmux-workflow-agent__queued-mark {
   display: block;
-  width: 7px;
-  height: 7px;
+  width: calc(var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 6);
+  height: calc(var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 6);
   margin: 2.5px;
   box-sizing: border-box;
   border: 1px solid currentColor;
@@ -161,12 +161,12 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: calc(var(--ds-space-1) / 4);
 }
 .acpmux-workflow-agent__line {
   display: flex;
   min-width: 0;
-  gap: 6px;
+  gap: calc(var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 4);
   align-items: baseline;
 }
 .acpmux-workflow-agent__name,
@@ -194,9 +194,9 @@
   white-space: nowrap;
 }
 .acpmux-workflow-agent__button--compact {
-  min-height: 26px;
-  padding-top: 2px;
-  padding-bottom: 2px;
+  min-height: calc(var(--ds-control-row) - var(--ds-space-1) / 2);
+  padding-top: calc(var(--ds-space-1) / 2);
+  padding-bottom: calc(var(--ds-space-1) / 2);
 }
 .acpmux-workflow-agent__button--compact .acpmux-workflow-agent__text {
   display: block;
@@ -206,7 +206,7 @@
 }
 .acpmux-workflow-agent__button--grid {
   grid-template-columns: auto minmax(76px, 1fr) minmax(82px, 1fr) auto;
-  min-height: 34px;
+  min-height: calc(var(--ds-control-row) + var(--ds-space-1) + var(--cmux-hairline, 0.5px) * 4);
 }
 .acpmux-workflow-agent__button--grid .acpmux-workflow-agent__icon {
   grid-column: 1;

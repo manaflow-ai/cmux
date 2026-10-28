@@ -59,7 +59,7 @@ test("a running workflow shows its counts, tokens, description, phases, the open
   expect(shown).toContain("Brainstorm 3 done");
   // The phase with a running agent is open: its model once, its agents with how long or Queued.
   expect(shown).toContain("Critique 1 running · 2 queued punchy Model: Opus 5.5");
-  expect(shown).toContain("playful Queued descriptive Queued");
+  expect(shown).toContain("playful Model: Opus 5.5 Queued descriptive Model: Opus 5.5 Queued");
   // Judge has no agent yet: not a phase row, but Up next.
   expect(html.match(/class="acpmux-workflow-phase"/g)?.length).toBe(2);
   expect(shown).toContain("Up next: Judge");
@@ -148,12 +148,15 @@ test("a finished workflow reads as finished with its size, and a phase opens int
   expect(container.querySelector("[aria-label='Stop demo-name-tournament']")).toBeNull();
   const judge = [...container.querySelectorAll("button")].find((button) => button.textContent?.startsWith("Judge"))!;
   await act(async () => judge.click());
-  expect(shown()).toContain("Judge 1/1 judge Model: Opus 5.5 Completed 41s");
+  expect(shown()).toContain("Judge 1/1 judge Model: Opus 5.5 Done 41s");
 });
 
 test("a running workflow keeps its elapsed clock live before agent records arrive", async () => {
   dom = new JSDOM("<!doctype html><main id=root></main>", { url: "http://localhost/" });
-  Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, value: "visible" });
+  Object.defineProperty(dom.window.document, "visibilityState", {
+    configurable: true,
+    value: "visible",
+  });
   for (const [key, value] of Object.entries({
     window: dom.window,
     document: dom.window.document,
@@ -165,17 +168,15 @@ test("a running workflow keeps its elapsed clock live before agent records arriv
   }
   const realSetInterval = globalThis.setInterval;
   const timers: number[] = [];
-  globalThis.setInterval = ((callback: TimerHandler, delay?: number) => {
-    timers.push(Number(delay));
+  globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => {
+    timers.push(Number(args[1]));
     return timers.length as unknown as ReturnType<typeof setInterval>;
-  }) as typeof setInterval;
+  }) as unknown as typeof setInterval;
   try {
     const workflow = summaries("running")[0]!;
     const container = dom.window.document.getElementById("root")!;
     root = createRoot(container);
-    await act(async () =>
-      root!.render(<WorkflowTasks workflows={[{ ...workflow, agents: [], phases: [] }]} />),
-    );
+    await act(async () => root!.render(<WorkflowTasks workflows={[{ ...workflow, agents: [], phases: [] }]} />));
     expect(timers).toContain(1000);
   } finally {
     globalThis.setInterval = realSetInterval;
@@ -215,7 +216,13 @@ test("the transcript card names the workflow, its size and time, with a dot per 
 
 test("with Labs, a workflow a group started is a card in the group's place and leaves no done line", () => {
   const nodes = workflowFixture("finished", NOW);
-  const plain = { ...nodes[0]!, id: "acp-1/toolu_plain", kind: "Explore", name: "Explore", workflowAgents: undefined };
+  const plain = {
+    ...nodes[0]!,
+    id: "acp-1/toolu_plain",
+    kind: "Explore",
+    name: "Explore",
+    workflowAgents: undefined,
+  };
   const rows: AcpmuxRow[] = [
     { id: "u", version: 1, at: NOW - 200_000, kind: "user", text: "go" },
     { id: "g", version: 1, at: NOW - 120_000, kind: SUBAGENTS, subagents: [...nodes, plain] },
@@ -278,7 +285,14 @@ test("a finished turn's fold keeps the workflow card outside it, where the workf
     },
     { id: "g", version: 1, at: NOW - 180_000, kind: SUBAGENTS, subagents: [node!] },
     { id: "a", version: 1, at: NOW - 10_000, kind: "assistant", text: "done" },
-    { id: "s", version: 1, at: NOW - 9_000, kind: "turnSummary", durationMs: 190_000, toolCount: 1 },
+    {
+      id: "s",
+      version: 1,
+      at: NOW - 9_000,
+      kind: "turnSummary",
+      durationMs: 190_000,
+      toolCount: 1,
+    },
   ];
   const view = turnViewFrom(withSubagentLines(rows, new Map(), true), new Set(), { now: NOW });
   // The turn folded its work (the read) but the card is still drawn.

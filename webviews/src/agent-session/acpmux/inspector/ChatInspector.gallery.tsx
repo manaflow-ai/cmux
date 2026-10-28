@@ -346,7 +346,10 @@ const busy: Props = { ...full, agents: busyAgents, sessions: busySessions };
 /// A chat running a Claude workflow (Labs `workflowLabs`): its events fed through the real subagent
 /// fold (summary/workflowFixture.ts), so Background tasks shows what the fold keeps
 /// (inspector/WorkflowTasks.tsx). The workflow's node leaves Subagents for Background tasks.
-const workflowProps = (stage: WorkflowFixtureStage, workflowAgentRowVariant?: Props["workflowAgentRowVariant"]): Props => {
+const workflowProps = (
+  stage: WorkflowFixtureStage,
+  workflowAgentRowVariant?: Props["workflowAgentRowVariant"],
+): Props => {
   const nodes = workflowFixture(stage);
   return {
     summary,
