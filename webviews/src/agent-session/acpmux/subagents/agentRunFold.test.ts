@@ -251,7 +251,7 @@ for (const [label, end] of [
   [
     "timed out",
     (send: (update: Record<string, unknown>) => boolean) =>
-      send({ sessionUpdate: "background_task_update", toolCallId: "old", state: "stopped" }),
+      send({ sessionUpdate: "background_task_update", toolCallId: "old", state: "timed_out" }),
   ],
 ] as const) {
   test(`a late child from a ${label} parent cannot consume a later same-prompt call`, () => {

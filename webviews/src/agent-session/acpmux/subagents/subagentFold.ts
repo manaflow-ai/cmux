@@ -282,7 +282,7 @@ export class SubagentFold {
     if (kind === "background_task_update") {
       const agent = known ? this.agents.get(known) : undefined;
       // A `--parent` call still waiting for its child's start that ended starts none.
-      if (!agent && ["completed", "failed", "stopped"].includes(update.state)) {
+      if (!agent && isTerminal(update.state)) {
         this.retire(this.parentCalls.get(call)?.identity);
         this.parentCalls.delete(call);
         this.notRuns.add(call);
@@ -309,7 +309,7 @@ export class SubagentFold {
       // Drawn as the call until acpmux says its sub-session started. One that ended (not one moved
       // to the background) started none, or its start already came.
       pending.last = { event, update };
-      const ended = update.status === "failed" || update.status === "completed";
+      const ended = isTerminal(update.status);
       if (ended && !(update.status === "completed" && backgroundOutputPath(outputOf(update)))) {
         this.retire(pending.identity);
         this.parentCalls.delete(call);
@@ -877,7 +877,7 @@ function identitiesOverlap(a: ChildIdentity, b: ChildIdentity): boolean {
 }
 
 function isTerminal(status: unknown): boolean {
-  return status === "completed" || status === "failed" || status === "stopped" || status === "cancelled";
+  return ["completed", "failed", "stopped", "cancelled", "timed_out", "timed-out", "timeout"].includes(String(status));
 }
 
 const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : undefined);
