@@ -1,6 +1,9 @@
 public import AppKit
 
 /// One opening owns its original key events until its field and native responder are ready.
+/// The field is ready when the page acknowledged this opening's token, or when the page's document
+/// has its field focused already (``init(began:fieldReady:focusField:deliver:)``'s `fieldReady`: an adopted
+/// spare, whose readiness message for this token may never come).
 /// The hold always ends: by the field's readiness, by the opening ending (the page left, focus
 /// moved elsewhere), or by the hold limit. A hold that ends without readiness gives its keys back,
 /// in typing order, to whatever has focus then; no key is ever dropped (nightly 2026-10-11: a
@@ -12,11 +15,18 @@ public final class NewTabInputBuffer {
     private var events: [NSEvent] = []
     private var acknowledged = false
     public private(set) var replaying = false
+    private let fieldReady: () -> Bool
     private let focusField: () -> Bool
     private let deliver: (NSEvent) -> Void
 
-    public init(began: ContinuousClock.Instant, focusField: @escaping () -> Bool, deliver: @escaping (NSEvent) -> Void) {
+    /// - Parameters:
+    ///   - fieldReady: Whether the page's field is ready without an acknowledgement (its document focused it).
+    ///   - focusField: Gives the field the keyboard; false when it cannot yet.
+    ///   - deliver: Sends one held key on.
+    public init(began: ContinuousClock.Instant, fieldReady: @escaping () -> Bool = { false }, focusField: @escaping () -> Bool,
+                deliver: @escaping (NSEvent) -> Void) {
         self.began = began
+        self.fieldReady = fieldReady
         self.focusField = focusField
         self.deliver = deliver
     }
@@ -34,9 +44,9 @@ public final class NewTabInputBuffer {
         if token == self.token { acknowledged = true }
     }
 
-    /// Called by the acknowledgement and content/focus events; no elapsed-time readiness guess.
+    /// Called by the acknowledgement, content/focus events and each key; no elapsed-time readiness guess.
     public func drain() -> Bool {
-        guard acknowledged, !replaying, focusField() else { return false }
+        guard !replaying, acknowledged || fieldReady(), focusField() else { return false }
         release()
         return true
     }
