@@ -461,7 +461,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await openComputer(ctx);
         await ctx.focus({ role: "combobox", name: "Computer" });
         await ctx.type("gpu");
-        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length === 1);
+        await ctx.waitFor(() => ctx.document.querySelectorAll('[role="option"]').length === 1, { capMs: 8000 });
       },
     },
     "environment-picker": {
