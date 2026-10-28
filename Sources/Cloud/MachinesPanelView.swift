@@ -710,7 +710,7 @@ struct MachinesPanelView: View {
                 )
             } catch {
                 guard coderouterStore.isCurrentAddTask(addGeneration), currentCoderouterScope == scope else { return }
-                viewModel.noteTreeHint(CoderouterCLIFailure.classify(error).message)
+                viewModel.noteTreeHint(CoderouterCLIFailure.classify(error).addMessage)
                 return
             }
             // The terminal's shell deletes the directory when `add` exits. Any
@@ -727,7 +727,7 @@ struct MachinesPanelView: View {
                     sessionDirectory: sessionDirectory
                 )
             } catch {
-                viewModel.noteTreeHint(CoderouterCLIFailure.classify(error).message)
+                viewModel.noteTreeHint(CoderouterCLIFailure.classify(error).addMessage)
                 return
             }
             let coordinator = CoderouterSetupWorkspaceCoordinator(

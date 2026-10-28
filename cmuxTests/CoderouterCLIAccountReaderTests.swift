@@ -205,6 +205,13 @@ struct CoderouterCLIAccountReaderTests {
         for failure in [CoderouterCLIFailure.notInstalled, .signInRequired, .notMember, .planRequired, .unreachable] {
             #expect(failure.removalMessage == failure.message)
         }
+
+        for failure in [CoderouterCLIFailure.unavailable, .outdated, .sessionChanging] {
+            #expect(failure.addMessage != failure.message)
+        }
+        for failure in [CoderouterCLIFailure.notInstalled, .signInRequired, .notMember, .planRequired, .unreachable] {
+            #expect(failure.addMessage == failure.message)
+        }
     }
 
     @Test("Runtime errors do not trigger an unscoped fallback")

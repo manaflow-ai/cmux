@@ -55,6 +55,19 @@ enum CoderouterCLIFailure: Error, Equatable, Sendable, LocalizedError {
         }
     }
 
+    /// The hint after New Account setup fails. Read-specific copy ("didn't
+    /// load", "can't load") is replaced with setup guidance.
+    var addMessage: String {
+        switch self {
+        case .outdated:
+            return String(localized: "coderouter.failure.addOutdated", defaultValue: "This Coderouter version can't add team accounts. Update cmux, then retry.")
+        case .unavailable, .sessionChanging:
+            return String(localized: "coderouter.failure.add", defaultValue: "Coderouter couldn't start account setup. Retry in a moment.")
+        case .notInstalled, .signInRequired, .notMember, .planRequired, .unreachable:
+            return message
+        }
+    }
+
     var errorDescription: String? { message }
 
     /// Classifies a CLI failure from its stderr (`coderouter: <message>`),
