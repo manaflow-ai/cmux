@@ -1,6 +1,12 @@
 import Foundation
 import CmuxWorkspaces
 
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
 extension CrashDiagnosticSessionPolicyTests {
     func replayedWindowPair() -> (original: SessionWindowSnapshot, replay: SessionWindowSnapshot) {
         func workspace(_ title: String, checkpoints: [String]) -> SessionWorkspaceSnapshot {
@@ -116,13 +122,13 @@ extension CrashDiagnosticSessionPolicyTests {
             sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil)
         )
     }
-}
 
-func pruningAndMergingCrashWindows(
-    from snapshot: AppSessionSnapshot
-) -> (snapshot: AppSessionSnapshot?, removedAny: Bool) {
-    let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
-    guard let prunedSnapshot = pruned.snapshot else { return (nil, pruned.removedAny) }
-    let merged = SessionPersistencePolicy.mergingCrashDuplicateWindows(in: prunedSnapshot)
-    return (merged.snapshot, pruned.removedAny || merged.mergedWindowCount > 0)
+    func pruningAndMergingCrashWindows(
+        from snapshot: AppSessionSnapshot
+    ) -> (snapshot: AppSessionSnapshot?, removedAny: Bool) {
+        let pruned = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+        guard let prunedSnapshot = pruned.snapshot else { return (nil, pruned.removedAny) }
+        let merged = SessionPersistencePolicy.mergingCrashDuplicateWindows(in: prunedSnapshot)
+        return (merged.snapshot, pruned.removedAny || merged.mergedWindowCount > 0)
+    }
 }

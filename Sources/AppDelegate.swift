@@ -3909,7 +3909,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
            let checkpointStore = sessionScrollbackCheckpointStore() {
             startupSessionSnapshot = SessionPersistencePolicy.snapshotForLiveRestore(sanitizedStartupSnapshot, recoveringScrollback: checkpointStore.merging(into:))
         } else {
-            startupSessionSnapshot = sanitizedStartupSnapshot.flatMap(SessionPersistencePolicy.snapshotForLiveRestore)
+            startupSessionSnapshot = sanitizedStartupSnapshot.flatMap { SessionPersistencePolicy.snapshotForLiveRestore($0) }
         }
     }
 
