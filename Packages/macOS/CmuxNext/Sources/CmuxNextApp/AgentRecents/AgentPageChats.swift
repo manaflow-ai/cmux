@@ -75,7 +75,13 @@ final class AgentPageChats {
         view.recentlyClosed = closed
         view.model.startFolders.environments = environments
         view.model.onSandboxRun = sandboxRun
-        view.model.onCloudStartChat = cloudStart.map { run in { [weak view] start in await run(view, start) } }
+        if let run = cloudStart {
+            view.model.onCloudStartChat = { @MainActor [weak view] (start: AgentPaneCloudStart) async -> [String: Any] in
+                await run(view, start)
+            }
+        } else {
+            view.model.onCloudStartChat = nil
+        }
     }
 
     /// Sandboxed sends run through `services`' signed-in Cloud client (hq#3367), only while Labs >
