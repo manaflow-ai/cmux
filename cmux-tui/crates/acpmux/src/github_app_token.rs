@@ -85,7 +85,10 @@ impl AppLease {
                 return json!({"lent": held.lent.is_some(), "stale": true, "seq": held.seq});
             }
             held.seq = seq;
-            held.lent = lent;
+            // One that expired on its way here moves `seq` on and is not kept (the lock is held,
+            // so this is the time it lands).
+            let now = crate::store::now_ms();
+            held.lent = lent.filter(|l| l.expires_at_ms > now);
             json!({"lent": held.lent.is_some()})
         };
         if params.get("clear") == Some(&Value::Bool(true)) {
@@ -153,12 +156,13 @@ mod tests {
     #[test]
     fn a_lease_takes_only_a_cmux_origin_and_sign_in_and_never_answers_it() {
         let lease = AppLease::default();
+        let t = crate::store::now_ms() + 60_000;
         let ok = json!({"seq": 1, "origin": "https://cloud-api.cmux.dev/", "bearer": "b.e.r",
-            "team": "team_0123", "expiresAtMs": 10});
+            "team": "team_0123", "expiresAtMs": t + 10});
         let far = crate::store::now_ms() + 2 * SEQ_AHEAD_MAX_MS;
         assert_eq!(lease.set(&ok).unwrap(), json!({"lent": true}));
-        assert_eq!(lease.current(|| 9).unwrap().1.origin, "https://cloud-api.cmux.dev");
-        assert!(lease.current(|| 10).is_none(), "an expired sign-in is not used");
+        assert_eq!(lease.current(|| t + 9).unwrap().1.origin, "https://cloud-api.cmux.dev");
+        assert!(lease.current(|| t + 10).is_none(), "an expired sign-in is not used");
         for bad in [
             json!({"seq": 2, "origin": "http://example.com", "bearer": "b", "team": "t", "expiresAtMs": 1}),
             json!({"seq": 2, "origin": "https://evil.example", "bearer": "b", "team": "t", "expiresAtMs": 1}),
@@ -230,8 +234,9 @@ mod tests {
             json!({"seq": seq, "origin": "https://cloud-api.cmux.dev", "bearer": format!("b{seq}"),
                 "team": "team_0", "expiresAtMs": expires})
         };
-        lease.set(&lend(1, 100)).unwrap();
-        assert!(lease.current(|| 100).is_none());
+        let t = crate::store::now_ms() + 60_000;
+        lease.set(&lend(1, t + 100)).unwrap();
+        assert!(lease.current(|| t + 100).is_none());
         assert!(lease.lock().lent.is_none(), "an expired sign-in is dropped from memory");
 
         lease.set(&lend(2, u64::MAX)).unwrap();
@@ -240,9 +245,9 @@ mod tests {
         assert!(lease.still(2, || 0).is_none(), "a team switch replaces the sign-in");
         lease.set(&json!({"seq": 4, "clear": true})).unwrap();
         assert!(lease.still(3, || 0).is_none(), "a sign-out ends it");
-        lease.set(&lend(5, 50)).unwrap();
-        assert!(lease.still(5, || 49).is_some());
-        assert!(lease.still(5, || 50).is_none(), "an expired one is not still lent");
+        lease.set(&lend(5, t + 50)).unwrap();
+        assert!(lease.still(5, || t + 49).is_some());
+        assert!(lease.still(5, || t + 50).is_none(), "an expired one is not still lent");
     }
 
     /// Review of the lease at 0fdead6: a call that came after the sign-in expired answered that
@@ -266,5 +271,18 @@ mod tests {
             0
         };
         assert!(lease.still(6, under_lock).is_some());
+    }
+
+    /// Review of the lease at 0bb52d0: a lend that had expired on its way in was kept and
+    /// answered `lent: true`.
+    #[test]
+    fn a_lend_that_expired_on_its_way_moves_seq_on_and_is_not_kept() {
+        let lease = AppLease::default();
+        let expired = json!({"seq": 7, "origin": "https://cloud-api.cmux.dev", "bearer": "b",
+            "team": "team_0", "expiresAtMs": 1});
+        assert_eq!(lease.set(&expired).unwrap(), json!({"lent": false}));
+        assert!(lease.lock().lent.is_none());
+        let older = json!({"seq": 6, "clear": true});
+        assert_eq!(lease.set(&older).unwrap()["stale"], true, "its seq still counts");
     }
 }
