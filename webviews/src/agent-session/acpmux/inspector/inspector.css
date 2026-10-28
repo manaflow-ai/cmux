@@ -317,14 +317,16 @@
 .acpmux-chat-inspector-card > .acpmux-chat-inspector-section { border-radius: var(--acpmux-inspector-card-radius); }
 .acpmux-chat-inspector-card .acpmux-chat-inspector-section .ui-disclosure-trigger,
 .acpmux-chat-inspector-card .acpmux-chat-inspector-section__head {
-  padding-right: calc(var(--ui-row-padding-inline) * 2 + var(--acpmux-inspector-card-pad));
+  padding-right: calc(
+    var(--ui-row-height) + var(--acpmux-inspector-card-handle-inset) + var(--acpmux-inspector-card-pad)
+  );
 }
 .acpmux-chat-inspector-card__handle {
   position: absolute;
   /* The grip must stay above the sticky disclosure head while a card scrolls. */
   z-index: var(--layer-dropdown);
   top: 4px;
-  right: 5px;
+  right: var(--acpmux-inspector-card-handle-inset);
   display: grid;
   width: var(--ui-row-height);
   height: var(--ui-row-height);
@@ -363,6 +365,7 @@
   --acpmux-inspector-panel-radius: 14px;
   --acpmux-inspector-inset: 8px;
   --acpmux-inspector-card-pad: 4px;
+  --acpmux-inspector-card-handle-inset: 5px;
   --acpmux-inspector-row-radius: max(4px, calc(var(--acpmux-inspector-card-radius) - var(--acpmux-inspector-card-pad)));
   --acpmux-inspector-row-hover: color-mix(in srgb, var(--agent-text) 7%, transparent);
 }
