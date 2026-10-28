@@ -107,8 +107,31 @@ def main():  # noqa: C901 - one live run of several scenarios
         result["shots"][name] = path
         return path
 
+    def chief_socket():
+        """The rig Mac's Chief session daemon socket (its `cmux-tui --session cmux-chief-*`)."""
+        out = subprocess.run(["ps", "-axww", "-o", "args="], capture_output=True, text=True).stdout
+        for line in out.splitlines():
+            if os.path.dirname(mac.cli) in line and "--session cmux-chief-" in line and "--socket " in line:
+                return line.split("--socket ", 1)[1].split(" --", 1)[0].strip()
+        return None
+
+    def conv_cli(*args, timeout=60):
+        """`cmux-tui conversation ...` on the Chief session (the app's `cmux` hides that scope)."""
+        sock = chief_socket()
+        if not sock:
+            raise RuntimeError("no Chief session daemon for the rig Mac")
+        r = subprocess.run([os.path.join(os.path.dirname(mac.cli), "cmux-tui"), "--socket", sock, "--json", "conversation", *args],
+                           capture_output=True, text=True, timeout=timeout)
+        if r.returncode != 0:
+            raise RuntimeError(f"conversation {' '.join(args)}: {(r.stderr or r.stdout).strip()[:300]}")
+        out = r.stdout.strip()
+        try:
+            return json.loads(out) if out else None
+        except ValueError:
+            return [json.loads(x) for x in out.splitlines() if x.strip()]
+
     def conv_messages(conv, tail=200):
-        value = mac.cmux("conversation", conv, "get", "--tail", str(tail), json_out=True) or {}
+        value = conv_cli(conv, "get", "--tail", str(tail)) or {}
         found = []
 
         def walk(v):
@@ -128,7 +151,7 @@ def main():  # noqa: C901 - one live run of several scenarios
         return ["".join(p.get("text", "") for p in m.get("parts", []) if isinstance(p, dict)) for m in messages]
 
     def mac_send(conv, text):
-        mac.cmux("conversation", conv, "send", "--text", text, timeout=30)
+        conv_cli(conv, "send", "--text", text, timeout=30)
 
     def phone_texts():
         return [e.label or "" for e in sim.tree() if e.label]
@@ -200,14 +223,28 @@ def main():  # noqa: C901 - one live run of several scenarios
             value = mac.cmux("chief", "new", "--name", name, json_out=True) or {}
             chiefs[role] = (value.get("value") or value).get("id")
         convs = {}
-        listed = mac.cmux("conversation", "list", json_out=True)
-        for c in records(listed):
-            for role, name in names.items():
-                if (c.get("title") or c.get("display_name")) == name:
+        listed = None
+        for _ in range(30):
+            try:
+                listed = conv_cli("list")
+                break
+            except RuntimeError as e:
+                log(f"conversation list: {e}")
+                time.sleep(2)
+        # Conversations (with participants), not the participant records inside them.
+        conversations = [c for c in records(listed) if isinstance(c.get("participants"), list)]
+        for c in conversations:
+            ids = [p.get("id") for p in c["participants"] if isinstance(p, dict)]
+            for role, chief in chiefs.items():
+                if chief in ids and len(ids) == 2:
                     convs[role] = c["id"]
+        result["conversation_titles"] = {c["id"]: c.get("title") for c in conversations}
         result.update(names=names, chiefs=chiefs, conversations=convs)
         log(f"Chiefs {chiefs}, conversations {convs}")
-        main_conv = next((c["id"] for c in records(listed) if (c.get("title") or "") == "Chief"), None)
+        main_conv = next((c["id"] for c in conversations
+                          if any(p.get("id") == "agent_mux" for p in c["participants"] if isinstance(p, dict))), None)
+        if len(convs) != 2:
+            raise RuntimeError(f"Chief conversations not found: {convs}; listed {result['conversation_titles']}")
         result["main_conversation"] = main_conv
 
         global j

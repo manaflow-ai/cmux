@@ -654,9 +654,9 @@ public final class ChiefSession {
         if let waiting = outbox.last {
             return String(localized: "Waiting to send: \(waiting.text.isEmpty ? String(localized: "Attachment") : waiting.text)")
         }
-        guard let message = lastMessage else { return unavailableReason ?? "Ask Chief to run agents on your Macs." }
-        if message.isUnsent { return "Message unsent" }
-        if message.text.isEmpty, !message.attachments.isEmpty { return "Attachment" }
+        guard let message = lastMessage else { return unavailableReason ?? String(localized: "Ask Chief to run agents on your Macs.") }
+        if message.isUnsent { return String(localized: "Message unsent") }
+        if message.text.isEmpty, !message.attachments.isEmpty { return String(localized: "Attachment") }
         return message.text
     }
 }
