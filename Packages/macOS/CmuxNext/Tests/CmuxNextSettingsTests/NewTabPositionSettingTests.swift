@@ -15,7 +15,7 @@ struct NewTabPositionSettingTests {
         #expect(snapshot.diagnostics.isEmpty)
     }
 
-    @Test(arguments: [("afterCurrent", NewTabPosition.afterCurrent), ("end", .end), ("start", .start)])
+    @Test(arguments: [("afterCurrent", NewTabPosition.afterCurrent), ("beforeCurrent", .beforeCurrent), ("end", .end), ("start", .start)])
     func eachChoiceLoads(raw: String, expected: NewTabPosition) {
         let snapshot = Self.parse(.string(raw))
         #expect(snapshot.newTabPosition == expected)
@@ -28,11 +28,11 @@ struct NewTabPositionSettingTests {
         #expect(snapshot.diagnostics.contains { $0.path == "tabs.newTabPosition" })
     }
 
-    @Test func theRowOffersAllThreeAndDefaultsToAfterCurrent() throws {
+    @Test func theRowOffersAllFourAndDefaultsToAfterCurrent() throws {
         let row = try #require(SettingsSchema.descriptor(for: ["tabs", "newTabPosition"]))
         #expect(row.defaultValue == .string("afterCurrent"))
         guard case .choice(let choices) = row.kind else { Issue.record("not a choice row"); return }
-        #expect(choices.map(\.value) == ["afterCurrent", "end", "start"])
+        #expect(choices.map(\.value) == ["afterCurrent", "beforeCurrent", "end", "start"])
         #expect(SettingsSchema.agentSettableKeys.contains("tabs.newTabPosition"))
     }
 }
