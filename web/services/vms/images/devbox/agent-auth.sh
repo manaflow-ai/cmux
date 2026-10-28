@@ -266,6 +266,39 @@ cmux_codex_apply_auth_mode() {
     } > "$CODEX_HOME/config.toml.tmp" 2>/dev/null || return 1
     chmod 0600 "$CODEX_HOME/config.toml.tmp" 2>/dev/null || return 1
     mv -f "$CODEX_HOME/config.toml.tmp" "$CODEX_HOME/config.toml" 2>/dev/null || return 1
+    # The image installs cmux's file hooks in the user's default ~/.codex
+    # home before a shared (team) launch selects this isolated CODEX_HOME.
+    # Codex 0.162 reads hooks.json from that default path but reads its
+    # hooks.state trust table from CODEX_HOME/config.toml. Carry only the
+    # cmux-owned trusted hashes across; dropping them makes every file hook
+    # show "needs review" even though the bake trusted it.
+    python3 -I - "$HOME/.codex/config.toml" "$CODEX_HOME/config.toml" "$HOME/.codex/hooks.json" <<'CMUX_CODEX_COPY_HOOK_TRUST' 2>/dev/null || return 1
+import json, os, pathlib, tempfile, tomllib
+
+source, target, hooks = map(pathlib.Path, __import__("sys").argv[1:])
+try:
+    document = tomllib.loads(source.read_text())
+except (FileNotFoundError, OSError, ValueError, UnicodeError):
+    document = {}
+state = document.get("hooks", {}).get("state", {})
+prefix = str(hooks) + ":"
+lines = [target.read_text()]
+for key, entry in state.items() if isinstance(state, dict) else ():
+    trusted = entry.get("trusted_hash") if isinstance(entry, dict) else None
+    if isinstance(key, str) and key.startswith(prefix) and isinstance(trusted, str):
+        lines.extend([f"[hooks.state.{json.dumps(key)}]", f"trusted_hash = {json.dumps(trusted)}", ""])
+if len(lines) > 1:
+    content = "\n".join(lines)
+    fd, temporary = tempfile.mkstemp(dir=target.parent, prefix=".config.toml.")
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w") as output:
+            output.write(content)
+        os.replace(temporary, target)
+    finally:
+        try: os.unlink(temporary)
+        except FileNotFoundError: pass
+CMUX_CODEX_COPY_HOOK_TRUST
     OPENAI_API_KEY=$cmux_aa_placeholder
     export CODEX_HOME OPENAI_API_KEY
     return 0
