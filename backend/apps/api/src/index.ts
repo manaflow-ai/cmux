@@ -271,6 +271,8 @@ export default {
     // A Chief's upsell link: a Stripe Checkout page for a plan (plan-checkout.ts, test mode only).
     const planCheckout = url.pathname.match(PLAN_PATH)
     if (planCheckout) return handlePlanCheckout(request, env, planCheckout[1]!)
+    // The console's billing page: plan, usage, credits, upgrades (billing-summary.ts, paid-plans-DESIGN.md §3).
+    if (url.pathname === "/v1/billing/summary") return (await import("./billing-summary.ts")).handleBillingSummary(request, env)
     if (url.pathname === CREDITS_WEBHOOK_PATH) return handleCreditsWebhook(request, env)
     if (url.pathname === CREDITS_ADMIN_PATH) return handleCreditsAdmin(request, env)
     if (url.pathname === "/v1/admin/cloud/abandoned/clear") return handleCloudAbandonedClear(request, env)
