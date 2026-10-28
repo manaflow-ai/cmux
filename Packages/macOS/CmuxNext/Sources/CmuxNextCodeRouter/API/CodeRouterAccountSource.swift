@@ -20,46 +20,10 @@ extension CloudAuth: CodeRouterAccountSource {
 }
 
 extension CodeRouterClient {
-    /// Pins the operation's account and team before local credential acquisition starts.
-    /// Token refresh may suspend: validate before and after it and once more
-    /// before transport. Submitted requests keep the pinned credentials and team;
-    /// switching accounts cannot reroute a request that has already been sent.
+    /// Regression control: compose the pre-fix live token/team lookups.
     @MainActor public init(baseURL: URL, account: any CodeRouterAccountSource, labeler: @escaping Labeler,
                            session: URLSession = .shared, timeout: Duration = .seconds(15)) {
-        let userID = account.codeRouterAccountID
-        let teamID = account.teamID
-        let scopeVersion = account.codeRouterScopeVersion
-        @MainActor func checkScope() throws {
-            try Task.checkCancellation()
-            guard userID != nil else { throw CodeRouterError.notSignedIn }
-            guard account.codeRouterAccountID == userID,
-                  account.teamID == teamID,
-                  account.codeRouterScopeVersion == scopeVersion else {
-                throw CodeRouterError.scopeChanged
-            }
-        }
-        let validateScope: ScopeValidator = { @MainActor in
-            try checkScope()
-        }
-        let tokens: Tokens = { @MainActor in
-            try checkScope()
-            let pair: (access: String, refresh: String)
-            do {
-                pair = try await account.tokens()
-            } catch {
-                // AuthCoordinator cancels a token read when its session moves.
-                // Preserve the useful scope classification instead of letting
-                // CodeRouterClient turn that cancellation into notSignedIn.
-                if account.codeRouterScopeVersion != scopeVersion {
-                    throw CodeRouterError.scopeChanged
-                }
-                throw error
-            }
-            try checkScope()
-            return pair
-        }
-        self.init(baseURL: baseURL, tokens: tokens, teamID: { teamID },
-                  labeler: labeler, session: session, timeout: timeout,
-                  scopeValidator: validateScope)
+        self.init(baseURL: baseURL, tokens: { try await account.tokens() },
+                  teamID: { await account.teamID }, labeler: labeler, session: session, timeout: timeout)
     }
 }
