@@ -71,6 +71,9 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     public var presence: TabPresence?
     /// A browser tab playing sound, or muted: a speaker after the title.
     public var audio: TabAudio?
+    /// A browser tab using the camera or microphone: a red camera or microphone in the
+    /// speaker's place (Chrome's recording indicator outranks its audio indicator).
+    public var capture: TabCapture?
     /// What the hover card says beyond the title and subtitle (Leo 2026-10-14).
     public var hover = TabHoverFacts()
 
@@ -105,6 +108,23 @@ public struct TabItem: Identifiable, Hashable, Sendable {
 public enum TabAudio: Hashable, Sendable {
     case playing
     case muted
+}
+
+/// What a browser tab captures, as the strip shows it (Chrome's tab recording indicator).
+public enum TabCapture: Hashable, Sendable {
+    case camera
+    case microphone
+    case cameraAndMicrophone
+
+    /// The mark for a page that reads the camera and/or the microphone; nil for neither.
+    public init?(camera: Bool, microphone: Bool) {
+        switch (camera, microphone) {
+        case (true, true): self = .cameraAndMicrophone
+        case (true, false): self = .camera
+        case (false, true): self = .microphone
+        case (false, false): return nil
+        }
+    }
 }
 
 /// A tab's browser profile as the strip shows it.

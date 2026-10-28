@@ -14,6 +14,7 @@ extension WorkspaceRowView {
         // out the calm-movement hold until the pointer leaves the sidebar.
         onToggleTree = { [weak list] in SidebarSessionTree.shared.toggle(id); list?.reload(animated: true) }
         onToggleAudio = { [weak list] in list?.model.send(.toggleWorkspaceAudio(id)) }
+        onShowCapture = { [weak list] in list?.model.send(.showCapturingTab(id)) }
         // An expanded row's hover pin (cx-13w3): nil while the App offers none.
         isPinned = { [weak list] in list?.model.workspacePin?.isPinned(id) }
         onPin = { [weak list] in list?.model.workspacePin?.toggle(id) }

@@ -28,7 +28,8 @@ extension AppServices {
         let names = WorkspaceAutoNameWiring(services: self).reader
         // The media hub's tab list version: a page made or closed later maps the row again.
         if tab.kind == .browser { _ = cache.pageRequests.media.tabsVersion }
-        let audio = tab.kind != .browser ? nil : BrowserTabAudio.rowAudio(cache.existingBrowser(tab.id)?.tab.state)
-        return .init(title: names.label(workspace, front: tab, work: work), favicon: favicon, audio: audio)
+        let state = tab.kind != .browser ? nil : cache.existingBrowser(tab.id)?.tab.state
+        return .init(title: names.label(workspace, front: tab, work: work), favicon: favicon, audio: BrowserTabAudio.rowAudio(state),
+                     capture: BrowserTabAudio.rowCapture(state))
     }
 }

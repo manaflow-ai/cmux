@@ -10,6 +10,11 @@ use crate::Actor;
 /// `get-frontend-browser-history`. Never part of the tree.
 pub const FRONTEND_BROWSER_HISTORY_CAPABILITY: &str = "frontend-browser-history-v1";
 
+/// `set-frontend-browser-media`: the hosting app reports what a
+/// frontend-rendered page captures (camera, microphone); `browser.list` shows
+/// it as `media`. Runtime state: never journaled or kept across restarts.
+pub const FRONTEND_BROWSER_MEDIA_CAPABILITY: &str = "frontend-browser-media-v1";
+
 /// `profile_id` on `update-frontend-browser-tab`: move the tab to another
 /// browser profile (its id or exact name) in place, keeping its surface, tab
 /// id and position. The hosting app re-creates the page in the new
@@ -144,6 +149,16 @@ pub(super) struct SetParams {
     history: Value,
 }
 
+/// `set-frontend-browser-media`: what a frontend-rendered browser's page captures.
+#[derive(Deserialize)]
+pub(super) struct MediaParams {
+    surface: SurfaceId,
+    #[serde(default)]
+    camera: bool,
+    #[serde(default)]
+    microphone: bool,
+}
+
 /// `get-frontend-browser-history`: read a frontend-rendered browser's stored
 /// session history.
 #[derive(Deserialize)]
@@ -181,6 +196,15 @@ pub(super) fn set(mux: &Mux, params: SetParams) -> anyhow::Result<Value> {
     };
     mux.set_frontend_browser_history(params.surface, history)?;
     Ok(json!({"surface": params.surface}))
+}
+
+pub(super) fn set_media(mux: &Mux, params: MediaParams) -> anyhow::Result<Value> {
+    let media = crate::browser::BrowserMediaCapture {
+        camera: params.camera,
+        microphone: params.microphone,
+    };
+    let changed = mux.set_frontend_browser_media(params.surface, media)?;
+    Ok(json!({"surface": params.surface, "media": media.to_json(), "changed": changed}))
 }
 
 pub(super) fn get(mux: &Mux, params: GetParams) -> anyhow::Result<Value> {

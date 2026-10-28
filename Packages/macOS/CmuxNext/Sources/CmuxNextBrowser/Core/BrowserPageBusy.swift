@@ -351,8 +351,18 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
       };
       for (const type of ['keydown', 'pointerdown', 'mousedown', 'click', 'paste', 'drop']) addEventListener(type, use, true);
       for (const type of ['beforeinput', 'input', 'change']) addEventListener(type, edit, true);
+      // Stop (the tab's Stop Camera and Microphone): ends every live track this document and its
+      // child frames got from getUserMedia or getDisplayMedia.
+      const stopCapture = () => {
+        for (const stream of streams) { for (const track of stream.getTracks()) track.stop(); }
+        streams.clear();
+        for (let i = 0; i < frames.length; i++) { try { frames[i].postMessage({ cmuxStopCapture: true }, '*'); } catch (_) {} }
+        tell();
+        return true;
+      };
       addEventListener('message', (event) => {
         const data = event.data, from = event.source;
+        if (data && data.cmuxStopCapture === true && from === parent && window !== parent) { stopCapture(); return; }
         if (!data || typeof data.cmuxPageBusy !== 'object' || !from) return;
         let child = false;
         for (let i = 0; i < frames.length; i++) { if (frames[i] === from) { child = true; break; } }
@@ -372,6 +382,7 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
       }
       Object.defineProperty(window, key, { value: busy });
       Object.defineProperty(window, Symbol.for('cmux.pageBusy.asks'), { value: asks });
+      Object.defineProperty(window, Symbol.for('cmux.pageBusy.stopCapture'), { value: stopCapture });
     })();
     """#
 
@@ -383,6 +394,10 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
     /// Runs the top document's beforeunload handlers, as a close would, and answers whether one
     /// cancels (`preventDefault()`, a `returnValue`, or an `onbeforeunload` that returns a message):
     /// `true`/`false`, or `null` when the recorder is missing. Page code runs: see `BrowserTab.asksBeforeUnload()`.
+    /// Ends the capture of the page and its frames (the recorder's `stopCapture`): `true`, or
+    /// `null` when the recorder is missing.
+    static let stopCaptureScript = "(() => { const f = window[Symbol.for('cmux.pageBusy.stopCapture')]; return f ? f() : null; })()"
+
     static let askScript = "(() => { const f = window[Symbol.for('cmux.pageBusy.asks')]; return f ? f() : null; })()"
 }
 

@@ -39,6 +39,12 @@ final class WorkspaceRowView: SidebarRowView {
     /// are muted. A click mutes or unmutes them (`onToggleAudio`).
     let audioButton = SidebarIconButton(icon: .browserTabAudio, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.muteTabs)
     internal(set) var audio: SidebarWorkspaceAudio?
+    /// A tab of the workspace uses the camera or microphone: a red camera or microphone in
+    /// the trailing cluster, before the speaker, always shown while it does. A click shows
+    /// that tab (`onShowCapture`).
+    let captureButton = SidebarIconButton(icon: .sitePermissionCamera, pointSize: { Metrics.smallIconSize - Metrics.space2 },
+                                          label: Strings.showCapturingTab)
+    internal(set) var capture: SidebarWorkspaceCapture?
     let closeButton = SidebarIconButton(icon: .actionClose, pointSize: { Metrics.smallIconSize - Metrics.space2 - (SidebarTunables.rowCloseSpot.value.smallerGlyph ? 1 : 0) }, label: Strings.closeButton)
     /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu,
     /// under the button. Shows on hover only, over the end of the title
@@ -105,6 +111,7 @@ final class WorkspaceRowView: SidebarRowView {
     var onSelect: (() -> Void)?
     var onToggleTabs: (() -> Void)?
     var onToggleAudio: (() -> Void)?
+    var onShowCapture: (() -> Void)?
     /// The row draws a placeholder bar instead of a title.
     internal(set) var isShowingPlaceholder = false
     /// Any placeholder, titled or not: no hover fill, no marquee, no press (cx-gaq9).
@@ -153,6 +160,7 @@ final class WorkspaceRowView: SidebarRowView {
         layer?.addSublayer(progressTrack)
         closeButton.isHidden = true
         audioButton.isHidden = true
+        captureButton.isHidden = true
         placeholderBar.wantsLayer = true
         placeholderBar.layer?.cornerRadius = Metrics.chipCornerRadius(height: SidebarStyle.placeholderBarHeight)
         placeholderBar.isHidden = true
@@ -162,9 +170,10 @@ final class WorkspaceRowView: SidebarRowView {
         pinButton.onPress = { [weak self] in self?.onPin?() }
         disclosureButton.onPress = { [weak self] in self?.onToggleTabs?() }
         audioButton.onPress = { [weak self] in self?.onToggleAudio?() }
+        captureButton.onPress = { [weak self] in self?.onShowCapture?() }
     }
 
-    override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton, treeFoldButton, audioButton] }
+    override var interactiveSubviews: [NSView] { [closeButton, moreButton, pinButton, disclosureButton, treeFoldButton, audioButton, captureButton] }
     override var debugArchived: Bool { isArchived }
     override var debugIcon: String? {
         switch iconKind {
@@ -200,6 +209,7 @@ final class WorkspaceRowView: SidebarRowView {
         onToggleTabs = nil
         onToggleTree = nil
         onToggleAudio = nil
+        onShowCapture = nil
         title.stopMarquee()
         title.layer?.removeAnimation(forKey: "workspace-title-motion")
         lastTitle = nil
@@ -319,6 +329,11 @@ final class WorkspaceRowView: SidebarRowView {
         audioButton.isHidden = audio == nil
         audioButton.icon = audio == .muted ? .browserTabMuted : .browserTabAudio
         audioButton.label = audio == .muted ? Strings.unmuteTabs : Strings.muteTabs
+        capture = isShowingPlaceholder ? nil : ws.capture
+        captureButton.isHidden = capture == nil
+        captureButton.icon = capture?.camera == false ? .sitePermissionMicrophone : .sitePermissionCamera
+        captureButton.tintOverride = Palette.danger
+        captureButton.label = capture.map(Strings.capturingTab) ?? Strings.showCapturingTab
         disclosure = row.tabDisclosure
         count = row.tabCount
         disclosureButton.icon = row.tabDisclosure == .expanded ? .disclosureExpanded : .disclosureFolded // up, as Chrome's

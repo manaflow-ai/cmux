@@ -152,6 +152,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// plays sound or is muted; a click on it mutes or unmutes them. Nil
     /// while every tab is silent.
     public var audio: SidebarWorkspaceAudio?
+    /// What the workspace's tabs capture: a red camera or microphone on the row while a tab
+    /// uses one; a click shows that tab. Nil while no tab captures.
+    public var capture: SidebarWorkspaceCapture?
     /// The workspace's checklist in list order (`workspace-checklist-v1`); empty without items.
     public var checklist: [SidebarChecklistItem] = []
     /// The hover card's extra facts (elapsed time, model, task, command, needs-input reason).

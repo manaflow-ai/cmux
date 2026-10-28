@@ -56,6 +56,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     case frontendBrowserHistory = "frontend-browser-history-v1"
     /// `profile_id` on `update-frontend-browser-tab`: the tab moves to another browser profile in place.
     case frontendBrowserTabProfile = "frontend-browser-tab-profile-v1"
+    /// `set-frontend-browser-media`: what a frontend browser tab's page captures (`browser.list`'s `media`).
+    case frontendBrowserMedia = "frontend-browser-media-v1"
     case tabDrag = "tab-drag-v1"
     /// `set-size-counts` (protocol 12): a hidden view keeps its lease and stops counting toward
     /// the grid (`TerminalAttachment.sendHidden`). The GUI reads it from `identify`; it does not
@@ -496,7 +498,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .viewAttachmentDetach, .attachInitialSize:
             return .required
         case .workspaceGroups, .workspaceMetadata, .workspaceNameSource, .tabMetadata, .frontendBrowserTabs,
-             .frontendBrowserTabKeys, .frontendBrowserHistory, .frontendBrowserTabProfile, .tabDrag, .sharedSizing,
+             .frontendBrowserTabKeys, .frontendBrowserHistory, .frontendBrowserTabProfile, .frontendBrowserMedia, .tabDrag, .sharedSizing,
              .tabWorkspaceName, .notificationAck, .feedLocalOwner, .tabGroups, .savedTabGroups, .workspacePin,
              .workspaceChecklist, .notificationMarkUnread, .tabMarkUnread, .workspaceDescription, .workspaceStatus,
              .screenMetadata, .screenGroups, .stateResources, .windowRecords, .terminalEnv, .terminalPlacementEnv,

@@ -146,3 +146,20 @@ public struct GetFrontendBrowserHistoryRequest: DaemonRequest {
         self.surface = surface
     }
 }
+
+/// Tells the daemon what a frontend browser tab's page captures (`frontend-browser-media-v1`):
+/// `browser.list` shows it as `media`. Runtime state; the daemon never stores it.
+public struct SetFrontendBrowserMediaRequest: DaemonRequest {
+    public typealias Response = EmptyResponse
+    public static let command = "set-frontend-browser-media"
+    public static let requiredCapability: String? = DaemonCapability.frontendBrowserMedia.rawValue
+    public var surface: SurfaceID
+    public var camera: Bool
+    public var microphone: Bool
+
+    public init(surface: SurfaceID, camera: Bool, microphone: Bool) {
+        self.surface = surface
+        self.camera = camera
+        self.microphone = microphone
+    }
+}

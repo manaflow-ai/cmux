@@ -591,6 +591,12 @@
       "row": "observer_sites",
       "allow": 1,
       "why": "HomeReduceMotion is the existing process-wide adapter for native Home. It additionally observes Motion.speedDidChange once per app so already-mounted working spinners stop immediately when the master/category animation switch or speed is disabled. The existing per-view Reduce Motion delivery refreshes affected cells; no observer is added per row. Tokens live with the process-wide adapter until app shutdown. PR #26385 includes independent xhigh review of this lifecycle and rationale."
+    },
+    {
+      "date": "2026-10-28",
+      "row": "observer_sites",
+      "allow": 2,
+      "why": "WebKitTab.observeWebView: WKWebView reports a page's camera and microphone capture only through KVO on cameraCaptureState and microphoneCaptureState (no delegate callback, no notification). The two observations are per web view, beside its existing url/title/progress ones, released with the tab, and feed BrowserTabState.capture (the tab's red recording mark, u14806). No app- or window-wide adapter can see another web view's capture state."
     }
   ],
   "observer_wrappers": [

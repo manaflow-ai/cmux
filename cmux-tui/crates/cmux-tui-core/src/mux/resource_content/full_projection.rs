@@ -416,6 +416,10 @@ impl Mux {
                                         "frames_stalled":surface
                                             .and_then(|surface| surface.browser_frames_stalled())
                                             .unwrap_or(false),
+                                        "media":surface
+                                            .and_then(|surface| surface.browser_media())
+                                            .unwrap_or_default()
+                                            .to_json(),
                                         "size":{
                                             "cols":cols.max(1),
                                             "rows":rows.max(1),

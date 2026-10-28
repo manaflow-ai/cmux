@@ -421,7 +421,7 @@ extension CEFShimEvent {
              .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
              .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _),
              .fileDialog(let b, _, _, _, _),
-             .pageMessage(let b, _, _, _):
+             .pageMessage(let b, _, _, _), .mediaAccess(let b, _):
             b
         case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult, .unknown:
             nil
