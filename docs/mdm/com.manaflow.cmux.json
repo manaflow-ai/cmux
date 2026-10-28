@@ -339,6 +339,12 @@
       "title" : "When Quitting",
       "type" : "string"
     },
+    "app.showMenuBarIcon" : {
+      "default" : true,
+      "description" : "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit.",
+      "title" : "Show Menu Bar Icon",
+      "type" : "boolean"
+    },
     "app.startAgentGlobalHotKey" : {
       "default" : false,
       "description" : "Start Agent (⌃⌥⌘Space) works while another app is in front. Change its key in Keyboard Shortcuts.",

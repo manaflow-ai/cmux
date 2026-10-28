@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 510,
+  "count": 511,
   "sections": [
     {
       "id": "general",
@@ -296,6 +296,14 @@
             "end-keep-layout",
             "end-everything"
           ]
+        },
+        {
+          "key": "app.showMenuBarIcon",
+          "title": "Show Menu Bar Icon",
+          "help": "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Window"
         },
         {
           "key": "app.startAgentGlobalHotKey",
@@ -1278,7 +1286,7 @@
           "title": "Install Updates When Quitting",
           "help": "A downloaded update installs as cmux quits. Terminals keep running.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Updates"
         },
         {
