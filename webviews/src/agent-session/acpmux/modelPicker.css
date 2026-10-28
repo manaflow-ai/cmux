@@ -227,9 +227,9 @@
 .acpmux-quick-fast .ui-menu-check { display: none; }
 .ui-menu-item.acpmux-quick-item.acpmux-quick-fast { display: flex; }
 .acpmux-quick-fast-toggle {
+  position: relative;
   flex: none;
-  display: flex;
-  align-items: center;
+  display: block;
   width: 30px;
   box-sizing: border-box;
   height: calc(var(--ui-row-height) * 0.65);
@@ -239,19 +239,33 @@
   background: color-mix(in srgb, var(--agent-text) 24%, transparent);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--agent-border);
 }
-.acpmux-quick-fast-toggle > span {
+/* Keep both thumb positions in the layout at all times. Toggling opacity changes only paint,
+   preventing the compact menu from registering a layout shift when Fast mode changes. */
+.acpmux-quick-fast-toggle > span,
+.acpmux-quick-fast-toggle::after {
+  content: "";
+  position: absolute;
+  inset-block-start: calc(var(--ds-space-1) / 2);
   width: calc(var(--ui-row-height) * 0.5);
   height: calc(var(--ui-row-height) * 0.5);
   border-radius: 50%;
+  transition: none;
+}
+.acpmux-quick-fast-toggle > span {
+  inset-inline-start: calc(var(--ds-space-1) / 2);
   background: var(--agent-text);
+  opacity: 1;
+}
+.acpmux-quick-fast-toggle::after {
+  inset-inline-end: calc(var(--ds-space-1) / 2);
+  background: var(--agent-accent-text, var(--agent-page-bg));
+  opacity: 0;
 }
 .acpmux-quick-fast[data-checked] .acpmux-quick-fast-toggle {
-  justify-content: flex-end;
   background: var(--agent-lit-glyph, var(--agent-accent, var(--agent-text)));
 }
-.acpmux-quick-fast[data-checked] .acpmux-quick-fast-toggle > span {
-  background: var(--agent-accent-text, var(--agent-page-bg));
-}
+.acpmux-quick-fast[data-checked] .acpmux-quick-fast-toggle > span { opacity: 0; }
+.acpmux-quick-fast[data-checked] .acpmux-quick-fast-toggle::after { opacity: 1; }
 .acpmux-quick-note.ui-menu-item[data-disabled] {
   opacity: 1;
   color: var(--agent-muted);
