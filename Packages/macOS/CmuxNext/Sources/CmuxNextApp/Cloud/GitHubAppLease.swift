@@ -36,7 +36,8 @@ import os
     private var generation = 0
     /// The current account change's `seq` (ms, and past every earlier one).
     private var seq: UInt64 = 0
-    private var failures = 0
+    /// Failures in a row of the current account change (read by tests).
+    private(set) var failures = 0
     /// The last lend or clear queued; the next waits for it.
     private var tail: Task<Void, Never>?
     /// The account change (`generation`) `tail` is for.
@@ -147,7 +148,7 @@ import os
     private func clearNow(_ generation: Int) async {
         guard generation == self.generation else { return }
         if await take(["seq": seq, "clear": true], generation) {
-            failures = 0
+            if generation == self.generation { failures = 0 }
             return
         }
         guard generation == self.generation else { return }
@@ -176,6 +177,9 @@ import os
     /// Runs `operation` after every one queued before it.
     private func enqueue(_ generation: Int, _ operation: @escaping @MainActor () async -> Void) {
         let previous = generation == tailGeneration ? tail : nil
+        // An earlier account change's calls are superseded: its token fetch is cancelled, so
+        // changes in a row never pile up waiting fetches.
+        if generation != tailGeneration { tail?.cancel() }
         tailGeneration = generation
         queued += 1
         let id = queued
@@ -221,10 +225,13 @@ import os
                 "seq": seq, "origin": origin, "bearer": token, "team": team, "expiresAtMs": expiresAtMs,
             ]
             guard await take(params, generation) else { throw Failure.noDaemon }
+            guard generation == self.generation else { return }
             failures = 0
             let remaining = TimeInterval(expiresAtMs) / 1000 - Date().timeIntervalSince1970
             wait = .seconds(max(10, min(Self.resend, remaining - Self.renewMargin)))
         } catch {
+            // A superseded change's failure is not the current one's.
+            guard generation == self.generation else { return }
             if failures == 0 { logger.info("github app lease: \(String(describing: error), privacy: .public)") }
             wait = Self.retryDelays[min(failures, Self.retryDelays.count - 1)]
             failures += 1

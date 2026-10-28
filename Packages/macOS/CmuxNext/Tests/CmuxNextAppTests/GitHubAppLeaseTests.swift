@@ -37,6 +37,8 @@ import Testing
         var replies: [[String: Any]] = []
         /// Told of each call: whether it was a clear.
         var onCall: ((Bool) -> Void)?
+        /// A token fetch saw its task cancelled.
+        var fetchCancelled = false
         func call(_ params: [String: Any]) -> [String: Any]? {
             calls.append(params)
             onCall?(params["clear"] as? Bool == true)
@@ -138,6 +140,10 @@ import Testing
             fetching.yield()
             var wait = gate.makeAsyncIterator()
             _ = await wait.next()
+            if Task.isCancelled {
+                daemon.fetchCancelled = true
+                throw CancellationError()
+            }
             return token
         })
         var call = calls.makeAsyncIterator()
@@ -147,9 +153,13 @@ import Testing
         _ = await fetch.next()
         lease.signOutStarted()
         #expect(await call.next() == true, "the clear goes while the fetch still hangs")
-        open.yield()
+        // Review of the lender at b935c71: the superseded fetch went on (changes in a row piled
+        // them up), and its failure counted against the current change's retries.
         await lease.settled()
+        #expect(daemon.fetchCancelled, "the superseded fetch is cancelled")
+        #expect(lease.failures == 0, "its failure is not the current change's")
         lease.stop()
+        open.finish()
         #expect(!daemon.calls.contains { $0["bearer"] != nil }, "the fetch that hung lends nothing")
     }
 }
