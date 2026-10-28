@@ -35,6 +35,25 @@ const safeKey = (key: string) => {
   return key
 }
 
+/** Multipart failures named as R2 (and S3) name them, so callers can tell them apart. */
+export class FsBucketError extends Error {
+  constructor(readonly code: "NoSuchUpload" | "InvalidPart" | "InvalidPartOrder", message: string) {
+    super(`${code}: ${message}`)
+    this.name = "FsBucketError"
+  }
+}
+
+/** R2 numbers parts 1 to 10,000. */
+const isPartNumber = (partNumber: unknown): partNumber is number => Number.isSafeInteger(partNumber) && (partNumber as number) >= 1 && (partNumber as number) <= 10_000
+
+const noSuchUpload = () => new FsBucketError("NoSuchUpload", "the specified multipart upload does not exist")
+
+/** An upload id is exactly what `createMultipartUpload` mints: 32 lowercase hex characters. */
+const checkUploadId = (uploadId: string) => {
+  if (typeof uploadId !== "string" || !/^[0-9a-f]{32}$/.test(uploadId)) throw noSuchUpload()
+  return uploadId
+}
+
 const bodyStream = (value: unknown): ReadableStream<Uint8Array> => {
   if (value instanceof ReadableStream) return value
   if (value instanceof Blob) return value.stream()
@@ -105,18 +124,31 @@ export class FsBucket {
   }
 
   private multipartPath(uploadId: string) {
-    safeKey(uploadId)
-    return join(this.root, ".multipart", uploadId)
+    return join(this.root, ".multipart", checkUploadId(uploadId))
+  }
+
+  /** A stored part is `<id>.part.<n>`, with its etag in `<id>.part.<n>.json` once it is whole. */
+  private partPath(uploadId: string, partNumber: number) {
+    return `${this.multipartPath(uploadId)}.part.${partNumber}`
   }
 
   private multipartMetaPath(uploadId: string) {
     return `${this.multipartPath(uploadId)}.json`
   }
 
-  readMultipart(uploadId: string): MultipartMeta {
+  /** The open upload `uploadId`, only when it was minted for `key`; R2 answers NoSuchUpload otherwise. */
+  private readMultipart(key: string, uploadId: string): MultipartMeta | null {
     const path = this.multipartMetaPath(uploadId)
-    if (!existsSync(path)) throw new Error("multipart upload is missing or already closed")
-    return JSON.parse(readFileSync(path, "utf8")) as MultipartMeta
+    if (!existsSync(path)) return null
+    const meta = JSON.parse(readFileSync(path, "utf8")) as MultipartMeta
+    if (meta.key !== key) throw noSuchUpload()
+    return meta
+  }
+
+  private openMultipart(key: string, uploadId: string): MultipartMeta {
+    const meta = this.readMultipart(key, uploadId)
+    if (!meta) throw noSuchUpload()
+    return meta
   }
 
   async put(key: string, value: unknown, options: { httpMetadata?: { contentType?: string }; onlyIf?: { etagDoesNotMatch?: string } } = {}): Promise<FsObject | null> {
@@ -145,11 +177,24 @@ export class FsBucket {
 
   resumeMultipartUpload(key: string, uploadId: string): FsMultipartUpload {
     safeKey(key)
+    checkUploadId(uploadId)
     return new FsMultipartUpload(this, uploadId, key)
   }
 
-  async completeMultipart(uploadId: string, uploadedParts: Array<{ partNumber: number; etag: string }>): Promise<FsObject> {
-    const meta = this.readMultipart(uploadId)
+  async completeMultipart(key: string, uploadId: string, uploadedParts: Array<{ partNumber: number; etag: string }>): Promise<FsObject> {
+    const meta = this.openMultipart(key, uploadId)
+    // Check the whole list before writing a byte, as R2 does: ascending part numbers with no
+    // repeats (InvalidPartOrder), each naming a part this upload stored, with its etag (InvalidPart).
+    if (!Array.isArray(uploadedParts) || uploadedParts.length === 0) throw new FsBucketError("InvalidPart", "the parts list is empty")
+    let previous = 0
+    for (const part of uploadedParts) {
+      if (!isPartNumber(part?.partNumber)) throw new FsBucketError("InvalidPart", "a part number must be an integer from 1 to 10,000")
+      if (part.partNumber <= previous) throw new FsBucketError("InvalidPartOrder", "the parts list must be in ascending order by part number, without repeats")
+      previous = part.partNumber
+      const record = `${this.partPath(uploadId, part.partNumber)}.json`
+      const stored = existsSync(record) ? (JSON.parse(readFileSync(record, "utf8")) as { etag: string }) : null
+      if (!stored || typeof part.etag !== "string" || part.etag.replace(/"/g, "") !== stored.etag) throw new FsBucketError("InvalidPart", `part ${part.partNumber} was not stored, or its etag does not match`)
+    }
     const output = this.path(meta.key)
     mkdirSync(dirname(output), { recursive: true })
     const tmp = `${output}.multipart-${process.pid}-${Math.random().toString(36).slice(2)}`
@@ -158,8 +203,8 @@ export class FsBucket {
     let size = 0
     try {
       for (const part of uploadedParts) {
-        const partPath = this.multipartPath(uploadId) + `.part.${part.partNumber}`
-        if (!existsSync(partPath)) throw new Error("multipart part is missing")
+        const partPath = this.partPath(uploadId, part.partNumber)
+        if (!existsSync(partPath)) throw new FsBucketError("InvalidPart", `part ${part.partNumber} was not stored`)
         const expected = part.etag.replace(/"/g, "")
         const partHash = createHash("md5")
         for await (const chunk of createReadStream(partPath)) {
@@ -172,7 +217,7 @@ export class FsBucket {
           }
           size += chunk.byteLength
         }
-        if (partHash.digest("hex") !== expected) throw new Error("multipart part etag mismatch")
+        if (partHash.digest("hex") !== expected) throw new FsBucketError("InvalidPart", `part ${part.partNumber} changed after it was stored`)
       }
       await target.close()
       renameSync(tmp, output)
@@ -184,30 +229,38 @@ export class FsBucket {
     const etag = hash.digest("hex")
     const stored: StoredMeta = { etag, size, ...(meta.contentType ? { contentType: meta.contentType } : {}), uploaded: Date.now() }
     writeFileSync(`${output}.meta.json`, JSON.stringify(stored))
-    await this.abortMultipart(uploadId)
+    await this.abortMultipart(key, uploadId)
     return this.object(meta.key, stored)
   }
 
-  async uploadMultipartPart(uploadId: string, partNumber: number, value: unknown): Promise<{ partNumber: number; etag: string }> {
-    // R2 numbers parts 1 to 10,000.
-    if (!Number.isSafeInteger(partNumber) || partNumber <= 0 || partNumber > 10_000) throw new Error("invalid multipart part")
-    this.readMultipart(uploadId)
-    const partPath = this.multipartPath(uploadId) + `.part.${partNumber}`
+  async uploadMultipartPart(key: string, uploadId: string, partNumber: number, value: unknown): Promise<{ partNumber: number; etag: string }> {
+    if (!isPartNumber(partNumber)) throw new Error("invalid multipart part")
+    this.openMultipart(key, uploadId)
+    const partPath = this.partPath(uploadId, partNumber)
+    // The part streams to a temp file and replaces any earlier upload of that number only once
+    // whole; its etag record is written last, so completion never trusts a half-written part.
+    const tmp = `${partPath}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`
     try {
-      const { etag } = await writeStream(partPath, bodyStream(value))
+      const { etag, size } = await writeStream(tmp, bodyStream(value))
+      rmSync(`${partPath}.json`, { force: true })
+      renameSync(tmp, partPath)
+      writeFileSync(`${partPath}.json`, JSON.stringify({ etag, size }))
       return { partNumber, etag }
     } catch (error) {
-      rmSync(partPath, { force: true })
+      rmSync(tmp, { force: true })
       throw error
     }
   }
 
-  async abortMultipart(uploadId: string): Promise<void> {
+  /** Aborting an upload that already closed is a no-op; one minted for another key is refused. */
+  async abortMultipart(key: string, uploadId: string): Promise<void> {
+    if (!this.readMultipart(key, uploadId)) return
     const dir = join(this.root, ".multipart")
-    rmSync(this.multipartMetaPath(uploadId), { force: true })
-    if (existsSync(dir)) for (const name of readdirSync(dir, { withFileTypes: true })) {
+    // Parts first, then the record, so a crash midway leaves an upload that can still be aborted.
+    for (const name of readdirSync(dir, { withFileTypes: true })) {
       if (name.isFile() && name.name.startsWith(uploadId + ".part.")) rmSync(join(dir, name.name), { force: true })
     }
+    rmSync(this.multipartMetaPath(uploadId), { force: true })
   }
 
   async head(key: string): Promise<FsObject | null> {
@@ -272,15 +325,15 @@ export class FsMultipartUpload {
   constructor(private readonly bucket: FsBucket, readonly uploadId: string, readonly key: string) {}
 
   async uploadPart(partNumber: number, value: ReadableStream | ArrayBuffer | ArrayBufferView | string | Blob): Promise<{ partNumber: number; etag: string }> {
-    return this.bucket.uploadMultipartPart(this.uploadId, partNumber, value)
+    return this.bucket.uploadMultipartPart(this.key, this.uploadId, partNumber, value)
   }
 
   async abort(): Promise<void> {
-    await this.bucket.abortMultipart(this.uploadId)
+    await this.bucket.abortMultipart(this.key, this.uploadId)
   }
 
   async complete(uploadedParts: Array<{ partNumber: number; etag: string }>): Promise<FsObject> {
-    return this.bucket.completeMultipart(this.uploadId, uploadedParts)
+    return this.bucket.completeMultipart(this.key, this.uploadId, uploadedParts)
   }
 }
 
