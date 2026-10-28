@@ -609,6 +609,7 @@ impl<B: Backend> Server<B> {
                     && let Some(job) = self.proxied_job(&params)
                 {
                     let caller = caller_env::current();
+                    // supervise-allow: one proxied tool call; a panic ends that call only, and the MCP client's own timeout ends its wait.
                     std::thread::spawn(move || {
                         let result = match caller {
                             Some(caller) => caller_env::scope(caller, || job.run(None)),

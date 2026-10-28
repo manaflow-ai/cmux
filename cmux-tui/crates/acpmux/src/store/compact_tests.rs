@@ -8,7 +8,8 @@ struct Home(PathBuf);
 impl Home {
     fn new() -> (Self, LocalStore) {
         let path = std::env::temp_dir().join(format!("acpmux-compact-{}", uuid::Uuid::now_v7()));
-        let store = LocalStore::new(path.join("sessions"), 64 * 1024).unwrap();
+        let sessions = path.join("sessions");
+        let store = LocalStore::new(sessions, 64 * 1024, &crate::supervised::embedded()).unwrap();
         (Self(path), store)
     }
 }

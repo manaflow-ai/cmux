@@ -96,7 +96,7 @@ pub async fn spawn_within(
     }
     // The host is not this process's child for long: reap it in the
     // background so it never lingers as a zombie of the controller.
-    tokio::spawn(async move {
+    crate::supervised::spawn_scoped(async move {
         let _ = child.wait().await;
     });
     let reply = bootstrap??;
@@ -222,7 +222,7 @@ fn hold_receipt(host: &HostRecord, receipt: u64, fence: &crate::agent::Fence) {
 fn watch_end(host: &HostRecord) {
     if WATCHED.lock_or_recover().insert(host.incarnation.clone()) {
         // task-owner: ends with the host, or when its lock can not be watched.
-        tokio::spawn(watch_host_end(host.clone()));
+        crate::supervised::spawn_scoped(watch_host_end(host.clone()));
     }
 }
 
@@ -313,6 +313,22 @@ pub fn settle_receipts_of(incarnation: &str) {
 
 /// A frame, a receipt once it is in the socket, and the fence of the message it carries.
 type Outgoing = (ControllerFrame, Option<oneshot::Sender<()>>, Option<crate::agent::Fence>);
+
+/// The end of a link's reader, on its return or its unwind: the link reports
+/// closed, and each query waiting for a reply gets none.
+#[cfg(unix)]
+struct ReaderEnd {
+    closed: Arc<std::sync::atomic::AtomicBool>,
+    queries: Queries,
+}
+
+#[cfg(unix)]
+impl Drop for ReaderEnd {
+    fn drop(&mut self) {
+        self.closed.store(true, std::sync::atomic::Ordering::SeqCst);
+        self.queries.lock_or_recover().clear();
+    }
+}
 
 pub struct Link {
     tx: mpsc::Sender<Outgoing>,
@@ -426,7 +442,7 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
     // is answered (review 83 of #23322).
     let receipted = adopted.version >= RECEIPT_VERSION;
     let host = record.clone();
-    tokio::spawn(async move {
+    crate::supervised::spawn_scoped(async move {
         while let Some((mut frame, written, fence)) = rx.recv().await {
             if fence.as_ref().is_some_and(|f| !f.begin()) {
                 continue;
@@ -470,7 +486,9 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
         let closed = closed.clone();
         let queries = queries.clone();
         let highest = highest.clone();
-        tokio::spawn(async move {
+        crate::supervised::spawn_scoped(async move {
+            // Made first, so a panic in the reader still closes the link.
+            let _end = ReaderEnd { closed, queries: queries.clone() };
             let mut detach_tx = Some(detach_tx);
             loop {
                 match read_sized_frame::<_, HostFrame>(&mut rd).await {
@@ -515,8 +533,6 @@ async fn connect_inner_max(record: HostRecord, resume_after: u64, max: u16) -> R
                     Ok(Some(_)) | Ok(None) | Err(_) => break,
                 }
             }
-            closed.store(true, std::sync::atomic::Ordering::SeqCst);
-            queries.lock_or_recover().clear();
         });
     }
     tx.send((ControllerFrame::Resume { after: resume_after }, None, None))
@@ -641,3 +657,7 @@ impl Link {
         self.closed.load(std::sync::atomic::Ordering::SeqCst)
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "link_tests.rs"]
+mod tests;

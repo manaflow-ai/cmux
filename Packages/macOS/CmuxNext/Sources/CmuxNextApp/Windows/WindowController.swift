@@ -139,6 +139,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focus.crashKeys = services.crashKeys
         focus.keyInput = services.keyRouter.keyInput
         focus.inputDispatch = services.inputDispatch
+        focus.personIntent = { [weak services, weak window] input in
+            services?.keyRouter.creationInputCoordinator.personActed(in: window, event: input)
+        }
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observePreviewFeatures()
@@ -158,6 +161,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func teardown() {
         tornDown = true
+        services.keyRouter.creationInputCoordinator.windowClosed(window)
         stopShortcutHints()
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()

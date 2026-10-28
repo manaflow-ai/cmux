@@ -51,7 +51,7 @@ fn a_worker_thread_panic_is_logged_and_the_daemon_keeps_running() {
     assert_eq!(record["thread"], "acpmux-panic-test", "{record}");
     assert_eq!(record["test"], true, "{record}");
     assert_eq!(record["pid"].as_u64(), Some(u64::from(child.id())), "{record}");
-    assert!(record["location"].as_str().unwrap_or_default().contains("daemon.rs:"), "{record}");
+    assert!(record["location"].as_str().unwrap_or_default().contains("panic_log.rs:"), "{record}");
 
     // The panic ended only its own thread: the daemon still runs.
     std::thread::sleep(Duration::from_millis(500));

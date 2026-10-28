@@ -376,10 +376,7 @@ impl Drop for KeptWorktree {
     fn drop(&mut self) {
         if !self.kept {
             let (folder, held, made) = (self.folder.clone(), self.held.clone(), self.made.clone());
-            std::thread::spawn(move || {
-                let at = crate::subsession_worktree::Dir::held(&folder, held.as_deref());
-                crate::subsession_worktree::remove_worktree(at, &made)
-            });
+            crate::subsession_worktree::remove_worktree_in_background(folder, held, made);
         }
     }
 }

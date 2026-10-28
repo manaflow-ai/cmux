@@ -124,6 +124,13 @@ final class CEFHostView: NSView, PaneRenderMoveObserving {
         didSet { if isHidden != oldValue { layerHosting.visibilityMayHaveChanged() } }
     }
 
+    /// A resize of the page joins its geometry transaction's fence (`CEFLayerHosting.viewDidResize`).
+    override func setFrameSize(_ newSize: NSSize) {
+        let resized = newSize != frame.size
+        super.setFrameSize(newSize)
+        if resized { layerHosting.viewDidResize() }
+    }
+
     /// Until Chromium's page window shows its first frame, the page area
     /// follows the shared pane ground. It stays clear over Liquid Glass so
     /// the window backdrop remains visible. During a live resize it takes

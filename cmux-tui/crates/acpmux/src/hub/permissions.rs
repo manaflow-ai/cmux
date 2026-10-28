@@ -144,9 +144,14 @@ impl Hub {
                         let hub = self.clone();
                         let session = session.clone();
                         let id = id.clone();
-                        tokio::spawn(async move {
-                            hub.withdraw_permission(&session, host_incarnation.as_deref(), &id);
-                        });
+                        self.supervise(
+                            "hub.permission-withdraw",
+                            Fatal,
+                            ShutdownBehavior::Skip,
+                            async move {
+                                hub.withdraw_permission(&session, host_incarnation.as_deref(), &id);
+                            },
+                        );
                     }
                 }
                 Inbound::Request { id, method: m, params, host_incarnation, .. } => {
@@ -165,26 +170,31 @@ impl Hub {
                         hub.register_agent_request(&s, &id, host_incarnation.as_deref());
                     }
                     let request_id = id.clone();
-                    tokio::spawn(async move {
-                        let finish_hub = hub.clone();
-                        hub.on_agent_request(
-                            s.clone(),
-                            id,
-                            m,
-                            params,
-                            epoch,
-                            turn_id,
-                            ask,
-                            host_incarnation.clone(),
-                            None,
-                        )
-                        .await;
-                        finish_hub.finish_agent_request(
-                            &s,
-                            &request_id,
-                            host_incarnation.as_deref(),
-                        );
-                    });
+                    self.supervise(
+                        "hub.agent-request",
+                        Fatal,
+                        ShutdownBehavior::Skip,
+                        async move {
+                            let finish_hub = hub.clone();
+                            hub.on_agent_request(
+                                s.clone(),
+                                id,
+                                m,
+                                params,
+                                epoch,
+                                turn_id,
+                                ask,
+                                host_incarnation.clone(),
+                                None,
+                            )
+                            .await;
+                            finish_hub.finish_agent_request(
+                                &s,
+                                &request_id,
+                                host_incarnation.as_deref(),
+                            );
+                        },
+                    );
                 }
                 Inbound::Stderr(line, host_seq) => {
                     let line = short_text(&line, 4000);

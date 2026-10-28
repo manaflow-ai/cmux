@@ -52,7 +52,7 @@ fn deferred_hub_in(dir: &Path) -> Arc<Hub> {
     let cfg = config(Some(dir));
     let store = acpmux::store::open(&cfg.store, dir).unwrap();
     let mailbox = acpmux::mailbox::Mailbox::memory();
-    let hub = Hub::new_deferred(cfg, store, mailbox);
+    let hub = Hub::new_deferred(cfg, store, mailbox, acpmux::supervised::embedded());
     let _ = hub.person.install_spawn_key(PERSON_KEY);
     hub
 }

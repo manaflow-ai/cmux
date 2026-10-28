@@ -231,7 +231,9 @@ impl Hub {
         session.floor.left_host_read.store(false, Ordering::SeqCst);
         if !off.off() {
             let learning = child.clone();
-            tokio::spawn(async move { learning.learn_replay_end(REPLAY_STALL).await });
+            self.supervise("hub.replay-end", Fatal, ShutdownBehavior::Skip, async move {
+                learning.learn_replay_end(REPLAY_STALL).await;
+            });
             return Some(child.clone());
         }
         let replayed = match child.learn_replay_end(REPLAY_STALL).await {
@@ -466,6 +468,7 @@ impl Hub {
             Vec::new(),
             session.inbound_tx.clone(),
             tap,
+            &self.supervisor,
         )
         .await?;
         let (child, adopted) = match attached {
@@ -497,9 +500,7 @@ impl Hub {
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            tokio::spawn(async move { hub.inbound_loop(s, rx).await });
+            self.start_inbound_loop(session, rx);
         }
         // Asked once the inbound loop drains the replay, which the answer comes behind.
         self.note_host_kind(session, &child, kind).await;
@@ -551,7 +552,9 @@ impl Hub {
             }
         } else {
             let learning = child.clone();
-            tokio::spawn(async move { learning.learn_replay_end(REPLAY_STALL).await });
+            self.supervise("hub.replay-end", Fatal, ShutdownBehavior::Skip, async move {
+                learning.learn_replay_end(REPLAY_STALL).await;
+            });
         }
         self.append(
             session,
@@ -1099,7 +1102,7 @@ impl Hub {
                     let hub = self.clone();
                     let s = session.clone();
                     let c = child.clone();
-                    tokio::spawn(async move {
+                    self.supervise("hub.recover", Fatal, ShutdownBehavior::Skip, async move {
                         // New prompts queue behind the recovered turn.
                         let guard = s.turn_lock.lock().await;
                         let result = match (answer, rx) {
@@ -1242,7 +1245,7 @@ impl Hub {
             let turn_id = turn_id.clone();
             let request_id = id.clone();
             let incarnation = incarnation.to_owned();
-            tokio::spawn(async move {
+            self.supervise("hub.agent-request", Fatal, ShutdownBehavior::Skip, async move {
                 let finish_hub = hub.clone();
                 hub.on_agent_request(
                     s.clone(),
@@ -1346,7 +1349,7 @@ impl Hub {
         let s = session.clone();
         let c = child.clone();
         let incarnation = incarnation.to_owned();
-        tokio::spawn(async move {
+        self.supervise("hub.permission-answer", Fatal, ShutdownBehavior::Skip, async move {
             let mut outcome = rx.await.unwrap_or_else(|_| json!({"outcome": "cancelled"}));
             // Who answered, beside the outcome as an ask logs it, so the next restart knows an
             // ancestor's answer; never sent to the agent (review 84 of #23322).
@@ -1401,7 +1404,7 @@ impl Hub {
         let (hub, s, c) = (self.clone(), session.clone(), child.clone());
         // task-owner: ends once its writer takes the answer or it is cut: only a queued one can
         // be (review 88 of #23322).
-        tokio::spawn(async move {
+        self.supervise("hub.permission-reask", Fatal, ShutdownBehavior::Skip, async move {
             fence.taken().await;
             // A writer that stopped cuts what it still had: its agent is gone and asks nothing.
             // Asked again only of the agent that asked it, while it still has the session: a
@@ -1667,6 +1670,7 @@ impl Hub {
             Vec::new(),
             session.inbound_tx.clone(),
             tap,
+            &self.supervisor,
         )
         .await;
         match attached {

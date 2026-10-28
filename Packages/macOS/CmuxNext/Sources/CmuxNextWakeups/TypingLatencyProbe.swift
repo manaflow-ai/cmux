@@ -52,6 +52,7 @@ import CmuxNextTrace
 ///
 /// The same samples, 1 key in 16, give the field histogram `key.echo_frame` (TypingLatencyProbe+EchoFrame.swift).
 public final class TypingLatencyProbe: Sendable {
+    /// The process's probe; it records when `CMUX_NEXT_TYPING_PROBE` is set or flows start (``startFlows()``).
     public static let shared = TypingLatencyProbe(path: ProcessInfo.processInfo.environment["CMUX_NEXT_TYPING_PROBE"],
                                                   echoFrames: Metrics(runtime: .shared))
 
@@ -62,6 +63,7 @@ public final class TypingLatencyProbe: Sendable {
     /// unfinished.
     public static let openCapacity = 16
 
+    /// Whether the probe samples at all (``isRecording``).
     public static var isEnabled: Bool { shared.isRecording }
 
     struct Sample {

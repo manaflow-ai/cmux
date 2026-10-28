@@ -26,8 +26,8 @@ impl Peer {
         if self.health_asking.swap(true, Ordering::SeqCst) {
             return;
         }
-        let me = self.clone();
-        tokio::spawn(async move {
+        let (me, failed) = (self.clone(), self.clone());
+        let ask = async move {
             let reply =
                 tokio::time::timeout(HEALTH_BUDGET, me.request("_acpmux/host_health", json!({})))
                     .await;
@@ -45,6 +45,10 @@ impl Peer {
                 *me.health.lock_or_recover() = Some((crate::store::now_ms(), v));
             }
             me.health_asking.store(false, Ordering::SeqCst);
+        };
+        // A panic ends this ask only; the next tick asks again.
+        crate::supervised::spawn_request(ask, async move {
+            failed.health_asking.store(false, Ordering::SeqCst);
         });
     }
 

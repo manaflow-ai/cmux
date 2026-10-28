@@ -13,6 +13,7 @@ import CmuxNextServer
 import CmuxNextSettings
 import CmuxNextTerminal
 import CmuxNextUpdater
+import CmuxNextWakeups
 import Foundation
 import UniformTypeIdentifiers
 import CmuxNextMobileHost
@@ -66,8 +67,10 @@ struct PageFactory {
     /// ops over the control router (``CodeRouterPageProvider``); before the control socket starts
     /// every call answers `unavailable`. `cmux.app.` runs the page's four account actions.
     func coderouterWebPage() -> PageWebView? {
-        let ops = CodeRouterAppOps(control: { [weak apps = services.apps] method, params throws(AppHostCapabilityError) in
-            guard let router = await MainActor.run(body: { apps?.controlRouter }) else {
+        // The page's own reads (status, accounts, usage) fill the page the person has open: the router is
+        // read on main as one visible-class task, ahead of agent and CLI work.
+        let ops = CodeRouterAppOps(control: { [weak apps = services.apps, mainWork = services.mainWork] method, params throws(AppHostCapabilityError) in
+            guard let router = await mainWork.apply(.visible, owner: "coderouter.control-router", { apps?.controlRouter }) else {
                 throw AppHostCapabilityError(code: "unavailable", message: "cmux is still starting", retryable: true)
             }
             return try await router.appControl(method, params)
@@ -126,7 +129,7 @@ struct PageFactory {
             if let work = services?.work { sounds = await SettingsPageDomains.sounds(work: work) }
             return ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": sounds,
                     "recent_fonts": services?.settings?.recentFonts.families ?? []]
-        }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
+        }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null }, on: services.mainWork)
         provider.edits = edits
         provider.removeDevice = { [weak services] id in await services?.devices.remove(id: id) }
         provider.setDeviceFullAccess = { [weak services] id, on in await services?.devices.setFullAccess(id: id, on: on) }

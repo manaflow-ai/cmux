@@ -57,7 +57,9 @@
 #[path = "restart_resume.rs"]
 mod restart_resume;
 
-use super::{Control, Hub, PromptOptions, Session, SessionStatus, TurnInfo};
+use super::{
+    Control, Fatal, Hub, PromptOptions, Session, SessionStatus, ShutdownBehavior, TurnInfo,
+};
 use crate::rpc::RpcError;
 use crate::store::EventRecord;
 use serde_json::{Value, json};
@@ -352,7 +354,7 @@ impl Hub {
         let from = cut.from.map(str::to_owned);
         let (hub, session) = (self.clone(), session.clone());
         // Off the turn's path: the turn lock is still held here.
-        tokio::spawn(async move {
+        self.supervise("hub.auto-resume", Fatal, ShutdownBehavior::Skip, async move {
             let delays = {
                 let cfg = hub.config.read().await;
                 cfg.auto_resume_delays_ms.clone().unwrap_or_else(|| DEFAULT_DELAYS_MS.to_vec())

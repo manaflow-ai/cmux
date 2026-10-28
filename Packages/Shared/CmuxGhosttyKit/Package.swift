@@ -82,13 +82,13 @@ import PackageDescription
 // has then); ghostty_surface_fit_grid gives the grid a size will fit without
 // resizing; the grid metrics say whether the alternate screen is active;
 // kitty graphics follow upstream #14811 and #14812.
-// Since 0cb7e1e04..9ce9b7d08: ghostty_surface_present_host_frame_ready
-// presents a drawn host-size frame without waiting, a content-only frame of a
-// host-sized surface reaches the screen without the main thread, the bash
-// 4.4-5.2 integration reads the history entry without a second fork, and an
-// iOS renderer has vsync: a CADisplayLink (80-120 Hz, 120 preferred) paces
-// draws to at most one per display refresh (it drew one per output batch,
-// 190-270 frames a second on a 120 Hz iPhone).
+// Since 723c4ab..ef6ce27 (PR 62 and four main commits): fit_grid returns
+// false when no whole cell fits after padding (it gave a clamped 1-column
+// grid); ghostty_surface_present_host_frame_ready is the no-wait present
+// (cmux does not call it yet); a content-only frame of a host-sized surface
+// is presented off the main thread (render counter host_off_main_presents);
+// bash 4.4-5.2 integration forks once per command, not twice; an iOS
+// renderer paces draws with a CADisplayLink.
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -113,8 +113,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-9ce9b7d08472f6249d0bc8ce14b7087049613e73-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "4277faf01e59b9af97d2bb9a5ad4b866fc762f20144e21b5e3583b1bf31de58c"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-ef6ce279aefa467c2f7fd735c85fdb7d40860a0d-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "d514c2d95c6ce6cef93f52c3f3f3daba3450b5d2da8b487bf4ae1f361c5403ab"
         ),
     ]
 )

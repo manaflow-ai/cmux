@@ -6,6 +6,7 @@
 use crate::config::HarnessProfile;
 use crate::no_panic::RwLockExt;
 use crate::rpc::{Id, Message, RpcError};
+use crate::supervised::{Fatal, ShutdownBehavior, Supervisor};
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -18,6 +19,7 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 mod command;
 #[cfg(unix)]
 pub(crate) mod session_tmp;
+mod supervision;
 pub(crate) use command::{
     REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, harness_command,
     host_environment, pinned_preview_format, preview_format,
@@ -659,6 +661,8 @@ pub struct ChildAgent {
     /// Tests only: a pause in its stdin writer (`InputSeam`).
     #[cfg(test)]
     pub(crate) input_seam: InputSeam,
+    /// The daemon's supervisor: its readers act on the hub's sessions (`crate::supervised`).
+    supervisor: Supervisor,
     /// Windows: the agent's job (its process group on Unix).
     #[cfg(windows)]
     job: Option<crate::job::Job>,
@@ -706,8 +710,9 @@ impl ChildAgent {
         cwd: &std::path::Path,
         inbound: mpsc::Sender<Inbound>,
         tap: Tap,
+        supervisor: &Supervisor,
     ) -> Result<Arc<Self>> {
-        Self::spawn_with(name, profile, cwd, inbound, tap, None, None, None).await
+        Self::spawn_with(name, profile, cwd, inbound, tap, None, None, None, supervisor).await
     }
 
     /// Spawn with an explicit command line (used by the Claude stdio backend,
@@ -723,6 +728,7 @@ impl ChildAgent {
         // (session id, session name): exported to the agent as ACPMUX_* so
         // it can drive its own session and siblings through the CLI.
         session: Option<(&str, &str)>,
+        supervisor: &Supervisor,
     ) -> Result<Arc<Self>> {
         // The build-session kill switch: no process for a harness it does not allow (cx-9ettq).
         crate::launch_policy::refuse_unless_allowed(name)?;
@@ -781,6 +787,7 @@ impl ChildAgent {
             writer_stop: std::sync::OnceLock::new(),
             #[cfg(test)]
             input_seam: InputSeam::default(),
+            supervisor: supervisor.clone(),
             #[cfg(windows)]
             job,
         });
@@ -841,7 +848,7 @@ impl ChildAgent {
             let pending = pending.clone();
             let tap = tap.clone();
             let agent_for_exit = agent.clone();
-            tokio::spawn(async move {
+            agent.supervise("agent.stdout", Fatal, ShutdownBehavior::Skip, async move {
                 let mut lines = BufReader::new(stdout).lines();
                 // The leader can exit while a descendant still holds stdout
                 // open; watch it so its exit is reported regardless.
@@ -1731,6 +1738,7 @@ impl ChildAgent {
         awaiting: Vec<Id>,
         inbound: mpsc::Sender<Inbound>,
         tap: Tap,
+        supervisor: &Supervisor,
     ) -> Result<Attached> {
         use crate::agent_host::link::{Connect, connect};
         let (link, adopted): (Arc<crate::agent_host::link::Link>, _) =
@@ -1741,7 +1749,7 @@ impl ChildAgent {
                 }
             };
         let (agent, responses) =
-            Self::from_link(name, link, &adopted, resume_after, awaiting, inbound, tap);
+            Self::from_link(name, link, &adopted, resume_after, awaiting, inbound, tap, supervisor);
         Ok(Attached::Ready(agent, adopted, responses))
     }
 
@@ -1755,6 +1763,7 @@ impl ChildAgent {
         awaiting: Vec<Id>,
         inbound: mpsc::Sender<Inbound>,
         tap: Tap,
+        supervisor: &Supervisor,
     ) -> (Arc<Self>, Vec<Response>) {
         // Never reuse an id the harness may still answer.
         let (stdin_tx, _unused) = mpsc::channel(1);
@@ -1799,6 +1808,7 @@ impl ChildAgent {
             writer_stop: std::sync::OnceLock::new(),
             #[cfg(test)]
             input_seam: InputSeam::default(),
+            supervisor: supervisor.clone(),
             #[cfg(windows)]
             job: None,
         });
@@ -1829,7 +1839,7 @@ impl ChildAgent {
     /// entry meanwhile, and one ack covers every entry written by then.
     fn start_reader(self: &Arc<Self>, link: Arc<crate::agent_host::link::Link>) {
         let reader = self.clone();
-        tokio::spawn(async move {
+        self.supervise("agent.host-entries", Fatal, ShutdownBehavior::Skip, async move {
             let Some(hosted) = reader.hosted.as_ref() else { return };
             let (acks, ack_rx) = mpsc::unbounded_channel();
             // Bounded by the host: it stops reading its harness once its unacknowledged entries
@@ -2236,129 +2246,7 @@ pub(crate) fn spawn_error(what: &str, e: std::io::Error) -> anyhow::Error {
 }
 
 #[cfg(all(test, unix))]
-mod spawn_error_tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn a_durable_withdrawal_never_logs_an_unscoped_raw_cursor() -> anyhow::Result<()> {
-        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
-            "argv": ["python3", "-c", "import sys; sys.stdin.read()"]
-        }))?;
-        let cursors = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let recorded = cursors.clone();
-        let tap: Tap = Arc::new(move |_, _, seq| {
-            recorded.lock().unwrap_or_else(|e| e.into_inner()).push(seq);
-            Some(WriteTicket::done())
-        });
-        let (tx, mut rx) = mpsc::channel(8);
-        let agent =
-            ChildAgent::spawn("old", &profile, &std::env::temp_dir(), tx.clone(), tap).await?;
-        let cancel = Message::notification(
-            crate::rpc::method::CANCEL_REQUEST,
-            serde_json::json!({"requestId": 7}),
-        );
-        let pending =
-            agent.on_host_entry(900, crate::agent_host::Entry::In { msg: cancel.to_value() }, &tx);
-        let persist = async {
-            if let Some(Inbound::Notification { persisted: Some(done), host_seq, .. }) =
-                rx.recv().await
-            {
-                assert_eq!(host_seq, Some(900), "the durable marker owns the checkpoint");
-                assert!(cursors.lock().unwrap_or_else(|e| e.into_inner()).is_empty());
-                let _ = done.send(true);
-            }
-        };
-        let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            tokio::join!(pending, persist).0
-        })
-        .await;
-        agent.kill().await;
-        assert!(result?.is_some(), "the cancellation was not stored");
-        assert_eq!(
-            *cursors.lock().unwrap_or_else(|e| e.into_inner()),
-            vec![None],
-            "raw cancellation has no incarnation fence"
-        );
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn direct_children_give_withdrawals_distinct_request_owners() -> anyhow::Result<()> {
-        let ask = Message::request(7, crate::rpc::method::SESSION_REQUEST_PERMISSION, Value::Null);
-        let cancel = Message::notification(
-            crate::rpc::method::CANCEL_REQUEST,
-            serde_json::json!({"requestId": 7}),
-        );
-        let script = format!(
-            "import sys; print({:?}, flush=True); print({:?}, flush=True); sys.stdin.read()",
-            ask.to_line().trim(),
-            cancel.to_line().trim()
-        );
-        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
-            "argv": ["python3", "-c", script]
-        }))?;
-        let mut owners = Vec::new();
-        for _ in 0..2 {
-            let (inbound, mut rx) = mpsc::channel(8);
-            let agent = ChildAgent::spawn(
-                "direct",
-                &profile,
-                &std::env::temp_dir(),
-                inbound,
-                Arc::new(|_, _, _| Some(WriteTicket::done())),
-            )
-            .await?;
-            let messages = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-                (rx.recv().await, rx.recv().await)
-            })
-            .await;
-            agent.kill().await;
-            let (
-                Some(Inbound::Request { host_incarnation: request, .. }),
-                Some(Inbound::Notification { host_incarnation: cancel, .. }),
-            ) = messages?
-            else {
-                anyhow::bail!("the direct child did not ask and withdraw its request");
-            };
-            assert!(request.is_some(), "a direct request needs its child's identity");
-            assert_eq!(request, cancel, "a withdrawal must carry its request's owner");
-            owners.push(request);
-        }
-        assert_ne!(owners[0], owners[1], "a replacement child reused its predecessor's owner");
-        Ok(())
-    }
-
-    #[test]
-    fn out_of_descriptors_says_it_is_the_daemon_and_what_to_do() {
-        let error = spawn_error("start host", std::io::Error::from_raw_os_error(libc::EMFILE));
-        let text = format!("{error:#}");
-        assert!(text.starts_with("start host: the acpmux daemon is out of open files"), "{text}");
-        assert!(text.contains("acpmux daemon shutdown"), "{text}");
-        let other = spawn_error("start host", std::io::Error::from_raw_os_error(libc::ENOENT));
-        assert!(format!("{other:#}").starts_with("start host: "), "{other:#}");
-    }
-
-    #[tokio::test]
-    async fn direct_spawn_failure_does_not_expose_harness_argv() {
-        const SENTINEL: &str = "argv-secret-must-not-leave-the-daemon";
-        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
-            "argv": ["/nonexistent/acpmux-test-harness", "--token", SENTINEL]
-        }))
-        .unwrap();
-        let (inbound, _rx) = mpsc::channel(1);
-        let tap: Tap = Arc::new(|_, _, _| Some(WriteTicket::done()));
-        let error =
-            match ChildAgent::spawn("missing", &profile, &std::env::temp_dir(), inbound, tap).await
-            {
-                Ok(_) => panic!("a missing harness started"),
-                Err(error) => error,
-            };
-        assert!(
-            !error.to_string().contains(SENTINEL),
-            "spawn failure exposed harness argv: {error:#}"
-        );
-    }
-}
+mod spawn_error_tests;
 
 #[cfg(all(test, unix))]
 mod fence_tests {
@@ -2375,9 +2263,16 @@ mod fence_tests {
                 .unwrap();
         let (inbound, _rx) = mpsc::channel(16);
         let tap: Tap = Arc::new(|_, _, _| Some(WriteTicket::done()));
-        let agent = ChildAgent::spawn("fake", &profile, &std::env::temp_dir(), inbound, tap)
-            .await
-            .expect("the stand-in agent starts");
+        let agent = ChildAgent::spawn(
+            "fake",
+            &profile,
+            &std::env::temp_dir(),
+            inbound,
+            tap,
+            &crate::supervised::embedded(),
+        )
+        .await
+        .expect("the stand-in agent starts");
         // Its writer holds one line, so what is queued after it stays queued.
         let (arrived_tx, arrived) = oneshot::channel();
         let (release, release_rx) = oneshot::channel();
@@ -2415,9 +2310,16 @@ mod fence_tests {
         let profile: HarnessProfile = serde_json::from_value(argv).unwrap();
         let (inbound, _rx) = mpsc::channel(16);
         let tap: Tap = Arc::new(|_, _, _| Some(WriteTicket::done()));
-        let agent = ChildAgent::spawn("kept", &profile, &std::env::temp_dir(), inbound, tap)
-            .await
-            .expect("the agent starts");
+        let agent = ChildAgent::spawn(
+            "kept",
+            &profile,
+            &std::env::temp_dir(),
+            inbound,
+            tap,
+            &crate::supervised::embedded(),
+        )
+        .await
+        .expect("the agent starts");
         let fence = Fence::default();
         let line = "x".repeat(1 << 20);
         let note = Message::notification("note", serde_json::json!({"text": line}));
@@ -2447,9 +2349,16 @@ mod fence_tests {
         let profile: HarnessProfile = serde_json::from_value(argv).unwrap();
         let (inbound, _rx) = mpsc::channel(16);
         let tap: Tap = Arc::new(|_, _, _| Some(WriteTicket::done()));
-        let agent = ChildAgent::spawn("stuck", &profile, &std::env::temp_dir(), inbound, tap)
-            .await
-            .expect("the agent starts");
+        let agent = ChildAgent::spawn(
+            "stuck",
+            &profile,
+            &std::env::temp_dir(),
+            inbound,
+            tap,
+            &crate::supervised::embedded(),
+        )
+        .await
+        .expect("the agent starts");
         let fence = Fence::default();
         let line = "x".repeat(1 << 20);
         let note = Message::notification("note", serde_json::json!({"text": line}));
@@ -2490,6 +2399,7 @@ mod fence_tests {
             command,
             Some(tr),
             None,
+            &crate::supervised::embedded(),
         )
         .await
         .expect("the agent starts");
@@ -2536,9 +2446,16 @@ mod fence_tests {
                 .unwrap();
         let (inbound, _rx) = mpsc::channel(16);
         let tap: Tap = Arc::new(|_, _, _| Some(WriteTicket::done()));
-        let agent = ChildAgent::spawn("fake", &profile, &std::env::temp_dir(), inbound, tap)
-            .await
-            .expect("the stand-in agent starts");
+        let agent = ChildAgent::spawn(
+            "fake",
+            &profile,
+            &std::env::temp_dir(),
+            inbound,
+            tap,
+            &crate::supervised::embedded(),
+        )
+        .await
+        .expect("the stand-in agent starts");
         // Its writer holds the request while it writes it.
         let (arrived_tx, arrived) = oneshot::channel();
         let (release, release_rx) = oneshot::channel();
@@ -2587,6 +2504,7 @@ mod fence_tests {
             command,
             Some(tr),
             None,
+            &crate::supervised::embedded(),
         )
         .await
         .expect("the agent starts");
@@ -2622,6 +2540,7 @@ mod fence_tests {
             command,
             Some(tr),
             None,
+            &crate::supervised::embedded(),
         )
         .await
         .expect("the agent starts");

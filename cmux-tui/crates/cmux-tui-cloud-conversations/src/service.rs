@@ -10,6 +10,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use cmux_cloud_wire::SnapshotBackoff;
 use serde_json::{Value, json};
 
+use crate::panic_free::JsonFields as _;
+
 use super::CloudError;
 use super::contract::{
     self, InboxOpRequest, MAX_PAGE, MAX_TAIL, OpRequest, Target, history_data, inbox_list_data,
@@ -244,13 +246,13 @@ impl SocketState {
     fn reply(&self, target: &Target) -> Value {
         let mut reply = json!({"state": self.state});
         if let Some(reason) = self.reason {
-            reply["reason"] = json!(reason);
+            reply.insert("reason", json!(reason));
         }
         if let Some(account) = &self.account {
-            reply["account"] = json!(account);
+            reply.insert("account", json!(account));
         }
         if let Target::Conversation(id) = target {
-            reply["conversation"] = json!(id);
+            reply.insert("conversation", json!(id));
         }
         reply
     }
@@ -437,7 +439,7 @@ impl CloudConversations {
         }
         let mut params = json!({"limit": limit});
         if include_archived {
-            params["include_archived"] = json!(true);
+            params.insert("include_archived", json!(true));
         }
         let reply = self.post("/v1/read", &read_body("inbox.list", params))?;
         let (value, revision) = read_value(reply)?;
@@ -498,13 +500,13 @@ impl CloudConversations {
         }
         let mut params = json!({"conversation": conversation, "root": root});
         if let Some(after_seq) = after_seq {
-            params["after_seq"] = json!(after_seq);
+            params.insert("after_seq", json!(after_seq));
         }
         if let Some(limit) = limit {
             if !(1..=MAX_PAGE).contains(&limit) {
                 return Err(CloudError::BadRequest(format!("limit must be 1-{MAX_PAGE}")));
             }
-            params["limit"] = json!(limit);
+            params.insert("limit", json!(limit));
         }
         let (value, _) =
             read_value(self.post("/v1/read", &read_body("conversation.thread", params))?)?;
@@ -537,7 +539,7 @@ impl CloudConversations {
                     "conversation {conversation:?} is not a conversation id"
                 )));
             }
-            params["conversation"] = json!(conversation);
+            params.insert("conversation", json!(conversation));
         }
         let body = read_body("participant.avatar.get", params);
         let (value, _) = read_value(self.post("/v1/read", &body)?)?;
@@ -603,7 +605,7 @@ impl CloudConversations {
         let mut info = json!({"kind": "selfhost", "user_id": user});
         for field in ["login", "display_name", "server_name"] {
             if let Some(value) = text(field) {
-                info[field] = json!(value);
+                info.insert(field, json!(value));
             }
         }
         let changed = {
@@ -846,10 +848,24 @@ impl CloudConversations {
             let inner = self.inner.clone();
             let driver_target = target.clone();
             // A subscribed client shows this stream's events as they arrive.
+            // supervise-allow: one conversation's stream driver; a panic removes its subscription, so the next subscribe starts a fresh driver instead of finding a subscription nothing feeds.
             let spawned = cmux_threads::spawn(
                 "mux-cloud-stream",
                 cmux_threads::ThreadQos::UserInitiated,
-                move || run_driver(&inner, driver_target, driver),
+                move || {
+                    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        run_driver(&inner, driver_target.clone(), driver);
+                    }));
+                    if ran.is_err() {
+                        // Only this driver's subscription: a later subscribe's has a driver
+                        // of its own.
+                        let mut subscriptions =
+                            inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+                        if subscriptions.get(&driver_target).is_some_and(|s| s.driver == driver) {
+                            subscriptions.remove(&driver_target);
+                        }
+                    }
+                },
             );
             if let Err(error) = spawned {
                 self.inner
@@ -1332,7 +1348,7 @@ enum Ended {
 /// newest state.
 fn queue_typing(subscription: &mut Subscription, conversation: &str, on: bool) {
     subscription.outbox.retain(|frame| {
-        !serde_json::from_str::<Value>(frame).is_ok_and(|frame| frame["t"] == "typing")
+        !serde_json::from_str::<Value>(frame).is_ok_and(|frame| frame.field("t") == "typing")
     });
     subscription
         .outbox
@@ -1343,7 +1359,7 @@ fn queue_typing(subscription: &mut Subscription, conversation: &str, on: bool) {
 /// the newest state.
 fn queue_presence(subscription: &mut Subscription, conversation: &str, viewing: bool) {
     subscription.outbox.retain(|frame| {
-        !serde_json::from_str::<Value>(frame).is_ok_and(|frame| frame["t"] == "presence.set")
+        !serde_json::from_str::<Value>(frame).is_ok_and(|frame| frame.field("t") == "presence.set")
     });
     subscription.outbox.push(
         json!({"t": "presence.set", "conversation": conversation, "viewing": viewing}).to_string(),

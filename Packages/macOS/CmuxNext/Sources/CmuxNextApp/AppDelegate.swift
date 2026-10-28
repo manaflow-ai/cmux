@@ -87,8 +87,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var webAuthHandler: WebAuthSessionHandler?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
+    /// `watchdog` is the launch's main-thread watchdog, made and started first in `main()`.
     init(environment: AppEnvironment, daemonStart: LaunchRead<DaemonLaunchStart>, wireStats: DaemonWireStats?, features: FeatureList? = nil,
-         startupTrace: StartupTrace? = nil, order: LaunchOrder, inputTap: InputEventTap, settingsRead: SettingsController.PendingLaunchRead,
+         startupTrace: StartupTrace? = nil, order: LaunchOrder, watchdog: MainThreadWatchdog, inputTap: InputEventTap,
+         settingsRead: SettingsController.PendingLaunchRead,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, frames: TerminalLaunchFrames, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         (self.environment, self.launchReads, self.settingsRead) = (environment, launchReads, settingsRead)
         (self.daemonStart, self.startupTrace) = (daemonStart, startupTrace)
@@ -104,7 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         (launchReveal, launchSettle) = (reveal, LaunchSettle(reveal: reveal, paneRefs: paneRefs))
         startupReferences = StartupReferences(startup: startup, reveal: reveal, mainWork: order.mainWork, paneRefs: paneRefs)
         (self.mainWork, self.inputTap) = (order.mainWork, inputTap)
-        let control = AppControl(mainWork: order.mainWork, input: inputTap)
+        let control = AppControl(mainWork: order.mainWork, input: inputTap, watchdog: watchdog)
         #if CMUX_PGO_PROFILE
         control.profileFlush = order.profileFlush
         #endif
@@ -114,6 +116,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // The critical phase begins: stalls from here name it (the run-loop turn this runs in stays one watchdog turn).
+        control.watchdog.beginCriticalPhase()
+        defer { control.watchdog.endStartupStep() }
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
         // "Quit, keep sessions" with no alert.
         QuitSignal.install(quit: { [weak self] in
@@ -122,7 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }, forceExit: { [weak self] in
             self?.forcedQuitExit.start()
         })
-        control.startWatchdog()
+        control.attachWatchdog()
         (NSApp as? CmuxApplication)?.inputQueueing = control.watchdog
         DebugTimings.markLaunch("did_finish_launching_start")
         let launchStart = startupTrace?.uptimeNanos

@@ -174,7 +174,7 @@ import Testing
         let slot = ChromiumEngineSlot(stores: fixture.stores, waitDeadlines: fixture.waitDeadlines, source: CEFRuntimeSource(layout: nil),
                                       launch: launchRuns ? launch.startup : nil, make: { _, _, _ in fixture }, stop: { _ in })
         let host = ChromiumPageHost(chromium: slot, preference: { BrowserDefaultEngine.chromium }, keyRouter: nil, work: hosting.work,
-                                    dialogs: hosting.dialogs, hangWork: nil)
+                                    mainWork: MainWorkScheduler(budget: MainFrameBudget()), dialogs: hosting.dialogs, hangWork: nil)
         (self.launch, self.hosting, self.slot) = (launch, hosting, slot)
         hosting.launchOrder = FakeChromiumHosting.LaunchOrder(
             restoredOrigin: { host.restoredOrigin(isShown: $0) },

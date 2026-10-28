@@ -564,6 +564,7 @@ async fn hosted_agent(
         Vec::new(),
         inbound,
         tap,
+        &acpmux::supervised::embedded(),
     )
     .await
     .unwrap();

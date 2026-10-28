@@ -1697,6 +1697,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextCrashReportingTests",
             dependencies: [
                 "CmuxNextCrashReporting",
+                // ChromiumMinidumpTests: a fake ProcessRunning for the dump symbolizer's atos runs.
+                "CmuxNextWakeups",
                 // InvariantSinkTests binds the blocking detector's scoped table.
                 "CmuxNextCompat",
                 // PreviousRunCrashEvidenceTests writes a previous run's black box and crash-key page.
@@ -2180,7 +2182,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextBrowserTests",
             // Signposts: CEFTabSwitchShowTests' switch.tab interval.
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextFavicons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextFavicons", "CmuxNextInput", "CmuxNextInputCore", "CmuxNextRemoteFetch", "CmuxNextRemoteLayer", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts",
                            "CmuxNextTestSupport",
                            // CmuxSafeConcurrency: OnceContinuation (CEFPasswordTests, as PasswordRevealBox takes it).
                            .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],

@@ -482,6 +482,7 @@ impl RelayCircuitLink {
             RelayCircuitFraming::Single => RelayCircuitSender::Direct(Mutex::new(sender)),
             RelayCircuitFraming::Batch => {
                 let (commands, receiver) = mpsc::channel(RELAY_BATCH_QUEUE_FRAMES);
+                // supervise-allow: the circuit's sender; it ends with the circuit, and a panic drops `receiver`, so every later send on this circuit fails.
                 tokio::spawn(run_batched_relay_sender(sender, receiver, terminal.clone()));
                 RelayCircuitSender::Batched(commands)
             }

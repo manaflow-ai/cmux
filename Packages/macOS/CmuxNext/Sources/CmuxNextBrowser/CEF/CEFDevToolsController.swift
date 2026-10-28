@@ -348,6 +348,8 @@ final class CEFDevToolsController {
     func makeViews(in tab: CEFTab) -> (host: CEFHostView, divider: CEFDevToolsDivider) {
         let host = CEFHostView()
         host.layerHosting.widget = .devTools
+        // Docked DevTools shows with its page's tab (`CEFTab.setContentVisible`); hidden, it joins no resize fence.
+        host.layerHosting.isPageVisible = { [weak tab] in tab.map { !$0.isContentHidden } ?? false }
         // A hidden DevTools keeps its last frame in the app-wide list, as a hidden tab's page does.
         host.layerHosting.switchCommit.hiddenFrames = tab.runtime.hiddenFrames
         if tab.host.isHostMode { installHostedPage(for: tab, in: host) }

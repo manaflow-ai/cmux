@@ -122,6 +122,7 @@ pub mod subagents;
 pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_worktree;
+pub mod supervised;
 pub mod tailnet;
 mod trace_control;
 pub mod trace_layer;
