@@ -9,20 +9,32 @@ import Testing
 
 @Suite(.serialized) @MainActor
 struct SessionSnapshotLimitTests {
-    @Test func persists130WorkspacesAndRestoresSelectedWorkspace129() throws {
+    @Test(arguments: [130, 1_024])
+    func persistsAllWorkspacesAndRestoresLastSelectedWorkspace(workspaceCount: Int) throws {
         let manager = TabManager()
         defer { manager.closeWorkspacesForTesting() }
-        for _ in 1..<130 {
-            _ = manager.addWorkspace(select: true, placementOverride: .end, autoWelcomeIfNeeded: false)
+        for _ in 1..<workspaceCount {
+            _ = manager.addWorkspace(
+                select: false,
+                placementOverride: .end,
+                autoWelcomeIfNeeded: false,
+                autoRefreshMetadata: false,
+                normalizeWorkspaceGroupsAfterInsert: false
+            )
         }
-        let selected = manager.tabs[129]
+        let selected = manager.tabs[workspaceCount - 1]
         manager.selectWorkspace(selected)
 
+        let captureStart = ProcessInfo.processInfo.systemUptime
         let snapshot = manager.sessionSnapshot(includeScrollback: false)
-        #expect(snapshot.workspaces.count == 130)
+        let captureSeconds = ProcessInfo.processInfo.systemUptime - captureStart
+        let fingerprintStart = ProcessInfo.processInfo.systemUptime
+        _ = manager.sessionAutosaveFingerprint()
+        let fingerprintSeconds = ProcessInfo.processInfo.systemUptime - fingerprintStart
+        #expect(snapshot.workspaces.count == workspaceCount)
         #expect(snapshot.omittedWorkspaceCount == nil)
         let selectedIndex = try #require(snapshot.selectedWorkspaceIndex)
-        #expect(selectedIndex == 129)
+        #expect(selectedIndex == workspaceCount - 1)
         #expect(snapshot.workspaces[selectedIndex].workspaceId == selected.id)
         #expect(snapshot.workspaces.map(\.workspaceId) == manager.tabs.map { Optional($0.id) })
 
@@ -34,8 +46,11 @@ struct SessionSnapshotLimitTests {
 
         let restored = TabManager()
         defer { restored.closeWorkspacesForTesting() }
+        let restoreStart = ProcessInfo.processInfo.systemUptime
         restored.restoreSessionSnapshot(persistedSnapshot)
-        #expect(restored.tabs.count == 130)
+        let restoreSeconds = ProcessInfo.processInfo.systemUptime - restoreStart
+        print("session_snapshot_scale workspaces=\(workspaceCount) capture_s=\(captureSeconds) fingerprint_s=\(fingerprintSeconds) restore_s=\(restoreSeconds)")
+        #expect(restored.tabs.count == workspaceCount)
         #expect(restored.selectedTabId == selected.id)
         #expect(restored.restoredSessionWorkspace(originalId: selected.id, from: persistedSnapshot)?.id == selected.id)
     }
@@ -46,7 +61,13 @@ struct SessionSnapshotLimitTests {
         let loginWorkspace = manager.tabs[0]
         loginWorkspace.isRemoteTmuxAuthLogin = true
         for _ in 1..<131 {
-            _ = manager.addWorkspace(select: true, placementOverride: .end, autoWelcomeIfNeeded: false)
+            _ = manager.addWorkspace(
+                select: false,
+                placementOverride: .end,
+                autoWelcomeIfNeeded: false,
+                autoRefreshMetadata: false,
+                normalizeWorkspaceGroupsAfterInsert: false
+            )
         }
         let boundaryWorkspace = manager.tabs[130]
         manager.selectWorkspace(manager.tabs[1])
