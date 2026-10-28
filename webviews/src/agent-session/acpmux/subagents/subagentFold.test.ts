@@ -85,11 +85,7 @@ test("post-completion child reply chunks invalidate the summary revision", () =>
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
   feed(fold, { sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "a", state: "completed" }] });
   const sayWithId = (text: string) =>
-    feed(
-      fold,
-      { ...say(text), messageId: "post-completion-reply" },
-      { subagent: "a" },
-    );
+    feed(fold, { ...say(text), messageId: "post-completion-reply" }, { subagent: "a" });
   sayWithId("See https://example.com/first");
   const first = sessionSummary(fold.views().a!);
   sayWithId(" and https://example.com/second");
@@ -184,11 +180,7 @@ test("a known titleless tool completion settles a child reply", () => {
 test("a child messageId change settles the prior reply Sources", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
-  feed(
-    fold,
-    { ...say("See https://github.com/acme/app/pull/41"), messageId: "msg-1" },
-    { subagent: "a" },
-  );
+  feed(fold, { ...say("See https://github.com/acme/app/pull/41"), messageId: "msg-1" }, { subagent: "a" });
   feed(fold, { ...say("Continue here"), messageId: "msg-2" }, { subagent: "a" });
   const rows = fold.views().a!;
   expect(rows.filter((row) => row.kind === "assistant")).toMatchObject([

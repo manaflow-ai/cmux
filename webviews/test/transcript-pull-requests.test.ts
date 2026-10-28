@@ -484,7 +484,9 @@ test("shell substitutions and conditions retain executed mutations", () => {
     const rows = toolsRows(shell(command, "https://github.com/acme/app/pull/41"));
     expect(transcriptPullRequests(rows)[0]?.changed).toBe(true);
   }
-  expect(transcriptPullRequests(toolsRows(shell("if false; then gh pr merge 45 -R acme/app --squash; fi")))).toEqual([]);
+  expect(transcriptPullRequests(toolsRows(shell("if false; then gh pr merge 45 -R acme/app --squash; fi")))).toEqual(
+    [],
+  );
   expect(transcriptPullRequests(toolsRows(shell("( gh pr merge 46 -R acme/app --squash )")))).toMatchObject([
     { number: 46, changed: true, state: "merged" },
   ]);
@@ -534,13 +536,13 @@ test("issue commands do not hide unrelated references on the same shell line", (
 
 test("PR body payloads do not become separate activity", () => {
   const rows = toolsRows(shell("gh pr comment 41 -R acme/app --body 'see https://github.com/acme/other/pull/9'"));
-  expect(
-    transcriptPullRequests(rows),
-  ).toMatchObject([{ repo: "acme/app", number: 41, changed: true }]);
+  expect(transcriptPullRequests(rows)).toMatchObject([{ repo: "acme/app", number: 41, changed: true }]);
   expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
   const argv = toolsRows(
     tool("execute", "execute", "completed", {
-      inputSummary: JSON.stringify({ command: ["gh", "pr", "comment", "41", "-R", "acme/app", "--body", "see https://github.com/acme/other/pull/9"] }),
+      inputSummary: JSON.stringify({
+        command: ["gh", "pr", "comment", "41", "-R", "acme/app", "--body", "see https://github.com/acme/other/pull/9"],
+      }),
     }),
   );
   expect(sessionSummary(argv, "acme/app").sources).toEqual([]);

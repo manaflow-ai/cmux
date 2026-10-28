@@ -148,15 +148,22 @@ const executedShellText = (command: string): string => {
     .replace(/\bif\s+false\b[\s\S]*?\belif\s+((?!(?:true|false)\b)[\s\S]*?)\s*(?:;|\n)\s*fi\b/g, "$1")
     .replace(/\bif\s+false\b[\s\S]*?\belse\s+([\s\S]*?)\s*\bfi\b/g, "$1")
     .replace(/\bif\s+false\b[\s\S]*?\bfi\b/g, "");
-  text = text.replace(/\bif\s+(true|false)\s*(?:;|\n)\s*then\s+([\s\S]*?)(?=\s*(?:;|\n)\s*(?:elif|else|fi)\b)([\s\S]*?)\bfi\b/g, (_, condition: string, thenBody: string, rest: string) => {
-    if (condition === "true") return thenBody.split(/\b(?:elif|else)\b/)[0]!;
-    const directElif = /^[;\n\s]*elif\s+(?!true\s*(?:;|\n)|false\s*(?:;|\n))/i.exec(rest);
-    if (directElif) return rest.replace(/^[;\n\s]*elif\s+/, "");
-    const clauses = [...rest.matchAll(/\b(?:;|\n)?\s*elif\s+(true|false)\s*(?:;|\n)\s*then\s+([\s\S]*?)(?=\s*(?:;|\n)\s*(?:elif|else)\b|$)/g)];
+  text = text.replace(
+    /\bif\s+(true|false)\s*(?:;|\n)\s*then\s+([\s\S]*?)(?=\s*(?:;|\n)\s*(?:elif|else|fi)\b)([\s\S]*?)\bfi\b/g,
+    (_, condition: string, thenBody: string, rest: string) => {
+      if (condition === "true") return thenBody.split(/\b(?:elif|else)\b/)[0]!;
+      const directElif = /^[;\n\s]*elif\s+(?!true\s*(?:;|\n)|false\s*(?:;|\n))/i.exec(rest);
+      if (directElif) return rest.replace(/^[;\n\s]*elif\s+/, "");
+      const clauses = [
+        ...rest.matchAll(
+          /\b(?:;|\n)?\s*elif\s+(true|false)\s*(?:;|\n)\s*then\s+([\s\S]*?)(?=\s*(?:;|\n)\s*(?:elif|else)\b|$)/g,
+        ),
+      ];
     const chosen = clauses.find((clause) => clause[1] === "true")?.[2];
-    if (chosen) return chosen;
-    return /\belse\s+/.test(rest) ? rest.replace(/^([\s\S]*?)\belse\s+/, "") : "";
-  });
+      if (chosen) return chosen;
+      return /\belse\s+/.test(rest) ? rest.replace(/^([\s\S]*?)\belse\s+/, "") : "";
+    },
+  );
   return text
     .replace(/!\s+true\b/g, "false")
     .replace(/!\s+false\b/g, "true")

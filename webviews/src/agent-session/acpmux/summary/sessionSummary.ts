@@ -200,12 +200,21 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
               .map((part) => (/\s/.test(part) ? JSON.stringify(part) : part))
               .join(" ")
           : undefined);
-      const command = item.command ? pullRequestSourceCommand(item.command) : inputCommandArray ? "" : inputCommand ?? "";
-      const title =
-        item.command ? pullRequestSourceCommand(item.command) : inputCommandArray ? "" : inputCommand ? pullRequestSourceCommand(inputCommand) : item.title;
+      const command = item.command
+        ? pullRequestSourceCommand(item.command)
+        : inputCommandArray
+          ? ""
+          : (inputCommand ?? "");
+      const title = item.command
+        ? pullRequestSourceCommand(item.command)
+        : inputCommandArray
+          ? ""
+          : inputCommand
+            ? pullRequestSourceCommand(inputCommand)
+            : item.title;
       // When raw input carries a shell command, scanning the JSON would reintroduce URLs from
       // --body/--body-file payloads that the command sanitizer intentionally removed.
-      const inputText = inputCommand ? "" : item.inputSummary ?? "";
+      const inputText = inputCommand ? "" : (item.inputSummary ?? "");
       const text = `${title} ${command} ${inputText} ${item.output ?? ""}`;
       const order = rowIndex + toolIndex / 1000;
       addUrls(text, order);
