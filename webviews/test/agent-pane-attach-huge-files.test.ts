@@ -1,4 +1,5 @@
 // cmux-web-test-timeout: 3000
+// cmux-web-test-alone
 // Leo, 2026-10-25: "are the fixes for all the composer attachment/image big size things fixed? like
 // arbitarrily large file sizes the composer should never ever freeze and prevent new things from
 // happening/from cancelling the thing". And: "also why dont we have previews of videos we should ...
