@@ -315,6 +315,10 @@
         "id": 1802,
         "priority": "control"
       },
+      "bridge-hello": {
+        "id": 518,
+        "priority": "control"
+      },
       "browser-activate": {
         "id": 2828,
         "priority": "control"
@@ -385,6 +389,10 @@
       },
       "cancel-request": {
         "id": 4621,
+        "priority": "control"
+      },
+      "cancel-stream": {
+        "id": 794,
         "priority": "control"
       },
       "chief-inspect": {
@@ -943,6 +951,10 @@
         "id": 2570,
         "priority": "control"
       },
+      "memory-report": {
+        "id": 277,
+        "priority": "background"
+      },
       "mint-terminal-renderer": {
         "id": 778,
         "priority": "control"
@@ -1351,6 +1363,10 @@
         "id": 1543,
         "priority": "control"
       },
+      "set-stream-priority": {
+        "id": 795,
+        "priority": "input"
+      },
       "set-tab-pinned": {
         "id": 1812,
         "priority": "control"
@@ -1709,6 +1725,10 @@
         "id": 50178,
         "priority": "control"
       },
+      "input-failed": {
+        "id": 49165,
+        "priority": "control"
+      },
       "keybindings-changed": {
         "id": 49670,
         "priority": "control"
@@ -1813,6 +1833,10 @@
         "id": 49161,
         "priority": "control"
       },
+      "server-diagnostic-site": {
+        "id": 49676,
+        "priority": "background"
+      },
       "settings-changed": {
         "id": 49674,
         "priority": "control"
@@ -1823,6 +1847,10 @@
       },
       "status": {
         "id": 49420,
+        "priority": "control"
+      },
+      "stream-end": {
+        "id": 49164,
         "priority": "control"
       },
       "surface-exited": {

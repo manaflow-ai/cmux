@@ -88,7 +88,7 @@ struct AgentPaneMemoryConsumerTests {
     /// An agent page inside a pane's content host.
     private static func page() throws -> (view: AgentPaneView, host: NSView) {
         let file = try #require(AgentPageTestRoot.page)
-        let view = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
+        let view = try #require(AgentPaneView(mainThread: .standalone(), model: AgentPaneModel(host: NoHost()), work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file),
                                               webUI: .agentPaneTestHost(), gestures: .testing()))
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         host.addSubview(view)

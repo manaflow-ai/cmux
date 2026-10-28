@@ -1,6 +1,8 @@
 import GhosttyNextKit
 
-/// Copies `ghostty_action_s` (ghostty.h:1143-1250) into a Sendable value.
+/// Copies `ghostty_action_s` (ghostty.h:1143-1250) into a Sendable value. Payload integers widen with
+/// `truncatingIfNeeded:` from narrower types and lengths convert with `exactly:`, so no value Ghostty passes
+/// (some come from a terminal program's escape sequences) traps here.
 nonisolated enum GhosttyActionDecoder {
     // swiftlint:disable:next cyclomatic_complexity function_body_length
     static func decode(_ action: ghostty_action_s) -> GhosttyAction? {
@@ -37,7 +39,7 @@ nonisolated enum GhosttyActionDecoder {
             case GHOSTTY_RESIZE_SPLIT_LEFT: .left
             default: .right
             }
-            return .host(.resizeSplit(direction, amount: Int(resize.amount)))
+            return .host(.resizeSplit(direction, amount: Int(truncatingIfNeeded: resize.amount)))
         case GHOSTTY_ACTION_EQUALIZE_SPLITS: return .host(.equalizeSplits)
         case GHOSTTY_ACTION_TOGGLE_SPLIT_ZOOM: return .host(.toggleSplitZoom)
         case GHOSTTY_ACTION_GOTO_TAB:
@@ -46,10 +48,10 @@ nonisolated enum GhosttyActionDecoder {
             case GHOSTTY_GOTO_TAB_PREVIOUS.rawValue: .previous
             case GHOSTTY_GOTO_TAB_NEXT.rawValue: .next
             case GHOSTTY_GOTO_TAB_LAST.rawValue: .last
-            default: .index(Int(raw))
+            default: .index(Int(truncatingIfNeeded: raw))
             }
             return .host(.gotoTab(target))
-        case GHOSTTY_ACTION_MOVE_TAB: return .host(.moveTab(Int(payload.move_tab.amount)))
+        case GHOSTTY_ACTION_MOVE_TAB: return .host(.moveTab(payload.move_tab.amount))
         case GHOSTTY_ACTION_TOGGLE_FULLSCREEN: return .host(.toggleFullscreen)
         case GHOSTTY_ACTION_TOGGLE_MAXIMIZE: return .host(.toggleMaximize)
         case GHOSTTY_ACTION_TOGGLE_COMMAND_PALETTE: return .host(.toggleCommandPalette)
@@ -84,21 +86,21 @@ nonisolated enum GhosttyActionDecoder {
         case GHOSTTY_ACTION_OPEN_URL:
             let open = payload.open_url
             // SAFETY: the payload's url pointer and its length, valid for this callback; string copies them.
-            guard let url = string(unsafe open.url, length: Int(open.len)) else { return nil }
+            guard let length = Int(exactly: open.len), let url = string(unsafe open.url, length: length) else { return nil }
             return .openURL(url)
         case GHOSTTY_ACTION_MOUSE_SHAPE: return .mouseShape(payload.mouse_shape)
         case GHOSTTY_ACTION_MOUSE_VISIBILITY: return .mouseVisible(payload.mouse_visibility == GHOSTTY_MOUSE_VISIBLE)
         case GHOSTTY_ACTION_MOUSE_OVER_LINK:
             let link = payload.mouse_over_link
             // SAFETY: the payload's url pointer and its length, valid for this callback; string copies them.
-            return .mouseOverLink(link.len > 0 ? string(unsafe link.url, length: Int(link.len)) : nil)
+            return .mouseOverLink(link.len > 0 ? string(unsafe link.url, length: link.len) : nil)
         case GHOSTTY_ACTION_CELL_SIZE:
             return .cellSize(width: payload.cell_size.width, height: payload.cell_size.height)
         case GHOSTTY_ACTION_RENDERER_HEALTH:
             return .rendererHealthy(payload.renderer_health == GHOSTTY_RENDERER_HEALTH_HEALTHY)
         case GHOSTTY_ACTION_PROGRESS_REPORT:
             let report = payload.progress_report
-            let value: Int? = report.progress < 0 ? nil : Int(report.progress)
+            let value: Int? = report.progress < 0 ? nil : Int(truncatingIfNeeded: report.progress)
             let progress: TerminalProgress? = switch report.state {
             case GHOSTTY_PROGRESS_STATE_SET: .normal(value)
             case GHOSTTY_PROGRESS_STATE_ERROR: .error(value)
@@ -110,7 +112,7 @@ nonisolated enum GhosttyActionDecoder {
         case GHOSTTY_ACTION_COMMAND_FINISHED:
             let finished = payload.command_finished
             return .commandFinished(TerminalCommandResult(
-                exitCode: finished.exit_code < 0 ? nil : Int(finished.exit_code),
+                exitCode: finished.exit_code < 0 ? nil : Int(truncatingIfNeeded: finished.exit_code),
                 duration: .nanoseconds(Int64(clamping: finished.duration))
             ))
         case GHOSTTY_ACTION_SHOW_CHILD_EXITED:
@@ -139,10 +141,10 @@ nonisolated enum GhosttyActionDecoder {
         case GHOSTTY_ACTION_END_SEARCH: return .endSearch
         case GHOSTTY_ACTION_SEARCH_TOTAL:
             let total = payload.search_total.total
-            return .searchTotal(total < 0 ? nil : Int(total))
+            return .searchTotal(total < 0 ? nil : total)
         case GHOSTTY_ACTION_SEARCH_SELECTED:
             let selected = payload.search_selected.selected
-            return .searchSelected(selected < 0 ? nil : Int(selected))
+            return .searchSelected(selected < 0 ? nil : selected)
         case GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD: return .copyTitleToClipboard
         case GHOSTTY_ACTION_RENDER: return .render
         default:

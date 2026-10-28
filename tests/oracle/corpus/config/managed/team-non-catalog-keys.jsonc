@@ -1,0 +1,15 @@
+{
+  "file": "{}\n",
+  "forced": {},
+  "recommended": {},
+  "team": {
+    "name": "Oracle Team",
+    "defaults": {
+      "oracle.notASetting": 1,
+      "shortcuts": {}
+    },
+    "enforced": {
+      "customActions": []
+    }
+  }
+}

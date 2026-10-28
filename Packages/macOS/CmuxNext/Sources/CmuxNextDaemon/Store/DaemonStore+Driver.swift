@@ -5,191 +5,21 @@ import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
 
-/// Off-main event buffer. The pump appends; the main actor takes whole
-/// batches. At most one frame is requested per non-empty buffer.
-///
-/// Coalescing (plans/cmux-next/main-thread-budget.md): an event that states
-/// the whole current value of one surface's field (title, size, scroll,
-/// agent presence: ``CoalesceKey``) replaces an earlier one for the same
-/// surface still in the buffer, so a batch applies each object's newest
-/// value once, however often it changed since the last frame. Workspace,
-/// screen, pane and tab deltas are never coalesced: they carry consecutive
-/// revisions and structural moves. Agent statuses are never coalesced
-/// either: the store records each transition.
-///
-/// Bounded (architecture.md 5a): past `limit` events the buffer collapses
-/// into one `.overflow` marker, which the store answers with one snapshot
-/// that supersedes everything dropped. Lifecycle events and transaction
-/// echoes (which settle intents and waiters) survive the collapse; every
-/// other event is dropped until the next `take()`.
-///
-/// Cause (plans/cmux-next/chrome-parity/p06-scheduler.md, "Person cause, app side"): an event
-/// that replaces others carries the highest cause of them all (person > frontend > program >
-/// automation), so automation never hides a person's change behind it. The `.overflow` marker,
-/// which becomes one resync, carries the highest cause of everything the collapse dropped, with
-/// no floor: a flood of automation events resyncs as automation.
-final class EventInbox: Sendable {
-    fileprivate struct State {
-        /// Buffered events in order; nil where a newer event of the same coalescing key replaced one.
-        var events: [DaemonEventEnvelope?] = []
-        /// Live (non-nil) entries of `events`.
-        var live = 0
-        /// The slot of the newest event per coalescing key (normal mode only).
-        var latest: [CoalesceKey: Int] = [:]
-        /// Events replaced by a newer one since creation (debug).
-        var coalesced = 0
-        var framePending = false
-        /// Set once the buffer collapsed; cleared by `take()`.
-        var collapsed = false
-        /// The highest cause of the events the collapse dropped (the resync's), from the lowest.
-        var collapseCause = ObservationCause.automation
-        var echoes: Set<ClientTransactionID> = []
-    }
-
-    /// Matches the daemon's own per-client mailbox.
-    static let defaultLimit = 4096
-
-    private let state = Mutex(State())
-    private let limit: Int
-
-    init(limit: Int = EventInbox.defaultLimit) {
-        self.limit = max(limit, 1)
-    }
-
-    /// Returns true when the caller must schedule a frame.
-    func append(_ envelope: DaemonEventEnvelope) -> Bool {
-        state.withLock { state in
-            if state.collapsed {
-                Self.keep(envelope, in: &state)
-            } else if let key = CoalesceKey(envelope.event), let old = state.latest[key] {
-                // The newest value of the same field of the same surface: the older one never applies.
-                var replaced = envelope.cause
-                state.events.modify(checked: old) { replaced = $0?.cause ?? replaced; $0 = nil }
-                state.coalesced += 1
-                state.latest[key] = state.events.count
-                state.events.append(envelope.raisingCause(to: replaced))
-            } else if state.live >= limit {
-                let buffered = state.events.compactMap { $0 }
-                state.events = [DaemonEventEnvelope(sequence: envelope.sequence, event: .overflow("app event inbox exceeded \(limit) events"))]
-                state.live = 1
-                state.latest.removeAll(keepingCapacity: true)
-                state.collapsed = true
-                state.collapseCause = .automation
-                for old in buffered { Self.keep(old, in: &state) }
-                Self.keep(envelope, in: &state)
-            } else {
-                if let key = CoalesceKey(envelope.event) { state.latest[key] = state.events.count }
-                state.events.append(envelope)
-                state.live += 1
-            }
-            guard !state.framePending else { return false }
-            state.framePending = true
-            return true
-        }
-    }
-
-    /// Events a newer one replaced so far (debug).
-    var coalescedCount: Int { state.withLock { $0.coalesced } }
-
-    /// Events buffered and not taken yet (debug, tests).
-    var bufferedCount: Int { state.withLock { $0.live } }
-
-    /// While collapsed: keep lifecycle and bookmark events and one echo per transaction
-    /// (as a `tree-changed` carrying it), drop the rest.
-    private static func keep(_ envelope: DaemonEventEnvelope, in state: inout State) {
-        switch envelope.event {
-        case .connected, .disconnected, .daemonShutdown, .sessionState:
-            // Session state: not in the snapshot the collapse refetches.
-            state.append(envelope)
-        case .terminalRegistryChanged:
-            // Only an invalidation: keep the newest from each original control
-            // connection. A replacement source must not inherit the old stamp.
-            state.replace(with: envelope) {
-                if case .terminalRegistryChanged = $0.event {
-                    return $0.sourceID == envelope.sourceID && $0.connectionSerial == envelope.connectionSerial
-                }
-                return false
-            }
-        case .agentChanged(let status):
-            // Agent state is not in the snapshot either (cx-ag5.6.8). Each event is the whole state
-            // of one surface, so a collapsed inbox keeps only the newest one per surface.
-            state.replace(with: envelope) { if case .agentChanged(let held) = $0.event { held.surface == status.surface } else { false } }
-        case .notification:
-            // Its text is not in the snapshot either (`outlivesSnapshot`).
-            state.append(envelope)
-        case .agentPresenceChanged(let presence):
-            state.replace(with: envelope) {
-                if case .agentPresenceChanged(let held) = $0.event { held.surface == presence.surface } else { false }
-            }
-        case .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
-             .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown:
-            // Not part of the tree snapshot a resync refetches (.unknown: the `apps-*` events of apps-v1).
-            state.append(envelope)
-        default:
-            // Dropped: the resync stands for it.
-            state.collapseCause = max(state.collapseCause, envelope.cause)
-            guard let transaction = envelope.event.clientTransactionID, state.echoes.insert(transaction).inserted else { return }
-            state.append(DaemonEventEnvelope(sequence: envelope.sequence, event: .treeChanged(transaction: transaction), cause: envelope.cause))
-        }
-    }
-
-    /// Takes everything buffered and clears the pending-frame flag.
-    func take() -> [DaemonEventEnvelope] {
-        state.withLock { state in
-            let collapseCause = state.collapsed ? state.collapseCause : nil
-            state.framePending = false
-            state.collapsed = false
-            state.collapseCause = .automation
-            state.echoes.removeAll(keepingCapacity: true)
-            state.latest.removeAll(keepingCapacity: true)
-            state.live = 0
-            defer { state.events.removeAll(keepingCapacity: true) }
-            guard let collapseCause else { return state.events.compactMap { $0 } }
-            return state.events.compactMap { (envelope: DaemonEventEnvelope?) -> DaemonEventEnvelope? in
-                guard let envelope, case .overflow = envelope.event else { return envelope }
-                return DaemonEventEnvelope(sequence: envelope.sequence, event: envelope.event, sourceID: envelope.sourceID,
-                                           cause: collapseCause)
-            }
-        }
-    }
-
-    /// Keeps new events from scheduling frames (during a resync).
-    func hold() {
-        state.withLock { $0.framePending = true }
-    }
-}
-
-extension EventInbox.State {
-    /// Appends a live event (collapsed mode; no coalescing key is tracked there).
-    mutating func append(_ envelope: DaemonEventEnvelope) {
-        events.append(envelope)
-        live += 1
-    }
-
-    /// Removes the live events `predicate` matches and appends `envelope` in their place, with the
-    /// highest cause of them all (collapsed mode).
-    mutating func replace(with envelope: DaemonEventEnvelope, matching predicate: (DaemonEventEnvelope) -> Bool) {
-        var cause = envelope.cause
-        events = events.compactMap { $0 }.filter { held in
-            guard predicate(held) else { return true }
-            cause = max(cause, held.cause)
-            return false
-        }
-        live = events.count
-        append(envelope.raisingCause(to: cause))
-    }
-}
-
 struct StoreDriver {
     let connection: DaemonConnection
     let inbox: EventInbox
     let scheduler: any FrameBatchScheduler
+    /// The transactions the frame drain left for budgeted tasks (``DrainTail``).
+    let tail: DrainTail
     /// The resync's snapshot read: the connection's, or a test's.
     let snapshot: @MainActor @Sendable () async throws -> (tree: DaemonTree, barrier: UInt64)
 
-    init(connection: DaemonConnection, inbox: EventInbox, scheduler: any FrameBatchScheduler,
+    @MainActor
+    init(connection: DaemonConnection, inbox: EventInbox, scheduler: any FrameBatchScheduler, tail: (any DrainTailScheduler)? = nil,
+         tailLimit: Int = EventInbox.defaultLimit,
          snapshot: (@MainActor @Sendable () async throws -> (tree: DaemonTree, barrier: UInt64))? = nil) {
         (self.connection, self.inbox, self.scheduler) = (connection, inbox, scheduler)
+        self.tail = DrainTail(scheduler: tail, limit: tailLimit)
         self.snapshot = snapshot ?? { try await connection.snapshot() }
     }
 
@@ -204,13 +34,22 @@ extension DaemonStore {
     /// Mirrors the daemon until the connection closes. Events go from the
     /// connection's reader thread straight into the inbox
     /// (``DaemonConnection/consumeEvents(_:)``: no cooperative-pool job on the
-    /// echo path); only those the connection buffered before this run pass
-    /// through the pump task. Batches reach the main actor at most once
-    /// per frame. A batch that invalidates the tree triggers one snapshot,
-    /// fetched and decoded off the main actor; events it supersedes (by
-    /// sequence barrier) are dropped. No polling and no timers.
-    public func run(connection: DaemonConnection, scheduler: any FrameBatchScheduler = NextTurnFrameScheduler()) async {
-        let driver = StoreDriver(connection: connection, inbox: EventInbox(), scheduler: scheduler)
+    /// echo path); only those the connection held before this run (its bounded
+    /// ``EventInbox`` backlog, ``DaemonEventRoute``) pass through the pump task,
+    /// once, when it attaches. The connection's gate and backlog never hold more
+    /// than their limit; the store's inbox, which each frame empties, collapses
+    /// past its limit too: a flood ends in one resync (p05-ipc-093).
+    /// Batches reach the main actor at most once per frame. A batch that
+    /// invalidates the tree triggers one snapshot, fetched and decoded off
+    /// the main actor; events it supersedes (by sequence barrier) are
+    /// dropped. No polling and no timers.
+    public func run(connection: DaemonConnection, scheduler: any FrameBatchScheduler) async {
+        await run(driver: StoreDriver(connection: connection, inbox: EventInbox(), scheduler: scheduler, tail: drainTailScheduler))
+    }
+
+    /// ``run(connection:scheduler:)`` with its driver made: a test's injects the resync's snapshot read.
+    func run(driver: StoreDriver) async {
+        let connection = driver.connection
         self.driver = driver
         beginConnection()
         let pump = Task.detached { [weak self] () -> String? in
@@ -222,8 +61,8 @@ extension DaemonStore {
             }
         }
         let failure = await pump.value
-        // Everything left: a frame asked for after this would find no driver.
-        drain()
+        // Everything left, the tail first: a frame asked for after this would find no driver.
+        drain(flushingTail: true)
         // What a script batch's stage still holds is this connection's, and a commit now could start a resync on
         // it: dropped (held intents show again as pending); the next connection's snapshot is the truth.
         stage?.discard()
@@ -243,32 +82,6 @@ extension DaemonStore {
         self.driver = nil
     }
 
-    /// Applies everything buffered as one batch, never split across frames: one daemon transaction
-    /// (close twelve panes and the layout change, close other workspaces) never shows half applied,
-    /// and the echo of a person's action with no intent (close other tabs, close a workspace from
-    /// the palette or the CLI) shows in the frame after it arrives, whatever else is queued. The
-    /// batch's cost is what changed since the last frame: whole-value events coalesce in the inbox,
-    /// a snapshot applies only what differs (DaemonStore+SnapshotDiff.swift), the unread sum and the
-    /// workspace-list check cost the workspaces that joined, left or changed their own count, and
-    /// the sidebar is flattened only by a batch that changed the order, the membership or a group.
-    /// Each batch is one sample of ``drainCost``.
-    func drain() {
-        guard let driver, !isResyncing else { return }
-        let batch = driver.inbox.take()
-        guard !batch.isEmpty else { return }
-        let connected = batch.contains { if case .connected = $0.event { true } else { false } }
-        // A snapshot that failed past its retry budget is retried on the
-        // next daemon event (something changed), not on a timer.
-        let (followup, cost) = DrainCost.measured(on: drainClock) { apply(batch: batch) }
-        drainCost.record(cost, events: batch.count)
-        if followup == .resync || needsResync {
-            causes.resync = max(causes.resync, batch.lazy.map(\.cause).max() ?? .program)
-            resync(seedAgents: connected)
-        } else if followup == .personal {
-            refetchPersonal()
-        }
-    }
-
     /// Clears ``drainCost`` (`debug.drain_cost` with `reset`).
     public func resetDrainCost() {
         drainCost = DrainCost()
@@ -285,22 +98,28 @@ extension DaemonStore {
         personalRefetch.inFlight = true
         let covering = personalRefetch.seen
         let barrier = snapshotBarrier
-        // task-owner: at most one list-personal at a time (personalRefetch.inFlight); its request has the connection's deadline
-        Task { @MainActor in
+        // task-owner: at most one list-personal at a time (personalRefetch.inFlight); its request has the connection's
+        // deadline. Off main: the task awaits the request; its one step on main is `personalFetched` (recipe R-hop).
+        Task { @concurrent [self] in
             let state = try? await driver.connection.listPersonal()
-            personalRefetch.inFlight = false
-            guard self.driver != nil else { return }
-            guard let state else { return resync() }
-            // A snapshot that landed or is landing holds this personal state or a newer one; a change after
-            // its barrier is fetched once it lands (`snapshotCoveredPersonal`, or `again` below).
-            if !isResyncing, snapshotBarrier == barrier, personalRefetch.pending != nil {
-                withOverlayLifted(writer: "personal refetch") { applyPersonal(state) }
-                advanceAppliedSequence(to: personalRefetch.landed(covering: covering))
-            }
-            if personalRefetch.again {
-                personalRefetch.again = false
-                refetchPersonal()
-            }
+            await personalFetched(state, covering: covering, barrier: barrier)
+        }
+    }
+
+    /// The `list-personal` that `refetchPersonal` sent answered `state` (nil: it failed, so a resync follows).
+    private func personalFetched(_ state: PersonalState?, covering: UInt64, barrier: UInt64) {
+        personalRefetch.inFlight = false
+        guard driver != nil else { return }
+        guard let state else { return resync() }
+        // A snapshot that landed or is landing holds this personal state or a newer one; a change after
+        // its barrier is fetched once it lands (`snapshotCoveredPersonal`, or `again` below).
+        if !isResyncing, snapshotBarrier == barrier, personalRefetch.pending != nil {
+            withOverlayLifted(writer: "personal refetch") { applyPersonal(state) }
+            advanceAppliedSequence(to: personalRefetch.landed(covering: covering))
+        }
+        if personalRefetch.again {
+            personalRefetch.again = false
+            refetchPersonal()
         }
     }
 
@@ -324,43 +143,62 @@ extension DaemonStore {
         let cause = causes.resync
         causes.resync = .program
         driver.inbox.hold()
-        // task-owner: at most one resync at a time (isResyncing); its snapshot request has a deadline
-        Task { @MainActor in
+        let logger = logger
+        // task-owner: at most one resync at a time (isResyncing); its snapshot request has a deadline. Off main: the
+        // task awaits the snapshot, its diff and the agents; its steps on main (under the inbox hold, so no batch
+        // drains meanwhile) are `resyncFetched` and `resyncEnded` (recipe R-hop).
+        Task { @concurrent [self] in
             var failed = false
             do {
                 let (tree, barrier) = try await driver.snapshot()
                 // The comparison with the last applied snapshot reads the whole tree: off the main
                 // thread. Main applies only what differs (or everything, when the memo cannot vouch).
                 let diff = await snapshotDiff(of: tree)
-                withCause(cause) { apply(snapshot: tree, diff: diff) }
-                snapshotBarrier = max(snapshotBarrier, barrier)
-                snapshotCoveredPersonal(through: barrier)
-                advanceAppliedSequence(to: barrier)
-                resyncPacer.reset()
-                if seedAgents { apply(agents: try await driver.connection.agents()) }
+                await resyncFetched(tree, diff: diff, barrier: barrier, cause: cause)
+                if seedAgents {
+                    let agents = try await driver.connection.agents()
+                    await apply(agents: agents)
+                }
             } catch {
                 logger.error("resync failed: \(String(describing: error), privacy: .public)")
                 failed = true
             }
-            isResyncing = false
-            if failed {
-                scheduleResyncRetry(seedAgents: seedAgents)
-                // A retry applies what this one would have, with its cause; without one, the batch
-                // that resyncs next names its own.
-                if resyncRetry != nil { causes.resync = max(causes.resync, cause) }
-                // The retry serves them; without one (disconnected or
-                // budget spent) they return now with what the store has.
-                refreshWaiters.insert(contentsOf: refreshing, at: 0)
-                if resyncRetry == nil { resumeRefreshWaiters() }
-            } else {
-                for waiter in refreshing { waiter.resume(returning: ()) }
-            }
-            if !failed, !refreshWaiters.isEmpty {
-                // Asked while this snapshot was in flight: fetch one after it.
-                return resync()
-            }
-            drain()
+            await resyncEnded(failed: failed, refreshing: refreshing, seedAgents: seedAgents, cause: cause)
         }
+    }
+
+    /// The resync's snapshot arrived: applies what differs, in the cause of the batches that asked for it.
+    private func resyncFetched(_ tree: DaemonTree, diff: SnapshotDiff?, barrier: UInt64, cause: ObservationCause) {
+        withCause(cause) { apply(snapshot: tree, diff: diff) }
+        snapshotBarrier = max(snapshotBarrier, barrier)
+        snapshotCoveredPersonal(through: barrier)
+        advanceAppliedSequence(to: barrier)
+        resyncPacer.reset()
+    }
+
+    /// The resync ended (`failed`: its snapshot did not apply): a retry or the next one, the `refresh()` callers it
+    /// serves, and the events held meanwhile.
+    private func resyncEnded(failed: Bool, refreshing: [OnceContinuation<Void, OnceContinuationError>], seedAgents: Bool,
+                             cause: ObservationCause) {
+        isResyncing = false
+        if failed {
+            scheduleResyncRetry(seedAgents: seedAgents)
+            // A retry applies what this one would have, with its cause; without one, the batch
+            // that resyncs next names its own.
+            if resyncRetry != nil { causes.resync = max(causes.resync, cause) }
+            // The retry serves them; without one (disconnected or
+            // budget spent) they return now with what the store has.
+            refreshWaiters.insert(contentsOf: refreshing, at: 0)
+            if resyncRetry == nil { resumeRefreshWaiters() }
+        } else {
+            for waiter in refreshing { waiter.resume(returning: ()) }
+        }
+        if !failed, !refreshWaiters.isEmpty {
+            // Asked while this snapshot was in flight: fetch one after it.
+            return resync()
+        }
+        // The tail held meanwhile applies in this frame too: the snapshot superseded most of it.
+        drain(flushingTail: true)
     }
 
     /// Fetches a snapshot through the driver's resync (inbox hold, snapshot
@@ -409,10 +247,11 @@ extension DaemonStore {
             needsResync = true
             return
         }
-        let timer = DemandTimer(owner: "DaemonStore.resync", clock: resyncClock)
-        resyncRetry = timer
-        timer.scheduleOnMain(after: delay) { [weak self] in
-            guard let self, self.driver != nil, self.resyncRetry === timer else { return }
+        // A visible deadline on the app's wake-up queue: the retried snapshot is what the windows show.
+        let retry = deadlines.deadline(owner: "DaemonStore.resync", workClass: .visible)
+        resyncRetry = retry
+        retry.schedule(after: delay) { [weak self] in
+            guard let self, self.driver != nil, self.resyncRetry === retry else { return }
             self.resyncRetry = nil
             self.resync(seedAgents: seedAgents)
         }

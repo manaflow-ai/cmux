@@ -34,7 +34,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
         self.transportVerificationMode = transportVerificationMode
         relayProfile = configuration.relayProfile
         relayConfigurations = Dictionary(
-            uniqueKeysWithValues: configuration.relayProfile.activeRelays.map { ($0.url, $0) }
+            configuration.relayProfile.activeRelays.map { ($0.url, $0) }, uniquingKeysWith: { first, _ in first }
         )
     }
 
@@ -165,7 +165,7 @@ actor CmxIrohLibEndpoint: CmxIrohEndpoint {
             return
         }
         let next = Dictionary(
-            uniqueKeysWithValues: profile.activeRelays.map { ($0.url, $0) }
+            profile.activeRelays.map { ($0.url, $0) }, uniquingKeysWith: { first, _ in first }
         )
         let now = Date()
         for relay in profile.activeRelays {

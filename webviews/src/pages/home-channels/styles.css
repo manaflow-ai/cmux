@@ -330,8 +330,9 @@ body,
     animation: hc-writing 1.4s ease-in-out infinite;
   }
 }
-/* Static status indicators (cx-sya4n), where a page gets the pane's theme: no pulse. */
-:root[data-status-indicators="static"] .hc-writing {
+/* Static status indicators (cx-sya4n), where a page gets the pane's theme, Energy Saver and
+   animations off (WebTheme.swift): no pulse. */
+:root:is([data-status-indicators="static"], [data-cmux-energy="saver"], [data-cmux-motion="off"]) .hc-writing {
   animation: none;
 }
 @keyframes hc-writing {

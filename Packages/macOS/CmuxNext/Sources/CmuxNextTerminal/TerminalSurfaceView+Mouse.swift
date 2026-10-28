@@ -9,18 +9,6 @@ import GhosttyNextKit
 // scrolls reach Ghostty at most twice per frame (``TerminalPointerFrames``);
 // every other event delivers what is pending first.
 extension TerminalSurfaceView {
-    public override func updateTrackingAreas() {
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        let area = NSTrackingArea(
-            rect: .zero,
-            options: [.mouseEnteredAndExited, .mouseMoved, .inVisibleRect, .activeAlways, .cursorUpdate],
-            owner: self
-        )
-        addTrackingArea(area)
-        trackingArea = area
-        super.updateTrackingAreas()
-    }
-
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     public override func mouseDown(with event: NSEvent) {
@@ -67,12 +55,14 @@ extension TerminalSurfaceView {
         super.rightMouseUp(with: event)
     }
 
+    // local-monitor-allow: Ghostty's pointer input goes through the window's FrameInputCoalescer (pointerFrames, feature terminalPointerFrames) or at once, in order; the link state reset is two stores
     public override func mouseMoved(with event: NSEvent) { // perf-hot: 1ms terminal-pointer (every move over a terminal)
         linkPointer.movedWithoutButton()
         if pointerFrames?.post(event, in: window) == true { return }
         sendPosition(event)
     }
 
+    // local-monitor-allow: Ghostty's drag goes through the window's FrameInputCoalescer (pointerFrames, feature terminalPointerFrames) or at once, in order
     public override func mouseDragged(with event: NSEvent) { // perf-hot: 1ms terminal-pointer (every left drag event)
         if pointerFrames?.post(event, in: window) == true { return }
         sendPosition(event, phase: .followingPress)
@@ -102,6 +92,7 @@ extension TerminalSurfaceView {
 
     /// A trackpad scroll while the program has the mouse waits for the frame, summed per phase
     /// (``TerminalPointerFrames``); a scroll through the scrollback and a wheel's lines go at once.
+    // local-monitor-allow: a mouse-reporting trackpad scroll goes through the window's FrameInputCoalescer (pointerFrames); a scrollback scroll goes to Ghostty at once, in order
     public override func scrollWheel(with event: NSEvent) { // perf-hot: 1ms terminal-pointer (every scroll event)
         if let pointerFrames, event.hasPreciseScrollingDeltas, scrollReportsToProgram(event),
            pointerFrames.post(event, in: window) { return }
@@ -167,18 +158,16 @@ extension TerminalSurfaceView {
 
     // MARK: Cursor
 
+    /// The pointer entered the surface's cursor area (``addCursorUpdateArea(_:)`` in init, active in the
+    /// key window as the cursor rect was). No cursor rects (p04-input-090): a pane resize or a divider
+    /// drag rebuilds none of the window's.
     public override func cursorUpdate(with event: NSEvent) {
         cursor.set()
-    }
-
-    public override func resetCursorRects() {
-        addCursorRect(bounds, cursor: cursor)
     }
 
     func setCursor(_ newCursor: NSCursor) {
         guard newCursor != cursor else { return }
         cursor = newCursor
-        window?.invalidateCursorRects(for: self)
         // The pointer's own location: a key event or a late link-filter answer carries none.
         if let window, isShown, window.isVisible, bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil)) {
             newCursor.set()

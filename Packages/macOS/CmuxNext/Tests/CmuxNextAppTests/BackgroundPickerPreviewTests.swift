@@ -43,7 +43,7 @@ import Testing
         let terminal = TerminalThemeSetting.testing(backdropScope: scope, center: center)
         terminal.reload = {}
         terminal.follow(settings)
-        return Harness(settings: settings, terminal: terminal, scope: scope, page: SettingsPageProvider(settings: settings), url: url)
+        return Harness(settings: settings, terminal: terminal, scope: scope, page: SettingsPageProvider(settings: settings, on: linklessMainWork()), url: url)
     }
 
     func settle(until done: () -> Bool) async {

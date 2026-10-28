@@ -19,11 +19,14 @@ echo "args: $*" >> "$COUNT_FILE.args"
 FAKE
 chmod +x "$WORK/sentry-cli"
 
+mkdir -p "$WORK/dsyms"
 run() {
+  local fails="$1"
+  shift
   rm -f "$WORK/count" "$WORK/count.args"
-  COUNT_FILE="$WORK/count" FAILS="$1" SENTRY_CLI="$WORK/sentry-cli" \
+  COUNT_FILE="$WORK/count" FAILS="$fails" SENTRY_CLI="$WORK/sentry-cli" \
     SENTRY_UPLOAD_RETRY_DELAYS="0 0" SENTRY_AUTH_TOKEN=token \
-    "$SCRIPT" "$WORK/dsyms" > "$WORK/out" 2>&1
+    "$SCRIPT" "${@:-$WORK/dsyms}" > "$WORK/out" 2>&1
 }
 
 run 2 || { echo "FAIL: an upload that succeeds on the third try must pass"; cat "$WORK/out"; exit 1; }
@@ -34,6 +37,15 @@ grep -q -- "debug-files upload --include-sources $WORK/dsyms" "$WORK/count.args"
 run 99 || { echo "FAIL: a Sentry outage must not fail the nightly"; cat "$WORK/out"; exit 1; }
 [ "$(cat "$WORK/count")" = 3 ] || { echo "FAIL: expected 3 attempts before giving up, saw $(cat "$WORK/count")"; exit 1; }
 grep -q '^::warning' "$WORK/out" || { echo "FAIL: giving up must leave a ::warning annotation"; cat "$WORK/out"; exit 1; }
+
+# A path the build did not make (no dSYM for that binary this time) is skipped, not passed
+# to sentry-cli, where it would fail every attempt and lose the other dSYMs with it.
+run 0 "$WORK/dsyms" "$WORK/missing.dSYM" || { echo "FAIL: a missing path must not fail the upload"; cat "$WORK/out"; exit 1; }
+[ "$(cat "$WORK/count.args")" = "args: debug-files upload --include-sources $WORK/dsyms" ] \
+  || { echo "FAIL: only the existing path must be uploaded"; cat "$WORK/count.args"; exit 1; }
+grep -q "no dSYMs at $WORK/missing.dSYM; skipped" "$WORK/out" || { echo "FAIL: the skipped path must be named"; cat "$WORK/out"; exit 1; }
+run 0 "$WORK/missing.dSYM" || { echo "FAIL: no existing path must not fail the upload"; cat "$WORK/out"; exit 1; }
+[ ! -e "$WORK/count" ] || { echo "FAIL: no existing path must not call sentry-cli"; exit 1; }
 
 rm -f "$WORK/count"
 COUNT_FILE="$WORK/count" FAILS=0 SENTRY_CLI="$WORK/sentry-cli" SENTRY_AUTH_TOKEN= "$SCRIPT" "$WORK/dsyms" > "$WORK/out" 2>&1 \

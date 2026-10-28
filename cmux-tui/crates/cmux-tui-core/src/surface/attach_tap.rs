@@ -20,12 +20,14 @@ use std::ops::DerefMut;
 
 mod output_arena;
 mod output_rope;
+mod visibility;
 #[cfg(test)]
 pub(super) use output_arena::OUTPUT_ARENA_BLOCK_BYTES;
 pub(super) use output_arena::OutputArena;
 #[cfg(test)]
 pub(super) use output_rope::OUTPUT_ROPE_COPY_MAX_BYTES;
 pub(super) use output_rope::OutputRope;
+pub(crate) use visibility::TapVisibility;
 
 /// A PTY's attach viewers and the arena their output is cut from, both under
 /// the `pty.taps` lock the reader already holds to fan out.
@@ -88,7 +90,7 @@ impl AttachFrameReceiver {
     }
 
     pub fn recv(&self) -> Result<AttachFrame, RecvError> {
-        let mut queue = self.state.queue.lock().unwrap();
+        let mut queue = self.state.queue.lock().recover_poison();
         loop {
             if let Some(frame) = Self::pop(&mut queue) {
                 drop(queue);
@@ -97,13 +99,13 @@ impl AttachFrameReceiver {
             if !queue.sender_alive {
                 return Err(RecvError);
             }
-            queue = self.state.ready.wait(queue).unwrap();
+            queue = self.state.ready.wait(queue).recover_poison();
         }
     }
 
     pub fn recv_timeout(&self, timeout: Duration) -> Result<AttachFrame, RecvTimeoutError> {
         let started = Instant::now();
-        let mut queue = self.state.queue.lock().unwrap();
+        let mut queue = self.state.queue.lock().recover_poison();
         loop {
             if let Some(frame) = Self::pop(&mut queue) {
                 drop(queue);
@@ -115,7 +117,7 @@ impl AttachFrameReceiver {
             let Some(remaining) = timeout.checked_sub(started.elapsed()) else {
                 return Err(RecvTimeoutError::Timeout);
             };
-            let (next, result) = self.state.ready.wait_timeout(queue, remaining).unwrap();
+            let (next, result) = self.state.ready.wait_timeout(queue, remaining).recover_poison();
             queue = next;
             if result.timed_out() && queue.frames.is_empty() {
                 return Err(RecvTimeoutError::Timeout);
@@ -141,7 +143,7 @@ impl AttachFrameReceiver {
         interrupt: &crate::stream_interrupt::StreamInterrupt,
         deadline: Option<Instant>,
     ) -> Result<AttachFrame, RecvTimeoutError> {
-        let mut queue = self.state.queue.lock().unwrap();
+        let mut queue = self.state.queue.lock().recover_poison();
         loop {
             if let Some(frame) = Self::pop(&mut queue) {
                 drop(queue);
@@ -154,19 +156,19 @@ impl AttachFrameReceiver {
                 return Err(RecvTimeoutError::Timeout);
             }
             queue = match deadline {
-                None => self.state.ready.wait(queue).unwrap(),
+                None => self.state.ready.wait(queue).recover_poison(),
                 Some(deadline) => {
                     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                         return Err(RecvTimeoutError::Timeout);
                     };
-                    self.state.ready.wait_timeout(queue, remaining).unwrap().0
+                    self.state.ready.wait_timeout(queue, remaining).recover_poison().0
                 }
             };
         }
     }
 
     pub fn try_recv(&self) -> Result<AttachFrame, TryRecvError> {
-        let mut queue = self.state.queue.lock().unwrap();
+        let mut queue = self.state.queue.lock().recover_poison();
         if let Some(frame) = Self::pop(&mut queue) {
             drop(queue);
             Ok(frame.into_frame())
@@ -180,7 +182,7 @@ impl AttachFrameReceiver {
 
 impl Drop for AttachFrameReceiver {
     fn drop(&mut self) {
-        let mut queue = self.state.queue.lock().unwrap();
+        let mut queue = self.state.queue.lock().recover_poison();
         queue.receiver_alive = false;
         queue.frames.clear();
         queue.retained_bytes = 0;
@@ -439,6 +441,31 @@ pub(super) struct AttachTap {
 pub(super) struct AttachTapState {
     pub(super) queue: Mutex<AttachTapQueue>,
     ready: Condvar,
+    /// The viewer's drain task when it runs on a sequence instead of
+    /// blocking on `ready` (attach streams, p05-ipc-079).
+    ready_hook: crate::stream_interrupt::ReadyHook,
+    /// A hidden snapshot viewer (`set-stream-priority hidden`, p05-ipc-142):
+    /// output only marks it dirty and nothing wakes it. Written under the
+    /// queue lock; read after it is released by the wakes.
+    hidden: AtomicBool,
+}
+
+impl AttachTapState {
+    /// After a change the receiver acts on: a queued item, a snapshot to
+    /// send, the sender gone. Called with the queue lock released.
+    fn wake_one(&self) {
+        // A hidden viewer acts on nothing until it shows (`TapVisibility`).
+        if self.hidden.load(Ordering::Acquire) {
+            return;
+        }
+        self.ready.notify_one();
+        self.ready_hook.wake();
+    }
+
+    fn wake_all(&self) {
+        self.ready.notify_all();
+        self.ready_hook.wake();
+    }
 }
 
 pub(super) struct AttachTapQueue {
@@ -508,24 +535,51 @@ impl SnapshotRequestHandle {
     /// Whether a snapshot is queued for the viewer (a deferred one is not:
     /// it waits for output, and a request may ask again).
     pub(crate) fn snapshot_pending(&self) -> bool {
-        self.state.upgrade().is_some_and(|state| state.queue.lock().unwrap().needs_snapshot)
+        self.state.upgrade().is_some_and(|state| state.queue.lock().recover_poison().needs_snapshot)
     }
 
     /// Returns false when the viewer is gone.
     pub(crate) fn request(&self) -> bool {
         let Some(state) = self.state.upgrade() else { return false };
-        let mut queue = state.queue.lock().unwrap();
+        let mut queue = state.queue.lock().recover_poison();
         if !queue.receiver_alive || !queue.sender_alive {
             return false;
         }
         queue.fall_behind();
         drop(queue);
-        state.ready.notify_all();
+        state.wake_all();
         true
     }
 }
 
 impl AttachFrameReceiver {
+    /// Runs `hook` whenever this receiver has something to act on, for a
+    /// viewer whose drain polls (`try_recv`, `try_viewer_event`) on a
+    /// sequence instead of blocking. False when a hook is set already.
+    pub(crate) fn on_ready(&self, hook: impl Fn() + Send + Sync + 'static) -> bool {
+        self.state.ready_hook.set(hook)
+    }
+
+    /// The next event of a snapshot viewer without waiting: a pending
+    /// snapshot comes before any frame, as in `recv_viewer_event`.
+    pub(crate) fn try_viewer_event(&self) -> Result<ViewerEvent, TryRecvError> {
+        let mut queue = self.state.queue.lock().recover_poison();
+        if queue.needs_snapshot {
+            return Ok(ViewerEvent::Snapshot);
+        }
+        match Self::pop_item(&mut queue) {
+            Some(QueuedFrame::Output(rope)) => {
+                // Joined outside the queue lock, as `recv_viewer_event` does.
+                drop(queue);
+                Ok(ViewerEvent::Frame(rope.into_frame()))
+            }
+            Some(QueuedFrame::Frame(frame)) => Ok(ViewerEvent::Frame(frame)),
+            Some(QueuedFrame::LocalReady(ready)) => Ok(ViewerEvent::LocalReady(ready)),
+            None if queue.sender_alive => Err(TryRecvError::Empty),
+            None => Err(TryRecvError::Disconnected),
+        }
+    }
+
     pub(crate) fn snapshot_request_handle(&self) -> SnapshotRequestHandle {
         SnapshotRequestHandle { state: Arc::downgrade(&self.state) }
     }
@@ -537,7 +591,7 @@ impl AttachFrameReceiver {
         interrupt: &crate::stream_interrupt::StreamInterrupt,
         deadline: Option<Instant>,
     ) -> Result<ViewerEvent, RecvTimeoutError> {
-        let mut queue = self.state.queue.lock().unwrap();
+        let mut queue = self.state.queue.lock().recover_poison();
         loop {
             if queue.needs_snapshot {
                 return Ok(ViewerEvent::Snapshot);
@@ -558,12 +612,12 @@ impl AttachFrameReceiver {
                 return Err(RecvTimeoutError::Timeout);
             }
             queue = match deadline {
-                None => self.state.ready.wait(queue).unwrap(),
+                None => self.state.ready.wait(queue).recover_poison(),
                 Some(deadline) => {
                     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                         return Err(RecvTimeoutError::Timeout);
                     };
-                    self.state.ready.wait_timeout(queue, remaining).unwrap().0
+                    self.state.ready.wait_timeout(queue, remaining).recover_poison().0
                 }
             };
         }
@@ -573,7 +627,7 @@ impl AttachFrameReceiver {
     /// the terminal lock while it encodes the snapshot and calls this, so
     /// the reader cannot queue a byte between the two.
     pub(crate) fn finish_snapshot_locked(&self) {
-        let mut queue = self.state.queue.lock().unwrap();
+        let mut queue = self.state.queue.lock().recover_poison();
         queue.frames.clear();
         queue.retained_bytes = 0;
         queue.needs_snapshot = false;
@@ -583,7 +637,7 @@ impl AttachFrameReceiver {
     /// The snapshot could not be encoded now: drop queued frames and retry
     /// at the next output instead of disconnecting the viewer.
     pub(crate) fn defer_snapshot(&self) {
-        let mut queue = self.state.queue.lock().unwrap();
+        let mut queue = self.state.queue.lock().recover_poison();
         queue.frames.clear();
         queue.retained_bytes = 0;
         queue.needs_snapshot = false;
@@ -650,6 +704,8 @@ impl AttachTap {
                 local_history: false,
             }),
             ready: Condvar::new(),
+            ready_hook: Default::default(),
+            hidden: AtomicBool::new(false),
         });
         (
             Self { state: state.clone(), lifecycle: lifecycle.clone() },
@@ -659,23 +715,24 @@ impl AttachTap {
 
     /// A snapshot viewer resyncs by snapshot; a replay viewer needs a replay.
     pub(super) fn is_snapshot(&self) -> bool {
-        self.state.queue.lock().unwrap().snapshot_mode
+        self.state.queue.lock().recover_poison().snapshot_mode
     }
 
     /// Ask a snapshot viewer for a resync (a grid change without a replay).
     /// No-op for a replay viewer.
     pub(super) fn resync_snapshot(&self) {
-        let mut queue = self.state.queue.lock().unwrap();
+        let mut queue = self.state.queue.lock().recover_poison();
         if queue.snapshot_mode && queue.receiver_alive {
             queue.fall_behind();
             drop(queue);
-            self.state.ready.notify_one();
+            self.state.wake_one();
         }
     }
 
     /// Whether this viewer would take a local-history READY of a resize now.
     pub(super) fn wants_local_ready(&self) -> bool {
         !self.lifecycle.is_canceled()
+            && !self.state.hidden.load(Ordering::Acquire)
             && self
                 .state
                 .queue
@@ -690,6 +747,7 @@ impl AttachTap {
         let queue = self.state.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(local) = local
             && queue.takes_local_ready()
+            && !self.state.hidden.load(Ordering::Acquire)
         {
             self.push(queue, QueuedFrame::LocalReady(local.clone()));
             return;
@@ -710,7 +768,7 @@ impl AttachTap {
             && !self.lifecycle.is_canceled()
         {
             let queue = self.state.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if queue.takes_local_ready() {
+            if queue.takes_local_ready() && !self.state.hidden.load(Ordering::Acquire) {
                 return self.push(queue, QueuedFrame::LocalReady(local.clone()));
             }
         }
@@ -732,7 +790,7 @@ impl AttachTap {
         queue.retained_bytes = queue.retained_bytes.saturating_add(item_bytes);
         queue.frames.push_back(item);
         drop(queue);
-        self.state.ready.notify_one();
+        self.state.wake_one();
         true
     }
 
@@ -741,7 +799,7 @@ impl AttachTap {
         if queue.snapshot_mode {
             queue.fall_behind();
             drop(queue);
-            self.state.ready.notify_one();
+            self.state.wake_one();
             return true;
         }
         drop(queue);
@@ -753,19 +811,27 @@ impl AttachTap {
         if self.lifecycle.is_canceled() {
             return false;
         }
-        let mut queue = self.state.queue.lock().unwrap();
+        let mut queue = self.state.queue.lock().recover_poison();
         if !queue.receiver_alive {
             drop(queue); // cancel fires interrupt wakers that lock this queue.
             self.lifecycle.cancel();
             return false;
         }
         if queue.snapshot_mode {
+            if self.state.hidden.load(Ordering::Acquire) {
+                // Parsed by the terminal already; the viewer gets a READY of
+                // it when it shows, and nothing before.
+                if !queue.needs_snapshot || !queue.frames.is_empty() {
+                    queue.mark_dirty();
+                }
+                return true;
+            }
             if queue.snapshot_deferred {
                 // Retry the snapshot now that the parser has moved on.
                 queue.snapshot_deferred = false;
                 queue.fall_behind();
                 drop(queue);
-                self.state.ready.notify_one();
+                self.state.wake_one();
                 return true;
             }
             if queue.needs_snapshot {
@@ -778,7 +844,7 @@ impl AttachTap {
                 // the new generation, not as a replay.
                 queue.fall_behind();
                 drop(queue);
-                self.state.ready.notify_one();
+                self.state.wake_one();
                 return true;
             }
         }
@@ -796,7 +862,7 @@ impl AttachTap {
                         .saturating_sub(previous_bytes)
                         .saturating_add(merged_bytes);
                     drop(queue);
-                    self.state.ready.notify_one();
+                    self.state.wake_one();
                     return true;
                 }
                 AttachFrameMerge::Unmerged(unmerged) => frame = unmerged,
@@ -809,7 +875,7 @@ impl AttachTap {
 
 impl Drop for AttachTap {
     fn drop(&mut self) {
-        self.state.queue.lock().unwrap().sender_alive = false;
-        self.state.ready.notify_all();
+        self.state.queue.lock().recover_poison().sender_alive = false;
+        self.state.wake_all();
     }
 }

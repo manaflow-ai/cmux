@@ -3,6 +3,8 @@
 //! unscheduled results in input order. Cell pixel and kitty budget updates use
 //! it so one slow surface cannot stall the rest.
 
+use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::sync::{Condvar, Mutex};
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -19,7 +21,6 @@ pub(super) struct DeadlineFanoutState {
     jobs: VecDeque<DeadlineFanoutJob>,
     worker_count: usize,
     pub(super) admitted_jobs: usize,
-    next_worker: u64,
     shutdown: bool,
 }
 
@@ -60,14 +61,18 @@ impl DeadlineFanoutPool {
         if state.jobs.len() + 1 > available_workers
             && state.worker_count < CELL_PIXEL_FANOUT_MAX_WORKERS
         {
-            let worker_index = state.next_worker;
-            state.next_worker = state.next_worker.wrapping_add(1);
             state.worker_count += 1;
             let inner = self.inner.clone();
-            if std::thread::Builder::new()
-                .name(format!("mux-deadline-{worker_index}"))
-                .spawn(move || deadline_fanout_worker(inner))
-                .is_err()
+            // The pool's workers share one name; server.threads counts them.
+            // A request waits on the batch's deadline: the dispatcher's class.
+            if supervised::spawn_at(
+                "mux-deadline",
+                crate::thread_qos::ThreadType::Interactive.qos(),
+                Fatal,
+                ShutdownBehavior::Continue,
+                move || deadline_fanout_worker(inner),
+            )
+            .is_err()
             {
                 state.worker_count -= 1;
                 if state.worker_count == 0 {
@@ -123,12 +128,13 @@ fn deadline_fanout_worker(inner: Arc<DeadlineFanoutInner>) {
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .0;
             }
-            if state.shutdown || state.jobs.is_empty() {
+            let next = if state.shutdown { None } else { state.jobs.pop_front() };
+            let Some(job) = next else {
                 state.worker_count = state.worker_count.saturating_sub(1);
                 inner.changed.notify_all();
                 return;
-            }
-            state.jobs.pop_front().expect("deadline fanout queue was checked as non-empty")
+            };
+            job
         };
 
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
@@ -148,11 +154,11 @@ pub(super) struct DeadlineCompletion<R> {
 
 impl<R> DeadlinePending<R> {
     pub(super) fn try_take(&self) -> Option<R> {
-        self.result.lock().unwrap().take().map(|completion| completion.value)
+        self.result.lock().recover_poison().take().map(|completion| completion.value)
     }
 
     pub(super) fn try_take_before(&self, deadline: Instant) -> Option<R> {
-        let mut result = self.result.lock().unwrap();
+        let mut result = self.result.lock().recover_poison();
         if result.as_ref().is_some_and(|completion| completion.completed_at <= deadline) {
             result.take().map(|completion| completion.value)
         } else {
@@ -190,7 +196,7 @@ where
     let operation = Arc::new(operation);
     let (sender, receiver) = std::sync::mpsc::channel();
     let mut submitted = 0;
-    for (index, item) in items.iter().cloned().enumerate() {
+    for (index, (item, slot)) in items.iter().cloned().zip(ordered.iter_mut()).enumerate() {
         if Instant::now() >= deadline {
             break;
         }
@@ -200,13 +206,13 @@ where
         let job_result = result.clone();
         let job = Box::new(move || {
             let value = operation(&item, deadline);
-            *job_result.lock().unwrap() =
+            *job_result.lock().recover_poison() =
                 Some(DeadlineCompletion { completed_at: Instant::now(), value });
             let _ = sender.send(index);
         });
         if pool.submit_before(deadline, job) {
             submitted += 1;
-            ordered[index] = DeadlineMapResult::Pending(DeadlinePending { result });
+            *slot = DeadlineMapResult::Pending(DeadlinePending { result });
         }
     }
     drop(sender);
@@ -218,18 +224,21 @@ where
         }
         match cmux_threads::checked::sync::recv_timeout(&receiver, remaining) {
             Ok(index) => {
-                let pending =
-                    std::mem::replace(&mut ordered[index], DeadlineMapResult::Unscheduled);
-                match pending {
+                #[allow(
+                    clippy::indexing_slicing,
+                    reason = "INVARIANT: a job sends its enumerate index over items; ordered has one slot per item"
+                )]
+                let slot = &mut ordered[index];
+                match std::mem::replace(slot, DeadlineMapResult::Unscheduled) {
                     DeadlineMapResult::Pending(pending) => {
                         if let Some(result) = pending.try_take_before(deadline) {
-                            ordered[index] = DeadlineMapResult::Complete(result);
+                            *slot = DeadlineMapResult::Complete(result);
                             submitted -= 1;
                         } else {
-                            ordered[index] = DeadlineMapResult::Pending(pending);
+                            *slot = DeadlineMapResult::Pending(pending);
                         }
                     }
-                    result => ordered[index] = result,
+                    result => *slot = result,
                 }
             }
             Err(_) => break,

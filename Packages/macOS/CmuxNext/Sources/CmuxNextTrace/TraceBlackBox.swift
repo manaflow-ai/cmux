@@ -8,11 +8,12 @@ import MachO
 /// Making it touches memory only: the ring starts on the heap at once and is attached to the runtime
 /// (``TraceRuntime/attach(_:)``), which owns it from then on, so every `runtime.write` of the process
 /// records into it from the first frame; nothing opens, truncates or maps a file on the caller's thread. The
-/// three file steps are separate blocking calls that the owner runs on BackgroundWork `.files`:
+/// three file steps are separate blocking calls that the owner runs on BackgroundWork `.files`. The process's
+/// crash-key page (``crashKeys``) starts on the heap beside the ring and is mirrored into its file with it:
 ///
 /// 1. ``adoptFile()``: moves the ring into `<directory>/<role>-<pid>.blackbox.cmxtrace` (``TraceRingFile``),
-///    renaming the role's spare file when one is ready.
-/// 2. ``cleanUp(now:)``: deletes the black boxes of dead processes (``TraceRingCleanup``).
+///    renaming the role's spare file when one is ready, and the page into `<role>-<pid>.crashkeys`.
+/// 2. ``cleanUp(now:)``: deletes the black boxes and pages of dead processes (``TraceRingCleanup``).
 /// 3. ``prepareSpare()``: makes the next launch's spare file, well after launch.
 ///
 /// Chrome does the same with its persistent histogram file: the browser starts on a heap allocator,
@@ -39,8 +40,14 @@ public final class TraceBlackBox: Sendable {
     public let ring: TraceRing
     /// The runtime that owns ``ring``.
     public let runtime: TraceRuntime
+    /// The runtime's crash-key page (``TraceRuntime/attachCrashKeys(_:)``): the heap, mirrored into its file.
+    public let crashKeys: CrashKeyPage
     /// The pid in the file names.
     public let pid: UInt32
+    /// The fixed names a recording ring's name table starts with, as the black box's did.
+    private let catalog: [TraceRing.CatalogName]
+    /// 1 while a ``prepareRecording()`` maps the recording ring: one mapping per process, never two.
+    private let preparingRecording = Atomic<UInt64>(0)
 
     /// Starts the black box on the heap, attaches it to `runtime` and turns on the black-box categories. No
     /// file work. When `runtime` already has a black box, ``ring`` is that one (a runtime keeps its first).
@@ -73,8 +80,22 @@ public final class TraceBlackBox: Sendable {
             bootSessionUUID: process.bootSessionUUID, buildUUID: process.buildUUID,
             buildVersion: buildVersion, categories: categories.rawValue)
         self.runtime = runtime
+        self.catalog = catalog
         ring = Self.attachedRing(of: runtime) { TraceRing(sizes: sizes, identity: identity, catalog: catalog) }
+        crashKeys = Self.attachedCrashKeys(of: runtime) {
+            CrashKeyPage(identity: .init(pid: process.pid, role: role.ringRole, buildUUID: process.buildUUID,
+                                         processStartUnixMicros: process.processStartUnixMicros,
+                                         startUptimeNanos: identity.startUptimeNanos))
+        }
         runtime.setCategories(categories)
+    }
+
+    /// The crash-key page `runtime` writes to: the one attached already, else `make()`'s, attached now.
+    private static func attachedCrashKeys(of runtime: TraceRuntime, making make: () -> CrashKeyPage) -> CrashKeyPage {
+        if let attached = runtime.crashKeys { return attached }
+        let made = make()
+        runtime.attachCrashKeys(made)
+        return runtime.crashKeys ?? made
     }
 
     /// The ring `runtime` writes to: the one attached already, else `make()`'s, attached now.
@@ -91,8 +112,9 @@ public final class TraceBlackBox: Sendable {
     }
 
     /// Moves the ring from the heap into its black-box file (``TraceRingFile/adopt(_:directory:)``): rename the
-    /// spare or create the file, map it, copy, swap. Blocking file work: BackgroundWork `.files` only. On a
-    /// failure the ring keeps writing to the heap and the failure is counted in the ring's counters.
+    /// spare or create the file, map it, copy, swap; then the crash-key page (``CrashKeyPage/adopt(directory:)``).
+    /// Blocking file work: BackgroundWork `.files` only. On a failure the ring or the page keeps writing to the
+    /// heap and the failure is counted (the ring's counters, ``CrashKeyPage/adoptFailures``).
     ///
     /// - Returns: The mapped file, or nil when the ring stays on the heap.
     @discardableResult
@@ -102,6 +124,7 @@ public final class TraceBlackBox: Sendable {
         let file = TraceRingFile.adopt(ring, directory: directory)
         // The copied header holds the categories of the copy; a change during the copy went to the heap.
         if file != nil { ring.mirrorCategories(runtime.categoryMask) }
+        crashKeys.adopt(directory: directory)
         return file
     }
 
@@ -114,6 +137,38 @@ public final class TraceBlackBox: Sendable {
         assertBlockingAllowed(.fileIO)
         guard Self.makeDirectory(directory) else { return false }
         return TraceRingFile.prepareSpare(directory: directory, role: role.ringRole, sizes: sizes)
+    }
+
+    /// The recording ring's file (it exists once ``prepareRecording()`` succeeded).
+    public var recordingPath: String {
+        directory + "/" + TraceRingFile.recordingName(role: role.ringRole, pid: pid)
+    }
+
+    /// Maps the role's recording ring (``recordingPath``, ``TraceRuntime/Role/recordingSizes``) and attaches it
+    /// to ``ring``, so ``TraceRuntime/startRecording(_:)`` only swaps the active ring and touches no disk
+    /// (Rust's `Tracer::prepare_recording`). The ring is mapped once and never unmapped; a later call returns
+    /// at once. Blocking file work: BackgroundWork `.files` only.
+    ///
+    /// - Returns: Whether ``ring`` has its recording ring (false also while another call still maps it).
+    @discardableResult
+    public func prepareRecording() -> Bool {
+        if ring.recordingRing != nil { return true }
+        guard preparingRecording.compareExchange(expected: 0, desired: 1, ordering: .acquiringAndReleasing).exchanged else {
+            return ring.recordingRing != nil
+        }
+        defer { preparingRecording.store(0, ordering: .releasing) }
+        assertBlockingAllowed(.fileIO)
+        guard ring.recordingRing == nil else { return true }
+        guard Self.makeDirectory(directory) else { return false }
+        let layout = TraceRingLayout(role.recordingSizes)
+        let path = recordingPath
+        guard let mapping = TraceRingFile.mapRecording(path: path, byteCount: layout.totalBytes) else { return false }
+        let storage = TraceRingStorage(base: mapping, layout: layout)
+        var identity = ring.identity
+        identity.ringKind = 2
+        identity.categories = runtime.categoryMask
+        storage.initialize(identity: identity, catalog: catalog)
+        return ring.attachRecording(storage, path: path)
     }
 
     /// Deletes the black boxes of dead processes in ``directory`` (``TraceRingCleanup``); this process's
@@ -141,15 +196,6 @@ public final class TraceBlackBox: Sendable {
             }
             return stat(path, &info) == 0 && info.st_mode & S_IFMT == S_IFDIR
         }
-    }
-}
-
-extension TraceRing {
-    /// Stores `mask` into the active ring's header `categories` word (trace.md "Header": mirrored on each
-    /// change), so a reader of the file knows what the ring recorded. Sequentially consistent, as the runtime's
-    /// category stores: a publish's re-check then orders its mirror before any later writer's (``TraceRuntime``).
-    func mirrorCategories(_ mask: UInt64) {
-        activeRing?.pointee.storage.word(TraceRingOffsets.categories).store(mask, ordering: .sequentiallyConsistent)
     }
 }
 
@@ -187,7 +233,7 @@ extension TraceBlackBox {
         private static func bootSessionUUID() -> [UInt8] {
             var buffer = [CChar](repeating: 0, count: 64)
             var length = buffer.count
-            guard sysctlbyname("kern.bootsessionuuid", &buffer, &length, nil, 0) == 0 else { return [] }
+            guard blockingSysctlByName("kern.bootsessionuuid", &buffer, &length, nil, 0) == 0 else { return [] }
             var bytes: [UInt8] = []
             var high: UInt8?
             for character in buffer.prefix(while: { $0 != 0 }) where character != CChar(UInt8(ascii: "-")) {
@@ -249,8 +295,8 @@ extension TraceRuntime.Role {
         switch self {
         case .app, .daemon: (4096, 2048, 512, 32768)
         case .chromiumHost: (4096, 2048, 512, 8192)
-        case .holder, .acpmux, .cli: (2048, 512, 256, 8192)
-        case .terminalHost: (1024, 256, 64, 512)
+        case .holder, .acpmux, .cli, .agentHost, .browserHost: (2048, 512, 256, 8192)
+        case .terminalHost, .appHost: (1024, 256, 64, 512)
         }
     }
 
@@ -264,6 +310,9 @@ extension TraceRuntime.Role {
         case .acpmux: .acpmux
         case .chromiumHost: .chromiumHost
         case .cli: .cli
+        case .agentHost: .agentHost
+        case .appHost: .appHost
+        case .browserHost: .browserHost
         }
     }
 }

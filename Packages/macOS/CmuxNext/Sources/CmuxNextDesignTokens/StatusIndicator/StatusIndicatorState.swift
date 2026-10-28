@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// What one status indicator shows (plans/cmux-next/status-indicators.md).
 /// Owners (the session host, the workspace store, the browser runtime)

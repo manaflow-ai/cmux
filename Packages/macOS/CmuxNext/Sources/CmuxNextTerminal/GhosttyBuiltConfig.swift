@@ -21,6 +21,9 @@ nonisolated struct GhosttyConfigInputs: Sendable, Equatable {
     var ownerPaintsBackground: Bool
     /// The one config file `CMUX_NEXT_GHOSTTY_CONFIG` names instead of the default files; nil reads the defaults.
     var configFile: String?
+    /// cmux's Kitty graphics budget per screen, loaded when the config leaves `image-storage-limit` unset
+    /// (``GhosttyRuntime/setImageStorageBytesPerScreen(_:)``); bounded by default, never Ghostty's own.
+    var imageStorageBytes = GhosttyRuntime.defaultImageStorageBytesPerScreen
 
     /// The inputs of a build asked for now: the user's config with `theme` (a room, workspace or terminal theme)
     /// or, nil, with `themeOverride`. Records the see-through state the build reads

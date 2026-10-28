@@ -1,4 +1,5 @@
 public import CmuxInstallAuthCore
+import CmuxNextCompat
 import CmuxNextWakeups
 import CryptoKit
 public import Foundation
@@ -21,7 +22,7 @@ struct FileInstallSigner: InstallSigner {
 
     func rotate() async throws {
         try await work.run(.userVisible, mayBlock: .files) { [file] in
-            guard unlink(file.path) == 0 || errno == ENOENT else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+            guard blockingUnlink(file.path) == 0 || errno == ENOENT else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         }
     }
 
@@ -55,7 +56,7 @@ struct EnclaveInstallSigner: InstallSigner {
 
     func rotate() async throws {
         try await work.run(.userVisible, mayBlock: .system) { [self] in
-            let status = SecItemDelete(query() as CFDictionary)
+            let status = blockingSecItemDelete(query() as CFDictionary)
             guard status == errSecSuccess || status == errSecItemNotFound else { throw Failure.keychain(status) }
         }
     }
@@ -82,7 +83,7 @@ struct EnclaveInstallSigner: InstallSigner {
         var query = query()
         query[kSecReturnData as String] = true
         var out: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &out)
+        let status = blockingSecItemCopyMatching(query as CFDictionary, &out)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess else { throw Failure.keychain(status) }
         return out as? Data
@@ -92,7 +93,7 @@ struct EnclaveInstallSigner: InstallSigner {
         var query = query()
         query[kSecValueData as String] = data
         query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(query as CFDictionary, nil)
+        let status = blockingSecItemAdd(query as CFDictionary, nil)
         guard status == errSecSuccess else { throw Failure.keychain(status) }
     }
 }

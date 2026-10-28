@@ -306,6 +306,7 @@ extension VSyncHub {
         func post(_ work: @escaping @Sendable () -> Void) {
             state.withLock { state in
                 guard let runLoop = state.runLoop else { return state.early.append(work) }
+                // main-hop-allow: the display's own link thread's run loop, not main
                 CFRunLoopPerformBlock(runLoop, CFRunLoopMode.commonModes.rawValue, work)
                 CFRunLoopWakeUp(runLoop)
             }

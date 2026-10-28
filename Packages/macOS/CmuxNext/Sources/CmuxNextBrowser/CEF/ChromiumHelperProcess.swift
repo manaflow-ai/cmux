@@ -88,12 +88,7 @@ public nonisolated struct ChromiumHelperProcess: Sendable, Equatable {
         switch identity.processType {
         case "renderer":
             if identity.isExtension { return .extensionRenderer }
-            let prefix = "--renderer-client-id="
-            if let argument = arguments.first(where: { $0.hasPrefix(prefix) }),
-               let id = Int32(argument.dropFirst(prefix.count)) {
-                return .renderer(clientID: id)
-            }
-            return .other
+            return identity.rendererClientID.map { .renderer(clientID: $0) } ?? .other
         case "gpu-process":
             return .gpu
         case "utility":

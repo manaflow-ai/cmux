@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run a fleet cmux-next DEV build in disposable macOS 14 / 15 / 26 Tart VMs on the build fleet,
+# Run a fleet cmux-next DEV build in disposable macOS 14 / 15 / 26 / 27 Tart VMs on the build fleet,
 # on demand. A tool for agents, not a CI gate: it submits one cmux-ci step of class vm
 # (scripts/fuzz/macos-matrix/vm.sh on a Tart worker), waits, downloads the results and prints
 # the verdict per macOS major.
@@ -10,7 +10,8 @@
 #   --build    a done fleet `cmux` build job (cmux-ci build cmux ...). The smoke needs a DEV build
 #              (the release socket refuses debug.* calls). The build may be of any commit.
 #   --os       macOS majors, comma-separated, from scripts/fuzz/macos-matrix/images.json
-#              (14, 15, 26; default 14,15). One VM at a time; about 3 min per major for the smoke.
+#              (14, 15, 26, 27; default 14,15). One VM at a time; about 3 min per major for the smoke.
+#              27 runs only on a macOS 27 worker, which has no 14/15/26 image: give it its own step.
 #   --suite    smoke (default): launch, window, a terminal that echoes, a split, a Chromium and a
 #              WebKit tab that load a page served in the guest, Settings, quit.
 #              threads: launch, then debug.pool_context: a Task.detached and a DispatchQueue.global seam
@@ -55,7 +56,7 @@ while [[ $# -gt 0 ]]; do
     --out) OUT=$2; shift 2 ;;
     --attempt) ATTEMPT=$2; shift 2 ;;
     --tests) echo "--tests: cmux-unit in the guest is not supported yet (the base images have no Xcode; see scripts/fuzz/macos-matrix/MATRIX.md)" >&2; exit 2 ;;
-    -h|--help) sed -n '2,42p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,43p' "$0"; exit 0 ;;
     *) echo "unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
 done

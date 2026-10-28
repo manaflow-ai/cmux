@@ -1,0 +1,11 @@
+{
+  "appearance": {
+    "customDensities": [
+      {
+        "id": "a",
+        "level": "1",
+        "name": "A"
+      }
+    ]
+  }
+}

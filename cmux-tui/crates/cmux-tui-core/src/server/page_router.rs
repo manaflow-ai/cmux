@@ -8,7 +8,8 @@
 //!
 //! The origin rules are the catalog's (request_origin.rs
 //! `routed_origin`): the claim may only narrow, a page connection gets its
-//! page's allow list, a page relay without a page gets nothing, and a
+//! page's allow list (on a streamed page relay, the page of the stream the
+//! claim names, `page-streams-v1`), a page relay without a page gets nothing, and a
 //! mutation needs origin `user` (the verified app, or a page relay request
 //! with a host confirmation for exactly it). Transport: the Unix socket and
 //! authenticated WebSocket connections, as for the person's conversations.

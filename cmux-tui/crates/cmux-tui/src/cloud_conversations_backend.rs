@@ -48,11 +48,15 @@ impl RemoteCloudBackend {
         // reqwest's rustls-no-provider build and tokio-tungstenite's rustls
         // need the workspace's ring provider installed once per process.
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let runtime = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
-            .thread_name("mux-cloud-io")
-            .enable_all()
-            .build()?;
+        // Callers wait in block_on for this runtime's replies: it runs at
+        // their class so the wait is no priority inversion.
+        let runtime = cmux_threads::tokio::builder(
+            "mux-cloud-io",
+            cmux_threads::ThreadQos::UserInitiated,
+            cmux_threads::tokio::Flavor::MultiThread,
+        )
+        .worker_threads(1)
+        .build()?;
         let http = reqwest::Client::builder()
             .timeout(REQUEST_TIMEOUT)
             .connect_timeout(CONNECT_TIMEOUT)
@@ -84,7 +88,7 @@ impl CloudBackend for RemoteCloudBackend {
         if let Some(version) = client_version {
             request = request.header(CLIENT_VERSION_HEADER, version);
         }
-        self.runtime.block_on(async move {
+        cmux_threads::tokio::block_on(&self.runtime, async move {
             let response = request.send().await.map_err(|error| transport(&error))?;
             let status = response.status().as_u16();
             let bytes = response.bytes().await.map_err(|error| transport(&error))?;
@@ -111,7 +115,7 @@ impl CloudBackend for RemoteCloudBackend {
         if let Some(version) = client_version {
             request = request.header(CLIENT_VERSION_HEADER, version);
         }
-        self.runtime.block_on(async move {
+        cmux_threads::tokio::block_on(&self.runtime, async move {
             let response = request.send().await.map_err(|error| transport(&error))?;
             let status = response.status().as_u16();
             let bytes = response.bytes().await.map_err(|error| transport(&error))?;
@@ -135,7 +139,7 @@ impl CloudBackend for RemoteCloudBackend {
         for (name, value) in headers {
             request = request.header(name.as_str(), value.as_str());
         }
-        self.runtime.block_on(async move {
+        cmux_threads::tokio::block_on(&self.runtime, async move {
             let response = request.send().await.map_err(|error| transport(&error))?;
             let status = response.status().as_u16();
             let bytes = response.bytes().await.map_err(|error| transport(&error))?;
@@ -156,7 +160,7 @@ impl CloudBackend for RemoteCloudBackend {
             .get(url)
             .timeout(RANGE_TIMEOUT)
             .header(reqwest::header::RANGE, format!("bytes={offset}-{last}"));
-        self.runtime.block_on(async move {
+        cmux_threads::tokio::block_on(&self.runtime, async move {
             let response = request.send().await.map_err(|error| transport(&error))?;
             let status = response.status().as_u16();
             let header = |name: reqwest::header::HeaderName| {
@@ -231,7 +235,7 @@ impl RemoteCloudBackend {
         {
             request.headers_mut().insert(CLIENT_VERSION_HEADER, version);
         }
-        let handshake = self.runtime.block_on(async move {
+        let handshake = cmux_threads::tokio::block_on(&self.runtime, async move {
             tokio::time::timeout(HANDSHAKE_TIMEOUT, tokio_tungstenite::connect_async(request)).await
         });
         match handshake {
@@ -269,7 +273,7 @@ impl CloudWire for RemoteWire {
     fn send(&mut self, text: &str) -> Result<(), TransportError> {
         let stream = &mut self.stream;
         let message = Message::Text(text.to_string().into());
-        self.handle.block_on(async move {
+        cmux_threads::tokio::handle_block_on(&self.handle, async move {
             match tokio::time::timeout(SEND_TIMEOUT, stream.send(message)).await {
                 Ok(Ok(())) => Ok(()),
                 Ok(Err(error)) => Err(TransportError(error.to_string())),
@@ -280,7 +284,7 @@ impl CloudWire for RemoteWire {
 
     fn recv(&mut self, timeout: Duration) -> WireRecv {
         let stream = &mut self.stream;
-        self.handle.block_on(async move {
+        cmux_threads::tokio::handle_block_on(&self.handle, async move {
             let next = match tokio::time::timeout(timeout, stream.next()).await {
                 Err(_) => return WireRecv::Idle,
                 Ok(next) => next,

@@ -12,6 +12,8 @@ workspace = true
 
 [dependencies]
 base64.workspace = true
+# The watch thread's QoS and registry row (std and libc only).
+cmux-threads.workspace = true
 notify.workspace = true
 plist = "1"
 serde.workspace = true

@@ -209,7 +209,7 @@ enum DaemonClosedHistory {
             await daemon.appliedThroughReply(on: connection, after: "reopen closed")
             if item.kind == .workspace {
                 if let id = reopened.workspaceID,
-                   let workspace = await daemon.store.workspace(afterReopen: id, clock: daemon.reopenClock) {
+                   let workspace = await daemon.store.workspace(afterReopen: id) {
                     services.windows.reveal(workspaceID: workspace)
                     return nil
                 } else {

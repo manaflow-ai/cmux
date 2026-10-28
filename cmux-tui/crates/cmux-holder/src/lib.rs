@@ -13,13 +13,14 @@
 pub mod client;
 pub mod holder;
 pub mod link;
+pub mod panic_log;
 pub mod pty;
 pub mod ring;
 pub mod wire;
 
 use std::io::{self, BufRead, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// What the daemon asks the holder to start.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -169,6 +170,18 @@ pub const NOFILE_SOFT_ENV: &str = "CMUX_TUI_HOST_NOFILE_SOFT";
 /// still starts.
 pub const ORPHAN_GRACE_ENV: &str = "CMUX_HOLDER_ORPHAN_GRACE_MS";
 
+/// The environment variable that sets, in milliseconds, how long a terminal
+/// prints nothing before its ring gives its pages back (a test's; the
+/// default is the memory budget's `cold_scrollback_after`). An environment
+/// variable for the same reason as [`ORPHAN_GRACE_ENV`].
+pub const RING_COLD_ENV: &str = "CMUX_HOLDER_RING_COLD_MS";
+
+/// The environment variable that sets the installed RAM, in bytes, the
+/// holder sizes its rings for (a test's, to run as an 8 GB Mac does; the
+/// default is this Mac's). An environment variable for the same reason as
+/// [`ORPHAN_GRACE_ENV`].
+pub const RING_MEMORY_ENV: &str = "CMUX_HOLDER_RING_MEMORY_BYTES";
+
 /// What `cmux-holder --version` prints: the program and the wire versions
 /// it serves. A daemon starts a holder binary only when it reports this
 /// shape (`cmux-holder wire MIN-MAX`) with a range it speaks. No build
@@ -194,6 +207,34 @@ pub fn parse_version_line(line: &str) -> Option<(u16, u16)> {
 /// process that runs the copy holds it shared, and a daemon deletes a copy
 /// only when it can take it exclusively.
 pub const IN_USE_LOCK: &str = "in-use.lock";
+
+/// Where a holder started with `args` keeps its rings, for its `main` to
+/// start the black box before anything else (p09-observability-095): a
+/// holder-lifetime directory beside its socket (`<socket>.trace`, in the
+/// daemon's private socket directory), or the `CMUX_TRACE_FLOWS` folder while
+/// key-press flows are on (their recording must be a file there). None when
+/// `args` name no socket (`--version`, or a start that fails anyway).
+pub fn blackbox_dir(args: &[String]) -> Option<PathBuf> {
+    let at = args.iter().position(|arg| arg == "--socket")?;
+    args.get(at + 1).map(|socket| trace_dir(Path::new(socket)))
+}
+
+fn trace_dir(socket: &Path) -> PathBuf {
+    match std::env::var_os("CMUX_TRACE_FLOWS").filter(|dir| !dir.is_empty()) {
+        Some(flows) => PathBuf::from(flows),
+        None => socket.with_extension("trace"),
+    }
+}
+
+/// A holder process's entry: installs the panic log ([`panic_log::install`],
+/// `holder-panics.jsonl` beside the socket), then [`serve`]s. Every holder
+/// process calls this: the standalone `cmux-holder` and the built-in
+/// `__holder` of `cmux-tui-host` and `cmux-tui` that the daemon falls back
+/// to. In-process test holders call [`serve`], which installs no hook.
+pub fn serve_process(args: &[String]) -> io::Result<()> {
+    panic_log::install(args);
+    serve(args)
+}
 
 /// Run a holder process: `--socket PATH` (and `--idle-exit-ms N`, the idle
 /// exit; default [`holder::IDLE_EXIT`]), the owner token as 64 hex
@@ -239,6 +280,12 @@ pub fn serve(args: &[String]) -> io::Result<()> {
         .and_then(|value| value.trim().parse::<u64>().ok())
         .filter(|millis| *millis > 0)
         .map(|millis| std::time::Duration::from_millis(millis.min(30 * 24 * 3600 * 1000)));
+    let ring_cold_after = std::env::var(RING_COLD_ENV)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(std::time::Duration::from_millis);
+    let ring_memory =
+        std::env::var(RING_MEMORY_ENV).ok().and_then(|value| value.trim().parse::<u64>().ok());
     let socket = socket.ok_or_else(|| invalid("--socket PATH is required"))?;
     let mut line = String::new();
     io::stdin().lock().read_line(&mut line)?;
@@ -261,13 +308,24 @@ pub fn serve(args: &[String]) -> io::Result<()> {
         std::fs::remove_file(&socket)?;
     }
     let listener = UnixListener::bind(&socket)?;
-    // The black box, so the holder grants TRACE_CONTROL: its rings go into a
-    // holder-lifetime directory beside its socket, in the daemon's private
-    // socket directory. The file opens on a one-shot thread, never the loop.
-    drop(cmux_trace::init_blackbox(socket.with_extension("trace"), cmux_trace::Role::Holder));
+    // The black box, so the holder grants TRACE_CONTROL ([`blackbox_dir`]).
+    // `main` started it already; this covers a caller that did not. The file
+    // opens on a one-shot thread, never the loop.
+    drop(cmux_trace::init_blackbox(trace_dir(&socket), cmux_trace::Role::Holder));
+    // The hang watch, before the loop registers: a hang appends a line to
+    // `hangs-<pid>.jsonl` in the same directory, from the watch's own thread.
+    if let Err(error) = cmux_hang_watch::init(socket.with_extension("trace")) {
+        eprintln!("cmux-holder: the loop is not hang-watched: {error}");
+    }
     let mut holder = holder::Holder::new(listener, token)?;
     holder.set_child_open_file_limit(child_open_file_limit);
     holder.set_orphan_grace(orphan_grace);
+    if let Some(after) = ring_cold_after {
+        holder.set_ring_cold_after(after);
+    }
+    if let Some(installed_bytes) = ring_memory {
+        holder.set_ring_budget_memory(installed_bytes);
+    }
     if let Some(idle_exit) = idle_exit {
         holder.set_idle_exit(idle_exit);
     }
@@ -359,6 +417,22 @@ fn invalid(message: &str) -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// p09-observability-095: `main` finds the holder-lifetime ring folder
+    /// beside the socket before anything else runs; no socket, no folder.
+    #[test]
+    fn the_blackbox_dir_is_beside_the_socket() {
+        if std::env::var_os("CMUX_TRACE_FLOWS").is_some_and(|dir| !dir.is_empty()) {
+            return;
+        }
+        let args = |list: &[&str]| list.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>();
+        assert_eq!(
+            blackbox_dir(&args(&["--idle-exit-ms", "5", "--socket", "/tmp/cmux-hd-1/h.sock"])),
+            Some(PathBuf::from("/tmp/cmux-hd-1/h.trace"))
+        );
+        assert_eq!(blackbox_dir(&args(&["--version"])), None);
+        assert_eq!(blackbox_dir(&args(&["--socket"])), None);
+    }
 
     #[test]
     fn the_version_line_names_the_wire_range_and_parses_back() {

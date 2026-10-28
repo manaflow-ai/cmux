@@ -25,10 +25,11 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// only when the profile's extension list or the page URL changes.
     private var accessMemo: [String: (extensions: [BrowserExtensionInfo], url: URL?, names: [String])] = [:]
     /// Hidden agent-driven WebKit tabs render here (``keepRendering(_:)``).
-    let renderWindows = AgentRenderWindows()
+    let renderWindows: AgentRenderWindows
 
     init(services: AppServices) {
         self.services = services
+        renderWindows = AgentRenderWindows(mainWork: services.mainWork)
     }
 
     private struct LocalTab {
@@ -236,7 +237,8 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// shows it later takes it back.
     func keepRendering(_ tab: WebKitTab) async -> Bool {
         guard let services, let entry = services.cache.existingBrowser(tab.id.rawValue), (entry.tab as? WebKitTab) === tab else { return false }
-        return renderWindows.keepRendering(tabID: tab.id.rawValue, chrome: entry.chrome, webView: tab.webView)
+        return renderWindows.keepRendering(tabID: tab.id.rawValue, chrome: entry.chrome, webView: tab.webView,
+                                           keepsPageShown: { [weak tab] in tab?.setKeptRendering($0) })
     }
 
     /// A persistent WebKit profile's cookie store (`cookies.restore`): the

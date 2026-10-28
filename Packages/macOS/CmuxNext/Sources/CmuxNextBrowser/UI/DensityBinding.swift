@@ -42,7 +42,9 @@ final class DensityBinding {
     /// window after a token it read changes.
     func start(in view: NSView) {
         frame?.deactivate()
-        frame = FrameClient(owner: "browser.density", isAnimation: false, scheduler: { [weak view] in
+        // UI rate: nothing follows the pointer.
+        // frame-client: a token change re-applies AppKit constraints and fonts at the next frame (one tick, on main)
+        frame = FrameClient(owner: "browser.density", isAnimation: false, rate: .ui, scheduler: { [weak view] in
             view.map { FrameScheduler.forView($0) } ?? FrameScheduler.app
         }) { [weak self] _ in
             self?.applyTracked()

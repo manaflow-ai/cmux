@@ -1,0 +1,289 @@
+#if DEBUG || CMUX_BENCH_HOOKS
+import AppKit
+public import CmuxNextInput
+import CmuxNextCompat
+import Foundation
+import ObjectiveC
+import QuartzCore
+
+/// `debug.input` action `dirty`: the views an input turn marks dirty, and which of them lie outside
+/// the event's target (plans/cmux-next/chrome-parity/p04-input.md, task 093; machine queue
+/// MQ-input-dirty-views). A key typed into one field should dirty that field's subtree only; a
+/// sidebar, a toolbar or another window redrawn in the same turn is work the key did not ask for.
+///
+/// The first `dirty` request installs the recorder; `reset` removes it. While installed it replaces
+/// `-[NSView setNeedsDisplay:]`, `-setNeedsDisplayInRect:`, `-setNeedsLayout:`,
+/// `-setNeedsUpdateConstraints:` and `-[CALayer setNeedsLayout]`, `-setNeedsDisplay`,
+/// `-setNeedsDisplayInRect:`, and subscribes to the input tap. An input turn starts at a key down, a
+/// button or a scroll event and ends after the first main run loop commit pass (AppKit's display
+/// cycle and the Core Animation commit) once the event's dispatch returned, which it times. A pass
+/// inside the dispatch (a control's or menu's tracking loop runs the run loop in `.eventTracking`)
+/// does not end it: the control's action and its dirty calls come after that pass. Each dirty call
+/// in a turn (the outermost hooked call, on the main thread) counts under its site: the call, the
+/// receiver's class, its relation to the target (the key's first responder, the hit view of a
+/// pointer event) and its stack, at most ``InputDirtyLedger/defaultSiteLimit`` sites. The read resolves the stacks off the main thread.
+///
+/// Chrome records the same thing on request: raster invalidation tracking keeps each invalidated
+/// client, rect and reason while DevTools' paint flashing is on
+/// (`third_party/blink/renderer/platform/graphics/paint/raster_invalidation_tracking.h`), and its
+/// layout tree logs the objects a frame lays out (`LocalFrameView::UpdateStyleAndLayout`).
+///
+/// ```swift
+/// let dirty = InputDirtyRecorder(tap: inputTap) { copy in await mainWork.apply(.automation, owner: "debug.input.dirty") { copy() } }
+/// router.register([DebugInput(sources: sources, recorders: [hops, dirty]).method])
+/// ```
+public nonisolated final class InputDirtyRecorder: DebugInputRecorder {
+    /// Runs `copy` on the main thread and returns its result: the app posts it as classed main work.
+    public typealias MainCopy = @Sendable (_ copy: @escaping @MainActor @Sendable () -> InputDirtyCopy) async -> InputDirtyCopy
+
+    let ledger: InputDirtyLedger
+    private let onMain: MainCopy
+
+    /// - Parameters:
+    ///   - tap: The app's one input tap: its events start the turns.
+    ///   - onMain: Runs the request's main-thread part (install, copy, remove).
+    @MainActor
+    public convenience init(tap: InputEventTap, onMain: @escaping MainCopy) {
+        self.init(ledger: InputDirtyLedger(tap: tap), onMain: onMain)
+    }
+
+    @MainActor
+    init(ledger: InputDirtyLedger, onMain: @escaping MainCopy) {
+        self.ledger = ledger
+        self.onMain = onMain
+    }
+
+    public var kind: DebugInputRecorderKind { .dirty }
+
+    /// Installs the recorder at the first request, then the sites since launch or since the last reset.
+    public func rows(sinceLaunch: Bool) async -> DebugInputDirty {
+        let copy = await onMain { [ledger] in ledger.request(sinceLaunch: sinceLaunch) }
+        return await Self.resolve(copy)
+    }
+
+    /// Removes the hooks, the tap subscription and the run-loop observers; the since-reset sites start over.
+    public func reset() async {
+        _ = await onMain { [ledger] in ledger.remove() }
+    }
+
+    /// The reply, its stacks resolved with `dladdr` (dyld's lock): never on the main thread.
+    @concurrent
+    static func resolve(_ copy: InputDirtyCopy) async -> DebugInputDirty {
+        DebugInputDirty(copy)
+    }
+}
+
+/// The main-thread part of ``InputDirtyRecorder``: the hooks, the current turn and the sites.
+@MainActor
+final class InputDirtyLedger {
+    static let defaultSiteLimit = 256
+    /// The newest turns whose commit pass and call count the distributions keep.
+    static let defaultTurnLimit = 256
+    /// Return addresses kept per site.
+    static let stackDepth = 32
+    /// Return addresses that tell two sites of one call, class and relation apart.
+    static let siteDepth = 16
+    /// Superlayers walked to find a layer's view.
+    nonisolated static let layerWalkLimit = 64
+
+    /// One input turn: from its first event to the end of the first commit pass after its dispatch returned.
+    private struct Turn {
+        var kind: InputDirtyTurnKind
+        var target: NSView?
+        /// The turn's events whose dispatch has not returned: no pass ends the turn until it is 0.
+        var openDispatches = 0
+        var passStart: UInt64?
+        var calls = 0
+        var offTarget = 0
+    }
+
+    private let tap: InputEventTap
+    private let siteLimit: Int
+    private let turnLimit: Int
+    private let now: @MainActor () -> UInt64
+    private var hooks: [InputDirtyHook] = []
+    private var subscriptions: [InputSubscription] = []
+    private var observers: [MainRunLoopObserver] = []
+    private(set) var isInstalled = false
+    private var turn: Turn?
+    /// Hooked calls running now: a call inside another (`setNeedsDisplay:` sending
+    /// `setNeedsDisplayInRect:`) is the outer one's work.
+    private var nesting = 0
+    private var sinceLaunch = InputDirtyWindow()
+    private var sinceReset = InputDirtyWindow()
+
+    /// - Parameters:
+    ///   - tap: The input tap whose events start the turns.
+    ///   - siteLimit: The most sites each window keeps.
+    ///   - turnLimit: The most turns the distributions keep.
+    ///   - now: `CLOCK_UPTIME_RAW` nanoseconds (tests: a fake).
+    init(tap: InputEventTap, siteLimit: Int = InputDirtyLedger.defaultSiteLimit, turnLimit: Int = InputDirtyLedger.defaultTurnLimit,
+         now: @escaping @MainActor () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
+        self.tap = tap
+        self.siteLimit = max(1, siteLimit)
+        self.turnLimit = max(1, turnLimit)
+        self.now = now
+    }
+
+    // MARK: Requests
+
+    /// Installs the recorder when it is not installed, and copies one window's sites.
+    func request(sinceLaunch launch: Bool) -> InputDirtyCopy {
+        let installedNow = !isInstalled
+        if installedNow { install() }
+        return InputDirtyCopy(installed: true, installedNow: installedNow, sinceLaunch: launch,
+                              window: launch ? sinceLaunch : sinceReset, siteLimit: siteLimit, turnLimit: turnLimit)
+    }
+
+    /// Removes what ``request(sinceLaunch:)`` installed and starts the since-reset window over.
+    func remove() -> InputDirtyCopy {
+        if isInstalled {
+            // A swizzler that replaced a hook after it keeps its own: the hook passes calls through once removed.
+            for hook in hooks where unsafe method_getImplementation(hook.method) == hook.replacement {
+                unsafe method_setImplementation(hook.method, hook.original)
+            }
+            hooks = []
+            for subscription in subscriptions { subscription.cancel() }
+            subscriptions = []
+            for observer in observers { observer.invalidate() }
+            observers = []
+            turn = nil
+            isInstalled = false
+        }
+        sinceReset = InputDirtyWindow()
+        return InputDirtyCopy(installed: false, installedNow: false, sinceLaunch: false, window: sinceReset,
+                              siteLimit: siteLimit, turnLimit: turnLimit)
+    }
+
+    private func install() {
+        hooks = InputDirtyCall.allCases.compactMap { InputDirtyHook(call: $0, ledger: self) }
+        for hook in hooks { unsafe method_setImplementation(hook.method, hook.replacement) }
+        subscriptions = [
+            tap.subscribe(class: [.key, .button, .scroll], handler: { [weak self] event in self?.dispatched(event) }),
+            tap.observeDispatchEnd([.key, .button, .scroll]) { [weak self] event, _ in
+                if Self.turnKind(of: event.type) != nil { self?.dispatchEnded() }
+            },
+        ]
+        let pass: CFRunLoopActivity = [.beforeWaiting, .exit]
+        observers = [
+            MainRunLoopObserver(activities: pass, order: CFIndex.min) { [weak self] _ in self?.passBegan() },
+            MainRunLoopObserver(activities: pass, order: MainRunLoopObserver.lastOrder) { [weak self] _ in self?.passEnded() },
+        ]
+        isInstalled = true
+    }
+
+    // MARK: Turns
+
+    /// The turn an event of `type` starts, nil for an event that starts none (a key up).
+    static func turnKind(of type: NSEvent.EventType) -> InputDirtyTurnKind? {
+        switch type {
+        case .keyDown: .key
+        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp: .click
+        case .scrollWheel: .scroll
+        default: nil
+        }
+    }
+
+    private func dispatched(_ event: NSEvent) {
+        guard let kind = Self.turnKind(of: event.type) else { return }
+        began(kind, target: kind == .key ? Self.keyTarget(in: event.window) : Self.pointerTarget(of: event))
+    }
+
+    /// An input event is dispatched: a turn starts, or the turn in progress takes its target. The
+    /// event's dispatch is open until ``dispatchEnded()``.
+    func began(_ kind: InputDirtyTurnKind, target: NSView?) {
+        guard isInstalled else { return }
+        if turn == nil { turn = Turn(kind: kind) }
+        turn?.target = target
+        turn?.openDispatches += 1
+    }
+
+    /// The dispatch of an event that ``began(_:target:)`` a turn returned (tests call it directly). A
+    /// dispatch end with no open dispatch (the recorder was installed inside that dispatch) does nothing.
+    func dispatchEnded() {
+        guard let open = turn?.openDispatches, open > 0 else { return }
+        turn?.openDispatches = open - 1
+        turn?.passStart = nil
+    }
+
+    /// The first observer of a commit pass ran (tests call it directly). A pass inside the turn's
+    /// dispatch (a tracking loop's) is not its commit pass.
+    func passBegan() {
+        guard let current = turn, current.openDispatches == 0 else { return }
+        turn?.passStart = now()
+    }
+
+    /// The last observer of a commit pass ran: once the turn's dispatches returned, the turn ends with
+    /// the pass's time (tests call it directly).
+    func passEnded() {
+        guard let current = turn, current.openDispatches == 0, let start = current.passStart else { return }
+        let end = now()
+        let pass = InputDirtyWindow.Pass(kind: current.kind, nanos: end >= start ? end - start : 0, calls: current.calls,
+                                         offTarget: current.offTarget)
+        sinceLaunch.end(pass, limit: turnLimit)
+        sinceReset.end(pass, limit: turnLimit)
+        turn = nil
+    }
+
+    /// The view a key goes to: the first responder, or the control a field editor edits.
+    static func keyTarget(in window: NSWindow?) -> NSView? {
+        guard let responder = window?.firstResponder as? NSView else { return nil }
+        if let editor = responder as? NSTextView, editor.isFieldEditor, let control = editor.delegate as? NSView { return control }
+        return responder
+    }
+
+    /// The view under a pointer event.
+    static func pointerTarget(of event: NSEvent) -> NSView? {
+        guard let content = event.window?.contentView else { return nil }
+        let root = content.superview ?? content
+        return root.hitTest(root.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow)
+    }
+
+    // MARK: Dirty calls
+
+    /// Opens a hooked call on the main thread (``InputDirtyMainSeam``), before its original runs; each
+    /// enter has one ``leave()`` after the original returns. True when the call is to be noted: it dirties
+    /// (`records`) and it is the outermost hooked call in an input turn.
+    func enter(records: Bool) -> Bool {
+        let notes = records && nesting == 0 && isInstalled && turn != nil
+        nesting += 1
+        return notes
+    }
+
+    /// Closes the hooked call the last ``enter(records:)`` opened.
+    func leave() {
+        nesting -= 1
+    }
+
+    /// Records one dirty call of the current input turn, read on the hooked call's thread (`receiver`).
+    func note(_ call: InputDirtyCall, _ receiver: InputDirtyReceiver) {
+        guard let current = turn else { return }
+        let relation = InputDirtyRelation(of: receiver.view, to: current.target)
+        let stack = Thread.callStackReturnAddresses.prefix(Self.stackDepth).map(\.uintValue)
+        var hasher = Hasher()
+        for address in stack.prefix(Self.siteDepth) { hasher.combine(address) }
+        let key = InputDirtyWindow.Key(call: call, receiverClass: receiver.classID, relation: relation, stack: hasher.finalize())
+        let site = {
+            InputDirtyWindow.Site(call: call, objectClass: receiver.className,
+                                  viewClass: receiver.view.map { String(describing: type(of: $0)) }, relation: relation, stack: stack)
+        }
+        sinceLaunch.add(key, kind: current.kind, limit: siteLimit, new: site)
+        sinceReset.add(key, kind: current.kind, limit: siteLimit, new: site)
+        turn?.calls += 1
+        if relation.isOffTarget { turn?.offTarget += 1 }
+    }
+
+    /// The view `receiver` draws for: itself, or the delegate of the nearest layer up its layer tree.
+    nonisolated static func hostingView(of receiver: AnyObject) -> NSView? {
+        if let view = receiver as? NSView { return view }
+        var layer = receiver as? CALayer
+        var steps = 0
+        while let current = layer, steps < layerWalkLimit {
+            if let view = current.delegate as? NSView { return view }
+            layer = current.superlayer
+            steps += 1
+        }
+        return nil
+    }
+}
+#endif

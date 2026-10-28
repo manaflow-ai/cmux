@@ -151,6 +151,7 @@ final class PageRelayChannel {
     private func pumpEvents(_ connection: DaemonConnection) {
         pump?.cancel()
         // task-owner: one reader of this relay connection's events; cancelled when a new connection replaces it
+        // main-hop-allow: the listeners are this main-actor channel's; each relay event is delivered in its own resume, in order
         pump = Task { [weak self, weak connection] in
             guard let events = connection?.events else { return }
             var connectedBefore = false
@@ -162,10 +163,16 @@ final class PageRelayChannel {
                         // A reconnect: the events while it was down are lost.
                         if connectedBefore { self.resync() }
                         connectedBefore = true
+                    case .overflow:
+                        // This reader fell behind the connection's bounded backlog
+                        // (``DaemonEventRoute``): the events it dropped are lost; the daemon's
+                        // subscription is still live.
+                        self.resync()
                     case .unknown(name: "overflow", payload: _):
                         // The daemon ended the stream: subscribe again, then re-read, so no
                         // change falls between the re-read and the new stream.
                         // task-owner: one subscribe request with the control deadline
+                        // main-hop-allow: the resubscribe awaits the relay connection's actor; the re-read runs in its reply's job
                         Task { [weak self] in
                             do {
                                 _ = try await connection?.request(SubscribeRequest(treeEvents: .coarse))
@@ -209,6 +216,7 @@ final class PageRelayChannel {
         guard let endpoint = service.endpointProvider else { throw DaemonError.notConnected }
         let configuration = DaemonConnection.Configuration(clientName: "cmux-next-page-relay", retryWake: service.retryWake,
                                                            terminalEnvironment: nil, role: .pageRelay, relayIdentity: identity)
+        // main-hop-allow: the connection's start runs on its own actor; this task only hands the started connection back to the channel
         let task = Task { () async throws -> DaemonConnection in
             let connection = DaemonConnection(configuration: configuration, endpointProvider: endpoint)
             try await connection.start()

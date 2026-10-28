@@ -1,5 +1,5 @@
 import CmuxNextActions
-import CmuxNextDesign
+import CmuxNextAppearance
 @testable import CmuxNextSettings
 import Foundation
 import Testing
@@ -150,6 +150,20 @@ import Testing
         #expect(section["tabSize"] == .number(8))
         #expect(section["wordWrap"] == "on")
         #expect(section["minimap"] == ["enabled": true, "side": "left"])
+    }
+
+    /// A dotted key with no member name in it sets nothing; it trapped in `removeFirst` on an empty
+    /// split before (p10-stability-097). Empty segments between dots are skipped, as before.
+    @Test func aKeyWithNoMemberNameSetsNothing() {
+        var section: [String: JSONValue] = ["tabSize": 2]
+        EditorSettingsImport.set(&section, "", true)
+        EditorSettingsImport.set(&section, ".", true)
+        EditorSettingsImport.set(&section, "..", true)
+        #expect(section == ["tabSize": 2])
+        EditorSettingsImport.set(&section, "minimap..enabled", false)
+        #expect(section["minimap"] == ["enabled": false])
+        EditorSettingsImport.set(&section, "wordWrap", "on")
+        #expect(section["wordWrap"] == "on")
     }
 
     /// `auto` takes the first editor with a settings file, in the order VS Code, Cursor, Windsurf,

@@ -34,14 +34,28 @@ final class PaneHostView: NSView, RestingPlacement {
     /// Render-server spring calls on the host's layer that have not landed yet (`PaneHostView+RenderSpring.swift`).
     var renderSpringsInFlight = 0
 
+    /// `RestingPlacement`: Core Animation shows the host moving or resizing away from its frame, which is at rest
+    /// (`PaneHostView+RenderSpring.swift`). With page resizing (`pageResizing`, the `pageSpringResizeOnce`
+    /// feature) its changes reach the content's `PaneRenderMoveObserving` views, so a page in its own window
+    /// hides for the move; without it they reach nothing.
+    var showsRenderMove = false {
+        didSet {
+            guard showsRenderMove != oldValue, pageResizing != nil else { return }
+            content.notifyPaneRenderMoveChanged(showsRenderMove)
+        }
+    }
+
     /// Whether content keeps its size on a layout spring, asked at each spring's start: feature
     /// `paneHoldsContentInMotion` (off: live resize) through ``LayoutRootView/holdsContentInMotion``; tests pin it.
     private let holdsContentInMotion: () -> Bool
+    /// What pages in the content do while the host springs (`RestingPlacement`); nil: they resize with it.
+    let pageResizing: PageSpringResizing?
 
-    init(pane: PaneID, content: NSView, holdsContentInMotion: @escaping () -> Bool) {
+    init(pane: PaneID, content: NSView, holdsContentInMotion: @escaping () -> Bool, pageResizing: PageSpringResizing? = nil) {
         self.pane = pane
         self.content = content
         self.holdsContentInMotion = holdsContentInMotion
+        self.pageResizing = pageResizing
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
@@ -128,6 +142,7 @@ final class PaneHostView: NSView, RestingPlacement {
         if superview == nil {
             // Its render-server springs end now; their landings still run (``springToRest(_:spring:inPlane:landed:)``).
             if let layer, isOnRenderSpring { for keyPath in Self.renderSpringKeyPaths { RenderSpring.stop(layer, keyPath) } }
+            showsRenderMove = false
             isOnLayoutSpring = false
         }
         // Another screen (or none) places it now: its clip, overlay and covers are computed afresh.
@@ -166,7 +181,7 @@ final class PaneHostView: NSView, RestingPlacement {
         didSet { if isDocked != oldValue { applyDockFill() } }
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: two layer background colors (dock fill, zoom backing), no layout or text measure; cheaper than a deferral
         super.viewDidChangeEffectiveAppearance()
         applyDockFill()
         if backsZoom { applyZoomBacking() }
@@ -399,32 +414,5 @@ extension PaneHostView: PageCoverSource {
         let covers = screen.panes(inFrontOf: self).map { convert($0, from: screen) }
         pageCoverMemo = (ObjectIdentifier(screen), screen.coverVersion, covers)
         return covers
-    }
-}
-
-/// The rounded clip around a pane's content. `masksToBounds` with a corner
-/// radius clips every sublayer, Metal layers included. Corners are circular
-/// (not continuous) so the Chromium page mask, a circular-arc path built
-/// from this layer's radius, matches them exactly.
-final class PaneClipView: NSView {
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.masksToBounds = true
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    nonisolated override var isFlipped: Bool { true }
-
-    func setCornerRadius(_ radius: CGFloat) {
-        guard let layer, layer.cornerRadius != radius else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        layer.cornerRadius = radius
-        CATransaction.commit()
     }
 }

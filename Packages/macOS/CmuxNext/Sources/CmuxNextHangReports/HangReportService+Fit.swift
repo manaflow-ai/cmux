@@ -78,7 +78,7 @@ extension HangReportService {
         if report.inputLatency?.isEmpty == false {
             report.inputLatency?.removeLast()
         } else if report.scrollJank?.histograms.isEmpty == false {
-            report.scrollJank?.histograms.removeLast()
+            _ = report.scrollJank?.histograms.popLast()
         } else if report.inputLatencyBucketEdgesMs != nil || report.inputLatency != nil || report.scrollJank != nil {
             report.inputLatencyBucketEdgesMs = nil
             report.inputLatency = nil

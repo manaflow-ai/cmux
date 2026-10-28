@@ -1,12 +1,14 @@
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 
-/// Where one app's `SidebarSnapshotDocument` lives, and its synchronous
-/// read and atomic write. The read runs once per launch before the first
-/// window (the file is small and capped), so the sidebar's first frame
-/// never waits for the daemon.
+/// Where one app's `SidebarSnapshotDocument` lives, and its read and atomic
+/// write. The read runs once per launch on the files lane from `main`
+/// (``startLaunchRead(in:reader:)``; the file is small and capped), so the
+/// sidebar's first frame never waits for the daemon or reads on the main thread.
 nonisolated struct SidebarSnapshotFile: Sendable {
     static let fileName = "sidebar-snapshot-v1.json"
     /// A larger file is not read (a sidebar of a few hundred rows is ~100 KB).
@@ -46,14 +48,24 @@ nonisolated struct SidebarSnapshotFile: Sendable {
     }
 
     /// The saved document; nil when missing, too large, unreadable or of
-    /// another schema.
-    func read() -> SidebarSnapshotDocument? {
-        guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= Self.maximumBytes,
-              // concurrency-allow: one capped read of a small local file before the first window, replacing a wait for the daemon
-              let data = try? Data(contentsOf: url),
+    /// another schema. Blocking (checked): the launch read's body.
+    func read(with reader: LaunchFileReader = LaunchFileReader()) -> SidebarSnapshotDocument? {
+        guard let data = reader.data(at: url, maximumBytes: Self.maximumBytes),
               let document = try? JSONDecoder().blockingDecode(SidebarSnapshotDocument.self, from: data),
               document.schemaVersion == SidebarSnapshotDocument.schemaVersion else { return nil }
         return document
+    }
+
+    /// Reads and decodes the saved document on `work`'s files lane (``read(with:)``); an empty document when
+    /// there is none or quit drops the read.
+    func startLaunchRead(on work: BackgroundWork, reader: LaunchFileReader = LaunchFileReader()) -> LaunchRead<SidebarSnapshotDocument> {
+        LaunchRead(on: work, dropped: SidebarSnapshotDocument()) { read(with: reader) ?? SidebarSnapshotDocument() }
+    }
+
+    /// As ``startLaunchRead(on:reader:)``, after every read posted to `sequence` before it: `main` posts it before
+    /// the settings read, so the launch window's sidebar has it when the services are made.
+    func startLaunchRead(in sequence: WorkSequence, reader: LaunchFileReader = LaunchFileReader()) -> LaunchRead<SidebarSnapshotDocument> {
+        LaunchRead(in: sequence, dropped: SidebarSnapshotDocument()) { read(with: reader) ?? SidebarSnapshotDocument() }
     }
 
     /// Writes `document` atomically, owner-only.

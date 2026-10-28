@@ -123,8 +123,9 @@ extension ProfileBarView {
     private static func render(_ size: NSSize, scale: CGFloat, _ draw: (NSRect) -> Void) -> CGImage? {
         let width = Int((size.width * scale).rounded(.up)), height = Int((size.height * scale).rounded(.up))
         guard width > 0, height > 0,
-              let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+              let context = CGContext.pixelOwningBitmap(width: width, height: height,
+                                                        space: CGColorSpaceCreateDeviceRGB(),
+                                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return nil }
         context.scaleBy(x: scale, y: scale)
         context.translateBy(x: 0, y: size.height)

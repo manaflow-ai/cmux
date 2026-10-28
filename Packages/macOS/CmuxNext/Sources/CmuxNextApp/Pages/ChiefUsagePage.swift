@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextPages
 
@@ -16,6 +17,9 @@ enum ChiefUsagePageTab {
     static let actionID: ActionID = "chief.openUsage"
     /// The Chief row menu's item title in Home ("Usage…").
     static var menuTitle: String { ChiefUsagePageProvider.menuTitle }
+    /// Ten minutes hidden (`memoryDiscardInternalPages`): the page only reads, and a new page runs
+    /// `optchat-chief usage` again for its numbers.
+    static let discardPolicy = ContentDiscardPolicy.standard
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
@@ -24,7 +28,8 @@ enum ChiefUsagePageTab {
         let hasLocalChief = tool != nil || HomeBrainHost.canStart()
         // at launch, so a restored tab finds it; one `optchat-chief usage` run per call, off the
         // main actor, and no tool answers unavailable.
-        services.pages.register(WebPageTab(.chiefUsage, symbol: "dollarsign.circle", title: ChiefUsagePageProvider.title) { [weak services] in
+        services.pages.register(WebPageTab(.chiefUsage, symbol: "dollarsign.circle", title: ChiefUsagePageProvider.title,
+                                           discardPolicy: discardPolicy) { [weak services] in
             let muxHome = HomeBrainHost.muxHome(tag: services?.environment.tag)
             let provider = ChiefUsagePageProvider { arguments in
                 guard let tool else { return nil }

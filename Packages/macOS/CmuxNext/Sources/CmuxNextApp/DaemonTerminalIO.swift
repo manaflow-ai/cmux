@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextInputModel
 import CmuxNextTerminal
 import CmuxNextTrace
 import CmuxNextWakeups
@@ -58,6 +59,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     private let surface: UInt64
     /// The app's grid sender (`AppServices.resizes`): next frame, one in flight, a final grid now.
     private let resizes: ResizeCoordinator
+    /// Told after each step this view maps, and each live chunk its lane takes (nil in Release).
+    private let screenChanged: (@Sendable () -> Void)?
     /// The id of the terminal still being created whose keys go to the daemon by id, nil otherwise.
     var creatingTerminalID: String? { creatingInput?.terminalID }
 
@@ -74,10 +77,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// `screenChanged`: told after each step this view maps (output, replay, grid, link status), so the oracle's
     /// `terminals` facet waits wake (`AppServices.terminalScreenChanged`; nil in Release).
     /// `connection`: the machine connection each attach streams on, or reaches its endpoint from (p05-ipc-098).
+    /// `streamFocus`: the app's one focused terminal view, whose stream rides the input lane (p05-ipc-142).
     init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
          createIntent: UInt64 = 0, creatingInput: CreatingTerminalInput? = nil,
          burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },
          hangWatch: (any HangWatchScoping)? = nil, screenChanged: (@Sendable () -> Void)? = nil,
+         streamFocus: TerminalStreamFocus? = nil,
          connection: @escaping @Sendable () async throws -> DaemonConnection) {
         self.resizes = resizes
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.terminal")
@@ -123,13 +128,15 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                 { size, expectsEcho in
                     trace.gridSent(surface: surface, cols: size.cols, rows: size.rows, expectsEcho: expectsEcho)
                 }
-            }
+            },
+            streamFocus: streamFocus
         )
         self.driver = driver
         self.inputQueue = inputQueue
         self.creatingInput = creatingInput
         self.burstTrace = burstTrace
         self.surface = surface
+        self.screenChanged = screenChanged
         events = AsyncStream(unfolding: {
             await driver.nextStep().map { step in
                 let event = Self.event(for: step)
@@ -198,7 +205,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                     driver.input(data)
                     return .next
                 }
-                Task {
+                // The drain's closure is nonisolated: the send never touches the main thread.
+                Task { @concurrent in
                     let sentByID = await creating.write(data)
                     queue.async {
                         if !sentByID { driver.input(data) }
@@ -216,10 +224,29 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         }
     }
 
+    /// Live output goes from the attach link's reader thread straight to `lane` (``TerminalAttachDriver/setOutputSink(_:)``),
+    /// with the marks the stream's output step makes: the burst trace's first output and the oracle's screen change.
+    func setOutputLane(_ lane: TerminalEchoLane?) {
+        driver.setOutputSink(lane.map { lane in
+            TerminalEchoSink { [burstTrace, surface, screenChanged] data, flow, wake in
+                burstTrace?.output(surface: surface)
+                let full = lane.enqueue(data, flow: flow, wake: wake)
+                screenChanged?()
+                return full
+            }
+        })
+    }
+
     /// Focus takes geometry back after another client sized the terminal,
     /// or re-attaches a disconnected view.
     func focusGained() async {
         driver.focused()
+    }
+
+    /// The view's stream takes the input lane from the view that had it, in the main thread's focus order
+    /// (each view drains its ordered input on a queue of its own, so their `focusGained` can run out of order).
+    @MainActor func streamFocusGained() {
+        driver.takeStreamFocus()
     }
 
     /// Take over from the "Sized for" chip: always a new claim (see `TerminalAttachMachine`).
@@ -273,7 +300,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     }
 
     /// Hidden views release canonical geometry so another client (or the
-    /// next visible view) owns it; shown views claim it again.
+    /// next visible view) owns it; shown views claim it again. The view's stream follows: a hidden one gets
+    /// no output until it shows (`set-stream-priority`, TabContentCache's reveal and conceal).
     @MainActor func setVisible(_ visible: Bool) {
         driver.setVisible(visible)
     }
@@ -336,6 +364,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         case .snapshot(let frame): .snapshot(frame.data, phase: snapshotPhase(frame))
         case .output(let data): .output(data)
         case .inputEcho(let flow): .inputEcho(flow: flow)
+        case .outputResume(let marker): .outputResume(TerminalOutputResume { marker.resume() })
         case .exited: .exited
         case .status(let status): .status(Self.connection(status))
         case .sizing(let notice): .sizedFor(notice.map(Self.sizedFor))

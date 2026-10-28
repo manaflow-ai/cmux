@@ -56,7 +56,8 @@ pub(super) fn run_for(
     .flatten()
     {
         let tx = tx.clone();
-        std::thread::spawn(move || {
+        // One that cannot start drops its sender: its pipe counts as closed.
+        let _ = crate::supervised::scoped_thread("acpmux-probe-output", move || {
             let mut pipe = pipe;
             let mut out = Vec::new();
             // Keep the first 64 KiB, and keep reading so the program never waits on a full pipe.

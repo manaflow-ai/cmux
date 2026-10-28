@@ -63,7 +63,7 @@ impl Hub {
         family: String,
         web: bool,
     ) -> bool {
-        let level = tokio::task::spawn_blocking(move || {
+        let level = crate::daemon::spawn_blocking(move || {
             let read = if web {
                 crate::trust::web_session_level(&paths, &cwd, &family)
             } else {

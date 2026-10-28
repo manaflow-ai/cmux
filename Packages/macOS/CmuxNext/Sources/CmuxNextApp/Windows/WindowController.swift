@@ -9,6 +9,7 @@ import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextHibernation
 import CmuxNextLayout
 import CmuxNextWakeups
@@ -74,7 +75,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// Its view, made the first time it shows.
     var rightSidebarView: RightSidebarView?
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
-    private(set) lazy var topPages = TopPageHost(services: services)
+    private(set) lazy var topPages = TopPageHost(services: services, windowNode: visibility)
 
     /// - Parameter premade: The window to take instead of making one: the launch window that showed its saved
     ///   picture before this controller existed (`LaunchSnapshotWindow`, p08-startup-059).
@@ -93,17 +94,23 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebar.container.sidebarView.onTurnOffEnergySaver = { [weak registry = services.registry] in
             _ = registry?.perform("energy.saver.turnOffForNow", invocation: ActionInvocation(origin: .user))
         }
-        root = WindowRootView(sidebar: sidebar.container, revealDeadlines: services.mainDeadlines, signals: services.appearance, slideHoldsContent: WindowRootView.slideHoldsContent(in: services.features))
+        root = WindowRootView(sidebar: sidebar.container, revealDeadlines: services.mainDeadlines, signals: services.appearance, slideHoldsContent: WindowRootView.slideHoldsContent(in: services.features),
+                              rendersMotionOnServer: { LayoutTunables.motionRenderServer.value })
+        root.contentHost.hiddenDetach = services.makeHiddenWorkspaceDetach()
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
         }
         let window = premade ?? ShellWindow.main(frame: frame)
+        window.zoomHoldsContent = services.features.isEnabled(.windowFrameAnimationHoldsContent)
         window.keyRouter = services.keyRouter
+        // Before any view, overlay or panel of the window reads it; fixed for the process, as the backend is.
+        window.pageSurface = services.chromiumRuntime.source.backend.pageSurface
         window.turnMeter = services.mainWork.budget.turns
         // Before any view reaches the window, so its views find this node under the app, not a root of their own.
         let node = services.appVisibility.windowNode(window, name: "window:\(state.id)")
         visibility = node
+        root.follow(on: node, work: services.mainWork) // its settings follow while this window shows
         let registry = services.registry
         root.toolbarBand.follow(on: node, work: services.mainWork, title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
                                 shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
@@ -124,6 +131,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focus.crashKeys = services.crashKeys
         focus.keyInput = services.keyRouter.keyInput
         focus.inputDispatch = services.inputDispatch
+        focus.personIntent = { [weak services, weak window] input in
+            services?.keyRouter.creationInputCoordinator.personActed(in: window, event: input)
+        }
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observeRoom()
@@ -142,6 +152,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func teardown() {
         tornDown = true
+        services.keyRouter.creationInputCoordinator.windowClosed(window)
         stopShortcutHints()
         (window as? ShellWindow)?.overlayLayer.teardown()
         focusApplier.teardown()
@@ -197,7 +208,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     /// The local daemon's first connection, connecting or unavailable, until a workspace shows.
     private func showConnecting() {
-        let view = connectingView ?? DaemonConnectingView(frame: .zero, recovery: services.daemon.recovery)
+        let view = connectingView ?? DaemonConnectingView(frame: .zero, recovery: services.daemon.recovery, node: visibility, on: services.mainWork,
+                                                          deadlines: services.mainDeadlines)
         if connectingView == nil { DebugTimings.markLaunch("connecting_view_shown") }
         connectingView = view
         root.show(view)
@@ -379,7 +391,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
-    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing, WindowLayoutPassHosting {
+    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing, WindowLayoutPassHosting, PageSurfaceHosting {
     /// Views that follow an ancestor's move read their place after each outermost layout pass (`layoutIfNeeded`).
     let layoutPasses = WindowLayoutPasses()
     /// The traffic lights' last windowed place: their left edge, their top's distance from the window's top,
@@ -409,6 +421,9 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
+    /// Where the window's Chromium pages draw (``PageSurfaceHosting``): set once by its controller at
+    /// creation from the process's browser backend (``BrowserBackend/pageSurface``).
+    var pageSurface: PageSurface = .childWindows
     /// The app's main run-loop turn meter: a layout depth counts only in the turn that began its pass.
     weak var turnMeter: MainTurnMeter?
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self) { [weak self] in self?.turnMeter?.turnNumber ?? 0 }
@@ -416,6 +431,11 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
     private var zoomState = WindowZoom()
     override func zoom(_ sender: Any?) { if !zoomState.zoom(self) { super.zoom(sender) } }
+    /// Feature `windowFrameAnimationHoldsContent`: a zoom holds the window's terminal grids until it lands.
+    var zoomHoldsContent: Bool {
+        get { zoomState.holdsContent }
+        set { zoomState.holdsContent = newValue }
+    }
     override var isZoomed: Bool { zoomState.isZoomingIn ?? super.isZoomed }
     func windowZoomFinished(_ generation: Int) { zoomState.end(generation) }
 
@@ -432,17 +452,6 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
         let button = super.standardWindowButton(b)
         standardButtons.store(button, for: b, in: self)
         return button
-    }
-
-    /// The Chromium fork adds each page window as a child ordered above everything, the overlay panel included.
-    /// Lift the overlay (and the app panels above it) in the same call, before the window server shows a frame
-    /// with the page over the focus ring; the notifications that follow the page would come a frame late.
-    override func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
-        // Only the overlay host panel and page windows belong here (debug and test builds record the rest).
-        ChildWindowPolicy.check(childWin, parent: self)
-        super.addChildWindow(childWin, ordered: place)
-        if WindowOverlayLayer.isContent(childWin) { overlayLayer.evaluate() }
-        WindowOverlayHost.childWindowsDidChange(of: self)
     }
 
     /// The display cycle's layout pass (`-[NSWindow layoutIfNeeded]`).
@@ -504,7 +513,12 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// Nested `endEditing(for:)` calls, and whether a responder change waits for them to end (ShellWindow+Events.swift).
     var editTeardown = (depth: 0, pending: false)
 
+    /// Nested order-ins of this window while it is not on screen (ShellWindow+Events.swift, `refusesOrderInKeyView`).
+    var orderInDepth = 0
+
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
+        // AppKit's own first key view while the window is placed on screen: the focus model places the keyboard.
+        if refusesOrderInKeyView(responder) { return false }
         // Only a modal of the overlay top layer takes the window's keyboard (`WindowOverlayHost.refusesFirstResponder`).
         if WindowOverlayHost.existingHost(for: self)?.refusesFirstResponder(responder) == true { return false }
         if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: { controller.focus.currentState().pane }, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }

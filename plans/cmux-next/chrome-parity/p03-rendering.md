@@ -861,7 +861,10 @@ every task that changes behavior or performance and is not repeated per row.
   remove AnimatedFrame stepping for structural kinds from step(); DisplayLinkDriver starts only for gestures.
 - Acceptance: the decision text and video link are in both docs in the same PR; MQ-springs count reaches 0 or
   annotated `// input-driven:`; the PR is risk:normal with the behavior behind the tunable (off restores cpuStep until
-  the cpuStep code is deleted in a follow-up after one Nightly).
+  the cpuStep code is deleted in a follow-up after one Nightly). Deferred here from task 100: also edit
+  `.../CmuxNextSidebar/Views/SidebarContainerView.swift` and remove the sidebar slide's main-thread width animator,
+  `rg -n 'Motion\.animator\(widthConstraint' .../CmuxNextSidebar` = 0; the tunable off restores cpuStep for the
+  structural layout kinds only (the sidebar slides on the render server, or lands in one frame with the gate off).
 - Test phase: full DC2/DC3 set on 26 and 27; every-action sweep motion rows.
 - Size M. Depends: 022b, 023-033, 036, 098, 106, 007.
 
@@ -1208,6 +1211,27 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: Fork-seam tests per kind; tracker.hosted_pages counts them.
 - Test phase: devtools-resize-live.py; extension popup e2e.
 - Size L. Depends: 050. Queue: MQ-child-window-pages.
+- App side landed: `CEFLayerHosting.Widget` has four kinds (`page`, `devtools`, `popup`, `popup_window`).
+  `Fork.hostedWidgets` says which kinds the fork hosts (Track A) and `Fork.attachedWidgets` which it attaches
+  (Track B, `cmux_browser_attach_view` from 044/045). With the feature's Track A calls the default hosts each kind
+  the fork hosts; with `cefAttachedPages` each kind the fork attaches attaches first. An embedded DevTools hosts
+  or attaches on its own host view from DEVTOOLS_OPENED, and keeps its context or attached view when a dock move
+  takes the view into cmux's DevTools window. A `window.open` popup host's window hosts or attaches like a pane's
+  page. An extension's `chrome.windows` popup window hosts or attaches in the popup panel's view once
+  `cmux_popup_window_attach` succeeds. A DevTools frontend's and a popup window's one browser shows from its page
+  window's creation (`Widget.showsOneBrowser`). A hidden DevTools or popup keeps its frame in the app-wide hidden
+  frame list. `debug.cef` `tracker.hosted_pages_by_widget` counts the hosted views of each kind. Tests:
+  `CEFWidgetHostingTests` (hosting and attach of each kind through the fork seam, the owners' wiring) and
+  `CEFLayerHostingDefaultTests` (a fork that hosts only a tab's page).
+- Not landed: the fork side, a separate fork task. No fork API number is reserved for it: fork API numbers are
+  given in landing order. Contract for that task: `cmux_browser_set_layer_hosting` and `cmux_browser_attach_view`
+  also take a DevTools frontend placed over an embedder view (`cmux_shim_devtools_set_placement` with a view,
+  docked or in the embedder's DevTools window), a `window.open` popup host's tab, and the tab of a popup window
+  attached with `cmux_shim_popup_window_attach`, each with the resize fence and embedder visibility of a tab's
+  page window. When it lands, `Fork(shim:apiVersion:policy:)` sets `hostedWidgets` and `attachedWidgets` to every
+  kind from the API number it gets, and `cmux_cef_shim.h` names each kind enabled at that gate. Until then the
+  shim's fork hosts and attaches only a tab's page, so the default keeps the other kinds in their own window
+  (`hosting_widget_fallbacks`). The developer override hosts them on any fork from 26.
 
 #### p03-rendering-058 Fork: visibility from the embedder
 - Files: fork `chrome_child_window_mac.mm`; fork `content/browser/web_contents/web_contents_occlusion_checker_mac.mm`;
@@ -1381,6 +1405,31 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: counter test: `createWithActiveCGDisplays` not called with the flag; standalone behavior unchanged.
 - Test phase: zig build test (initialized submodule).
 - Size M. Queue: MQ-displaylinks.
+- As built (ghostty-next branch cp/p03-rendering-082, 7436f3b9a, draft PR manaflow-ai/ghostty-next#59; 083 writes
+  against this):
+  - `ghostty_surface_config_s` gets `bool vsync_external`, `ghostty_surface_vsync_wanted_cb vsync_wanted_cb`,
+    `void* vsync_userdata`, after `io_write_userdata` (64-bit offsets 112, 120, 128; size 136).
+    `ghostty_surface_new` fails when `vsync_external` is set without the callback. Split surfaces Ghostty asks
+    for do not inherit the fields.
+  - `void (*ghostty_surface_vsync_wanted_cb)(void* userdata, bool wanted)` runs on the renderer thread, on each
+    edge only (calls alternate, starting with true): true when the surface is visible and has a new frame or an
+    animation (the same condition that started the CVDisplayLink), false when idle or hidden, and false once more
+    when the renderer thread exits. It may call `ghostty_surface_vsync` and nothing else in Ghostty.
+  - `void ghostty_surface_vsync(ghostty_surface_t)`: one refresh; any thread, from `ghostty_surface_new` until
+    `ghostty_surface_free` is called; no effect without `vsync_external`. It notifies the renderer thread's
+    `draw_now`, the async a display link of its own notifies, so frames, coalescing and the early first frame
+    after idle (`drawsNow`) are the same as standalone.
+  - Differences from the spec: no `target_ns` argument. The tick draws at once and the renderer has no use for a
+    deadline (a stale tick still draws the newest cells); a deadline goes with the BeginFrame-args work, not here.
+    The tick is the `draw_now` async, not a mailbox message, so a burst of ticks coalesces as link ticks do.
+    `ghostty_surface_set_display_id` does not change pacing under external vsync: the embedder moves the surface to
+    its display's clock (083).
+  - Pacing lives in `ghostty-next/src/renderer/vsync.zig` (`Pacer`). Standalone, the link is made, run and stopped
+    as before; the "vsync external" tests count the link factory (0 calls of `createWithActiveCGDisplays` with the
+    flag). The flag reaches the renderer as `renderer.Options.vsync_external`, which `Surface.zig` sets from the
+    embedded surface only (`apprt.runtime == apprt.embedded`, so a renamed field fails the lib build). The test
+    "renderer external vsync: ..." runs `renderer.Renderer`'s own sync with its real link factory and counts 0
+    link creates. The gitlink and the GhosttyNextKit pin do not move here: 082 rides pin 1 (task 079).
 
 #### p03-rendering-083 cmux drives surfaces from VSyncHub
 - Files: `.../CmuxNextTerminal/TerminalVSync.swift` (new), `TerminalSurfaceView.swift`, `GhosttyRuntimeCallbacks.swift`.
@@ -1389,6 +1438,23 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: fake hub: hidden 0 subscriptions, idle visible disarms after one empty tick; DC1 holds.
 - Test phase: DC1, DC6, DC7r; bench-typing.py not worse.
 - Size M. Depends: 014, 082.
+- As built (cp/p03-rendering-083): `TerminalVSync` (one per surface, owned by its `SurfaceBridge`, which is
+  the `vsync_userdata` of 082's `vsync_wanted_cb` and is released only after `ghostty_surface_free`, never when the
+  view is freed off main) holds one disarmed hub subscription while the surface draws (`pause == nil`), on
+  `appliedDisplayID`, and none while it is hidden, parked, suspended, occluded or out of a window. When that display
+  has no screen it ticks on the main display's clock; with no screen there either it ticks on a 60 Hz deadline
+  (injected clock) while Ghostty wants frames, as Chrome's `DelayBasedTimeSource`. Off its own display's clock it
+  tries that display again on every follow and every 100 ms (injected clock). The wanted edge (renderer thread)
+  arms it, so wanted edges never reach main; each armed tick calls `ghostty_surface_vsync`, and the first tick after
+  wanted false returns `.done`. While armed on a subscription a stall deadline runs (`DisplayClock.stallTimeout`,
+  injected clock), because the hub rebuilds a link only when asked and no frame scheduler may be on that display: a
+  timeout with no tick refreshes the surface once, `DisplayClock.stallsBeforeRebuild` in a row call
+  `Subscription.relink()`, and a link that cannot be rebuilt is left for the main display's clock or the 60 Hz
+  deadline. `close()` runs before the free, and a tick holds the pacer's `Mutex` across
+  `ghostty_surface_vsync` (a notify), so no tick reaches a freed surface. Compiled in only with
+  `GHOSTTY_EXTERNAL_VSYNC` (Package.swift, off until the GhosttyNextKit pin carries 082) and used only with a
+  `VSyncHub` (feature `vsyncHub`, default off); otherwise each surface keeps Ghostty's own link. Tests:
+  `TerminalVSyncTests`.
 
 #### p03-rendering-084 Pre-commit present never waits; frame sequence
 - Files: `ghostty-next/src/renderer/Metal.zig` (presentHostSized), `.../CmuxNextTerminal/TerminalHostFramePresenter.swift`.
@@ -1400,6 +1466,15 @@ every task that changes behavior or performance and is not repeated per row.
 - Test phase: bench-terminal-resize.py light drag: main p95 per drag frame <= base 12.2 ms, drops <= base;
   fresh_presents and late_presents reported.
 - Size M. Depends: 080.
+- Fork state (2026-10-27): ghostty-next branch `cp/p03-rendering-084`, commit 1c714bec5, on 080 (f60815cf5).
+  `presentHostSized` takes the fresh frame only if drawn, else keeps the last (`host_late_presents`); no futex, no
+  timeout. `PresentState` gives every frame an id under the draw lock and both writers compare-and-swap it over the
+  newest committed id before they show it (renderer at encode, main in `cover`); a refused main present counts
+  `host_superseded_presents` (new last field of the render counters). cmux side: `TerminalHostFramePresenter`
+  (feature `terminalPreCommitPresent`, default off) runs once, as a `.preCommit` handler of the open Core Animation
+  transaction, ahead of the commit that carries a resized or shown terminal's size (a run-loop observer added
+  from AppKit's display-cycle layout would run after that commit); it is made only when the pin has `GHOSTTY_PRESENT_NEVER_WAITS` (Package.swift, off until the pin bump
+  that brings 080 and 084, with 081). `TerminalResizeFrameTests` run only then.
 
 #### p03-rendering-085 Grid, snapshot and status off the main actor (G4 rest)
 - Files: `.../CmuxNextTerminal/TerminalSession.swift`, `TerminalSession+Output.swift`, `TerminalGridLock.swift`,
@@ -1417,6 +1492,22 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: thread count per manual surface = 1 (test).
 - Test phase: zig build test; thread count with 20 terminals about 20 lower.
 - Size M.
+- Fork branch: manaflow-ai/ghostty-next `cp/p03-rendering-086`, commits `d6b9e5348` and fixer `d67a29181` (on ghostty-next main `9ce9b7d08`). `termio.Thread`
+  has two modes: `.own` (exec: its own loop and thread, as before) and `.hosted` (manual: no loop, no stop handle,
+  no thread). The renderer thread takes a `LoopGuest` before it starts; it attaches the termio mailbox wakeup and
+  the three termio timers (resize coalesce, synchronized-output reset, selection scroll) to its own loop, and
+  detaches after the loop stops. If the renderer fails to start, the loop still runs for the guest until the
+  surface stops it. Chromium: sequences on a shared thread, not a thread per client
+  (`base/task/sequenced_task_runner.h`). The hosted handlers follow the renderer QoS (lower when hidden).
+  The ghostty-next gitlink is not moved: the integrator lane (task 079) lands the branch and bumps the pin.
+- Fixer commit on the same fork branch (after review). The renderer thread can wait for a GPU frame, so a hosted
+  termio mailbox never blocks its producer: the renderer mailbox's never-block queue is now
+  `datastruct/overflow_queue.zig`, and the termio mailbox uses it in `.hosted` mode (`.own` keeps the blocking
+  send). In the overflow, resize, selection scroll and inspector are latest-wins, and adjacent `scroll_viewport`
+  and `scroll_wheel` messages fold into one (Mojo pipes never block the sender; Blink coalesces queued wheel
+  events). `Surface.init` starts its threads through `startThreads` with an injected spawner; the test counts one
+  spawn (renderer), no IO thread, a set guest, and a focus report drained by the real renderer guest hosting.
+  New renderer.Thread tests cover the guest enter/exit order and the failed-renderer fallback.
 
 #### p03-rendering-087 Shared atlas and command queue
 - Files: `ghostty-next/src/renderer/generic.zig`, `src/renderer/Metal.zig`, `src/font/SharedGrid.zig`.
@@ -1450,6 +1541,13 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: red commit (counter, test fails at 723c4ab) before the fix; threading-model.md row.
 - Test phase: zig build test; bench_idle.py 10 hidden printing terminals: CPU lower.
 - Size S.
+- Fork state (2026-10-27): ghostty-next branch `cp/p03-rendering-088` on the pin 723c4ab93: red 149b24263
+  (RenderCounters `thread_wakes` / `hidden_thread_wakes`; 2 tests fail), fix d8db9757d, review fix 6a3d48518 (the
+  blink timer's re-arm and its `.visible` / `.focus` restart are `blinkRearms` / `blinkChange`, each tested). QoS by state was already
+  in `setQosClass`; the fix stops a hidden surface's cursor blink timer at its next tick (restarted by `.visible`),
+  pushes no `reset_cursor_blink` to a renderer that takes no output wakes, and rechecks scrollback compression
+  once a second while hidden. The gitlink is not moved (079 lands it). `bench_idle.py --scenarios hidden-printing`
+  (runs last) measures it on the fleet, before and after the pin bump: each terminal's loop is sent to its own tab.
 
 #### p03-rendering-089 No frame when nothing changed (G7 rest)
 - Files: `ghostty-next/src/renderer/generic.zig`, `src/renderer/Thread.zig`.
@@ -1457,6 +1555,18 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: TerminalIdleCursorFrameTests: steady focused cursor draws 0 frames in 10 s (red at base).
 - Test phase: render-idle-damage.py Ghostty frames at idle = 0 (with 091).
 - Size S.
+- Fork branch: manaflow-ai/ghostty-next `cp/p03-rendering-089`, commit `19eb96940` (on ghostty-next main `9ce9b7d08`). `cells_rebuilt`
+  (set by every `rebuildCells`, so every renderer wake drew a frame) becomes `frame_changed`: a frame update sets it
+  only when it built a row, or when what the frame shows outside its rows changed (`FrameShown`: cursor cell,
+  uniforms, block cursor text color, color target, cells' screen size), or Kitty images or the overlay updated.
+  Config, font grid, screen size, focus, shown again and `ghostty_surface_refresh` (new renderer message
+  `.redraw`) set it directly. The blink timer runs only for a focused, visible surface with a shown blinking
+  cursor: a tick that finds none does not re-arm, and the next frame update or focus that needs it starts it
+  (`syncCursorTimer`). The 600 ms timer no longer starts at thread start. Chromium: no damage, no draw
+  (`cc/scheduler/scheduler_state_machine.cc`, `ShouldDraw` needs `needs_redraw_`).
+  App test: `TerminalIdleCursorFrameTests.aSteadyFocusedCursorDrawsNoFrameForOutputThatChangesNothing` (title
+  output every 250 ms for 10 s, 0 frames; red at 723c4ab). The ghostty-next gitlink is not moved: the integrator
+  lane (task 079) lands the branch and bumps the pin.
 
 #### p03-rendering-090 ghostty-next: external cursor with cell image
 - Files: `ghostty-next/src/renderer/generic.zig`, `src/renderer/cursor.zig`, `src/apprt/embedded.zig`, `include/ghostty.h`.
@@ -1467,6 +1577,46 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: no renderer wake for 2 s of blink; one callback per move; block-cell pixels equal Ghostty's own draw.
 - Test phase: zig build test.
 - Size M.
+- Fork state (2026-10-27): ghostty-next branch `cp/p03-rendering-090`, commits 6c4b51d43, 1d35a0460 (a new IOSurface per
+  cell) and 81d9d74e1 (review fixes), on ghostty-next main 9ce9b7d08. The gitlink and the GhosttyNextKit pin do not move
+  (task 079 lands it). As built, for 091:
+  - Config: `ghostty_surface_config_s.cursor_external`, `cursor_cb`, `cursor_userdata`, appended after
+    `io_write_userdata` (offsets 112, 120, 128; the struct is 136 bytes; Swift zero-inits it). `ghostty_surface_new`
+    fails with `cursor_external` and no `cursor_cb`. 082 appends its vsync fields at the same offsets: the 079 pin
+    puts one set after the other and fixes both layout checks (`embedded.zig` comptime, `structs.zig` test).
+  - `cursor_cb(userdata, const ghostty_cursor_cell_s*)`: `serial`, `surface` (IOSurfaceRef, borrowed for the call,
+    retain to keep; NULL when not visible or `unchanged`; Ghostty never draws into it again), `x`, `y`, `width`,
+    `height` (pixels from the top-left of the frame), `column`, `row`, `style` (`GHOSTTY_CURSOR_CELL_BLOCK`,
+    `_BLOCK_HOLLOW`, `_BAR`, `_UNDERLINE`, `_LOCK`), `visible`, `blinking`, `unchanged`, `blink_interval_ms` (600); 48
+    bytes. It runs on the GPU completion thread after the frame that leaves the cursor out, never on main (a sync draw
+    leaves the cell to the next async frame), once per change of what the cell shows (`cursor.cellKey`: the glyphs
+    whose quads cross the cell, from any row, their backgrounds, the colors, style, focus, font). Output elsewhere,
+    also on the cursor's row, sends nothing.
+  - Blink: the renderer runs no blink timer with the external cursor (`blinkTimerRuns`, `cursorTimerCallback`
+    disarms). The embedder blinks and starts shown with every call. Terminal output restarts Ghostty's own blink
+    (`reset_cursor_blink`, at most every 500 ms); the embedder does not see output, so when that leaves the cell
+    alone Ghostty sends the same cell with `unchanged` true and no surface (`cursor.Publisher.restart`): keep the
+    shown surface, restart the blink. Behavior change from Ghostty: none. Unfocused: `BLOCK_HOLLOW`, not blinking.
+    IME preedit: not visible (the frame draws the preedit).
+  - Off, so the frames draw and blink the cursor and `cursor_cb` gets one cell with `visible` false: `custom-shader`
+    or `background-image` set, `cursor-opacity` below 1 (a translucent block would show the frame's glyph and
+    background through), and while a kitty image in front of text or the debug overlay covers the cursor cell
+    (`cursor_covered`, checked each frame update; Ghostty draws those over the cursor). OpenGL always draws the cursor.
+  - Cell pixels: `Renderer.drawCursorCell` draws the cell with the frame's pipelines, buffers, atlas and color table
+    into an IOSurface of the cell's size (`cursor.cellUniforms` moves the projection and the cell-bg lookup). A block
+    is background, block, then every glyph that crosses the cell, in the frame's order (`cursor.appendCrossing`), the
+    cell's own text in the cursor text color, as the frame with the cursor. Other styles are the cursor glyph alone,
+    over the frame, which draws them after all text too.
+  - Tests (Linux, `zig build test -Dapp-runtime=none`): `cursor external: the cell target shows the frame's pixels of
+    the cell`, `... one publish per move or cell change`, `... a blink restart republishes the unchanged cell`, `... a
+    glyph crosses the cell only where its quad reaches`, `... the key changes only with what the cell shows`, `... the
+    cell rect covers the cursor cells`, `... enabled needs the callback`, `cursor: a blinking cursor blinks only where
+    style hides it`, `renderer thread: the blink timer runs only for a focused cursor the renderer draws`, `ghostty.h
+    cursor cell`, `ghostty.h CursorCellStyle`. `drawCursorCell` compiles under OpenGL with the path forced on.
+  - Acceptance open: the Metal path has never been compiled (Linux builds OpenGL only, and ghostty-next does not
+    cross-compile to Darwin), and no GPU pixel compare against Ghostty's own frame has run. The 079 pin's
+    GhosttyNextKit build owns the Metal compile; 091's block-cursor pixel compare owns "block cell pixels = Ghostty's
+    own draw". 091 must not ship its layer default-on before both pass.
 
 #### p03-rendering-091 TerminalCursorLayer
 - Files: `.../CmuxNextTerminal/TerminalCursorLayer.swift` (new), `TerminalSurfaceView.swift`, `GhosttyRuntimeCallbacks.swift`.
@@ -1487,6 +1637,23 @@ every task that changes behavior or performance and is not repeated per row.
   full redraw (test).
 - Test phase: bench_power.py typing; typing-frame-bench.py not worse.
 - Size L. Depends: 089.
+- Fork state (2026-10-27): ghostty-next branch `cp/p03-rendering-092`, commit b2af196c7, on 087's 338323476 with
+  089's 19eb96940 cherry-picked (5c2841b3f). `src/renderer/damage.zig` (new) keeps each Metal target's damage since
+  it was last drawn (Chromium `BufferQueue::UpdateBufferDamage`/`CurrentBufferDamage`, viz buffer_queue.cc); a frame
+  loads the target and draws only the band of its damaged rows (scissor, one overflow row above and below). 089's
+  `frame_changed` becomes `frame_damage`: rebuilt rows, the preedit row and the old and new cursor rows; any other
+  change of uniforms, colors, cells' screen, Kitty images, overlay, config, font, size, focus or show is full, as
+  are animations, custom shaders and a background image. Purge rule: `Target.pixelsKept` sets the target's IOSurface
+  non-volatile before a partial draw and draws fully if it was volatile or empty (Chromium marks a purged IOSurface
+  uncleared, iosurface_image_backing.mm `SetPurgeable`); every HIDDEN or PURGE presentation bumps
+  `Metal.content_epoch`, so each buffer draws fully once after it; a failed GPU frame or draw invalidates every
+  buffer. OpenGL keeps full redraws. No C API change (`RenderCounters.partial_frames` is Zig-only; 093 owns the
+  counter ABI). The gitlink is not moved (task 079 lands it). Linux: the renderer-filtered zig build test passes
+  with the new damage tests (147/147); Metal code is ast-checked only and compiles on the fleet.
+  Fix 8c9fef9c8: `Target.takeDamage` (`damage.take(epoch, pixelsKept())`) is the one call the draw makes, and
+  macOS tests run it on a real IOSurface: Target.zig "pixelsKept: a volatile or purged surface is not kept, and
+  is non-volatile after" and "takeDamage: a volatile or purged surface forces a full redraw" (renderer test
+  block), iosurface.zig `setPurgeable` tests (pkg/macos). They run in the fleet macOS `zig build test`.
 
 #### p03-rendering-093 Terminal frame ownership: probes, counters, hide/show
 - Files: `.../CmuxNextTerminal/TypingFrameProbe.swift`, `TerminalSurfaceView.swift`,
@@ -1551,7 +1718,8 @@ every task that changes behavior or performance and is not repeated per row.
   resize); RenderSpring slides the sidebar panel layer (position.x) and the content host (additive position.x from
   the old offset to 0); fade variant on panel layer opacity; isWidthAnimating clears in the completion; watchdog
   stays. Registered as a MotionBackend kind.
-- Acceptance: diff removes `Motion.animator(widthConstraint`; test: constant set once, layout passes = 1, grids per
+- Acceptance (the removal of `Motion.animator(widthConstraint` is deferred to task 022c: until the default flips,
+  the main-thread slide is the switch-off fallback, and this task adds no `Motion.animator(` site); test: constant set once, layout passes = 1, grids per
   terminal = 1, completion once, gate off one frame; frame_sets frames 2..n = 0.
 - Test phase: motion-main-work.py and motion-hitches.py sidebar-toggle light and STRESS: main p99 <= 0.5 ms, 0
   hitches; bench-terminal-resize.py reflows per toggle = 1.

@@ -66,6 +66,9 @@ public final class RemoteDesktopPane {
     private var permissionTasks: [RemoteUpstreamKind: Task<Void, Never>] = [:]
 
     public let presenterKind: RemotePresenterKind
+    /// The app's main-thread scheduler: frames, the first frame's state change, status and cursor apply in its
+    /// visible class (the remote screen's own updates).
+    private let mainWork: MainWorkScheduler
     private let source: any RemoteViewStreamSource
     /// The input controller holds its sink weakly; the pane owns it.
     private let inputSink: (any RemoteViewInputSink)?
@@ -87,6 +90,7 @@ public final class RemoteDesktopPane {
         hostName: String,
         source: any RemoteViewStreamSource,
         inputSink: (any RemoteViewInputSink)?,
+        mainWork: MainWorkScheduler,
         settings: RemoteDesktopSettings = RemoteDesktopSettings(),
         presenter: RemotePresenterKind = RemoteViewTunables().presenter.value,
         initialMode: RemoteControlMode = .control,
@@ -94,9 +98,10 @@ public final class RemoteDesktopPane {
     ) {
         self.source = source
         self.inputSink = inputSink
+        self.mainWork = mainWork
         self.settings = settings
         state = RemotePaneState(hostName: hostName, requestedMode: initialMode, interactiveMaxRttMs: settings.interactiveMaxRttMs)
-        self.presenter = RemoteFramePresenters().make(presenter)
+        self.presenter = RemoteFramePresenters().make(presenter, mainWork: mainWork)
         presenterKind = self.presenter.kind
         view.video.install(self.presenter)
         view.video.scaling = scaling
@@ -118,9 +123,20 @@ public final class RemoteDesktopPane {
         let gate = RemoteFrameGate()
         delivery = gate
         awaitsOwnContent = true
-        let deliver: @Sendable (RemoteDecodedFrame) -> Void = { [weak self] frame in
+        let work = mainWork
+        let owner = work.board.owner("remote-view.session")
+        // One visible task per change, in arrival order (one class queue is FIFO); a task of a stopped session (its
+        // gate is no longer the pane's) does nothing.
+        let post: @Sendable (@escaping @MainActor @Sendable (RemoteDesktopPane) -> Void) -> Void = { [weak self] change in
+            // node-free: the gate closes at stop(), when the pane hides; a stopped session's late change is dropped.
+            work.postFromAnyThread(.visible, owner: owner) { [weak self] in
+                guard let self, delivery === gate else { return }
+                change(self)
+            }
+        }
+        let deliver: @Sendable (RemoteDecodedFrame) -> Void = { frame in
             guard gate.deliver(frame, to: presenter), firstFrame.consume() else { return }
-            Task { @MainActor in self?.apply(.frameShown) }
+            post { $0.apply(.frameShown) }
         }
         if let frameSource = source as? any RemoteViewFrameSource {
             let frames = frameSource.decodedFrames()
@@ -133,12 +149,14 @@ public final class RemoteDesktopPane {
             tasks.append(Task.detached(priority: .userInitiated) { await pipeline.run() })
         }
         let statuses = source.statusUpdates()
-        tasks.append(Task { [weak self] in
-            for await status in statuses { self?.apply(.status(status)) }
+        // task-owner: the session's status, read off main; ends at stop() or when the source finishes it.
+        tasks.append(Task { @concurrent in
+            for await status in statuses { post { $0.apply(.status(status)) } }
         })
         let cursors = source.cursorUpdates()
-        tasks.append(Task { [weak self] in
-            for await cursor in cursors { self?.view.video.setRemoteCursor(cursor) }
+        // task-owner: the remote cursor, read off main; ends at stop() or when the source finishes it.
+        tasks.append(Task { @concurrent in
+            for await cursor in cursors { post { $0.view.video.setRemoteCursor(cursor) } }
         })
     }
 
@@ -225,6 +243,7 @@ public final class RemoteDesktopPane {
         }
         guard state.showsUpstreamButtons, permissionTasks[kind] == nil, let control = upstreamControl else { return }
         let permissions = upstreamPermissions
+        // main-hop-allow: the person's share press: request is the main-actor async macOS permission prompt (it waits on the person); the task only holds its answer and sends it
         permissionTasks[kind] = Task { [weak self] in
             let granted = await permissions.request(kind)
             guard let self else { return }

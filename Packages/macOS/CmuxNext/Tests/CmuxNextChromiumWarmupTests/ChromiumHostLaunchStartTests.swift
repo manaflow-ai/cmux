@@ -1,9 +1,9 @@
 import CmuxNextChromiumWarmup
 import Testing
 
-/// p08-startup-046: with the Chromium Host, the launch starts it where Chrome's visible-first rule puts it
-/// (afterFirstFrame for a Chromium page in a shown pane, afterStartup when Chromium is only likely) and
-/// never when nothing makes Chromium likely.
+/// p08-startup-046, p01-process-086: with the Chromium Host, the launch starts it where Chrome's visible-first
+/// rule puts it (afterFirstFrame for a Chromium page in a shown pane or Chromium as the default engine,
+/// afterStartup for a hidden Chromium tab) and never when nothing makes Chromium likely.
 @MainActor @Suite struct ChromiumHostLaunchStartTests {
     @Test func aShownChromiumPaneStartsTheHostAfterTheFirstFrame() {
         let start = ChromiumHostLaunchStart(showsChromiumPane: true, defaultIsChromium: false, hasChromiumTab: true)
@@ -11,9 +11,11 @@ import Testing
         #expect(start?.reason == .restoredTab)
     }
 
-    @Test func chromiumAsTheDefaultEngineStartsTheHostAfterStartup() {
+    /// p01-process-086: every new browser tab is a Chromium tab, so the host is warm before the first
+    /// Cmd-Shift-L, started right after the first frame, never before it.
+    @Test func chromiumAsTheDefaultEngineStartsTheHostAfterTheFirstFrame() {
         let start = ChromiumHostLaunchStart(showsChromiumPane: false, defaultIsChromium: true, hasChromiumTab: false)
-        #expect(start?.priority == .afterStartup)
+        #expect(start?.priority == .afterFirstFrame)
         #expect(start?.reason == .launch)
     }
 

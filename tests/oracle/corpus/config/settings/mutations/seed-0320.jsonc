@@ -1,0 +1,22 @@
+{
+  "sidebar": null,
+  "sidebar": {
+    "hoverCards": {
+      "groups": {
+        "sections": {
+          "status": null,
+        },
+      }
+    },
+    "groupBy": 1,
+    "steppingWraps": null,
+  },
+  "browser": {
+    "openLinksInCmuxBrowser": 1,
+  },
+  "markdown": {
+    "font": {
+      "lineHeight": "1",
+    },
+  },
+}

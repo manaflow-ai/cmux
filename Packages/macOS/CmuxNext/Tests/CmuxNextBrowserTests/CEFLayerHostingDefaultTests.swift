@@ -6,10 +6,11 @@ import Testing
 
 /// Layer hosting's default (p03-rendering-050). The feature `cefLayerHosting` hosts a pane's page only where the
 /// app makes every Track A call for the fork (the resize fence, embedder visibility); no fork API alone turns it on.
-/// DevTools and popup windows keep their own window (until p03-rendering-056), and `debug.cef` counts why a page
-/// did not host. Only features decide in the app (p12-perf-process-100): the Debug tunable
-/// `browserResize.layerHosting` reaches it only as the feature's local override, resolved at launch; the benches'
-/// arm `cefLayerHostingEveryPage` and a test's `override` seam host every page window from API 26.
+/// On a fork that hosts only a tab's page, DevTools and popup windows keep their own window (each kind on a fork
+/// that hosts it is `CEFWidgetHostingTests`), and `debug.cef` counts why a page did not host. Only features decide
+/// in the app (p12-perf-process-100): the Debug tunable `browserResize.layerHosting` reaches it only as the
+/// feature's local override, resolved at launch; the benches' arm `cefLayerHostingEveryPage` and a test's
+/// `override` seam host every page window from API 26.
 @MainActor
 @Suite(.serialized) struct CEFLayerHostingDefaultTests {
     let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
@@ -47,10 +48,11 @@ import Testing
         #expect(host(false, fork(trackA: .required), .page) == .hosted)
         #expect(host(false, fork(trackA: .required), .devTools) == .widgetFallback)
         #expect(host(false, fork(trackA: .required), .popup) == .widgetFallback)
+        #expect(host(false, fork(trackA: .required), .popupWindow) == .widgetFallback)
     }
 
     @Test func theForcedOverrideHostsEveryPageWindowOnAnyFork() {
-        for widget in [CEFLayerHosting.Widget.page, .devTools, .popup] {
+        for widget in CEFLayerHosting.Widget.allCases {
             for trackA in [nil, [], CEFLayerHosting.TrackA.required] as [CEFLayerHosting.TrackA?] {
                 #expect(CEFLayerHosting.hosting(override: true, fork: fork(trackA: trackA), widget: widget) == .hosted)
             }
@@ -60,7 +62,7 @@ import Testing
     /// Feature `cefLayerHostingEveryPage`, the benches' on arm (`cef-layer-verify.py --mode on`): reachable while
     /// no fork has every Track A call, and it hosts what the tunable hosted before p12-perf-process-100.
     @Test func theBenchArmHostsEveryPageWindowWithoutTrackA() {
-        for widget in [CEFLayerHosting.Widget.page, .devTools, .popup] {
+        for widget in CEFLayerHosting.Widget.allCases {
             for trackA in [nil, [], [.embedderVisibility], CEFLayerHosting.TrackA.required] as [CEFLayerHosting.TrackA?] {
                 #expect(CEFLayerHosting.hosting(override: false, fork: fork(trackA: trackA, everyPage: true), widget: widget) == .hosted)
             }
@@ -102,8 +104,8 @@ import Testing
         #expect(CEFHostView.trackerStats.hostingWidgetFallbacks == before.hostingWidgetFallbacks)
     }
 
-    @Test func devToolsAndPopupsKeepTheirWindowAndCountTheFallback() {
-        for widget in [CEFLayerHosting.Widget.devTools, .popup] {
+    @Test func devToolsAndPopupsKeepTheirWindowOnAForkThatHostsOnlyAPageAndCountTheFallback() {
+        for widget in [CEFLayerHosting.Widget.devTools, .popup, .popupWindow] {
             let before = CEFHostView.trackerStats
             let hosting = makeHosting(widget: widget)
             hosting.pageWindowCreated(browser: 6, fork: fork(trackA: .required))
@@ -126,7 +128,7 @@ import Testing
                                       makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) },
                                       resizeDeadlineMs: { 0 }, liveResizeDeadlineMs: { 0 }, refreshIntervals: { [] })
         hosting.view = view
-        for widget in [CEFLayerHosting.Widget.page, .devTools, .popup] {
+        for widget in CEFLayerHosting.Widget.allCases {
             hosting.widget = widget
             #expect(hosting.decide(fork(trackA: nil)) == .off, "\(widget) hosted with the feature off")
         }

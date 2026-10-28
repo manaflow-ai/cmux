@@ -3,6 +3,7 @@ import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 import QuartzCore
@@ -201,6 +202,16 @@ final class SpaceSwitchBench {
         let sorted = values.sorted()
         guard !sorted.isEmpty else { return 0 }
         return sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * p).rounded()))]
+    }
+
+    /// Writes each switch's main-thread CPU, wall and draw time as result-v1 when CMUX_PERF_RESULT_DIR is set
+    /// (lab story swift-space-switch); `parked` workspaces each hold a mounted terminal and browser tab.
+    static func record(_ total: Int, parked: Int, _ samples: [Sample]) throws {
+        guard let results = try PerfResultWriter() else { return }
+        let name = "swift.space_switch.\(parked > 0 ? "parked" : "plain").\(total)"
+        try results.record("\(name).cpu", unit: .ms, samples: samples.map(\.cpuMs))
+        try results.record("\(name).wall", unit: .ms, samples: samples.map(\.wallMs))
+        try results.record("\(name).draw", unit: .ms, samples: samples.map(\.drawMs))
     }
 
     /// One line per field: p50 / p99 / max.

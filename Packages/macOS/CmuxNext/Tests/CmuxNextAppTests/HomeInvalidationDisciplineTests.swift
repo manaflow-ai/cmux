@@ -94,7 +94,7 @@ import Testing
     @Test func theTranscriptRePlacesTheBarWhenItsSizeChanges() throws {
         let home = HomeStore(source: MockHomeSource(options: .immediate))
         let view = HomeNativeTranscriptView(store: home, conversation: ConversationID("conv_invalidation"), me: ParticipantID("user_me"),
-                                            mainWork: linklessMainWork())
+                                            deadlines: linklessDeadlines())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 700), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { window.close() }
@@ -189,7 +189,7 @@ import Testing
     @Test func aPanelToggleStateChangeLeavesTheTranscriptHostAlone() {
         let home = HomeStore(source: MockHomeSource(options: .immediate))
         let view = HomeNativeTranscriptView(store: home, conversation: ConversationID("conv_invalidation"), me: ParticipantID("user_me"),
-                                            mainWork: linklessMainWork())
+                                            deadlines: linklessDeadlines())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 700), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { window.close() }

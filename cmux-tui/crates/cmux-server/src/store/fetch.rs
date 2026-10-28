@@ -127,7 +127,7 @@ pub fn download_verified(
         let reader = fetcher.open(url)?;
         let (written, digest) = copy_hashing(reader.take(size + 1), &mut file)
             .map_err(|e| Error::unreachable(format!("download {url}: {e}")))?;
-        file.sync_all().ctx(dest.display())?;
+        cmux_threads::checked::fs::sync_all(&file).ctx(dest.display())?;
         if written != size {
             return Err(Error::verification(format!(
                 "size mismatch for {url}: expected {size} bytes, got {}{}",
@@ -144,7 +144,7 @@ pub fn download_verified(
         Ok(())
     })();
     if result.is_err() {
-        let _ = std::fs::remove_file(dest);
+        let _ = cmux_blocking::fs::remove_file(dest);
     }
     result
 }
@@ -157,7 +157,7 @@ fn create_private(path: &Path) -> io::Result<File> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    options.open(path)
+    cmux_threads::checked::fs::open_with(&options, path)
 }
 
 fn copy_hashing(mut reader: impl Read, out: &mut impl Write) -> io::Result<(u64, [u8; 32])> {
@@ -171,8 +171,11 @@ fn copy_hashing(mut reader: impl Read, out: &mut impl Write) -> io::Result<(u64,
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(e),
         };
-        hasher.update(&buf[..n]);
-        out.write_all(&buf[..n])?;
+        let read = buf
+            .get(..n)
+            .ok_or_else(|| io::Error::other("read returned more bytes than the buffer holds"))?;
+        hasher.update(read);
+        out.write_all(read)?;
         total += n as u64;
     }
     Ok((total, hasher.finalize().into()))

@@ -64,10 +64,16 @@ Inputs (paths relative to --root, the repository by default):
          local the remote answers the same way); --check-return-use and --check-pre-attach accept
          a listed site's calls of its exports. --swift-sites drops a site that is done: one listed
          with needs after_attach, host_exit or kept (a finished pending_tab site becomes kept), an
-         async call in the token form, inside a closure handed to CEFRuntime's sendAsync, siteCall
+         async call (or a preinit whose verdict is a wire:REPLY) in the token form, inside a closure
+         handed to CEFRuntime's sendAsync, siteCall
          or profileWrite (CEFRuntime+HostReplies.swift), which await the answer the same way in
          both backends, and a mint_returns id call in the mint form (its id keys a `.reply(for:`
-         wait for its reply_event).
+         wait for its reply_event). A site listed with needs
+         `client` is a local export the client defines by hand (HOST/client, outside generated/)
+         with the in-process contract, so the same call serves both backends: `change` names the
+         client's wire entry point (cmux_remote::PostPasswordReveal), and the site stays listed
+         until HOST/client both defines the export and calls that entry point outside its own
+         declarations and definitions (the transport sends it).
 
 Outputs (written by a run without a check flag; --check fails when one is stale):
 
@@ -213,17 +219,22 @@ OPTIONAL_EXPORT_FIELDS = EXPORT_FIELDS | {"fork_api"}  # fork_api: the fork API 
 DOCUMENTED_FIELDS = EXPORT_FIELDS | set(TOP_LISTS)  # what `fields` in the ops JSON explains
 EVENT_FIELDS = {"kind", "value", "refreshes", "reason"}
 REWRITE_FIELDS = {"site", "exports", "needs", "change", "task"}
-REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit", "kept")
+REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit", "kept", "client")
 # A listed site with one of these needs is done as the entry says; a `reply` site is done only in the
 # token form (TOKEN_FORM_CALLS). A `pending_tab` site still needs its work: once done, its entry
-# becomes `kept`, with a change that names the task that did it.
+# becomes `kept`, with a change that names the task that did it. A `client` site is done once the
+# hand-written client defines its export and calls the wire entry point its change names (CLIENT_WIRE).
 SETTLED_NEEDS = ("after_attach", "host_exit", "kept")
+CLIENT_WIRE = re.compile(r"\bcmux_remote::(Post\w+)\b")  # a `client` entry's wire entry point
 # CEFRuntime functions that send an async op and await its answer the same way in both backends
 # (CEFRuntime+HostReplies.swift, task p01-process-021): an async call in a closure handed to one is in
-# the token form, and --swift-sites no longer lists it. A mint call there is no reply's call (sendAsync
-# returns nothing sent for it), so it stays listed.
+# the token form, and --swift-sites no longer lists it. So is a preinit call whose verdict is a
+# wire:REPLY (task p01-process-070: the remote shim returns its own check and the host's verdict comes
+# as that REPLY). A mint call there is no reply's call (sendAsync returns nothing sent for it), so it
+# stays listed.
 TOKEN_FORM_CALLS = ("sendAsync", "siteCall", "profileWrite")
 TOKEN_FORM_CLASSES = ("async",)
+TOKEN_FORM_VERDICT_CLASSES = ("preinit",)  # with reply_event wire:REPLY
 MINT_RETURNS = ("id", "sent")  # the minted id at once, or 1 when sent (the id arrives in reply_event)
 REPLY_WIRE = "wire:REPLY"  # the control channel's REPLY frame answers the call
 ARG_PREFIX = "arg_"  # every C argument in generated code; generator locals never start with it
@@ -562,6 +573,7 @@ class Rewrite:
     exports: list[str]
     needs: str
     site: str
+    wire: str = ""  # needs client: the client's wire entry point (CLIENT_WIRE)
 
 
 @dataclass
@@ -877,13 +889,20 @@ def load_ops(header: Header, root: Path) -> tuple[Model | None, list[str], dict[
                 problems.append(f"{label}: {name!r} is no classified export")
             elif entry.get("needs") == "after_attach" and name in ops and ops[name].cls != "mirror":
                 problems.append(f"{label}: needs after_attach is for mirror reads; {name} is {ops[name].cls}")
+            elif entry.get("needs") == "client" and name in ops and ops[name].cls != "local":
+                problems.append(f"{label}: needs client is for local exports the client defines; {name} is {ops[name].cls}")
+        client_wire = CLIENT_WIRE.search(str(entry.get("change") or "")) if entry.get("needs") == "client" else None
+        if entry.get("needs") == "client" and client_wire is None:
+            problems.append(f"{label}: needs client names the client's wire entry point in change "
+                            f"(cmux_remote::PostPasswordReveal)")
         if entry.get("needs") not in REWRITE_NEEDS:
             problems.append(f"{label}: needs {entry.get('needs')!r} is not one of {', '.join(REWRITE_NEEDS)}")
         if not isinstance(entry.get("change"), str) or not entry["change"].strip():
             problems.append(f"{label}: change says what the site becomes")
         if not isinstance(entry.get("task"), str) or not re.fullmatch(r"p\d{2}-[a-z0-9]+-\d{3}[a-z]?", entry["task"]):
             problems.append(f"{label}: task {entry.get('task')!r} is not a task id (p01-process-015)")
-        rewrites.append(Rewrite(rel, functions, names, str(entry.get("needs")), site))
+        rewrites.append(Rewrite(rel, functions, names, str(entry.get("needs")), site,
+                                client_wire.group(1) if client_wire else ""))
 
     # What the generated code depends on (op ids, classes, wire kinds, events), not reasons or prose.
     def op_wire(e: Export) -> list:
@@ -1049,6 +1068,8 @@ def sent_result(export: Export, sent: str) -> str:
 
 
 WIRE_NUMBER = {"i": "I32", "u": "U32", "l": "I64", "d": "F64"}
+# Number fields of a record struct (an R argument): C type -> wire kind.
+RECORD_NUMBER = {"int": "i", "unsigned int": "u", "int64_t": "l"}
 
 
 def client_encode(a: Arg, w: str, structs: dict[str, list[Arg]], lines: list[str], ind: str) -> None:
@@ -1072,14 +1093,19 @@ def client_encode(a: Arg, w: str, structs: dict[str, list[Arg]], lines: list[str
             if f[0] == "b":
                 lines.append(f"{ind}  {w}.Bytes({n}[i].{f[1]}, {n}[i].{f[2]});")
             else:
-                lines.append(f"{ind}  {w}.I64({n}[i].{f[1]});")
+                lines.append(f"{ind}  {w}.{WIRE_NUMBER[f[0]]}({n}[i].{f[1]});")
         lines.append(f"{ind}}}")
     elif k in ("A", "B"):
         lines.append(f"{ind}{w}.I32(static_cast<int32_t>({a.pair.var}));")
 
 
+def record_has_bytes(a: Arg, structs: dict[str, list[Arg]]) -> bool:
+    """Whether a record argument carries strings (the host keeps them in `<arg>_s` and wipes them)."""
+    return any(f[0] == "b" for f in record_fields(structs[a.ctype[6:-1]]))
+
+
 def record_fields(fields: list[Arg]) -> list[tuple[str, str, str]]:
-    """(b, pointer, length) or (l, name, '') per wire field of a struct."""
+    """(b, pointer, length), or (i|u|l, name, '') for an int, unsigned int or int64_t, per wire field of a struct."""
     out, i = [], 0
     while i < len(fields):
         f = fields[i]
@@ -1087,8 +1113,8 @@ def record_fields(fields: list[Arg]) -> list[tuple[str, str, str]]:
         if f.ctype == "const char*" and nxt is not None and nxt.name == f.name + "_length":
             out.append(("b", f.name, nxt.name))
             i += 2
-        elif f.ctype == "int64_t":
-            out.append(("l", f.name, ""))
+        elif f.ctype in RECORD_NUMBER:
+            out.append((RECORD_NUMBER[f.ctype], f.name, ""))
             i += 1
         else:
             raise Failure(f"cannot marshal the struct field '{f.decl}'")
@@ -1264,7 +1290,8 @@ def host_decode(a: Arg, structs: dict[str, list[Arg]], lines: list[str]) -> str:
         nb = sum(1 for f in fields if f[0] == "b")
         lines.append(f"      const int32_t {n}_n = r.I32();")
         lines.append(f"      if (!r.ok() || {n}_n < 0 || {n}_n > kMaxRecords) return false;")
-        lines.append(f"      std::vector<std::string> {n}_s(static_cast<size_t>({n}_n) * {nb});")
+        if nb:
+            lines.append(f"      std::vector<std::string> {n}_s(static_cast<size_t>({n}_n) * {nb});")
         lines.append(f"      std::vector<{struct}> {n}(static_cast<size_t>({n}_n));")
         lines.append(f"      for (size_t i = 0; i < {n}.size(); ++i) {{")
         slot = 0
@@ -1275,8 +1302,11 @@ def host_decode(a: Arg, structs: dict[str, list[Arg]], lines: list[str]) -> str:
                 lines.append(f"        {n}[i].{f[1]} = {s}.data();")
                 lines.append(f"        {n}[i].{f[2]} = {s}.size();")
                 slot += 1
+            elif f[1].endswith("browser_id"):
+                # A browser id in a record is cmux's, as a browser argument is: mapped to Chromium's.
+                lines.append(f"        {n}[i].{f[1]} = ctx.Browser(static_cast<int32_t>(r.I64()));")
             else:
-                lines.append(f"        {n}[i].{f[1]} = r.I64();")
+                lines.append(f"        {n}[i].{f[1]} = r.{WIRE_NUMBER[f[0]]}();")
         lines.append("      }")
         return f"{n}.data(), {n}_n"
     if k in ("A", "B"):
@@ -1388,7 +1418,7 @@ def host_case(op: Op, model: Model) -> list[str]:
             lines.append("      (void)call_result;")
     host_refresh(op, model, lines)
     lines.append(answer)
-    lines += [f"      Wipe({a.var}_s);" for a in e.wire if a.kind == "R"]
+    lines += [f"      Wipe({a.var}_s);" for a in e.wire if a.kind == "R" and record_has_bytes(a, model.header.structs)]
     lines += ["      return true;", "    }"]
     return lines
 
@@ -1816,6 +1846,20 @@ def hand_written(root: Path, folder: str) -> str:
     return "\n".join(parts)
 
 
+def calls(code: str, name: str) -> bool:
+    """Whether `code` calls the free function `name` (qualified or not), apart from its declarations and
+    definitions (a type word before the name) and member calls of the same name (R().Name)."""
+    for m in re.finditer(rf"(?:\b\w+\s*::\s*)*\b{re.escape(name)}\s*\(", code):
+        before = code[:m.start()].rstrip()
+        if before.endswith((".", "->")):
+            continue
+        word = re.search(r"\b(\w+)\s*[*&]*$", before)
+        if word is not None and word.group(1) != "return":
+            continue
+        return True
+    return False
+
+
 def defines(code: str, name: str) -> bool:
     for m in re.finditer(rf"\b{re.escape(name)}\s*\(", code):
         try:
@@ -2229,15 +2273,20 @@ def first_argument(text: str, begin: int, close: int) -> str:
     return text[begin:close]
 
 
-def site_settled(model: Model, site: Site, op: Op) -> bool:
-    """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async call in
-    the token form, a mint_returns id call in the mint form, or a site a host_mode_rewrites entry
-    settles (SETTLED_NEEDS)."""
+def site_settled(model: Model, site: Site, op: Op, client: str) -> bool:
+    """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async call, or
+    a preinit answered by a wire:REPLY verdict, in the token form, a mint_returns id call in the mint
+    form, a site a host_mode_rewrites entry settles (SETTLED_NEEDS), or a `client` one whose export
+    `client` (hand_written HOST/client) defines and whose wire entry point it calls."""
     if site.token_form and op.cls in TOKEN_FORM_CLASSES:
+        return True
+    if site.token_form and op.cls in TOKEN_FORM_VERDICT_CLASSES and op.reply_event == REPLY_WIRE:
         return True
     if site.mint_form and op.cls == "mint" and op.mint_returns == "id" and op.reply_event:
         return True
     rewrite = rewrite_for(model, site)
+    if rewrite is not None and rewrite.needs == "client":
+        return defines(client, site.export) and calls(client, rewrite.wire)
     return rewrite is not None and rewrite.needs in SETTLED_NEEDS
 
 
@@ -2662,9 +2711,10 @@ def site_reasons(model: Model, op: Op, site: Site) -> list[str]:
 
 def report_sites(model: Model, root: Path, args: argparse.Namespace) -> int:
     rows = []
+    client = hand_written(root, CLIENT_SRC)
     for site in swift_sites(root):
         op = model.ops.get(site.export)
-        if op is None or site_settled(model, site, op):
+        if op is None or site_settled(model, site, op, client):
             continue
         reasons = site_reasons(model, op, site)
         if reasons:

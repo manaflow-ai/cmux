@@ -25,10 +25,6 @@ pub(crate) struct HostListener {
     accept_event: OwnedHandle,
 }
 
-// SAFETY: a socket and an event handle; accept and wait are thread-safe.
-unsafe impl Send for HostListener {}
-unsafe impl Sync for HostListener {}
-
 fn wsa_error() -> io::Error {
     // SAFETY: reads this thread's last Winsock error.
     io::Error::from_raw_os_error(unsafe { WSAGetLastError() })

@@ -5,9 +5,9 @@ extension LineTransport {
     /// parse as its routing fields; nil from a daemon that does not send one.
     typealias CausedEventHandler = @Sendable (_ name: String, _ line: Data, _ index: UInt64, _ cause: String?) -> Void
 
-    /// Starts the reader thread. Call once.
-    func start(onEvent: @escaping EventHandler, onClose: @escaping CloseHandler) {
-        start(onCausedEvent: { name, line, index, _ in onEvent(name, line, index) }, onClose: onClose)
+    /// Starts the reader thread. Call once. `dispatch`: see ``start(dispatch:onCausedEvent:onClose:)``.
+    func start(dispatch: EventDispatch = .control, onEvent: @escaping EventHandler, onClose: @escaping CloseHandler) {
+        start(dispatch: dispatch, onCausedEvent: { name, line, index, _ in onEvent(name, line, index) }, onClose: onClose)
     }
 
     /// Where one `cmux.protocol/2` stream line goes (`route`).
@@ -38,17 +38,20 @@ extension LineTransport {
         var retryable: Bool?
         /// An event's `cause` (`frontend`, `program`, `automation`); scheduling only.
         var cause: String?
+        /// The client-minted attach stream an event belongs to (attach-streams-v1); nil on stream 0.
+        var stream: UInt16?
 
         enum CodingKeys: String, CodingKey {
-            case id, ok, event, error, type, reason, retryable, data, cause
+            case id, ok, event, error, type, reason, retryable, data, cause, stream
             case errorCode = "error_code"
             case streamID = "stream_id"
         }
 
         /// The routing fields alone (``LineRouteScan/envelope``); a reply that is not `ok:true` is
         /// decoded whole for its error fields.
-        init(id: UInt64?, ok: Bool?, event: String?, type: String?, streamID: String?, cause: String?) {
+        init(id: UInt64?, ok: Bool?, event: String?, type: String?, streamID: String?, cause: String?, stream: UInt16? = nil) {
             (self.id, self.ok, self.event, self.type, self.streamID, self.cause) = (id, ok, event, type, streamID, cause)
+            self.stream = stream
         }
 
         private struct ResourceError: Decodable {
@@ -67,7 +70,10 @@ extension LineTransport {
             }
             ok = try? c.decodeIfPresent(Bool.self, forKey: .ok)
             (event, streamID) = (try? c.decodeIfPresent(String.self, forKey: .event), try? c.decodeIfPresent(String.self, forKey: .streamID))
-            if event != nil { cause = try? c.decodeIfPresent(String.self, forKey: .cause) }
+            if event != nil {
+                cause = try? c.decodeIfPresent(String.self, forKey: .cause)
+                stream = try? c.decodeIfPresent(UInt16.self, forKey: .stream)
+            }
             type = try? c.decodeIfPresent(String.self, forKey: .type)
             errorCode = try? c.decodeIfPresent(String.self, forKey: .errorCode)
             if let text = try? c.decodeIfPresent(String.self, forKey: .error) {

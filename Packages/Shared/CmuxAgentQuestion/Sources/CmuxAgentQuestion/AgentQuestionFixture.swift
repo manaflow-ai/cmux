@@ -1,3 +1,4 @@
+import CmuxThreading
 public import Foundation
 
 /// One named fixture: an acpmux `permission_request` record as a harness
@@ -12,9 +13,12 @@ public struct AgentQuestionFixture: Sendable, Identifiable {
 
     public var id: String { name }
 
-    /// Every fixture name, sorted.
+    /// Every fixture name, sorted. Lists the bundle's folder: a checked blocking call.
     public static var names: [String] {
-        let urls = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        let directory = Self.directory
+        let urls = blockingCall(.fileIO) {
+            (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        }
         return urls.map(\.lastPathComponent)
             .filter { $0.hasSuffix(".json") && !$0.hasSuffix(".request.json") }
             .map { String($0.dropLast(".json".count)) }
@@ -27,11 +31,18 @@ public struct AgentQuestionFixture: Sendable, Identifiable {
         (Bundle.module.resourceURL ?? Bundle.module.bundleURL).appendingPathComponent("Fixtures", isDirectory: true)
     }
 
+    /// Reads the fixture's two files from the bundle: a checked blocking call.
+    ///
+    /// - Throws: A read or decode error of either file.
     public init(name: String) throws {
         let directory = Self.directory
+        let (requestData, questionData) = try blockingCall(.fileIO) {
+            (try Data(contentsOf: directory.appendingPathComponent("\(name).request.json")),
+             try Data(contentsOf: directory.appendingPathComponent("\(name).json")))
+        }
         self.name = name
-        request = try AgentQuestionJSON(data: Data(contentsOf: directory.appendingPathComponent("\(name).request.json")))
-        question = try JSONDecoder().decode(AgentQuestion.self, from: Data(contentsOf: directory.appendingPathComponent("\(name).json")))
+        request = try AgentQuestionJSON(data: requestData)
+        question = try JSONDecoder().decode(AgentQuestion.self, from: questionData)
     }
 
     /// The question mapped from `request`, with the fixture's recorded state

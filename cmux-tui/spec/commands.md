@@ -583,8 +583,8 @@ reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
 sections: `resource_projection`, `write_path`, `request_path_io`,
-`slow_requests`, `requests`, `ipc`, `lock_classes` and `ipc_methods`;
-unknown names are ignored.
+`slow_requests`, `requests`, `ipc`, `lock_classes`, `ipc_methods` and
+`hangs`; unknown names are ignored.
 
 `lock_classes` reports wait and hold by class on the three locks that admit by
 class: the workspace registry, the registry connection (first acquisitions) and
@@ -665,7 +665,11 @@ object{
   ipc_methods?:array<object{
     method:string, id:uint16|null, trace_id:uint16, class:string,
     latency_us:percentiles, handler_us:percentiles, lock_wait_us:percentiles
-  }>
+  }>,
+  hangs?:object{
+    over_250ms:uint64,
+    records:array<object{sequence:uint64, span:string, duration_ms:uint64}>
+  }
 }
 kind_count = object{kind:string,messages:uint64,bytes:uint64}
 parse_count = object{requests:uint64,json_parses:uint64,json_parses_per_request:float64}
@@ -747,6 +751,17 @@ an echo item, scope named after its thread) once to the owner's hang log
 whose own loop pass ran past 100 ms reports it on its link (HANG_REPORT): one
 `holder-loop` line with `stack_error` `other-process`.
 `hangs` counts those lines, over every kind of scope.
+The `hangs` section counts every scope that watcher watches (all the kinds
+above; a holder's reported loop passes are not this process's) once it has
+been busy 250 ms, whatever its hang tier: `over_250ms` is the count since
+daemon start and is never reset, and `records` keeps the newest 64, oldest
+first, each with its `sequence` (1 for the first hang; a reader takes the
+records past the last sequence it saw), its `span` (`<scope>:<method>`, such
+as `mux-conn:workspace.create` or `journal-writer:commit-batch`) and its
+`duration_ms` (the final duration once it ended, how long it had run while it
+still runs). This is the report half of Chrome's HangWatcher: report only,
+never a kill. The perf lab's `daemon.hangs_over_250ms` is the growth of
+`over_250ms` over a measured window.
 With `CMUX_TUI_DEBUG_SPANS` set, each recorded request also appends a
 `slow-request` line with the method as its mark.
 `requests` adds `request_latency_us` and `dispatch_queue_us`, over every
@@ -762,15 +777,17 @@ creates and splits are `create`). A request a worker answers later
 (`url-open`, `chief-inspect`, the cloud commands) counts when the worker's
 reply is queued. The time a reply then waits for the writer thread's socket
 write is not counted. `dispatch_queue_us` is the time from a request's parse
-to its handler's start: the wait in the connection's request queue (0 for a
-line answered inline).
+to its handler's start: the wait in the connection's control sequence, which
+every request line joins in arrival order (0 for a line refused on the
+reader).
 
 `ipc` counts the IPC layer since daemon start, over the connections of every
 transport: the local socket, the remote entry and WebSocket. `streams`
 counts each connection's stream 0 (`open` now, `peak`, `opened` in total);
 no connection opens a second stream yet, so `open` is the open connections.
 `sequence_depth` samples the requests in a connection's sequence as each
-`cmd` request arrives at it, itself included, also when the full sequence
+request line (a `cmd` command, a `cmux.protocol/2` request or a feature
+route's line) arrives at it, itself included, also when the full sequence
 refuses it. `received` and `sent` list messages and bytes by kind, only kinds
 seen at least once: `line` (a JSON line, bytes counting its delimiter, or a
 WebSocket text message) first, then frame kinds by name in wire order (a
@@ -944,7 +961,12 @@ object{
     name:string, tid:uint64|null,
     declared:qos, desired:qos, effective:qos|null,
     requested_qos:string|null, nice:int32|null, priority:int32|null,
-    refused_changes:uint32, matches:bool|null
+    refused_changes:uint32, matches:bool|null,
+    connection:object{
+      client:uint64, transport:"unix"|"ws"|"remote"|null, remote_device:bool|null,
+      origin:"page"|"agent"|"app"|"user"|null, peer_pid:uint32|null,
+      class:"unclassified"|"person"|"automation"|null
+    }|null
   }>,
   lanes:array<object{
     lane:"files"|"system"|"cpu", pending:uint64, running:uint64, blocked:uint64,
@@ -963,7 +985,14 @@ change succeeded). The kernel's value is `requested_qos` on macOS (a qos name,
 says whether it is `desired` (null when it could not be read). `priority` is
 the scheduler priority now: macOS `pth_curpri` (Default 31), Linux 20 + nice
 (the `priority` field of `/proc/<pid>/task/<tid>/stat`), or `-1 -
-rt_priority` for a real-time thread. `role` is the Mach task role (`reniced`,
+rt_priority` for a real-time thread. `connection` names the connection a
+reader or request thread works for (its client id) with the facts its client
+class comes from (`transport`, `remote_device`, the derived request `origin`,
+the socket peer's `peer_pid` at accept) and the `class` the daemon gave it
+(server/connection_qos.rs); it is null for every other thread, and its facts
+are null once the connection is gone. The QoS audit
+(scripts/cmux-next/qos-audit.py) judges the person's connection threads by
+it. `role` is the Mach task role (`reniced`,
 `unspecified`, `foreground`, `background`, `control`, `graphics-server`,
 `throttle`, `non-ui`, `default`, `darwin-bg`, or `other` with `role_raw`);
 the daemon sets `foreground` at start (Chromium's `SetCurrentTaskDefaultRole`).
@@ -1059,8 +1088,8 @@ result, `clients` included (the connections are read just after the cut).
 the same locked state as `session`; `subscriptions` is read just after it.
 `switches` maps each daemon refactor switch to the arm this daemon runs,
 `old` or `new`, frozen at the first read. The one switch so far is
-`terminal-holder` (`new` when the `terminalHolder` feature is on, or with the
-alias `CMUX_TUI_TERMINAL_HOST_MODEL=holder`); the
+`terminal-holder` (`new` when the `terminalHolder` feature is on, the default;
+`old` with a disable of it or the alias `CMUX_TUI_TERMINAL_HOST_MODEL=hosts`); the
 `CMUX_TUI_SWITCHES` parse of p15-oracle task 020 replaces that source.
 `terminalAttach` counts the terminal catalog: `dead`
 terminals have no process, `attached` ones are shown in at least one pane
@@ -1144,6 +1173,35 @@ Errors: `oracle state requires a trusted local connection`,
 session has no journal file to read), `bad request: ...`, and the reducer's
 errors (a gap in the journal, an unknown reducer version).
 
+### debug-panic
+
+| Field | Value |
+| --- | --- |
+| name | `debug-panic` |
+| status | implemented in debug builds and `--features bench` builds only |
+| since | protocol 12, no capability |
+
+Makes this daemon crash on purpose, for the crash matrix
+(`plans/cmux-next/chrome-parity/p09-observability.md`, task 101). A release
+daemon has no such command and answers `bad request: unknown variant`.
+Trusted local connections only; WebSocket and remote relay clients are
+refused before anything runs. acpmux has the same injector as
+`_acpmux/debug_panic {kind}`, on its local unix socket only.
+
+Params: `kind` (required string): `panic` (a Rust panic on the thread
+`debug-crash-inject`; the owner's panic log records it and the daemon keeps
+running), `abort` (SIGABRT) or `segv` (a store to an unmapped address,
+SIGSEGV). No other field.
+
+Result: `object{kind:string, pid:uint64}`, sent once the crash thread has
+started. For `abort` and `segv` the process may end before the reply is
+written.
+
+Errors: `debug-panic requires a trusted local connection`,
+`bad request: debug-panic kind must be panic, abort or segv`,
+`bad request: debug-panic takes no field ...`,
+`debug-panic could not start its thread: ...`.
+
 ### trace-start, trace-stop, trace-status
 
 | Field | Value |
@@ -1210,6 +1268,73 @@ Errors: `trace control requires a trusted local connection`, `another trace
 control call is running`, `this session has no state root to record into (it is
 ephemeral)`, `unknown trace category ...`, `the key category records per-key
 records: ask for it with keys: true`.
+
+### memory-report
+
+| Field | Value |
+| --- | --- |
+| name | `memory-report` |
+| status | implemented |
+| since | protocol 12 |
+
+Where this daemon's memory goes, read when the request arrives (no sampler,
+cache or timer; like Chrome's memory-infra dump, which asks each provider for
+its size only when a dump is requested). Read only and owner only: a client
+that is not on the trusted local socket gets `memory report requires a trusted
+local connection` before anything is read, and a remote relay client is
+refused earlier by its frame gate (`remote_denied`). The reply names no title,
+path, URL or command.
+
+Per PTY terminal, from the daemon's libghostty-vt terminal (for a hosted
+terminal this is the daemon's mirror; the host process's own memory is in
+`terminal-resources`): primary-screen pages (`scrollback`; `live_bytes` are
+the resident bytes of pages that are not compressed, `compressed_bytes` the
+compressed page data), the alternate screen's resident bytes, Kitty image
+bytes of both screens, and for a holder terminal the size of the ring segment
+the daemon keeps a copy of. A field libghostty-vt cannot report is `null`.
+`state` is `cold` for a terminal the cold-scrollback codec compressed whole:
+the report reads its size without restoring it, `cold` gives the bytes it
+holds (`held_bytes`: compressed snapshot and Kitty replay) and the snapshot's
+size before compression, and the libghostty fields are `null`. `unknown` is a
+terminal moving between the two states. `totals` sums the terminal rows.
+`consumers` lists the daemon's memory registry (cmux-memory) in registration
+order; `bytes` is `null` when the consumer's memory is held in another
+process. `process` is the daemon's private footprint (macOS `phys_footprint`;
+Linux `RssAnon + VmSwap`) and resident set, `null` where the platform does not
+report it.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  schema:1,
+  pid:uint32,
+  process:object{private_footprint_bytes:uint64, resident_bytes:uint64}|null,
+  pressure:"normal"|"warning"|"critical",
+  terminals:array<object{
+    surface:SurfaceId,
+    terminal_id:string|null,
+    home:"daemon"|"holder"|"host"|"exited",
+    state:"hot"|"cold"|"unknown",
+    cold:object{held_bytes:uint64, snapshot_bytes:uint64}|null,
+    scrollback:object{live_bytes:uint64, compressed_bytes:uint64,
+      virtual_bytes:uint64, pages:uint64, compressed_pages:uint64}|null,
+    compression_supported:bool|null,
+    alternate_screen_bytes:uint64|null,
+    kitty_image_bytes:uint64|null,
+    holder_ring_bytes:uint64|null
+  }>,
+  totals:object{terminals:uint64, cold_terminals:uint64, cold_held_bytes:uint64,
+    scrollback_live_bytes:uint64,
+    scrollback_compressed_bytes:uint64, alternate_screen_bytes:uint64,
+    kitty_image_bytes:uint64, holder_ring_bytes:uint64},
+  consumers:array<object{name:string, retention:"lossless"|"lossy", bytes:uint64|null}>
+}
+```
+
+Errors: `memory report requires a trusted local connection`.
 
 ### browser-host-provider
 
@@ -1287,6 +1412,7 @@ Params:
 | `role` | `string` | required | `main` (the app's own connection) or `page_relay` (relays a page's requests) |
 | `install_id` | `string` | optional | 1-128 characters of `A-Z a-z 0-9 _ -`; with role `main` it asks for a nonce (step 2 proves it) |
 | `page` | `string` or null | optional | role `page_relay` only (`page-router-v1`): the page the relay serves |
+| `features` | `object{hash?:string, values:object<string,bool>}` or null | optional | role `main` only: the app's values of its `daemon` and `both` features (at most 512) |
 
 Step 2 sends `install_id` and `proof` (both required strings). Other members
 are ignored. spec/sdk-schema.json types both steps as one command whose
@@ -1309,12 +1435,29 @@ daemon refuses origin `user` (`origin.forbidden`, `apps.origin_forbidden`), the
 client shows the refusal and never sends the same request again with another
 origin. A daemon without this field allows no client to assume `user`.
 
+Features (p12-perf-process 3.9): the daemon outlives the app, so the app's
+`main` connection sends its daemon features in every hello. `hash` is FNV-1a
+64 over `name=1\n` (or `=0\n`) for each feature in registry order, as 16 hex
+digits; when it equals the daemon's, nothing is compared. Otherwise the reply's
+`features: object{hash, applied:[string], pending:[object{name, app:bool,
+daemon:bool}]}` says what the daemon did. For a verified app (the code
+signature at step 1, or the install-key proof, then reported again in step 2's
+result) an off for a `process=daemon` kill switch applies at once and is
+listed in `applied`; it stays off until the daemon restarts. Every other
+difference, a `both` feature's included, is `pending`: the daemon keeps its
+own value for its session, and the app runs each pending `both` feature with
+the daemon's value too (fixed by the hello of the connection it attaches), so
+no feature is read from two sources. Names the
+daemon does not declare are ignored. The daemon reads no file and fetches
+nothing for it. The member is left out before the daemon resolved its own
+features.
+
 Errors (`error_code`; none changes state, and each closes the hello window):
 
 | Code | When |
 | --- | --- |
 | `client_hello.local_only` | the connection is not a local Unix socket connection |
-| `client_hello.bad_request` | `error_details {field: "role"}`: role missing or unknown; `{field: "install_id"}`: install_id malformed |
+| `client_hello.bad_request` | `error_details {field: "role"}`: role missing or unknown; `{field: "install_id"}`: install_id malformed; `{field: "features"}`: features malformed or not on role `main` |
 | `client_hello.window_closed` | after any other line, after two `identify` lines, or a second `client-hello` |
 | `client_hello.refused` | step 2 with a wrong or missing proof or install id (the connection stays unverified) |
 
@@ -2076,7 +2219,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Returns the current plain-text viewport of a PTY surface. The text is produced by the Ghostty VT terminal state and does not include prior scrollback beyond the current screen.
+Returns the current plain-text screen of a PTY surface: the live screen that output writes to, even while a render viewport is scrolled back with `scroll-surface`. The text is produced by the Ghostty VT terminal state and does not include prior scrollback beyond the current screen.
 
 Params:
 
@@ -5095,6 +5238,14 @@ the terminal. Its result adds `participant:string`, the host participant id
 (`c<client>/<view>`); `accepted` is whether the sub-view now sets a dimension
 of the grid. Terminals only.
 
+With `attach-streams-v1`, optional `stream:uint16` names the view's attach
+stream and is checked: `unknown_stream` when this connection has no open
+stream with that id, `stream_surface_mismatch` when it views another
+surface. Without `lease` and `view` it selects that stream's lease
+(`stream_has_no_lease` when the view has none); with `lease`, the lease must
+be that stream's (`stream_lease_mismatch`). See
+[events.md](events.md#attach-streams).
+
 ### release-attached-view-size
 
 | Field | Value |
@@ -5114,6 +5265,14 @@ Result:
 ```text
 object{outcome:"applied"|"passive"|"superseded"}
 ```
+
+With `attach-streams-v1`, optional `stream:uint16` names the view's attach
+stream and is checked: `unknown_stream` when this connection has no open
+stream with that id, `stream_surface_mismatch` when it views another
+surface. Without `lease` and `view` it selects that stream's lease
+(`stream_has_no_lease` when the view has none); with `lease`, the lease must
+be that stream's (`stream_lease_mismatch`). See
+[events.md](events.md#attach-streams).
 
 ### detach-attached-view
 
@@ -5136,6 +5295,16 @@ Result:
 ```text
 object{outcome:"applied"|"superseded"}
 ```
+
+With `attach-streams-v1`, optional `stream:uint16` names the view's attach
+stream and is checked: `unknown_stream` when this connection has no open
+stream with that id, `stream_surface_mismatch` when it views another
+surface. Without `lease` and `view` it selects that stream's lease
+(`stream_has_no_lease` when the view has none); with `lease`, the lease must
+be that stream's (`stream_lease_mismatch`). See
+[events.md](events.md#attach-streams).
+A client-minted stream detached this way ends with
+`stream-end{reason:"canceled"}`.
 
 ### set-size-policy
 
@@ -5178,7 +5347,10 @@ Sets (`true`/`false`) or clears (`null`) one participant's counts-toward-size
 override. At most one selector: `client:uint64` (that client's view of this
 placement), `lease:string` (the caller's own leased view), `view:string` (the
 caller's relay sub-view), or `participant:string`. Without a selector it
-targets the caller's own view.
+targets the caller's own view. With `lease`, `counts:false` also says the
+view is hidden and `null` that it shows again: with daemon feature
+`hiddenTerminalQos`, a terminal no view shows runs its threads at utility. The
+other selectors set only the sizing choice; the view still shows the terminal.
 
 Params: required `surface:Id` and `counts:bool|null`, plus the optional
 selector.
@@ -8606,6 +8778,7 @@ Params:
 | `reason` | `string` | optional | `digest_mismatch`, `gap`, `generation_mismatch` or `attach`; any other value is `invalid` |
 | `have` | `{generation?, offset?, snapshot_version?}` | optional | A `snapshot_version` other than the host's is `unsupported_version` |
 | `request_id` | `string` | optional | At most 128 bytes; echoed; repeats while a snapshot is pending collapse |
+| `stream` | `uint16` | optional, `attach-streams-v1` | The view to ask: an open attach stream of `surface` on this connection, else `unknown_stream` or `stream_surface_mismatch`. Absent: every snapshot view of `surface` on this connection |
 
 Result:
 
@@ -8672,7 +8845,7 @@ character boundary and answers `truncated: true`. Errors: `range_evicted`,
 | status | implemented |
 | since | protocol 5 |
 
-Scrolls a PTY surface viewport by row delta. Negative values scroll up. Positive values scroll down. This changes the terminal viewport state used by `read-screen` and renderers.
+Scrolls a PTY surface viewport by row delta. Negative values scroll up. Positive values scroll down. This moves the terminal's render viewport, which every render attach of the terminal shows ([render.md](render.md#stream-ordering)), and the named placement's in-process frontend view. It does not change what `read-screen`, `wait-for`, `copy` mode `screen`, `terminal.screen.read` or `terminal.wait` read: they read the live screen. A move emits `scroll-changed` to subscribers and to the attach streams of the surface, including render attaches on other connections; a render attach receives it before the `render-delta` that shows the moved rows.
 
 Params:
 
@@ -8776,6 +8949,18 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 | `mode`, `cols`, `rows` fields | protocol 7 additive extensions |
+| `stream` field | protocol 12, capability `attach-streams-v1` |
+
+A connection granted `attach-streams-v1` (offered by `identify`, echoed in
+`set-client-info`; [transports.md](transports.md#framed-ipc-grants)) may
+send `stream:uint16`, an id the client mints for this view; without the
+grant it is `streams_not_granted`. Every item of the view then carries `stream`, and
+`stream-end` is its last item; an id whose `stream-end` is not queued yet is
+refused with `stream_in_use`. Past 4096 open streams on the connection or
+16384 in the daemon the open is refused with `stream_capacity` or
+`server_stream_capacity`, and nothing else changes. A failure after the id was taken queues
+`stream-end{reason:"attach_failed"}` before the error reply. See
+[events.md](events.md#attach-streams) and `cancel-stream`.
 
 Attaches the connection to a PTY or browser surface stream. In protocol v5, the server first sends a `vt-state` event for the current PTY surface state, then sends live `output` events for subsequent PTY bytes, and finally sends `detached` when the stream ends. The command response is sent after the initial `vt-state` event in v5.
 
@@ -9265,7 +9450,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Extracts text from a surface. `screen` returns the current plain-text viewport. `selection` returns the current mux-owned selection. `scrollback` returns available scrollback followed by the current viewport.
+Extracts text from a surface. `screen` returns the current plain-text live screen, as `read-screen` does. `selection` returns the current mux-owned selection. `scrollback` returns available scrollback followed by the current viewport.
 
 Params:
 
@@ -10813,6 +10998,65 @@ provider invalidates the agent inventory. Answers `{}`. A stale sequence is
 
 `{request_id, ok, body?}` answers one provider call. Only the connection the
 call went to may answer (`apps.provider.unknown`). Answers `{}`.
+
+### cancel-stream
+
+| Field | Value |
+| --- | --- |
+| name | `cancel-stream` |
+| status | implemented |
+| since | protocol 12, capability `attach-streams-v1` |
+
+Ends one client-minted attach stream of this connection: the daemon drops
+what the stream still queues, queues `stream-end{reason:"canceled"}`, frees
+the id and removes the view's attachment and size participation, all before
+the reply. Idempotent: an id with no open stream (it ended already, or was
+never opened) answers `outcome:"ended"` and changes nothing.
+
+Params: required `stream:uint16`.
+
+Result:
+
+```text
+object{stream:uint16,outcome:"applied"|"ended"}
+```
+
+### set-stream-priority
+
+| Field | Value |
+| --- | --- |
+| name | `set-stream-priority` |
+| status | implemented |
+| since | protocol 12, capability `attach-streams-v1` |
+
+Sets how one client-minted attach stream of this connection competes with the
+others (stream visibility, p05-ipc-142), as Chrome ranks a renderer by its
+widgets' visibility (`RenderWidgetHostImpl::WasShown`/`WasHidden`) and moves its
+task runners with `UpdateableSequencedTaskRunner::UpdatePriority`:
+
+- `focused`: the stream's items ride the input lane, ahead of control replies,
+  and its view drains on the input workers. The view the person types into.
+- `visible`: the bulk lane, and the view drains on the utility workers, so a
+  flooding visible terminal never delays a focused echo.
+- `hidden`: a snapshot view (`terminal-snapshot-v1`) gets no output and no
+  digest; the daemon still parses the terminal's output and marks the view
+  dirty. When the stream is set `focused` or `visible` again, a dirty view gets
+  one READY snapshot (with its history) before any new output; a clean one
+  continues where it was. Any other view rides the background lane at
+  background priority.
+
+A stream never set keeps what it opened with: the bulk lane and input
+priority. Idempotent: an id with no open stream answers `outcome:"ended"` and
+changes nothing; the same priority again is `applied` and changes nothing.
+
+Params: required `stream:uint16`, required
+`priority:"focused"|"visible"|"hidden"`.
+
+Result:
+
+```text
+object{stream:uint16,outcome:"applied"|"ended"}
+```
 
 ### cancel-request
 

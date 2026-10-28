@@ -1,0 +1,18 @@
+{
+  "id": "swift-sidebar-lag",
+  "tier": "builder",
+  "description": "SidebarLagTests over SidebarLagBench: main-thread CPU and configured rows per frame for a scroll, a pointer sweep, ticking agents and selection clicks at 150 and 500 workspaces.",
+  "command": ["scripts/perf-lab/stories/swift_benches.py", "run", "--story", "swift-sidebar-lag", "--filter", "SidebarLagTests"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "swift\\.sidebar_lag\\.(scroll|hover|ticks|select)\\.[0-9]+\\.cpu", "unit": "ms", "better": "lower"},
+    {"name": "swift\\.sidebar_lag\\.(scroll|hover|ticks|select)\\.[0-9]+\\.configures", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 1200,
+  "needs": ["file:Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarLagBench.swift", "file:Packages/macOS/CmuxNext/Tests/CmuxNextTestSupport/PerfResultWriter.swift"],
+  "owner": "a590",
+  "component": "Sidebar>Lag"
+}

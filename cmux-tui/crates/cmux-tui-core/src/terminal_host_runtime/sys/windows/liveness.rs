@@ -85,6 +85,8 @@ pub fn lock_file(file: &File, kind: LeaseKind, wait: bool) -> io::Result<bool> {
     if !wait {
         flags |= LOCKFILE_FAIL_IMMEDIATELY;
     }
+    // SAFETY: OVERLAPPED is plain integers and a union of them; all-zero
+    // bytes are a valid value.
     let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
     // SAFETY: a valid file handle; a synchronous handle, so the zeroed
     // OVERLAPPED only names offset 0.
@@ -103,6 +105,8 @@ pub fn lock_file(file: &File, kind: LeaseKind, wait: bool) -> io::Result<bool> {
 
 /// Releases this handle's whole-file lock.
 pub fn unlock_file(file: &File) {
+    // SAFETY: OVERLAPPED is plain integers and a union of them; all-zero
+    // bytes are a valid value.
     let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
     // SAFETY: a valid handle; the whole range `lock_file` locked.
     unsafe { UnlockFileEx(file.as_raw_handle() as HANDLE, 0, u32::MAX, u32::MAX, &mut overlapped) };

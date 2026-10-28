@@ -1,0 +1,20 @@
+{
+	"layout": {
+		"stripMargin": 80,
+	},
+	"ui": {
+		"animations": {
+			"newTab": 1,
+		},
+	},
+	"agents": {
+		"chats": {
+			"roots": [1]
+		},
+	},
+	"oracleUnknown": {
+		"nested": {
+			"key": [true],
+		},
+	}
+}

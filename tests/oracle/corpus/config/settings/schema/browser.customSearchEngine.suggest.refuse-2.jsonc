@@ -1,0 +1,7 @@
+{
+  "browser": {
+    "customSearchEngine": {
+      "suggest": "not a url %s"
+    }
+  }
+}

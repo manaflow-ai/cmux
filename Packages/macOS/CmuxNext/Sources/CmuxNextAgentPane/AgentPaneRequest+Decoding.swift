@@ -148,6 +148,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.keyToPaint":
+            if let report = AgentPaneKeyToPaint(params: params) {
+                self = .keyToPaint(report)
+            } else {
+                self = .unsupported(method)
+            }
         case "tab.open":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)), kind != .agent {
                 let text = params?["text"] as? String ?? ""

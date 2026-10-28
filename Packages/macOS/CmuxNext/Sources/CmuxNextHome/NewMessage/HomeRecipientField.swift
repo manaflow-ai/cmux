@@ -29,7 +29,7 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
 
     public private(set) var draft = HomeNewMessageDraft()
     /// The suggestions under the field; the page places it (it overlaps the content).
-    public let suggestions = HomeRecipientSuggestionsView()
+    public let suggestions: HomeRecipientSuggestionsView
 
     let toLabel = ThemedLabel(labelWithString: HomeConversationStrings.toLabel)
     let text = ThemedTextField()
@@ -49,7 +49,9 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
     public static let lineHeight: CGFloat = 32
     static let inset: CGFloat = 14
 
-    public override init(frame: NSRect) {
+    /// - Parameter pictures: the avatar pictures of the field's suggestion list (its page makes them).
+    public init(pictures: HomeRecipientPictures, frame: NSRect = .zero) {
+        suggestions = HomeRecipientSuggestionsView(pictures: pictures)
         super.init(frame: frame)
         wantsLayer = true
         toLabel.font = Typography.body

@@ -157,7 +157,7 @@ pub fn list(state: &State, caller: &Principal, filter: &ListFilter) -> Vec<TaskV
 
 pub fn detail(state: &State, reference: &str) -> Option<TaskDetail> {
     let id = state.resolve_task(reference)?;
-    let task = &state.tasks[&id];
+    let task = state.tasks.get(&id)?;
     let mut comments: Vec<Comment> =
         state.comments.values().filter(|c| c.task == id && !c.deleted).cloned().collect();
     comments.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));

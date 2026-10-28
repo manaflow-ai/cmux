@@ -61,7 +61,7 @@
         "tool": "workspace_checklist_update",
         "arguments": {
           "workspace": "$step:fx-workspace#/value/workspace_id",
-          "item": "",
+          "item": "oracle-missing-item",
           "text": "oracle",
           "idempotency_key": "workspace-checklist-update-error.call"
         }
@@ -74,7 +74,7 @@
         "before",
         "settled"
       ],
-      "note": "the daemon-ops call as the MCP tool workspace_checklist_update; item breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "the daemon-ops call as the MCP tool workspace_checklist_update; an item id the workspace's checklist does not have reaches the store, which refuses it as a bad request (workspace_checklist_store.rs require_item: validation.invalid, unknown checklist item), not resource.not_found; the refusal has a prose reason only, so the case asserts the code"
     }
   ],
   "invariants": [

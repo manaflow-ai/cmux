@@ -11,6 +11,11 @@ impl Mux {
         self.journal_plugin.configure(options);
     }
 
+    /// The running journal plugin's pid (its own connection keeps no daemon).
+    pub(crate) fn journal_plugin_pid(&self) -> Option<u32> {
+        self.journal_plugin.child_pid()
+    }
+
     /// Start the configured journal plugin against the bound local socket.
     #[track_caller]
     pub fn start_journal_plugin(&self, socket: std::path::PathBuf) {

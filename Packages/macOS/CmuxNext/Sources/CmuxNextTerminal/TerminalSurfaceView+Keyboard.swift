@@ -1,5 +1,6 @@
 public import AppKit
 import Carbon.HIToolbox
+import CmuxNextInput
 import CmuxNextWakeups
 import GhosttyNextKit
 
@@ -27,8 +28,9 @@ extension TerminalSurfaceView {
             noteKeyTaken()
             return
         }
-        // The key goes to the terminal: its echo's frame is awaited from here.
+        // The key goes to the terminal: its echo's frame is awaited from here, and Ghostty's ticks run as input until it.
         lane?.echoStage?.keyDown()
+        GhosttyRuntime.shared.noteTerminalKey()
 
         // Ghostty decides which modifiers take part in text translation (for
         // example `macos-option-as-alt`). Rebuild the event only when that
@@ -126,12 +128,13 @@ extension TerminalSurfaceView {
 
     /// Runs `translated` through the input methods for the key down `event`, which is
     /// ``interpretingKeyDown`` meanwhile (upstream reads AppKit's current event, which a key the App
-    /// routes itself is not).
+    /// routes itself is not). The call is the key's text input stage (``TextInputStage``).
     func interpret(_ event: NSEvent, as translated: NSEvent) {
         let outer = interpretingKeyDown
         interpretingKeyDown = event
         defer { interpretingKeyDown = outer }
-        interpretKeyEvents([translated])
+        guard let textInputStage else { return interpretKeyEvents([translated]) }
+        textInputStage.interpreting(event) { interpretKeyEvents([translated]) }
     }
 
     // MARK: Sending

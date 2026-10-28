@@ -1,5 +1,5 @@
 {
-  "_doc": "Perf-lab sheriff subscriptions (alerts.py; p12-perf-process.md 3.5), the analog of chromeperf's sheriff Subscription (catapult dashboard/dashboard/protobuf/sheriff.proto). Only a series an entry matches can alert; every other series is stored and shown, never alerted. `match` maps series fields (story, metric, engine, host_class, build_config) to fnmatch globs; the first matching entry owns the series and its owner (an OWNERS.md lane) gets the alert group. `anomaly_config` overrides catapult's AnomalyConfig defaults (max_window_size 50, min_segment_size 6, min_absolute_change 0, min_relative_change 0.1, min_steppiness 0.5, multiple_of_std_dev 2.5) for that entry; never widen one to clear an alert (R3), de-noise the series instead. `targets` names targets.json ids for the target_miss tile. Per-action sweep series (action.<id>.<session>.commit) and per-op daemon series are not subscribed: they feed the monitored aggregates below. Debug-config series never alert.",
+  "_doc": "Perf-lab sheriff subscriptions (alerts.py; p12-perf-process.md 3.5), the analog of chromeperf's sheriff Subscription (catapult dashboard/dashboard/protobuf/sheriff.proto). Only a series an entry matches can alert; every other series is stored and shown, never alerted. `match` maps series fields (story, metric, engine, host_class, build_config) to fnmatch globs; the first matching entry owns the series and its owner (an OWNERS.md lane) gets the alert group. `anomaly_config` overrides catapult's AnomalyConfig defaults (max_window_size 50, min_segment_size 6, min_absolute_change 0, min_relative_change 0.1, min_steppiness 0.5, multiple_of_std_dev 2.5) for that entry; never widen one to clear an alert (R3), de-noise the series instead. `targets` names targets.json ids for the target_miss tile. Per-action sweep series (action.<id>.<session>.commit) and per-op daemon series are not subscribed: they feed the monitored aggregates below. Debug-config series never alert. The arch-counts rows (stories/arch_counts.py) replace the perf cron arch report's issue: a ratcheted row (plans/cmux-next/arch-ratchet.json rows.<row>.ratchet) alerts on a step of one, since its total only goes down; the two unratcheted rows come first with the default config, so only a large step alerts.",
   "build_configs": ["bench", "bench-checks", "release"],
   "subscriptions": [
     {"name": "target-key-frame", "kind": "target", "owner": "PL-typing",
@@ -91,6 +91,14 @@
     {"name": "aggregate-action-sweep", "kind": "aggregate", "owner": "PL-instant",
      "match": {"metric": "actions.over_budget"}},
     {"name": "aggregate-daemon-ops", "kind": "aggregate", "owner": "PL-daemon",
-     "match": {"metric": "daemon.ops.*"}}
+     "match": {"metric": "daemon.ops.*"}},
+
+    {"name": "arch-app-lines", "kind": "aggregate", "owner": "PL-arch",
+     "match": {"story": "arch-counts", "metric": "arch.app_lines"}},
+    {"name": "arch-assume-isolated-total", "kind": "aggregate", "owner": "PL-arch",
+     "match": {"story": "arch-counts", "metric": "arch.assume_isolated_total"}},
+    {"name": "arch-ratcheted", "kind": "aggregate", "owner": "PL-arch",
+     "match": {"story": "arch-counts", "metric": "arch.*"},
+     "anomaly_config": {"min_absolute_change": 1, "min_relative_change": 0}}
   ]
 }

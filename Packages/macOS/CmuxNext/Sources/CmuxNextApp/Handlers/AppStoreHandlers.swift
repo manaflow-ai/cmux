@@ -30,15 +30,14 @@ enum AppStoreHandlers {
                 guard apps.client.app(appID)?.installed == true else {
                     throw ActionFailure(message: RefusalStrings.text("refusal.app.unknown", "No installed app with that id."))
                 }
-                let origin = AppOrigin(rawValue: invocation.origin.rawValue) ?? .script
-                registry.track(Task { @MainActor in
-                    do throws(AppsClientError) {
-                        try await apps.client.set(appID, .hide(hidden), origin: origin)
-                        return nil
-                    } catch {
-                        return ActionWorkFailure(error.description)
-                    }
-                })
+                let origin = AppOrigin(rawValue: invocation.origin.rawValue) ?? .script, client = apps.client
+                // The supervisor's answer is awaited off the action's turn; its refusal is one task of the run's completion.
+                registry.trackWork(owner: "AppStoreHandlers.setHidden", on: services.mainWork) {
+                    try await client.set(appID, .hide(hidden), origin: origin)
+                } then: { result in
+                    guard case .failure(let error) = result else { return nil }
+                    return ActionWorkFailure((error as? AppsClientError)?.description ?? String(describing: error))
+                }
             })
         }
         // First-party app pages: `app.open` (sidebar label item, palette, CLI

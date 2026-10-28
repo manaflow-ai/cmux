@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
+public import CmuxNextWakeups
 public import Observation
 
 /// The user's sidebar customization from the app platform (cx-swovq.1, cx-swovq.2; Lawrence
@@ -8,6 +9,10 @@ public import Observation
 /// the hover card of the row it gets as `ctx.target`; the one that implements
 /// `cmux.sidebar.rows/1` decorates rows. The user's own folder app (`local/customize`) wins over
 /// any other. Scripts run in the daemon's sandboxed app host; this only mounts and hosts.
+///
+/// Its follows are ``ServiceObservation``s (p06-scheduler.md rule 3): their applies mount, unmount and write the
+/// row decorations every sidebar reads, hidden windows' too. Chromium posts such model work as a classed task on the
+/// UI thread (base/task/task_traits.h); a change from the app host flushes once per burst in the visible class.
 @MainActor
 @Observable
 public final class SidebarCustomizationService: SidebarCustomization {
@@ -16,24 +21,33 @@ public final class SidebarCustomizationService: SidebarCustomization {
     static let userApp = "local/customize"
 
     @ObservationIgnored private let client: AppsClient
+    @ObservationIgnored private let mainWork: MainWorkScheduler
     @ObservationIgnored private let isPresented: (String) -> Bool
     /// Each decorated row's overrides; the sidebar bridge reads it inside its row observation.
     public private(set) var rowDecorations: [String: SidebarRowDecoration] = [:]
     @ObservationIgnored public var onRowDecorationsChange: (() -> Void)?
     @ObservationIgnored private var rowsMount: AppMount?
     @ObservationIgnored private var rowsKey: String?
-    @ObservationIgnored private var appsWatch: Task<Void, Never>?
-    @ObservationIgnored private var sceneWatch: Task<Void, Never>?
+    /// Which app decorates rows (the service lives as long as the app).
+    @ObservationIgnored private var appsWatch: ServiceObservation<ObservationTrigger<String?>>?
+    /// The rows mount's scene; replaced when it remounts.
+    @ObservationIgnored private var sceneWatch: ServiceObservation<AppScene>?
 
-    public init(client: AppsClient, isPresented: @escaping (String) -> Bool) {
+    /// Makes the service and mounts the rows app the user has now, before it returns.
+    ///
+    /// - Parameters:
+    ///   - client: The app supervisor's client.
+    ///   - mainWork: The app's one main-thread scheduler; the follows flush on it.
+    ///   - isPresented: Whether an installed app shows on this Mac.
+    public init(client: AppsClient, mainWork: MainWorkScheduler, isPresented: @escaping (String) -> Bool) {
         self.client = client
+        self.mainWork = mainWork
         self.isPresented = isPresented
-        // task-owner: the service lives as long as the app; one watch of which app decorates rows.
-        appsWatch = Task { [weak self] in
-            // A trigger: the same key remounts after a failed render (a fixed script keeps its version).
-            for await key in ObservationStream({ [weak self] in ObservationTrigger(self?.implementationKey(Self.rowsInterface)) }) {
-                self?.mountRows(key.value)
-            }
+        // A trigger: the same key remounts after a failed render (a fixed script keeps its version).
+        appsWatch = ServiceObservation(.visible, owner: "SidebarCustomizationService.rowsApp", on: mainWork) { [weak self] in
+            ObservationTrigger(self?.implementationKey(Self.rowsInterface))
+        } apply: { [weak self] key in
+            self?.mountRows(key.value)
         }
     }
 
@@ -56,7 +70,7 @@ public final class SidebarCustomizationService: SidebarCustomization {
         guard let (app, found) = implementation(Self.hoverCardInterface) else { return nil }
         let target: AppJSON = .object(["kind": .string("workspace"), "id": .string(id)])
         let mount = client.mount(app, implementation: found, surface: "hoverCard", context: ["target": target, "card": Self.json(card)])
-        return AppHoverCardContent(mount: mount, client: client)
+        return AppHoverCardContent(mount: mount, client: client, mainWork: mainWork)
     }
 
     /// `ctx.card`: {title, status, statusSinceMs, age, facts: [{kind, text, sinceMs}]}.
@@ -77,6 +91,7 @@ public final class SidebarCustomizationService: SidebarCustomization {
         guard key != rowsKey || failed else { return }
         rowsKey = key
         sceneWatch?.cancel()
+        sceneWatch = nil
         if let rowsMount { client.unmount(rowsMount) }
         rowsMount = nil
         guard key != nil, let (app, found) = implementation(Self.rowsInterface) else {
@@ -86,11 +101,10 @@ public final class SidebarCustomizationService: SidebarCustomization {
         let mount = client.mount(app, implementation: found, surface: "sidebarRows")
         rowsMount = mount
         let model = mount.model
-        // task-owner: one watch per rows mount, cancelled when it remounts.
-        sceneWatch = Task { [weak self] in
-            for await scene in ObservationStream({ model.scene }) {
-                self?.setDecorations(Self.decorations(scene))
-            }
+        sceneWatch = ServiceObservation(.visible, owner: "SidebarCustomizationService.rowsScene", on: mainWork) {
+            model.scene
+        } apply: { [weak self] scene in
+            self?.setDecorations(Self.decorations(scene))
         }
     }
 
@@ -120,18 +134,19 @@ final class AppHoverCardContent: SidebarCustomContent {
     private weak var client: AppsClient?
     let view: NSView
     var onChange: (() -> Void)?
-    private var watch: Task<Void, Never>?
+    /// The scene and status follow while the card shows; ``release()`` cancels it. Its apply calls the hover card
+    /// coordinator (another owner), so it is a ``ServiceObservation`` (rule 3); the card exists only while it shows.
+    private var watch: ServiceObservation<(AppSceneModel.Status, AppScene)>?
 
-    init(mount: AppMount, client: AppsClient) {
+    init(mount: AppMount, client: AppsClient, mainWork: MainWorkScheduler) {
         self.mount = mount
         self.client = client
         view = mount.makeView()
         let model = mount.model
-        // task-owner: lives while the card shows; release() cancels it.
-        watch = Task { [weak self] in
-            for await _ in ObservationStream({ (model.status, model.scene) }) {
-                self?.onChange?()
-            }
+        watch = ServiceObservation(.visible, owner: "AppHoverCardContent.scene", on: mainWork) {
+            (model.status, model.scene)
+        } apply: { [weak self] _ in
+            self?.onChange?()
         }
     }
 

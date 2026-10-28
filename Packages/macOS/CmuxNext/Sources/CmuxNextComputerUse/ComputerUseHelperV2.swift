@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import CmuxNextCompat
+public import CmuxNextCompat
 public import Darwin
 public import Foundation
 import os
@@ -56,6 +56,11 @@ public final class ComputerUseHelperV2 {
     /// Logs the helper's control lines after `ready` (``logControlLines(_:pid:)``).
     private var controlLog: Task<Void, Never>?
     private var generation = 0
+
+    /// The app's lanes (BackgroundWork), set at launch: the acpmux admission (signature reads of the
+    /// acpmux binary) runs on their system lane. Unwired, the helper admits no acpmux bridge.
+    public var lanes: (any MayBlockRunner)?
+
     /// This app's signing team, read on the system lane at launch. Ad-hoc development builds have no
     /// team and retain the same-executable-path peer rule.
     private let signingTeam: SigningTeamInstall
@@ -67,9 +72,32 @@ public final class ComputerUseHelperV2 {
         var code: SecStaticCode?
         guard SecStaticCodeCreateWithPath(executable as CFURL, [], &code) == errSecSuccess, let code else { return nil }
         var info: CFDictionary?
-        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
+        guard blockingSecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
                 == errSecSuccess, let info = info as? [String: Any] else { return nil }
         return info[kSecCodeInfoIdentifier as String] as? String
+    }
+
+    /// This app's acpmux resolved once for one helper start, with the admission of its bridges.
+    nonisolated struct ResolvedAcpmux: Sendable {
+        let executable: URL
+        let socketPath: String
+        let hashes: [String]
+        let requirement: String?
+    }
+
+    /// Resolves `acpmux` and reads its admission for `team` (this app's) on `lanes`' system lane (both
+    /// read the binary's signature); nil when there is no acpmux or no lanes.
+    nonisolated static func resolveAcpmux(_ acpmux: @escaping @Sendable () -> (executable: URL, socketPath: String)?,
+                                          team: String?, on lanes: (any MayBlockRunner)?) async -> ResolvedAcpmux? {
+        guard let lanes else { return nil }
+        // The helper starts for a person who turned Computer Use on, and waits for this.
+        return try? await lanes.runSystem(.userBlocking) {
+            acpmux().map { found in
+                let admission = Self.acpmuxAdmission(executable: found.executable, teamIdentifier: team)
+                return ResolvedAcpmux(executable: found.executable, socketPath: found.socketPath,
+                                      hashes: admission.hashes, requirement: admission.requirement)
+            }
+        }
     }
 
     /// Release helpers check every bridge's live audit token against its exact
@@ -180,13 +208,10 @@ public final class ComputerUseHelperV2 {
             return
         }
         let secret = Self.makeSecret()
-        let acpmux = self.acpmux()
-        let admission: (hashes: [String], requirement: String?) = acpmux.map {
-            Self.acpmuxAdmission(executable: $0.executable, teamIdentifier: signingTeam.team)
-        } ?? (hashes: [], requirement: nil)
+        let resolved = await Self.resolveAcpmux(acpmux, team: signingTeam.team, on: lanes)
         await spawned.send(Self.line(["type": "configure", "socket": socketPath, "secret": Self.hex(secret),
-                                "acpmux_cdhashes": admission.hashes,
-                                "acpmux_requirement": admission.requirement.map { $0 as Any } ?? NSNull()]))
+                                "acpmux_cdhashes": resolved?.hashes ?? [],
+                                "acpmux_requirement": resolved?.requirement.map { $0 as Any } ?? NSNull()]))
         let readySocket = await Self.readySocket(of: spawned, within: readyTimeout, clock: clock)
         guard current == generation else {
             spawned.closeInput()
@@ -212,14 +237,21 @@ public final class ComputerUseHelperV2 {
         }
         helperV2Logger.notice("cmux Computer Use helper v2 started pid=\(spawned.pid, privacy: .public)")
         // An acpmux daemon that already runs (it outlives the app) is registered now.
-        if let acpmux { await registerAcpmuxDaemon(acpmuxSocket: acpmux.socketPath) }
+        if let resolved { await registerAcpmuxDaemon(acpmuxSocket: resolved.socketPath, executable: resolved.executable) }
     }
 
     /// Registers the acpmux daemon listening on `acpmuxSocket`, after checking
-    /// it runs this app's acpmux executable. Its descendants (agent MCP
-    /// bridges) may then use the helper.
+    /// it runs this app's acpmux executable (resolved on the system lane). Its
+    /// descendants (agent MCP bridges) may then use the helper.
     public func registerAcpmuxDaemon(acpmuxSocket: String) async {
-        guard let child, let executable = acpmux()?.executable,
+        guard child != nil, let lanes else { return }
+        let acpmux = self.acpmux
+        guard let executable = try? await lanes.runSystem(.userBlocking, { acpmux()?.executable }) else { return }
+        await registerAcpmuxDaemon(acpmuxSocket: acpmuxSocket, executable: executable)
+    }
+
+    private func registerAcpmuxDaemon(acpmuxSocket: String, executable: URL) async {
+        guard let child,
               let stamp = await Self.daemonStamp(socketPath: acpmuxSocket, executable: executable) else { return }
         await child.send(Self.line(["type": "register_acpmux", "pid": Int(stamp.pid),
                               "start_sec": Int(stamp.startSeconds), "start_usec": Int(stamp.startMicroseconds)]))
@@ -238,10 +270,16 @@ public final class ComputerUseHelperV2 {
         controlLog?.cancel()
         controlLog = nil
         child.closeInput()
-        let spawner = self.spawner
+        await Self.terminate(child.pid, after: exitGrace, spawner: spawner, clock: clock)
+    }
+
+    /// SIGTERM to `pid` when it still runs `grace` after its stdin closed: off main, so the wait wakes no main job.
+    @concurrent nonisolated static func terminate(_ pid: pid_t, after grace: Duration, spawner: any ComputerUseHelperV2Spawning,
+                                                  clock: any Clock<Duration>) async {
         // wakeup-allow: deadline of the grace before SIGTERM: a step stop() awaits in order, not a DemandTimer
-        try? await clock.sleep(for: exitGrace, tolerance: WakeLeeway.window(delay: exitGrace).tolerance)
-        if kill(child.pid, 0) == 0 { spawner.terminate(child.pid) }
+        // timer-class-allow: off main (@concurrent): one grace before SIGTERM of the helper's exact pid; it posts no main-thread job
+        try? await clock.sleep(for: grace, tolerance: WakeLeeway.window(delay: grace).tolerance)
+        if kill(pid, 0) == 0 { spawner.terminate(pid) }
     }
 
     /// App quit: close the helper's stdin now (it exits on EOF; the kernel
@@ -282,7 +320,7 @@ public final class ComputerUseHelperV2 {
         var code: SecStaticCode?
         guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return nil }
         var info: CFDictionary?
-        guard SecCodeCopySigningInformation(code, [], &info) == errSecSuccess,
+        guard blockingSecCodeCopySigningInformation(code, [], &info) == errSecSuccess,
               let dictionary = info as? [String: Any] else { return nil }
         return dictionary[kSecCodeInfoUnique as String] as? Data
     }
@@ -365,22 +403,14 @@ public final class ComputerUseHelperV2 {
     /// The `socket` of the helper's first `ready` line, or nil after `within`.
     nonisolated static func readySocket(of child: ComputerUseHelperV2Child, within: Duration,
                                         clock: any Clock<Duration>) async -> String? {
-        await withTaskGroup(of: String?.self) { group in
-            group.addTask {
-                for await line in child.lines {
-                    if let object = (try? JSONSerialization.blockingJSONObject(with: line)) as? [String: Any],
-                       object["type"] as? String == "ready" { return object["socket"] as? String }
-                }
-                return nil
+        // The read races the limit (R-timer's Deadline helper): the loser is cancelled, and nothing waits for it.
+        let socket: String?? = await Deadline(within, clock: clock).value("computer-use-v2.ready") {
+            for await line in child.lines {
+                if let object = (try? JSONSerialization.blockingJSONObject(with: line)) as? [String: Any],
+                   object["type"] as? String == "ready" { return object["socket"] as? String }
             }
-            group.addTask {
-                // wakeup-allow: deadline of the helper's ready line: a task-group race with the read, not a DemandTimer
-                try? await clock.sleep(for: within, tolerance: WakeLeeway.window(delay: within).tolerance)
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
+            return nil
         }
+        return socket ?? nil
     }
 }

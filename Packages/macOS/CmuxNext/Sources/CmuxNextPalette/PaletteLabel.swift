@@ -29,6 +29,7 @@ final class PaletteLabel: NSTextField {
         applyTone()
     }
 
+    // visibility-walk-allow: one text color, no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTone()

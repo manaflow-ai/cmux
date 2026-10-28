@@ -6,48 +6,87 @@
 /// Every daemon-side feature in registry order; a handle is its index here.
 pub(crate) const TABLE: &[crate::FeatureDef] = &[
     crate::FeatureDef {
+        name: "agentToolsInDaemon",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
+        process: crate::Process::Daemon,
+    },
+    crate::FeatureDef {
         name: "coldScrollbackCompression",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
         name: "daemonRequestQos",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
         name: "energySaver",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::Labs,
         process: crate::Process::Both,
+    },
+    crate::FeatureDef {
+        name: "hiddenTerminalQos",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
+        process: crate::Process::Daemon,
+    },
+    crate::FeatureDef {
+        name: "idleHelperBackgroundPriority",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
+        process: crate::Process::Daemon,
     },
     crate::FeatureDef {
         name: "leftoverDaemonIdleExit",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
+        process: crate::Process::Daemon,
+    },
+    crate::FeatureDef {
+        name: "mcpCatalogHost",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
         name: "memoryAcpmuxPressure",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::Labs,
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
         name: "memoryKittyShare",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
         name: "memoryScrollbackPressure",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
         process: crate::Process::Daemon,
     },
     crate::FeatureDef {
-        name: "terminalHolder",
+        name: "memorySqliteTrim",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
+        process: crate::Process::Both,
+    },
+    crate::FeatureDef {
+        name: "terminalHolder",
+        defaults: crate::Defaults { dev: true, nightly: true, release: true },
+        kind: crate::Kind::PerfPath,
         process: crate::Process::Both,
     },
     crate::FeatureDef {
         name: "terminalSizingPerApp",
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        kind: crate::Kind::PerfPath,
         process: crate::Process::Daemon,
     },
 ];
@@ -55,20 +94,30 @@ pub(crate) const TABLE: &[crate::FeatureDef] = &[
 /// One handle per daemon feature, for `Snapshot::is_enabled`.
 pub mod feature {
     feature_handles!(super::TABLE;
+        /// The acpmux daemon serves each agent chat's sub-session and secret tools itself, to that chat's own caller token only, instead of two tool processes per chat; a harness that runs its own tool servers gets a byte-copy relay under 1 MB.
+        AGENT_TOOLS_IN_DAEMON = "agentToolsInDaemon",
         /// The daemon compresses the scrollback of a terminal that no client views and that printed nothing for 10 minutes, at utility priority and never under memory pressure; any access restores it first. Stays off until the kernel compressor measurement (p07-memory-112) shows a 2x gain.
         COLD_SCROLLBACK_COMPRESSION = "coldScrollbackCompression",
         /// Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.
         DAEMON_REQUEST_QOS = "daemonRequestQos",
         /// Energy Saver turns on as the energy.saver setting asks (Low Power Mode, low battery or a hot Mac on battery by default) and makes cmux draw fewer frames and wake less often.
         ENERGY_SAVER = "energySaver",
+        /// A terminal that no view shows (its tab is parked or its workspace is hidden) runs its PTY reader and parser threads at utility, in the daemon and in its terminal host; showing it again returns them to user-interactive at their next wake.
+        HIDDEN_TERMINAL_QOS = "hiddenTerminalQos",
+        /// Pooled acpmux agents run at background process priority until a session takes them, and the acpmux daemon does while no client is connected and no agent runs; each goes back to normal priority before it is used.
+        IDLE_HELPER_BACKGROUND_PRIORITY = "idleHelperBackgroundPriority",
         /// The acpmux daemon and a headless cmux-tui owner exit after 10 minutes with no client, no live agent, no live terminal (own or holder-owned) and no owning app; an app that reconnects within the 10 minutes keeps them.
         LEFTOVER_DAEMON_IDLE_EXIT = "leftoverDaemonIdleExit",
+        /// Every agent chat's cmux MCP server becomes a small stdio relay to one shared cmux MCP host per app build, which keeps the app's action catalog once instead of once per agent; the host exits 5 minutes after its last agent leaves.
+        MCP_CATALOG_HOST = "mcpCatalogHost",
         /// acpmux and its TUI follow system memory pressure: at warning they empty caches rebuilt on demand (parsed login files, idle chats' error tails, the TUI's transcript layout); at critical they also drop live model lists and each chat's prompt outcomes past its newest 8.
         MEMORY_ACPMUX_PRESSURE = "memoryAcpmuxPressure",
         /// Daemon Kitty image total sized from installed RAM (64 MiB at 8 GB, 512 MiB at 64 GB) and shared by visibility: a terminal on screen keeps its grant, hidden ones get the rest, least recently shown lose images first; critical pressure clears decoded pixel copies.
         MEMORY_KITTY_SHARE = "memoryKittyShare",
         /// Daemon scrollback RAM total sized from installed RAM (128 MiB at 8 GB, 1 GiB at 64 GB) and lowered by memory pressure: half at warning, 16 MiB at critical, least recently active terminals first; limits return at normal below 80 %.
         MEMORY_SCROLLBACK_PRESSURE = "memoryScrollbackPressure",
+        /// Long-lived SQLite connections of the daemon and the app's page visit logs give their unused page cache back at warning and critical memory pressure, each on the connection's own executor; the pages read again on the next query.
+        MEMORY_SQLITE_TRIM = "memorySqliteTrim",
         /// New terminals run on the install's one PTY holder process, and the daemon parses their output, instead of one terminal host process each (terminal-host-model-DESIGN.md option D).
         TERMINAL_HOLDER = "terminalHolder",
         /// Terminal sizing counts one participant per app connection: all of an app's views of one terminal are leases of one participant (its latest active view sets its size), and disconnecting that participant ends only that terminal's views, not the app's connection.

@@ -1,0 +1,557 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "home",
+  "suite": "tours",
+  "title": "Tour: Home list header",
+  "priority": "P2",
+  "surface": "cmux-next-native",
+  "source": {
+    "repo": "manaflow-ai/cmux",
+    "ref": "$RUN",
+    "artifact": "$RUN"
+  },
+  "environment": {
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    }
+  },
+  "fixture": {
+    "seed": "tours-home-v1",
+    "network": "offline",
+    "clock": "fixed",
+    "agent": "mock"
+  },
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "the main window is 1440 x 900 pt",
+    "the launch has one workspace with one terminal (an empty saved session)"
+  ],
+  "requires": [
+    "gui"
+  ],
+  "platforms": [
+    "mac"
+  ],
+  "steps": [
+    {
+      "id": "01-launch",
+      "op": "settle"
+    },
+    {
+      "id": "03-six-conversations-two-pinned",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"count\":6,\"pinned\":2}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "04-dark",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.appearance",
+          "{\"mode\":\"dark\"}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "05-dark-320-header-row-at-rest-a-row-select",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"select\":0,\"width\":320}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "06-dark-320-search-focused",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"search\":true}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "07-dark-320-search-ends",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"search\":false}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "08-dark-320-unread-only",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"unread\":true}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "09-dark-all-again",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"unread\":false}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "10-dark-260-the-field-narrows-the-buttons-s",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"width\":260}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "11-dark-260-search-focused",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"search\":true}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "12-dark-260-search-ends",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"search\":false}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "13-dark-180-the-narrowest-field",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"width\":180}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "14-dark-140-search-is-an-icon-compact-rows",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"width\":140}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "15-dark-140-the-search-opens-over-the-row",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"search\":true}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "16-dark-140-search-ends",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"search\":false}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "17-dark-76-the-narrowest-list-three-small-b",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"width\":76}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "18-light",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.appearance",
+          "{\"mode\":\"light\"}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "19-light-320-header-row-at-rest-a-row-selec",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"width\":320}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "20-light-320-search-focused",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"search\":true}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "21-light-320-search-ends",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"search\":false}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "22-light-260",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"width\":260}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "23-light-180",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"width\":180}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "24-light-140-search-is-an-icon",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"width\":140}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "25-light-76",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"width\":76}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "26-back-to-320",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.home.sidebar_fixture",
+          "{\"width\":320}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "tour.py optional (the Home list fixture is DEBUG only and needs the Home page), kept: CmuxNextApp/InputVerification/AppControl+Input.swift registers it in DEBUG || CMUX_BENCH_HOOKS builds, and DebugHomeSidebarFixture.handle answers a value (an error member when no Home page shows), so the cli exits 0; its effect is done when its control call answers (the generator's mapping table)"
+    },
+    {
+      "id": "27-back-to-the-system-appearance",
+      "op": "cli",
+      "target": {
+        "window": "current"
+      },
+      "args": {
+        "argv": [
+          "app",
+          "call",
+          "debug.appearance",
+          "{\"mode\":\"system\"}"
+        ]
+      },
+      "expect": {
+        "outcome": "ok",
+        "noReceiptReason": "a tour step: the bundle's cmux prints no ActionEffect kind (driver_app.py op_cli)"
+      },
+      "note": "its effect is done when its control call answers (the generator's mapping table)"
+    }
+  ],
+  "invariants": [
+    "each step's settled snapshot is the model state of the tour's picture of that step",
+    "no step waits on a clock: each ends on its waitFor value or the settle barrier"
+  ],
+  "teardown": [
+    "quit the tagged app the run started",
+    "verify its debug socket is gone"
+  ],
+  "untested": [
+    "pixels: the tour's screenshots and video (scripts/cmux-next/media/tour.py); a case compares model state, and its reviewed baseline stands in for each picture",
+    "tour step 2 (Go to Home): tour.py optional (Home needs its page in this build): its outcome on the bench build is not known, and a case step expects one outcome"
+  ]
+}

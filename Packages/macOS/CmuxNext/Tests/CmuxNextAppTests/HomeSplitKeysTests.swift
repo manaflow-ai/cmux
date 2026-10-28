@@ -38,7 +38,7 @@ struct HomeSplitKeysTests {
         // (which this harness has none of). It is idempotent; each answer goes in the report.
         var dockSteps: [String] = []
         for _ in 0..<10 where !loneDock() {
-            dockSteps.append(await services.home.dock.ensure(connection, store: services.daemon.store, home: homeID) {
+            dockSteps.append(await services.home.dock.ensure(connection, store: services.daemon.store, home: homeID, work: services.mainWork) {
                 TabMoves.toNewDockColumn($0, anchor: $1, edge: .left, role: .agentChat, respawn: $2, pinned: $3, services: services, completion: $4)
             })
             if let placed = HomeDock.pageTab(in: home) {

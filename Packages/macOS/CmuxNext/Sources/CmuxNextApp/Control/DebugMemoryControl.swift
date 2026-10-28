@@ -9,9 +9,28 @@ import CmuxNextSettings
 /// schemas/debug-memory/debug-memory.schema.json. The analog of Chrome's `chrome://memory-internals`
 /// (`chrome/browser/ui/webui/memory_internals/memory_internals_ui.cc`).
 ///
+/// `spares` lists every spare by pool, each with its process and bytes: the page spares, Chromium's spare
+/// windows (their placeholder's renderer) and, as `chromium_unattributed_renderer`, each sampled renderer
+/// helper that hosts no frame of any browser (``MemoryDiagnosticsProcesses/rendererClientsWithFrames``).
+/// Chromium's own spare is one of those, but so is a renderer whose page has not committed yet: the fork
+/// has no read of the spare's id, which Chrome's Task Manager matches its "Spare Renderer" row on, so the
+/// row does not claim to be the spare. With `chromiumOneSpareRenderer`, Home keeps at most one (p07-memory-113).
+///
 /// It owns the pressure history, so `debug.hibernation.pressure` records its overrides in the same one.
 /// A read records nothing: the histograms' footprints come from ``MemoryFootprintEmitter``, as a
 /// `chrome://memory-internals` read adds no sample to Chrome's memory histograms.
+///
+/// Socket policy of the memory diagnostics (`debug.memory`, ``DebugHibernationControl``'s
+/// `debug.discards`; p07-memory-076):
+/// - Lane: one short main-actor copy in the automation class, after the person's input; parsing,
+///   sampling and encoding run off the main actor. Not an input method (``ControlMethod/injectingInput()``).
+/// - Focus: none. It changes nothing: no selection, window, activation or pressure change.
+/// - Who: the control socket admits only the local owner (same uid, ``ControlAccessMode``); no relay
+///   forwards it (`RemoteRelayPolicy` never allowlists a `debug`, `memory` or `discards` method), and
+///   the daemon's `memory-report` refuses every client off its trusted local socket.
+/// - Release: IDs and names go through ``MemoryDiagnosticsReport/opaqueToken(_:)``, so the answer has
+///   no URL, title or path, as Chrome's background memory dumps keep only allowlisted names
+///   (`base/trace_event/memory_infra_background_allowlist.cc`).
 @MainActor
 final class DebugMemoryControl {
     /// Reads the footprints of a snapshot's processes, off the main actor.
@@ -29,12 +48,13 @@ final class DebugMemoryControl {
     /// - Parameters:
     ///   - services: The app's services, held weakly.
     ///   - budget: The budgets the report shows: the app passes this Mac's, sized for the terminal GPU release when it has one.
-    ///   - sample: Reads the footprints; the app's processes by default.
-    init(services: AppServices, budget: SubsystemBudget = .forThisMac(gpuResidentAvailable: false),
-         sample: @escaping Sampler = { await AppMemoryModel.processes($0) }) {
+    ///   - sample: Reads the footprints; the app's processes by default, with the renderers that host a frame.
+    init(services: AppServices, budget: SubsystemBudget = .forThisMac(gpuResidentAvailable: false), sample: Sampler? = nil) {
         self.services = services
         self.budget = budget
-        self.sample = sample
+        let framed: @MainActor @Sendable () -> Set<Int32>? = { [weak services] in AppMemoryModel.rendererClientsWithFrames(services) }
+        let appSample: Sampler = { await AppMemoryModel.processes($0, rendererClientsWithFrames: framed) }
+        self.sample = sample ?? appSample
         history = MemoryPressureHistory(pressure: services.memoryPressure)
         histograms = services.memoryHistograms
     }

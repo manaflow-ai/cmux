@@ -21,15 +21,18 @@ public final class UpdaterService {
     public let identity: UpdateBuildIdentity
     /// The blocking-work lanes the kept-versions listing runs on: the process's one, from AppServices.
     let work: BackgroundWork
+    /// The app's deadline scheduler: the card, install, reminder and check deadlines wait on it, and
+    /// its main-thread scheduler (``mainWork``) takes the updater's replies, each in its class.
+    let deadlines: MainDeadlineScheduler
     public let log: UpdateLogBuffer
     /// The Sparkle driver; nil when Sparkle cannot run in this build.
     public let controller: UpdateController?
-    public private(set) var lastProbe: UpdateProbeResult?
-    public private(set) var lastProbeError: String?
-    public private(set) var isProbing = false
+    public internal(set) var lastProbe: UpdateProbeResult?
+    public internal(set) var lastProbeError: String?
+    public internal(set) var isProbing = false
     /// The running stable <-> NIGHTLY switch, if any.
-    public private(set) var channelSwitchPhase: AppChannelSwitchPhase?
-    public private(set) var channelSwitchError: String?
+    public internal(set) var channelSwitchPhase: AppChannelSwitchPhase?
+    public internal(set) var channelSwitchError: String?
     /// `UpdateChannel` from the managed policy, or nil.
     public internal(set) var managedChannel: AppChannelSwitchTarget?
     /// `MinimumVersion` from the managed policy, or nil.
@@ -46,14 +49,13 @@ public final class UpdaterService {
     /// UPDATE-CARD-CLOSE: the update version whose card the person closed and the end of a
     /// "Remind Me Later" (``UpdateSnooze``, kept in `defaults`).
     public internal(set) var updateSnooze = UpdateSnooze()
-    /// The pending reminder's end, on the injected clock (one-shot; re-armed at launch).
-    @ObservationIgnored let snoozeTimer: DemandTimer
+    /// The pending reminder's end (one-shot; re-armed at launch): the card shows again, `visible`.
+    @ObservationIgnored let snoozeTimer: MainDeadline
     /// The pulled-build banner (made on first use; it needs `self`).
     @ObservationIgnored public private(set) lazy var pulledWatch = PulledBuildWatch(updater: self)
-    /// The notice whose timeout is pending, and its one-shot deadline on the
-    /// injected clock (no `asyncAfter`).
+    /// The notice whose timeout is pending, and its one-shot `visible` deadline (no `asyncAfter`).
     @ObservationIgnored var expiringCard: UpdateCard?
-    @ObservationIgnored let cardTimer: DemandTimer
+    @ObservationIgnored let cardTimer: MainDeadline
     /// When the install phase began (``installStatus``), nil outside it.
     @ObservationIgnored var installStartedAt: Date?
     /// Bumped by ``installTimer`` so the installing card's seconds move.
@@ -62,11 +64,19 @@ public final class UpdaterService {
     var installCardDismissed = false
     /// The install already gave up (``UpdateInstallStatus/Stage/stalled``) once.
     @ObservationIgnored var installGaveUp = false
-    /// The installing card's one-second tick, only while an install runs.
-    @ObservationIgnored let installTimer: DemandTimer
+    /// The installing card's one-second `visible` tick, only while an install runs.
+    @ObservationIgnored let installTimer: MainDeadline
     @ObservationIgnored let stagedRefresh: StagedUpdateRefresh
     /// The tip app's 5-minute feed read while nothing waits (``TipUpdateCheck``).
     @ObservationIgnored let tipCheck: TipUpdateCheck
+    /// Where the signed feature document goes (``fetchFlagsDocument()``); nil fetches nothing.
+    @ObservationIgnored let flagsReceiver: (any FlagsDocumentReceiving)?
+    /// The flags document's transport; nil uses ``URLSessionConditionalFetcher``.
+    @ObservationIgnored let flagsFetcher: (any ConditionalFetching)?
+    /// The launch's one flags fetch, once ``start()`` began it.
+    @ObservationIgnored var flagsFetchTask: Task<FlagsDocumentFetch.Outcome, Never>?
+    /// `DisableRemoteFeatureFlags` from the managed policy (set by the App before ``start()``).
+    @ObservationIgnored public var remoteFeatureFlagsPolicy = FlagsFetchPolicy.enabled
     /// Opens the changelog page (set by the App; the What's New page's link).
     @ObservationIgnored public var openChangelog: (() -> Bool)?
     /// Opens the changelog page for the releases after `from` up to `to`
@@ -132,8 +142,8 @@ public final class UpdaterService {
     }
     /// Runs a tip's action as the user's own (set by the App: the registry).
     @ObservationIgnored public var runTipAction: ((String) -> Void)?
-    /// Re-picks the tip when the app becomes active (``refreshTipOnActivation()``).
-    @ObservationIgnored var activationObservation: Task<Void, Never>?
+    /// Re-picks the tip when the app becomes active (``refreshTipOnActivation(on:)``).
+    @ObservationIgnored var activationObservation: EventSubscription?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
     /// The release ring followed in the cmux-next appcast (`updates.channel`, ``follow(ring:)``).
@@ -152,12 +162,12 @@ public final class UpdaterService {
     /// The cancel returns whether an installer was held and is now cancelled.
     @ObservationIgnored var cancelStaged: () -> Bool = { false }
     @ObservationIgnored var acceptAvailable: () -> Void = {}
-    @ObservationIgnored var phaseObservation: Task<Void, Never>?
+    @ObservationIgnored var phaseObservation: ServiceObservation<UpdateIndicatorPhase?>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
     @ObservationIgnored var downloadSetting: (enabled: Bool, metered: UpdateMeteredMode) = (true, .deferLowData)
-    /// The App's observation of the `updates.*` settings.
-    @ObservationIgnored public var settingsObservation: Task<Void, Never>?
+    /// The App's observation of the `updates.*` settings; releasing or cancelling it stops it.
+    @ObservationIgnored public var settingsObservation: ServiceObservation<Void>?
     @ObservationIgnored let now: () -> Date
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The card kind last written to the update harness's timeline.
@@ -180,12 +190,13 @@ public final class UpdaterService {
     /// Whether the update sheet is on screen (set by the App): a note's
     /// timeout then leaves the state alone so the sheet keeps its details.
     @ObservationIgnored public var isSheetPresented: () -> Bool = { false }
-    @ObservationIgnored private let policy: ManagedUpdatePolicy
+    @ObservationIgnored let policy: ManagedUpdatePolicy
     @ObservationIgnored let prober: UpdateProber
     @ObservationIgnored let defaults: UserDefaults
-    @ObservationIgnored private let switcher: AppChannelSwitcher
-    @ObservationIgnored private var probeTask: Task<String?, Never>?
-    @ObservationIgnored private var switchTask: Task<String?, Never>?
+    @ObservationIgnored let switcher: AppChannelSwitcher
+    /// The feed read and the channel switch in flight (UpdaterService+Probe.swift).
+    @ObservationIgnored var probeFlight: ProbeFlight?
+    @ObservationIgnored var switchTask: Task<String?, Never>?
     @ObservationIgnored private var started = false
     /// A check the person asked for runs in Sparkle (cleared when the flow leaves checking).
     @ObservationIgnored var userCheckRunning = false
@@ -197,6 +208,12 @@ public final class UpdaterService {
     /// - Parameter recordsUpdates: false neither writes nor reads the update
     ///   record What's New shows after an update (tests, demos).
     /// - Parameter work: the process's one set of lanes (`AppServices.work`); a test passes its own.
+    /// - Parameter deadlines: the app's deadline scheduler (`AppServices.mainDeadlines`); a test passes a rig's.
+    /// - Parameter checkNode: the app's visibility node: the feed checks align to its hidden wakes
+    ///   (whole seconds, a minute after 5 hidden minutes); nil keeps them flexible.
+    /// - Parameter flagsReceiver: where ``start()``'s signed feature document fetch hands a verified
+    ///   document (the features' remote store); nil fetches nothing.
+    /// - Parameter flagsFetcher: that fetch's transport (a test's fake); nil uses ``URLSessionConditionalFetcher``.
     public init(identity: UpdateBuildIdentity = .main(),
                 policy: ManagedUpdatePolicy = .live(),
                 prober: UpdateProber = UpdateProber(),
@@ -205,15 +222,21 @@ public final class UpdaterService {
                 enableSparkle: Bool = true,
                 recordsUpdates: Bool = true,
                 now: @escaping () -> Date = Date.init,
-                clock: any Clock<Duration> = ContinuousClock(),
-                work: BackgroundWork) {
+                work: BackgroundWork,
+                deadlines: MainDeadlineScheduler,
+                checkNode: VisibilityNode? = nil,
+                flagsReceiver: (any FlagsDocumentReceiving)? = nil,
+                flagsFetcher: (any ConditionalFetching)? = nil) {
         self.now = now
+        self.flagsReceiver = flagsReceiver
+        self.flagsFetcher = flagsFetcher
         self.work = work
-        cardTimer = DemandTimer(owner: "UpdaterService.card", clock: clock)
-        installTimer = DemandTimer(owner: "UpdaterService.install", clock: clock)
-        snoozeTimer = DemandTimer(owner: "UpdaterService.snooze", clock: clock)
-        stagedRefresh = StagedUpdateRefresh(clock: clock)
-        tipCheck = TipUpdateCheck(clock: clock)
+        self.deadlines = deadlines
+        cardTimer = MainDeadline(owner: "UpdaterService.card", workClass: .visible, scheduler: deadlines)
+        installTimer = MainDeadline(owner: "UpdaterService.install", workClass: .visible, scheduler: deadlines)
+        snoozeTimer = MainDeadline(owner: "UpdaterService.snooze", workClass: .visible, scheduler: deadlines)
+        stagedRefresh = StagedUpdateRefresh(deadlines: deadlines, checkNode: checkNode)
+        tipCheck = TipUpdateCheck(deadlines: deadlines, checkNode: checkNode)
         self.identity = identity
         self.policy = policy
         self.prober = prober
@@ -222,7 +245,7 @@ public final class UpdaterService {
         let lastUpdates = recordsUpdates ? WhatsNewLastUpdateStore.app(bundleIdentifier: identity.bundleIdentifier) : nil
         self.lastUpdates = lastUpdates
         whatsNew = WhatsNewCenter(currentVersion: identity.shortVersion, currentBuild: identity.build, defaults: defaults,
-                                  sources: Self.whatsNewSources(identity: identity), lastUpdates: lastUpdates)
+                                  sources: Self.whatsNewSources(identity: identity), lastUpdates: lastUpdates, mainWork: deadlines.work)
         let log = UpdateLogBuffer()
         self.log = log
         // The managed policy is re-read by the driver on every start and check,
@@ -280,6 +303,8 @@ public final class UpdaterService {
         started = true
         observeFlowPhase()
         refreshAnnouncements()
+        // Before the Sparkle guard: kill switches arrive with Sparkle or automatic checks off.
+        fetchFlagsDocument()
         refreshTip()
         refreshUpdateSnooze()
         tipCheck.refresh(self)
@@ -342,41 +367,8 @@ public final class UpdaterService {
             return nil
         case .developmentBuild, .missingPublicKey:
             showsProbeResult = true
-            return probe()
+            return probe(.userBlocking)  // the person asked: the answer lands in their class
         }
-    }
-
-    /// Reads the feed and records what it offers this Mac. Joins a probe
-    /// already in flight.
-    @discardableResult
-    public func probe() -> Task<String?, Never> {
-        if let probeTask { return probeTask }
-        isProbing = true
-        let prober = prober
-        // Sparkle's allowedChannels reads the baked feed, not a test feed: the probe does the same.
-        let allowed = identity.feed().channel.allowedSparkleChannels(ring: ring)
-        var identity = identity
-        if let testFeedURL { identity.infoFeedURL = testFeedURL }
-        let task = Task { [weak self] () -> String? in
-            let failure: String?
-            do {
-                let result = try await prober.probe(identity, allowedChannels: allowed)
-                self?.lastProbe = result
-                self?.lastProbeError = nil
-                self?.log.append("probe \(result.outcome.kind) feed=\(result.feedURL) items=\(result.itemCount)")
-                failure = nil
-            } catch {
-                let reason = String(describing: error)
-                self?.lastProbeError = reason
-                self?.log.append("probe failed: \(reason)")
-                failure = reason
-            }
-            self?.isProbing = false
-            self?.probeTask = nil
-            return failure
-        }
-        probeTask = task
-        return task
     }
 
     /// Installs and relaunches the downloaded update at once, or the one
@@ -408,44 +400,6 @@ public final class UpdaterService {
             send(.checkRequested)
             controller.attemptUpdate()
         }
-    }
-
-    /// Opens the other release app (stable <-> NIGHTLY), downloading,
-    /// verifying and installing it first when missing. Both apps coexist.
-    @discardableResult
-    public func switchChannel(to target: AppChannelSwitchTarget) throws -> Task<String?, Never> {
-        guard identity.channelSwitchTarget == target else { throw UpdaterUnavailable.cannotSwitch(to: target, from: identity.track) }
-        if policy.disablesUpdates { throw UpdaterUnavailable(reason: .managedPolicy) }
-        if let refusal = managedChannelRefusal(target) { throw refusal }
-        if let switchTask { return switchTask }
-        channelSwitchError = nil
-        let switcher = switcher
-        let task = Task { [weak self] () -> String? in
-            // The switcher reports phases from its own threads. They reach the main actor through
-            // one ordered stream (state-audit U1): the newest phase is applied, in order, before the
-            // switch ends, and a phase reported after the end (a late progress callback) is dropped.
-            let (phases, sink) = AsyncStream.makeStream(of: AppChannelSwitchPhase.self, bufferingPolicy: .bufferingNewest(1))
-            // task-owner: the switch task; ends when the switch finishes the stream below
-            let applier = Task { @MainActor [weak self] in
-                for await phase in phases { self?.channelSwitchPhase = phase }
-            }
-            var failure: String?
-            do {
-                let outcome = try await switcher.switchTo(target) { phase in sink.yield(phase) }
-                self?.log.append("channel switch to \(target.rawValue): \(outcome)")
-            } catch {
-                failure = String(describing: error)
-                self?.channelSwitchError = failure
-                self?.log.append("channel switch to \(target.rawValue) failed: \(failure ?? "")")
-            }
-            sink.finish()
-            await applier.value
-            self?.channelSwitchPhase = nil
-            self?.switchTask = nil
-            return failure
-        }
-        switchTask = task
-        return task
     }
 
     public var status: UpdaterStatus {

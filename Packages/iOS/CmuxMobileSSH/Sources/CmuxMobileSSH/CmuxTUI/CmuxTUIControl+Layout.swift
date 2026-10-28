@@ -22,7 +22,7 @@ extension CmuxTUIControl {
             params["cols"] = .int(cols)
             params["rows"] = .int(rows)
         }
-        return try await request("new-screen", params, as: CmuxTUISurfaceResultWire.self).surface
+        return try await request(.newScreen, params, as: CmuxTUISurfaceResultWire.self).surface
     }
 
     /// Creates a terminal tab in `pane` and returns its surface id. The new
@@ -33,7 +33,7 @@ extension CmuxTUIControl {
             params["cols"] = .int(cols)
             params["rows"] = .int(rows)
         }
-        return try await request("new-tab", params, as: CmuxTUISurfaceResultWire.self).surface
+        return try await request(.newTab, params, as: CmuxTUISurfaceResultWire.self).surface
     }
 
     /// Splits the screen containing `pane`: a new pane after it (to the
@@ -45,7 +45,7 @@ extension CmuxTUIControl {
             params["cols"] = .int(cols)
             params["rows"] = .int(rows)
         }
-        return try await request("split", params, as: CmuxTUISurfaceResultWire.self).surface
+        return try await request(.split, params, as: CmuxTUISurfaceResultWire.self).surface
     }
 }
 
@@ -68,7 +68,7 @@ extension CmuxTUIControl {
     public func releaseGeometry(_ attachment: CmuxTUIAttachment) async throws -> Bool {
         guard let lease = attachment.lease, isAttached(surface: attachment.surface) else { return false }
         _ = try await request(
-            "release-attached-view-size",
+            .releaseAttachedViewSize,
             ["surface": .int(attachment.surface), "lease": .string(lease)],
             as: CmuxTUIOutcomeWire.self
         )
@@ -80,7 +80,7 @@ extension CmuxTUIControl {
     public func claimGeometry(_ attachment: CmuxTUIAttachment, cols: Int, rows: Int) async throws {
         _ = try await resize(attachment, cols: cols, rows: rows)
         try await request(
-            "set-client-sizing",
+            .setClientSizing,
             ["surface": .int(attachment.surface), "enabled": .bool(true), "exclusive": .bool(true)],
             as: CmuxTUIEmpty.self
         )

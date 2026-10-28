@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextDesignTokens
 import Foundation
 
 /// `appearance.theme` in cmux.json: cmux's own theme, one Ghostty theme name

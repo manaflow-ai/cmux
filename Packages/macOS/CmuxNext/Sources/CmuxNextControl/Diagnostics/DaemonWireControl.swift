@@ -35,14 +35,14 @@ public struct DaemonWireControl: Sendable {
     static func report(_ snapshot: DaemonWireStats.Snapshot) -> JSONValue {
         func number(_ value: UInt64) -> JSONValue { .number(Double(value)) }
         func byRole(_ counts: [DaemonWireStats.Role: UInt64]) -> JSONValue {
-            .object(Dictionary(uniqueKeysWithValues: counts.map { ($0.key.name, number($0.value)) }))
+            .object(Dictionary(counts.map { ($0.key.name, number($0.value)) }, uniquingKeysWith: { first, _ in first }))
         }
         return .object([
             "bytes_read": number(snapshot.bytesRead),
             "bytes_written": number(snapshot.bytesWritten),
             "lines_read": number(snapshot.linesRead),
             "lines_written": number(snapshot.linesWritten),
-            "frames_read": .object(Dictionary(uniqueKeysWithValues: snapshot.framesRead.map { ($0.key.name, number($0.value)) })),
+            "frames_read": .object(Dictionary(snapshot.framesRead.map { ($0.key.name, number($0.value)) }, uniquingKeysWith: { first, _ in first })),
             "json_decodes": number(snapshot.jsonDecodes),
             "decodes_per_line": .number(snapshot.decodesPerLine),
             "output_bytes_copied_app": number(snapshot.outputBytesCopiedApp),

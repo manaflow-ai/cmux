@@ -14,8 +14,11 @@ private typealias AlphaIMP = @convention(c) (NSWindow, Selector, CGFloat) -> Voi
 
 extension RenderStats {
     /// One replaced method: armed it runs `replacement`, disarmed `original`.
+    ///
+    /// Memory safety: `method` is a runtime method record, which the runtime
+    /// never frees, so it stays valid for the process's life.
     // crash-allow: three immutable runtime handles; a Method and an IMP stay valid for the process's life.
-    nonisolated struct Hook: @unchecked Sendable {
+    @safe nonisolated struct Hook: @unchecked Sendable {
         let method: Method
         let original: IMP
         let replacement: IMP
@@ -29,10 +32,11 @@ extension RenderStats {
     nonisolated static func swap(_ hooks: [Hook], in installing: Bool) async {
         for (index, hook) in hooks.enumerated() {
             if index % 256 == 255 { await Task.yield() }
+            // SAFETY: hook.method is a live method record (see Hook), and both IMPs take its arguments.
             if installing {
-                method_setImplementation(hook.method, hook.replacement)
-            } else if method_getImplementation(hook.method) == hook.replacement {
-                method_setImplementation(hook.method, hook.original)
+                unsafe method_setImplementation(hook.method, hook.replacement)
+            } else if unsafe method_getImplementation(hook.method) == hook.replacement {
+                unsafe method_setImplementation(hook.method, hook.original)
             }
         }
     }
@@ -108,27 +112,35 @@ extension RenderStats {
         for (index, method) in methods.enumerated() {
             roots.add(method.root, index: index)
             // A lookup resolves a method the root adds lazily, so its method list has it.
-            _ = class_getInstanceMethod(method.root, method.selector)
+            // SAFETY: the record it returns is not used.
+            _ = unsafe class_getInstanceMethod(method.root, method.selector)
         }
         var definers = [[Definer]](repeating: [], count: methods.count)
         var listCount: UInt32 = 0
-        guard let list = objc_copyClassList(&listCount) else { return ClassScan(classCount: classCount, definers: definers) }
-        let raw = UnsafeMutableRawPointer(list)
-        defer { free(raw) }
-        let classes = raw.assumingMemoryBound(to: UnsafeRawPointer.self)
+        // SAFETY: objc_copyClassList writes the list's length into the local `listCount` and returns a malloc'd
+        // array of that many class pointers that the caller frees (objc/runtime.h); it is read as raw pointers
+        // (no retain) only below `listCount`, and freed once by the defer.
+        guard let list = unsafe objc_copyClassList(&listCount) else { return ClassScan(classCount: classCount, definers: definers) }
+        let raw = unsafe UnsafeMutableRawPointer(list)
+        defer { unsafe free(raw) }
+        let classes = unsafe raw.assumingMemoryBound(to: UnsafeRawPointer.self)
         for position in 0..<Int(listCount) {
             if position % 1_024 == 1_023 { await Task.yield() }
-            let key = UInt(bitPattern: classes[position])
-            let type = unsafeBitCast(classes[position], to: AnyClass.self)
+            // SAFETY: position < listCount (the loop's range): an entry of the list, a live class pointer.
+            let key = unsafe UInt(bitPattern: classes[position])
+            let type = unsafe unsafeBitCast(classes[position], to: AnyClass.self)
             let root = roots.indexes[key] != nil ? key : roots.root(above: type)
             guard let hooked = roots.indexes[root] else { continue }
             var methodCount: UInt32 = 0
-            guard let methodList = class_copyMethodList(type, &methodCount) else { continue }
-            defer { free(methodList) }
-            for method in UnsafeBufferPointer(start: methodList, count: Int(methodCount)) {
-                let name = method_getName(method)
+            // SAFETY: class_copyMethodList writes the count into the local `methodCount` and returns a malloc'd
+            // array of that many method records that the caller frees; it is read within the count and freed once.
+            guard let methodList = unsafe class_copyMethodList(type, &methodCount) else { continue }
+            defer { unsafe free(methodList) }
+            for unsafe method in unsafe UnsafeBufferPointer(start: methodList, count: Int(methodCount)) {
+                let name = unsafe method_getName(method)
+                let address = UInt(bitPattern: method)
                 for slot in hooked where methods[slot].selector == name && (key != root || methods[slot].onRoot) {
-                    definers[slot].append(Definer(key: key, method: UInt(bitPattern: method)))
+                    definers[slot].append(Definer(key: key, method: address))
                 }
             }
         }
@@ -168,22 +180,23 @@ extension RenderStats {
     /// blocks, should another swizzler still call one, stop counting).
     func makeHooks(for scan: ClassScan) -> HookSet {
         let methods = Self.hookedMethods()
-        let entries: [[(key: UInt, method: Method)]] = scan.definers.map { definers in
-            definers.compactMap { definer in Method(bitPattern: definer.method).map { (definer.key, $0) } }
-        }
-        let wanted = Set(entries.joined().map { $0.method })
-        if !hooks.hooks.isEmpty, Set(hooks.hooks.map(\.method)) == wanted,
-           hooks.hooks.allSatisfy({ method_getImplementation($0.method) == $0.original }) {
+        let wanted = Set(scan.definers.joined().map(\.method))
+        // SAFETY: every hook's method is a live method record (see Hook).
+        if !hooks.hooks.isEmpty, Set(hooks.hooks.map { unsafe UInt(bitPattern: $0.method) }) == wanted,
+           hooks.hooks.allSatisfy({ unsafe method_getImplementation($0.method) == $0.original }) {
             return hooks
         }
         var set = HookSet(generation: hooks.generation + 1)
-        for (index, list) in entries.enumerated() where index < methods.count {
-            let chain = Definers(classes: Set(list.map { $0.key }))
-            for entry in list {
-                let original = method_getImplementation(entry.method)
-                let hook = RenderCountingHook(ledger: ledger, generation: set.generation, chain: chain, owner: entry.key)
-                guard let block = hook.block(for: methods[index].selector, calling: original) else { continue }
-                set.hooks.append(Hook(method: entry.method, original: original, replacement: imp_implementationWithBlock(block)))
+        for (index, list) in scan.definers.enumerated() where index < methods.count {
+            let chain = Definers(classes: Set(list.map(\.key)))
+            for definer in list {
+                let hook = RenderCountingHook(ledger: ledger, generation: set.generation, chain: chain, owner: definer.key)
+                // SAFETY: definer.method is the address of a method record the class scan read, and the runtime never
+                // frees one (see Hook); its IMP takes the selector's arguments, which the block casts it to.
+                guard let method = unsafe Method(bitPattern: definer.method) else { continue }
+                let original = unsafe method_getImplementation(method)
+                guard let block = unsafe hook.block(for: methods[index].selector, calling: original) else { continue }
+                unsafe set.hooks.append(Hook(method: method, original: original, replacement: imp_implementationWithBlock(block)))
             }
         }
         return set
@@ -208,7 +221,8 @@ nonisolated struct RenderCountingHook {
     func block(for selector: Selector, calling imp: IMP) -> Any? {
         switch selector {
         case #selector(NSView.setFrameSize(_:)):
-            let original = unsafeBitCast(imp, to: SizeIMP.self)
+            // SAFETY: `imp` implements -setFrameSize:(NSSize), a void method; SizeIMP is its C type.
+            let original = unsafe unsafeBitCast(imp, to: SizeIMP.self)
             let block: @convention(block) (NSView, NSSize) -> Void = { view, size in
                 guard counts(view, onMainOnly: true) else { return original(view, selector, size) }
                 let changed = MainActor.assumeIsolated { view.frame.size != size } // main-proof: checked in counts
@@ -217,7 +231,8 @@ nonisolated struct RenderCountingHook {
             }
             return block
         case #selector(NSView.setFrameOrigin(_:)):
-            let original = unsafeBitCast(imp, to: PointIMP.self)
+            // SAFETY: `imp` implements -setFrameOrigin:(NSPoint), a void method; PointIMP is its C type.
+            let original = unsafe unsafeBitCast(imp, to: PointIMP.self)
             let block: @convention(block) (NSView, NSPoint) -> Void = { view, origin in
                 guard counts(view, onMainOnly: true) else { return original(view, selector, origin) }
                 let changed = MainActor.assumeIsolated { view.frame.origin != origin } // main-proof: checked in counts
@@ -226,7 +241,8 @@ nonisolated struct RenderCountingHook {
             }
             return block
         case #selector(NSView.updateLayer):
-            let original = unsafeBitCast(imp, to: PlainIMP.self)
+            // SAFETY: `imp` implements -updateLayer, a void method; PlainIMP is its C type.
+            let original = unsafe unsafeBitCast(imp, to: PlainIMP.self)
             let block: @convention(block) (NSView) -> Void = { view in
                 guard counts(view, onMainOnly: true) else { return original(view, selector) }
                 original(view, selector)
@@ -236,7 +252,8 @@ nonisolated struct RenderCountingHook {
             }
             return block
         case #selector(NSView.draw(_:)):
-            let original = unsafeBitCast(imp, to: RectIMP.self)
+            // SAFETY: `imp` implements -drawRect:(NSRect), a void method; RectIMP is its C type.
+            let original = unsafe unsafeBitCast(imp, to: RectIMP.self)
             let block: @convention(block) (NSView, NSRect) -> Void = { view, dirty in
                 let counted = counts(view, onMainOnly: false)
                 original(view, selector, dirty)
@@ -246,7 +263,8 @@ nonisolated struct RenderCountingHook {
             }
             return block
         case #selector(NSView.addTrackingArea(_:)):
-            let original = unsafeBitCast(imp, to: TrackingIMP.self)
+            // SAFETY: `imp` implements -addTrackingArea:(NSTrackingArea *), a void method; TrackingIMP is its C type.
+            let original = unsafe unsafeBitCast(imp, to: TrackingIMP.self)
             let block: @convention(block) (NSView, NSTrackingArea) -> Void = { view, area in
                 let counted = counts(view, onMainOnly: false)
                 original(view, selector, area)
@@ -254,7 +272,8 @@ nonisolated struct RenderCountingHook {
             }
             return block
         case #selector(setter: CALayer.contents):
-            let original = unsafeBitCast(imp, to: ContentsIMP.self)
+            // SAFETY: `imp` implements -setContents:(id), a void method; ContentsIMP is its C type.
+            let original = unsafe unsafeBitCast(imp, to: ContentsIMP.self)
             let block: @convention(block) (CALayer, AnyObject?) -> Void = { layer, contents in
                 guard counts(layer, onMainOnly: false) else { return original(layer, selector, contents) }
                 let changed = layer.contents.map { $0 as AnyObject } !== contents
@@ -265,7 +284,8 @@ nonisolated struct RenderCountingHook {
             }
             return block
         case #selector(NSWindow.setFrame(_:display:)):
-            let original = unsafeBitCast(imp, to: WindowFrameIMP.self)
+            // SAFETY: `imp` implements -setFrame:(NSRect) display:(BOOL), a void method; WindowFrameIMP is its C type.
+            let original = unsafe unsafeBitCast(imp, to: WindowFrameIMP.self)
             let block: @convention(block) (NSWindow, NSRect, ObjCBool) -> Void = { window, frame, display in
                 guard counts(window, onMainOnly: true) else { return original(window, selector, frame, display) }
                 let changed = MainActor.assumeIsolated { window.frame != frame } // main-proof: checked in counts
@@ -274,7 +294,8 @@ nonisolated struct RenderCountingHook {
             }
             return block
         case #selector(setter: NSWindow.alphaValue):
-            let original = unsafeBitCast(imp, to: AlphaIMP.self)
+            // SAFETY: `imp` implements -setAlphaValue:(CGFloat), a void method; AlphaIMP is its C type.
+            let original = unsafe unsafeBitCast(imp, to: AlphaIMP.self)
             let block: @convention(block) (NSWindow, CGFloat) -> Void = { window, alpha in
                 guard counts(window, onMainOnly: true) else { return original(window, selector, alpha) }
                 let changed = MainActor.assumeIsolated { window.alphaValue != alpha } // main-proof: checked in counts

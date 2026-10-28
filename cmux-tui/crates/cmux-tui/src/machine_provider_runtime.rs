@@ -242,9 +242,9 @@ impl ProviderMachineController {
     pub(crate) fn placeholder(
         &mut self,
         notice: impl Into<String>,
-    ) -> (Session, String, MachineUiState) {
-        let (session, label, ui) = self.provider.placeholder(notice);
-        (session, label, self.merge_local_ui(ui))
+    ) -> anyhow::Result<(Session, String, MachineUiState)> {
+        let (session, label, ui) = self.provider.placeholder(notice)?;
+        Ok((session, label, self.merge_local_ui(ui)))
     }
 
     fn perform_request(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
@@ -369,10 +369,14 @@ impl ProviderMachineController {
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
         let (sender, receiver) = mpsc::sync_channel(8);
+        // supervise-allow: owned by its update stream and joined at stop; a panic drops its sender, so the app sees the stream end.
         let worker =
             std::thread::Builder::new().name("machine-local-overlay".into()).spawn(move || {
                 while !worker_stop.load(Ordering::Acquire) {
-                    match provider_receiver.recv_timeout(Duration::from_millis(250)) {
+                    match crate::blocking::sync::recv_timeout(
+                        &provider_receiver,
+                        Duration::from_millis(250),
+                    ) {
                         Ok(update) => {
                             let update = match update {
                                 MachineUpdate::Ui(ui) => MachineUpdate::Ui(Box::new(
@@ -400,7 +404,7 @@ impl ProviderMachineController {
                 }
                 provider_stop.store(true, Ordering::Release);
                 drop(provider_receiver);
-                let _ = provider_worker.join();
+                let _ = crate::blocking::thread::join(provider_worker);
             })?;
         Ok(MachineUpdateStream::new(receiver, stop, worker))
     }
@@ -632,7 +636,7 @@ impl ProviderMachineRuntime {
     pub(crate) fn placeholder(
         &mut self,
         notice: impl Into<String>,
-    ) -> (Session, String, MachineUiState) {
+    ) -> anyhow::Result<(Session, String, MachineUiState)> {
         self.open = None;
         let label = self
             .snapshot
@@ -643,7 +647,7 @@ impl ProviderMachineRuntime {
             .unwrap_or_else(|| "machines".to_string());
         let mut ui = self.ui_state(false);
         ui.notice = Some(notice.into());
-        (placeholder_session(), label, ui)
+        Ok((placeholder_session()?, label, ui))
     }
 
     fn perform_request(&mut self, request: MachineRequest) -> anyhow::Result<MachineActionResult> {
@@ -1148,6 +1152,7 @@ impl ProviderMachineRuntime {
         let worker_snapshot_refresh_pending = snapshot_refresh_pending.clone();
         let refresh_stop = stop.clone();
         let refresh_output = sender.clone();
+        // supervise-allow: owned by its update stream and joined at stop; a panic drops its sender, so the app sees the stream end.
         let refresh_worker = std::thread::Builder::new()
             .name("machine-provider-refresh".into())
             .spawn(move || {
@@ -1173,7 +1178,10 @@ impl ProviderMachineRuntime {
                         let _ = refresh_output.send(MachineUpdate::Ui(Box::new(ui)));
                         break;
                     }
-                    let event = match refresh_receiver.recv_timeout(Duration::from_millis(250)) {
+                    let event = match crate::blocking::sync::recv_timeout(
+                        &refresh_receiver,
+                        Duration::from_millis(250),
+                    ) {
                         Ok(ProviderRefreshSignal::Refresh(event)) => {
                             if matches!(&event, Some(protocol::ProviderEvent::SnapshotChanged(_))) {
                                 // Permit one follow-up invalidation while this authoritative
@@ -1467,6 +1475,7 @@ impl ProviderMachineRuntime {
                 }
             })?;
         refresh_sender.send(ProviderRefreshSignal::Refresh(None))?;
+        // supervise-allow: owned by its update stream and joined at stop; a panic drops its sender, so the app sees the stream end.
         let worker = std::thread::Builder::new().name("machine-provider-events".into()).spawn(
             move || {
                 while !thread_stop.load(Ordering::Acquire) {
@@ -1543,7 +1552,7 @@ impl ProviderMachineRuntime {
                     }
                 }
                 drop(refresh_sender);
-                let _ = refresh_worker.join();
+                let _ = crate::blocking::thread::join(refresh_worker);
             },
         )?;
         Ok(MachineUpdateStream::new(receiver, stop, worker))
@@ -1646,7 +1655,7 @@ impl ProviderMachineRuntime {
             .and_then(|id| self.snapshot.machines.iter().find(|machine| &machine.id == id))
             .cloned();
         let Some(machine) = selected else {
-            return Ok((placeholder_session(), "machines".to_string(), None, false));
+            return Ok((placeholder_session()?, "machines".to_string(), None, false));
         };
         if !machine.connectable {
             anyhow::bail!(localization::catalog().sidebar.machine_not_ready_to_connect);
@@ -1765,12 +1774,23 @@ impl ProviderMachineRuntime {
             self.stage_mandatory_replacement(None);
             result.ui.session_available = false;
             let machine = result.ui.snapshot.active;
-            result.replacement = Some(crate::machine::MachineSession {
-                session: placeholder_session(),
-                label,
-                machine,
-                reused: false,
-            });
+            match placeholder_session() {
+                Ok(session) => {
+                    result.replacement = Some(crate::machine::MachineSession {
+                        session,
+                        label,
+                        machine,
+                        reused: false,
+                    });
+                }
+                Err(error) => append_notice(
+                    &mut result.ui.notice,
+                    format!(
+                        "{}: {error}",
+                        localization::catalog().sidebar.machine_provider_update_failed
+                    ),
+                ),
+            }
             result.restart_updates = true;
         }
         result
@@ -2470,11 +2490,11 @@ fn workspace_creation_mode(mode: protocol::WorkspaceCreateMode) -> WorkspaceCrea
     }
 }
 
-fn placeholder_session() -> Session {
-    Session::Local(Mux::new(
+fn placeholder_session() -> anyhow::Result<Session> {
+    Ok(Session::Local(Mux::try_new(
         format!("provider-placeholder-{}", std::process::id()),
         SurfaceOptions::default(),
-    ))
+    )?))
 }
 
 fn machine_status(status: protocol::MachineStatus) -> MachineStatus {

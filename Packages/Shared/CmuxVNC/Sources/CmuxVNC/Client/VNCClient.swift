@@ -206,8 +206,8 @@ public actor VNCClient {
                     // SetColourMapEntries (RFC 6143 section 7.6.2). The client asked for true colour,
                     // so the entries are skipped; a range past the 2^16-entry map breaks the protocol.
                     try await reader.skip(1)
-                    let first = Int(try await reader.u16())
-                    let count = Int(try await reader.u16())
+                    let first = try await reader.u16Int()
+                    let count = try await reader.u16Int()
                     guard first + count <= 1 << 16 else {
                         throw RFBError.protocolViolation("colour map entries \(first) to \(first + count) past the map")
                     }
@@ -217,7 +217,7 @@ public actor VNCClient {
                 case 3:
                     try await reader.skip(3)
                     // ServerCutText is Latin-1 (RFC 6143 7.6.4).
-                    let length = Int(try await reader.u32())
+                    let length = try await reader.u32Int("a clipboard length")
                     guard length <= 16 << 20 else { throw RFBError.protocolViolation("clipboard of \(length) bytes") }
                     let bytes = try await reader.bytes(length)
                     eventSink.yield(.clipboard(String(String.UnicodeScalarView(bytes.map { Unicode.Scalar($0) }))))
@@ -242,7 +242,7 @@ public actor VNCClient {
 
     private func update(reader: RFBReader, decoder: RFBRectangleDecoder, framebuffer: Framebuffer, publisher: FramePublisher) async throws {
         try await reader.skip(1)
-        let count = Int(try await reader.u16())
+        let count = try await reader.u16Int()
         // 0xFFFF means "until LastRect" only when LastRect was advertised.
         let untilLastRect = count == 0xFFFF && advertised.contains(.lastRect)
         if let sent = requestSentAt {
@@ -259,8 +259,8 @@ public actor VNCClient {
         // A count of 0xFFFF means "until LastRect" when the server supports it.
         while !ended, untilLastRect || index < count {
             let header = RFBRectangleHeader(
-                x: Int(try await reader.u16()), y: Int(try await reader.u16()),
-                width: Int(try await reader.u16()), height: Int(try await reader.u16()),
+                x: try await reader.u16Int(), y: try await reader.u16Int(),
+                width: try await reader.u16Int(), height: try await reader.u16Int(),
                 encoding: try await reader.s32())
             index += 1
             statistics.rectangles += 1

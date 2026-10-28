@@ -151,16 +151,26 @@ final class ChromiumHostInputRing {
     /// Writes `frame` for the page whose client browser id is `browser`; it
     /// takes the next input sequence number. Never blocks.
     @discardableResult
-    func write(_ frame: ChromiumHostFrame, browser: Int32) -> Push { // perf-hot: 1us cef-host-input-ring (every key, click, move and wheel to the Chromium Host)
+    func write(_ frame: ChromiumHostFrame, browser: Int32) -> Push {
+        let seq = nextSeq
+        nextSeq &+= 1
+        return write(frame, browser: browser, seq: seq, ctlSeq: frame.ctlSeq)
+    }
+
+    /// Writes `frame` for `browser` with the input seq and control seq the remote shim gave it
+    /// (`cmux_remote_shim_order_input`, task 092): the host's ordered stream dispatches it only
+    /// after that control message. Never blocks.
+    @discardableResult
+    func write(_ frame: ChromiumHostFrame, browser: Int32, seq: UInt32, ctlSeq: UInt32) -> Push { // perf-hot: 1us cef-host-input-ring (every key, click, move and wheel to the Chromium Host)
         guard !isBroken else { return .broken }
         guard frame.payload.isEmpty else {
             stats.refused += 1
             return .refused
         }
         var stamped = frame
-        stamped.seq = nextSeq
-        nextSeq &+= 1
-        stamped.t1 = (frame.t1 & 0xffff_ffff_0000_0000) | UInt64(UInt32(bitPattern: browser))
+        stamped.seq = seq
+        stamped.t1 = UInt64(UInt32(bitPattern: browser))
+        stamped.ctlSeq = ctlSeq
         if backlogCount > 0, flushBacklog() == .broken { return .broken }
         if backlogCount == 0 {
             switch put(stamped) {

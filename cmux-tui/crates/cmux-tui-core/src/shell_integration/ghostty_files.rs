@@ -183,8 +183,7 @@ pub(super) fn read_files(files: &[PathBuf], home: Option<&str>) -> Settings {
     }
     let mut loaded = HashSet::new();
     let mut index = 0;
-    while index < reader.includes.len() {
-        let path = reader.includes[index].clone();
+    while let Some(path) = reader.includes.get(index).cloned() {
         index += 1;
         // A file loads once; a second mention is a cycle and is skipped.
         if !loaded.insert(path.clone()) {
@@ -220,8 +219,8 @@ impl Reader<'_> {
                 continue;
             };
             let mut value = value.trim_matches(WHITESPACE);
-            if value.len() >= 2 && value.starts_with('"') && value.ends_with('"') {
-                value = &value[1..value.len() - 1];
+            if let Some(quoted) = value.strip_prefix('"').and_then(|rest| rest.strip_suffix('"')) {
+                value = quoted;
             }
             match key.trim_matches(WHITESPACE) {
                 FEATURES_KEY if value.is_empty() => self.settings.features = Features::default(),

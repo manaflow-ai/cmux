@@ -2,6 +2,10 @@
 //! browser attach with view leases and initial replay), reattach-view,
 //! detach-client and detach-attached-view. Each function is one `Command`
 //! arm of `handle_command_with_cancellation`.
+//!
+//! A legacy view's output runs on threads of its own; a view on a
+//! client-minted attach stream runs as a drain on the daemon-wide sequenced
+//! pool and holds no thread (stream_attach_out.rs, p05-ipc-079).
 
 use super::size_state_for_client;
 use crate::panic_free::RecoverPoison;
@@ -14,13 +18,17 @@ use super::DetachNotice;
 use super::GUARDED_BROWSER_POINTER_CAPABILITY;
 use super::MarkedClientAttach;
 use super::MessageWriter;
+use super::OutboundStream;
 use super::RenderClientState;
 use super::TERMINAL_COLOR_OVERRIDES_CAPABILITY;
 use super::TERMINAL_PENDING_SEQUENCE_CAPABILITY;
 use super::VtStateMessage;
 use super::WatchKind;
+use super::attach_lifecycle::AttachCommit;
 use super::attach_overflow_json;
 use super::attach_response;
+use super::attach_streams::ClientStreamId;
+use super::attach_streams::StreamEndReason;
 use super::browser_state_message;
 use super::commit_client_attach_and_start_worker;
 use super::detach_actor;
@@ -57,6 +65,10 @@ use crate::surface::AttachLifecycle;
 use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
+
+#[path = "stream_attach_out.rs"]
+mod stream_attach_out;
+use stream_attach_out::StreamView;
 
 /// How long a sized terminal attach waits for its hosted PTY's resize before
 /// it builds the replay anyway (then a `resized` replay follows, as before).
@@ -147,6 +159,7 @@ pub(super) fn reattach_view(
 pub(super) fn detach_attached_view(
     mux: &Arc<Mux>,
     client: u64,
+    writer: &MessageWriter,
     surface: SurfaceId,
     lease: Option<String>,
     view: Option<String>,
@@ -168,11 +181,15 @@ pub(super) fn detach_attached_view(
     let Some((stream, outbound)) = mux.control_clients.view_stream(client, surface, &lease)? else {
         return Ok(json!({"outcome": "superseded"}));
     };
-    // Closing the stream stops every producer immediately. Removing
+    // Closing the stream stops every producer immediately (a client-minted
+    // stream also queues its `stream-end` and frees its id). Removing
     // its attachment state synchronously makes the command response a
     // cleanup fence; the attach worker's eventual duplicate detach is
     // intentionally idempotent.
-    outbound.close();
+    match outbound.client_stream {
+        Some(_) => writer.end_client_stream(&outbound, StreamEndReason::Canceled),
+        None => outbound.close(),
+    }
     detach_committed_attach(mux, client, surface, stream);
     Ok(json!({"outcome": "applied"}))
 }
@@ -189,6 +206,7 @@ pub(super) fn attach_surface(
     expected_generation: Option<String>,
     expected_terminal_id: Option<String>,
     snapshot: terminal_snapshot::SnapshotAttachParams,
+    stream: Option<u16>,
 ) -> anyhow::Result<Value> {
     let initial_size = match (cols, rows) {
         (Some(cols), Some(rows)) => Some((cols, rows)),
@@ -215,6 +233,14 @@ pub(super) fn attach_surface(
         }
     };
     let surface = get_surface(mux, surface_id)?;
+    // A framed attach on stream S opens S: its queued INPUT and requests go
+    // to this surface once the attach succeeds (server/pending_streams.rs).
+    if let Some(stream) = writer.frame_call().and_then(|call| call.opens()) {
+        anyhow::ensure!(
+            stream.target(surface_id),
+            "stream_ended: the stream ended before it opened"
+        );
+    }
     anyhow::ensure!(
         !mux.is_frontend_browser_surface(&surface),
         "surface {surface_id} is a frontend-rendered browser and has no daemon stream"
@@ -246,19 +272,65 @@ pub(super) fn attach_surface(
             );
         }
     }
-    if surface.kind() == SurfaceKind::Pty
-        && mode.as_deref().unwrap_or("bytes") == "bytes"
-        && snapshot.wants_snapshot()?
-    {
-        return snapshot.attach(mux, client, surface, writer, initial_size);
-    }
-    let lifecycle = AttachLifecycle::default();
-    let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
     let render_mode = match mode.as_deref().unwrap_or("bytes") {
         "bytes" => false,
         "render" => true,
         other => anyhow::bail!("bad attach mode {other}"),
     };
+    let snapshot_attach = surface.kind() == SurfaceKind::Pty && !render_mode;
+    let snapshot_attach = snapshot_attach && snapshot.wants_snapshot()?;
+    let Some(stream) = stream.map(ClientStreamId) else {
+        let outbound_stream = writer.start_stream(&attach_overflow_json(surface_id))?;
+        if snapshot_attach {
+            return snapshot.attach(mux, client, surface, writer, initial_size, outbound_stream);
+        }
+        return attach_view(
+            mux,
+            client,
+            writer,
+            surface,
+            render_mode,
+            initial_size,
+            outbound_stream,
+        );
+    };
+    // attach-streams-v1: the id is this connection's from here until its
+    // `stream-end`; a failed attach ends it before its error reply. An id
+    // past the connection or daemon cap fails only this open.
+    super::attach_streams::require_grant(mux, client)?;
+    let outbound_stream =
+        writer.start_client_stream(stream, &mux.control_clients.attach_stream_admission)?;
+    let attached = if snapshot_attach {
+        snapshot.attach(mux, client, surface, writer, initial_size, outbound_stream.clone())
+    } else {
+        attach_view(
+            mux,
+            client,
+            writer,
+            surface,
+            render_mode,
+            initial_size,
+            outbound_stream.clone(),
+        )
+    };
+    if attached.is_err() {
+        writer.end_client_stream(&outbound_stream, StreamEndReason::AttachFailed);
+    }
+    attached
+}
+
+/// The render, browser or replay byte attach of `surface` on `outbound_stream`.
+fn attach_view(
+    mux: &Arc<Mux>,
+    client: u64,
+    writer: &MessageWriter,
+    surface: Arc<crate::Surface>,
+    render_mode: bool,
+    initial_size: Option<(u16, u16)>,
+    outbound_stream: OutboundStream,
+) -> anyhow::Result<Value> {
+    let surface_id = surface.id;
+    let lifecycle = AttachLifecycle::default();
     if render_mode {
         require_pty(&surface)?;
         let MarkedClientAttach { lease, size_rollback, client_changed, .. } =
@@ -288,6 +360,19 @@ pub(super) fn attach_surface(
             rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
             return Err(error.into());
         }
+        if outbound_stream.client_stream.is_some() {
+            let commit = AttachCommit { lifecycle, changed: client_changed, size_rollback };
+            StreamView {
+                mux,
+                client,
+                surface: surface_id,
+                writer,
+                stream: &outbound_stream,
+                commit,
+            }
+            .start_render(attach)?;
+            return Ok(attach_response(mux, surface_id, client, lease));
+        }
         let worker_writer = writer.clone();
         let worker_mux = mux.clone();
         let worker_lifecycle = lifecycle.clone();
@@ -298,7 +383,9 @@ pub(super) fn attach_surface(
             let mux = worker_mux;
             let lifecycle = worker_lifecycle;
             let outbound_stream = worker_stream;
-            if waits::recv(&worker_committed).is_err() {
+            // The writer's first item is the attach's go: until the attach
+            // commits it is idle and holds no one's work (p02-threads 308).
+            if waits::idle_recv(&worker_committed).is_err() {
                 return;
             }
             let mut state = RenderClientState::new(writer.render_service.clone(), &attach.initial);
@@ -319,16 +406,17 @@ pub(super) fn attach_surface(
                 let item = hangs.item(WatchKind::RenderAttachOut);
                 let encoded = match received {
                     RenderAttachFrame::Frame(frame) => {
-                        writer.encode(&state.delta_message(surface_id, &frame))
+                        writer.encode(&state.delta_message(surface_id, &frame), &outbound_stream)
                     }
-                    RenderAttachFrame::ScrollChanged { offset, at_bottom } => {
-                        writer.encode(&json!({
+                    RenderAttachFrame::ScrollChanged { offset, at_bottom } => writer.encode(
+                        &json!({
                             "event": "scroll-changed",
                             "surface": surface_id,
                             "offset": offset,
                             "at_bottom": at_bottom,
-                        }))
-                    }
+                        }),
+                        &outbound_stream,
+                    ),
                 };
                 drop(item);
                 let send_result = writer.send_encoded_backpressured(encoded, &outbound_stream);
@@ -345,6 +433,7 @@ pub(super) fn attach_surface(
             }
             report_attach_overflow(&writer, surface_id, &lifecycle, &outbound_stream);
             detach_committed_attach(&mux, client, surface_id, outbound_stream.id);
+            writer.end_client_stream(&outbound_stream, StreamEndReason::Detached);
         });
         if let Err(error) = spawned {
             lifecycle.cancel();
@@ -400,6 +489,19 @@ pub(super) fn attach_surface(
             rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
             return Err(error.into());
         }
+        if outbound_stream.client_stream.is_some() {
+            let commit = AttachCommit { lifecycle, changed: client_changed, size_rollback };
+            StreamView {
+                mux,
+                client,
+                surface: surface_id,
+                writer,
+                stream: &outbound_stream,
+                commit,
+            }
+            .start_browser(frames)?;
+            return Ok(attach_response(mux, surface_id, client, lease));
+        }
         if let Err(error) = spawn_attach_notification_stream(
             mux.clone(),
             surface_id,
@@ -421,7 +523,9 @@ pub(super) fn attach_surface(
             let mux = worker_mux;
             let lifecycle = worker_lifecycle;
             let outbound_stream = worker_stream;
-            if waits::recv(&worker_committed).is_err() {
+            // The writer's first item is the attach's go: until the attach
+            // commits it is idle and holds no one's work (p02-threads 308).
+            if waits::idle_recv(&worker_committed).is_err() {
                 return;
             }
             let hangs = mux.echo_watch();
@@ -450,7 +554,8 @@ pub(super) fn attach_surface(
                 // A frame event applies its bitmap and authority
                 // atomically. Publish it before a paired state
                 // snapshot can expose the same positive token.
-                let encoded = encode_browser_attach_update(&writer, surface_id, update);
+                let encoded =
+                    encode_browser_attach_update(&writer, surface_id, update, &outbound_stream);
                 drop(item);
                 if let Err(error) =
                     send_encoded_browser_attach_update(&writer, encoded, &outbound_stream)
@@ -464,6 +569,7 @@ pub(super) fn attach_surface(
             // the page, so a natively hosted page is not restarted for nobody.
             drop(frames);
             detach_committed_attach(&mux, client, surface_id, outbound_stream.id);
+            writer.end_client_stream(&outbound_stream, StreamEndReason::Detached);
         });
         if let Err(error) = spawned {
             lifecycle.cancel();
@@ -540,6 +646,12 @@ pub(super) fn attach_surface(
         rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
         return Err(error.into());
     }
+    if outbound_stream.client_stream.is_some() {
+        let commit = AttachCommit { lifecycle, changed: client_changed, size_rollback };
+        StreamView { mux, client, surface: surface_id, writer, stream: &outbound_stream, commit }
+            .start_bytes(attach, shape)?;
+        return Ok(attach_response(mux, surface_id, client, lease));
+    }
     if let Err(error) = spawn_attach_notification_stream(
         mux.clone(),
         surface_id,
@@ -559,7 +671,9 @@ pub(super) fn attach_surface(
         let writer = worker_writer;
         let mux = worker_mux;
         let outbound_stream = worker_stream;
-        if waits::recv(&worker_committed).is_err() {
+        // The writer's first item is the attach's go: until the attach
+        // commits it is idle and holds no one's work (p02-threads 308).
+        if waits::idle_recv(&worker_committed).is_err() {
             return;
         }
         let hangs = mux.echo_watch();
@@ -586,7 +700,7 @@ pub(super) fn attach_surface(
             // Each frame's encode is a 100 ms hang scope; the wait for it
             // and the hand-off that waits for room are not.
             let item = hangs.item(WatchKind::AttachOut);
-            let encoded = writer.encode_attach_frame(surface_id, &frame, shape);
+            let encoded = writer.encode_attach_frame(surface_id, &frame, shape, &outbound_stream);
             drop(item);
             if let Err(error) = writer.send_encoded_backpressured(encoded, &outbound_stream) {
                 handle_attach_send_error(&attach.lifecycle, &error);
@@ -595,6 +709,7 @@ pub(super) fn attach_surface(
         }
         report_attach_overflow(&writer, surface_id, &attach.lifecycle, &outbound_stream);
         detach_committed_attach(&mux, client, surface_id, outbound_stream.id);
+        writer.end_client_stream(&outbound_stream, StreamEndReason::Detached);
     });
     if let Err(error) = spawned {
         lifecycle.cancel();

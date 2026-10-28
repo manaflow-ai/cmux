@@ -36,6 +36,7 @@ public struct SurfaceSourceWire: Sendable, Equatable {
     private static func frame(kind: UInt8, _ payload: Data) -> Data {
         var out = Data(capacity: 5 + payload.count)
         out.append(kind)
+        // decode-trap-allow: this side frames only its own JSON lines and encoded access units, far below 4 GiB.
         out.appendBigEndian(UInt32(payload.count))
         out.append(payload)
         return out
@@ -45,28 +46,32 @@ public struct SurfaceSourceWire: Sendable, Equatable {
         buffer.append(data)
     }
 
-    /// The next whole frame; nil until one is complete.
+    /// The next whole frame; nil until one is complete. The header and payload are read as
+    /// prefixes of the buffer, never by position, so no peer bytes can index past it.
     public mutating func next() throws(SurfaceSourceWireError) -> Frame? {
-        guard buffer.count >= 5 else { return nil }
-        let start = buffer.startIndex
-        let kind = buffer[start]
-        let length = buffer[(start + 1)..<(start + 5)].reduce(0) { $0 << 8 | Int($1) }
+        guard buffer.count >= 5, let kind = buffer.first else { return nil }
+        // A u32 length always fits a 64-bit Int; it is bounded below before any use.
+        let length = Int(truncatingIfNeeded: Self.bigEndian(buffer.dropFirst().prefix(4)))
         guard length <= Self.maximumIncoming else { throw .tooLarge }
         guard buffer.count >= 5 + length else { return nil }
-        let payload = Data(buffer[(start + 5)..<(start + 5 + length)])
-        buffer.removeSubrange(start..<(start + 5 + length))
+        let payload = Data(buffer.dropFirst(5).prefix(length))
+        buffer = Data(buffer.dropFirst(5 + length))
         switch kind {
         case 1:
             guard let object = try? JSONSerialization.jsonObject(with: payload) as? [String: Any] else { throw .malformed }
             return .json(object.compactMapValues(SurfaceSourceValue.init))
         case 2:
-            guard payload.count >= 9 else { throw .malformed }
-            let base = payload.startIndex
-            let stamp = payload[(base + 1)..<(base + 9)].reduce(UInt64(0)) { $0 << 8 | UInt64($1) }
-            return .accessUnit(idr: payload[base] & 1 == 1, captureMicros: stamp, annexB: Data(payload[(base + 9)...]))
+            guard payload.count >= 9, let flags = payload.first else { throw .malformed }
+            let stamp = Self.bigEndian(payload.dropFirst().prefix(8))
+            return .accessUnit(idr: flags & 1 == 1, captureMicros: stamp, annexB: Data(payload.dropFirst(9)))
         default:
             throw .malformed
         }
+    }
+
+    /// Big-endian bytes as one integer (at most 8 bytes: each widens exactly into the `UInt64`).
+    private static func bigEndian(_ bytes: Data) -> UInt64 {
+        bytes.reduce(UInt64(0)) { $0 << 8 | UInt64(truncatingIfNeeded: $1) }
     }
 }
 

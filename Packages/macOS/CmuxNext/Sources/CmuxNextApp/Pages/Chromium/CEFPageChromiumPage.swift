@@ -7,7 +7,8 @@ import Foundation
 import os
 
 /// One cmux page in a CEF tab (``PageChromiumPage``). The page host runs its scripts through the
-/// tab's own evaluation (``evaluate(_:)``) and the rest through the DevTools protocol: the tab's raw relay (`CEFAgentRelay`) carries the protocol events (the bridge's
+/// tab's own evaluation (``evaluate(_:)``), takes pictures with its surface copy and clicks and moves with its
+/// native input; the rest goes through the DevTools protocol: the tab's raw relay (`CEFAgentRelay`) carries the protocol events (the bridge's
 /// binding calls, `Page.frameNavigated`, `Page.loadEventFired`); a page tab is never an agent's tab,
 /// so nothing else listens on its relay. The tab's own state reports a crash and, with a hang scheduler
 /// (feature `pageHangNotice`), a hang.
@@ -17,7 +18,10 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     let tab: CEFTab
     private let pageID: String
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page-host.chromium")
-    private var crashWatch: Task<Void, Never>?
+    /// Follows the tab's renderer exit while the page listens (``listen()``).
+    private var crashWatch: ServiceObservation<Bool>?
+    /// The app's main-thread scheduler: the crash watch flushes on it.
+    private let mainWork: MainWorkScheduler
     /// Follows the tab's hang while the host listens (``PageChromiumEvent/unresponsive``).
     private var hangWatch: ServiceObservation<Bool>?
     /// The hang the host was last told of.
@@ -25,16 +29,27 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     /// The scheduler the hang watch flushes on; nil: the tab's hang never reaches the page host and
     /// Chromium waits on it until the renderer answers again, as before the feature.
     private let hangWork: MainWorkScheduler?
+    /// The page posts its calls on the page channel where the runtime has one (feature `pageHostChannel`).
+    private let pageChannel: Bool
+    /// The default-off feature `pagePushChannel`: host events and replies go to the page as data.
+    private let pushChannel: Bool
     private var closed = false
 
     /// - Parameters:
     ///   - tab: The CEF tab the page shows in.
     ///   - pageID: The page's id (logs).
+    ///   - mainWork: The app's main-thread scheduler: the crash watch flushes on it.
     ///   - hangWork: Forward the tab's hang and its end, flushed on this scheduler (feature `pageHangNotice`); nil: never.
-    init(tab: CEFTab, pageID: String, hangWork: MainWorkScheduler? = nil) {
+    ///   - pageChannel: Post the page's calls on the runtime's page channel (feature `pageHostChannel`); false: the DevTools binding.
+    ///   - pushChannel: The feature `pagePushChannel`: pushes where the fork has the channel; false: scripts only.
+    init(tab: CEFTab, pageID: String, mainWork: MainWorkScheduler, hangWork: MainWorkScheduler? = nil, pageChannel: Bool = false,
+         pushChannel: Bool = false) {
         self.tab = tab
         self.pageID = pageID
+        self.mainWork = mainWork
         self.hangWork = hangWork
+        self.pageChannel = pageChannel
+        self.pushChannel = pushChannel
     }
 
     var contentView: NSView { tab.contentView }
@@ -72,10 +87,15 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         }
     }
 
+    /// The tab's page channel event (`CEFAgentRelay.pageHostEvent`): nil before fork API 29 and
+    /// while feature `pageHostChannel` is off.
+    var pageHostEvent: String? { pageChannel ? tab.agentRelay.pageHostEvent : nil }
+
     private func listen() {
         guard onEvent != nil, !closed else {
             tab.pageFilesDragged = nil
             tab.pageUserInput = nil
+            tab.agentRelay.onPageHostPost = nil
             tab.agentRelay.set(onMessage: nil, onEnd: nil)
             crashWatch?.cancel()
             crashWatch = nil
@@ -86,13 +106,24 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         }
         tab.agentRelay.set(onMessage: { [weak self] json in self?.onEvent?(.devTools(json)) },
                            onEnd: { [weak self] in self?.renderEnded() })
+        tab.agentRelay.onPageHostPost = { [weak self] text, sender in self?.onEvent?(.pageHostPost(text, sender: sender)) }
         tab.pageFilesDragged = { [weak self] urls in self?.onEvent?(.filesDragged(urls)) }
         tab.pageUserInput = { [weak self] uptime in self?.onEvent?(.userInput(uptime)) }
         let tab = tab
         if crashWatch == nil {
-            crashWatch = Task { [weak self] in
-                for await exit in ObservationStream({ tab.state.processExit }) where exit != nil {
-                    self?.onEvent?(.crashed)
+            // The page host reloads a crashed page (PageCrashReloads) whether or not it shows: a service
+            // observation, which runs while hidden. A renderer that exits again after a reload reports again.
+            // A renderer already gone is reported in a posted task, never inside the `onEvent` set that listens.
+            crashWatch = ServiceObservation(.visible, owner: "pages.chromium.crash", on: mainWork) {
+                tab.state.processExit != nil
+            } apply: { [weak self] exited in
+                guard exited, let self, self.crashWatch != nil else { return }
+                self.onEvent?(.crashed)
+            }
+            if tab.state.processExit != nil {
+                mainWork.post(.visible, owner: "pages.chromium.crash") { [weak self] in
+                    guard let self, self.crashWatch != nil, tab.state.processExit != nil else { return }
+                    self.onEvent?(.crashed)
                 }
             }
         }
@@ -142,6 +173,15 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         return Self.foundation(value)
     }
 
+    /// The page push channel, where the app turned it on (`pagePushChannel`) and the fork and shim have it.
+    var pushesToPage: Bool { pushChannel && CEFPagePush(tab: tab).isAvailable }
+
+    /// The tab's page push (``CEFPagePush``, fork API 43): data to the document's receiver, no script.
+    func push(_ text: String) {
+        guard pushChannel else { return }
+        CEFPagePush(tab: tab).send(text)
+    }
+
     /// `value` with the types `JSONSerialization` gives (`NSNumber` for a number, so `as? Int`
     /// reads an integer as it does on the DevTools path).
     private static func foundation(_ value: BrowserJSValue) -> Any {
@@ -153,11 +193,36 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         }
     }
 
-    /// No picture until p13-webui-078 binds the fork's `cmux_tab_copy_surface` (p13-webui-077) on the tab,
-    /// and none on a fork without it: the DevTools `Page.captureScreenshot` the window image uses would
-    /// attach an agent and end renderer sharing. A discarded page with no picture shows its pane's
-    /// background until the page draws again.
-    func copySurface(maxPixelSize: CGSize, done: @escaping @MainActor (PageEncodedSnapshot?) -> Void) { done(nil) }
+    /// The tab's surface copy (`CEFTab.copySurface`, fork API 40): the fork's `cmux_browser_capture`.
+    var copiesSurface: Bool { !closed && tab.copiesSurface }
+
+    /// The tab's surface copy, sent in this turn, answered still in base64 (the page host decodes it off
+    /// the main thread). None on a fork without it: a DevTools `Page.captureScreenshot` would attach an
+    /// agent and end renderer sharing, so a discarded page with no picture shows its pane's background
+    /// until the page draws again.
+    func copySurface(maxPixelSize: CGSize, done: @escaping @MainActor (PageSurfaceCopy?) -> Void) {
+        guard !closed else { return done(nil) }
+        tab.copySurface(maxPixelSize: maxPixelSize) { copy in
+            done(copy.map { PageSurfaceCopy(base64: $0.base64, pixelSize: $0.pixelSize) })
+        }
+    }
+
+    /// The tab's native click (`CEFTab.sendClick`, fork API 29); false on an older fork or a closed page.
+    func sendClick(at point: CGPoint) -> Bool {
+        !closed && tab.sendClick(x: point.x, y: point.y)
+    }
+
+    /// The tab's native mouse move (`CEFTab.sendMouseMove`); false on a fork without it or a closed page.
+    func sendMouseMove(at point: CGPoint) -> Bool {
+        !closed && tab.sendMouseMove(x: point.x, y: point.y)
+    }
+
+    /// `document.execCommand('copy')` as the person's own command (`CEFTab.perform`, gesture `.agent`), sent
+    /// in this turn with nothing waiting on it.
+    func copySelection() {
+        guard !closed else { return }
+        _ = tab.perform("document.execCommand('copy')", gesture: .agent)
+    }
 
     /// After an in-place discard, the discarded entry's own URL comes back by Chromium's restore on
     /// show and sends nothing (`CEFTab.loadRestoringDiscard(_:)`).
@@ -207,6 +272,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         crashWatch = nil
         hangWatch?.cancel()
         hangWatch = nil
+        tab.agentRelay.onPageHostPost = nil
         tab.agentRelay.set(onMessage: nil, onEnd: nil)
         tab.pageResources = nil
         tab.pageFilesDragged = nil

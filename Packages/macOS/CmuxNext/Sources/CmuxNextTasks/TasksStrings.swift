@@ -20,6 +20,7 @@ nonisolated enum TasksStrings {
     static var disconnected: String { t("owner.disconnected", "Tasks is unreachable") }
     static var ownerNotRunning: String { t("owner.notRunning", "Tasks is not running. Start it with cmux task serve.") }
     static var ownerUnreachable: String { t("owner.lost", "Lost the connection to Tasks") }
+    static var ownerSentBadSnapshot: String { t("owner.badSnapshot", "Tasks sent a task list cmux could not read") }
     static var ownerNotRunningTitle: String { t("owner.notRunning.title", "Tasks is not running") }
     static var ownerNotRunningHint: String { t("owner.notRunning.hint", "Start it in a terminal:") }
     static var copyCommand: String { t("owner.copyCommand", "Copy Command") }

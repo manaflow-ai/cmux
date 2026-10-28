@@ -33,7 +33,7 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// `cefPrefetchBehindFence`) does not read at once: ``post(_:on:)`` queues the
 /// read as ``WorkPriority/idle`` items on the files lane, which the startup
 /// best-effort fence holds, so a cold launch with no visible Chromium page reads
-/// no Chromium file before startup completes. A start someone waits for (a tab,
+/// no Chromium file before the reveal. A start someone waits for (a tab,
 /// a user feature) calls ``promote(on:)``: what is not read yet is read at
 /// ``WorkPriority/userBlocking`` (awaited items, which the fence never holds)
 /// and the idle reader stops after its current chunk. Readers claim chunks, so
@@ -158,7 +158,7 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
     }
 
     /// Queues the read of `layout` (the binary, then the resources) as ``WorkPriority/idle`` items of at most
-    /// ``itemBudget`` bytes on `work`'s files lane: the best-effort fence holds them until startup completes.
+    /// ``itemBudget`` bytes on `work`'s files lane: the best-effort fence holds them until the reveal.
     /// ``finished()`` returns when they, or a ``promote(on:)``, read everything. Once per prefetch; a later
     /// call queues nothing.
     func post(_ layout: CEFRuntimeLayout, on work: BackgroundWork) {
@@ -284,7 +284,7 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
         reading: for url in urls where !state.withLock({ $0.done.contains(url) }) {
             // SAFETY: open reads the NUL-terminated copy of the path Swift makes for the call.
             // concurrency-allow: a files-lane item or the library-load thread (Task.detached in CEFRuntime.start/preload), never the main thread
-            let descriptor = unsafe open(url.path, O_RDONLY | O_CLOEXEC)
+            let descriptor = unsafe blockingOpen(url.path, O_RDONLY | O_CLOEXEC)
             guard descriptor >= 0 else {
                 state.withLock { _ = $0.done.insert(url) }
                 continue
@@ -349,7 +349,7 @@ nonisolated final class CEFFrameworkPrefetch: Sendable {
         while offset < end {
             // SAFETY: pread writes at most min(size, end - offset) <= size bytes into `buffer`, which holds `size`.
             // concurrency-allow: a files-lane item or the library-load thread, never the main thread
-            let count = unsafe pread(descriptor, buffer, min(size, end - offset), off_t(offset))
+            let count = unsafe blockingPread(descriptor, buffer, min(size, end - offset), off_t(offset))
             if count < 0, errno == EINTR { continue }
             guard count > 0 else { break }
             offset += count

@@ -38,21 +38,27 @@ final class ServerMachineSession {
     /// The app's own bundled `cmux` (overlay route bridge), nil when missing.
     @ObservationIgnored private let cli: URL?
 
-    /// - Parameter mainWork: The app's main-thread scheduler (the local daemon's), for the server's event batches.
+    /// - Parameters:
+    ///   - mainWork: The app's main-thread scheduler (the local daemon's), for the server's event batches.
+    ///   - deadlines: The app's one deadline placer (the local daemon's ``DaemonService/deadlines``).
+    ///   - appEvents: The app's one ``AppEvents`` (the local daemon's ``DaemonService/appEvents``).
     init(reach: ServerReach, binary: URL?, paths: SSHPaths, environment: @escaping @Sendable () async -> [String: String],
-         localIdentity: @escaping @MainActor () -> DaemonIdentity?, cli: URL? = nil, mainWork: MainWorkScheduler) {
+         localIdentity: @escaping @MainActor () -> DaemonIdentity?, cli: URL? = nil, mainWork: MainWorkScheduler,
+         deadlines: MainDeadlineScheduler, appEvents: AppEvents) {
         self.reach = reach
         self.cli = cli
         self.localIdentity = localIdentity
         switch reach.route {
         case .ssh(let host):
             let link = binary.map { SSHMachineSession(host: host, binary: $0, paths: paths, environment: environment, machineID: reach.machineID,
-                                                      mainWork: mainWork) }
+                                                      mainWork: mainWork, deadlines: deadlines, appEvents: appEvents) }
             self.link = link
-            daemon = link?.daemon ?? DaemonService(machineID: reach.machineID, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+            daemon = link?.daemon ?? DaemonService(machineID: reach.machineID, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork,
+                                                   deadlines: deadlines, appEvents: appEvents)
         case .unix, .overlay:
             link = nil
-            daemon = DaemonService(machineID: reach.machineID, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
+            daemon = DaemonService(machineID: reach.machineID, echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork,
+                                   deadlines: deadlines, appEvents: appEvents)
         }
         emptyWorkspaces = link?.emptyWorkspaces ?? EmptyWorkspaceRepair(daemon: daemon)
     }

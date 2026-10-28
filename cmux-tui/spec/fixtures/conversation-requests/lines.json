@@ -1,0 +1,689 @@
+{
+  "about": "The line the macOS app sends for every request in Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Conversations, recorded before their migration to the generated <Name>Request types (p05-ipc-041). ConversationsRequestWireGoldenTests (CmuxNextDaemonTests) encodes each one and compares it as JSON; cmux-tui-core server/conversation_wire_tests.rs parses each one as the daemon does.",
+  "requests": [
+    {
+      "name": "conversation-list",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-list"
+      }
+    },
+    {
+      "name": "conversation-snapshot",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-snapshot",
+        "conversation": "c1",
+        "tail": 50
+      }
+    },
+    {
+      "name": "conversation-snapshot clamps tail up to 1",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-snapshot",
+        "conversation": "c1",
+        "tail": 1
+      }
+    },
+    {
+      "name": "conversation-snapshot clamps tail down to 500",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-snapshot",
+        "conversation": "c1",
+        "tail": 500
+      }
+    },
+    {
+      "name": "conversation-history",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-history",
+        "conversation": "c1",
+        "before_seq": 120,
+        "limit": 50
+      }
+    },
+    {
+      "name": "conversation-history clamps limit up to 1",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-history",
+        "conversation": "c1",
+        "before_seq": 120,
+        "limit": 1
+      }
+    },
+    {
+      "name": "conversation-thread",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-thread",
+        "conversation": "c1",
+        "root": "m-1",
+        "after_seq": 0,
+        "limit": 50
+      }
+    },
+    {
+      "name": "conversation-thread clamps limit down to 500",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-thread",
+        "conversation": "c1",
+        "root": "m-1",
+        "after_seq": 9,
+        "limit": 500
+      }
+    },
+    {
+      "name": "conversation-link-resolve",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-link-resolve",
+        "url": "cmux://conversation/c1/message/m-2"
+      }
+    },
+    {
+      "name": "conversation-create",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-create",
+        "idempotency_key": "k-1",
+        "title": "Plan",
+        "participants": [
+          {
+            "id": "user_local",
+            "kind": "human",
+            "display_name": "Me"
+          },
+          {
+            "id": "agent_mux",
+            "kind": "agent",
+            "display_name": "Mux",
+            "agent_class": "mux",
+            "acp_session": "s-1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "conversation-create with an actor",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-create",
+        "idempotency_key": "k-1",
+        "actor": "user_local",
+        "title": "Plan",
+        "participants": [
+          {
+            "id": "user_local",
+            "kind": "human",
+            "display_name": "Me"
+          }
+        ]
+      }
+    },
+    {
+      "name": "conversation-op message.send text in a thread",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-op",
+        "conversation": "c1",
+        "idempotency_key": "cm-1",
+        "transaction": "tx-1",
+        "op": {
+          "kind": "message.send",
+          "client_msg_id": "cm-1",
+          "parts": [
+            {
+              "type": "text",
+              "text": "hi @mux",
+              "runs": [
+                {
+                  "start": 3,
+                  "length": 4,
+                  "mention": "agent_mux"
+                }
+              ]
+            }
+          ],
+          "reply_to": {
+            "message_id": "m-1",
+            "part_index": 0
+          },
+          "thread_root": "m-1"
+        }
+      }
+    },
+    {
+      "name": "conversation-op message.send attachment, link preview and work",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-op",
+        "conversation": "c1",
+        "idempotency_key": "cm-2",
+        "actor": "user_local",
+        "op": {
+          "kind": "message.send",
+          "client_msg_id": "cm-2",
+          "parts": [
+            {
+              "type": "attachment",
+              "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "name": "a.png",
+              "mime_type": "image/png",
+              "byte_count": 2048,
+              "width": 640,
+              "height": 480,
+              "preview": {
+                "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "mime_type": "image/webp",
+                "byte_count": 512
+              }
+            },
+            {
+              "type": "attachment",
+              "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "name": "clip.mov",
+              "mime_type": "video/quicktime",
+              "byte_count": 1048576,
+              "width": 1920,
+              "height": 1080,
+              "duration_ms": 4500,
+              "poster": {
+                "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "mime_type": "image/jpeg",
+                "byte_count": 30000
+              }
+            },
+            {
+              "type": "link_preview",
+              "url": "https://example.com/a",
+              "title": "Example",
+              "site": "example.com",
+              "image": {
+                "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "mime_type": "image/jpeg",
+                "byte_count": 30000
+              }
+            },
+            {
+              "type": "work",
+              "session": "s-1",
+              "status": "running",
+              "preview": "building"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "conversation-op message.edit",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-op",
+        "conversation": "c1",
+        "idempotency_key": "k-edit",
+        "op": {
+          "kind": "message.edit",
+          "message_id": "m-2",
+          "parts": [
+            {
+              "type": "text",
+              "text": "fixed"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "conversation-op message.retract",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-op",
+        "conversation": "c1",
+        "idempotency_key": "k-retract",
+        "op": {
+          "kind": "message.retract",
+          "message_id": "m-2"
+        }
+      }
+    },
+    {
+      "name": "conversation-op reaction.add tapback",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-op",
+        "conversation": "c1",
+        "idempotency_key": "k-react",
+        "op": {
+          "kind": "reaction.add",
+          "message_id": "m-2",
+          "part_index": 0,
+          "reaction": {
+            "tapback": "love"
+          }
+        }
+      }
+    },
+    {
+      "name": "conversation-op reaction.remove emoji",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-op",
+        "conversation": "c1",
+        "idempotency_key": "k-unreact",
+        "op": {
+          "kind": "reaction.remove",
+          "message_id": "m-2",
+          "part_index": 1,
+          "reaction": {
+            "emoji": "🎉"
+          }
+        }
+      }
+    },
+    {
+      "name": "conversation-op read_cursor.set",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-op",
+        "conversation": "c1",
+        "idempotency_key": "k-read",
+        "op": {
+          "kind": "read_cursor.set",
+          "seq": 42
+        }
+      }
+    },
+    {
+      "name": "conversation-op participants.add",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-op",
+        "conversation": "c1",
+        "idempotency_key": "k-add",
+        "op": {
+          "kind": "participants.add",
+          "participant": {
+            "id": "agent_mux",
+            "kind": "agent",
+            "display_name": "Mux",
+            "agent_class": "mux",
+            "acp_session": "s-1"
+          }
+        }
+      }
+    },
+    {
+      "name": "conversation-op title.set",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-op",
+        "conversation": "c1",
+        "idempotency_key": "k-title",
+        "op": {
+          "kind": "title.set",
+          "title": "Renamed"
+        }
+      }
+    },
+    {
+      "name": "conversation-op question.answer",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-op",
+        "conversation": "c1",
+        "idempotency_key": "k-answer",
+        "op": {
+          "kind": "question.answer",
+          "message_id": "m-3",
+          "part_index": 0,
+          "answer": {
+            "selections": {
+              "deployTarget": {
+                "option_ids": [
+                  "prod"
+                ]
+              },
+              "q_note": {
+                "other": "after 5pm"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "conversation-op thread.update",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-op",
+        "conversation": "c1",
+        "idempotency_key": "k-thread",
+        "op": {
+          "kind": "thread.update",
+          "root": "m-1",
+          "title": "Ship it",
+          "status": "resolved"
+        }
+      }
+    },
+    {
+      "name": "conversation-typing",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-typing",
+        "conversation": "c1",
+        "on": true
+      }
+    },
+    {
+      "name": "conversation-typing with an actor",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-typing",
+        "conversation": "c1",
+        "actor": "agent_mux",
+        "on": false
+      }
+    },
+    {
+      "name": "conversation-agent-token",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-agent-token",
+        "participant": "agent_mux"
+      }
+    },
+    {
+      "name": "conversation-bind",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-bind",
+        "participant": "agent_mux",
+        "token": "tok-1"
+      }
+    },
+    {
+      "name": "conversation-search",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-search",
+        "query": "deploy",
+        "limit": 20
+      }
+    },
+    {
+      "name": "conversation-live",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-live",
+        "conversation": "c1"
+      }
+    },
+    {
+      "name": "cloud-conversation-live",
+      "line": {
+        "id": 1,
+        "cmd": "cloud-conversation-live",
+        "conversation": "c1"
+      }
+    },
+    {
+      "name": "conversation-run",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-run",
+        "conversation": "c1",
+        "run": "r-1"
+      }
+    },
+    {
+      "name": "conversation-run after a rev",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-run",
+        "conversation": "c1",
+        "run": "r-1",
+        "after_rev": 7
+      }
+    },
+    {
+      "name": "cloud-conversation-run",
+      "line": {
+        "id": 1,
+        "cmd": "cloud-conversation-run",
+        "conversation": "c1",
+        "agent": "agent_mux",
+        "run": "r-1"
+      }
+    },
+    {
+      "name": "cloud-conversation-run after a seq",
+      "line": {
+        "id": 1,
+        "cmd": "cloud-conversation-run",
+        "conversation": "c1",
+        "agent": "agent_mux",
+        "run": "r-1",
+        "after_seq": 3
+      }
+    },
+    {
+      "name": "conversation-import",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-import",
+        "conversation": "c1",
+        "messages": [
+          {
+            "client_msg_id": "cm-1",
+            "author": "user_local",
+            "parts": [
+              {
+                "type": "text",
+                "text": "hello"
+              }
+            ],
+            "created_at": "2026-10-06T03:06:01.998Z"
+          },
+          {
+            "id": "m-9",
+            "client_msg_id": "cm-2",
+            "author": "agent_mux",
+            "parts": [
+              {
+                "type": "attachment",
+                "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "name": "a.png",
+                "mime_type": "image/png",
+                "byte_count": 2048
+              }
+            ],
+            "created_at": "2026-10-06T03:06:02.000Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "home-inbox",
+      "line": {
+        "id": 1,
+        "cmd": "home-inbox"
+      }
+    },
+    {
+      "name": "home-inbox of the local owner",
+      "line": {
+        "id": 1,
+        "cmd": "home-inbox",
+        "owners": [
+          "local"
+        ]
+      }
+    },
+    {
+      "name": "cloud-inbox-op inbox.pin",
+      "line": {
+        "id": 1,
+        "cmd": "cloud-inbox-op",
+        "conversation": "c1",
+        "idempotency_key": "k-2",
+        "op": {
+          "kind": "inbox.pin",
+          "pinned": true,
+          "position": 3
+        }
+      }
+    },
+    {
+      "name": "cloud-inbox-op inbox.mute until",
+      "line": {
+        "id": 1,
+        "cmd": "cloud-inbox-op",
+        "conversation": "c1",
+        "idempotency_key": "k-3",
+        "op": {
+          "kind": "inbox.mute",
+          "muted": true,
+          "until": 1767225600000
+        }
+      }
+    },
+    {
+      "name": "conversation-inbox-op inbox.pin",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-inbox-op",
+        "conversation": "c1",
+        "op": {
+          "kind": "inbox.pin",
+          "pinned": true,
+          "position": 2
+        }
+      }
+    },
+    {
+      "name": "conversation-inbox-op unpin",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-inbox-op",
+        "conversation": "c1",
+        "op": {
+          "kind": "inbox.pin",
+          "pinned": false
+        }
+      }
+    },
+    {
+      "name": "conversation-inbox-op inbox.mark_unread",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-inbox-op",
+        "conversation": "c1",
+        "op": {
+          "kind": "inbox.mark_unread",
+          "unread": true
+        }
+      }
+    },
+    {
+      "name": "conversation-attachment-upload begin image",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-attachment-upload",
+        "op": "begin",
+        "conversation": "c1",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "byte_count": 2048,
+        "mime_type": "image/png",
+        "name": "a.png",
+        "width": 640,
+        "height": 480,
+        "preview": {
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "byte_count": 512,
+          "mime_type": "image/webp"
+        }
+      }
+    },
+    {
+      "name": "conversation-attachment-upload begin video",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-attachment-upload",
+        "op": "begin",
+        "conversation": "c1",
+        "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "byte_count": 1048576,
+        "mime_type": "video/quicktime",
+        "name": "clip.mov",
+        "width": 1920,
+        "height": 1080,
+        "duration_ms": 4500,
+        "poster": {
+          "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "byte_count": 30000,
+          "mime_type": "image/jpeg"
+        }
+      }
+    },
+    {
+      "name": "conversation-attachment-upload chunk",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-attachment-upload",
+        "op": "chunk",
+        "upload": "u-1",
+        "piece": "preview",
+        "offset": 0,
+        "data": "YWJj"
+      }
+    },
+    {
+      "name": "conversation-attachment-upload commit",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-attachment-upload",
+        "op": "commit",
+        "upload": "u-1"
+      }
+    },
+    {
+      "name": "conversation-attachment-upload cancel",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-attachment-upload",
+        "op": "cancel",
+        "upload": "u-1"
+      }
+    },
+    {
+      "name": "conversation-attachment-read",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-attachment-read",
+        "conversation": "c1",
+        "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "variant": "original",
+        "offset": 0,
+        "length": 4194304
+      }
+    },
+    {
+      "name": "conversation-attachment-read preview",
+      "line": {
+        "id": 1,
+        "cmd": "conversation-attachment-read",
+        "conversation": "c1",
+        "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "variant": "preview",
+        "offset": 65536,
+        "length": 1024
+      }
+    }
+  ]
+}

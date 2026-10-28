@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 public import Foundation
 
 /// Write half of one server->client event lane. ``IrxStreamWriter`` is the
@@ -65,9 +66,13 @@ public struct IrxSurfaceEventLaneProtocol: Sendable {
 struct IrxEventFrameAligner: Sendable {
     enum Failure: Error, Equatable {
         case frameTooLarge(Int)
+        /// The frames counted run past the buffered bytes: the aligner's own state is wrong, so the lane ends.
+        case framesPastBuffer(consumed: Int, buffered: Int)
     }
 
     static let headerByteCount = 4
+    /// The first build in which a `framesPastBuffer` failure traps. Not scheduled: it reports and ends the lane.
+    static let framesWithinBufferFatalFromBuild = UInt64.max
 
     let maximumFrameByteCount: Int
     private var buffer = Data()
@@ -84,6 +89,7 @@ struct IrxEventFrameAligner: Sendable {
         buffer.append(chunk)
         var reader = WireByteReader(buffer)
         var consumed = 0
+        // wakeup-allow: bounded one walk over the buffered bytes, no wait
         while true {
             guard let header = reader.bigEndian(UInt32.self) else { break }
             let length = Int(clamping: header)
@@ -95,6 +101,11 @@ struct IrxEventFrameAligner: Sendable {
         }
         guard consumed > 0 else { return nil }
         let complete = Data(buffer.prefix(consumed))
+        // `reader` skipped every counted byte, so all of them are buffered.
+        let withinBuffer = consumed <= buffer.count
+        Invariant.notFatalUntil(withinBuffer, "irx-event-frames-within-buffer",
+                                build: Self.framesWithinBufferFatalFromBuild)
+        guard withinBuffer else { throw Failure.framesPastBuffer(consumed: consumed, buffered: buffer.count) }
         buffer.removeFirst(consumed)
         return complete
     }

@@ -24,7 +24,7 @@ extension MobileCoreRPCSession {
         lease: MobileRPCConnectAttemptLease?
     ) async {
         let taskID = UUID()
-        let closeTask = Task.detached { [weak self] in
+        let closeTask = Task { [weak self] in
             await transport.close()
             await self?.transportCloseDidFinish(taskID: taskID)
         }

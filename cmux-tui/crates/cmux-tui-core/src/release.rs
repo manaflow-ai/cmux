@@ -16,22 +16,7 @@ pub const DISTRIBUTION_VERSION: &str = match option_env!("CMUX_TUI_DISTRIBUTION_
 
 /// A release version: not empty and not a `0.0.0-…` placeholder stamp.
 pub const fn is_release(version: &str) -> bool {
-    let bytes = version.as_bytes();
-    let placeholder = b"0.0.0-";
-    if bytes.is_empty() {
-        return false;
-    }
-    if bytes.len() < placeholder.len() {
-        return true;
-    }
-    let mut index = 0;
-    while index < placeholder.len() {
-        if bytes[index] != placeholder[index] {
-            return true;
-        }
-        index += 1;
-    }
-    false
+    !matches!(version.as_bytes(), [] | [b'0', b'.', b'0', b'.', b'0', b'-', ..])
 }
 
 /// How this binary reached the machine, read from its own path.

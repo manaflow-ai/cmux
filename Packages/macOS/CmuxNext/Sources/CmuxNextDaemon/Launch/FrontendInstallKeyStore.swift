@@ -1,5 +1,5 @@
 public import Foundation
-import Security
+import CmuxNextCompat
 
 /// Where the app keeps its `FrontendInstallKey`, one per tagged daemon
 /// session. Only unsigned or ad-hoc development builds have one: a 0600 file
@@ -17,6 +17,8 @@ public struct FrontendInstallKeyStores {
 
     /// The store for this app process, or nil. `team` is this process's Team
     /// ID: a signed build gets no store, whatever sits in its state directory.
+    /// The app's launch passes the team it read on its system lane
+    /// (`DaemonLauncher.forApp`).
     public static func forApp(stateDirectory: URL?,
                               team: String? = CodeSigningTeam.current()) -> (any FrontendInstallKeyStore)? {
         guard team == nil, let stateDirectory else { return nil }
@@ -28,26 +30,9 @@ public struct FrontendInstallKeyStores {
 public struct CodeSigningTeam {
     public init() {}
 
-    /// Read once per process: the signature of a running process does not change. Three
-    /// callers asked at launch on the main thread (the daemon prestart, CloudService and the
-    /// Chief's launcher), three SecCode reads each, which Security reports as main-thread
-    /// calls that "may lead to UI unresponsiveness".
-    public static func current() -> String? { cached }
-
-    private static let cached: String? = read()
-
-    private static func read() -> String? {
-        var code: SecCode?
-        // SAFETY (each Copy call below): Security stores at most one +1 object, which ARC then owns, into the
-        // optional local it is given, live for the call.
-        guard unsafe SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
-        var staticCode: SecStaticCode?
-        // SAFETY: as above.
-        guard unsafe SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
-        var information: CFDictionary?
-        // SAFETY: as above.
-        guard unsafe SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &information) == errSecSuccess,
-              let dictionary: [String: Any] = information as? [String: Any] else { return nil }
-        return dictionary[kSecCodeInfoTeamIdentifier as String] as? String
-    }
+    /// Read once per process (``SigningTeamInstall/process``): the signature of a running process does
+    /// not change. The app's first reads are on its system lane at launch (the daemon prestart and the
+    /// signing team load, both posted from `main`); the daemon prestart takes the team from there by
+    /// parameter. Before that load a read asks securityd itself: call it off the main thread, or after launch.
+    public static func current() -> String? { SigningTeamInstall.process.team }
 }

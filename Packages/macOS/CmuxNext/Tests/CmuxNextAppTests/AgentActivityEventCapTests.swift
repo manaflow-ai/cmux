@@ -1,4 +1,5 @@
 import CmuxNextAgentActivity
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -16,7 +17,7 @@ struct AgentActivityEventCapTests {
     }
 
     @Test func aSessionKeepsItsNewestEventsOnly() {
-        let model = AgentActivityModel(source: AgentActivityMockSource())
+        let model = AgentActivityModel(source: AgentActivityMockSource(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         model.apply(.events(session: "s", events(0...(cap + 499))))
         let kept = model.eventsBySession["s"] ?? []
         #expect(AgentActivityModel.maxEventsPerSession == Int(cap))
@@ -26,7 +27,7 @@ struct AgentActivityEventCapTests {
     }
 
     @Test func batchesThatArriveOneByOneStayCapped() {
-        let model = AgentActivityModel(source: AgentActivityMockSource())
+        let model = AgentActivityModel(source: AgentActivityMockSource(), mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         for seq in 0...(cap + 9) { model.apply(.events(session: "s", events(seq...seq))) }
         let kept = model.eventsBySession["s"] ?? []
         #expect(kept.count == Int(cap))

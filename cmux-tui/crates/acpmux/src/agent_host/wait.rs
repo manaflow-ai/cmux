@@ -74,6 +74,14 @@ struct DeathWatch {
     ended: tokio::sync::watch::Sender<Watch>,
 }
 
+impl DeathWatch {
+    fn end(&self, end: Watch) {
+        *self.state.lock_or_recover() = end;
+        self.changed.notify_all();
+        self.ended.send_replace(end);
+    }
+}
+
 fn watches() -> &'static StdMutex<HashMap<PathBuf, Arc<DeathWatch>>> {
     static WATCHES: OnceLock<StdMutex<HashMap<PathBuf, Arc<DeathWatch>>>> = OnceLock::new();
     WATCHES.get_or_init(Default::default)
@@ -92,7 +100,11 @@ fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
     if let Some(w) = map.get(path) {
         return Some(w.clone());
     }
-    let file = std::fs::OpenOptions::new().read(true).write(true).open(path).ok()?;
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let file = scoped_blocking_call("fs::open_with", BlockingKind::Fs, || {
+        std::fs::OpenOptions::new().read(true).write(true).open(path)
+    })
+    .ok()?;
     let w = Arc::new(DeathWatch {
         state: StdMutex::new(Watch::Waiting),
         changed: Condvar::new(),
@@ -100,13 +112,17 @@ fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
     });
     map.insert(path.to_owned(), w.clone());
     let (key, watch) = (path.to_owned(), w.clone());
-    std::thread::spawn(move || {
+    // Scoped to this one incarnation: it owns the descriptor and ends its own entry.
+    let started = crate::supervised::scoped_thread("acpmux-death-watch", move || {
         let end = take_death_lock(file);
         watches().lock_or_recover().remove(&key);
-        *watch.state.lock_or_recover() = end;
-        watch.changed.notify_all();
-        watch.ended.send_replace(end);
+        watch.end(end);
     });
+    if started.is_err() {
+        // No thread, no proof either way.
+        map.remove(path);
+        w.end(Watch::Failed);
+    }
     Some(w)
 }
 
@@ -146,9 +162,11 @@ fn take_death_lock(_file: std::fs::File) -> Watch {
 pub fn wait_dead_within(dir: &Path, session_id: &str, start_nonce: &str, budget: Duration) -> bool {
     let Some(w) = watch(&live_path(dir, session_id, start_nonce)) else { return true };
     let state = w.state.lock_or_recover();
-    let (state, _) = w
-        .changed
-        .wait_timeout_while(state, budget, |s| *s == Watch::Waiting)
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let (state, _) =
+        scoped_blocking_call("sync::wait_timeout_while", BlockingKind::CondvarWait, || {
+            w.changed.wait_timeout_while(state, budget, |s| *s == Watch::Waiting)
+        })
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     *state == Watch::Dead
 }

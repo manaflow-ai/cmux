@@ -28,7 +28,7 @@ struct PreviousLaunch: Equatable, Sendable {
     /// too; a deleted workspace group, a tab or a screen does not. `install` is this install's id
     /// (nil: window records are not kept, so only direct window reopens apply).
     func plan(closed: [ClosedItem], registry: WindowRegistry, install: String?) -> Plan {
-        let records = Dictionary(uniqueKeysWithValues: windowIDs.compactMap { id in install.map { ($0 + "/" + id, id) } })
+        let records = Dictionary(windowIDs.compactMap { id in install.map { ($0 + "/" + id, id) } }, uniquingKeysWith: { first, _ in first })
         let recent = closed.filter { $0.closedAtMs >= restoredAtMs }.sorted { $0.closedAtMs < $1.closedAtMs }
         var plan = Plan()
         for id in windowIDs where registry.window(id)?.isOpen == false {

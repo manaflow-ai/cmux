@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextCompat
 import CmuxNextControl
@@ -34,7 +35,9 @@ final class QuitCoordinator {
     /// The browser tabs that held Secure Input as this quit began, before any dialog took the keyboard: they leave
     /// no launch picture (`TabContentCache.secureInputPages`).
     private var secureInputPages: Set<String> = []
-    private unowned let services: AppServices
+    private let servicesReference: OwnerReference<AppServices>
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
     /// The quit hook's participants (`AppServices.quitUnsaved`; tests replace it).
     var unsaved: QuitUnsavedRegistry
     /// The app's main-thread watchdog (AppDelegate): a quit that is ending
@@ -50,7 +53,7 @@ final class QuitCoordinator {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = OwnerReference(services: services)
         unsaved = services.quitUnsaved
         origins = QuitOriginTracker(workspaceEvents: services.workspaceEvents)
     }
@@ -87,6 +90,8 @@ final class QuitCoordinator {
             sheet?.answerDefault()
             return .terminateLater
         }
+        // No services: nothing is left to save or ask about.
+        guard let services else { return .terminateNow }
         isQuitting = true
         secureInputPages = services.cache.secureInputPages()
         // Quit (menu, Cmd-Q, socket) never waits on another open sheet.
@@ -98,19 +103,19 @@ final class QuitCoordinator {
         // (or the system) asked for, at user-blocking priority; it drains BackgroundWork itself, so shutdown lets it run on.
         // The body is main-actor (decideQuit); the task captures only Sendable values.
         services.work.task(.userBlocking, shutdown: .continueOnShutdown) { [self, services] in
-            await decideQuit(origin, behavior: behavior, sender)
+            await decideQuit(origin, behavior: behavior, sender, services: services)
             withExtendedLifetime(services) {}
         }
         return .terminateLater
     }
 
     /// The rest of `shouldTerminate(_:)`'s quit: the unsaved step, then the policy's answer.
-    private func decideQuit(_ origin: QuitOrigin, behavior: QuitBehavior, _ sender: NSApplication) async {
+    private func decideQuit(_ origin: QuitOrigin, behavior: QuitBehavior, _ sender: NSApplication, services: AppServices) async {
         // Unsaved documents come first (R96 quit hook). Answering that
         // question is the quit's one dialog: the sessions are not asked
         // about after it (#17501).
         let askedUnsaved = origin == .interactive && !unsaved.unsaved().isEmpty
-        guard await resolveUnsaved(origin) else {
+        guard await resolveUnsaved(origin, services: services) else {
             isQuitting = false
             sender.reply(toApplicationShouldTerminate: false)
             return
@@ -118,15 +123,15 @@ final class QuitCoordinator {
         let facts = QuitPolicy.needsFacts(origin) && !askedUnsaved ? await QuitFactsReader.read(services) : .none
         switch QuitPolicy.decide(origin, behavior: behavior, facts: facts, alreadyAsked: askedUnsaved) {
         case .quit(let choice):
-            await complete(choice, remember: false, sender)
+            await complete(choice, remember: false, sender, services: services)
         case .ask(let prompt):
             ask(prompt, sender, activate: Self.shouldActivate(origin, isActive: NSApp.isActive,
-                                                              noActivate: WindowPlacement.noActivate))
+                                                              noActivate: WindowPlacement.noActivate), services: services)
         }
     }
 
     /// The unsaved step for `origin` (`QuitUnsavedStep.resolve`).
-    private func resolveUnsaved(_ origin: QuitOrigin) async -> Bool {
+    private func resolveUnsaved(_ origin: QuitOrigin, services: AppServices) async -> Bool {
         let window = sheetWindow()
         return await QuitUnsavedStep.resolve(origin, registry: unsaved, scope: window.map { .window($0) } ?? .app, work: services.work,
                                              writeDrafts: { [drafts = services.recoveryDrafts] in await drafts.writePending() })
@@ -139,10 +144,10 @@ final class QuitCoordinator {
         origin == .interactive && !isActive && !noActivate
     }
 
-    private func ask(_ prompt: QuitPrompt, _ sender: NSApplication, activate: Bool) {
+    private func ask(_ prompt: QuitPrompt, _ sender: NSApplication, activate: Bool, services: AppServices) {
         lastAskActivated = activate
         if activate { NSApp.activate() }
-        let sheet = QuitAlert(prompt: prompt) { [weak self] answer in
+        let sheet = QuitAlert(prompt: prompt) { [weak self, weak services] answer in
             guard let self else { return }
             self.sheet = nil
             switch answer {
@@ -150,9 +155,11 @@ final class QuitCoordinator {
                 self.isQuitting = false
                 sender.reply(toApplicationShouldTerminate: false)
             case .quit(let choice, let remember):
+                // No services: nothing is left to save.
+                guard let services else { return sender.reply(toApplicationShouldTerminate: true) }
                 // The rest of the person's answer, as above: it drains BackgroundWork itself.
-                self.services.work.task(.userBlocking, shutdown: .continueOnShutdown) { [self, services = self.services] in
-                    await complete(choice, remember: remember, sender)
+                services.work.task(.userBlocking, shutdown: .continueOnShutdown) { [self, services] in
+                    await complete(choice, remember: remember, sender, services: services)
                     withExtendedLifetime(services) {} // pins the app's services until the quit ends
                 }
             }
@@ -161,9 +168,9 @@ final class QuitCoordinator {
         sheet.present(in: sheetWindow())
     }
 
-    private func complete(_ choice: QuitSessionsChoice, remember: Bool, _ sender: NSApplication) async {
+    private func complete(_ choice: QuitSessionsChoice, remember: Bool, _ sender: NSApplication, services: AppServices) async {
         logger.info("quit choice=\(choice.rawValue, privacy: .public) remember=\(remember)")
-        let services = services, secureInputPages = secureInputPages
+        let secureInputPages = secureInputPages
         // Sparkle installs a staged update as the app exits unless
         // `updates.installOnQuit` is off (then its installer is cancelled now).
         services.updater.prepareForQuit()
@@ -201,7 +208,7 @@ final class QuitCoordinator {
                 // Agent panes on screen draw their last page at the next launch.
                 let agentPages = await services.agentTabs.shownPageImages()
                 await services.agentTabs.launchImages.save(agentPages)
-                let terminalStore = TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
+                let terminalStore = services.terminalLaunchFrames
                 let terminalFrames = await terminalStore.frames(of: services.cache.terminals.mapValues(\.session))
                 await terminalStore.save(images: terminalFrames)  // and terminals their last frame
                 // And browser pages theirs (`browserLaunchPictures`; with it off, the last quit's pictures go).
@@ -238,7 +245,7 @@ final class QuitCoordinator {
                 // The Chief home's host ends with the sessions (home-state-ownership.md section 3),
                 // and Home does not start it again.
                 await services.home.brain.stop()
-                let acpmux = QuitAgents.environment(services)
+                let acpmux = await QuitAgents.resolvedEnvironment(services)
                 // A Chief home whose acpmux is the attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) ends nothing there.
                 if !QuitAgents.isAttached(acpmux, to: services.home.chief.home.acpmuxHome) {
                     await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
@@ -350,6 +357,7 @@ final class QuitCoordinator {
 
     /// The active shell window when it can carry a sheet.
     private func sheetWindow() -> NSWindow? {
+        guard let services else { return nil }
         let candidates = [services.windows.active?.window, NSApp.mainWindow] + services.windows.controllers.map(\.window)
         return candidates.compactMap { $0 }.first { $0.isVisible && !$0.isMiniaturized && $0.attachedSheet == nil }
     }

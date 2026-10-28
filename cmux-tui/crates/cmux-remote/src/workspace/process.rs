@@ -94,18 +94,28 @@ impl AsyncPty {
         let raw = master
             .as_raw_fd()
             .ok_or_else(|| std::io::Error::other("PTY master has no file descriptor"))?;
+        // SAFETY: `master` keeps `raw` open for the call; F_DUPFD_CLOEXEC takes an int, no pointer,
+        // and returns a new descriptor or -1.
         let duplicated = unsafe { libc::fcntl(raw, libc::F_DUPFD_CLOEXEC, 0) };
         if duplicated < 0 {
             return Err(std::io::Error::last_os_error());
         }
+        // SAFETY: `duplicated` is the fresh descriptor this function owns; F_GETFL takes no pointer
+        // argument.
         let flags = unsafe { libc::fcntl(duplicated, libc::F_GETFL) };
         if flags < 0
+            // SAFETY: `duplicated` is the fresh descriptor this function owns; F_SETFL takes an int
+            // flag set, no pointer.
             || unsafe { libc::fcntl(duplicated, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0
         {
             let error = std::io::Error::last_os_error();
+            // SAFETY: `duplicated` is still owned only here (no OwnedFd took it yet), so this is
+            // its only close.
             let _ = unsafe { libc::close(duplicated) };
             return Err(error);
         }
+        // SAFETY: `duplicated` is a fresh descriptor from F_DUPFD_CLOEXEC that nothing else owns;
+        // the OwnedFd takes its sole ownership.
         let fd = unsafe { OwnedFd::from_raw_fd(duplicated) };
         Ok(Arc::new(Self { fd: AsyncFd::new(fd)? }))
     }
@@ -114,6 +124,8 @@ impl AsyncPty {
         loop {
             let mut ready = self.fd.readable().await?;
             match ready.try_io(|fd| {
+                // SAFETY: `fd` owns the descriptor for the call and `buffer` is a live, writable
+                // slice of the length passed; read writes at most that many bytes.
                 let read = unsafe {
                     libc::read(fd.get_ref().as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len())
                 };
@@ -131,6 +143,9 @@ impl AsyncPty {
         while offset < bytes.len() {
             let mut ready = self.fd.writable().await?;
             match ready.try_io(|fd| {
+                // SAFETY: `fd` owns the descriptor for the call and `bytes[offset..]` is a live
+                // slice of the length passed (offset < len by the loop condition); write only reads
+                // it.
                 let written = unsafe {
                     libc::write(
                         fd.get_ref().as_raw_fd(),
@@ -851,6 +866,7 @@ impl Drop for PendingPtyChild {
         let Some(mut child) = self.child.take() else { return };
         #[cfg(unix)]
         if let Some(pid) = self.pid.and_then(|pid| i32::try_from(pid).ok()) {
+            // SAFETY: kill takes integers only and touches no memory.
             if unsafe { libc::kill(-pid, libc::SIGKILL) } != 0 {
                 let _ = child.kill();
             }
@@ -894,9 +910,11 @@ impl Drop for PendingProcessGuard {
         if let Some(pid) = self.pid.and_then(|pid| i32::try_from(pid).ok()) {
             let target = if self.signal_process_group { -pid } else { pid };
             if let Some(process_target) = &self.target {
+                // SAFETY: kill takes integers only and touches no memory.
                 let _ =
                     process_target.signal_if_live(|| unsafe { libc::kill(target, libc::SIGKILL) });
             } else {
+                // SAFETY: kill takes integers only and touches no memory.
                 let _ = unsafe { libc::kill(target, libc::SIGKILL) };
             }
         }
@@ -1059,7 +1077,7 @@ impl ProcessManager {
         let cwd_directory = {
             let unix_root = root.unix_root();
             let canonical = cwd.clone();
-            tokio::task::spawn_blocking(move || {
+            cmux_blocking::spawn_blocking(move || {
                 unix_root.pinned_directory_for_canonical_path(&canonical)
             })
             .await
@@ -1079,7 +1097,7 @@ impl ProcessManager {
         #[cfg(unix)]
         {
             let verifier = cwd_directory.try_clone()?;
-            tokio::task::spawn_blocking(move || verifier.verify_identity("process cwd"))
+            cmux_blocking::spawn_blocking(move || verifier.verify_identity("process cwd"))
                 .await
                 .map_err(|error| {
                 RpcError::new("internal", format!("process cwd verification task failed: {error}"))
@@ -1278,6 +1296,7 @@ impl ProcessManager {
         self.processes.write().await.insert_active(id, record.clone());
         let waiter_record = record.clone();
         let processes = self.processes.clone();
+        // supervise-allow: one process's waiter; it ends when the process is reaped, and a panic drops `exit_tx`, which ends every wait on this process (only its record stays listed).
         tokio::spawn(async move {
             #[cfg(unix)]
             let status =
@@ -1432,6 +1451,7 @@ impl ProcessManager {
             drop(output_activity);
             let (status_tx, status_rx) = oneshot::channel();
             let target = record.target.clone();
+            // supervise-allow: one terminal's reaper; it ends when the child is reaped, and a panic drops `status_tx`, so the waiter below reports an unknown exit.
             tokio::spawn(async move {
                 let _pty_slot = pty_slot;
                 let outcome =
@@ -1452,6 +1472,7 @@ impl ProcessManager {
             self.processes.write().await.insert_active(id, record.clone());
             let waiter_record = record.clone();
             let processes = self.processes.clone();
+            // supervise-allow: one process's waiter; it ends when the process is reaped, and a panic drops `exit_tx`, which ends every wait on this process (only its record stays listed).
             tokio::spawn(async move {
                 let outcome = status_rx
                     .await
@@ -1481,6 +1502,7 @@ impl ProcessManager {
             let reader_events = events.clone();
             // Terminal output the person waits for: UserInitiated, not the
             // closed user-interactive list (threading-model.md).
+            // supervise-allow: one terminal's reader, joined by its wait thread below; a panic ends that terminal's output only.
             let reader_thread = cmux_threads::spawn(
                 format!("cmux-remote-pty-{id}"),
                 cmux_threads::ThreadQos::UserInitiated,
@@ -1497,6 +1519,7 @@ impl ProcessManager {
             .map_err(|error| RpcError::new("pty-open-failed", error.to_string()))?;
             let (status_tx, status_rx) = oneshot::channel();
             let thread_record = record.clone();
+            // supervise-allow: one terminal's wait thread; it ends when the child exits, and a panic drops `status_tx`, so the waiter below reports an unknown exit.
             cmux_threads::spawn(
                 format!("cmux-remote-pty-wait-{id}"),
                 cmux_threads::ThreadQos::Utility,
@@ -1519,6 +1542,7 @@ impl ProcessManager {
             self.processes.write().await.insert_active(id, record.clone());
             let waiter_record = record.clone();
             let processes = self.processes.clone();
+            // supervise-allow: one process's waiter; it ends when the process is reaped, and a panic drops `exit_tx`, which ends every wait on this process (only its record stays listed).
             tokio::spawn(async move {
                 let outcome = status_rx.await.unwrap_or(ExitOutcome { code: None, signal: None });
                 processes.write().await.complete(id);
@@ -1638,7 +1662,7 @@ impl ProcessManager {
             #[cfg(not(unix))]
             {
                 let mut writer = writer;
-                let mut write = tokio::task::spawn_blocking(move || {
+                let mut write = cmux_blocking::spawn_blocking(move || {
                     let result = writer.write_all(&bytes).and_then(|()| {
                         if send_control_d {
                             writer.write_all(&[4])?;
@@ -2035,7 +2059,9 @@ async fn wait_for_process_completions(
 ) -> bool {
     tokio::time::timeout(
         timeout,
-        futures_util::future::join_all(completions.iter().map(|completion| completion.wait())),
+        futures_util::future::join_all(
+            completions.iter().map(Arc::as_ref).map(ProcessCompletion::wait),
+        ),
     )
     .await
     .is_ok()
@@ -2455,6 +2481,7 @@ fn schedule_process_timeout(record: Arc<ProcessRecord>, timeout_ms: Option<u64>)
     let Some(timeout_ms) = timeout_ms else { return };
     let mut exit = record.exit.clone();
     let record = Arc::downgrade(&record);
+    // supervise-allow: one process's timeout; it ends at the timeout or the exit, holds only a Weak record, and a panic loses only that timeout.
     tokio::spawn(async move {
         tokio::select! {
             _ = tokio::time::sleep(std::time::Duration::from_millis(timeout_ms)) => {
@@ -2471,6 +2498,7 @@ fn schedule_process_timeout(record: Arc<ProcessRecord>, timeout_ms: Option<u64>)
 
 fn terminate_with_escalation(record: Arc<ProcessRecord>) -> Result<(), RpcError> {
     signal_record(&record, ProcessSignal::Terminate)?;
+    // supervise-allow: one escalation after TERMINATION_GRACE; a panic loses only the follow-up kill of a process already sent SIGTERM.
     tokio::spawn(async move {
         tokio::time::sleep(TERMINATION_GRACE).await;
         if !record.completion.is_finished() {
@@ -2510,6 +2538,7 @@ fn signal_record(record: &ProcessRecord, signal: ProcessSignal) -> Result<(), Rp
             pid
         };
         let target = if record.signal_process_group { -signal_pid } else { signal_pid };
+        // SAFETY: kill takes integers only and touches no memory.
         unsafe { libc::kill(target, native) }
     }) else {
         return Ok(());

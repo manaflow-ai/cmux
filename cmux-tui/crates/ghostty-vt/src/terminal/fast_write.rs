@@ -15,7 +15,7 @@ impl Terminal {
     pub(super) fn feed_trackers(&mut self, data: &[u8]) -> bool {
         let mut mouse_modes_may_have_changed = false;
         let mut at = 0;
-        while at < data.len() {
+        while let Some(&byte) = data.get(at) {
             if self.trackers_idle() {
                 let line_ends_neutral = !self.prompt_semantic.waits_for_line_end();
                 let end = byte_scan::neutral_run_end(data, at, line_ends_neutral);
@@ -25,7 +25,6 @@ impl Terminal {
                     continue;
                 }
             }
-            let byte = data[at];
             self.kitty_inflight.step(byte);
             self.vt_boundary.step(byte);
             self.prompt_semantic.step(byte);
@@ -70,10 +69,13 @@ impl Terminal {
         let mouse_modes_may_have_changed =
             self.mouse_mode_change_detector.write_reference(&normalized);
         self.history_markers_before_write();
+        // SAFETY: `self.raw` is this Terminal's live handle; `normalized` is
+        // readable for `normalized.len()` bytes for the call.
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
         self.history_markers_after_write();
         let history_rows = self.scrollback_rows();
         let history_anchor_evicted = !self.history_anchor.is_null()
+            // SAFETY: `history_anchor` is a non-null anchor this Terminal owns.
             && !unsafe { sys::ghostty_tracked_grid_ref_has_value(self.history_anchor) };
         if previous_history_rows != history_rows || history_anchor_missing || history_anchor_evicted
         {

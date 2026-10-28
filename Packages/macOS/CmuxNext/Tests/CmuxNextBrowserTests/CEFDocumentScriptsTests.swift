@@ -24,6 +24,7 @@ import Testing
             ("media", scripts.media, .browserTabs),
             ("verification", scripts.verification, .browserTabs),
             ("firstPaint", scripts.firstPaint, .everyDocument),
+            ("pageHost", scripts.pageHost, .cmuxPages),
         ]
         return groups.flatMap { group, list, scope in
             list.enumerated().map { Row(post: post, group: group, index: $0.offset, script: $0.element, expected: scope) }
@@ -32,9 +33,11 @@ import Testing
 
     @Test(arguments: rows) func everyScriptHasTheGuardOfItsScope(_ row: Row) {
         #expect(row.script.scope == row.expected)
-        let guarded = row.script.source.hasPrefix(CEFDocumentScripts.cmuxPageGuard)
-            && row.script.source.hasSuffix(CEFDocumentScripts.cmuxPageGuardEnd)
+        let ends = row.script.source.hasSuffix(CEFDocumentScripts.cmuxPageGuardEnd)
+        let guarded = row.script.source.hasPrefix(CEFDocumentScripts.cmuxPageGuard) && ends
+        let pageOnly = row.script.source.hasPrefix(CEFDocumentScripts.cmuxPageOnlyGuard) && ends
         #expect(guarded == (row.expected == .browserTabs), "\(row.testDescription) guard: \(guarded)")
+        #expect(pageOnly == (row.expected == .cmuxPages), "\(row.testDescription) page-only guard: \(pageOnly)")
     }
 
     /// The table holds every script `all` installs: a new group needs its row.
@@ -42,12 +45,70 @@ import Testing
         #expect(Self.rows.filter { $0.post == post }.map(\.script) == CEFDocumentScripts(post: post).all)
     }
 
-    /// A page tab reads only the channel of the one script that runs in every document.
-    @Test func onlyTheFirstPaintChannelServesCmuxPages() {
-        #expect(CEFPageMessage.Channel.allCases.filter(\.servesCmuxPages) == [.firstPaint])
+    /// A page tab reads only the channels of the scripts that run in cmux pages: the first paint (every document)
+    /// and the page host relay (cmux pages only), which a browser tab never reads.
+    @Test func onlyTheFirstPaintAndPageHostChannelsServeCmuxPages() {
+        #expect(CEFPageMessage.Channel.allCases.filter(\.servesCmuxPages) == [.firstPaint, .pageHost])
+        #expect(CEFPageMessage.Channel.allCases.filter { !$0.servesBrowserTabs } == [.pageHost])
         let everyDocumentWorlds = Set(Self.rows.filter { $0.expected == .everyDocument }.map(\.script.world))
         #expect(everyDocumentWorlds == [CEFPageMessage.Channel.firstPaint.world])
+        let pageWorlds = Set(Self.rows.filter { $0.expected == .cmuxPages }.map(\.script.world))
+        #expect(pageWorlds == [CEFPageMessage.Channel.pageHost.world])
+        #expect(Self.rows.filter { $0.expected == .cmuxPages }.allSatisfy { !$0.script.allFrames }, "the relay is the main frame's")
     }
+
+    /// p01-process-232: the page host relay posts the page's event text on its channel, stamped with the URL of the
+    /// document it runs in, and cancels the event, so the page sends no binding call; it runs only in a cmux page.
+    @Test(arguments: documents) func thePageHostRelayPostsOnlyInACmuxPage(_ document: Document) throws {
+        let context = try Self.context(document)
+        context.evaluateScript(Self.domStub + "location.href = 'cmux-page://agent/index.html#/chat';")
+        let relay = try #require(CEFDocumentScripts(post: .pageChannel).pageHost.first)
+        context.evaluateScript(relay.source)
+        #expect(context.exception == nil, "\(String(describing: context.exception))")
+        let taken = context.evaluateScript("fire('[1,2]')").toBool()
+        #expect(taken == (document.scheme == "cmux-page:"), "the relay took the post: \(taken)")
+        let posted = context.evaluateScript("posts.join('|')").toString()
+        #expect(posted == (document.scheme == "cmux-page:" ? "cmuxPageHost cmux-page://agent/index.html#/chat\n[1,2]" : ""))
+    }
+
+    /// The host reads the relay's stamp back: the sender's URL and the page's text, newlines in the text kept; a
+    /// post with no stamp is not the relay's.
+    @Test func aPageHostPostSplitsIntoItsSenderAndText() throws {
+        let post = try #require(CEFDocumentScripts.pageHostPost("cmux-page://agent/index.html\n{\"a\":\"x\\ny\"}\nz"))
+        #expect(post.sender.absoluteString == "cmux-page://agent/index.html")
+        #expect(post.text == "{\"a\":\"x\\ny\"}\nz")
+        #expect(CEFDocumentScripts.pageHostPost(#"{"name":"cmuxPage"}"#) == nil)
+    }
+
+    /// A relay whose channel is missing (a refused channel) leaves the event uncancelled: the page falls back.
+    @Test func thePageHostRelayLeavesAPostWithNoChannel() throws {
+        let context = try Self.context(Document(scheme: "cmux-page:", origin: "cmux-page://agent", runs: false))
+        context.evaluateScript(Self.domStub + "cmuxPost = undefined;")
+        let relay = try #require(CEFDocumentScripts(post: .pageChannel).pageHost.first)
+        context.evaluateScript(relay.source)
+        #expect(context.evaluateScript("fire('x')").toBool() == false)
+        #expect(CEFDocumentScripts(post: .binding).pageHost.isEmpty, "the DevTools path has no relay")
+    }
+
+    /// `document.addEventListener` / `dispatchEvent` for one cancelable event, a `cmuxPost` that records its posts,
+    /// and `fire(text)`, which answers whether a listener cancelled the event.
+    static let domStub = """
+    var posts = [];
+    var listeners = [];
+    var cmuxPost = function (channel, text) { posts.push(channel + ' ' + text); };
+    var document = {
+      addEventListener: function (type, listener) { listeners.push({ type: type, listener: listener }); },
+      dispatchEvent: function (event) {
+        for (var i = 0; i < listeners.length; i++) if (listeners[i].type === event.type) listeners[i].listener(event);
+        return !event.defaultPrevented;
+      },
+    };
+    function fire(text) {
+      var event = { type: '\(CEFDocumentScripts.pageHostEvent)', detail: text, defaultPrevented: false,
+                    preventDefault: function () { this.defaultPrevented = true; }, stopImmediatePropagation: function () {} };
+      return !document.dispatchEvent(event);
+    }
+    """
 
     /// A document as the guard sees it.
     nonisolated struct Document: Sendable, CustomTestStringConvertible {

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 public import CmuxNextInput
+public import CmuxNextWakeups
 public import Foundation
 
 /// The agent panes a chat's subagents opened in (`chat.subagentPane`), one tracker per acpmux
@@ -113,7 +114,7 @@ public final class AgentSubagentPanes {
         public var again: (Request) -> Void
         /// The time, for ``focusBound``.
         public var now: () -> ContinuousClock.Instant
-        /// Calls `acted` on the person's next action (``watchUser(on:)``); returns what stops watching.
+        /// Calls `acted` on the person's next action (``watchUser(on:appEvents:)``); returns what stops watching.
         public var watchUser: (_ acted: @escaping @MainActor @Sendable () -> Void) -> () -> Void
 
         public init(isOpen: @escaping (String) -> Bool, focus: @escaping (String, Bool) -> Void,
@@ -187,19 +188,20 @@ public final class AgentSubagentPanes {
     ///
     /// - Parameters:
     ///   - input: The app's input tap (`AppServices.inputTap`).
-    ///   - center: Where window and app activation are announced (tests post their own).
-    public static func watchUser(on input: InputEventTap, center: NotificationCenter = .default)
+    ///   - appEvents: The app's one ``AppEvents`` (`AppServices.appEvents`): window and app activation come through its
+    ///     one observer per notice, not one per watch (tests make one on their own center).
+    public static func watchUser(on input: InputEventTap, appEvents: AppEvents)
         -> (_ acted: @escaping @MainActor @Sendable () -> Void) -> () -> Void {
         { acted in
             let presses = input.subscribe(class: [.key, .button], phase: .intercept(order: .standard)) { event in
                 if Self.presses.matches(event.type) { acted() }
                 return .pass
             }
-            let observers = [NSWindow.didBecomeKeyNotification, NSApplication.didResignActiveNotification].map { name in
-                MainActorObservation(name, center: center) {
-                    acted()
-                }
-            }
+            // Delivered always: the owed focus is the app's, whichever pane shows.
+            let observers = [
+                appEvents.subscribe(NSWindow.didBecomeKeyNotification, owner: "AgentSubagentPanes.watchUser") { acted() },
+                appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "AgentSubagentPanes.watchUser") { acted() },
+            ]
             return {
                 presses.cancel()
                 observers.forEach { $0.cancel() }

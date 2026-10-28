@@ -82,11 +82,16 @@ impl super::Transport for Network {
         if left == 0 {
             return Ok(Waited::Expired);
         }
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|_| unavailable())?;
-        let result = runtime.block_on(wait(api, begun, Duration::from_millis(left)));
+        // The person waits for the pairing approval.
+        let runtime = cmux_threads::tokio::builder(
+            "cmux-server-pair",
+            cmux_threads::ThreadQos::UserInitiated,
+            cmux_threads::tokio::Flavor::CurrentThread,
+        )
+        .build()
+        .map_err(|_| unavailable())?;
+        let result =
+            cmux_threads::tokio::block_on(&runtime, wait(api, begun, Duration::from_millis(left)));
         runtime.shutdown_timeout(Duration::from_secs(1));
         result
     }

@@ -323,14 +323,14 @@ public final class DaemonWireStats: Sendable {
 
     public func snapshot() -> Snapshot {
         func perRole(_ base: Int) -> [Role: UInt64] {
-            Dictionary(uniqueKeysWithValues: Role.allCases.map { ($0, load(base + $0.rawValue)) })
+            Dictionary(Role.allCases.map { ($0, load(base + $0.rawValue)) }, uniquingKeysWith: { first, _ in first })
         }
         return Snapshot(
             bytesRead: load(Counter.bytesRead.rawValue),
             bytesWritten: load(Counter.bytesWritten.rawValue),
             linesRead: load(Counter.linesRead.rawValue),
             linesWritten: load(Counter.linesWritten.rawValue),
-            framesRead: Dictionary(uniqueKeysWithValues: FrameKind.allCases.map { ($0, load(Self.frameBase + $0.rawValue)) }),
+            framesRead: Dictionary(FrameKind.allCases.map { ($0, load(Self.frameBase + $0.rawValue)) }, uniquingKeysWith: { first, _ in first }),
             jsonDecodes: load(Counter.jsonDecodes.rawValue),
             outputBytesCopiedApp: load(Counter.outputBytesCopiedApp.rawValue),
             connectionsOpened: perRole(Self.openedBase),

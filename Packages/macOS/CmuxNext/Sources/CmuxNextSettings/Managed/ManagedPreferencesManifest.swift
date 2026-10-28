@@ -139,7 +139,7 @@ public nonisolated enum ManagedPreferencesManifest {
                 p["items"] = e.choices.isEmpty ? ["type": "string"] : ["type": "string", "enum": e.choices]
             case .dictionary:
                 p["type"] = "object"
-                p["properties"] = Dictionary(uniqueKeysWithValues: e.members.map { ($0, ["type": "string", "title": $0]) })
+                p["properties"] = Dictionary(e.members.map { ($0, ["type": "string", "title": $0]) }, uniquingKeysWith: { first, _ in first })
             }
             if e.type != .array, !e.choices.isEmpty { p["enum"] = e.choices }
             if let range = e.range {

@@ -339,6 +339,9 @@ pub mod method {
     /// Energy Saver for this process and its maintenance jobs
     /// (`energy_control.rs`); the unix socket and the local app only.
     pub const MUX_ENERGY: &str = "_acpmux/energy";
+    /// The app's memory limit, relayed by the cmux daemon
+    /// (`memory_control.rs`); the unix socket and the local app only.
+    pub const MUX_MEMORY_LIMIT: &str = "_acpmux/memory_limit";
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
     pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";

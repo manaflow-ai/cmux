@@ -168,7 +168,7 @@ struct SlicedReleaseTests {
         let io = DaemonTerminalIO(target: .init(attachment: attachment, initialSize: CellSize(cols: 80, rows: 24)), resizes: ResizeCoordinator(),
                                   visible: false, connection: { throw CancellationError() })
         return TerminalEntry(validity: "test", session: session, io: io, themeKey: TerminalThemeKey(machine: services.daemon.machineID, tab: tab),
-                             store: services.daemon.store, surface: tab.surface)
+                             store: services.daemon.store, surface: tab.surface, mainWork: services.mainWork)
     }
 }
 

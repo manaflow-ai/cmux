@@ -3,8 +3,9 @@ public import Foundation
 /// cmux-page:// first-party pages for Chromium tabs. The app sets the checked
 /// table (CmuxNextApp `FirstPartyPageSchemes`) before Chromium starts;
 /// `CEFRuntime` hands each entry to `cmux_shim_page_scheme_add_first_party`
-/// when it initializes CEF. The shim refuses a reserved (`cmux.`) id on any
-/// other path.
+/// when it initializes CEF, in process or as a preinit op to the Chromium Host
+/// (p01-process-070). The shim refuses a reserved (`cmux.`) id on any other
+/// path.
 @MainActor
 public struct CEFPageSchemes {
     public init() {}
@@ -64,33 +65,61 @@ public struct CEFPageSchemes {
     /// Page id (`cmux.agent`) to its entry.
     public static var firstParty: [String: Entry] = [:]
 
-    /// Adds each entry to `shim` (`cmux_shim_page_scheme_add_first_party`, or its dynamic form for a page
-    /// with dynamic prefixes or its own entry file), then each entry's process group when the shim exports
-    /// `cmux_shim_page_scheme_set_group` (``CEFShimLibrary/pageSchemeSetGroup``). Call before `CefInitialize`.
-    ///
-    /// - Returns: The page ids the shim refused, and the ids whose group it refused, each sorted.
-    static func add(_ entries: [String: Entry], to shim: CEFShimLibrary) -> (pages: [String], groups: [String]) {
-        let pages = entries.compactMap { id, entry -> String? in
-            let added = entry.dynamicPrefixes.isEmpty && entry.entry == "index.html"
-                ? shim.pageSchemeAddFirstParty(id, entry.root.path, entry.csp)
-                : shim.pageSchemeAddFirstPartyDynamic(id, entry.root.path, entry.csp, entry.dynamicPrefixes.joined(separator: "\n"),
-                                                      entry.entry)
-            return added == 1 ? nil : id
-        }.sorted()
-        guard let setGroup = shim.pageSchemeSetGroup else { return (pages, []) }
-        return (pages, registerProcessGroups(entries) { id, group in setGroup(id, group) == 1 })
+    /// A first-party page, or its renderer group, that the shim did not register (``add(_:through:refused:)``).
+    enum Refusal: Equatable, Sendable {
+        /// The page's id: the shim refused its scheme (`cmux_shim_page_scheme_add_first_party`, or its
+        /// dynamic form).
+        case page(String)
+        /// The page's id: the fork refused its renderer group (`cmux_shim_page_scheme_set_group`).
+        case group(String)
     }
 
-    /// Hands each grouped entry's process group to the fork through `setGroup` (the shim's
-    /// `cmux_shim_page_scheme_set_group`; true when the fork took it) before `CefInitialize` returns,
-    /// so Chromium knows a page's group when it computes the page's process lock. An entry with no
-    /// group makes no call, so a table made with the feature off makes none.
+    /// Adds each entry to `runtime`'s shim (`cmux_shim_page_scheme_add_first_party`, or its dynamic form
+    /// for a page with dynamic prefixes or its own entry file), then each entry's process group when the
+    /// shim exports `cmux_shim_page_scheme_set_group` (``CEFShimLibrary/pageSchemeSetGroup``), in id order,
+    /// so Chromium knows a page's group when it computes the page's process lock. Call before
+    /// `CefInitialize`. Every call is a preinit op: the Chromium Host applies it before its own
+    /// `CefInitialize`, and the remote shim's replay log hands it to every host that replaces it.
     ///
-    /// - Returns: The ids the fork refused, sorted.
-    static func registerProcessGroups(_ entries: [String: Entry], setGroup: (_ id: String, _ group: String) -> Bool) -> [String] {
-        entries.compactMap { id, entry in
-            guard let group = entry.processGroup else { return nil }
-            return setGroup(id, group) ? nil : id
-        }.sorted()
+    /// Each call is in the token form (``CEFRuntime/sendAsync(_:)``), as a mojo method with a reply
+    /// callback: `refused` gets a refusal in the call in process, and in the turn of the host's REPLY in
+    /// host mode. A call the remote shim's own check refused sent nothing (`unsent`), as the in-process
+    /// shim refuses it. A passed deadline or an exited host is no refusal: that host may have applied the
+    /// call, and the next one applies it from the replay log.
+    ///
+    /// - Parameters:
+    ///   - entries: Page id (`cmux.agent`) to its entry. An entry with no group makes no group call, so a
+    ///     table made with the `pageProcessGroups` feature off makes none.
+    ///   - runtime: The runtime whose shim takes the calls.
+    ///   - refused: Gets each refused page and each refused group.
+    static func add(_ entries: [String: Entry], through runtime: CEFRuntime, refused: @escaping (Refusal) -> Void) {
+        let ordered = entries.sorted { $0.key < $1.key }
+        for (id, entry) in ordered {
+            let sent: CEFShimAnswer<Int32> = if entry.dynamicPrefixes.isEmpty && entry.entry == "index.html" {
+                runtime.sendAsync { shim in shim.pageSchemeAddFirstParty(id, entry.root.path, entry.csp) }
+            } else {
+                runtime.sendAsync { shim in
+                    shim.pageSchemeAddFirstPartyDynamic(id, entry.root.path, entry.csp,
+                                                        entry.dynamicPrefixes.joined(separator: "\n"), entry.entry)
+                }
+            }
+            runtime.whenSettled(sent, label: "cmux-page \(id)") { if Self.isRefusal($0) { refused(.page(id)) } }
+        }
+        guard let setGroup = runtime.shim?.pageSchemeSetGroup else { return }
+        for (id, entry) in ordered {
+            guard let group = entry.processGroup else { continue }
+            let sent = runtime.sendAsync { _ in setGroup(id, group) }
+            runtime.whenSettled(sent, label: "cmux-page group \(id)") { if Self.isRefusal($0) { refused(.group(id)) } }
+        }
+    }
+
+    /// Whether a settled registration is a refusal: any answer but 1, or a call refused before the wire
+    /// (`unsent`). A passed deadline, a malformed REPLY or an exited host says nothing of the call.
+    nonisolated static func isRefusal(_ settled: Result<Int32, CEFHostReplyError>) -> Bool {
+        switch settled {
+        case .success(let added): added != 1
+        case .failure(.unsent): true
+        case .failure: false
+        }
     }
 }

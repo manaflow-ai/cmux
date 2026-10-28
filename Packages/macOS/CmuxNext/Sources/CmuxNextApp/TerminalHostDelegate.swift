@@ -89,11 +89,11 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// Ghostty asks from inside its mouse-release handler with the
     /// terminal's renderer lock held (cx-7xss), so the open runs after the
     /// click returns: a browser tab or an app launch never stalls the
-    /// terminal's output and drawing.
+    /// terminal's output and drawing. The open is the rest of the person's click (`personAction`).
     func terminalSession(_ session: TerminalSession, open url: URL) -> Bool {
-        guard case .url(let safeURL)? = TerminalLinkResolver.resolve(url.absoluteString, cwd: nil, allowsLocalFiles: false) else { return false }
+        guard let services, case .url(let safeURL)? = TerminalLinkResolver.resolve(url.absoluteString, cwd: nil, allowsLocalFiles: false) else { return false }
         let request = linkRequest(session)
-        Task { @MainActor [weak self] in self?.openWeb(safeURL, request) }
+        services.mainWork.personAction(owner: "TerminalHostDelegate.openURL") {} then: { [weak self] _ in self?.openWeb(safeURL, request) }
         return true
     }
 
@@ -102,25 +102,34 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// click returns. A Markdown file opens the Markdown page, an image or PDF the preview, other
     /// files the code editor page and a folder Finder; a path that exists nowhere opens nothing.
     func terminalSession(_ session: TerminalSession, openLink text: String) -> Bool {
+        guard let services else { return false }
         let request = linkRequest(session), cwd = cwd(of: session)
-        let canOpenLocalFiles = services.map { self.allowsLocalFiles(session, services: $0) } ?? false
-        Task { @MainActor [weak self] in
-            let target = await Task.detached(priority: .userInitiated) {
+        let canOpenLocalFiles = allowsLocalFiles(session, services: services)
+        // The path check on the files lane, then the open as the rest of the person's click (`personAction`).
+        let work = services.work
+        services.mainWork.personAction(owner: "TerminalHostDelegate.openLink") {
+            try? await work.run(.userBlocking, mayBlock: .files) {
                 TerminalLinkResolver.resolve(text, cwd: cwd, allowsLocalFiles: canOpenLocalFiles)
-            }.value
-            switch target {
-            case .url(let url)?: self?.openWeb(url, request)
-            case .file(let url, isDirectory: true)?: LinkRouter.shared.showInFinder(url)
-            case .file(let url, isDirectory: false)?:
-                // `src/app.ts:3:5` opens the editor at line 3, column 5.
-                let position = TerminalLinkResolver.location(text).map { FilePosition(line: $0.line, column: $0.column ?? 1) }
-                LinkRouter.shared.record("file:\(url.path)" + (position.map { ":\($0.pageText)" } ?? ""))
-                guard let services = self?.services else { return }
-                services.linkOpener.openFile(url, from: services.linkOpener.source(tab: request.tab?.id), at: position)
-            case nil: break
             }
+        } then: { [weak self] target in
+            self?.open(target, text: text, request)
         }
         return true
+    }
+
+    /// Opens a resolved Cmd-click `target` (``terminalSession(_:openLink:)``).
+    private func open(_ target: TerminalLinkTarget?, text: String, _ request: (option: Bool, other: Bool, tab: ActionTargetRef?)) {
+        switch target {
+        case .url(let url)?: openWeb(url, request)
+        case .file(let url, isDirectory: true)?: LinkRouter.shared.showInFinder(url)
+        case .file(let url, isDirectory: false)?:
+            // `src/app.ts:3:5` opens the editor at line 3, column 5.
+            let position = TerminalLinkResolver.location(text).map { FilePosition(line: $0.line, column: $0.column ?? 1) }
+            LinkRouter.shared.record("file:\(url.path)" + (position.map { ":\($0.pageText)" } ?? ""))
+            guard let services else { return }
+            services.linkOpener.openFile(url, from: services.linkOpener.source(tab: request.tab?.id), at: position)
+        case nil: break
+        }
     }
 
     /// The terminal's folder, else its tab's: where a relative path in its output starts.

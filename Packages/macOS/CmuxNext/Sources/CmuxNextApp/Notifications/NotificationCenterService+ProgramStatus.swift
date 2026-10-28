@@ -23,29 +23,28 @@ extension NotificationCenterService {
 
     /// Holds an alert-shaped `terminal` notification until the tab's OSC 7501
     /// records contain its record (observed, no poll), then calls `deliver`
-    /// once with the match; after `programAlertWait` it delivers without one.
+    /// once with the match; after `programAlertWait` it delivers without one. Both run in the
+    /// visible class: the banner is what a program (not the person) asked for.
     func holdUntilRecord(_ notification: DaemonNotification, located: LocatedTab,
-                         deliver: @escaping @MainActor @Sendable (ProgramStatusNotification?) -> Void) {
+                         deliver: @escaping @MainActor (ProgramStatusNotification?) -> Void) {
         let id = notification.notification.rawValue
         let tab = located.tab
-        let hold = HeldProgramAlert(timer: DemandTimer(owner: "notifications.programAlert", clock: clock))
-        let finish: @MainActor @Sendable (ProgramStatusNotification?) -> Void = { [weak self] found in
-            guard !hold.delivered else { return }
+        let hold = HeldProgramAlert(deadline: MainDeadline(owner: "notifications.programAlert", workClass: .visible, scheduler: deadlines))
+        let finish: @MainActor (ProgramStatusNotification?) -> Void = { [weak self, weak hold] found in
+            guard let hold, !hold.delivered else { return }
             hold.delivered = true
-            hold.timer.cancel()
-            self?.heldProgramAlerts.removeValue(forKey: id)?.cancel()
+            hold.end()
+            self?.heldProgramAlerts[id] = nil
             deliver(found)
         }
-        hold.timer.scheduleOnMain(after: Self.programAlertWait) { finish(nil) }
-        heldProgramAlerts[id] = Task { @MainActor in // task-owner: heldProgramAlerts, cancelled by finish
-            for await records in ObservationStream({ tab.programStatus }) {
-                if let found = ProgramStatusNotification.match(title: notification.title, body: notification.body,
-                                                                level: notification.level, records: records) {
-                    finish(found)
-                    return
-                }
-            }
+        hold.deadline.schedule(after: Self.programAlertWait) { finish(nil) }
+        hold.records = ServiceObservation(.visible, owner: "notifications.programAlert.records", on: work) {
+            ProgramStatusNotification.match(title: notification.title, body: notification.body, level: notification.level,
+                                            records: tab.programStatus)
+        } apply: { found in
+            if let found { finish(found) }
         }
+        if !hold.delivered { heldProgramAlerts[id] = hold }
     }
 
     /// Where the tab is for the user now (status-indicators.md visibility
@@ -77,9 +76,18 @@ extension NotificationCenterService {
 /// One held OSC 7501 alert: delivered once, by its record or its deadline.
 @MainActor
 final class HeldProgramAlert {
-    let timer: DemandTimer
+    let deadline: MainDeadline
+    /// Follows the tab's records until one matches.
+    var records: ServiceObservation<ProgramStatusNotification?>?
     var delivered = false
-    init(timer: DemandTimer) { self.timer = timer }
+    init(deadline: MainDeadline) { self.deadline = deadline }
+
+    /// Stops the deadline and the observation (the alert was delivered).
+    func end() {
+        deadline.cancel()
+        records?.cancel()
+        records = nil
+    }
 }
 
 /// The badge image a status notification attaches: the status glyph the

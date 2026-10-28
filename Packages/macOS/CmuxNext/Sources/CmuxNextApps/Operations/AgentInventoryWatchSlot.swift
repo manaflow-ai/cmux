@@ -23,7 +23,8 @@ final class AgentInventoryWatchSlot {
         admission?.cancel()
         if let carrier {
             // task-owner: the manager retains bounded conditional cleanup on its original transport.
-            retirement = Task { try? await carrier.watch.disable() }
+            // Off main: the disable runs on the watch's actor and touches no slot state.
+            retirement = Task { @concurrent in try? await carrier.watch.disable() }
         }
         return retirement
     }

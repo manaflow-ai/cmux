@@ -146,7 +146,7 @@ final class CloudMachineProgressView: NSView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        node.deferUntilVisible(key: "appearance") { [weak self] in
+        node.deferAppearance(owner: "CloudMachineProgressView") { [weak self] in
             self?.applyColors()
             self?.render()
         }

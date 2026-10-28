@@ -6,7 +6,7 @@ use ghostty_vt_sys as sys;
 
 use crate::key::Mods;
 use crate::terminal::Terminal;
-use crate::{Result, check};
+use crate::{Error, Result, check};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MouseAction {
@@ -78,7 +78,7 @@ pub struct MouseEncoder {
     size: Option<((u32, u32), (u32, u32))>,
 }
 
-// The opaque Ghostty encoder and event have no thread affinity. MouseEncoder
+// SAFETY: the opaque Ghostty encoder and event have no thread affinity. MouseEncoder
 // owns both pointers and requires &mut self for every operation, so moving the
 // pair between threads is safe. Shared access remains guarded by the caller.
 unsafe impl Send for MouseEncoder {}
@@ -120,8 +120,8 @@ impl Extend<u8> for MouseModeSignature {
     fn extend<T: IntoIterator<Item = u8>>(&mut self, iter: T) {
         for byte in iter {
             let index = usize::from(self.stored_len);
-            if index < self.bytes.len() {
-                self.bytes[index] = byte;
+            if let Some(slot) = self.bytes.get_mut(index) {
+                *slot = byte;
                 self.stored_len += 1;
             } else {
                 self.overflow_hash ^= u64::from(byte);
@@ -306,14 +306,20 @@ fn classify_probe_press(bytes: &[u8]) -> Option<MouseWireFormat> {
 impl MouseEncoder {
     pub fn new() -> Result<Self> {
         let mut encoder: sys::GhosttyMouseEncoder = ptr::null_mut();
+        // SAFETY: `encoder` is a writable local; a null allocator selects the default.
         check(unsafe { sys::ghostty_mouse_encoder_new(ptr::null(), &mut encoder) })?;
         let mut event: sys::GhosttyMouseEvent = ptr::null_mut();
+        // SAFETY: `event` is a writable local; a null allocator selects the default.
         if let Err(error) = check(unsafe { sys::ghostty_mouse_event_new(ptr::null(), &mut event) })
         {
+            // SAFETY: `encoder` came from mouse_encoder_new above and nothing else owns
+            // it.
             unsafe { sys::ghostty_mouse_encoder_free(encoder) };
             return Err(error);
         }
         let track_last_cell = true;
+        // SAFETY: `encoder` is live; TRACK_LAST_CELL reads a bool from the live
+        // `track_last_cell`.
         unsafe {
             sys::ghostty_mouse_encoder_setopt(
                 encoder,
@@ -334,6 +340,8 @@ impl MouseEncoder {
     }
 
     fn sync_from_raw_terminal(&mut self, terminal: sys::GhosttyTerminal) {
+        // SAFETY: `self.encoder` is live, and callers pass the live handle of a
+        // borrowed Terminal; the call reads only its modes.
         unsafe { sys::ghostty_mouse_encoder_setopt_from_terminal(self.encoder, terminal) };
     }
 
@@ -342,6 +350,8 @@ impl MouseEncoder {
     /// [`Self::sync_from_raw_terminal`] is left untouched.
     fn force_normal_tracking(&mut self) {
         let tracking: sys::GhosttyMouseTrackingMode = sys::GHOSTTY_MOUSE_TRACKING_NORMAL;
+        // SAFETY: `self.encoder` is live; OPT_EVENT reads a GhosttyMouseTrackingMode
+        // from the live `tracking`.
         unsafe {
             sys::ghostty_mouse_encoder_setopt(
                 self.encoder,
@@ -354,6 +364,7 @@ impl MouseEncoder {
     /// Forget the last encoded motion cell so an event that was not delivered
     /// can be encoded again at the same coordinates.
     pub fn reset_motion_dedupe(&mut self) {
+        // SAFETY: `self.encoder` is this value's live encoder.
         unsafe { sys::ghostty_mouse_encoder_reset(self.encoder) };
     }
 
@@ -363,6 +374,9 @@ impl MouseEncoder {
             MouseAction::Release => sys::GHOSTTY_MOUSE_ACTION_RELEASE,
             MouseAction::Motion => sys::GHOSTTY_MOUSE_ACTION_MOTION,
         };
+        // SAFETY: `self.event` and `self.encoder` are this value's live handles;
+        // OPT_SIZE reads the live GhosttyMouseEncoderSize (its `size` set) and
+        // ANY_BUTTON_PRESSED a bool from `input`, which outlives the call.
         unsafe {
             sys::ghostty_mouse_event_set_action(self.event, action);
             if let Some(button) = input.button {
@@ -403,6 +417,8 @@ impl MouseEncoder {
 
         let mut buf = [0u8; 64];
         let mut written = 0;
+        // SAFETY: both handles are live; `buf` is writable for `buf.len()` bytes and
+        // `written` is a writable local.
         let result = unsafe {
             sys::ghostty_mouse_encoder_encode(
                 self.encoder,
@@ -415,6 +431,8 @@ impl MouseEncoder {
         if result == sys::GHOSTTY_OUT_OF_SPACE {
             let mut big = vec![0u8; written.max(buf.len() * 2)];
             let mut big_written = 0;
+            // SAFETY: both handles are live; `big` is writable for `big.len()` bytes and
+            // `big_written` is a writable local.
             check(unsafe {
                 sys::ghostty_mouse_encoder_encode(
                     self.encoder,
@@ -424,11 +442,12 @@ impl MouseEncoder {
                     &mut big_written,
                 )
             })?;
-            out.extend(big[..big_written].iter().copied());
+            // A written length past the buffer breaks the encoder's contract.
+            out.extend(big.get(..big_written).ok_or(Error::OutOfSpace)?.iter().copied());
             return Ok(());
         }
         check(result)?;
-        out.extend(buf[..written].iter().copied());
+        out.extend(buf.get(..written).ok_or(Error::OutOfSpace)?.iter().copied());
         Ok(())
     }
 }
@@ -449,6 +468,8 @@ impl MouseButton {
 
 impl Drop for MouseEncoder {
     fn drop(&mut self) {
+        // SAFETY: Drop runs once; both handles came from their _new calls in `new`
+        // and are owned only by this value.
         unsafe {
             sys::ghostty_mouse_event_free(self.event);
             sys::ghostty_mouse_encoder_free(self.encoder);

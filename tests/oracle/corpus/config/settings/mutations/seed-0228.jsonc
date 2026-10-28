@@ -1,0 +1,21 @@
+{
+	"browser": {
+		"omnibar": {
+			/* block */ "inlineAutocomplete": true,
+		}
+	},
+	// url: https://localhost/x
+"editor": {
+		"wordBasedSuggestions": true
+	},
+	"tabs": {
+		/* // inside */ "newTabNowPlaying": null,
+	},
+	// "quoted"
+"agentPane": {
+		"editedFiles": {
+			// url: https://localhost/x
+"scope": "turn"
+		}
+	}
+}

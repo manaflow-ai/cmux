@@ -6,6 +6,7 @@ import CmuxNextBridge
 import CmuxNextSettings
 import Foundation
 import Testing
+import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 
 /// The Chief pet hears the notification service: what would alert on this Mac reaches its bubble,
@@ -41,7 +42,7 @@ import CmuxNextWakeupsTestSupport
             var isActive: @MainActor () -> Bool = { true }
             controller = ChiefPetController(makePanel: { [defaults] in ChiefPetPanel(defaults: defaults) },
                                             actions: ChiefPetActions(open: { opened($0) }, send: { _, _ in false }), clock: clock,
-                                            appIsActive: { isActive() }, notifications: center)
+                                            appIsActive: { isActive() }, appEvents: AppEvents(center: center))
             opened = { [weak self] target in
                 if case .notice(let notice) = target { self?.opened.append(notice.id) }
             }

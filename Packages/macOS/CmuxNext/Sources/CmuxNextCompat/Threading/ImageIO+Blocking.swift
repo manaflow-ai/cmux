@@ -12,6 +12,7 @@ public import ImageIO
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The source, or nil when the file cannot be read.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingImageSource(url: CFURL, options: CFDictionary? = nil,
                                 fileID: StaticString = #fileID, line: UInt = #line) -> CGImageSource? {
@@ -26,6 +27,7 @@ public func blockingImageSource(url: CFURL, options: CFDictionary? = nil,
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: How many images the source holds.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingImageSourceCount(_ source: CGImageSource, fileID: StaticString = #fileID, line: UInt = #line) -> Int {
     return blockingCall(.fileIO, fileID: fileID, line: line) { CGImageSourceGetCount(source) }
@@ -41,6 +43,7 @@ public func blockingImageSourceCount(_ source: CGImageSource, fileID: StaticStri
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The properties, or nil when the image cannot be read.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingImageSourceCopyProperties(_ source: CGImageSource, at index: Int, options: CFDictionary? = nil,
                                               fileID: StaticString = #fileID, line: UInt = #line) -> CFDictionary? {
@@ -57,6 +60,7 @@ public func blockingImageSourceCopyProperties(_ source: CGImageSource, at index:
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The image, or nil when it cannot be decoded.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingImageSourceCreateImage(_ source: CGImageSource, at index: Int, options: CFDictionary? = nil,
                                            fileID: StaticString = #fileID, line: UInt = #line) -> CGImage? {
@@ -73,6 +77,7 @@ public func blockingImageSourceCreateImage(_ source: CGImageSource, at index: In
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The thumbnail, or nil when it cannot be made.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingImageSourceCreateThumbnail(_ source: CGImageSource, at index: Int, options: CFDictionary? = nil,
                                                fileID: StaticString = #fileID, line: UInt = #line) -> CGImage? {
@@ -89,6 +94,7 @@ public func blockingImageSourceCreateThumbnail(_ source: CGImageSource, at index
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: The destination, or nil when the file cannot be created.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingImageDestination(url: CFURL, type: CFString, count: Int,
                                      fileID: StaticString = #fileID, line: UInt = #line) -> CGImageDestination? {
@@ -103,6 +109,7 @@ public func blockingImageDestination(url: CFURL, type: CFString, count: Int,
 ///   - fileID: The calling code's `#fileID` (names the call site).
 ///   - line: The calling code's `#line`.
 /// - Returns: Whether the file was written.
+@available(*, deprecated, message: "Pass the BlockingPermit of the lane body it runs in: work.run(priority, mayBlock: .files) { permit in ... }")
 @inlinable
 public func blockingImageDestinationFinalize(_ destination: CGImageDestination,
                                              fileID: StaticString = #fileID, line: UInt = #line) -> Bool {

@@ -10,9 +10,13 @@ import AppKit
 /// image is drawn again by each new palette cell at each open (12 per open, about 3 ms of main-thread
 /// work; menu bench profile). The glyphs do not depend on the appearance (fixed colours).
 /// Main actor: the caches are filled and read only by the menu and the warm-up on the main thread.
+/// memory: fixed the six tapbacks and at most ``glyphLimit`` emoji glyphs (20 pt, 1x and 2x), one picker glyph per
+/// appearance; a full cache keeps only the emoji still in ``RecentEmoji``.
 @MainActor
 enum MenuGlyphs {
     private static var cache: [Reaction.Kind: NSImage] = [:]
+    /// The most glyphs kept: the six tapbacks and the recent emoji (RecentEmoji keeps 16), with room to spare.
+    static let glyphLimit = 32
     static func image(_ kind: Reaction.Kind) -> NSImage {
         if let i = cache[kind] { return i }
         let side = TapbackPickerView.glyphSize
@@ -38,9 +42,19 @@ enum MenuGlyphs {
             rep.size = img.size
             img.addRepresentation(rep)
         }
+        if cache.count >= glyphLimit { dropOldEmoji() }
         cache[kind] = img
         return img
     }
+    /// The glyphs drawn for emoji no longer in the recent list go (the menu shows only recent ones).
+    private static func dropOldEmoji() {
+        cache = cache.filter { entry in
+            guard case let .emoji(e) = entry.key else { return true }
+            return RecentEmoji.list.contains(e)
+        }
+    }
+    /// Glyphs kept now (tests).
+    static var count: Int { cache.count }
     /// Messages' own tapback art (macOS 27: Messages.app's asset catalog has the six 3D tapback
     /// images, 44 pt, that its context menu draws in the palette row). macOS 26 has none of them:
     /// the drawn glyphs stay there. Read from the system bundle at run time, never copied.
@@ -118,7 +132,7 @@ final class MenuAction: NSMenuItem {
     }
     /// MessagesLab 7518134: the title icons, one per symbol and appearance for the app's life (made
     /// at every open before, inside the menu's open on main). Kept per appearance: labelColor.
-    private static var icons: [String: NSImage] = [:]
+    private static var icons: [String: NSImage] = [:] // memory: fixed one per menu symbol named in code and appearance
     static func icon(_ symbol: String) -> NSImage? {
         let key = "\(symbol)|\(NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua])?.rawValue ?? "")"
         if let i = icons[key] { return i }

@@ -8,7 +8,8 @@ section 6, task p06-scheduler-216).
    in` and `Task.detached` are off main). The queue regexes are section 6's `git grep -E` commands; a line with
    `///` is dropped, as `| grep -v '///'` does.
 2. Judges each hit in its state after the migration: a `MainDelivery(class:` is the R-delivery target, a notice name
-   passed straight to a WindowEvents or AppEvents `subscribe(` is the R-notif target, and an
+   passed straight to a WindowEvents or AppEvents `subscribe(` is the R-notif target, as is the center given to
+   `AppEvents(center:` in the composition root AppServices.swift only (one observer per center for the app), and an
    override that the recipe keeps (R-hide `viewDidHide`/`viewDidUnhide`, R-input `mouseMoved`/`scrollWheel`/
    `mouseDragged`, R-appear `viewDidChangeEffectiveAppearance`) is settled when its body does only what the
    recipe allows. A settled hit is listed by --group and not counted by --check.
@@ -42,10 +43,15 @@ comment of the code line before it). The rules are section 3F's: main-hop (Q1, Q
 (Q2, Q3, Q10, Q11), raw-observer (Q4), visibility-walk (Q5, QA), timer-class (Q6), local-monitor (Q8).
 `--check` counts neither escapes nor settled hits.
 
+`--undocumented` lists the public and open declarations of CmuxNextWakeups that have no `///` doc comment
+(task 205: the frozen API lands with DocC on every public signature) and exits 1 while there are any. A protocol
+witness whose doc DocC takes from the protocol (`==`, `<`, `hash(into:)`, `description`, `encode(to:)`, ...) needs
+none.
+
 Local tool, never CI (CLAUDE.md: no new CI gates). Tests: python3 -m pytest tests/test_p06_queue.py
 
 Usage: scripts/cmux-next/p06_queue.py [--repo DIR] [--rev REV] [--cut REV] [--plan TSV | --repack] [--json]
-                                      [--group N | --check N | --residual]
+                                      [--group N | --check N | --residual | --undocumented]
 """
 from __future__ import annotations
 
@@ -251,17 +257,27 @@ def _delivery_settled(lines: list[str], index: int) -> bool:
     return bool(calls) and all(re.match(r"class\s*:", rest) for rest in calls)
 
 
-def _notice_settled(lines: list[str], index: int) -> bool:
+# The one file that may make an `AppEvents`: one per notification center for the whole app (R-notif). An
+# `AppEvents(center:` anywhere else is a second observer per name, the pattern R-notif removes.
+COMPOSITION_ROOT = SOURCES + "CmuxNextApp/AppServices.swift"
+_ROOT_APP_EVENTS = re.compile(r"\bAppEvents\(center:\s*NSWorkspace\.shared\.notificationCenter\b")
+
+
+def _notice_settled(path: str, lines: list[str], index: int) -> bool:
     """R-notif's target: the line's only Q4 matches are notice names passed straight to a WindowEvents or AppEvents
-    `subscribe(` (the hook's raw-observer rule judges it the same way, guardrails.raw_observer_in)."""
-    return not _load("guardrails").raw_observer_in(_load("swift_scope").code_of(lines[index]))
+    `subscribe(` (the hook's raw-observer rule judges it the same way, guardrails.raw_observer_in), or, in the
+    composition root only, the workspace center handed to the app's one `AppEvents(center:`."""
+    code = _load("swift_scope").code_of(lines[index])
+    if path == COMPOSITION_ROOT:
+        code = _ROOT_APP_EVENTS.sub("AppEvents(center: workspaceCenter", code)
+    return not _load("guardrails").raw_observer_in(code)
 
 
-def _settled(recipe: str, lines: list[str], index: int, bodies: Callable[[], _Bodies]) -> bool:
+def _settled(recipe: str, path: str, lines: list[str], index: int, bodies: Callable[[], _Bodies]) -> bool:
     if recipe == "R-delivery":
         return _delivery_settled(lines, index)
     if recipe == "R-notif":
-        return _notice_settled(lines, index)
+        return _notice_settled(path, lines, index)
     allowed = _KEPT_OVERRIDES.get(recipe)
     if allowed is None:
         return False
@@ -322,8 +338,44 @@ def scan(files: dict[str, str], main_inherited: Callable[[str, str], list[int]])
             line = lines[index]
             recipe = q.recipe(line)
             hits.append(Hit(q.id, path, index + 1, line.strip(), recipe, _escaped(lines, index, q.rule),
-                            _settled(recipe, lines, index, bodies)))
+                            _settled(recipe, path, lines, index, bodies)))
     return hits
+
+
+# ---------------------------------------------------------------- the frozen API's DocC
+
+WAKEUPS = SOURCES + "CmuxNextWakeups/"
+_PUBLIC_DECL = re.compile(r"^\s*(?:@[\w.]+(?:\([^)]*\))?\s+)*"
+                          r"(?:(?:nonisolated|final|override|static|class|mutating|convenience|required|indirect|lazy)\s+)*"
+                          r"(?:public|open)(?:\(set\))?\s+(?!import\b|extension\b|=)")
+_WITNESS = re.compile(r"\bstatic func (?:==|!=|<|<=|>|>=|\+|-)\s*\(|\bfunc hash\(into\b|\bvar (?:description|debugDescription)\b"
+                      r"|\bfunc encode\(to\b|\binit\(from decoder\b|\bfunc makeIterator\(\)|\bfunc next\(\)")
+
+
+def _documented(lines: list[str], index: int) -> bool:
+    """Whether the declaration at INDEX has a doc comment: `///` lines or a `/** */` block above it, past its
+    attribute lines and plain `//` comments."""
+    j = index - 1
+    while j >= 0:
+        above = lines[j].strip()
+        if above.startswith("///") or above.endswith("*/"):
+            return True
+        if above.startswith("@") or (above.startswith("//") and not above.startswith("///")):
+            j -= 1
+            continue
+        return False
+    return False
+
+
+def undocumented(files: dict[str, str]) -> list[tuple[str, int, str]]:
+    """(path, line, text) of each public or open declaration under CmuxNextWakeups with no doc comment."""
+    found = []
+    for path in sorted(p for p in files if p.startswith(WAKEUPS) and p.endswith(".swift")):
+        lines = files[path].split("\n")
+        for index, line in enumerate(lines):
+            if _PUBLIC_DECL.match(line) and not _WITNESS.search(line) and not _documented(lines, index):
+                found.append((path, index + 1, line.strip()))
+    return found
 
 
 # ---------------------------------------------------------------- reading a tree
@@ -760,10 +812,19 @@ def main(argv: list[str] | None = None, out=sys.stdout) -> int:
     mode.add_argument("--group", type=int, metavar="N", help="list every hit in group N's files")
     mode.add_argument("--check", type=int, metavar="N", help="exit 1 while group N's files have open hits")
     mode.add_argument("--residual", action="store_true", help="open hits in files no group holds (task 347)")
+    mode.add_argument("--undocumented", action="store_true",
+                      help="exit 1 while a public CmuxNextWakeups declaration has no doc comment (task 205)")
     args = parser.parse_args(argv)
     if args.repack and args.plan:
         parser.error("--plan and --repack exclude each other")
     repo = args.repo.resolve()
+    if args.undocumented:
+        missing = undocumented(read_tree(repo, args.rev))
+        if args.json:
+            print(json.dumps([{"path": p, "line": n, "text": t} for p, n, t in missing], indent=1), file=out)
+        for path, line, text in [] if args.json else missing:
+            print(f"{path}:{line}: {text}", file=out)
+        return 1 if missing else 0
     plan = None if args.repack else (args.plan or repo / PLAN)
     options = (["--cut", args.cut] if args.cut != CUT_REV else []) + (["--repack"] if args.repack else []) + \
         (["--plan", str(args.plan)] if args.plan else [])

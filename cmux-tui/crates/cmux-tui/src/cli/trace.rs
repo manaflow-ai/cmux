@@ -349,6 +349,7 @@ impl RecordWait for SignalWait {
         let deadline = Instant::now() + duration;
         let (signalled, signal) = mpsc::channel();
         // The watcher only peeks at the wake byte, so it never takes a signal from anyone else.
+        // supervise-allow: this CLI run's signal watcher; a panic drops `signalled`, so the wait below falls back to the clock.
         std::thread::Builder::new()
             .name("cmux-trace-wait".into())
             .spawn(move || {
@@ -357,12 +358,12 @@ impl RecordWait for SignalWait {
             })
             .ok();
         // wakeup-allow: cli-only `cmux trace`'s recording window, once; a shutdown signal ends it first
-        match signal.recv_timeout(duration) {
+        match crate::blocking::sync::recv_timeout(&signal, duration) {
             Ok(()) if crate::shutdown_requested() => Waited::Interrupted,
             // No handler is installed (the watcher returned at once): only the clock ends it.
             Ok(()) | Err(mpsc::RecvTimeoutError::Disconnected) => {
                 // wakeup-allow: cli-only `cmux trace`'s rest of the recording window, once, when no signal watcher runs
-                std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+                cmux_blocking::thread::sleep(deadline.saturating_duration_since(Instant::now()));
                 Waited::Elapsed
             }
             Err(mpsc::RecvTimeoutError::Timeout) => Waited::Elapsed,
@@ -607,12 +608,12 @@ fn check_out(out: &Path) -> Result<(), Failure> {
     let shown = out.display().to_string();
     let not_empty =
         || Failure::local("usage.invalid", messages.out_not_empty.replace("{path}", &shown), 2);
-    match std::fs::read_dir(out).map(|mut entries| entries.next().is_none()) {
+    match cmux_blocking::fs::read_dir(out).map(|mut entries| entries.next().is_none()) {
         Ok(true) => {}
         Ok(false) => return Err(not_empty()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         // A file, not a directory.
-        Err(_) if out.exists() => return Err(not_empty()),
+        Err(_) if cmux_blocking::fs::metadata(out).is_ok() => return Err(not_empty()),
         Err(error) => return Err(write_failure(out, &error)),
     }
     Ok(())
@@ -628,7 +629,7 @@ fn write_failure(path: &Path, error: &std::io::Error) -> Failure {
 }
 
 fn write_file(path: &Path, bytes: &[u8]) -> Result<(), Failure> {
-    std::fs::write(path, bytes).map_err(|error| write_failure(path, &error))
+    cmux_blocking::fs::write(path, bytes).map_err(|error| write_failure(path, &error))
 }
 
 fn record_text(value: &Value, messages: &TraceMessages) -> String {

@@ -4,6 +4,7 @@ import Foundation
 import os
 import CmuxNextCompat
 import CmuxNextCrashReporting
+import CmuxNextDesign
 import CmuxNextWakeups
 
 /// Whole-app crash recovery and crash visibility (plans/cmux-next/browser-isolation.md):
@@ -22,7 +23,13 @@ final class CrashRecoveryService {
     /// The crash keys the previous run's crash path wrote (`run.crashkeys`), read off the main thread after launch.
     private(set) var previousCrashKeys: CrashKeys?
     private var crashObserver: UUID?
+    private var helperExitObserver: UUID?
+    /// Which Chromium helper ends go to Sentry (``helperExited(_:reporter:at:)``).
+    private var helperExitLimiter = HelperExitRateLimiter()
     private weak var crashLog: BrowserCrashLog?
+    /// The Chromium Host's Crashpad dumps (`debug.crashes`), once Chromium started in a build that has the host.
+    private(set) var chromiumDumps: ChromiumMinidumpCollector?
+    private let bundleID: String?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
     private var notice: RestartNoticePanel?
     private var noticeShown = false
@@ -33,24 +40,31 @@ final class CrashRecoveryService {
 
     var recovery: LaunchRecovery { marker?.recovery ?? .clean }
 
-    /// `marksRun` false (tests, tools that build AppServices) leaves no
-    /// marker and installs no signal handlers. With a marker, the crash
-    /// path writes `crashKeys` into the marker folder's `run.crashkeys`.
-    init(bundleID: String?, marksRun: Bool, crashKeys: CrashKeySlots? = nil, work: BackgroundWork, mainWork: MainWorkScheduler) {
-        marker = marksRun ? AppRunMarker(directory: AppRunMarker.standardDirectory(bundleID: bundleID)) : nil
+    /// `runMarker` is the run marker's launch read (``AppRunMarker/startLaunchRead(directory:in:now:bootSession:)``),
+    /// which `main` orders before the settings read, so it has ended when the services are made; nil (tests, tools
+    /// that build AppServices) leaves no marker and installs no signal handlers. With a marker, the crash path writes
+    /// `crashKeys` into the marker folder's `run.crashkeys`.
+    init(bundleID: String?, runMarker: LaunchRead<AppRunMarker.Launch>?, crashKeys: CrashKeySlots? = nil, work: BackgroundWork,
+         mainWork: MainWorkScheduler) {
+        if let runMarker, runMarker.value == nil {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "crash").fault("run marker launch read had not ended: this run is not marked")
+        }
+        marker = runMarker?.value.map { AppRunMarker(launch: $0) }
         if marker != nil, let crashKeys { CrashReporter.attachCrashKeys(crashKeys) }
         writer = CrashReportWriter.standard(bundleID: bundleID)
+        self.bundleID = bundleID
         self.work = work
         self.mainWork = mainWork
-        if let previous = marker?.recovery.previous, let keysFile = marker?.previousCrashKeysFile {
+        if let previous = marker?.recovery.previous {
             logger.error("previous run ended unexpectedly signal=\(previous.signal ?? 0) exception=\(previous.exception?.name ?? "none", privacy: .public) safe=\(self.recovery.skipsBrowserPages)")
-            // The DiagnosticReports listing and the crash keys' read run on the files lane; nobody waits on them, so
-            // the reply is background work (Chrome's PostTaskAndReply, base/task/task_runner.h).
-            let launched = previous.launched
+            // The DiagnosticReports listing runs on the files lane (the crash keys came with the marker's launch
+            // read); nobody waits on it, so the reply is background work (Chrome's PostTaskAndReply,
+            // base/task/task_runner.h).
+            let launched = previous.launched, keys = marker?.previousCrashKeys
             work.run(.bestEffort, mayBlock: .files) {
-                (CrashRecoveryService.systemCrashLog(after: launched), AppRunMarker.readCrashKeys(keysFile))
-            }.reply(on: mainWork, class: .background, owner: "CrashRecovery.previousRun") { [weak self] read in
-                self?.previousRunRead(previous, systemLog: read.0, crashKeys: read.1)
+                CrashRecoveryService.systemCrashLog(after: launched)
+            }.reply(on: mainWork, class: .background, owner: "CrashRecovery.previousRun") { [weak self] systemLog in
+                self?.previousRunRead(previous, systemLog: systemLog, crashKeys: keys)
             }
         }
     }
@@ -73,13 +87,64 @@ final class CrashRecoveryService {
         marker?.armSurvivalWindow(on: deadlines)
     }
 
-    /// Writes a report for each Chromium failure from now on.
-    func observe(_ log: BrowserCrashLog) {
+    /// Writes a report for each Chromium failure from now on, and sends each helper process's end to `reporter`
+    /// (``helperExited(_:reporter:at:)``). The Chromium Host's ends have a fuller report of their own, written from
+    /// its supervisor (``AppRunMarker/reportHostCrashes(of:writer:work:)``). With the Chromium Host in the build, also
+    /// collects its Crashpad dumps (p01-process task 226): now, and after each failure (the host's own end too), when
+    /// Crashpad has written the failed process's dump. `reporter` sends a helper's dump when crash reports are on.
+    func observe(_ log: BrowserCrashLog, reporter: CrashReporter) {
         guard crashLog == nil else { return }
         crashLog = log
         let writer = writer
-        crashObserver = log.addObserver { record in writer.writeInBackground(record) }
+        let dumps = chromiumDumpCollector(reporter: reporter)
+        chromiumDumps = dumps
+        dumps?.scan()
+        crashObserver = log.addObserver { record in
+            dumps?.scan()
+            guard record.processType != CrashRecoveryService.hostProcessType else { return }
+            writer.writeInBackground(record)
+        }
+        helperExitObserver = log.addHelperExitObserver { [weak self] exit in self?.helperExited(exit, reporter: reporter) }
     }
+
+    /// One Chromium helper's end as one Sentry event, at most one per process type an hour (``HelperExitRateLimiter``);
+    /// the ends held back count into the next. The SDK's envelope write runs on the files lane.
+    @discardableResult
+    func helperExited(_ exit: BrowserHelperExit, reporter: CrashReporter, at now: ContinuousClock.Instant = .now) -> HelperExitEvent? {
+        guard reporter.isStarted, let heldBack = helperExitLimiter.admit(exit.processType, at: now) else { return nil }
+        let event = HelperExitEvent(processType: exit.processType, chromiumType: exit.chromiumType, subType: exit.subType,
+                                    reason: exit.reason.rawValue, code: exit.code, codeName: exit.codeDescription,
+                                    pid: exit.pid, pump: exit.pump, heldBack: heldBack)
+        work.post(.bestEffort, mayBlock: .files) { reporter.reportHelperExit(event) }
+        return event
+    }
+
+    /// The host's dump collector (nil without a run marker, or in a build without the host): the database in
+    /// the host's data folder, the seen list beside the run marker, each report written into the crash folder.
+    private func chromiumDumpCollector(reporter: CrashReporter?) -> ChromiumMinidumpCollector? {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        guard marker != nil, let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return nil
+        }
+        let rootCache = ChromiumHostConfiguration.rootCache(applicationSupport: support, bundleIdentifier: bundleID ?? "cmux")
+        let database = ChromiumCrashpadDatabase(
+            directory: ChromiumHostConfiguration.crashDatabase(rootCache: rootCache),
+            stateFile: AppRunMarker.standardDirectory(bundleID: bundleID).appending(path: "chromium-dumps.json"))
+        let send: (@Sendable (ChromiumMinidumpReport) -> Void)? = reporter.map { reporter in
+            { @Sendable report in reporter.sendChromiumDump(report) }
+        }
+        let (writer, work) = (writer, work)
+        return ChromiumMinidumpCollector(database: database, send: send, work: work, mainWork: mainWork) { report in
+            let data = CrashReportWriter.encode(writer.report(for: report))
+            work.post(.bestEffort, mayBlock: .files) { _ = writer.write(data, name: "chromium-dump-\(report.processType)", date: report.date) }
+        }
+        #else
+        return nil
+        #endif
+    }
+
+    /// The crash log's process type of the Chromium Host (`CEFRuntime.hostEnded`).
+    nonisolated static let hostProcessType = "chromium-host"
 
     /// Shows "cmux restarted after a problem" once per launch, on the first
     /// window presented after a restart.
@@ -146,7 +211,7 @@ final class CrashRecoveryService {
 
     /// A normal quit.
     func applicationWillTerminate() {
-        if let crashObserver { crashLog?.removeObserver(crashObserver) }
+        for observer in [crashObserver, helperExitObserver].compactMap({ $0 }) { crashLog?.removeObserver(observer) }
         marker?.markCleanExit()
     }
 
@@ -174,6 +239,7 @@ final class CrashRecoveryService {
             object["exception_frames"] = exception.frames
         }
         if let previousCrashLog { object["system_report"] = previousCrashLog.path }
+        if previous.startupComplete == false, let task = previous.lastStartupTask { object["last_startup_task"] = task }
         if let tags = crashKeys?.tags, !tags.isEmpty { object["crash_keys"] = tags }
         return object
     }

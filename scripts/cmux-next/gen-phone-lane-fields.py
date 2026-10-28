@@ -7,6 +7,10 @@ daemon's own request schema (cmux-tui/spec/sdk-schema.json), minus the fields th
 its directory or its environment (remote-relay-authorization.md: command-bearing params stay denied).
 A field the daemon adds later is refused until this script runs again and the change is reviewed.
 
+It also reads the schema's `clients` meta: a command marked `clients: ios` (the iOS cmux-tui client,
+Packages/iOS/CmuxMobileSSH, sends it; cmux-tui/scripts/assign-ipc-method-ids.py keeps the mark in step
+with that client) must be on the lane's allowlist, or the phone's own client would be refused.
+
     python3 scripts/cmux-next/gen-phone-lane-fields.py           # write the Swift table
     python3 scripts/cmux-next/gen-phone-lane-fields.py --check   # exit 1 when it drifted
 """
@@ -16,6 +20,8 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 SCHEMA = "cmux-tui/spec/sdk-schema.json"
 POLICY = "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy.swift"
 OUT = "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy+Fields.generated.swift"
+# The iOS client's command table, which assign-ipc-method-ids.py turns into `clients: ios`.
+IOS_CLIENT = "Packages/iOS/CmuxMobileSSH/Sources/CmuxMobileSSH/CmuxTUI/CmuxTUICommand.swift"
 # Never from a phone, whatever the command: they choose what runs, where, and with which environment.
 PROGRAM_FIELDS = {"respawn", "env", "shell_args", "argv", "command", "cwd"}
 # Field types that are not plain values (opaque JSON, maps, objects) pass through to the daemon whole,
@@ -112,11 +118,25 @@ def allowed_commands():
     return sorted(set(re.findall(r'"([a-z0-9-]+)"', block)))
 
 
+def ios_commands(commands):
+    """The commands the iOS client sends: `clients` includes ios (absent `clients` is every client)."""
+    return sorted(name for name, command in commands.items() if "ios" in command.get("clients", ["ios"]))
+
+
+def check_ios_allowed(commands, allowed):
+    refused = [name for name in ios_commands(commands) if name not in allowed]
+    if refused:
+        raise SystemExit("%s: allowedCommands refuses commands the iOS client sends (clients: ios in %s): %s; "
+                         "allow each one or remove it from %s" % (POLICY, SCHEMA, ", ".join(refused), IOS_CLIENT))
+
+
 def table():
     schema = json.load(open(os.path.join(ROOT, SCHEMA), encoding="utf-8"))
     commands, types = schema["commands"], schema.get("types", {})
+    allowed = allowed_commands()
+    check_ios_allowed(commands, allowed)
     rows = []
-    for name in allowed_commands():
+    for name in allowed:
         if name not in commands:
             raise SystemExit("%s: %s is allowed for phones but not in %s" % (POLICY, name, SCHEMA))
         request = commands[name].get("request") or {}

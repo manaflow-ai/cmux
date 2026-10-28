@@ -198,14 +198,15 @@ final class SurfaceFrameEncoder {
             return unsafe CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: total, destination: base)
         }
         guard status == noErr else { return nil }
-        var offset = 0
-        while offset + 4 <= total {
-            let length = Int(raw[offset]) << 24 | Int(raw[offset + 1]) << 16 | Int(raw[offset + 2]) << 8 | Int(raw[offset + 3])
-            offset += 4
-            guard length > 0, offset + length <= total else { return nil }
+        // AVCC: 4-byte big-endian lengths, each followed by its NAL unit; read from the front of what is left.
+        var rest = ArraySlice(raw)
+        while rest.count >= 4 {
+            let length = Int(truncatingIfNeeded: rest.prefix(4).reduce(UInt32(0)) { $0 << 8 | UInt32(truncatingIfNeeded: $1) })
+            rest = rest.dropFirst(4)
+            guard length > 0, length <= rest.count else { return nil }
             out.append(contentsOf: startCode)
-            out.append(contentsOf: raw[offset..<(offset + length)])
-            offset += length
+            out.append(contentsOf: rest.prefix(length))
+            rest = rest.dropFirst(length)
         }
         return out
     }

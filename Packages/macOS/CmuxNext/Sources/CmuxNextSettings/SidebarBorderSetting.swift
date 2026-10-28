@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 import CoreGraphics
 
 /// `sidebar.border` (on/off) and `sidebar.borderWidth` (points, 0.5 to 4;

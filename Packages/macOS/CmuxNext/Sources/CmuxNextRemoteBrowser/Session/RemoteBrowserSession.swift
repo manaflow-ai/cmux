@@ -3,6 +3,7 @@ public import CmuxNextBrowser
 import CmuxNextCompat
 public import CmuxNextInputCore
 public import CmuxNextRemoteView
+public import CmuxNextWakeups
 public import Foundation
 
 #if DEBUG || CMUX_BENCH_HOOKS
@@ -34,6 +35,8 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
     private let profileName: String
     private var serviceTask: Task<Void, Never>?
     private var statusTask: Task<Void, Never>?
+    /// The app's main-thread scheduler: the host's messages and the rd status apply in its visible class.
+    private let mainWork: MainWorkScheduler
     /// `rb.open` waits for streaming and a real layout; then `rb.screen`.
     private var openGate = RemoteBrowserOpenGate()
     /// The last reducer reject or note, for the debug socket.
@@ -56,12 +59,13 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
     /// `session(of:)?.start()`.
     public static func makeTab(
         record: RemoteBrowserTabRecord, id: BrowserTabID, profile: BrowserProfileID, viewer: String, token: String? = nil,
-        carrier: (any RemoteRdByteCarrier)? = nil, machineName: String? = nil
+        carrier: (any RemoteRdByteCarrier)? = nil, machineName: String? = nil, mainWork: MainWorkScheduler
     ) -> RemoteBrowserTab? {
         let carrier = carrier ?? RemoteRdLoopbackCarrier(endpoint: record.endpoint)
         // A machine's tab names the machine and shows only page addresses, never its record.
         guard let session = RemoteBrowserSession(carrier: carrier, address: machineName ?? record.address, tabKey: id.rawValue,
-                                                 viewer: viewer, initialURL: record.initialURL, token: token) else { return nil }
+                                                 viewer: viewer, initialURL: record.initialURL, token: token,
+                                                 mainWork: mainWork) else { return nil }
         let shown = machineName == nil ? record.initialURL ?? record.url : record.initialURL
         let tab = RemoteBrowserTab(id: id, profile: profile, url: shown, pane: session.pane, channel: session)
         session.tab = tab
@@ -73,7 +77,8 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
         tab.channel as? RemoteBrowserSession
     }
 
-    private init?(carrier: any RemoteRdByteCarrier, address: String, tabKey: String, viewer: String, initialURL: URL?, token: String?) {
+    private init?(carrier: any RemoteRdByteCarrier, address: String, tabKey: String, viewer: String, initialURL: URL?, token: String?,
+                  mainWork: MainWorkScheduler) {
         guard let transport = RemoteRdStreamTransport.remoteBrowser(carrier: carrier, user: NSUserName(), install: viewer, token: token),
               let client = RbClient() else { return nil }
         self.transport = transport
@@ -81,16 +86,17 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
         self.tabKey = tabKey
         self.initialURL = initialURL
         self.address = address
+        self.mainWork = mainWork
         hasToken = token?.isEmpty == false
         profileName = "remote"
-        pane = RemoteBrowserPane(source: transport)
+        pane = RemoteBrowserPane(source: transport, mainWork: mainWork)
         nativeUI = RemoteBrowserNativeUI(view: pane.view)
         surfaces = RemoteBrowserSurfaces(
             page: pane.view, source: { [transport] stream in transport.surfaceSource(stream: stream) },
             send: { [transport] event, mustDeliver in
                 guard let bytes = RemoteBrowserInputEncoder.bytes(event) else { return }
                 _ = transport.sendServiceInput(bytes, mustDeliver: mustDeliver)
-            })
+            }, mainWork: mainWork)
         nativeUI.onMenuChoice = { [weak self] token, choice in self?.apply(.menuChosen(token: token, choice: choice)) }
         nativeUI.onDialogAnswer = { [weak self] token, accept, text in self?.apply(.dialogAnswered(token: token, accept: accept, text: text)) }
         pane.view.onViewport = { [weak self] viewport in self?.resize(viewport) }
@@ -101,31 +107,51 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
         guard serviceTask == nil, failure == nil else { return }
         let bodies = transport.serviceMessages()
         let statuses = transport.statusUpdates()
+        // The streams are read off main; each message and status is one visible task (the page's own updates, Chrome
+        // posts each renderer message to the UI thread as one task), in arrival order: one class queue is FIFO. They
+        // apply whether or not the tab shows (the reducer is the session's state).
+        let work = mainWork
+        let messageOwner = work.board.owner("remote-browser.message")
+        let statusOwner = work.board.owner("remote-browser.status")
         // task-owner: the session's host messages; ends when the transport finishes its service stream.
-        serviceTask = Task { [weak self] in
+        serviceTask = Task { @concurrent [weak self] in
             for await body in bodies {
-                // The reducer has no popup surfaces; the session shows them.
-                if let surface = RbSurfaceMessage(body) {
-                    self?.surfaces.apply(surface)
-                } else {
-                    self?.apply(.host(body))
-                }
+                guard let session = self else { return }
+                // node-free: the session's state; a hidden tab's menus and dialogs still reach its reducer.
+                work.postFromAnyThread(.visible, owner: messageOwner) { session.received(body) }
             }
         }
         // task-owner: sends rb.open once the rd session streams, and shows why it ended; ends with the transport's status stream.
-        statusTask = Task { [weak self] in
+        statusTask = Task { @concurrent [weak self] in
             for await status in statuses {
-                switch status.state {
-                case .streaming: self?.sessionStreaming()
-                case let .ended(end): self?.sessionEnded(end)
-                case .connecting, .waitingForConsent: break
-                }
+                guard let session = self else { return }
+                // node-free: a hidden tab opens its page and learns its end too.
+                work.postFromAnyThread(.visible, owner: statusOwner) { session.statusChanged(status) }
             }
         }
         transport.connect()
         pane.start()
         // A view laid out before start reported its size to no one.
         resize(pane.view.viewport)
+    }
+
+    /// One host message: a popup surface's goes to the surfaces (the reducer has none), any other to the reducer.
+    private func received(_ body: RemoteRdJSON) {
+        guard !isClosed else { return }
+        if let surface = RbSurfaceMessage(body) {
+            surfaces.apply(surface)
+        } else {
+            apply(.host(body))
+        }
+    }
+
+    private func statusChanged(_ status: RemoteViewStatus) {
+        guard !isClosed else { return }
+        switch status.state {
+        case .streaming: sessionStreaming()
+        case let .ended(end): sessionEnded(end)
+        case .connecting, .waitingForConsent: break
+        }
     }
 
     /// The pane's page size changed (`rb.screen`, through the reducer's seq).

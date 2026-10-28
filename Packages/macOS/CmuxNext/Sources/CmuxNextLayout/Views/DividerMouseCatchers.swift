@@ -15,7 +15,9 @@ import CmuxNextDesign
 /// (Chrome's model: `RenderWidgetHostViewCocoa` is a subview,
 /// `content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm`) needs
 /// none: the divider views are above it in the same window, and
-/// `WindowOverlayLayer` makes no catchers at all.
+/// `WindowOverlayLayer` makes no catchers at all. So does every page of a
+/// window whose pages draw in its view tree (``PageSurface/views``, the
+/// Chromium Host): such a window never shows a catcher panel.
 ///
 /// A content panel (`ContentChildPanel`: a remote page's popup reaching
 /// past the page's edge) lies below these panels, so a catcher never covers
@@ -55,11 +57,13 @@ public final class DividerMouseCatchers {
     }
 
     /// Shows one panel per area (window coordinates), or none when `active`
-    /// is false (no page window takes the mouse). An area's part under a
+    /// is false (no page window takes the mouse) or the window's pages draw
+    /// in its view tree (``PageSurface/views``). An area's part under a
     /// rect of `holes` (window coordinates: the content panels' frames) gets
     /// no panel, so the popup there keeps the mouse.
     public func update(_ areas: [LayoutMouseArea], active: Bool, excluding holes: [CGRect] = []) {
-        let wanted = active && window.isVisible ? Self.pieces(of: areas, excluding: holes) : []
+        let takesMouse = active && window.isVisible && PageSurface.of(window) == .childWindows
+        let wanted = takesMouse ? Self.pieces(of: areas, excluding: holes) : []
         let keys = Set(wanted.map(\.key))
         for (key, panel) in panels where !keys.contains(key) {
             if panel.parent === window { window.removeChildWindow(panel) }
@@ -164,10 +168,18 @@ final class DividerMousePanel: NSPanel {
 /// view gets the press and, as the press's view, the drags and the release.
 final class DividerMouseCatcherView: NSView {
     var resizesColumns = true {
-        didSet { if resizesColumns != oldValue { window?.invalidateCursorRects(for: self) } }
+        didSet { if resizesColumns != oldValue, isEntered { cursor.set() } }
     }
     var onHover: ((Bool) -> Void)?
-    private var trackingArea: NSTrackingArea?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        // This panel is never key: track in the active app, not the key window, or it never sees the pointer.
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .cursorUpdate, .activeForHover, .inVisibleRect], owner: self))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -176,21 +188,12 @@ final class DividerMouseCatcherView: NSView {
         return resizesColumns ? .resizeLeftRight : .resizeUpDown
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let trackingArea { removeTrackingArea(trackingArea) }
-        // This panel is never key: track always, or it never sees the pointer.
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        trackingArea = area
-    }
-
     /// Whether the pointer is over this catcher now: its panel shows, takes the mouse, and holds
     /// the pointer. Read on the turn after an enter, outside its dispatch. A seam for tests, which
     /// have no screen pointer.
     lazy var isPointerOver: () -> Bool = { [weak self] in
         guard let self, let panel = self.window, panel.isVisible, panel.alphaValue > 0, !panel.ignoresMouseEvents,
-              !self.isHiddenOrHasHiddenAncestor else { return false }
+              !self.isHiddenOrHasHiddenAncestor else { return false } // visibility-walk-allow: a hit test of the pointer, read once on the turn after an enter
         // global-input-allow: next turn, outside dispatch; the pointer may have left before its exit is handled.
         return self.convert(self.bounds, to: nil).contains(panel.convertPoint(fromScreen: NSEvent.mouseLocation))
     }
@@ -210,7 +213,7 @@ final class DividerMouseCatcherView: NSView {
         // only if no exit came and the panel still shows under the pointer (a panel parked,
         // hidden or moved meanwhile gets no exit). One-shot: nothing repeats or stays scheduled.
         pendingCursorSet?.cancel()
-        pendingCursorSet = Task { @MainActor [weak self] in
+        pendingCursorSet = Task { @MainActor [weak self] in // main-hop-allow: AppKit resets the key window's arrow later in this enter's turn; the cursor set must run after that turn
             guard let self else { return }
             self.pendingCursorSet = nil
             guard !Task.isCancelled, self.isEntered, self.isPointerOver() else { return }
@@ -224,7 +227,8 @@ final class DividerMouseCatcherView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) { forward(event) }
-    override func mouseDragged(with event: NSEvent) { forward(event) }
+    // input-coalesce: native (a forward into the parent window, whose divider drag coalesces it, p04-input-031)
+    override func mouseDragged(with event: NSEvent) { forward(event) } // local-monitor-allow: a forward to the parent window, order and count kept; the divider there coalesces its drag
     override func mouseUp(with event: NSEvent) { forward(event) }
     override func rightMouseDown(with event: NSEvent) { forward(event) }
     override func rightMouseUp(with event: NSEvent) { forward(event) }
@@ -233,7 +237,7 @@ final class DividerMouseCatcherView: NSView {
 
     // The event's own screen point (`screenLocation`): the panel moves while a divider drags.
     // input-coalesce: native (a forward; the view under it coalesces its own scroll)
-    override func scrollWheel(with event: NSEvent) {
+    override func scrollWheel(with event: NSEvent) { // local-monitor-allow: a forward to the view under the pointer in the parent window, order and count kept
         guard let parent = window?.parent, let content = parent.contentView else { return }
         let point = content.convert(parent.convertPoint(fromScreen: event.screenLocation), from: nil)
         content.hitTest(point)?.scrollWheel(with: event)

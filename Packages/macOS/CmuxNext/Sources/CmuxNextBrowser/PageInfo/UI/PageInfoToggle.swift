@@ -23,7 +23,6 @@ final class PageInfoToggle: NSView {
         wantsLayer = true
         layer?.addSublayer(track)
         layer?.addSublayer(knob)
-        knob.shadowOpacity = Float(PopupStyle.elevation1.alpha)
         knob.shadowRadius = PopupStyle.elevation1.layerRadius
         knob.shadowOffset = PopupStyle.elevation1.layerOffset()
         setAccessibilityElement(true)
@@ -59,9 +58,12 @@ final class PageInfoToggle: NSView {
         let diameter = size.height - inset * 2
         knob.frame = CGRect(x: isOn ? size.width - inset - diameter : inset, y: inset, width: diameter, height: diameter)
         knob.cornerRadius = diameter / 2
+        knob.cast(shadowPath: ShadowOutline(size: knob.bounds.size, cornerRadius: knob.cornerRadius))
         performWithTheme {
             track.backgroundColor = (isOn ? PageInfoStyle.text : PageInfoStyle.pressed).cgColor
             knob.backgroundColor = (isOn ? PageInfoStyle.background : PageInfoStyle.secondaryText).cgColor
+            // It casts from its outline as strongly as its fill cast before.
+            knob.shadowOpacity = ShadowOutline.opacity(PopupStyle.elevation1.alpha, under: knob.backgroundColor)
         }
     }
 

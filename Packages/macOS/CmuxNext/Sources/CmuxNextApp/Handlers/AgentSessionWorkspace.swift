@@ -58,15 +58,18 @@ enum AgentSessionWorkspace {
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
         }
-        let logger = daemon.logger
+        let logger = daemon.logger, store = daemon.store
+        // The daemon commands and the store's echoes are awaited off main; each step on main is one task of the
+        // run's completion.
+        let end = services.registry.completion(on: services.mainWork)
         // A caller's key that names a listed workspace already shows the
         // session (a launcher run again): nothing is opened twice.
-        if services.machines.workspace(id: key.rawValue) != nil { return Task { nil } }
+        if services.machines.workspace(id: key.rawValue) != nil { return end.start { nil } }
         let windows = services.windows
         // Every window's sidebar: each lists only its own workspaces, and the predecessor may be in any.
         if let group, let name,
            let row = windows.controllers.lazy.compactMap({ predecessor(named: name, inGroup: group, in: $0.sidebar.model.sections) }).first {
-            return reuse(row, session: session, key: key, host: host, services: services)
+            return reuse(row, session: session, key: key, host: host, services: services, end: end)
         }
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
         // workspace the window shows, when it is in one (cx-caoh), then into
@@ -80,7 +83,7 @@ enum AgentSessionWorkspace {
         }
         NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows),
                                       then: join, windows: windows)
-        return Task { @MainActor in
+        return end.start { () -> ActionWorkFailure? in
             do {
                 // Waits for the terminal on a loaded host (Leo, 2026-10-21: a 5 s start deadline
                 // left the workspace a bare shell, never attached): the start that lands late is
@@ -90,19 +93,12 @@ enum AgentSessionWorkspace {
                 }
                 // The workspace's first pane once the store mirrors it, found
                 // by the key chosen here (as CloudHandlers finds its anchor).
-                guard let pane = await daemon.store.firstPane(mirroring: key) else {
+                guard let pane = await store.firstPane(mirroring: key) else {
                     logger.error("agent.openSessionWorkspace: the pane of workspace \(key.rawValue, privacy: .public) did not appear")
                     return ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear")
                 }
-                // A workspace store tab bound to the session (agent-session-tabs-v1),
-                // so it is saved and restored with the workspace like any tab.
-                let pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host)
-                let created = try await pending.value()
-                // Selected wherever the workspace is shown later, never shown now.
-                for window in services.windows.controllers {
-                    window.state.selection.select(created.key, in: pane.id)
-                }
-                logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(created.key, privacy: .public)")
+                let tab = try await addChat(session, in: pane, host: host, services: services, end: end)
+                logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in workspace \(key.rawValue, privacy: .public) tab \(tab, privacy: .public)")
                 return nil
             } catch let refusal as AgentTabRefusal {
                 return ActionWorkFailure("agent.openSessionWorkspace: \(refusal.message)")
@@ -117,20 +113,14 @@ enum AgentSessionWorkspace {
     /// row `row`, selected there; the caller's `key` is the tab's creation key,
     /// so a launcher run again gets the same tab.
     private static func reuse(_ row: SidebarWorkspaceID, session: String, key: WorkspaceKey, host: String?,
-                              services: AppServices) -> ActionWork {
-        let daemon = services.daemon
-        let logger = daemon.logger
-        return Task { @MainActor in
+                              services: AppServices, end: ActionCompletion) -> ActionWork {
+        let logger = services.daemon.logger, store = services.daemon.store
+        return end.start { () -> ActionWorkFailure? in
             do {
-                guard let pane = await daemon.store.firstPane(mirroring: WorkspaceKey(rawValue: row.rawValue)) else {
+                guard let pane = await store.firstPane(mirroring: WorkspaceKey(rawValue: row.rawValue)) else {
                     return ActionWorkFailure("agent.openSessionWorkspace: the pane of workspace \(row.rawValue) did not appear")
                 }
-                let pending = try services.agentTabs.open(in: pane.handle, of: daemon, session: session, linked: true, host: host,
-                                                          idempotencyKey: key.rawValue)
-                let created = try await pending.value()
-                for window in services.windows.controllers {
-                    window.state.selection.select(created.key, in: pane.id)
-                }
+                _ = try await addChat(session, in: pane, host: host, idempotencyKey: key.rawValue, services: services, end: end)
                 logger.info("agent.openSessionWorkspace: session \(session, privacy: .public) in its predecessor's workspace \(row.rawValue, privacy: .public)")
                 return nil
             } catch let refusal as AgentTabRefusal {
@@ -139,6 +129,25 @@ enum AgentSessionWorkspace {
                 return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
             }
         }
+    }
+
+    /// Adds a workspace store tab bound to `session` (agent-session-tabs-v1) to `pane`, so it is saved and restored
+    /// with the workspace like any tab, and selects it there in every window: selected wherever the workspace shows
+    /// later, never shown now. Returns the tab's key. Runs off main; the open and the selection are tasks of `end`.
+    nonisolated private static func addChat(_ session: String, in pane: PaneModel, host: String?,
+                                            idempotencyKey: String = UUID().uuidString.lowercased(),
+                                            services: AppServices, end: ActionCompletion) async throws -> String {
+        let pending = try await end.apply(owner: "AgentSessionWorkspace.openTab") {
+            Result { try services.agentTabs.open(in: pane.handle, of: services.daemon, session: session, linked: true, host: host,
+                                                 idempotencyKey: idempotencyKey) }
+        }.get()
+        let created = try await pending.value()
+        await end.apply(owner: "AgentSessionWorkspace.select", answering: true) {
+            for window in services.windows.controllers {
+                window.state.selection.select(created.key, in: pane.id)
+            }
+        }
+        return created.key
     }
 
     /// Moves workspace `id` into the sidebar group named `name` (`group(named:accepting:in:)`), or into a

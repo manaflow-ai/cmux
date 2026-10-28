@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextFiles
+import CmuxNextWakeups
 
 /// The column layout: Miller columns over `NSBrowser`, one column per folder
 /// from `/` to the folder shown. Columns list off the main actor: a column
@@ -13,16 +14,19 @@ final class FileColumnsView: NSObject, FileContentView, NSBrowserDelegate {
     private let actions: FilesPaneActions
     private let icons: FileIconProvider
     private let lister: any DirectoryListing
+    /// The app's main-thread scheduler: each column's listing lands as one visible task on it.
+    private let mainWork: MainWorkScheduler
     private var listings: [String: [FileColumnNode]] = [:]
     private var loading: Set<String> = []
     private let root = FileColumnNode(entry: FileEntry(url: URL(fileURLWithPath: "/"), kind: .folder))
     private var showsHidden = false
     private var applying = false
 
-    init(actions: FilesPaneActions, icons: FileIconProvider, lister: any DirectoryListing) {
+    init(actions: FilesPaneActions, icons: FileIconProvider, lister: any DirectoryListing, mainWork: MainWorkScheduler) {
         self.actions = actions
         self.icons = icons
         self.lister = lister
+        self.mainWork = mainWork
         view = browser
         super.init()
         browser.delegate = self
@@ -89,17 +93,29 @@ final class FileColumnsView: NSObject, FileContentView, NSBrowserDelegate {
         loading.insert(path)
         let url = node.entry.url
         let hidden = showsHidden
-        Task { [weak self, lister] in
+        // The listing reads off main; its column fills in one userBlocking task, the completion of the
+        // person's click on the folder (p06-scheduler rule 2). The off-main task holds only Sendable
+        // values; the view and the node stay in a main-actor closure.
+        let land: @MainActor @Sendable ([FileEntry]) -> Void = { [weak self] entries in
+            self?.listed(entries, of: node, at: path, hidden: hidden)
+        }
+        let lister = lister, mainWork = mainWork
+        // task-owner: one folder listing off main; ends when its column reloads
+        Task { @concurrent in
             let entries = (try? await lister.list(url)) ?? []
-            guard let self else { return }
-            self.loading.remove(path)
-            self.listings[path] = FileSortOrder().sorted(entries.filter { hidden || !$0.isHidden }).map(FileColumnNode.init)
-            guard self.browser.lastColumn >= 0 else { return }
-            for column in 0...self.browser.lastColumn where self.browser.parentForItems(inColumn: column) as? FileColumnNode === node {
-                self.browser.reloadColumn(column)
-            }
+            mainWork.postFromAnyThread(.userBlocking, owner: "FileColumns.listed") { land(entries) }
         }
         return []
+    }
+
+    /// Keeps `node`'s listing and reloads the columns that show its children.
+    private func listed(_ entries: [FileEntry], of node: FileColumnNode, at path: String, hidden: Bool) {
+        loading.remove(path)
+        listings[path] = FileSortOrder().sorted(entries.filter { hidden || !$0.isHidden }).map(FileColumnNode.init)
+        guard browser.lastColumn >= 0 else { return }
+        for column in 0...browser.lastColumn where browser.parentForItems(inColumn: column) as? FileColumnNode === node {
+            browser.reloadColumn(column)
+        }
     }
 
     // MARK: NSBrowserDelegate (item-based)
