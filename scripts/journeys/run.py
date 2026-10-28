@@ -141,16 +141,21 @@ def select(specs, opts):
 
 def batches(specs):
     """Journeys in leases of at most JOURNEY_SECONDS each. A `first_in_app` journey (first launch) needs the
-    app capture-host just launched from empty state, so each one starts a lease of its own and goes first."""
+    app capture-host just launched from empty state, so each one starts a lease of its own and goes first.
+    A `last_in_lease` journey leaves app state the next journey cannot undo (a synthetic app activation, a
+    text input that keeps the person's keyboard, so a script's newTab no longer shows its workspace), so
+    nothing runs after it in its lease (v2.2.4-opt gate: arrows-history and bracketed-paste failed after
+    scripted-newtab-keeps-person-keys in one lease)."""
     out, current, used = [], [], 0
     firsts = [s for s in specs if s.get("first_in_app")]
     for first in firsts:
         out.append([first])
     rest = [s for s in specs if not s.get("first_in_app")]
-    # The rest fill the first-launch leases first, then new ones.
+    # The rest fill the first-launch leases first, then new ones; a lease ends after a last_in_lease journey.
     for batch in out:
         used = batch[0]["budget_seconds"]
-        while rest and used + rest[0]["budget_seconds"] <= JOURNEY_SECONDS:
+        while (rest and not batch[-1].get("last_in_lease")
+               and used + rest[0]["budget_seconds"] <= JOURNEY_SECONDS):
             used += rest[0]["budget_seconds"]
             batch.append(rest.pop(0))
     used = 0
@@ -160,6 +165,9 @@ def batches(specs):
             current, used = [], 0
         current.append(spec)
         used += spec["budget_seconds"]
+        if spec.get("last_in_lease"):
+            out.append(current)
+            current, used = [], 0
     return out + ([current] if current else [])
 
 
@@ -329,7 +337,8 @@ def lease_crashes(host, app, bundle_id, since_epoch, left):
         return []
     crashes = parse_crash_listing(listing.stdout.decode(errors="replace"))
     for crash in crashes:
-        log(f"[{host}] CRASH of the app under test: {crash['file']} {crash['signal']} {' < '.join(crash['frames'][:2])}")
+        kind = "deliberate crash (debug.crash.app)" if is_deliberate_crash(crash) else "CRASH of the app under test"
+        log(f"[{host}] {kind}: {crash['file']} {crash['signal']} {' < '.join(crash['frames'][:2])}")
     return crashes
 
 
@@ -353,6 +362,7 @@ def take_results(files, out, ids):
 def crashed_results(results, crashes):
     """`results` with every journey failed when the app under test crashed during the lease (`crashes`, from
     ``parse_crash_listing``): a crash the app relaunched from can hide behind a later pass."""
+    crashes = [c for c in crashes if not is_deliberate_crash(c)]
     if not crashes:
         return results
     first = crashes[0]
@@ -363,6 +373,15 @@ def crashed_results(results, crashes):
         own = result.get("reason") or ""
         failed[journey] = {**result, "status": "fail", "reason": what + (f"; {own}" if own else ""), "crashes": crashes}
     return failed
+
+
+# A crash a journey asks for (debug.crash.app, app-life-crash-recovers) has this frame on its faulting thread.
+DELIBERATE_CRASH_FRAME = "DebugCrashes.crashApp"
+
+
+def is_deliberate_crash(crash):
+    """Whether a crash report is the app's own debug.crash.app (a journey step), not a crash of the build."""
+    return any(DELIBERATE_CRASH_FRAME in frame for frame in crash.get("frames", []))
 
 
 def parse_crash_listing(text):

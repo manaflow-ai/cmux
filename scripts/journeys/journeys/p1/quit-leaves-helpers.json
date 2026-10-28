@@ -16,11 +16,11 @@
     {"do": "key", "key": "l", "modifiers": ["cmd", "shift"], "mark": "browser"},
     {"do": "expect", "title": "Cmd+Shift+L opens a browser tab in the right pane", "since": "browser", "timeout": 15,
      "all": [{"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "addressBar"}}]},
-    {"do": "type", "text": "example.com", "enter": true, "mark": "loaded"},
+    {"do": "type", "text": "${fixture_url}", "enter": true, "mark": "loaded"},
     {"do": "expect", "title": "before the quit: a terminal on the left, a loaded browser tab on the right", "since": "loaded", "timeout": 40,
      "all": [
        {"app_rpc": {"method": "debug.focus", "path": "windows.0.model.resolved", "equals": "browserPage"}},
-       {"frame_text": "Example Domain"}
+       {"frame_text": "${fixture_heading}"}
      ]},
 
     {"do": "relaunch", "how": "quit", "leftovers_after": 10, "mark": "reopened"},
