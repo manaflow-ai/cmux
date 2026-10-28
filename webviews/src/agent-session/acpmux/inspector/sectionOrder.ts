@@ -18,6 +18,7 @@ export const INSPECTOR_ORDER_SETTING_KEY = "agentPane.display.inspector.order";
 
 let nativeOrder: InspectorOrder | undefined;
 let nativeWrite: ((value: InspectorOrder) => void) | undefined;
+type InspectorOrderStorage = Pick<Storage, "getItem" | "setItem"> & Partial<Pick<Storage, "removeItem">>;
 
 function normalize(value: unknown): InspectorOrder {
   const known = (id: unknown): id is InspectorOrderId => DEFAULT_INSPECTOR_ORDER.includes(id as InspectorOrderId);
@@ -44,14 +45,25 @@ export function registerInspectorOrderHost(write: ((value: InspectorOrder) => vo
   if (!write) nativeOrder = undefined;
 }
 
+export function inspectorOrderHostAvailable(): boolean {
+  return nativeWrite !== undefined;
+}
+
 // Order is a user preference shared by panes; collapse state remains per pane.
-export function createInspectorOrderStore(storage: () => Pick<Storage, "getItem" | "setItem"> = () => localStorage) {
+export function createInspectorOrderStore(storage: () => InspectorOrderStorage = () => localStorage) {
   let state: InspectorOrder | undefined;
   let unsaved = false;
   const listeners = new Set<() => void>();
   const read = () => {
     if (unsaved && state) return state;
-    if (nativeOrder) return nativeOrder;
+    if (nativeWrite) {
+      try {
+        storage().removeItem?.(INSPECTOR_ORDER_KEY);
+      } catch {
+        // The native preference remains authoritative when localStorage is unavailable.
+      }
+      return nativeOrder ?? DEFAULT_INSPECTOR_ORDER;
+    }
     try {
       return normalize(JSON.parse(storage().getItem(INSPECTOR_ORDER_KEY) ?? "null"));
     } catch {
@@ -85,12 +97,18 @@ export function createInspectorOrderStore(storage: () => Pick<Storage, "getItem"
       if (nativeWrite) {
         nativeOrder = next;
         nativeWrite(next);
-      }
-      try {
-        storage().setItem(INSPECTOR_ORDER_KEY, JSON.stringify(next));
-        unsaved = false;
-      } catch {
-        unsaved = true;
+        try {
+          storage().removeItem?.(INSPECTOR_ORDER_KEY);
+        } catch {
+          // The native preference remains authoritative when localStorage is unavailable.
+        }
+      } else {
+        try {
+          storage().setItem(INSPECTOR_ORDER_KEY, JSON.stringify(next));
+          unsaved = false;
+        } catch {
+          unsaved = true;
+        }
       }
       update(next);
     },

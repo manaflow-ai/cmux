@@ -180069,6 +180069,20 @@
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "侧边栏边缘不再渐隐，整个列表全部显示。同时隐藏底部的个人资料和搜索栏。关闭时边缘渐隐，并显示该栏。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄邊緣不再漸隱，整個列表全部顯示。同時隱藏底部的個人資料和搜尋列。關閉時邊緣漸隱，並顯示該列。"}}
       }
+    },
+    "settings.agentPane.display.inspectorOrder": {
+      "comment": "Settings > Appearance > Agent Chat: the hidden Session Info card order preference edited by dragging",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Session Info order"}}
+      }
+    },
+    "settings.agentPane.display.inspectorOrder.help": {
+      "comment": "Settings > Appearance > Agent Chat > Session Info order: hidden preference help",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The order of Session Info cards."}}
+      }
     }
   },
   "version": "1.0"

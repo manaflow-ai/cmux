@@ -3,16 +3,19 @@ import {
   createInspectorOrderStore,
   DEFAULT_INSPECTOR_ORDER,
   INSPECTOR_ORDER_KEY,
+  INSPECTOR_ORDER_SETTING_KEY,
   applyInspectorOrder,
   moveSection,
   registerInspectorOrderHost,
 } from "../src/agent-session/acpmux/inspector/sectionOrder";
+import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
 
 function memory(raw: string | null = null) {
   const entries = new Map<string, string>(raw === null ? [] : [[INSPECTOR_ORDER_KEY, raw]]);
   return {
     getItem: (key: string) => entries.get(key) ?? null,
     setItem: (key: string, value: string) => entries.set(key, value),
+    removeItem: (key: string) => entries.delete(key),
   };
 }
 
@@ -29,6 +32,21 @@ test("Changes above Context writes through the native preference and survives a 
     applyInspectorOrder(native[0]);
     expect(createInspectorOrderStore(() => memory()).current()).toEqual(first.current());
     expect(storage.getItem("cmux.agentPane.inspector.sections")).toBeNull();
+  } finally {
+    registerInspectorOrderHost(undefined);
+  }
+});
+
+test("resetting native settings clears the fallback and restores the default after relaunch", () => {
+  const storage = memory(JSON.stringify(["changes", "context"]));
+  const native = moveSection(DEFAULT_INSPECTOR_ORDER, "changes", "context");
+  registerInspectorOrderHost(() => undefined);
+  try {
+    setChatDisplay({ [INSPECTOR_ORDER_SETTING_KEY]: native });
+    expect(createInspectorOrderStore(() => storage).current()).toEqual(native);
+    setChatDisplay({});
+    expect(createInspectorOrderStore(() => storage).current()).toEqual(DEFAULT_INSPECTOR_ORDER);
+    expect(storage.getItem(INSPECTOR_ORDER_KEY)).toBeNull();
   } finally {
     registerInspectorOrderHost(undefined);
   }
