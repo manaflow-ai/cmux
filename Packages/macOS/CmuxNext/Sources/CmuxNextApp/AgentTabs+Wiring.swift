@@ -119,6 +119,19 @@ extension AgentTabStore {
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
         // The environment picker's Cloud machines: the account's, with Open and Resume (`cloudMachine.*`).
         AgentPaneCloudMachines.shared.wire(services)
+        // The composer strip's machine dot: the sidebar header's same link state; using a machine
+        // that is down runs its header's Reconnect.
+        tabs.machineLink.state = { [weak tabs, weak services] view in
+            guard let tabs, let services, let key = tabs.views.first(where: { $0.value === view })?.key,
+                  let daemon = tabs.daemonForTab(key), !daemon.isLocal else { return nil }
+            return SidebarBridge.paneLink(daemon.machineID, in: services.machines)
+        }
+        tabs.machineLink.use = { [weak services] machine in
+            services.map { SidebarBridge.paneUse(machine, in: $0.machines) } ?? .stuck
+        }
+        tabs.machineLink.reconnect = { [weak tabs] machine in
+            _ = tabs?.actionRegistry?.perform("machine.reconnect", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: machine), origin: .user))
+        }
         // The composer chips and shell commands chat pages held at the last quit (every relaunch's quit).
         tabs.relaunchWake = services.relaunchWake
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
@@ -261,12 +274,15 @@ extension AgentTabStore {
             }
             let machine = record.hostName ?? services.machines.machineName(daemon.machineID) ?? daemon.machineID
             let session = record.session ?? tabs.sessions[tabs.resolve(key)]
-            guard !daemon.isLocal, daemon.supports(DaemonCapability.agentSessionAttach.rawValue), let endpoint = daemon.remoteEndpoint else {
+            guard !daemon.isLocal, daemon.supports(DaemonCapability.agentSessionAttach.rawValue), let direct = daemon.remoteEndpoint else {
                 // A chat this app started on that machine says what to do there; an older tab
                 // recorded for another Mac keeps the "runs on" notice.
                 guard started else { return nil }
                 return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
             }
+            // Opening the chat or sending to it while its machine is down reconnects the machine
+            // and goes on once its handshake finished, with no click.
+            let endpoint = tabs.machineLink.endpoint(direct, machine: daemon.machineID)
             var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapability.agentSessionTrust.rawValue),
                                            servesKeyedReason: daemon.supports(DaemonCapability.agentSessionStartKeyedReason.rawValue))
             host.cloudMachineID = services.machines.session(daemon.machineID)?.machineID
