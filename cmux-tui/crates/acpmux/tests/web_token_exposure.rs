@@ -114,6 +114,18 @@ async fn a_web_connection_never_gets_the_token_or_the_web_url() {
     assert!(result.get("argv").is_none(), "{result}");
 }
 
+/// The dashboard link carries the token in its fragment, which a browser
+/// never sends to a server or in a Referer, never in its query.
+#[tokio::test]
+async fn the_dashboard_link_keeps_its_token_out_of_the_query() {
+    let mut local = client(Origin::Local).await;
+    let status: Value =
+        serde_json::from_str(&call(&mut local, 1, method::MUX_STATUS).await).unwrap();
+    let url = status["result"]["webUrl"].as_str().unwrap_or_else(|| panic!("{status}"));
+    assert_eq!(url, format!("http://127.0.0.1:1/#token={TOKEN}"));
+    assert!(!url.contains("?token="), "{url}");
+}
+
 /// A daemon this test started; killed if the test ends early.
 struct Daemon(Option<std::process::Child>);
 
