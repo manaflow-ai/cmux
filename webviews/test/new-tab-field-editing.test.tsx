@@ -8,6 +8,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR } from "../src/agent-session/acpmux/omnibar";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -35,6 +36,8 @@ beforeAll(() => {
       unobserve() {}
       disconnect() {}
     },
+    requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
   });
   Object.assign(scope, {
     window,
@@ -96,19 +99,19 @@ async function render(calls: unknown[][]) {
 }
 
 async function type(text: string) {
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  const setValue = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), "value")!.set!;
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field")!;
+  const handle = field.acpmuxMarkdownField!;
   await act(async () => {
-    setValue.call(field, text);
-    field.dispatchEvent(new window.Event("input", { bubbles: true }));
+    handle.focus();
+    handle.type(text);
   });
-  return field;
+  return field.querySelector<HTMLElement>("[contenteditable]")!;
 }
 
 const rows = () => [...window.document.querySelectorAll<HTMLElement>('[role="option"]')];
 
 const selected = () => rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
-async function press(field: HTMLTextAreaElement, key: string, modifiers: Partial<KeyboardEventInit> = {}) {
+async function press(field: HTMLElement, key: string, modifiers: Partial<KeyboardEventInit> = {}) {
   const event = new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...modifiers });
   await act(async () => field.dispatchEvent(event));
   return event;
@@ -166,8 +169,8 @@ test("the New Tab composer follows the opt-in spell checking setting", async () 
   const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
   setComposerSettings({ spellChecking: false });
   await render([]);
-  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")?.getAttribute("spellcheck")).toBe("false");
+  expect(host.querySelector<MarkdownFieldElement>(".nt-field")?.querySelector("[contenteditable]")?.getAttribute("spellcheck")).toBe("false");
   await act(async () => setComposerSettings({ spellChecking: true }));
-  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")?.getAttribute("spellcheck")).toBe("true");
+  expect(host.querySelector<MarkdownFieldElement>(".nt-field")?.querySelector("[contenteditable]")?.getAttribute("spellcheck")).toBe("true");
   await act(async () => setComposerSettings({ spellChecking: false }));
 });
