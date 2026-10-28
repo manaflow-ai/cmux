@@ -9,6 +9,8 @@
 //!
 //! The pin is the only place the Tailscale version is chosen; bump it on
 //! purpose, never float it. `patches/*.patch` are applied in name order.
+//! The Go its `go.mod` asks for is in `.go-version` beside this file (CI
+//! installs that Go); a pin bump that raises it updates `.go-version` too.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

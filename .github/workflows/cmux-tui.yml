@@ -724,6 +724,17 @@ jobs:
             echo "- hit rate: \`${hit_rate}%\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # cmux-tailnet, a workspace member, builds libtailscale with Go (its build.rs), and
+      # the owned Mac runners have no Go: without this every workspace step below failed
+      # at its build script ("go": No such file or directory) from #26443 on. setup-go
+      # sets GOTOOLCHAIN=local, so it installs the exact Go of libtailscale's go.mod;
+      # .go-version is also the fleet step's pin (cmux-tui-rust-check.sh screen mode).
+      - name: Set up Go for cmux-tailnet
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: cmux-tui/crates/cmux-tailnet/.go-version
+          cache: false
+
       # Clippy builds every workspace target with macOS cfgs. Keep this before
       # the focused tests so a macOS-only compile break cannot hide behind the
       # reduced test list.

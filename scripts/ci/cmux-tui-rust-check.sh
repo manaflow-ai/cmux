@@ -167,6 +167,19 @@ warm_target_guard() {
   mkdir -p "$dir" && printf '%s\n' "$want" >"$stamp"
 }
 warm_target_guard
+# Go's caches for cmux-tailnet's build script (crates/cmux-tailnet/build.rs runs
+# `go build` for libtailscale), in this checkout's .build, which a warm slot keeps,
+# so the Go toolchain libtailscale's go.mod selects and its modules are fetched
+# once per slot, not into each step's own HOME. Go writes its module cache
+# read-only; -modcacherw keeps it removable: before it, a step's cleanup failed
+# on it ("step workspace cleanup failed: unlinkat .../home/go/pkg/mod/...:
+# permission denied", 14 of 95 macOS steps on 2026-10-28) and that error
+# replaced the step's own verdict.
+go_caches() {
+  export GOFLAGS=-modcacherw
+  export GOPATH="$root/.build/go-path" GOMODCACHE="$root/.build/go-path/pkg/mod" GOCACHE="$root/.build/go-cache"
+}
+go_caches
 # Every mode runs all of its steps, even after a red one (no fail-fast), and
 # prints a summary table at the end; the step exits with the first red step's
 # exit code. CMUX_RUST_CHECK_FAIL_FAST=1 restores stop-at-first-red (and cargo
@@ -750,30 +763,33 @@ if [[ "$mode" == rd-bench ]]; then
 fi
 # Go for libtailscale (cmux-screen/crates/cmux-tailnet/build.rs): the host's go
 # with GOTOOLCHAIN=auto (Go 1.21 or later) when it has one, else the pinned
-# release, checksummed, in the step's own .build. Go's module and build caches
-# also stay in .build, and toolchain downloads go only through the default
+# release (cmux-tui/crates/cmux-tailnet/.go-version, which cmux-tui.yml's macOS
+# job installs too), checksummed, in the step's own .build. Go's caches stay in
+# .build (go_caches), and toolchain downloads go only through the default
 # proxy with the checksum database on: nothing is installed on the host.
 ensure_screen_go() {
-  export GOTOOLCHAIN=auto GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOFLAGS=
-  export GOPATH="$root/.build/go-path" GOMODCACHE="$root/.build/go-path/pkg/mod" GOCACHE="$root/.build/go-cache"
-  local arch sum dir="$root/.build/go-1.27.1" tmp
+  export GOTOOLCHAIN=auto GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org
+  go_caches
+  local version arch sum dir tmp
+  version="$(tr -d '[:space:]' <"$root/cmux-tui/crates/cmux-tailnet/.go-version")" || return 3
+  dir="$root/.build/go-$version"
   if ! command -v go >/dev/null 2>&1; then
-    case "$(uname -m)" in
-      arm64) arch=arm64; sum=ee215d57e0ec269c60cc9ceca68e6bda321ba9ee5afe24f4b0988703c2d87d12 ;;
-      x86_64) arch=amd64; sum=8f8f52c6649542cf027bbc9b9c68d1ec042f9f34808a40413f0b8b3f66f3caa4 ;;
-      *) echo "error: no pinned Go for $(uname -m)" >&2; return 3 ;;
+    case "$version-$(uname -m)" in
+      1.27.1-arm64) arch=arm64; sum=ee215d57e0ec269c60cc9ceca68e6bda321ba9ee5afe24f4b0988703c2d87d12 ;;
+      1.27.1-x86_64) arch=amd64; sum=8f8f52c6649542cf027bbc9b9c68d1ec042f9f34808a40413f0b8b3f66f3caa4 ;;
+      *) echo "error: no pinned sha256 for Go $version on $(uname -m); add it here" >&2; return 3 ;;
     esac
     if [[ ! -x "$dir/go/bin/go" ]]; then
       # Extract beside the target and rename, so a cut-off extract never looks complete.
       tmp="$dir.partial"
       rm -rf "$dir" "$tmp" && mkdir -p "$tmp" || return 3
-      curl -fsSL -o "$tmp/go.tgz" "https://go.dev/dl/go1.27.1.darwin-$arch.tar.gz" || return 3
+      curl -fsSL -o "$tmp/go.tgz" "https://go.dev/dl/go$version.darwin-$arch.tar.gz" || return 3
       echo "$sum  $tmp/go.tgz" | shasum -a 256 -c - || return 3
       tar -xzf "$tmp/go.tgz" -C "$tmp" && rm -f "$tmp/go.tgz" && mv "$tmp" "$dir" || return 3
     fi
     export PATH="$dir/go/bin:$PATH"
   fi
-  # libtailscale's go.mod selects Go 1.27.1; GOTOOLCHAIN=auto switches to it inside that folder.
+  # libtailscale's go.mod selects the Go of .go-version; GOTOOLCHAIN=auto switches to it inside that folder.
   go version || return 3
 }
 if [[ "$mode" == screen ]]; then
