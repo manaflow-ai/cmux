@@ -11,7 +11,6 @@ struct FeatureSwitchOnHostModeTests {
         "chromiumHostChoosers",
         "chromiumHostFileDialogs",
         "chromiumHostHangBanner",
-        "chromiumHostLocks",
         "chromiumHostPopupMenus",
         "chromiumHostSuggestions",
         "chromiumHostWidgets",
