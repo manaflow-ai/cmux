@@ -45,10 +45,12 @@ pub mod kind {
 
 /// What an agent's error says about its sign-in: `auth.expired` when it says a credential
 /// expired (`claude_auth::is_expired_credential`), `auth.signed_out` when it says there is no
-/// usable sign-in (`claude_auth::is_sign_in_failure`), else None. A connection or capacity
-/// error (`turn_errors::transient_cause`) is never a sign-in state, whatever else it says.
+/// usable sign-in (`claude_auth::is_sign_in_failure`), else None. An error that says the
+/// provider had no capacity or the connection dropped is never a sign-in state, whatever words
+/// about a sign-in it also carries ("HTTP 503: authentication_failed").
 pub fn auth_kind(message: &str) -> Option<&'static str> {
-    if crate::hub::turn_errors::transient_cause(message).is_some() {
+    use crate::hub::turn_errors::{is_capacity_error, says_connection_dropped};
+    if is_capacity_error(message) || says_connection_dropped(message) {
         return None;
     }
     if crate::claude_auth::is_expired_credential(message) {
@@ -584,6 +586,9 @@ mod tests {
                 Some(kind::AUTH_EXPIRED),
             ),
             ("API Error: Connection error.", false, None),
+            ("HTTP 503: authentication_failed", false, None),
+            ("Not logged in · Please run /login (connection error)", false, None),
+            ("HTTP 400: invalid token expiry value", false, None),
             ("stream disconnected before completion: the token stream expired", false, None),
             (
                 "API Error: 503 no non-exhausted claude accounts; the login pool expires soon",

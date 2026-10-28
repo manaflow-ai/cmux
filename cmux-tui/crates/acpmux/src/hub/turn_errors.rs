@@ -60,9 +60,12 @@ pub fn is_capacity_error(message: &str) -> bool {
 /// Does an agent error mean the connection to the model dropped, not that the prompt or the
 /// account was at fault? Limit and sign-in errors are excluded: another account solves those.
 pub fn is_transport_error(message: &str) -> bool {
-    if is_limit_error(message) {
-        return false;
-    }
+    !is_limit_error(message) && says_connection_dropped(message)
+}
+
+/// Whether an agent error's words say the connection to the model dropped, whatever else it
+/// says ([`is_transport_error`] without its limit and sign-in exclusion).
+pub fn says_connection_dropped(message: &str) -> bool {
     let m = message.to_lowercase();
     const PHRASES: &[&str] = &[
         "stream disconnected",

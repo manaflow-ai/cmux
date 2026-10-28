@@ -542,6 +542,14 @@ mod tests {
         assert_eq!(auth_failure("HTTP 503"), Auth::SignedOut);
         assert_eq!(auth_failure("Your refresh token has expired; run codex login"), Auth::Expired);
         assert_eq!(auth_failure("the MCP session expired"), Auth::SignedOut);
+        assert_eq!(auth_failure("Provided authentication token is expired."), Auth::Expired);
+        assert_eq!(auth_failure("credential expired"), Auth::Expired);
+        // Only a statement that a credential expired: not its expiry field, not a future one.
+        assert_eq!(auth_failure("HTTP 400: invalid token expiry value"), Auth::SignedOut);
+        assert_eq!(
+            auth_failure("Not logged in; the credential expires in 30 days"),
+            Auth::SignedOut
+        );
         assert_eq!(serde_json::to_value(Auth::Expired).unwrap(), json!("expired"));
     }
 
