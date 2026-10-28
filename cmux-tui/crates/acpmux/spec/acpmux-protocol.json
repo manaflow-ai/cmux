@@ -1720,6 +1720,17 @@
       "additionalProperties": false,
       "description": "The person a request comes from (`hub/author.rs`): stamped by the daemon that admitted\nthem, and accepted only from the unix socket or a peer forwarding for its own.",
       "properties": {
+        "approval": {
+          "anyOf": [
+            {
+              "$ref": "#/types/AuthorApproval"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A link guest's prompts wait for the chat owner's approval."
+        },
         "id": {
           "description": "`tailnet:<login>` until accounts are mapped, then `user_…`; one line of at most 256 bytes.",
           "type": "string"
@@ -1746,6 +1757,12 @@
         "name"
       ],
       "type": "object"
+    },
+    "AuthorApproval": {
+      "enum": [
+        "owner"
+      ],
+      "type": "string"
     },
     "AuthorMeta": {
       "properties": {

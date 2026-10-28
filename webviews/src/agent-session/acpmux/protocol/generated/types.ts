@@ -83,6 +83,8 @@ export type AttachResult = {
  * them, and accepted only from the unix socket or a peer forwarding for its own.
  */
 export interface Author {
+  /** A link guest's prompts wait for the chat owner's approval. */
+  approval?: (AuthorApproval | null);
   /** `tailnet:<login>` until accounts are mapped, then `user_…`; one line of at most 256 bytes. */
   id: string;
   login?: (string | null);
@@ -90,6 +92,8 @@ export interface Author {
   name: string;
   node?: (string | null);
 }
+
+export type AuthorApproval = "owner";
 
 export type AuthorMeta = {
   acpmux?: (AuthorMetaFields | null);
