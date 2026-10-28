@@ -66,8 +66,7 @@ function client(all: Message[], allRuns: Run[]) {
     async call<R>(op: string, raw: unknown): Promise<R> {
       const params = (raw ?? {}) as Record<string, unknown>;
       calls.push({ op, params });
-      if (op === HomeOps.inbox)
-        return { me, conversations: [conversation], rev: conversation.rev } as R;
+      if (op === HomeOps.inbox) return { me, conversations: [conversation], rev: conversation.rev } as R;
       if (op === HomeOps.page) return { conversation, messages: page(params) } as R;
       if (op === HomeOps.history) {
         const before = Number(params.beforeSeq) || Number.MAX_SAFE_INTEGER;
@@ -80,14 +79,9 @@ function client(all: Message[], allRuns: Run[]) {
       }
       if (op === HomeOps.attachmentSupport) return { local: false, cloud: false } as R;
       if (op === HomeOps.runs) {
-        const before =
-          typeof params.beforeStartedAt === "number"
-            ? params.beforeStartedAt
-            : Number.MAX_SAFE_INTEGER;
+        const before = typeof params.beforeStartedAt === "number" ? params.beforeStartedAt : Number.MAX_SAFE_INTEGER;
         const limit = Number(params.limit) || 50;
-        const available = allRuns
-          .filter((entry) => entry.startedAt < before)
-          .sort((a, b) => b.startedAt - a.startedAt);
+        const available = allRuns.filter((entry) => entry.startedAt < before).sort((a, b) => b.startedAt - a.startedAt);
         return { runs: available.slice(0, limit), hasMore: available.length > limit } as R;
       }
       if (op === HomeOps.run) {
@@ -114,13 +108,8 @@ function client(all: Message[], allRuns: Run[]) {
       }
       return {} as R;
     },
-    async subscribe<E>(
-      stream: string,
-      onEvent: (data: E, seq: number) => void,
-    ): Promise<() => void> {
-      return (
-        streams.subscribe(stream, onEvent as (data: unknown, seq: number) => void) ?? (() => {})
-      );
+    async subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void> {
+      return streams.subscribe(stream, onEvent as (data: unknown, seq: number) => void) ?? (() => {});
     },
     handle: () => () => {},
   };
@@ -129,16 +118,11 @@ function client(all: Message[], allRuns: Run[]) {
 
 function waitForReport(store: {
   runs: {
-    get(
-      conversation: string,
-      author: string,
-      id: string,
-    ): { steps: readonly { text?: string }[] } | undefined;
+    get(conversation: string, author: string, id: string): { steps: readonly { text?: string }[] } | undefined;
     subscribe(listener: () => void): () => void;
   };
 }): Promise<void> {
-  if (store.runs.get("chief-conv", "chief", "r1")?.steps[0]?.text === "[a1] report")
-    return Promise.resolve();
+  if (store.runs.get("chief-conv", "chief", "r1")?.steps[0]?.text === "[a1] report") return Promise.resolve();
   return new Promise((resolve) => {
     const stop = store.runs.subscribe(() => {
       if (store.runs.get("chief-conv", "chief", "r1")?.steps[0]?.text !== "[a1] report") return;
@@ -150,19 +134,14 @@ function waitForReport(store: {
 
 test("reload pages past twenty newer runs to restore a silent report", async () => {
   const all = Array.from({ length: 26 }, (_, index) => message(index + 1));
-  const allRuns = [
-    run(1, "m1"),
-    ...Array.from({ length: 25 }, (_, index) => run(index + 2, `m${index + 2}`)),
-  ];
+  const allRuns = [run(1, "m1"), ...Array.from({ length: 25 }, (_, index) => run(index + 2, `m${index + 2}`))];
   const fake = client(all, allRuns);
   const store = new HomeChannelsStore(fake.api as never);
   const stop = store.subscribe(() => {});
   await store.start();
   await waitForReport(store);
   expect(
-    fake.calls
-      .filter((call) => call.op === HomeOps.runs)
-      .some((call) => call.params.beforeStartedAt !== undefined),
+    fake.calls.filter((call) => call.op === HomeOps.runs).some((call) => call.params.beforeStartedAt !== undefined),
   ).toBe(true);
   expect(store.runs.get("chief-conv", "chief", "r1")?.steps[0]?.text).toBe("[a1] report");
   stop();
@@ -170,10 +149,7 @@ test("reload pages past twenty newer runs to restore a silent report", async () 
 
 test("loadOlder finds a silent run attached to the newly loaded question", async () => {
   const all = Array.from({ length: 130 }, (_, index) => message(index + 1));
-  const allRuns = [
-    run(1, "m1"),
-    ...Array.from({ length: 25 }, (_, index) => run(index + 2, `m${index + 2}`)),
-  ];
+  const allRuns = [run(1, "m1"), ...Array.from({ length: 25 }, (_, index) => run(index + 2, `m${index + 2}`))];
   const fake = client(all, allRuns);
   const store = new HomeChannelsStore(fake.api as never);
   const stop = store.subscribe(() => {});
@@ -200,7 +176,9 @@ test("cloud run pages forward the cursor and keep a skewed second agent paginabl
     answers: [],
   });
   const byAgent: Record<string, ReturnType<typeof raw>[]> = {
-    agent_a: [raw("a3", "agent_a", 30), raw("a2", "agent_a", 20), raw("a1", "agent_a", 10)],
+    // Three rows from one agent share the first page's boundary. The adapter must return all
+    // three because the next owner cursor is strict and cannot ask for the remainder of a tie.
+    agent_a: [raw("a3", "agent_a", 30), raw("a2", "agent_a", 30), raw("a1", "agent_a", 30), raw("a0", "agent_a", 20)],
     agent_b: [raw("b3", "agent_b", 25), raw("b2", "agent_b", 15), raw("b1", "agent_b", 5)],
   };
   const socket = {
@@ -208,13 +186,8 @@ test("cloud run pages forward the cursor and keep a skewed second agent paginabl
       requests.push({ command, params });
       if (command === "identify") return { capabilities: ["cloud-conversation-runs-v1"] } as T;
       if (command !== "cloud-conversation-runs") return {} as T;
-      const before =
-        typeof params.before_started_at === "number"
-          ? params.before_started_at
-          : Number.MAX_SAFE_INTEGER;
-      const runs = (byAgent[String(params.agent)] ?? []).filter(
-        (entry) => entry.started_at < before,
-      );
+      const before = typeof params.before_started_at === "number" ? params.before_started_at : Number.MAX_SAFE_INTEGER;
+      const runs = (byAgent[String(params.agent)] ?? []).filter((entry) => entry.started_at < before);
       return {
         runs: runs.slice(0, Number(params.limit)),
         has_more: runs.length > Number(params.limit),
@@ -244,20 +217,22 @@ test("cloud run pages forward the cursor and keep a skewed second agent paginabl
     conversation: "cloud-conv",
     limit: 2,
   });
-  expect(first.runs.map((entry) => entry.id)).toEqual(["a3", "b3"]);
+  expect(first.runs.map((entry) => entry.id)).toEqual(["a3", "a2", "a1"]);
   expect(first.hasMore).toBe(true);
   const second = await home.call<{ runs: Run[]; hasMore: boolean }>(HomeOps.runs, {
     conversation: "cloud-conv",
     limit: 2,
     beforeStartedAt: 25,
   });
-  expect(second.runs.map((entry) => entry.id)).toEqual(["a2", "b2"]);
+  expect(second.runs.map((entry) => entry.id)).toEqual(["b3", "a0"]);
   expect(
     requests
       .filter((request) => request.command === "cloud-conversation-runs")
-      .every(
-        (request) =>
-          request.params.before_started_at === undefined || request.params.before_started_at === 25,
-      ),
+      .every((request) => Number(request.params.limit) === 100),
+  ).toBe(true);
+  expect(
+    requests
+      .filter((request) => request.command === "cloud-conversation-runs")
+      .every((request) => request.params.before_started_at === undefined || request.params.before_started_at === 25),
   ).toBe(true);
 });
