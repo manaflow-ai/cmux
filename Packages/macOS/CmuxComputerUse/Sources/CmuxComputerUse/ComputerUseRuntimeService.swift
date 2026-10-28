@@ -58,6 +58,11 @@ public final class ComputerUseRuntimeService {
     }
     private var helperInstallRetry = ComputerUseHelperRetryPolicy()
     private var helperLaunchRetry = ComputerUseHelperRetryPolicy()
+    /// Starts one helper process and returns its pid, or nil when it failed.
+    typealias HelperLauncher = @MainActor (URL, NSWorkspace.OpenConfiguration) async -> pid_t?
+    /// LaunchServices in the app; tests substitute a recorder so a synthetic
+    /// helper bundle is never handed to the system.
+    var helperLauncher: HelperLauncher = ComputerUseRuntimeService.openHelperApplication(at:configuration:)
     private let uptime: @MainActor () -> TimeInterval
     private var recoveryTask: Task<Void, Never>?
     private var cachedStatus = ComputerUsePermissionStatus.unknown
@@ -310,6 +315,13 @@ public final class ComputerUseRuntimeService {
             }
             cachedStatus = .unknown
         }
+    }
+
+    /// Brings the helper up for an agent's Computer Use tool call.
+    @discardableResult
+    public func requestHelperForToolInvocation() -> Task<Void, Never>? {
+        guard desiredEnabled, acceptsNewLaunches, !isDisabledByPolicy() else { return nil }
+        return scheduleHelperRecovery()
     }
 
     /// Installs the nested helper at its independently registered top-level URL.
@@ -1211,15 +1223,7 @@ public final class ComputerUseRuntimeService {
         guard let configuration = launch.workspaceConfiguration(helperURL: helperURL) else {
             return false
         }
-        let launchedProcessIdentifier: pid_t? = await withCheckedContinuation { continuation in
-            NSWorkspace.shared.openApplication(
-                at: helperURL,
-                configuration: configuration,
-                completionHandler: Self.makeHelperLaunchCompletion(
-                    continuation: continuation
-                )
-            )
-        }
+        let launchedProcessIdentifier = await helperLauncher(helperURL, configuration)
         guard let launchedProcessIdentifier else { return false }
         guard let launchedProcessIdentity = AgentPIDProcessIdentity(
             pid: launchedProcessIdentifier
@@ -1908,6 +1912,21 @@ public final class ComputerUseRuntimeService {
                 withApplicationAt: systemSettingsURL,
                 configuration: configuration,
                 completionHandler: Self.makeWorkspaceOpenCompletion(
+                    continuation: continuation
+                )
+            )
+        }
+    }
+
+    private static func openHelperApplication(
+        at helperURL: URL,
+        configuration: NSWorkspace.OpenConfiguration
+    ) async -> pid_t? {
+        await withCheckedContinuation { continuation in
+            NSWorkspace.shared.openApplication(
+                at: helperURL,
+                configuration: configuration,
+                completionHandler: makeHelperLaunchCompletion(
                     continuation: continuation
                 )
             )
