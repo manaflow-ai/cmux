@@ -36,9 +36,6 @@ enum SessionPersistencePolicy {
     static let minimumWindowHeight: Double = 400
     static let autosaveInterval: TimeInterval = 8.0
     static let maxWindowsPerSnapshot: Int = 12
-    /// Imported files are untrusted and may be crafted independently of the
-    /// live workspace set. Keep their restore graph bounded without limiting
-    /// trusted live session persistence.
     static let maxUntrustedImportedWorkspacesPerWindow: Int = 128
     static let maxPanelsPerWorkspace: Int = 512
     static let maxScrollbackLinesPerTerminal: Int = 4000
@@ -1965,7 +1962,6 @@ struct SessionTabManagerSnapshot: Codable, Sendable {
     var workspaceGroups: [SessionWorkspaceGroupSnapshot]? = nil
     var omittedWorkspaceCount: Int? = nil // Preserves metadata from intermediate snapshots.
 }
-
 struct SessionWindowSnapshot: Codable, Sendable {
     var windowId: UUID? = nil
     var frame: SessionRectSnapshot?

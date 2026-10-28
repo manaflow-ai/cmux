@@ -6714,8 +6714,6 @@ class TabManager: ObservableObject {
 }
 
 extension TabManager {
-    // Persist the complete user-owned list. Terminal/browser runtime admission
-    // belongs to restore, not a serialization prefix that silently drops state.
     private var restorableSessionWorkspaces: [Workspace] {
         tabs.filter(\.isRestorableInSessionSnapshot)
     }

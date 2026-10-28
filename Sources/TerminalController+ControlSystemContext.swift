@@ -348,8 +348,7 @@ extension TerminalController: ControlSystemContext {
                 sourcePath: imported.fileURL.path,
                 windowCount: windowCount,
                 heldBackResumeCount: trustReport.heldBackResumeCount,
-                droppedRemoteWorkspaceCount: trustReport.droppedRemoteWorkspaceCount,
-                droppedWorkspaceCount: trustReport.droppedWorkspaceCount
+                droppedRemoteWorkspaceCount: trustReport.droppedRemoteWorkspaceCount, droppedWorkspaceCount: trustReport.droppedWorkspaceCount
             )
         }
     }

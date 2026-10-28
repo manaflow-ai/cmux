@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxControlSocket
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -86,6 +87,17 @@ struct SessionSnapshotLimitTests {
         #expect(after != before)
         loginWorkspace.setCustomTitle("Excluded login workspace")
         #expect(manager.sessionAutosaveFingerprint() == after)
+    }
+
+    @Test func untrustedImportBoundsWorkspaceGraphAndRemapsGroupAnchor() throws {
+        let limit = SessionPersistencePolicy.maxUntrustedImportedWorkspacesPerWindow
+        let panel = SessionPanelSnapshot(id: UUID(), type: .terminal, title: "Terminal", customTitle: nil, directory: "/tmp", isPinned: false, isManuallyUnread: false, listeningPorts: [], ttyName: nil, terminal: SessionTerminalPanelSnapshot(), browser: nil, markdown: nil, filePreview: nil, rightSidebarTool: nil)
+        let workspace = SessionWorkspaceSnapshot(processTitle: "Terminal", customTitle: nil, customColor: nil, isPinned: false, currentDirectory: "/tmp", focusedPanelId: panel.id, layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panel.id], selectedPanelId: panel.id)), panels: [panel], statusEntries: [], logEntries: [], progress: nil, gitBranch: nil)
+        let groupID = UUID(); let ids = (0..<(limit + 2)).map { _ in UUID() }
+        var original = AppSessionSnapshot(version: SessionSnapshotSchema.currentVersion, createdAt: 0, windows: [SessionWindowSnapshot(frame: nil, display: nil, tabManager: SessionTabManagerSnapshot(selectedWorkspaceIndex: limit + 1, workspaces: ids.map { id in var copy = workspace; copy.workspaceId = id; copy.groupId = groupID; return copy }, workspaceGroups: [SessionWorkspaceGroupSnapshot(id: groupID, name: "Imported", isCollapsed: false, anchorWorkspaceId: ids[126], anchorMemberIndex: 126)]), sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: 240))])
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(original, source: .file(path: "/tmp/import.json"))
+        let tabManager = try #require(restored.windows.first?.tabManager)
+        #expect(tabManager.workspaces.count == limit); #expect(tabManager.selectedWorkspaceIndex == limit - 1); #expect(tabManager.workspaceGroups?.first?.anchorMemberIndex == 126); #expect(report.droppedWorkspaceCount == 2)
     }
 
     @Test func intermediateOmissionMetadataStillDecodes() throws {

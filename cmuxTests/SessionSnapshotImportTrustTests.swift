@@ -98,51 +98,6 @@ struct SessionSnapshotImportTrustTests {
         #expect(report == SessionSnapshotImportTrustReport())
     }
 
-    @Test("an untrusted import bounds its workspace restore graph")
-    func untrustedImportBoundsWorkspaceCountAndSelection() throws {
-        var original = Self.snapshot(terminal: SessionTerminalPanelSnapshot())
-        let workspace = try #require(original.windows[0].tabManager.workspaces.first)
-        let groupID = UUID()
-        let workspaceIDs = (0..<SessionPersistencePolicy.maxUntrustedImportedWorkspacesPerWindow + 2)
-            .map { _ in UUID() }
-        original.windows[0].tabManager.workspaces = Array(
-            repeating: workspace,
-            count: SessionPersistencePolicy.maxUntrustedImportedWorkspacesPerWindow + 2
-        )
-        for index in original.windows[0].tabManager.workspaces.indices {
-            original.windows[0].tabManager.workspaces[index].workspaceId = workspaceIDs[index]
-            original.windows[0].tabManager.workspaces[index].groupId = groupID
-        }
-        original.windows[0].tabManager.workspaceGroups = [
-            SessionWorkspaceGroupSnapshot(
-                id: groupID,
-                name: "Imported group",
-                isCollapsed: false,
-                anchorWorkspaceId: workspaceIDs[126],
-                anchorMemberIndex: 126
-            )
-        ]
-        original.windows[0].tabManager.selectedWorkspaceIndex =
-            SessionPersistencePolicy.maxUntrustedImportedWorkspacesPerWindow + 1
-
-        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
-            original,
-            source: Self.fileImport
-        )
-
-        let restoredTabManager = try #require(restored.windows.first?.tabManager)
-        #expect(
-            restoredTabManager.workspaces.count
-                == SessionPersistencePolicy.maxUntrustedImportedWorkspacesPerWindow
-        )
-        #expect(
-            restoredTabManager.selectedWorkspaceIndex
-                == SessionPersistencePolicy.maxUntrustedImportedWorkspacesPerWindow - 1
-        )
-        #expect(report.droppedWorkspaceCount == 2)
-        #expect(restoredTabManager.workspaceGroups?.first?.anchorMemberIndex == 126)
-    }
-
     // MARK: - Built-in agents are rebuilt from kind and session id
 
     @Test("a built-in agent resumes from cmux's own command, not the file's launch argv or hook command")
