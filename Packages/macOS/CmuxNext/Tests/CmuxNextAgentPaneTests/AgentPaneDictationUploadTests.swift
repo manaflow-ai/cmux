@@ -15,6 +15,11 @@ struct AgentPaneDictationUploadTests {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
+    /// The recordings a failed upload gave back to the pane's dictation, with their chats.
+    private final class GivenBack {
+        var recordings: [(file: URL, session: String)] = []
+    }
+
     /// A chat's stager as the App's peer and Cloud stagers answer: a token and the chunk size on
     /// begin, the offset on each chunk, where the file went on finish. It keeps what it was sent.
     private final class Stager {
@@ -92,6 +97,20 @@ struct AgentPaneDictationUploadTests {
         #expect(dictation.takeRecording(file.path, session: "chat-a") == nil, "taken once")
     }
 
+    /// A recording whose upload failed is given back for its chat, so the chip's Retry can send it
+    /// again; it is still taken only once per try.
+    @Test func aRecordingWhoseUploadFailedCanBeTakenAgain() {
+        let dictation = AgentPaneDictation(send: { _ in }, microphone: DictationMicrophone())
+        dictation.chatSession = { "chat-a" }
+        let file = URL(filePath: "/tmp/cmux-dictation/one/Recording.wav")
+        dictation.deliver(DictationUpdate(phase: .idle, text: "a long one", audio: DictationAudio(file: file, byteCount: 9_600_044)), recordedIn: "chat-a")
+        #expect(dictation.takeRecording(file.path, session: "chat-a") == file)
+        dictation.giveBackRecording(file, session: "chat-a")
+        #expect(dictation.takeRecording(file.path, session: "chat-b") == nil, "given back for its own chat only")
+        #expect(dictation.takeRecording(file.path, session: "chat-a") == file)
+        #expect(dictation.takeRecording(file.path, session: "chat-a") == nil, "taken once per try")
+    }
+
     /// The pane forgets old recordings past a few: what it holds stays small however long it lives.
     @Test func thePaneHoldsAFewRecordingsAtMost() {
         let dictation = AgentPaneDictation(send: { _ in }, microphone: DictationMicrophone())
@@ -114,8 +133,11 @@ struct AgentPaneDictationUploadTests {
         let stager = Stager()
         model.onUploadStage = { stager.stage }
         model.onDictationRecording = { path, session in path == file.path && session == "chat-a" ? file : nil }
+        let givenBack = GivenBack()
+        model.onDictationRecordingUnsent = { file, session in givenBack.recordings.append((file, session)) }
         let reply = await upload(file.path, in: model)
         #expect(reply["ok"] as? Bool == true)
+        #expect(givenBack.recordings.isEmpty, "a sent recording is not given back")
         #expect((reply["value"] as? [String: Any])?["path"] as? String == "/home/me/.acpmux/uploads/chat-a/Recording.wav")
         #expect(stager.requests.first == .begin(name: "Recording.wav", size: data.count, batchToken: nil, batch: nil))
         #expect(stager.received == data)
@@ -166,8 +188,13 @@ struct AgentPaneDictationUploadTests {
         stager.failsAtChunk = 1
         model.onUploadStage = { stager.stage }
         model.onDictationRecording = { _, _ in file }
+        let givenBack = GivenBack()
+        model.onDictationRecordingUnsent = { file, session in givenBack.recordings.append((file, session)) }
         let reply = await upload(file.path, in: model)
         #expect(Self.errorCode(reply) == "upload_failed")
+        // Given back for its chat, so the page's Retry can send it again.
+        #expect(givenBack.recordings.map(\.file) == [file])
+        #expect(givenBack.recordings.map(\.session) == ["chat-a"])
         #expect(stager.requests.last == .cancel(token: "t1"))
         #expect(!stager.requests.contains(.finish(token: "t1")))
     }

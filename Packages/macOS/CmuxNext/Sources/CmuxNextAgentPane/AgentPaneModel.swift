@@ -104,6 +104,9 @@ public final class AgentPaneModel {
     /// Takes back a long recording the pane's dictation gave the page, for chat `session`
     /// (``AgentPaneDictation/takeRecording(_:session:)``); nil for any other path.
     @ObservationIgnored var onDictationRecording: ((_ path: String, _ session: String) -> URL?)?
+    /// Gives back a long recording of chat `session` whose upload failed, so the page may try again
+    /// (``AgentPaneDictation/giveBackRecording(_:session:)``).
+    @ObservationIgnored var onDictationRecordingUnsent: ((_ file: URL, _ session: String) -> Void)?
     /// Opens a changed file the page names; false when it could not.
     @ObservationIgnored public var onOpenFile: (@MainActor (URL, AgentPaneFileTarget) async -> Bool)?
     /// Opens a turn's local web page in a browser tab beside the agent;

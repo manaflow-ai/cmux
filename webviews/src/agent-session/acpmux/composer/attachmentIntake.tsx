@@ -328,6 +328,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       });
     }
   });
+  /// A chip the host makes from something of its own (a long dictation recording it sends to the
+  /// chat's machine): a pending tile a send waits for. Red stub: nothing is shown or made.
+  const [attachLater] = useState(
+    () => (_name: string, _make: () => Promise<ComposerAttachment | undefined>, _failure: string) => {},
+  );
   /// A pending chip's ×: it goes, and whatever its read makes later is dropped.
   const [cancel] = useState(() => (id: string) => {
     sources.current.delete(id);
@@ -404,6 +409,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     drop,
     dropLanded,
     attach,
+    attachLater,
   };
 }
 

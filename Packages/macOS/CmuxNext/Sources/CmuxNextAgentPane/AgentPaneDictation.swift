@@ -250,6 +250,10 @@ final class AgentPaneDictation {
         return issued.remove(at: index).file
     }
 
+    /// Gives back long recording `file` of chat `session` whose upload failed, so the page's Retry
+    /// can take it again. Red stub: nothing is given back.
+    func giveBackRecording(_ file: URL, session: String) {}
+
     /// One of the session's updates, for the page. A long recording on it is issued to `chat`, the
     /// chat its session was started in (``recordingChat``), whatever the pane shows now.
     /// The recording names that chat too (`audio.session` on the page), so the page attaches it only
