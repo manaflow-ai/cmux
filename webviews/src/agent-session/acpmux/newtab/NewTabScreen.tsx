@@ -751,32 +751,6 @@ export function NewTabScreen(props: Props) {
     askChat(harness, prompt, project, chipModel);
   };
   submitNow.current = submit;
-  // A cold page's native stand-in field took the first keys while this page loaded (AgentPaneView+FieldStandIn):
-  // once this field has focus it hands over its text, selection and Return, once (NEW_TAB_SEED_EVENT).
-  const seededSubmit = useRef(false);
-  const seededSelection = useRef<[number, number] | undefined>(undefined);
-  useEffect(() => {
-    const view = field.current?.ownerDocument.defaultView;
-    const take = (event: Event) => {
-      const seed = parseFieldSeed((event as CustomEvent<unknown>).detail);
-      if (!seed) return;
-      seededSelection.current = [seed.selectionStart, seed.selectionEnd];
-      seededSubmit.current = seed.submit;
-      edit(seed.text);
-    };
-    view?.addEventListener(NEW_TAB_SEED_EVENT, take);
-    return () => view?.removeEventListener(NEW_TAB_SEED_EVENT, take);
-  });
-  useLayoutEffect(() => {
-    const selection = seededSelection.current;
-    if (!selection) return;
-    seededSelection.current = undefined;
-    field.current?.setSelectionRange(selection[0], selection[1]);
-    if (seededSubmit.current) {
-      seededSubmit.current = false;
-      submitNow.current();
-    }
-  }, [text]);
   // One create per page: a double click, or a click while the terminal spawns, opens one tab.
   const created = useRef(false);
   const create = (kind: "terminal" | "browser") => {
@@ -810,6 +784,24 @@ export function NewTabScreen(props: Props) {
   sendRef.current = send;
   const editRef = useRef(edit);
   editRef.current = edit;
+  // A cold page's native stand-in field took the first keys while this page loaded (AgentPaneView+FieldStandIn):
+  // the host hands over its text, selection and Return once (NEW_TAB_SEED_EVENT). The stand-in's text replaces
+  // the field's whole text (the location it showed selected), committed at once as dictation's is, and its
+  // Return sends as the field's own Return does. Attached in the layout pass that mounts the field, before the
+  // field reports ready, so the host's seed always finds it.
+  useLayoutEffect(() => {
+    const view = field.current?.ownerDocument.defaultView;
+    const take = (event: Event) => {
+      const seed = parseFieldSeed((event as CustomEvent<unknown>).detail);
+      if (!seed) return;
+      wholeSelection.current = true;
+      flushSync(() => editRef.current(seed.text));
+      field.current?.setSelectionRange(seed.selectionStart, seed.selectionEnd);
+      if (seed.submit) sendRef.current();
+    };
+    view?.addEventListener(NEW_TAB_SEED_EVENT, take);
+    return () => view?.removeEventListener(NEW_TAB_SEED_EVENT, take);
+  }, []);
   const { dictationField } = props;
   useLayoutEffect(() => {
     if (!dictationField) return undefined;

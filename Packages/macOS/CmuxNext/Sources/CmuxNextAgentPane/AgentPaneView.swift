@@ -110,9 +110,7 @@ public final class AgentPaneView: NSView {
     public var keyToPaintReport: ((AgentPaneKeyToPaint) -> Void)?
     /// The pane's first frame until its page paints (`AgentPaneView+Loading`).
     public let loadingView: AgentPaneLoadingView
-    /// A cold New Tab page's native field, which takes the keys until the page's field exists (`AgentPaneView+FieldStandIn`).
-    var standInField: NewTabFieldStandIn?
-    /// Where a stand-in's text goes; nil dispatches it to the page (`acpmux-newtab-seed`). Tests set it.
+    /// Where a New Tab stand-in field's text goes; nil dispatches it to the page (`acpmux-newtab-seed`). Tests set it.
     public var fieldSeedSink: (@MainActor (NewTabFieldSeed) -> Void)?
     public private(set) lazy var redraw = AgentPageRedraw(page: page) // a chat shown again draws first
     public private(set) lazy var topBar = AgentPaneTopBar(pane: self) // the App's omnibar row over a New Tab page (cx-e2aa)

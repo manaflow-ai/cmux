@@ -25,6 +25,19 @@ final class NewTabInputCoordinator {
     weak var router: KeyRouter?
     /// The router's typing keys come here only while some window holds keys (``KeyRouterMode/newTabCapture``).
     private var buffers: [Int: Entry] = [:] { didSet { router?.modes.set(.newTabCapture, !buffers.isEmpty) } }
+    /// Cold pages' stand-in fields, by the opening's token (``NewTabFieldStandIn``).
+    private var standIns: [String: StandIn] = [:]
+
+    /// A cold New Tab page's native field and the page it hands its text to.
+    private final class StandIn {
+        let field: NewTabFieldStandIn
+        weak var pane: PaneController?
+        /// The page's tab (provisional, then the daemon's key once known).
+        var key: String?
+        var watching = false
+
+        init(field: NewTabFieldStandIn, pane: PaneController, key: String?) { (self.field, self.pane, self.key) = (field, pane, key) }
+    }
     /// The longest a key may wait for the New Tab field. Its readiness normally comes within one
     /// page render; past this the field (or whatever has focus) takes the keys directly.
     var holdLimit: Duration = .seconds(2)
@@ -218,7 +231,12 @@ final class NewTabInputCoordinator {
 
     /// Every window's hold tries to drain (a page joined its window: FirstTabHold).
     func flushAll() {
-        for entry in Array(buffers.values) { flush(in: entry.window) }
+        for entry in Array(buffers.values) {
+            // An incoming page whose pane was not placed at its making: its stand-in shows once it is.
+            if let key = entry.incoming?.key, showStandInIfCold(entry, pane: paneShowing(key), key: key) { continue }
+            flush(in: entry.window)
+        }
+        checkStandIns()
     }
 
     /// The creation behind `token` ended. With no page made for it (it failed, or made a terminal),
@@ -236,8 +254,9 @@ final class NewTabInputCoordinator {
         guard let entry = buffers.values.first(where: { $0.buffer.token == token }), let incoming = entry.incoming else { return }
         incoming.key = key
         incoming.view = router?.services?.agentTabs.existingView(key)
-        watchField(of: incoming.view, for: entry)
         note("page made \(key)", entry)
+        if showStandInIfCold(entry, pane: paneShowing(key), key: key) { return }
+        watchField(of: incoming.view, for: entry)
     }
 
     /// When `view`'s field takes focus in its document, `entry`'s keys go there (no key or focus settle needed). A cold
@@ -245,23 +264,105 @@ final class NewTabInputCoordinator {
     /// the hold ends at once, its keys going to the stand-in in order.
     private func watchField(of view: AgentPaneView?, for entry: Entry) {
         guard let view else { return }
-        if let window = view.window, view.isShownForInput, !view.model.hasPainted {
-            if !window.isKeyWindow, NSApp.isActive, Self.mayTakeKey(window, keyWindow: NSApp.keyWindow) { window.makeKey() }
-            if view.showFieldStandIn() != nil {
-                note("stand-in field", entry)
-                release(entry, why: "stand-in field")
-                return
-            }
-        }
         view.inputReadiness.whenEditableFocused { [weak self, weak entry] in
             guard let self, let entry, buffers.values.contains(where: { $0 === entry }) else { return }
             flush(in: entry.window)
         }
     }
 
+    // MARK: Cold pages: the stand-in field
+
+    /// The stand-in field shown in pane `pane` for its tab `tab`, while one is (the focus applier keeps it first
+    /// responder; the key router leaves its keys to it).
+    func standIn(inPane pane: String, tab: String?) -> NewTabFieldStandIn? {
+        standIns.values.first { standIn in
+            guard standIn.pane?.paneKey == pane, let tab, let key = standIn.key else { return standIn.pane?.paneKey == pane }
+            return same(key, tab)
+        }?.field
+    }
+
+    private func same(_ a: String, _ b: String) -> Bool {
+        guard let tabs = router?.services?.agentTabs else { return a == b }
+        return tabs.resolve(a) == tabs.resolve(b)
+    }
+
+    /// The pane that holds tab `key` now, nil before it is placed.
+    private func paneShowing(_ key: String) -> PaneController? {
+        guard let services = router?.services, let (_, pane) = services.locateTab(key) else { return nil }
+        return services.paneController(for: pane)
+    }
+
+    /// Shows the stand-in field of `entry`'s opening in `pane`, which selects New Tab page `key`, when that page is
+    /// cold: its view is not made, or it has not drawn and its field has no focus. The field takes the keyboard in this
+    /// turn and the hold ends: its keys go to the field in order. False when the page's own field takes the keys.
+    private func showStandInIfCold(_ entry: Entry, pane: PaneController?, key: String?) -> Bool {
+        guard let pane, let key, let window = pane.view.window, pane.view.isShownForInput, let tabs = router?.services?.agentTabs,
+              tabs.isNewTabPage(key), standIns[entry.buffer.token] == nil else { return false }
+        if let view = tabs.existingView(key), view.pageHasPainted || view.inputReadiness.isEditableFocused { return false }
+        let field = NewTabFieldStandIn()
+        field.frame = NewTabFieldStandIn.frame(in: pane.view.contentHost.frame, flipped: pane.view.isFlipped)
+        field.autoresizingMask = [.minXMargin, .maxXMargin]
+        pane.view.addSubview(field, positioned: .above, relativeTo: nil)
+        if !window.isKeyWindow, NSApp.isActive, Self.mayTakeKey(window, keyWindow: NSApp.keyWindow) { window.makeKey() }
+        window.makeFirstResponder(field)
+        let standIn = StandIn(field: field, pane: pane, key: key)
+        standIns[entry.buffer.token] = standIn
+        note("stand-in field \(key)", entry)
+        release(entry, why: "stand-in field")
+        watchPage(entry.buffer.token, standIn)
+        return true
+    }
+
+    /// Once the stand-in's page view exists: it hands over when the page's field takes focus or the page draws.
+    private func watchPage(_ token: String, _ standIn: StandIn) {
+        guard !standIn.watching, let key = standIn.key, let view = router?.services?.agentTabs.existingView(key) else { return }
+        standIn.watching = true
+        view.inputReadiness.whenEditableFocused { [weak self] in self?.handOffStandIn(token, key: nil) }
+        view.whenPagePainted { [weak self] in self?.handOffStandIn(token, key: nil) }
+    }
+
+    /// Each stand-in follows its tab: hidden while its pane shows another tab, handed over once its page's field is
+    /// there; its key follows the daemon's.
+    private func checkStandIns() {
+        guard !standIns.isEmpty, let tabs = router?.services?.agentTabs else { return }
+        for (token, standIn) in standIns {
+            guard let pane = standIn.pane, pane.view.window != nil else {
+                standIns[token] = nil
+                standIn.field.removeFromSuperview()
+                continue
+            }
+            if let key = standIn.key, tabs.resolve(key) != key { standIn.key = tabs.resolve(key) }
+            if let selected = pane.stripModel.selectedID?.rawValue, let key = standIn.key {
+                standIn.field.isHidden = !same(key, selected)
+            } else {
+                standIn.field.isHidden = true
+            }
+            if let key = standIn.key, let view = tabs.existingView(key) {
+                if view.pageHasPainted || view.inputReadiness.isEditableFocused { handOffStandIn(token, key: key) } else { watchPage(token, standIn) }
+            }
+        }
+    }
+
+    /// The page of the stand-in of `token` has its field (its readiness message, its field's focus or its first frame):
+    /// the stand-in's text, selection and Return go to it once, the stand-in goes, and the page takes the keyboard if
+    /// the stand-in had it. No key is replayed. A page whose view is not there yet keeps its stand-in.
+    private func handOffStandIn(_ token: String, key: String?) {
+        guard let standIn = standIns[token], let tabs = router?.services?.agentTabs,
+              let pageKey = key ?? standIn.key, let view = tabs.existingView(pageKey) else { return }
+        standIns[token] = nil
+        let field = standIn.field
+        let seed = field.seed()
+        let hadKeyboard = field.window?.firstResponder === field
+        field.removeFromSuperview()
+        view.receiveFieldSeed(seed)
+        if hadKeyboard { view.focusChat() }
+        note("stand-in handed \(seed.text.utf16.count) chars\(seed.submit ? " + Return" : "")", nil)
+    }
+
     /// A New Tab page `key` reported its field ready with `token`: the hold that gave it the token
     /// (in whatever window) sends its keys there.
     func pageReady(_ token: String, key: String) {
+        handOffStandIn(token, key: key)
         guard let entry = buffers.values.first(where: { $0.buffer.token == token }), let window = entry.window else { return }
         entry.incoming?.key = key
         entry.incoming?.view = router?.services?.agentTabs.existingView(key)
@@ -366,11 +467,21 @@ final class NewTabInputCoordinator {
     private func shown(_ key: String?, _ entry: Entry) {
         entry.shown = true
         entry.shownKey = key
+        // A cold page (no field yet): its stand-in takes the keys from now on. The pane selects the opening's tab in the
+        // open's turn even when it shows its content on a later frame (`currentTabKey` is nil then).
+        let selected = entry.pane?.stripModel.selectedID?.rawValue
+        let opened = key ?? (selected != entry.opened ? selected : nil)
+        if opened != nil, showStandInIfCold(entry, pane: entry.pane, key: opened) { return }
         watchField(of: key.flatMap { router?.services?.agentTabs.existingView($0) }, for: entry)
     }
 
     /// The New Tab page `tab` this hold opened closed before the daemon made it: its held keys go with it.
-    func drop(tab: String, in window: NSWindow?) { if let window, let entry = entry(for: window), entry.pane?.currentTabKey == tab { entry.buffer.discard(); release(entry, why: "closed before created") } }
+    func drop(tab: String, in window: NSWindow?) {
+        // Its stand-in's text goes with it too ("Close before create").
+        for (token, standIn) in standIns where standIn.key.map({ same($0, tab) }) == true {
+            standIns[token] = nil
+            standIn.field.removeFromSuperview()
+        } if let window, let entry = entry(for: window), entry.pane?.currentTabKey == tab { entry.buffer.discard(); release(entry, why: "closed before created") } }
 
     /// The opening failed: its keys go on to whatever has focus.
     func cancel(in window: NSWindow?) { if let window { release(in: window, why: "open failed") } }
@@ -418,6 +529,7 @@ final class NewTabInputCoordinator {
     }
 
     func acknowledge(_ token: String, in window: NSWindow?) {
+        handOffStandIn(token, key: nil)
         guard let window else { return }
         note("ready \(buffers[window.windowNumber]?.buffer.token == token ? "match" : "other")", buffers[window.windowNumber])
         buffers[window.windowNumber]?.buffer.acknowledge(token)
@@ -425,6 +537,7 @@ final class NewTabInputCoordinator {
     }
 
     func flush(in window: NSWindow?) {
+        checkStandIns()
         guard let window, let entry = entry(for: window) else { return }
         if entry.buffer.drain() {
             note("drained to field", entry)

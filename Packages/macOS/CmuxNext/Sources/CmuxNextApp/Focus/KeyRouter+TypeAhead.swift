@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextPages
 import CmuxNextTerminal
 import CmuxNextFocus
@@ -16,7 +17,8 @@ extension KeyRouter {
     /// focused view. Typing into a terminal reads only the first responder (the plain-typing path, KeyRouterBench).
     /// Returns whether the key was consumed.
     func typesIntoFocusedView(_ event: NSEvent, in window: NSWindow?) -> Bool { // perf-hot: 0.5ms key-dispatch (every typing key)
-        if let window, !(window.firstResponder is TerminalSurfaceView) {
+        // A New Tab stand-in field (a cold page's) takes its typing like any AppKit field: no page type-ahead for it.
+        if let window, !(window.firstResponder is TerminalSurfaceView), !(window.firstResponder is NewTabFieldStandIn) {
             if routesBareKey(event, in: window) { return true }
             if typesAhead(event, in: window) || typesIntoPrimaryInput(event, in: window) { return true }
         }

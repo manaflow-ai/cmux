@@ -147,27 +147,50 @@ struct NewTabFieldReadyTests {
     }
 
     /// A cold New Tab page (no field yet): a native stand-in field takes the keys in the open's turn, nothing is held,
-    /// and the stand-in hands its text and selection to the page's field once that has focus: one transfer, no replay.
+    /// the key router leaves its typing to it, and it hands its text, selection and Return to the page's field once,
+    /// when the page reports its field ready: one transfer, no replay.
     @Test func aColdPagesKeysGoToANativeStandInThatHandsItsTextToTheField() async throws {
         let fixture = try await Self.fixture()
         defer { fixture.close() }
-        fixture.page.inputReadiness.receive(["editing": false])  // the page's field does not exist yet
+        fixture.page.inputReadiness.receive(["editing": false])  // the page's field does not exist yet; it has not drawn
         var seeds: [NewTabFieldSeed] = []
         fixture.page.fieldSeedSink = { seeds.append($0) }
         let input = fixture.services.keyRouter.newTabInputCoordinator
         input.holdLimit = .seconds(600)
         input.scheduleDeadline = { _, _ in DemandTimer(owner: "test.holdLimit") }
-        // The opening shows a page other than the one the pane showed before.
-        _ = try #require(input.begin(for: fixture.pane))
+        let token = try #require(input.begin(for: fixture.pane))
         input.markShown(fixture.key, in: fixture.window)
         #expect(!input.isHolding(in: fixture.window), "a cold page's keys wait in a hold: \(input.log)")
-        let standIn = try #require(fixture.page.fieldStandIn, "no stand-in field for the cold page")
+        let standIn = try #require(input.standIn(inPane: fixture.pane.paneKey, tab: fixture.key), "no stand-in field for the cold page")
         #expect(fixture.window.firstResponder === standIn, "the stand-in does not have the keyboard")
-        (standIn as? NSTextView)?.insertText("hi", replacementRange: NSRange(location: NSNotFound, length: 0))
-        #expect(seeds.isEmpty, "the stand-in handed its text before the field existed")
-        fixture.page.inputReadiness.receive(["editing": true])
-        #expect(seeds == [NewTabFieldSeed(text: "hi", selectionStart: 2, selectionEnd: 2, submit: false)], "seeds \(seeds)")
-        #expect(fixture.page.fieldStandIn == nil, "the stand-in stayed after it handed its text")
+        // The key router leaves typing to the stand-in (no page type-ahead takes it).
+        let router = fixture.services.keyRouter
+        #expect(!router.interceptKeyDown(try Self.key("h", keyCode: 4, in: fixture.window), in: fixture.window),
+                "the key router took a key typed into the stand-in")
+        standIn.insertText("hi", replacementRange: NSRange(location: NSNotFound, length: 0))
+        standIn.insertNewline(nil)
+        #expect(seeds.isEmpty, "the stand-in handed its text before the page's field was there")
+        input.acknowledge(token, in: fixture.window)  // the page's field reports ready with the opening's token
+        #expect(seeds == [NewTabFieldSeed(text: "hi", selectionStart: 2, selectionEnd: 2, submit: true)], "seeds \(seeds)")
+        #expect(input.standIn(inPane: fixture.pane.paneKey, tab: fixture.key) == nil, "the stand-in stayed after it handed its text")
+        #expect(standIn.superview == nil)
+    }
+
+    /// A stand-in nobody typed into hands nothing: the page keeps the location it shows, untouched.
+    @Test func anUntouchedStandInHandsNothing() async throws {
+        let fixture = try await Self.fixture()
+        defer { fixture.close() }
+        fixture.page.inputReadiness.receive(["editing": false])
+        var seeds: [NewTabFieldSeed] = []
+        fixture.page.fieldSeedSink = { seeds.append($0) }
+        let input = fixture.services.keyRouter.newTabInputCoordinator
+        input.scheduleDeadline = { _, _ in DemandTimer(owner: "test.holdLimit") }
+        let token = try #require(input.begin(for: fixture.pane))
+        input.markShown(fixture.key, in: fixture.window)
+        _ = try #require(input.standIn(inPane: fixture.pane.paneKey, tab: fixture.key))
+        input.acknowledge(token, in: fixture.window)
+        #expect(seeds.isEmpty)
+        #expect(input.standIn(inPane: fixture.pane.paneKey, tab: fixture.key) == nil)
     }
 
     /// Cmd-N / Cmd-Shift-N: the hold learns its page's tab when the page is made (in the press's turn), and the keys go
