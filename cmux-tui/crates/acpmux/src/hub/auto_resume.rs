@@ -788,7 +788,9 @@ mod tests {
         assert_eq!(checked_delays(&json!([])), Some(vec![]));
         assert_eq!(checked_delays(&json!([5000, 60000])), Some(vec![5000, 60000]));
         assert_eq!(checked_delays(&json!([0, 99_999_999])), Some(vec![1_000, 3_600_000]));
-        assert_eq!(checked_delays(&json!([1000, 1000, 1000, 1000, 1000])).unwrap().len(), 4);
+        // A loop longer than the default's four is kept: the key configures the whole loop.
+        assert_eq!(checked_delays(&json!(vec![1000; 5])).unwrap().len(), 5);
+        assert_eq!(checked_delays(&json!(vec![1000; 12])).unwrap().len(), 12);
         assert_eq!(checked_delays(&json!([1000, -5])), None);
         assert_eq!(checked_delays(&json!([1.5])), None);
         assert_eq!(checked_delays(&json!("10s")), None);
