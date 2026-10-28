@@ -62,7 +62,7 @@ public final class DictationAudioRecording: Sendable {
     /// The recording's own folder, removed with its file (``init(folder:)``); nil for a file given
     /// alone (``init(file:)``), whose folder stays.
     private let folder: URL?
-    private let writer = DispatchQueue(label: "com.cmuxterm.dictation.recording", qos: .utility)
+    private let writer: DispatchQueue
     /// The file as ``writer`` writes it. Only blocks on ``writer`` take this lock, one at a time,
     /// so it is never contended; it carries the state across that queue's blocks.
     private let output = Mutex(Output())
@@ -84,6 +84,7 @@ public final class DictationAudioRecording: Sendable {
     }
 
     init(file: URL, flushTaken: (@Sendable () -> Void)?) {
+        writer = Self.writerQueue()
         self.file = file
         folder = nil
         self.flushTaken = flushTaken
@@ -92,13 +93,23 @@ public final class DictationAudioRecording: Sendable {
     /// A recording that owns `folder` (a fresh upload folder of the chat, made owner-only at the
     /// first second heard; by default one under this user's temporary folder): its file is
     /// `Recording.wav` there, and a recording sent inline or discarded removes the folder.
-    public init(folder: URL? = nil) {
+    public convenience init(folder: URL? = nil) {
+        self.init(folder: folder, writer: Self.writerQueue())
+    }
+
+    /// A recording that owns `folder`, writing on `writer` (tests hold it to order the steps).
+    init(folder: URL?, writer: DispatchQueue) {
+        self.writer = writer
         let folder = folder
             ?? FileManager.default.temporaryDirectory.appending(path: "cmux-dictation", directoryHint: .isDirectory)
             .appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
         self.folder = folder
         file = folder.appending(path: "Recording.wav")
         flushTaken = nil
+    }
+
+    private static func writerQueue() -> DispatchQueue {
+        DispatchQueue(label: "com.cmuxterm.dictation.recording", qos: .utility)
     }
 
     /// Removes the file, and the recording's own folder with it.

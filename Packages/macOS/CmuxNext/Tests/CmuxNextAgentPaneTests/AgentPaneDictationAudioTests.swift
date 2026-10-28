@@ -156,6 +156,33 @@ struct AgentPaneDictationAudioTests {
         #expect(file == longFolder.appending(path: "Recording.wav"))
     }
 
+    /// Review of #26559 at 78df61f4: a finish after a discard answered at once, before the
+    /// discard's delete ran on the writer queue, so a caller (and these tests) could see the
+    /// folder still there. A finish answers only after every step queued before it.
+    @Test func aFinishAfterADiscardWaitsForItsDelete() async throws {
+        let parent = FileManager.default.temporaryDirectory.appending(path: "dictation-test-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let folder = parent.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
+        let writer = DispatchQueue(label: "dictation-test-writer")
+        let recording = DictationAudioRecording(folder: folder, writer: writer)
+        feed(recording, seconds: 2)
+        await withCheckedContinuation { done in writer.async { done.resume() } }
+        #expect(FileManager.default.fileExists(atPath: folder.path))
+        writer.suspend()
+        recording.discard()
+        let finished = FinishFlag()
+        let finishing = Task {
+            let audio = await recording.finish()
+            await finished.set()
+            return audio
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await finished.value == false, "the finish waits for the discard's delete")
+        writer.resume()
+        #expect(await finishing.value == nil)
+        #expect(!FileManager.default.fileExists(atPath: folder.path))
+    }
+
     @Test func aDiscardedRecordingLeavesNoFile() async throws {
         let (recording, folder) = recording()
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -200,4 +227,9 @@ private actor FinishBox {
 
 private final class RecordingHolder: @unchecked Sendable {
     var recording: DictationAudioRecording?
+}
+
+private actor FinishFlag {
+    private(set) var value = false
+    func set() { value = true }
 }
