@@ -260,7 +260,7 @@ final class AppControl {
                 if let control = call.params["side_panel"]?.stringValue { DebugCEF.pressSidePanel(control, services: services) }
                 // {"drop_spare": true} closes the spare Chromium window (its memory cost, PL-cef-tab).
                 if call.params["drop_spare"]?.boolValue == true { services.cache.cef.dropSpareWindow() }
-                return .value(DebugCEF.report(services))
+                return .value(DebugCEF.report(services, pages: call.params["pages"]?.boolValue == true))
             },
             // Remote localhost proxy: port, counters, recent outcomes.
             .mainActor("debug.remote-localhost") { [weak services] _ in

@@ -6,6 +6,7 @@ Behaviour per prompt text:
   "xai-question: <q>" / "xai-plan: <p>" -> Grok's x.ai ask / exit-plan requests
   "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
   "slow"       -> streams three chunks with delays, honours session/cancel
+  "stream: S R" -> streams a word R times a second for S seconds (at most 3600), honours session/cancel
   "until-cancel" -> streams "running", then waits for session/cancel
   "until-cancel-then-exit" -> "until-cancel", then the agent exits between turns
   "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
@@ -1005,6 +1006,23 @@ def handle_prompt(rid, params):
     if text == "refuse":
         err = {"type": "error", "error": {"message": "Image web search is not supported by the backend.", "code": "unsupported_parameter"}, "status": 400}
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(err)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "stream: S R": a reply still coming in, a word R times a second for S seconds (bounded at
+    # 3600 s), until session/cancel: the streaming chats of bench_power.py's `loaded` scenario.
+    if text.startswith("stream:"):
+        words = text[len("stream:"):].split()
+        seconds = min(float(words[0]) if words else 60.0, 3600.0)
+        rate = max(float(words[1]) if len(words) > 1 else 4.0, 0.1)
+        deadline, n = time.monotonic() + seconds, 0
+        while time.monotonic() < deadline:
+            if sid in cancelled:
+                cancelled.discard(sid)
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                return
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"word{n} "}})
+            n += 1
+            time.sleep(1 / rate)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "until-cancel" streams "running" and ends only on session/cancel (bounded at 30 s).
