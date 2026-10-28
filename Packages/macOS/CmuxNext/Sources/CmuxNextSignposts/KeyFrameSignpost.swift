@@ -31,6 +31,10 @@ public import Foundation
 /// (ui/base/cocoa/secure_password_input.mm `ScopedPasswordInputEnabler`) and Ghostty for a terminal's password
 /// prompt, and while it is on no key timing is recorded, here, in the key flows or in the ring.
 ///
+/// It is the ``InputFrameSignpost/Kind/key`` kind of the input-frame family: ``InputFrameSignpost`` measures the other
+/// kinds (mouse press and release, drag, scroll, input method commit, paste) and live-resize ticks the same way, from
+/// the event's timestamp to its turn's commit, with the same observer (``TurnEndObserver``).
+///
 /// The app holds one for its life (CmuxNextInput's `InputFrameSignposts`, which begins a key's interval when its input
 /// latency slot opens); when it is released, its observer removes itself at its next callout.
 ///
@@ -134,15 +138,11 @@ public final class KeyFrameSignpost {
     /// Adds the repeating observer to the main run loop's common modes: once, from the convenience init (tests call
     /// it on their own instance).
     func installOnMainRunLoop() {
-        let activities = CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue
-            | CFRunLoopActivity.afterWaiting.rawValue
-        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, activities, true, CommitBoundary.order) {
-            [weak self] firing, activity in
-            guard let self else { return CFRunLoopObserverInvalidate(firing) }
-            // main-proof: the observer is added to the main run loop only (below).
-            MainActor.assumeIsolated { self.runLoopReached(activity) }
+        TurnEndObserver.install { [weak self] activity in
+            guard let self else { return false }
+            self.runLoopReached(activity)
+            return true
         }
-        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, CFRunLoopMode.commonModes)
     }
 
     /// The key's age in microseconds (rounded) when its dispatch began (never negative), -1 when it has no timestamp.

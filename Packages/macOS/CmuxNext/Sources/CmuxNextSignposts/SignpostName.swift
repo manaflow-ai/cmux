@@ -295,10 +295,10 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// modal or a network or process wait. Ring: instant; arg0 the thread's name id.
     case hangInvalidated = 54
 
-    // MARK: input (reserved: task 111, PL-typing)
-    /// Reserved (task 111, PL-typing). An input event other than a key-down, from its `NSEvent` timestamp to
-    /// the next content-changing commit (events that change no frame are dropped). Ring: AB/AE; begin arg0
-    /// the kind (mouse_down, mouse_up, drag, scroll, ime_commit, paste).
+    // MARK: input (task 111, PL-typing)
+    /// Task 111 (`InputFrameSignpost`): a non-key input's `NSEvent` timestamp to the next content-changing commit
+    /// (no frame: dropped). Ring: AB/AE; begin arg0 the `InputFrameSignpost.Kind` code (bits 0-7) and the age (top 24
+    /// bits); end arg0 0 committed, 1 missed, 4 no frame.
     case inputFrame = 55
     /// One input event's EventLatency record (p04-input-004; emitter `InputLatencyTracker` in CmuxNextInput, wired
     /// into the app's input dispatch by p04-input-005): a point event when its slot closes, at the presented estimate
@@ -360,8 +360,8 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Task 049. One Ghostty `drawFrame` (`GhosttyTraceHook`). Ring: B/E; arg0 surface id, begin arg1 the echo's flow.
     case ghosttyRender = 67
 
-    // MARK: resize (reserved: task 111, PL-motion-core)
-    /// Reserved (task 111, PL-motion-core). One live window resize tick to the commit that shows it. Ring: AB/AE.
+    // MARK: resize (task 111, PL-motion-core)
+    /// Task 111 (`InputFrameSignpost.resizeTick`): one live-resize tick per frame to its commit. Ring: AB/AE (age, end code).
     case resizeFrame = 68
 
     // MARK: webui (p13-webui; the page trace id is the `PageWebView`'s address, so the four tracks join per page)

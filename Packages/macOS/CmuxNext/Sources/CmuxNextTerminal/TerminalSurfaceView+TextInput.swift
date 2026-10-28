@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextInput
+import CmuxNextSignposts
 import GhosttyNextKit
 
 // IME and marked text, exactly as upstream Ghostty's SurfaceView
@@ -113,17 +114,27 @@ extension TerminalSurfaceView: NSTextInputClient {
         default:
             return
         }
+        let composed = hasMarkedText()
         // insertText ends any preedit.
         unmarkText()
 
         if keyTextAccumulator != nil {
             keyTextAccumulator?.append(text)
+            if composed, !text.isEmpty { stampInputMethodCommit() }
             return
         }
         // Outside keyDown: an IME commit on a click or focus change, the emoji
         // picker, dictation. Typed input, never a paste (upstream #13817).
         guard !text.isEmpty else { return }
+        stampInputMethodCommit()
         sendCommittedText(text, action: GHOSTTY_ACTION_PRESS)
+    }
+
+    /// `input.frame.ime_commit`: an input method committed text here, timed from the key press in dispatch or the
+    /// event the window's input tap answers (the app's `InputFrameSignpost`).
+    private func stampInputMethodCommit() {
+        let timestamp = (window as? InputTapHosting)?.inputTap?.actionEvent?.timestamp ?? 0
+        (window as? InputFrameHosting)?.inputFrames?.textCommitted(.imeCommit, eventTimestamp: timestamp)
     }
 
     /// UnicodeHexInput inserts a pair as two calls; a lone trail is dropped as

@@ -85,6 +85,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// about each discrete input and whether its turn expects a frame (`MainWorkScheduler.noteDiscreteInput(expectsFrame:)`).
     var inputDispatch: InputDispatchContext?
 
+    /// `input.frame.<kind>` and `resize.frame` (`InputFrameSignpost`): `sendEvent` stamps pointer input and pastes;
+    /// windows get it for input method commits and live-resize ticks (`ShellWindow`, `WindowController`).
+    private(set) lazy var inputFrames = InputFrameSignpost()
+
     /// Each window's continuous input, coalesced to its frame (`FrameInputCoalescer`). `sendEvent`
     /// flushes it before every discrete event; owners that post get it by injection.
     private(set) lazy var frameInput = FrameInputCoalescers()
@@ -125,7 +129,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// A menu item's action: its tracking event answers it (`InputEventTap.actionEvent`), in or out of a dispatch.
     override func sendAction(_ action: Selector, to target: Any?, from sender: Any?) -> Bool {
         guard sender is NSMenuItem, let inputTap else { return super.sendAction(action, to: target, from: sender) }
-        inputTap.menuActionBegan()
+        menuActionBegan(action, on: inputTap)
         defer { inputTap.menuActionEnded() }
         return super.sendAction(action, to: target, from: sender)
     }
@@ -159,12 +163,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         defer { handlingSendEvent = previous }
         // A key typed into one cmux window never reaches another (the key window changed since).
         if event.type == .keyDown, Self.dropsCrossWindowKey(event, keyWindow: keyWindow, using: crossWindowKeyGuard) { return }
-        // One latency slot per tracked event that is dispatched (a dropped key has none); it also carries the
-        // key.frame or key.scroll_frame interval (InputLatencyDispatch).
-        let latencySlot = inputLatency?.willDispatch(event, synthetic: currentEventIsSynthetic, keyWindow: keyWindow ?? event.window)
-        defer { if let latencySlot { inputLatency?.didDispatch(latencySlot, layoutTookScroll: inputDispatch?.layoutTookScroll ?? false) } }
-        guard let dispatchScope, Self.scopesDispatch(event.type) else { return dispatch(event) }
-        dispatchScope(event) { dispatch(event) }
+        dispatchMeasured(event)
     }
 
     /// The observe stage of one event: pending moves and scrolls run before a key, click or gesture,
@@ -304,6 +303,26 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 }
 
 extension CmuxApplication {
+    /// The dispatch of `event` past the cross-window stage, measured: one latency slot per tracked event that is
+    /// dispatched (a dropped key has none; it also carries the key.frame or key.scroll_frame interval,
+    /// InputLatencyDispatch), and its `input.frame.<kind>` stamp, from the event's timestamp to the next commit its
+    /// dispatch left content for (InputFrameSignpost).
+    private func dispatchMeasured(_ event: NSEvent) {
+        let latencySlot = inputLatency?.willDispatch(event, synthetic: currentEventIsSynthetic, keyWindow: keyWindow ?? event.window)
+        defer { if let latencySlot { inputLatency?.didDispatch(latencySlot, layoutTookScroll: inputDispatch?.layoutTookScroll ?? false) } }
+        inputFrames.dispatching(event, synthetic: currentEventIsSynthetic, layoutTookScroll: { inputDispatch?.layoutTookScroll ?? false }) {
+            guard let dispatchScope, Self.scopesDispatch(event.type) else { return dispatch(event) }
+            dispatchScope(event) { dispatch(event) }
+        }
+    }
+
+    /// A menu item's action send begins: its tracking event answers it (`InputEventTap.menuActionBegan`), and a paste
+    /// (the Edit menu or its Cmd-V) is stamped `input.frame.paste`.
+    private func menuActionBegan(_ action: Selector, on tap: InputEventTap) {
+        tap.menuActionBegan()
+        if InputFrameSignpost.Kind.pastes(action) { inputFrames.textCommitted(.paste, eventTimestamp: tap.actionEvent?.timestamp ?? 0) }
+    }
+
     /// The gate follows `debug.mainJobGate` once the settings load (nil before: nothing installs).
     func followMainJobGate(_ settings: SettingsController, on mainWork: MainWorkScheduler) {
         jobGate?.follow(on: mainWork) { [weak settings] in

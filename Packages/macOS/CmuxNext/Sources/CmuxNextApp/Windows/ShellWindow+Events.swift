@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextInput
+import CmuxNextSignposts
 import CmuxNextWakeups
 
 extension ShellWindow {
@@ -118,6 +119,11 @@ extension ShellWindow: DragFrameInputHosting {
 /// asks no responder whether a pill takes it (`FindPillView.forwardArrowKeyDownToEditingPill`).
 extension ShellWindow: InputTapHosting {
     var inputTap: InputEventTap? { (windowController as? WindowController)?.services.inputTap }
+}
+
+/// Its terminals stamp their input method commits (`input.frame.ime_commit`) in the app's input frames.
+extension ShellWindow: InputFrameHosting {
+    var inputFrames: InputFrameSignpost? { (NSApp as? CmuxApplication)?.inputFrames }
 }
 
 /// Its terminals and omnibar field editor time their input method calls in the key's latency slot

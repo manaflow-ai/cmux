@@ -14,6 +14,8 @@ extension Signposter {
         static let nestedLoop: UInt64 = 2
         /// Committed after asking another process to draw, before it presented (`end=page_activated`).
         static let pageActivated: UInt64 = 3
+        /// Its input changed no content by the commit, so no frame showed it (`input.frame`, `resize.frame`).
+        static let noFrame: UInt64 = 4
 
         /// The code of a ``CommitBoundary`` end.
         static func of(_ outcome: CommitBoundary.Outcome) -> UInt64 {
