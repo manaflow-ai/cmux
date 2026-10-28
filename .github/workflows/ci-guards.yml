@@ -1044,6 +1044,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py
 
+      - name: Validate a signing job on an owned Mac holds the whole Mac and deletes its keychain
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_signing_owned_mac.py
+
       - name: Validate Release check architectures
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_ci_release_build_archs.sh

@@ -42,7 +42,10 @@ statically, so a reordered step fails in review and not on a release day:
    cmux-next-guards.yml's signing-runner-variables job (on a literal Blacksmith
    runner) checks it on every feat-cmux-next pull request and push: pointing one
    of those variables at an owned mini turns it red. It detects; it does not stop
-   a signing job that starts before it.
+   a signing job that starts before it. The one way onto an owned Mac is a
+   picker output from scripts/ci/signing_runner.py (Leo, 2026-10-28: the
+   release signing jobs may run on our own Macs), on a mini held whole for the
+   job; tests/test_ci_signing_owned_mac.py checks those jobs.
 8. A job that signs with the release signer (RELEASE_POOL_SIGNERS) makes no
    keychain: it runs on a literal ubuntu label and hands the certificate only
    to its signer script, which keeps the key in its own temporary directory.
