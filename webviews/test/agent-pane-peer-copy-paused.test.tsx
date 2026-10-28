@@ -100,7 +100,7 @@ async function mount(
   root ??= createRoot(host);
   await act(async () => root!.render(<Host peer={peer} />));
   // The list read the banner asked for answers.
-  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  await act(async () => await new Promise((resolve) => setImmediate(resolve)));
 }
 
 const banner = () => host.querySelector<HTMLElement>(".acpmux-peer-copy");
@@ -119,7 +119,7 @@ test("a paused machine's chat says it is paused and Resume starts it once", asyn
   expect(resumeButton()?.closest(".acpmux-live-chat-actions")).toBeTruthy();
   await act(async () => {
     resumeButton()!.click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setImmediate(resolve));
   });
   expect(app.calls.filter(([method]) => method === "cloudMachine.resume")).toEqual([
     ["cloudMachine.resume", { id: "vm_paused" }],
@@ -151,14 +151,14 @@ test("a starting machine is read again until it leaves the starting stages, and 
     app.set([{ ...paused, stage: "connecting" }]);
     await act(async () => {
       timers[0]!.fn();
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setImmediate(resolve));
     });
     expect(reads(app.calls)).toBe(before + 1);
     // Ready but its chat not back yet: no longer starting, so the reads stop.
     app.set([{ ...paused, stage: "ready" }]);
     await act(async () => {
       timers[0]!.fn();
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setImmediate(resolve));
     });
     expect(banner()?.dataset.machine).toBeUndefined();
     expect(cleared).toEqual([1]);
@@ -192,7 +192,7 @@ test("a machine stuck starting is read at most STARTING_READS times", async () =
     for (let i = 0; i < STARTING_READS; i++)
       await act(async () => {
         timers[0]!();
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        await new Promise((resolve) => setImmediate(resolve));
       });
     expect(reads(app.calls)).toBe(before + STARTING_READS);
     expect(cleared).toContain(1);
@@ -214,7 +214,7 @@ test("a Resume still running for one machine never makes another read as startin
   await mount(PEER, call);
   await act(async () => {
     resumeButton()!.click();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setImmediate(resolve));
   });
   expect(banner()?.dataset.machine).toBe("starting");
   await mount("build-box", call);
