@@ -1,12 +1,17 @@
 //! `_acpmux/session/auth {sessionId, refresh?}` (`hub/session_auth.rs`) for a chat on this
-//! daemon. A peer's chat is forwarded whole to the peer before this runs (`peer_forward.rs`).
+//! daemon. A peer's chat is answered here from its link: `peerUnreachable` when the link is
+//! down, else `unknown` until this daemon asks the peer.
 
 use super::Conn;
 use crate::hub::Hub;
-use crate::protocol::auth::SessionAuthParams;
+use crate::peer::Peer;
+use crate::protocol::auth::{
+    SessionAuthParams, SessionAuthResult, SessionAuthSource, SessionAuthState,
+};
 use crate::rpc::{RpcError, method};
 use serde_json::Value;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 pub(super) async fn handle(
     hub: &Arc<Hub>,
@@ -33,7 +38,34 @@ pub(super) async fn handle(
             ));
         }
     };
-    let s = hub.resolve(key)?;
-    let reply = hub.session_auth(&s, p.refresh).await?;
+    let reply = match hub.resolve(key) {
+        Ok(s) => hub.session_auth(&s, p.refresh).await?,
+        Err(e) => {
+            let Some((peer, _, row)) = hub.resolve_remote(key) else { return Err(e) };
+            let harness = row.get("harness").and_then(Value::as_str).unwrap_or_default();
+            from_link(&peer, harness)
+        }
+    };
     serde_json::to_value(reply).map_err(|e| RpcError::internal(e.to_string()))
+}
+
+/// A peer's chat, from the link to the peer: `peerUnreachable` when it is down, else `unknown`.
+fn from_link(peer: &Arc<Peer>, harness: &str) -> SessionAuthResult {
+    let down = !peer.connected.load(Ordering::SeqCst);
+    let link = down.then(|| peer.link());
+    SessionAuthResult {
+        state: if down { SessionAuthState::PeerUnreachable } else { SessionAuthState::Unknown },
+        source: if down { SessionAuthSource::PeerLink } else { SessionAuthSource::None },
+        evidence_at: link.map(|l| l.down_since.unwrap_or_else(crate::store::now_ms)),
+        detail: if down {
+            format!("the link to {} is {}", peer.name, peer.state().as_str())
+        } else {
+            format!("this daemon does not ask {} about a chat's sign-in yet", peer.name)
+        },
+        harness: harness.to_owned(),
+        host: Some(peer.name.clone()),
+        route_id: None,
+        login: None,
+        from_session_id: None,
+    }
 }

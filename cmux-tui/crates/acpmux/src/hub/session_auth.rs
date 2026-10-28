@@ -9,9 +9,9 @@
 //!    (`harness_health::fresh_auth`).
 //! 3. Else `unknown`, never signed out. A connection error is never a sign-in state.
 //!
-//! A peer's chat goes to the peer (`server/peer_forward.rs`). The route probe, a target (a chat
-//! with no session yet) and the peer link come next; until then `initialize` does not list
-//! the feature.
+//! A peer's chat is answered here from its link (`server/session_auth.rs`): `peerUnreachable`
+//! when it is down, else `unknown`. Asking the peer, the route probe and a target (a chat with
+//! no session yet) come next; until then `initialize` does not list the feature.
 //!
 //! Never the saved harness health (checked every six hours), and never the login keychain.
 
@@ -53,7 +53,7 @@ pub(crate) fn turn_evidence(last: &Value) -> Option<TurnEvidence> {
     };
     let detail = match state {
         State::Ready => "its last turn completed".to_owned(),
-        _ => format!("its last turn failed: {}", text.chars().take(300).collect::<String>()),
+        _ => format!("its last turn failed: {text}"),
     };
     Some(TurnEvidence { state, at, detail })
 }
@@ -77,8 +77,15 @@ impl Facts {
         self.turn.is_some()
     }
 
-    /// The answer: the first evidence that says something, else `unknown`.
+    /// The answer: the first evidence that says something, else `unknown`; its `detail` one
+    /// sentence ([`one_sentence`]).
     pub(crate) fn decide(self) -> SessionAuthResult {
+        let mut out = self.answer();
+        out.detail = one_sentence(&out.detail);
+        out
+    }
+
+    fn answer(self) -> SessionAuthResult {
         let mut out = SessionAuthResult {
             state: State::Unknown,
             source: Source::None,
@@ -127,6 +134,25 @@ impl Facts {
         out
     }
 }
+
+/// `text` as the one sentence a reply's `detail` is: its words on one line, up to the end of
+/// its first sentence, at most [`DETAIL_CHARS`] characters. An agent's error text may run to
+/// many lines.
+pub(crate) fn one_sentence(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let end = flat.match_indices(['.', '!', '?']).map(|(i, _)| i + 1).find(|&i| {
+        flat[i..].starts_with(' ') && flat[i..].trim_start().starts_with(char::is_uppercase)
+    });
+    let sentence = end.map_or(flat.as_str(), |i| &flat[..i]);
+    if sentence.chars().count() <= DETAIL_CHARS {
+        return sentence.to_owned();
+    }
+    let cut: String = sentence.chars().take(DETAIL_CHARS - 1).collect();
+    format!("{}…", cut.trim_end())
+}
+
+/// The longest `detail`, in characters.
+const DETAIL_CHARS: usize = 200;
 
 /// `VAR=<home> <command>` when the chat runs in an account home of its own.
 fn login_command(command: Option<String>, home: Option<(&str, &Path)>) -> Option<String> {
@@ -271,6 +297,21 @@ mod tests {
         // A turn recorded before the auth kinds is read by its text.
         let old = turn("failed", None, "Not logged in · Please run /login", 7);
         assert_eq!(turn_evidence(&old).map(|t| t.state), Some(State::SignedOut));
+    }
+
+    /// An agent's error of many lines and sentences is one sentence in `detail`.
+    #[test]
+    fn a_detail_is_one_sentence() {
+        let text = "API Error: 401 OAuth token has expired. Please run /login\n\nat step 2";
+        let out = facts(Some(turn("failed", Some("auth.expired"), text, 7)), None).decide();
+        assert_eq!(out.detail, "its last turn failed: API Error: 401 OAuth token has expired.");
+        assert_eq!(
+            one_sentence("not logged in\nrun claude auth login"),
+            "not logged in run claude auth login"
+        );
+        assert_eq!(one_sentence("see e.g. the docs"), "see e.g. the docs");
+        let long = one_sentence(&"word ".repeat(100));
+        assert!(long.chars().count() <= DETAIL_CHARS && long.ends_with('…'), "{long}");
     }
 
     #[test]
