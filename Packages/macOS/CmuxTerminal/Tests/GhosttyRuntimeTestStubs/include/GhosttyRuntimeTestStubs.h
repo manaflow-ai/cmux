@@ -140,6 +140,7 @@ bool cmux_test_ghostty_surface_free_blocking_is_active(void);
 void cmux_test_ghostty_surface_free_release(void);
 void cmux_test_ghostty_surface_free_blocking_reset(void);
 void cmux_test_ghostty_surface_request_process_termination_reset(void *surface);
+void cmux_test_ghostty_surface_request_process_termination_clear(void *surface);
 uint32_t cmux_test_ghostty_surface_request_process_termination_call_count(void *surface);
 void cmux_test_ghostty_process_output_blocking_begin(void *surface);
 bool cmux_test_ghostty_process_output_wait_until_started(void);

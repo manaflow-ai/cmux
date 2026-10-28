@@ -185,10 +185,6 @@ void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_surface_key_unshifted_codepoint_value = 0;
     cmux_test_surface_key_text_value[0] = '\0';
     cmux_test_input_event_count_value = 0;
-    pthread_mutex_lock(&cmux_test_surface_request_process_termination_mutex);
-    memset(cmux_test_surface_request_process_termination_counts, 0,
-           sizeof(cmux_test_surface_request_process_termination_counts));
-    pthread_mutex_unlock(&cmux_test_surface_request_process_termination_mutex);
 }
 
 void cmux_test_ghostty_surface_key_reset(void) {
@@ -320,6 +316,14 @@ void cmux_test_ghostty_surface_request_process_termination_reset(void* surface) 
     GhosttyRuntimeTestTerminationCount* entry =
         cmux_test_surface_request_process_termination_count_for(surface, true);
     if (entry != NULL) entry->count = 0;
+    pthread_mutex_unlock(&cmux_test_surface_request_process_termination_mutex);
+}
+
+void cmux_test_ghostty_surface_request_process_termination_clear(void* surface) {
+    pthread_mutex_lock(&cmux_test_surface_request_process_termination_mutex);
+    GhosttyRuntimeTestTerminationCount* entry =
+        cmux_test_surface_request_process_termination_count_for(surface, false);
+    if (entry != NULL) *entry = (GhosttyRuntimeTestTerminationCount){0};
     pthread_mutex_unlock(&cmux_test_surface_request_process_termination_mutex);
 }
 
