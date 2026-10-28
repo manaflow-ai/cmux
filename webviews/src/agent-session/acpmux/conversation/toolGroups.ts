@@ -115,7 +115,8 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       // Observational calls, including MCP calls with these ACP kinds, cannot replace a file.
       // Their status or missing timestamps must not invalidate a producer or block a later one.
       // Commands, diffs and unknown capabilities still use the conservative mutation path.
-      const observationalMcp = !tool.kind && named && mcpIsObservational(named);
+      const parsedMcp = !tool.kind && !tool.command && mcpCall(tool);
+      const observationalMcp = parsedMcp ? mcpIsObservational(parsedMcp) : false;
       if (
         !tool.command &&
         !tool.diffs?.length &&
