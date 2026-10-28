@@ -16,7 +16,9 @@
 # ("cannot find type CmuxFocusReply"). A fresh .build never fails this way.
 #
 # swiftpm_binary_module_guard PKGDIR [SCRATCH]
-#   Resolves PKGDIR (so the binary artifacts in SCRATCH are the commit's), then
+#   Resolves PKGDIR (so the binary artifacts in SCRATCH are the commit's; a network
+#   fetch failure is tried again, swiftpm_resolve_package, and when every try fails
+#   the step exits 75 "fetch failed, no test ran"), then
 #   hashes every header, module map and API notes file the build can read from
 #   a binary target: SCRATCH/artifacts and each *.xcframework of the checkout
 #   that the package's or a local dependency's manifest names.
@@ -110,15 +112,57 @@ swiftpm_binary_module_digest() {
   } | swiftpm__sha256 | cut -d' ' -f1
 }
 
+# A resolve's output (FILE) shows a network fetch failure: git or curl lost the connection, not the commit's
+# own manifest or pins. Step 9bc9eadb (cmux14, 2026-10-28): "RPC failed; curl 18 Transferred a partial file".
+swiftpm__network_fetch_failure() {
+  grep -qE 'curl [0-9]+|RPC failed|Transferred a partial file|expected flush after|Could not resolve host|Connection (reset|refused|timed out)|Operation timed out|SSL_ERROR|gnutls_handshake|unexpected disconnect|early EOF|The network connection was lost|The request timed out' "$1"
+}
+
+# `swift package resolve` of PKGDIR (ARGS go after --package-path), its output in the step log. A failure on
+# a network fetch is tried again after each delay of CMUX_SWIFTPM_RESOLVE_RETRY_DELAYS (seconds, default
+# "5 20": three tries). Returns 0 when it resolved, 75 when every try failed on the network (no test can run),
+# 1 when it failed for another reason (the build reports why).
+swiftpm_resolve_package() {
+  local pkgdir="$1" log delays tries try=1 delay code
+  shift
+  read -r -a delays <<< "${CMUX_SWIFTPM_RESOLVE_RETRY_DELAYS-5 20}"
+  tries=$((${#delays[@]} + 1))
+  log="$(mktemp)"
+  while :; do
+    code=0
+    swift package resolve --package-path "$pkgdir" "$@" < /dev/null >"$log" 2>&1 || code=$?
+    if [ "$code" -eq 0 ]; then
+      rm -f "$log"
+      return 0
+    fi
+    echo "ci-phase swift package resolve failed in $pkgdir (try $try of $tries, exit $code); its last lines:"
+    tail -n 20 "$log" | sed 's/^/  | /' || true
+    if ! swiftpm__network_fetch_failure "$log"; then
+      rm -f "$log"
+      return 1
+    fi
+    if [ "$try" -ge "$tries" ]; then
+      rm -f "$log"
+      return 75
+    fi
+    delay="${delays[$((try - 1))]}"
+    echo "ci-phase the resolve failed on a network fetch; trying again in ${delay}s"
+    sleep "$delay"
+    try=$((try + 1))
+  done
+}
+
 swiftpm_binary_module_guard() {
-  local pkgdir="$1" scratch="${2:-$1/.build}" stamp digest previous="" resolve_args=()
+  local pkgdir="$1" scratch="${2:-$1/.build}" stamp digest previous="" resolve_args=() resolved=0
   [ "$scratch" = "$pkgdir/.build" ] || resolve_args=(--scratch-path "$scratch")
   stamp="$scratch/$swiftpm_binary_module_inputs_file"
   # Resolution fetches and unpacks the commit's binary artifacts. When it fails
   # (the build reports why), the artifacts may still be the old commit's, so the
   # digest proves nothing: drop the caches and the stamp, and the next step
-  # starts from a digest of its own.
-  if ! swift package resolve --package-path "$pkgdir" ${resolve_args[@]+"${resolve_args[@]}"} < /dev/null >/dev/null 2>&1; then
+  # starts from a digest of its own. A network fetch failure is tried again; when
+  # every try fails, no test can run: the step ends with 75 (no verdict), never 1.
+  swiftpm_resolve_package "$pkgdir" ${resolve_args[@]+"${resolve_args[@]}"} || resolved=$?
+  if [ "$resolved" -ne 0 ]; then
     digest=""
   else
     digest="$(swiftpm_binary_module_digest "$pkgdir" "$scratch")"
@@ -137,6 +181,10 @@ swiftpm_binary_module_guard() {
   if [ -z "$digest" ]; then
     rm -f "$stamp"
     echo "ci-phase swift package resolve failed in $pkgdir: removed the build outputs in $scratch"
+    if [ "$resolved" -eq 75 ]; then
+      echo "ci-phase fetch failed, no test ran: swift package resolve in $pkgdir failed on a network fetch on every try (infrastructure, exit 75; rerun the step)"
+      exit 75
+    fi
     return 0
   fi
   printf '%s\n' "$digest" > "$stamp"
