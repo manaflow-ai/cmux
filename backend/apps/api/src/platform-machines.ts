@@ -16,7 +16,8 @@ import { refused, type PlatformCall, type PlatformReply } from "./cloud-platform
  * person's own ops, so the team's plan, quotas and per-team limit decide as for a machine the person
  * creates. Exec, snapshot and delete reach only machines a platform boot made. It answers only where
  * PLATFORM_MACHINES is "on" in development/test; after disabling it only ownership-checked find
- * and destroy remain for cleanup. Staging and production refuse every call before any lookup.
+ * and destroy remain for cleanup; create/fork only recover existing intent IDs and providerInfo
+ * reports unavailable. Staging and production refuse every call before any lookup.
  */
 export class PlatformMachines extends WorkerEntrypoint<Env> {
   boot(caller: PlatformCaller, name: string, snapshot?: string | null): Promise<PlatformReply<{ id: string }>> {
@@ -76,15 +77,15 @@ export class PlatformMachines extends WorkerEntrypoint<Env> {
 
   private async call(caller: PlatformCaller, call: PlatformCall): Promise<PlatformReply> {
     const development = this.env.ENVIRONMENT === "development" || this.env.ENVIRONMENT === "test"
-    const cleanup = call.op === "find" || call.op === "destroy"
+    const cleanup = call.op === "find" || call.op === "destroy" || call.op === "create" || call.op === "fork" || call.op === "providerInfo"
     if (!development || (this.env.PLATFORM_MACHINES !== "on" && !cleanup)) return refused("platform.machines_off", "platform machines are not enabled on this deployment", false)
     const team = caller?.team, user = caller?.user
     if (typeof team !== "string" || !TEAM.test(team) || typeof user !== "string" || !USER.test(user)) return refused("validation.invalid", "invalid caller", false)
     if ("name" in call && !matches(NAME, call.name)) return refused("validation.invalid", "invalid name", false)
     if ("machine" in call && !matches(MACHINE, call.machine)) return refused("validation.invalid", "invalid machine", false)
-    const stub = this.env.CLOUD_DO.get(this.env.CLOUD_DO.idFromName(team)) as unknown as { platformMachine(e: string, u: string, c: PlatformCall): Promise<PlatformReply> }
+    const stub = this.env.CLOUD_DO.get(this.env.CLOUD_DO.idFromName(team)) as unknown as { platformMachine(e: string, u: string, c: PlatformCall, recoveryOnly?: boolean): Promise<PlatformReply> }
     try {
-      return await stub.platformMachine(team, user, call)
+      return await stub.platformMachine(team, user, call, this.env.PLATFORM_MACHINES !== "on")
     } catch {
       return refused("owner.unreachable", "the team's machines could not be reached; retry", true)
     }

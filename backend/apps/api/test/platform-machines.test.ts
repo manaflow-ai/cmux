@@ -191,8 +191,8 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     const off = new PlatformMachines(createExecutionContext(), { ...(env as object), PLATFORM_MACHINES: undefined } as never)
     const c = caller()
     expect(await off.boot(c, nameOf())).toMatchObject({ ok: false, code: "platform.machines_off", retryable: false })
-    expect(await off.providerInfo(c)).toMatchObject({ ok: false, code: "platform.machines_off" })
-    expect(await off.create(c, nameOf(), { vcpu: 2, memGiB: 4, diskGiB: 16 })).toMatchObject({ ok: false, code: "platform.machines_off" })
+    expect(await off.providerInfo(c)).toMatchObject({ ok: true, value: { available: false } })
+    expect(await off.create(c, nameOf(), { vcpu: 2, memGiB: 4, diskGiB: 16 })).toMatchObject({ ok: false, code: "cloud.provider.unavailable" })
     const { machine, name, stub } = await bootAndBind(c)
     expect(await off.find(c, name)).toEqual({ ok: true, value: { id: machine } })
     expect(await off.destroy(c, machine)).toEqual({ ok: true, value: { deleted: true } })
@@ -441,6 +441,76 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     await fireAlarm(stub)
     expect(await rpc.get(c, id)).toEqual({ ok: true, value: { id, state: "running", region: "global", shape: target } })
     expect(await stub.fakeControl({})).toMatchObject({ creates: 1, resizes: 1 })
+  })
+
+  it("recovers lost completed replies while disabled and fences pending creates before base retries", async () => {
+    // One caller for both scenarios: this file reserves users 160..179.
+    const c = caller()
+    const { machine: source, stub } = await bootAndBind(c)
+    const target = { vcpu: 2, memGiB: 4, diskGiB: 16 }
+    const createName = nameOf(), forkName = nameOf()
+    const labels = { runId: "lost-reply" }
+    await inDO(stub, async instance => {
+      instance.platformTestMetadata = instance.platformOperations.metadata.bind(instance.platformOperations)
+      instance.platformOperations.metadata = async () => { throw new Error("reply lost after operation committed done") }
+    })
+    expect(await rpc.create(c, createName, target, null, labels)).toMatchObject({ ok: false, code: "owner.unreachable" })
+    expect(await rpc.fork(c, source, forkName)).toMatchObject({ ok: false, code: "owner.unreachable" })
+    expect(await rpc.destroy(c, source)).toMatchObject({ ok: true })
+    await inDO(stub, async instance => {
+      const original = instance.platformHost.bind(instance)
+      instance.platformTestHost = original
+      instance.platformHost = (team: string) => {
+        const host = original(team)
+        return { ...host, mayUse: async () => false, providerInfo: () => ({ ...host.providerInfo(), available: false }), resources: async () => { throw new Error("credentials unavailable") } }
+      }
+    })
+    const off = new PlatformMachines(createExecutionContext(), { ...(env as object), PLATFORM_MACHINES: undefined } as never)
+    expect(await off.providerInfo(c)).toMatchObject({ ok: true, value: { available: false } })
+    const created = await off.create(c, createName, target, null, labels)
+    const forked = await off.fork(c, source, forkName)
+    expect(created).toMatchObject({ ok: true, value: { state: "starting", targetShape: target } })
+    expect(forked).toMatchObject({ ok: true, value: { state: "starting", targetShape: target } })
+    // These are recovery answers, not claims that unknown provider capacity is running.
+    expect(created.ok && forked.ok && created.value.id !== forked.value.id).toBe(true)
+    expect(await off.create(c, createName, target, null, { runId: "different" })).toMatchObject({ ok: false, code: "idempotency.conflict" })
+    expect(await off.create(c, nameOf(), target)).toMatchObject({ ok: false, code: "cloud.provider.unavailable" })
+    expect(await off.create({ ...c, user: `${c.user}z` }, createName, target, null, labels)).toMatchObject({ ok: false, code: "cloud.provider.unavailable" })
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 3, snapshots: [] })
+    if (!created.ok || !forked.ok) throw new Error("expected owned recovery IDs")
+    expect(await off.destroy(c, created.value.id)).toMatchObject({ ok: true })
+    expect(await off.destroy(c, forked.value.id)).toMatchObject({ ok: true })
+    expect(await stub.fakeControl({})).toMatchObject({ deletes: 3, vms: [] })
+
+    // A new intent committed its create ledger, but its first provider ensure never allocated.
+    await inDO(stub, async instance => {
+      instance.platformHost = instance.platformTestHost
+      instance.platformOperations.metadata = instance.platformTestMetadata
+      const original = instance.driverFor.bind(instance)
+      instance.platformTestDriver = original
+      instance.driverFor = async (...args: Array<unknown>) => {
+        const driver = await original(...args)
+        if (driver) driver.ensure = async () => { throw new Error("provider unavailable before create") }
+        return driver
+      }
+    })
+    const pendingName = nameOf()
+    expect(await rpc.create(c, pendingName, target)).toMatchObject({ ok: true, value: { state: "starting" } })
+    await inDO(stub, async instance => {
+      instance.driverFor = instance.platformTestDriver
+      const original = instance.platformTestHost
+      instance.platformHost = (team: string) => {
+        const host = original(team)
+        return { ...host, providerInfo: () => ({ ...host.providerInfo(), available: false }) }
+      }
+    })
+    await stub.fakeControl({ advance_ms: 10_000 })
+    await fireAlarm(stub)
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 3, vms: [] })
+    await inDO(stub, async instance => {
+      const row = instance.platformHost(c.team).ledger(`platform:${c.user}|platform-machine:${pendingName}:create`)
+      expect(row).toMatchObject({ cancel: true })
+    })
   })
 
   it("is not reachable over HTTP", async () => {

@@ -252,8 +252,8 @@ export class CloudDO extends CloudIdle {
    * team: boot, exec, snapshot and delete through the person's own ops (cloud-platform.ts). No public
    * route reaches it; only a Worker bound to PlatformMachines does.
    */
-  async platformMachine(entity: string, user: string, call: PlatformCall): Promise<PlatformReply> {
-    return platformCall(this.platformHost(entity), user, call)
+  async platformMachine(entity: string, user: string, call: PlatformCall, recoveryOnly = false): Promise<PlatformReply> {
+    return platformCall(this.platformHost(entity), user, call, recoveryOnly)
   }
 
   private readonly platformOperations = new PlatformOperations(this.sqlStore)
@@ -302,8 +302,12 @@ export class CloudDO extends CloudIdle {
   }
 
   protected override async onWake(now: number): Promise<void> {
-    await super.onWake(now)
     const entity = this.boundEntity()
+    if (entity) {
+      const host = this.platformHost(entity)
+      if (!host.providerInfo().available) await this.platformOperations.stopAllocations(host, now + this.skewMs)
+    }
+    await super.onWake(now)
     if (entity) await this.platformOperations.wake(this.platformHost(entity), now + this.skewMs)
   }
 
