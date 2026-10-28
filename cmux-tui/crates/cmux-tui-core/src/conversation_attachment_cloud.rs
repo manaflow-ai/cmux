@@ -175,7 +175,9 @@ impl ConversationStore {
     }
 }
 
-#[cfg(test)]
+// Its one test reads /proc/self/fd, so the module is Linux-only: on macOS its helpers would be
+// dead code, which clippy --all-targets -D warnings refuses.
+#[cfg(all(test, target_os = "linux"))]
 mod tests {
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
@@ -191,7 +193,6 @@ mod tests {
 
     /// Whether this process holds `path` open (Linux: a `/proc/self/fd` link to it). Windows
     /// refuses to delete an open file, so a partial file must be closed before its removal.
-    #[cfg(target_os = "linux")]
     pub(super) fn note_removal(path: &Path) {
         let open = fs::read_dir("/proc/self/fd")
             .into_iter()
@@ -218,7 +219,6 @@ mod tests {
     /// Review of #26498 at 47d0d4a5: when a later piece could not be opened, the pieces
     /// opened before it were still open while their partial files were removed. Windows
     /// refuses that and the error is ignored, so the files stayed in `.partial` until restart.
-    #[cfg(target_os = "linux")]
     #[test]
     fn a_piece_that_cannot_open_leaves_no_partial_file_open_or_behind() {
         let dir = std::env::temp_dir().join(format!(
