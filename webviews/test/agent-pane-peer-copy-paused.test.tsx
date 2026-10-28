@@ -18,7 +18,17 @@ import { translate as t } from "../src/agent-session/acpmux/i18n";
 import type { CloudMachine } from "../src/agent-session/acpmux/cloudMachines";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "IS_REACT_ACT_ENVIRONMENT", "HTMLElement", "Element", "Node", "MouseEvent", "Event"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "IS_REACT_ACT_ENVIRONMENT",
+  "HTMLElement",
+  "Element",
+  "Node",
+  "MouseEvent",
+  "Event",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
 let root: Root | undefined;
@@ -67,7 +77,8 @@ function fakeApp(start: CloudMachine[]) {
   const call = async (method: string, params?: Record<string, unknown>) => {
     calls.push([method, params]);
     if (method === "cloudMachine.list") return { signedIn: true, loaded: true, machines };
-    if (method === "cloudMachine.resume") machines = machines.map((m) => (m.id === params?.id ? { ...m, stage: "booting" } : m));
+    if (method === "cloudMachine.resume")
+      machines = machines.map((m) => (m.id === params?.id ? { ...m, stage: "booting" } : m));
     return {};
   };
   return { call, calls, set: (next: CloudMachine[]) => (machines = next) };
@@ -79,7 +90,9 @@ async function mount(peer: string | undefined, call: ReturnType<typeof fakeApp>[
   const { usePeerCloudMachine } = await import("../src/agent-session/acpmux/peerCloudMachine");
   function Host({ peer }: { peer: string | undefined }) {
     const machine = usePeerCloudMachine(peer, call);
-    return peer ? <PeerCopyBanner copy={{ peer, offline: true }} machine={machine.state} onResume={machine.resume} /> : null;
+    return peer ? (
+      <PeerCopyBanner copy={{ peer, offline: true }} machine={machine.state} onResume={machine.resume} />
+    ) : null;
   }
   root ??= createRoot(host);
   await act(async () => root!.render(<Host peer={peer} />));
@@ -105,7 +118,9 @@ test("a paused machine's chat says it is paused and Resume starts it once", asyn
     resumeButton()!.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
-  expect(app.calls.filter(([method]) => method === "cloudMachine.resume")).toEqual([["cloudMachine.resume", { id: "vm_paused" }]]);
+  expect(app.calls.filter(([method]) => method === "cloudMachine.resume")).toEqual([
+    ["cloudMachine.resume", { id: "vm_paused" }],
+  ]);
   // The list read after it says booting: the banner spins, with no Resume to click twice.
   expect(banner()?.dataset.machine).toBe("starting");
   expect(banner()?.textContent).toContain(t("peerCopy.starting.title", { machine: PEER }));
@@ -120,7 +135,10 @@ test("a starting machine is read again until it leaves the starting stages, and 
   const cleared: unknown[] = [];
   const realSet = globalThis.setInterval;
   const realClear = globalThis.clearInterval;
-  globalThis.setInterval = ((fn: () => void, ms?: number) => (timers.push({ fn, ms }), timers.length)) as typeof setInterval;
+  globalThis.setInterval = ((fn: () => void, ms?: number) => (
+    timers.push({ fn, ms }),
+    timers.length
+  )) as typeof setInterval;
   globalThis.clearInterval = ((id: unknown) => void cleared.push(id)) as typeof clearInterval;
   try {
     await mount(PEER, app.call);

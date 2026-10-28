@@ -19,7 +19,10 @@ export type PeerMachineState = "paused" | "starting" | undefined;
 
 /// The machine named `peer` (any case: the app matches a peer to a Cloud machine by its title,
 /// MachineRegistry machineName(peer:), as cloudMachines.ts does).
-export function peerCloudMachine(machines: readonly CloudMachine[], peer: string | undefined): CloudMachine | undefined {
+export function peerCloudMachine(
+  machines: readonly CloudMachine[],
+  peer: string | undefined,
+): CloudMachine | undefined {
   if (!peer) return undefined;
   const name = peer.toLowerCase();
   return machines.find((machine) => machine.name.toLowerCase() === name);
