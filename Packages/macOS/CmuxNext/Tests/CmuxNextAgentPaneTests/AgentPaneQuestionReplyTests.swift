@@ -70,11 +70,13 @@ struct AgentPaneQuestionReplyTests {
     }
 
     @Test func malformedAllowsOtherCannotEnableFreeText() throws {
-        let flags: [Any] = ["true", ["enabled": true]]
+        let flags: [Any] = ["true", ["enabled": true], 0, 1]
         for flag in flags {
             let question = try Self.fixture(Self.prompt(allowsOther: flag))
-            #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": "Other"]],
-                                    question: question) == .answers)
+            for answer in ["Other", "Glass"] {
+                #expect(try Self.failure(["optionId": "yes", "answers": ["Choose?": answer]],
+                                        question: question) == .answers)
+            }
         }
     }
 
