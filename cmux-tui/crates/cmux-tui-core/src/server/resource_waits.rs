@@ -251,7 +251,7 @@ pub(super) fn start_resource_wait(
     let worker_mux = mux.clone();
     let worker_canceled = canceled.clone();
     let worker_id = id.clone();
-    let spawn = mux.request_qos().spawn_helper("mux-resource-terminal-wait", None, move || {
+    let spawn = mux.request_qos().spawn_helper("mux-resource-terminal-wait", move || {
         let _registration = ResourceWaitWorkerGuard {
             mux: worker_mux.clone(),
             client,

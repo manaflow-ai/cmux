@@ -25,6 +25,8 @@ use std::sync::PoisonError;
 
 use super::*;
 #[cfg(unix)]
+use crate::supervised::{self, Fatal, ShutdownBehavior};
+#[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostAdoption;
 use crate::terminal_host_runtime::{HostAttachment, TerminalHostIdentity, TerminalHostRecord};
 
@@ -58,7 +60,7 @@ pub(super) fn request_custody(surface: &Arc<Surface>) {
     let surface = Arc::downgrade(surface);
     // The name is unique and within Linux's 15-byte thread name, so a
     // boundary test sees in `/proc` when the custody exchange has finished.
-    let _ = std::thread::Builder::new().name("pty-custody".into()).spawn(move || {
+    let _ = supervised::spawn("pty-custody", Fatal, ShutdownBehavior::Continue, move || {
         let discovery = {
             let Some(surface) = surface.upgrade() else { return };
             let Some(pty) = surface.as_pty() else { return };
