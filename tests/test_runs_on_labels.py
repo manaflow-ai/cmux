@@ -155,30 +155,30 @@ class Workflows(unittest.TestCase):
                 self.assertEqual(disallowed_labels(runs_on, variables=allow), {}, runs_on)
 
     def test_a_mutated_workflow_with_a_hosted_label_or_a_personal_machine_fails(self):
+        # The mutation wraps the job's whole runs-on, whatever its form (a bare label, any expression, any
+        # size), in a branch a variable can take: `${{ vars.CI_MUTATION && '<bad>' || <runs-on> }}`.
         for name, read, allow in SITES:
             text = (WORKFLOWS / name).read_text(encoding="utf-8")
             runs_on = read(text)
-            # Any Blacksmith Linux literal, whatever its size, is the target: the last one is the final fallback.
-            targets = re.findall(r"'blacksmith-[0-9]+vcpu-ubuntu-[0-9]{4}(?:-arm)?'", runs_on)
-            self.assertTrue(targets, f"{name}: the mutation needs a Blacksmith Linux literal")
-            target = targets[-1]
+            inner = re.fullmatch(r"\$\{\{(.*)\}\}", runs_on.strip(), re.DOTALL)
+            original = f"({inner.group(1).strip()})" if inner else "'" + runs_on.strip().replace("'", "''") + "'"
             for bad in ("ubuntu-latest", "ubuntu-24.04", "macos-26", PERSONAL_WORKSTATION_LABEL):
-                head, _, tail = runs_on.rpartition(target)
-                mutated = text.replace(runs_on, f"{head}'{bad}'{tail}")
+                wrapped = "${{ vars.CI_MUTATION && '" + bad + "' || " + original + " }}"
+                mutated = text.replace(runs_on, wrapped)
                 with self.subTest(workflow=name, label=bad):
                     self.assertNotEqual(mutated, text)
-                    self.assertIn(bad, disallowed_labels(read(mutated), variables=allow))
+                    self.assertEqual(read(mutated), wrapped)
+                    labels = disallowed_labels(read(mutated), variables={**allow, "CI_MUTATION": {"1"}})
+                    self.assertEqual(set(labels), {bad}, labels)
 
-    def test_the_lint_runner_fails_without_its_linux_runner_guard(self):
-        # LINUX_RUNNER can hold the overflow switch's hosted ubuntu-24.04; only the guard keeps it out.
-        text = (WORKFLOWS / "cmux-tui.yml").read_text(encoding="utf-8")
-        runs_on = lint_runner(text)
-        match = re.search(r"contains\(vars\.LINUX_RUNNER, '[^']*'\) && ", runs_on)
-        self.assertIsNotNone(match, runs_on)
-        guard = match.group(0)
-        mutated = text.replace(runs_on, runs_on.replace(guard, ""))
-        self.assertIn("ubuntu-24.04", disallowed_labels(lint_runner(mutated), variables={"LINUX_RUNNER": linux_runner_values()}))
-
+    def test_linux_runner_read_without_a_guard_fails(self):
+        # LINUX_RUNNER can hold the overflow switch's hosted ubuntu-24.04; a guard has to keep it out.
+        variables = {"LINUX_RUNNER": linux_runner_values()}
+        guarded = ("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "
+                   "contains(vars.LINUX_RUNNER, '32vcpu') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}")
+        self.assertEqual(disallowed_labels(guarded, variables=variables), {})
+        unguarded = guarded.replace("contains(vars.LINUX_RUNNER, '32vcpu') && ", "")
+        self.assertIn("ubuntu-24.04", disallowed_labels(unguarded, variables=variables))
 
 if __name__ == "__main__":
     sys.exit(unittest.main())
