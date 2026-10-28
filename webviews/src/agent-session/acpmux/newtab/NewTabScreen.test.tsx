@@ -511,3 +511,65 @@ test("a refused New Tab mode change keeps every draft byte and attachment", asyn
   expect(container.textContent).toContain("Selected host is offline");
   expect(container.querySelector('[role="combobox"]')).toBeTruthy();
 });
+
+for (const send of ["click", "enter", "new-chat"] as const) {
+  test(`a picked slash skill reaches the chat through ${send}`, async () => {
+    const asks: unknown[][] = [];
+    const opens: string[] = [];
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat([], { commands: [{ name: "review", description: "Review changes", source: "skill" }] })}
+          location="/rev"
+          onAsk={(...args) => asks.push(args)}
+          onOpen={(url) => opens.push(url)}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+        />,
+      );
+    });
+    const option = container.querySelector<HTMLElement>("#acpmux-slash-0")!;
+    expect(option).toBeTruthy();
+    await act(async () => option.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true })));
+    const field = container.querySelector<HTMLTextAreaElement>(".nt-field")!;
+    expect(field.value).toBe("/review ");
+    await act(async () => {
+      if (send === "enter")
+        field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      else container.querySelector<HTMLButtonElement>(send === "click" ? ".nt-send" : '[data-create="chat"]')!.click();
+    });
+    expect(opens).toEqual([]);
+    expect(asks).toHaveLength(1);
+    expect(asks[0]![1]).toBe("/review");
+  });
+}
+
+for (const name of ["review", "$review", "project:review"]) {
+  test(`a ${name} command draft keeps all arguments when sent`, async () => {
+    const asks: unknown[][] = [];
+    const opens: string[] = [];
+    const prompt = `/${name} review the patch\nand preserve this second line`;
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat([], { commands: [{ name, description: "Review changes", source: "skill" }] })}
+          location={prompt}
+          onAsk={(...args) => asks.push(args)}
+          onOpen={(url) => opens.push(url)}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+        />,
+      );
+    });
+    await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+    expect(opens).toEqual([]);
+    expect(asks).toHaveLength(1);
+    expect(asks[0]![1]).toBe(prompt);
+  });
+}
