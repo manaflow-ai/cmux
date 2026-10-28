@@ -66,9 +66,6 @@ final class ScreenContentView: NSView {
         }
     }
     var motionState: ScreenPaneMotionState
-    /// The last structural change was a close laid out at once (``SplitArrival/fade``): the camera sync after it in
-    /// the same change turn rests the camera too (``syncScroll``).
-    var closedAtOnce = false
     /// Split panes fading in at their rest (``SplitArrival/fade``, `ScreenContentView+SplitFade.swift`).
     var splitFades = SplitFades()
     /// A divider released with this pointer velocity (pt/s along its axis): the next layout's
@@ -244,17 +241,31 @@ final class ScreenContentView: NSView {
 
     /// Applies a new layout. Returns true if springs need frames.
     ///
-    /// A split or a new dock column grows in from its edge (`PaneArrival`, cx-f6i7;
-    /// a dock moves the strip's origin, so strip frames start where they show), and the panes
-    /// left by a close or a move away spring to their places (`PaneArrival.departing`); a zoom and
-    /// an unzoom move as `PaneZoomMotion` says (the zooming pane covers the others, which stay still).
-    /// Every moving pane lays out live at its spring rect on every frame (`applyPresentation`).
+    /// With ``SplitArrival/fade`` (the default) a split lays out once at its final layout and its new pane fades in
+    /// on its layers (``beginSplitFades()``), and a close lays out once at its final layout, its camera with it
+    /// (``UpdateOutcome/closedAtOnce``). With ``SplitArrival/grow`` a split grows in from its edge (`PaneArrival`,
+    /// cx-f6i7) and the panes left by a close or a move away spring to their places (`PaneArrival.departing`). A new
+    /// dock column always grows from its screen edge (a dock moves the strip's origin, so strip frames start where
+    /// they show); a zoom and an unzoom move as `PaneZoomMotion` says (the zooming pane covers the others, which stay
+    /// still). Every pane on a spring lays out live at its spring rect on every frame (`applyPresentation`).
     /// Other structural changes snap.
     /// Ratio and width changes (equalize, width presets, another client's
     /// divider drag) keep their spring. The strip scroll (including the
     /// spring back after the last column closes) is `syncScroll`'s.
     @discardableResult
     func update(layout: ScreenLayout, zoomed: Bool = false, canvas: CanvasScreen? = nil, animated: Bool) -> Bool {
+        updateLayout(layout, zoomed: zoomed, canvas: canvas, animated: animated).needsFrames
+    }
+
+    /// What a layout update did: whether its springs need frames, and whether it was a close laid out at once
+    /// (``SplitArrival/fade``), whose camera the caller's ``syncScroll`` in the same change turn rests too.
+    struct UpdateOutcome {
+        var needsFrames: Bool
+        var closedAtOnce: Bool
+    }
+
+    /// ``update(layout:zoomed:canvas:animated:)`` with its outcome.
+    func updateLayout(_ layout: ScreenLayout, zoomed: Bool = false, canvas: CanvasScreen? = nil, animated: Bool) -> UpdateOutcome {
         // Into or out of a canvas, frames change coordinate space (the camera is the bounds): they snap.
         let animated = updateCanvas(canvas, animated: animated) && animated
         let structural = !self.layout.hasSameStructure(as: layout)
@@ -264,12 +275,22 @@ final class ScreenContentView: NSView {
         self.zoomed = zoomed
         // The release's intent is in this layout (or was refused).
         if activeDrag == nil { rowDragPreview = nil }
-        let moving = reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming)
-        return moving || canvasState.camera.isMoving
+        var closedAtOnce = false
+        let moving = reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming,
+                               closedAtOnce: &closedAtOnce)
+        return UpdateOutcome(needsFrames: moving || canvasState.camera.isMoving, closedAtOnce: closedAtOnce)
     }
 
     @discardableResult
     func reconcile(animated: Bool, structural: Bool = false, unzooming: Bool = false, zooming: Bool = false) -> Bool {
+        var closedAtOnce = false
+        return reconcile(animated: animated, structural: structural, unzooming: unzooming, zooming: zooming, closedAtOnce: &closedAtOnce)
+    }
+
+    /// `closedAtOnce`: set when this pass laid a close out at once (``SplitArrival/fade``).
+    @discardableResult
+    func reconcile(animated: Bool, structural: Bool = false, unzooming: Bool = false, zooming: Bool = false,
+                   closedAtOnce: inout Bool) -> Bool {
         // A layout change takes the camera, rows and scroll areas from flings on the render server: the CPU carries them on.
         takeCameraFromServer()
         takeScrollersFromServer()
@@ -310,17 +331,17 @@ final class ScreenContentView: NSView {
             if handoff != nil { (arrivals, handoff) = ([:], nil) }
         }
         // A close with the fade choice is the split's inverse: one layout to the final state, the closed pane gone in
-        // this turn and its neighbours at their new sizes, no frame moving a pane (motion-first-principles.md rule 2).
+        // this turn and its neighbours at their new sizes, no frame moving a pane (motion-first-principles.md rule 2),
+        // also when it lands while panes still spring (an equalize, a width preset, a dock growing in): they all go to
+        // the final layout in this pass. Its camera (the strip's or a row column's, pulled back after the last column
+        // or row closed) rests with it (the caller's ``syncScroll``): no frame shows the closed pane's slot as a hole.
         // The grow choice keeps the close spring; a zoom is not a close.
         let closesAtOnce = !zooming && context.splitArrival() == .fade
+        let fadeClose = splits && closesAtOnce && structural && arrivals.isEmpty
+            && PaneArrival.departing(paneFrames.keys, to: baseGeometry.panes.keys)
+        closedAtOnce = fadeClose
         let departing = (zooming ? animate : splits && !closesAtOnce) && structural && arrivals.isEmpty
             && PaneArrival.departing(paneFrames.keys, to: baseGeometry.panes.keys)
-        // Its camera (the strip's or a row column's, pulled back after the last column or row closed) goes to rest in
-        // the same pass (``syncScroll``): no frame shows the closed pane's slot as a hole.
-        // A close that lands while panes still spring is in flight: they spring on, and so does the camera (as the plan).
-        closedAtOnce = splits && closesAtOnce && structural && arrivals.isEmpty
-            && PaneArrival.departing(paneFrames.keys, to: baseGeometry.panes.keys)
-            && !paneFrames.values.contains { $0.rect != $0.targetRect }
         // An unzoom: the other panes come back in place under the zoomed one, which springs back to its slot.
         let returning = animate && structural && unzooming
         // A zoom: the zoomed pane covers the other panes, which stay as they are under it (`PaneZoomMotion`).
@@ -330,7 +351,7 @@ final class ScreenContentView: NSView {
         // split moves the tab into the new pane ~75 ms in) keeps springing from where it shows,
         // with its velocity, instead of snapping to the end (hq-1d: Cmd-D measured 4 frames).
         let wasMoving = hasMotion, targetsBefore = (panes: panePlacement.rests, dividers: dividerPlacement.rests) // M1, M4
-        let inFlight = splits && structural && arrivals.isEmpty && !departing && fading.isEmpty
+        let inFlight = splits && structural && arrivals.isEmpty && !departing && fading.isEmpty && !fadeClose
             && paneFrames.values.contains { $0.rect != $0.targetRect }
         motionState.retarget(structural: structural, inFlight: inFlight, departing: departing, zooming: zooming, splitting: !arrivals.isEmpty, hasFrames: paneFrames.values.contains { $0.rect != $0.targetRect })
         // An animated width or ratio change (a preset, an equalize) is carried too: its camera may re-anchor (M8).
@@ -338,7 +359,7 @@ final class ScreenContentView: NSView {
         (panePlacement.carried, dividerPlacement.carried) = ([:], [:])
         // A release seeds only the layout it made (`releasedDivider` from this gesture, not a stale one).
         if let released = releasedDivider, CACurrentMediaTime() - released.time > 0.5 { releasedDivider = nil }
-        let animateFrames = animate && fading.isEmpty && (!structural || carried || inFlight) && (releasedDivider == nil || splits)
+        let animateFrames = animate && fading.isEmpty && !fadeClose && (!structural || carried || inFlight) && (releasedDivider == nil || splits)
         if structural, !inFlight { (arriving, newDockColumns) = (Set(arrivals.keys), PaneArrival.newDocks(arrivals, from: before, to: baseGeometry)) }
 
         // Panes. A new pane's sliver rides its neighbour's edge as it showed before this change.

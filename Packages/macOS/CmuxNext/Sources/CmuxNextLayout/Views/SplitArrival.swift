@@ -24,8 +24,8 @@ public nonisolated enum SplitArrival: String, Sendable, CaseIterable, TunableCho
 
     public var tunableTitle: String {
         switch self {
-        case .fade: "Fade in"
-        case .grow: "Grow from the edge"
+        case .fade: "One layout, new pane fades in"
+        case .grow: "Spring from the edge"
         }
     }
 }

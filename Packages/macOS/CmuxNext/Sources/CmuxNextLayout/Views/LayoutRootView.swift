@@ -153,6 +153,8 @@ public final class LayoutRootView: NSView {
         var scrollbar: StripScrollbarMode
         var rowOps: Bool
         var canvases: [ScreenID: CanvasScreen]
+        /// The focus is the model's stand-in after the focused pane closed (``LayoutModel/focusIsCloseFallback``).
+        var focusIsCloseFallback = false
     }
 
     /// `contentProvider` is held weakly; the App keeps it alive.
@@ -311,7 +313,8 @@ public final class LayoutRootView: NSView {
             attention: model.attention,
             scrollbar: model.stripScrollbar,
             rowOps: model.acceptsRowOps,
-            canvases: model.canvases
+            canvases: model.canvases,
+            focusIsCloseFallback: model.focusIsCloseFallback
         )
     }
 
@@ -403,6 +406,11 @@ public final class LayoutRootView: NSView {
             // An automation burst's structural change takes the path `ui.animations.panes` off takes:
             // its panes, scroll and camera land in this frame, springs in flight included; chrome still fades.
             var landsAtOnce = false
+            // A close laid out at once (``SplitArrival/fade``): its camera rests with it, in this turn. So does the
+            // camera move that only replaces the close's stand-in focus with the successor the app's focus coordinator
+            // picked (the second sync of the same apply): both land before one commit, as one frame.
+            var cameraLandsWithClose = previous?.focusIsCloseFallback == true && previous?.focused != snapshot.focused
+                && context.splitArrival() == .fade
             if layoutChanged {
                 let structureChanged = old.map { !$0.layout.hasSameStructure(as: screen.layout) } ?? true
                 landsAtOnce = structureChanged && self.landsAtOnce(screen.id, steps: automationSteps[screen.id])
@@ -412,10 +420,10 @@ public final class LayoutRootView: NSView {
                 // A hidden screen lands at once: frames step only the screens shown (`advanceFrame`), so a
                 // spring started there (a restore, a daemon echo) froze its panes mid-motion, their
                 // content held wider than the pane and pinned to its edge (Leo 2026-10-21).
-                if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas,
-                               animated: (animated || reflows) && !view.isHidden && !landsAtOnce) {
-                    screenNeedsFrames = true
-                }
+                let outcome = view.updateLayout(screen.layout, zoomed: screen.zoomed, canvas: canvas,
+                                                animated: (animated || reflows) && !view.isHidden && !landsAtOnce)
+                if outcome.needsFrames { screenNeedsFrames = true }
+                if outcome.closedAtOnce { cameraLandsWithClose = true }
                 // The focus ring of a split's new pane appears with the pane; the focus flash still
                 // runs, so the pane after a close or a link's new pane shows where focus went.
                 view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
@@ -439,7 +447,8 @@ public final class LayoutRootView: NSView {
                 // Only a snap that stands in for Reduce Motion's spring shows the
                 // scrollbar, not one at launch or while out of the window.
                 if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
-                                   animated: previous != nil && canAnimate && context.animatesPaneLayout && !landsAtOnce,
+                                   animated: previous != nil && canAnimate && context.animatesPaneLayout && !landsAtOnce
+                                       && !cameraLandsWithClose,
                                    reveals: !snapshot.gestureActive,
                                    showsScrollbarOnSnap: previous != nil && window != nil && driver.isAttached) {
                     screenNeedsFrames = true

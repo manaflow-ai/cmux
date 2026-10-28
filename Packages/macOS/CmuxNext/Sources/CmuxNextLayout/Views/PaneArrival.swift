@@ -97,9 +97,10 @@ struct PaneArrival: Equatable {
 
     /// Panes only went away: a close (an unsplit, a strip column closed
     /// mid-strip), a zoom (the screen shows its zoomed pane alone) or a pane
-    /// moved to another screen. Each pane left springs from where it showed to
-    /// its place, keyed by its id, so it grows over the space or slides along
-    /// the strip instead of jumping.
+    /// moved to another screen. With ``SplitArrival/grow`` (and for a zoom) each
+    /// pane left springs from where it showed to its place, keyed by its id, so it
+    /// grows over the space or slides along the strip; with ``SplitArrival/fade``
+    /// a close lays out once at its final layout.
     static func departing(_ previous: some Collection<PaneID>, to next: some Collection<PaneID>) -> Bool {
         let before = Set(previous)
         return !next.isEmpty && next.count < before.count && next.allSatisfy { before.contains($0) }

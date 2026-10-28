@@ -24,13 +24,13 @@ struct ColumnCloseScrollMotionTests {
         let root: LayoutRootView
         let window: NSWindow
 
-        /// `arrival`: the pane layout motion (``SplitArrival``); nil keeps the app's default (fade: one layout pass).
-        init(_ layout: ScreenLayout, focused: PaneID, reduceMotion: Bool = false, arrival: SplitArrival? = .grow) {
+        /// `arrival`: the pane layout motion (``SplitArrival``), pinned (no global tunable read).
+        init(_ layout: ScreenLayout, focused: PaneID, reduceMotion: Bool = false, arrival: SplitArrival = .grow) {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: focused)
             model.rowsEnabledOverride = true
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             // This suite measures the close spring: the Debug choice `motion.split.arrival` = grow (a close lays out once by default).
-            if let arrival { root.context.splitArrival = { arrival } }
+            root.context.splitArrival = { arrival }
             root.context.reduceMotionOverride = reduceMotion
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
@@ -95,13 +95,48 @@ struct ColumnCloseScrollMotionTests {
     /// rests at its new offset in the same change, so no frame shows the closed column's slot as a hole, and nothing
     /// asks for frames after it (review of 8f005054047: the camera still slid back on the scroll spring).
     @Test func closingTheLastColumnLandsTheCameraWithTheCloseByDefault() throws {
-        let strip = Strip(Self.columns(3), focused: "p3", arrival: nil)
+        let strip = Strip(Self.columns(3), focused: "p3", arrival: .fade)
         #expect(strip.screen.scroll.value > 100, "three half-width columns scroll to the end for p3")
         strip.close(to: Self.columns(2), focus: "p2")
         #expect(abs(strip.screen.scroll.value - strip.screen.scroll.target) < 0.01, "the camera did not rest with the close")
         #expect(abs(strip.screen.scroll.target) < 0.5)
         #expect(abs(strip.screen.bounds.maxX - strip.shown("p2").maxX) < 1, "a hole shows right of the last column")
         #expect(!strip.step(), "the close asked for display frames")
+    }
+
+    /// The app's close order (`WorkspaceContentController.apply`): the daemon tree first, where the model's stand-in
+    /// focus is the nearest pane before the closed one, then the successor the focus coordinator picks, here a
+    /// different pane (p1). Under fade the camera lands on that successor in this turn: one move, no spring after it.
+    @Test func aCloseWhoseSuccessorDiffersFromTheStandInLandsTheCameraOnceByDefault() throws {
+        let strip = Strip(Self.columns(4), focused: "p4", arrival: .fade)
+        strip.close(to: Self.columns(3), focus: "p1")
+        #expect(abs(strip.screen.scroll.value - strip.screen.scroll.target) < 0.01, "the camera springs to the successor")
+        #expect(!strip.step(), "the close asked for display frames")
+        #expect(strip.shown("p1").minX >= -0.5, "the successor is not in view")
+    }
+
+    /// A close laid out at once rests only its own camera: a later, unrelated camera move (a focus change by key)
+    /// springs as before (no flag left behind).
+    @Test func aLaterFocusMoveAfterAFadeCloseStillSprings() throws {
+        let strip = Strip(Self.columns(4), focused: "p4", arrival: .fade)
+        strip.close(to: Self.columns(3), focus: "p3")
+        strip.settle()
+        strip.model.focus("p1", notify: false, source: .keyboard)
+        strip.root.syncWithModel()
+        #expect(abs(strip.screen.scroll.value - strip.screen.scroll.target) > 1, "the focus move did not spring")
+    }
+
+    /// A close that lands while an equalize still springs (Cmd-W during the motion) goes to the final layout in one
+    /// pass under fade: no pane and no camera keeps springing (review of 45dd72e9e52).
+    @Test func aCloseDuringAnEqualizeLandsEverythingAtOnceByDefault() throws {
+        let strip = Strip(Self.columns(3, width: 0.7), focused: "p3", arrival: .fade)
+        strip.model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: Self.columns(3, width: 0.4))])
+        strip.root.syncWithModel()
+        #expect(strip.step(), "the width change did not spring")
+        strip.close(to: Self.columns(2, width: 0.4), focus: "p2")
+        #expect(abs(strip.screen.scroll.value - strip.screen.scroll.target) < 0.01, "the camera still springs")
+        #expect(!strip.screen.hasMotion, "a pane still springs after the close")
+        #expect(!strip.step())
     }
 
     /// Closing the focused last column, scrolled to the end: the frame that drops it already shows
@@ -184,7 +219,7 @@ struct ColumnCloseScrollMotionTests {
     @Test(arguments: [[400, 400, 400, 400], [500, 500, 500]])
     func closingTheLastRowLandsTheRowsWithTheCloseByDefault(heights: [Int]) throws {
         let last = PaneID("p\(heights.count)"), kept = PaneID("p\(heights.count - 1)")
-        let strip = Strip(Self.rows(heights), focused: last, arrival: nil)
+        let strip = Strip(Self.rows(heights), focused: last, arrival: .fade)
         #expect((strip.screen.rowScrolls["c1"]?.state.spring.value ?? 0) > 100, "the rows scroll to the end")
         strip.close(to: Self.rows(Array(heights.dropLast())), focus: kept)
         if let rows = strip.screen.rowScrolls["c1"] {

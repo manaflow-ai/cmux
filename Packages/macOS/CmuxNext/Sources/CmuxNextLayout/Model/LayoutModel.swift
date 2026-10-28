@@ -21,6 +21,10 @@ public final class LayoutModel {
     public private(set) var activeScreenID: ScreenID?
     /// The focused pane. Client-local; drives the focus ring and column reveal.
     public private(set) var focusedPane: PaneID?
+    /// ``focusedPane`` is the stand-in ``apply(screens:cause:)`` chose because the focused pane closed, until the app's
+    /// focus coordinator (or anything else) focuses a pane: the layout view rests the camera on that replacement with
+    /// the close (a close laid out at once has one camera move).
+    public private(set) var focusIsCloseFallback = false
     /// Dims panes other than the focused one.
     public var dimsInactivePanes = false
     /// Pins the column centering mode (tests, the demo); nil follows
@@ -250,7 +254,10 @@ public final class LayoutModel {
         // start) stands in, not the screen's first: the close's first frame already moves the
         // camera toward it (Lawrence 2026-10-20, closing the last column).
         let fallback = focusedPane.flatMap { Self.neighbor(of: $0, in: previous, on: activeScreen) } ?? activeScreen?.layout.panes.first
-        if focusedPane != fallback { focusedPane = fallback }
+        if focusedPane != fallback {
+            focusedPane = fallback
+            focusIsCloseFallback = fallback != nil
+        }
     }
 
     /// The automation-caused structural changes since the view's last sync, per screen: how many
@@ -383,6 +390,7 @@ public final class LayoutModel {
         }
         lastFocusSource = source
         focusedPane = pane
+        focusIsCloseFallback = false
         // A keyboard or programmatic focus on a canvas pans to it; a click or a scroll never does.
         if source != .pointer, source != .scroll { revealOnCanvas(pane, screen: screen.id) }
         if notify { emit(.focus(pane)) }
@@ -403,6 +411,7 @@ public final class LayoutModel {
         activeScreenID = id
         if focusedPane.map({ !screen.layout.contains($0) }) ?? true {
             focusedPane = screen.layout.panes.first
+            focusIsCloseFallback = false
         }
         emit(.selectScreen(id))
     }

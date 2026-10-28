@@ -211,7 +211,8 @@ extension PaneMotionPlan {
     /// panes still moved when it landed. Like the CPU path, a structural change that is not a split,
     /// close or zoom springs only in flight; otherwise its items are set at rest. `handoff`: the pane
     /// that hands what it shows to the pane this split adds (`LayoutModel.pendingContentHandoff`). `arrival`: how a
-    /// split's new pane comes in (``SplitArrival``; the app's default fades it in, ``fadesIn``).
+    /// split's new pane comes in and how a close lays out (``SplitArrival``): the app's default fades a split's new
+    /// pane in (``fadesIn``) and sets a close, camera included, at rest.
     ///
     /// One pass over each geometry's panes and dividers comparing rects; the plan holds only what
     /// changed. On the main actor because the split seed comes from `PaneArrival`, as the CPU path's does.
@@ -254,8 +255,8 @@ extension PaneMotionPlan {
         }
         // `ScreenContentView.reconcile`'s `animateFrames`: what it does not carry snaps. A close with the fade choice is
         // set at rest too (one layout, no frame moves a pane).
-        // As there, a close that lands while panes still spring keeps springing (it is in flight).
-        let closesAtOnce = kind == .close && splitArrival == .fade && !inFlight
+        // As there, also when it lands while panes still spring: everything goes to the final layout in one pass.
+        let closesAtOnce = kind == .close && splitArrival == .fade
         let springs = fadesIn.isEmpty && !closesAtOnce && (!structural || kind != .move || inFlight)
         let frameToken: MotionSpring = switch kind {
         case .split: variant.splitSpring

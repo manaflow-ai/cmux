@@ -122,8 +122,8 @@ final class LayoutViewContext {
     /// Whether a pane's content keeps its size through a layout spring (feature `paneHoldsContentInMotion`,
     /// ``LayoutRootView/holdsContentInMotion``), asked by each host at its spring's start.
     var holdsContentInMotion: () -> Bool = { false }
-    /// How a split's new pane comes in (``SplitArrival``, Debug Settings `motion.split.arrival`), read in each
-    /// change turn; tests pin it.
+    /// How a split's new pane comes in and how a close lays out (``SplitArrival``, Debug Settings
+    /// `motion.split.arrival`), read in each change turn; tests pin it.
     var splitArrival: () -> SplitArrival = { LayoutTunables.splitArrival.value }
 
     /// Whether layout motion runs on the render server (`motion.renderServer`): every host's
