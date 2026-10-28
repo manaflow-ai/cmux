@@ -49,7 +49,7 @@ enum AgentHandlers {
             try resetAgentPaneZoom(context)
             return .done
         })
-        registry.bindEffect("palette.forkAgentConversationTo", effect: { invocation in
+        registry.bindEffect("palette.forkAgentConversationTo", requires: nil, effect: { invocation in
             guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id),
                   let view = context.services.agentTabs.existingView(tab.id) else {
                 throw ActionFailure(message: MiscHandlerStrings.noForkTarget)
@@ -58,7 +58,7 @@ enum AgentHandlers {
             return .done
         })
         for (id, destination) in forkActions {
-            registry.bindEffect(id, effect: { invocation in
+            registry.bindEffect(id, requires: nil, effect: { invocation in
                 try fork(destination, offerDestinations: id == "palette.forkAgentConversation", invocation: invocation, context: context)
                 return .done
             })
