@@ -21,9 +21,11 @@ This merges the parsed documents instead:
 - Every other list and every scalar is a leaf: the side that changed it wins,
   and both sides changing it differently is a conflict.
 
-The result is written in ours' format: json.dumps(doc) with no newline (the
-design file) or with one (a branch's fixer once wrote that), or indent=1 /
-indent=2 plus a newline (the ops file), with ours' ensure_ascii.
+Each side may be in any format of FORMATS (a branch's fixer once wrote the
+design file with a final newline). The result is always written in the file's
+canonical format (CANONICAL: the format on the tip, json.dumps for the design
+file, indent=2 plus a newline for the ops file), so the file never flips format
+with whichever side was ours. A path not in CANONICAL keeps ours' format.
 A conflict writes both whole files between ordinary markers and exits 1: a
 leaf both sides changed differently, items both sides reordered differently, a
 side that does not parse, or an ours format this driver cannot reproduce. It
@@ -131,6 +133,13 @@ FORMATS = (
 )
 
 
+# The format each file has on the tip; ensure_ascii True, as json.dumps writes by default.
+CANONICAL = {
+    "plans/cmux-next/chrome-parity/design-result.json": lambda doc: json.dumps(doc),
+    "plans/cmux-next/chromium-host-ops.json": lambda doc: json.dumps(doc, indent=2) + "\n",
+}
+
+
 def detect_format(doc, text: str):
     for _, render in FORMATS:
         for ascii_only in (True, False):
@@ -157,8 +166,8 @@ def conflict(ours_path: str, ours_raw: bytes, theirs_raw: bytes, reason: str) ->
     return 1
 
 
-def merge_texts(base_raw: bytes, ours_raw: bytes, theirs_raw: bytes) -> str:
-    """The merged text in ours' format; raises Conflict when it cannot merge."""
+def merge_texts(base_raw: bytes, ours_raw: bytes, theirs_raw: bytes, path: str = "") -> str:
+    """The merged text in PATH's canonical format (else ours'); raises Conflict when it cannot merge."""
     try:
         base = json.loads(base_raw.decode("utf-8")) if base_raw.strip() else MISSING
         ours = json.loads(ours_raw.decode("utf-8"))
@@ -168,7 +177,9 @@ def merge_texts(base_raw: bytes, ours_raw: bytes, theirs_raw: bytes) -> str:
     render = detect_format(ours, ours_raw.decode("utf-8"))
     if render is None:
         raise Conflict("ours is not in a format this driver writes back byte for byte")
-    return render(merge(base, ours, theirs, ""))
+    merged = merge(base, ours, theirs, "")
+    canonical = CANONICAL.get(path.replace("\\", "/").lstrip("./"))
+    return canonical(merged) if canonical else render(merged)
 
 
 def main(argv: list[str]) -> int:
@@ -179,7 +190,7 @@ def main(argv: list[str]) -> int:
     label = argv[4] if len(argv) > 4 else ours_path
     base_raw, ours_raw, theirs_raw = read_bytes(base_path), read_bytes(ours_path), read_bytes(theirs_path)
     try:
-        merged = merge_texts(base_raw, ours_raw, theirs_raw)
+        merged = merge_texts(base_raw, ours_raw, theirs_raw, label)
     except (Conflict, RecursionError) as error:
         return conflict(ours_path, ours_raw, theirs_raw, f"{label}: {error}")
     with open(ours_path, "w", encoding="utf-8", newline="") as handle:
