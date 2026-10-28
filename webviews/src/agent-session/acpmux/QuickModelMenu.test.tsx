@@ -5,7 +5,12 @@ import React, { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { OnNewTab } from "./newTabComposer";
-import { QuickModelMenu, type QuickFamily } from "./QuickModelMenu";
+import type { QuickFamily, QuickSearchField } from "./QuickModelMenu";
+
+let QuickModelMenu: typeof import("./QuickModelMenu").QuickModelMenu;
+const loadQuickModelMenu = async () => {
+  QuickModelMenu ??= (await import("./QuickModelMenu")).QuickModelMenu;
+};
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -85,8 +90,8 @@ const family = (id: string, name: string): QuickFamily => ({
   })),
 });
 
-type HarnessOptions = { onAddHarness?: () => void; noMore?: boolean };
-function Harness({ newTab, onAddHarness, noMore }: { newTab: boolean } & HarnessOptions) {
+type HarnessOptions = { onAddHarness?: () => void; noMore?: boolean; searchField?: QuickSearchField };
+function Harness({ newTab, onAddHarness, noMore, searchField }: { newTab: boolean } & HarnessOptions) {
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const [fast, setFast] = useState(false);
@@ -98,6 +103,7 @@ function Harness({ newTab, onAddHarness, noMore }: { newTab: boolean } & Harness
         trigger={trigger}
         chip={{ "data-menu": "model", label: "Model", title: "Model" }}
         menu={{
+          ...(searchField ? { searchField, search: { find: () => [], pick() {} } } : {}),
           models: [],
           current: "claude-a",
           onModel() {},
@@ -121,6 +127,7 @@ function Harness({ newTab, onAddHarness, noMore }: { newTab: boolean } & Harness
 
 async function openMenu(newTab: boolean, options: HarnessOptions = {}) {
   const container = installDom();
+  await loadQuickModelMenu();
   await act(async () => {
     root = createRoot(container);
     root.render(<Harness newTab={newTab} {...options} />);
@@ -247,38 +254,42 @@ test("expanded New Tab More models contains models only and keeps one Add in the
   expect(labels(expanded)).toEqual(["Claude old x", "Claude old y"]);
 });
 
-test("rail arrows reach Add without changing models and return to the neighboring harness", async () => {
-  await openMenu(false, { onAddHarness() {} });
-  const input = document.querySelector<HTMLInputElement>(".acpmux-quick-search input")!;
-  const arrow = async (key: string) => {
-    await act(async () =>
-      document.activeElement!.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true })),
-    );
-    await settle();
-  };
-  await act(async () => input.focus());
-  await arrow("ArrowLeft");
-  const add = document.querySelector<HTMLButtonElement>(".acpmux-quick-rail-add")!;
-  expect(document.activeElement).toBe(add);
-  expect(labels(list())).toContain("Claude a");
-  expect(add.getAttribute("aria-pressed")).toBeNull();
-  for (const key of ["Enter", " "]) {
-    const event = new dom!.window.KeyboardEvent("keydown", {
-      key,
-      bubbles: true,
-      cancelable: true,
-    });
-    await act(async () => add.dispatchEvent(event));
-    // Native buttons handle activation; the menu must not consume Space as search text.
-    expect(event.defaultPrevented).toBe(false);
-    expect(input.value).toBe("");
-  }
-  await arrow("ArrowLeft");
-  expect(labels(list())).toContain("Codex a");
-  expect(document.activeElement).toBe(input);
-  await arrow("ArrowRight");
-  expect(document.activeElement).toBe(add);
-  expect(labels(list())).toContain("Codex a");
-  await arrow("ArrowRight");
-  expect(labels(list())).toContain("Claude a");
-});
+for (const searchField of ["always", "typed", "long"] as const) {
+  test(`rail arrows reach Add and return to the neighboring harness (${searchField} search)`, async () => {
+    await openMenu(false, { onAddHarness() {}, searchField });
+    const input = document.querySelector<HTMLInputElement>(".acpmux-quick-search input")!;
+    const arrow = async (key: string) => {
+      await act(async () =>
+        document.activeElement!.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key, bubbles: true })),
+      );
+      await settle();
+    };
+    const firstRow = document.querySelector<HTMLElement>('.acpmux-quick-list [role="menuitemradio"]')!;
+    if (searchField !== "always") expect(input).toBeNull();
+    await act(async () => (input ?? firstRow).focus());
+    await arrow("ArrowLeft");
+    const add = document.querySelector<HTMLButtonElement>(".acpmux-quick-rail-add")!;
+    expect(document.activeElement).toBe(add);
+    expect(labels(list())).toContain("Claude a");
+    expect(add.getAttribute("aria-pressed")).toBeNull();
+    for (const key of ["Enter", " "]) {
+      const event = new dom!.window.KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+      });
+      await act(async () => add.dispatchEvent(event));
+      // Native buttons handle activation; the menu must not consume Space as search text.
+      expect(event.defaultPrevented).toBe(false);
+      expect(input?.value ?? "").toBe("");
+    }
+    await arrow("ArrowLeft");
+    expect(labels(list())).toContain("Codex a");
+    expect(document.activeElement).toBe(input ?? document.querySelector('[aria-label="Codex"].acpmux-quick-rail-tab'));
+    await arrow("ArrowRight");
+    expect(document.activeElement).toBe(add);
+    expect(labels(list())).toContain("Codex a");
+    await arrow("ArrowRight");
+    expect(labels(list())).toContain("Claude a");
+  });
+}

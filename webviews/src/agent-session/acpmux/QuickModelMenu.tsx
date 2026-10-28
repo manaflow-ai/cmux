@@ -324,7 +324,13 @@ export function QuickModelMenu({
       if (index === tabs.length) add?.focus();
       else {
         setTab(tabs[index]!.id);
-        if (fromAdd) field.current?.focus();
+        if (fromAdd) {
+          const button =
+            rail.current?.querySelectorAll<HTMLButtonElement>(".acpmux-quick-rail-tab")[
+              families.list.indexOf(tabs[index]!)
+            ];
+          (field.current ?? button)?.focus();
+        }
         toTop();
       }
       return;
