@@ -80,11 +80,18 @@ final class SidebarRows {
     }
 
     /// Whether window `windowID`'s band leaves out the workspace item a layout ref value names: another
-    /// window owns the workspace.
+    /// window owns the workspace, or the window's space `profile` does not show it
+    /// (plans/cmux-next/spaces-overhaul-DESIGN.md rule 1: a pin draws only in its own space, so a click on
+    /// it never switches the window's space). A closed workspace has no space and stays.
     static func bandHides(window windowID: String, profile: ProfileID?, machines: MachineRegistry,
                           registry: WindowRegistry) -> (String) -> Bool {
         let refs = WorkspaceLayoutRefs(machines: machines)
-        return { value in refs.ownedElsewhere(value, window: windowID, registry: registry) }
+        let membership = profile == nil ? nil : WindowProfiles.membership(machines)
+        return { value in
+            if refs.ownedElsewhere(value, window: windowID, registry: registry) { return true }
+            guard let profile, let membership, let id = refs.workspaceID(for: .workspace(value)) else { return false }
+            return !WindowProfiles.shows(id, profile: profile, machines: machines, membership: membership)
+        }
     }
 
     /// Shows `live` (when given) with the pending edits applied, then the
