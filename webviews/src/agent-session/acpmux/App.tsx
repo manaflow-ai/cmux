@@ -3187,7 +3187,7 @@ export function VirtualTranscript({
     }
     if (folding && node) {
       // What opened pushed the latest row out of view: the view is the reader's now, not following.
-      if (followingRef.current && node.scrollTop < layout.totalHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX)
+      if (followingRef.current && node.scrollTop < layout.totalHeight - height - FOLLOW_BOTTOM_DEADBAND_PX)
         follow(false);
     } else if (old && node) {
       // Content that shrank under the viewport has already clamped the live offset to
@@ -3198,7 +3198,9 @@ export function VirtualTranscript({
       // card leaves (`floor`) can make the content taller again in this same commit.
       const live = node.scrollTop;
       // The browser rounds the height it clamps to, so the old end allows a pixel either way.
-      const end = Math.min(node.scrollHeight, old.totalHeight) - node.clientHeight;
+      // `height` is the scroller box measured by the ResizeObserver. Reusing it here avoids a
+      // synchronous clientHeight/scrollHeight read while the send commit is still on the stack.
+      const end = old.totalHeight - height;
       const clamped = live < scrolledTo.current.top - 0.5 && live >= end - 1;
       // A reader's move can reach the live offset before its scroll event. Layout changes alone
       // never release or reacquire follow; the input window only identifies this event race.
@@ -3226,7 +3228,7 @@ export function VirtualTranscript({
         // view's foot for its 180 ms at every streamed chunk, and on open it slid from a layout that
         // never painted (estimated heights) to the drawn one (Leo 2026-10-21: "IMMEDIATELY ... at the
         // bottom every single time").
-        const latest = Math.max(0, layout.totalHeight - node.clientHeight);
+        const latest = Math.max(0, layout.totalHeight - height);
         // Jump to latest's glide in flight heads for the new end instead of snapping there.
         const jumping = jumpTarget.current !== undefined;
         // The shared animation reads the moving end every frame on its original clock.
@@ -3259,7 +3261,7 @@ export function VirtualTranscript({
     }
     // Runs on height too: rows that fit and then overflow on a height-only shrink keep the same memoized layout.
     if (!didOpenAtLatest.current && node) {
-      const latest = Math.max(0, layout.totalHeight - node.clientHeight);
+      const latest = Math.max(0, layout.totalHeight - height);
       // A chat reopened where the reader left it (cx-6bgzj), else at the latest message, as it is
       // once the reader sent a prompt into it.
       const at = openAt && !sentBeforeOpen.current ? rows.findIndex((row) => row.id === openAt.rowId) : -1;
@@ -3277,7 +3279,7 @@ export function VirtualTranscript({
         }
         setSeeking(true);
         onLoadOlder().catch(() => {});
-      } else if (layout.totalHeight <= node.clientHeight) {
+      } else if (layout.totalHeight <= height) {
         // A tail that fits shows from the top, as before; it opens once it overflows.
         endSeek();
         setSeeking(false);
@@ -3319,7 +3321,7 @@ export function VirtualTranscript({
     } else if (!holding) clearTimeout(floorTimer.current);
     floor.current = { height: holding ? floorHeight : 0, width, sessionId };
     if (!holding && !queueLeft.current) heldFor.current.clear();
-    if (node && node.clientHeight > 0 && didOpenAtLatest.current) {
+    if (node && height > 0 && didOpenAtLatest.current) {
       scrolledTo.current = { top: node.scrollTop, atLatest: followingRef.current };
       seenAnchor.current = restingAnchor(node.scrollTop, scrolledTo.current.atLatest, layout, rows);
     }
