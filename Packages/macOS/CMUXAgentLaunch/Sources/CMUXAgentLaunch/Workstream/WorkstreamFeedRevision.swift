@@ -3,6 +3,9 @@
 /// Older Macs packed a row count above a notification revision. Reserve that
 /// low lane during migration from row counts to byte counts. Beyond 1 GiB,
 /// continue linearly so larger logs remain representable as signed integers.
+/// The old high lane counted decoded rows; the new generation counts bytes.
+/// Comparing equal numeric inputs across versions is not a migration comparison:
+/// a multi-GB journal contains far fewer rows than bytes.
 public struct WorkstreamFeedRevision: Sendable {
     private let workstream: Int
 
@@ -15,14 +18,12 @@ public struct WorkstreamFeedRevision: Sendable {
     /// The signed validator sent in both feed snapshots and invalidation events.
     public var value: Int {
         let workstreamValue = UInt64(workstream)
-        let legacyLaneLimit = UInt64(Int.max) >> 32
-        if workstreamValue <= legacyLaneLimit {
-            // Preserve the complete legacy packed namespace, including the
-            // low notification lane pinned at its maximum during migration.
-            return Int((workstreamValue << 32) | 0xFFFF_FFFF)
+        let legacyCutover: UInt64 = 0x4000_0000
+        if workstreamValue >= legacyCutover {
+            let cutoverPacked = (legacyCutover << 32) | 0xFFFF_FFFF
+            let continuation = cutoverPacked + (workstreamValue - legacyCutover)
+            return Int(min(continuation, UInt64(Int.max)))
         }
-        // Signed Int has no representable value above the packed namespace.
-        // Saturate rather than wrap negative or regress below an older value.
-        return Int.max
+        return Int((workstreamValue << 32) | 0xFFFF_FFFF)
     }
 }

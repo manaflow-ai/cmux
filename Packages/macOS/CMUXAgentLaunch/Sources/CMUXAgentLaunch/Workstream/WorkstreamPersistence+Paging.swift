@@ -16,7 +16,7 @@ extension WorkstreamPersistence {
     func loadPage(
         endingBefore endOffset: UInt64?,
         limit: Int,
-        oversizedRowRecoveryDepth: Int = 0,
+        oversizedRowRecoveryDepth: Int,
         deadlineNanoseconds: UInt64? = nil
     ) throws -> Page {
         guard limit > 0 else {
@@ -43,10 +43,7 @@ extension WorkstreamPersistence {
         var totalBytes = 0
         var newlineCount = 0
         while offset > 0 {
-            if let deadlineNanoseconds,
-               DispatchTime.now().uptimeNanoseconds >= deadlineNanoseconds {
-                break
-            }
+            try checkReadDeadline(deadlineNanoseconds)
             let remainingBudget = maximumTailBytes - totalBytes
             guard remainingBudget > 0 else { break }
             let readSize = min(chunkSize, min(remainingBudget, Int(offset)))
@@ -55,6 +52,7 @@ extension WorkstreamPersistence {
             guard let chunk = try fh.read(upToCount: readSize), !chunk.isEmpty else {
                 break
             }
+            try checkReadDeadline(deadlineNanoseconds)
             totalBytes += chunk.count
             newlineCount += chunk.reduce(into: 0) { if $1 == 0x0A { $0 += 1 } }
             chunks.append(chunk)
@@ -63,6 +61,7 @@ extension WorkstreamPersistence {
             }
         }
 
+        try checkReadDeadline(deadlineNanoseconds)
         var tail = Data()
         tail.reserveCapacity(totalBytes)
         for chunk in chunks.reversed() {
@@ -95,6 +94,7 @@ extension WorkstreamPersistence {
         // cutoff here would leave newer rows that no backward cursor can
         // reach again.
         for lineRange in selectedRanges {
+            try checkReadDeadline(deadlineNanoseconds)
             let slice = tail.subdata(in: lineRange.range)
             if slice.count <= Self.maximumPersistedRowBytes,
                let item = try? decoder.decode(WorkstreamItem.self, from: slice) {
@@ -103,6 +103,7 @@ extension WorkstreamPersistence {
             // Malformed lines are dropped silently; the audit log is
             // append-only and we don't want a corrupt row to block startup.
         }
+        try checkReadDeadline(deadlineNanoseconds)
         var pageStartOffset = selectedRanges.first?.startOffset
         let windowEndsWithNewline: Bool
         if pageEnd > 0 {
@@ -114,7 +115,7 @@ extension WorkstreamPersistence {
         if hasLeadingPartialLine,
            out.count < limit,
            (pageEnd < fileSize || windowEndsWithNewline),
-           let result = try previousLineBoundary(before: offset, fileHandle: fh) {
+           let result = try previousLineBoundary(before: offset, fileHandle: fh, deadlineNanoseconds: deadlineNanoseconds) {
             // The window starts inside a row. Only a row over the persisted
             // cap is skipped here. An ordinary row that merely straddles the
             // window edge keeps the first complete row as the cursor, so the
@@ -167,11 +168,13 @@ extension WorkstreamPersistence {
 
     private func previousLineBoundary(
         before offset: UInt64,
-        fileHandle: FileHandle
+        fileHandle: FileHandle,
+        deadlineNanoseconds: UInt64?
     ) throws -> BackwardScanResult? {
         var cursor = offset
         let chunkSize = 64 * 1024
         while cursor > 0, offset - cursor < UInt64(Self.maximumOversizedRowScanBytes) {
+            try checkReadDeadline(deadlineNanoseconds)
             let readSize = min(chunkSize, Int(cursor))
             guard readSize > 0 else { break }
             let start = cursor - UInt64(readSize)
@@ -179,6 +182,7 @@ extension WorkstreamPersistence {
             guard let chunk = try fileHandle.read(upToCount: readSize), !chunk.isEmpty else {
                 break
             }
+            try checkReadDeadline(deadlineNanoseconds)
             if let index = chunk.lastIndex(of: 0x0A) {
                 return BackwardScanResult(offset: start + UInt64(index) + 1, foundNewline: true)
             }
@@ -187,6 +191,11 @@ extension WorkstreamPersistence {
         return cursor < offset
             ? BackwardScanResult(offset: cursor, foundNewline: false)
             : nil
+    }
+
+    /// No further reads or decoding may start after the recovery deadline.
+    private func checkReadDeadline(_ deadline: UInt64?) throws {
+        if let deadline, uptimeNanoseconds() >= deadline { throw WorkstreamReadDeadline.exceeded }
     }
 
     static func lineRanges(

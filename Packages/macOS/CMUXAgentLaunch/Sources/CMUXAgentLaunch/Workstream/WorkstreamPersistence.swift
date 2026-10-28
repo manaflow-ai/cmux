@@ -72,6 +72,7 @@ public actor WorkstreamPersistence {
     private let encoder: JSONEncoder
     let decoder: JSONDecoder
     private var handle: FileHandle?
+    let uptimeNanoseconds: @Sendable () -> UInt64
 
     /// A malformed append-only row must not turn startup into an unbounded
     /// JSON decode. Larger rows are treated as corrupt history by bounded
@@ -85,7 +86,15 @@ public actor WorkstreamPersistence {
     /// persisted high-water mark.
     static let maximumRevision = UInt64(Int.max - 1)
 
-    public init(fileURL: URL) {
+    /// Creates a journal owner with a monotonic clock for read deadlines.
+    /// - Parameters:
+    ///   - fileURL: The journal to read and append.
+    ///   - uptimeNanoseconds: Monotonic uptime used to budget recovery work.
+    public init(
+        fileURL: URL,
+        uptimeNanoseconds: @escaping @Sendable () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }
+    ) {
+        self.uptimeNanoseconds = uptimeNanoseconds
         self.fileURL = fileURL
         self.revisionFile = WorkstreamRevisionFile(url: fileURL.appendingPathExtension("revision"))
         let enc = JSONEncoder()
@@ -148,7 +157,7 @@ public actor WorkstreamPersistence {
         var oldestExaminedOffset: UInt64?
         for (sequence, line) in tail.lines.enumerated().reversed() {
             if let deadlineNanoseconds,
-               DispatchTime.now().uptimeNanoseconds >= deadlineNanoseconds {
+               uptimeNanoseconds() >= deadlineNanoseconds {
                 // Every line from the oldest examined one to the window end
                 // is either kept, an older version of a kept item, or
                 // unreadable; everything before it stays reachable by
@@ -196,7 +205,7 @@ public actor WorkstreamPersistence {
         budgetNanoseconds: UInt64? = nil,
         hardBudgetNanoseconds: UInt64? = nil
     ) throws -> StartupSnapshot {
-        let started = DispatchTime.now().uptimeNanoseconds
+        let started = uptimeNanoseconds()
         guard limit > 0 else {
             let empty = Page(items: [], hasMoreBefore: false, startOffset: nil)
             let fileExists = FileManager.default.fileExists(atPath: fileURL.path)
@@ -207,7 +216,7 @@ public actor WorkstreamPersistence {
                 revision: revision,
                 page: empty,
                 diagnostics: StartupDiagnostics(
-                    elapsedNanoseconds: DispatchTime.now().uptimeNanoseconds - started,
+                    elapsedNanoseconds: uptimeNanoseconds() - started,
                     fileBytes: fileBytes,
                     exceededBudget: false,
                     missingFile: !fileExists
@@ -222,7 +231,7 @@ public actor WorkstreamPersistence {
                 revision: revision,
                 page: empty,
                 diagnostics: StartupDiagnostics(
-                    elapsedNanoseconds: DispatchTime.now().uptimeNanoseconds - started,
+                    elapsedNanoseconds: uptimeNanoseconds() - started,
                     fileBytes: 0,
                     exceededBudget: false,
                     missingFile: true
@@ -238,8 +247,8 @@ public actor WorkstreamPersistence {
             limit: limit,
             deadlineNanoseconds: deadline
         )
-        if latest.exceededBudget || deadline.map({ DispatchTime.now().uptimeNanoseconds >= $0 }) == true {
-            let elapsed = DispatchTime.now().uptimeNanoseconds - started
+        if latest.exceededBudget || deadline.map({ uptimeNanoseconds() >= $0 }) == true {
+            let elapsed = uptimeNanoseconds() - started
             return StartupSnapshot(
                 items: latest.items,
                 revision: try loadRevision(),
@@ -265,28 +274,28 @@ public actor WorkstreamPersistence {
             hasMoreBefore: (latest.startOffset ?? 0) > 0,
             startOffset: latest.startOffset
         )
+        var fallbackExceededBudget = false
         if items.isEmpty, page.hasMoreBefore {
-            // The newest row can be larger than the tail window, which then
-            // holds no complete row. Paging from the end skips an oversized
-            // complete row and reaches the history before it; keep the empty
-            // result when even that finds nothing (an unterminated tail).
-            let fromEnd = try loadPage(
-                endingBefore: nil,
-                limit: limit,
-                deadlineNanoseconds: deadline
-            )
-            if !fromEnd.items.isEmpty {
-                let latest = fromEnd.latestItems
-                items = latest
-                page = Page(
-                    items: latest,
-                    hasMoreBefore: fromEnd.hasMoreBefore,
-                    startOffset: fromEnd.startOffset
+            do {
+                let fromEnd = try loadPage(
+                    endingBefore: size, limit: limit,
+                    oversizedRowRecoveryDepth: 0, deadlineNanoseconds: deadline
                 )
+                if !fromEnd.items.isEmpty {
+                    items = fromEnd.latestItems
+                    page = Page(items: items, hasMoreBefore: fromEnd.hasMoreBefore, startOffset: fromEnd.startOffset)
+                }
+            } catch WorkstreamReadDeadline.exceeded {
+                // Aborted fallback publishes nothing from that pass. Restart
+                // paging at the original EOF so every unexamined row remains
+                // reachable, including a row cut by the last read window.
+                items = []
+                page = Page(items: [], hasMoreBefore: size > 0, startOffset: size)
+                fallbackExceededBudget = true
             }
         }
         let revision = try loadRevision()
-        let elapsed = DispatchTime.now().uptimeNanoseconds - started
+        let elapsed = uptimeNanoseconds() - started
         return StartupSnapshot(
             items: items,
             revision: revision,
@@ -294,7 +303,7 @@ public actor WorkstreamPersistence {
             diagnostics: StartupDiagnostics(
                 elapsedNanoseconds: elapsed,
                 fileBytes: size,
-                exceededBudget: budgetNanoseconds.map { elapsed >= $0 } ?? false,
+                exceededBudget: fallbackExceededBudget || (budgetNanoseconds.map { elapsed >= $0 } ?? false),
                 missingFile: false
             )
         )
@@ -335,7 +344,7 @@ public actor WorkstreamPersistence {
         var exceededBudget = false
         while offset > 0, newlineCount < maximumRows {
             if let deadlineNanoseconds,
-               DispatchTime.now().uptimeNanoseconds >= deadlineNanoseconds {
+               uptimeNanoseconds() >= deadlineNanoseconds {
                 exceededBudget = true
                 break
             }
