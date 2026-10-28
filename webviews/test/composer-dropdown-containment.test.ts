@@ -124,7 +124,7 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
         const trigger = typeof triggerName === "string"
           ? page.getByRole("button", { name: triggerName, exact: true })
           : page.getByRole("button", { name: triggerName });
-        await trigger.click();
+        await trigger.dispatchEvent("click");
         const popup = page.locator(popupSelector);
         await popup.waitFor();
         const triggerBounds = (await trigger.boundingBox())!;
