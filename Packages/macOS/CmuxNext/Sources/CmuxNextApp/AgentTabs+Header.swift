@@ -80,7 +80,7 @@ extension AgentTabStore {
     /// A split asked for chat `main` when that chat is its screen's main pane (``openInMainPane``) is a tab in the column on its right instead.
     @discardableResult
     func openBeside(_ provisional: String, split: Bool = true, direction: String = "right", origin: ActionOrigin = .user, main: String? = nil, sessionPlacement: Bool = false, open: (PaneID, DaemonService) throws -> AgentTabPending, created: (@MainActor (String) -> Void)? = nil, finished: (@MainActor (_ moved: Bool) -> Void)? = nil) -> Bool {
-        if split, let main, let placed = openInMainPane(resolve(main), origin == .user, open, created, finished) { return placed }
+        if split, !sessionPlacement, let main, let placed = openInMainPane(resolve(main), origin == .user, open, created, finished) { return placed }
         guard let (source, daemon) = locate(resolve(provisional)) else { return false }
         // Documents opened beside a chat reuse the existing top-right pane. The pane snapshot's
         // selected tab remains the insertion anchor, so Session Info and header actions follow the
