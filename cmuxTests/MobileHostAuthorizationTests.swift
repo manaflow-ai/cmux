@@ -13,20 +13,21 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostAuthorizationTests {
-    @Test("Tailscale tickets and status retain their identity with and without Iroh", arguments: [false, true])
-    func tailscaleTicketAndStatusIdentity(irohPublished: Bool) async throws {
-        let tailscale = try CmxAttachRoute(id: "tailscale", kind: .tailscale,
-            endpoint: .hostPort(host: "100.64.0.1", port: 7777))
+    @Test("TCP tickets and status retain their identity with and without Iroh", arguments: [false, true],
+          [CmxAttachTransportKind.tailscale, .debugLoopback])
+    func tcpTicketAndStatusIdentity(irohPublished: Bool, routeKind: CmxAttachTransportKind) async throws {
+        let tcp = try CmxAttachRoute(id: routeKind.rawValue, kind: routeKind,
+            endpoint: .hostPort(host: routeKind == .debugLoopback ? "127.0.0.1" : "100.64.0.1", port: 7777))
         let iroh = try CmxAttachRoute(id: "iroh", kind: .iroh,
             endpoint: .peer(identity: CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)), pathHints: []))
         let published = MobileHostPublicStatusCache.PublishedStatus(
-            routes: [iroh, tailscale], v2DeviceID: irohPublished ? "v2-device" : nil
+            routes: [iroh, tcp], v2DeviceID: irohPublished ? "v2-device" : nil
         )
         let subject = try MobileHostService.attachTicketSubject(
-            publishedStatus: published, transportRouteKind: .tailscale,
+            publishedStatus: published, transportRouteKinds: [.tailscale, .debugLoopback],
             routeID: nil, routeKind: nil, target: .ticketOnly
         )
-        #expect(subject.routes == [tailscale])
+        #expect(subject.routes == [tcp])
         #expect(subject.deviceID == MobileHostIdentity.deviceID())
         MobileHostPublicStatusCache.updateV2DeviceID(published.v2DeviceID)
         defer { MobileHostPublicStatusCache.removeAll() }

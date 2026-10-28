@@ -15571,7 +15571,7 @@ class TerminalController {
         case "mobile.attach_ticket.create":
             result = await v2MobileAttachTicketCreate(
                 params: request.params,
-                transportRouteKind: executionContext?.authorization == .stackBearer ? .tailscale : nil
+                transportRouteKinds: executionContext?.authorization == .stackBearer ? [.tailscale, .debugLoopback] : nil
             )
         case "mobile.workspace.list":
             // The v2 method carries the authenticated host identity with the

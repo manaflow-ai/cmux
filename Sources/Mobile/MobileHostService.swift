@@ -1398,13 +1398,13 @@ final class MobileHostService {
         routeKind: String? = nil,
         routeDisclosureMode: CmxPairingRouteDisclosureMode = .legacyPrivateNetworkCompatibility,
         target: MobileAttachTarget? = nil,
-        transportRouteKind: CmxAttachTransportKind? = nil,
+        transportRouteKinds: [CmxAttachTransportKind]? = nil,
         pairingURLScheme: CmxPairingURLScheme? =
             CmxPairingURLSchemeResolver().resolved
     ) async throws -> [String: Any] {
         let subject = try Self.attachTicketSubject(
             publishedStatus: MobileHostPublicStatusCache.publishedStatus(),
-            transportRouteKind: transportRouteKind,
+            transportRouteKinds: transportRouteKinds,
             routeID: routeID,
             routeKind: routeKind,
             target: target
@@ -1439,13 +1439,13 @@ final class MobileHostService {
     /// rather than falling back to the legacy per-install identity.
     static func attachTicketSubject(
         publishedStatus: MobileHostPublicStatusCache.PublishedStatus,
-        transportRouteKind: CmxAttachTransportKind? = nil,
+        transportRouteKinds: [CmxAttachTransportKind]? = nil,
         routeID: String?,
         routeKind: String?,
         target: MobileAttachTarget?
     ) throws -> (routes: [CmxAttachRoute], deviceID: String) {
         let narrowedRoutes = try Self.filteredRoutes(
-            publishedStatus.routes.filter { transportRouteKind == nil || $0.kind == transportRouteKind },
+            publishedStatus.routes.filter { transportRouteKinds?.contains($0.kind) ?? true },
             routeID: routeID,
             routeKind: routeKind
         )
