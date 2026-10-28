@@ -154,10 +154,11 @@ export function Combobox({
     return () => window.removeEventListener("resize", reset);
   }, [keep]);
   const held = keep && tallest > 0;
-  const enabledSuggestions = suggestions.filter(
-    (item) => !isItemDisabled?.(item) && !pinnedSuggestions?.includes(item),
+  const hasPinned = Boolean(pinnedSuggestions?.length);
+  const enabledSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
+  const disabledSuggestions = suggestions.filter(
+    (item) => isItemDisabled?.(item) && !pinnedSuggestions?.includes(item),
   );
-  const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item));
   const update = (next: string) => {
     setValue(next);
     onQuery(next);
@@ -208,7 +209,7 @@ export function Combobox({
       aria-label={itemLabel?.(item)}
       aria-current={isItemCurrent?.(item) ? true : undefined}
       className={cx("ui-combobox-item", itemClassName)}
-      render={pinnedSuggestions ? <div /> : <li />}
+      render={hasPinned ? <div /> : <li />}
       onPointerDownCapture={() => {
         // A new gesture cannot inherit a press whose click was cancelled outside.
         pressActivatedRef.current = undefined;
@@ -240,15 +241,18 @@ export function Combobox({
   const list = (
     <Autocomplete.List
       ref={listRef}
-      className={cx("ui-combobox-list", pinnedSuggestions ? "ui-combobox-pinned-list" : listClassName)}
-      render={pinnedSuggestions ? <div /> : <ul />}
+      className={cx("ui-combobox-list", hasPinned ? "ui-combobox-pinned-list" : listClassName)}
+      render={hasPinned ? <div /> : <ul />}
       hidden={suggestions.length === 0 && !held}
       aria-hidden={held && suggestions.length === 0 ? true : undefined}
       style={held ? { minHeight: tallest, boxSizing: "border-box" } : undefined}
     >
-      {pinnedSuggestions ? (
+      {hasPinned && <div className="ui-combobox-pinned">{pinnedSuggestions!.map(renderOption)}</div>}
+      {hasPinned ? (
         <ScrollArea className={cx("ui-combobox-scroll", listClassName)} viewportClassName="ui-combobox-viewport">
-          <Autocomplete.Collection>{renderOption}</Autocomplete.Collection>
+          <Autocomplete.Collection>
+            {(item) => (pinnedSuggestions!.includes(item) ? null : renderOption(item))}
+          </Autocomplete.Collection>
         </ScrollArea>
       ) : (
         <Autocomplete.Collection>{renderOption}</Autocomplete.Collection>
@@ -301,24 +305,6 @@ export function Combobox({
             onCancel();
         }}
       />
-      {pinnedSuggestions && (
-        <div className="ui-combobox-pinned">
-          {pinnedSuggestions.map((item) => (
-            <button
-              key={item}
-              type="button"
-              data-press-pick=""
-              className={cx("ui-combobox-item", itemClassName)}
-              aria-label={itemLabel?.(item)}
-              aria-current={isItemCurrent?.(item) ? true : undefined}
-              disabled={isItemDisabled?.(item)}
-              onClick={() => onSubmit(item)}
-            >
-              {renderItemContent(item)}
-            </button>
-          ))}
-        </div>
-      )}
       {inline ? (
         list
       ) : (
