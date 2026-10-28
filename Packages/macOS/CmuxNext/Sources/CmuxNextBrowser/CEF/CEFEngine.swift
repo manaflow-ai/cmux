@@ -48,7 +48,7 @@ public final class CEFEngine: BrowserEngine {
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
     ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`) for the pages' waits;
-    ///     nil (tests, fixtures): a queue of the engine's own.
+    ///     nil (tests, fixtures): the process runtime's (``CEFRuntime/wakeUps``), never a queue of the engine's own.
     ///   - input: The app's input tap, which page link clicks and swipes hear (a test's own tap).
     ///   - pumpInput: What the in-process pump's input policy reads (feature `cefPumpInputPolicy`); nil:
     ///     the pump never holds for input.
@@ -71,7 +71,7 @@ public final class CEFEngine: BrowserEngine {
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
     ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`) for the pages' waits;
-    ///     nil (tests, fixtures): a queue of the engine's own.
+    ///     nil (tests, fixtures): the process runtime's (``CEFRuntime/wakeUps``), never a queue of the engine's own.
     ///   - input: The app's input tap, which page link clicks and swipes hear (a test's own tap). The
     ///     process-wide runtime hears the tap of the engine made last.
     ///   - crashKeys: The app's crash keys: the process-wide runtime names Chromium's state there
@@ -104,7 +104,7 @@ public final class CEFEngine: BrowserEngine {
         self.signInCallbacks = signInCallbacks
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
-        self.waitDeadlines = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
+        self.waitDeadlines = waitDeadlines ?? CEFRuntime.shared.wakeUps
         CEFRuntime.shared.attachInput(input)
         if let crashKeys { CEFRuntime.shared.attachCrashKeys(crashKeys) }
         if let launchMarks { CEFRuntime.shared.adoptLaunchMarks(launchMarks) }

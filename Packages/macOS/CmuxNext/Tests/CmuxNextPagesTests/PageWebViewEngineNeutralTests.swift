@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -19,7 +21,7 @@ struct PageWebViewEngineNeutralTests {
     }
 
     private func started(_ hosting: FakeChromiumHosting, before: (PageWebView) -> Void = { _ in }) async throws -> (PageWebView, FakeChromiumPage) {
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting, deadlines: .testing()))
         view.chromiumDeadlines = LifecycleDeadlineRig.never
         before(view)
         await view.chromiumStart?.value
@@ -149,7 +151,7 @@ struct PageWebViewEngineNeutralTests {
         #expect(view.webKitEngine == nil)
         #expect(view.webKitPieces == nil)
         view.close()
-        let webKit = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil))
+        let webKit = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil, deadlines: .testing()))
         #expect(webKit.webKitEngine === webKit.webView)
         webKit.close()
     }
@@ -168,7 +170,7 @@ struct PageWebViewEngineNeutralTests {
     /// One zoom in both engines: points per CSS pixel, which the WebKit view shows too.
     @Test func thePageZoomIsTheOneBothEnginesShow() throws {
         defer { try? FileManager.default.removeItem(at: root) }
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: nil, deadlines: .testing()))
         view.additionalZoom = 1.5
         #expect(Double(view.webView.pageZoom) == view.pageZoom)
         view.close()

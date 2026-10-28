@@ -7,6 +7,8 @@ import CmuxNextFocusUI
 @testable import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 import WebKit
@@ -134,7 +136,7 @@ struct KeyFactsSourcesTests {
         let url = folder.appending(path: "transcript.md")
         try Data("# Transcript\n".utf8).write(to: url)
         // A file the host opens read only (a chat transcript): its config says so.
-        let file = FilePageProvider(kind: .markdown, file: url, readOnly: true, host: FileHost(), libraries: nil, images: NoImages())
+        let file = FilePageProvider(kind: .markdown, file: url, readOnly: true, host: FileHost(), libraries: nil, images: NoImages(), deadlines: .testing())
         defer { file.close() }
         _ = try await file.call(FilePageKind.markdown.op("config"), params: .object([:]),
                                 context: PageCallContext(page: FilePageKind.markdown.namespace))
@@ -155,7 +157,7 @@ struct KeyFactsSourcesTests {
     @Test func theEditorsKeySequenceFollowsItsTab() async throws {
         let harness = try KeyContextCacheTests.harness()
         defer { harness.close() }
-        let file = FilePageProvider(kind: .editor, file: nil, host: FileHost(), libraries: nil, images: NoImages())
+        let file = FilePageProvider(kind: .editor, file: nil, host: FileHost(), libraries: nil, images: NoImages(), deadlines: .testing())
         defer { file.close() }
         let clock = Uptime()
         file.uptime = { clock.now }

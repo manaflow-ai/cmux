@@ -220,7 +220,7 @@ public final class DaemonStore: StateResourceQueries {
     /// - Parameters:
     ///   - waitDeadlines: Where the timeouts of the keyed waits (``waitForTab(surface:timeout:)``,
     ///     StoreWaiters.swift) go: the main thread's one deadline queue (`MainWorkScheduler.wakeUps`).
-    ///     nil (tests, fixtures): a queue of the store's own.
+    ///     nil: the queue of `deadlines`, else (tests, fixtures) a queue of the store's own.
     ///   - deadlines: The app's one deadline placer (`MainDeadlineScheduler`), for the store's main-thread deadlines
     ///     (the resync retry, a script batch's stage bound, a young command's recheck). nil (tests, fixtures): one
     ///     of the store's own, made at its first deadline (``StoreDeadlines``).
@@ -231,7 +231,7 @@ public final class DaemonStore: StateResourceQueries {
                 crashKeys: CrashKeySlots? = nil) {
         self.causes = StoreCauses(causes)
         self.crashKeys = crashKeys
-        let queue = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
+        let queue = waitDeadlines ?? deadlines?.wakeUpQueue ?? MainWakeUpQueue(energy: EnergyPolicySource())
         let storeDeadlines = StoreDeadlines(deadlines)
         self.deadlines = storeDeadlines
         index = StoreIndex(waiters: StoreWaiters(deadlines: AlignedWakeups(queue: queue)), unread: UnreadLedger(),

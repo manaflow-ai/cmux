@@ -4,6 +4,8 @@ import CmuxNextAgentPane
 import CmuxNextDesign
 @testable import CmuxNextPages
 @testable import CmuxNextTabs
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 import WebKit
 
@@ -19,7 +21,7 @@ import WebKit
         return PageWebView(descriptor: PageDescriptor(id: "test.stand-in", resource: "stand-in", processGroup: .solo, namespaces: []),
                            configuration: configuration, inputReadiness: PageInputReadiness(configuration: configuration),
                            routes: [], route: nil, options: .standard, surface: nil, dynamicResources: nil, pooled: false,
-                           load: false, chromium: nil)
+                           load: false, chromium: nil, deadlines: .testing())
     }
 
     /// A 2x2 picture, as a discarded tab's last frame.

@@ -9,6 +9,8 @@ import CmuxNextHibernation
 @testable import CmuxNextHomeEngine
 @testable import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 import WebKit
@@ -100,7 +102,7 @@ extension InternalPageDiscardPolicyCoverageTests {
         return PageWebView(descriptor: PageDescriptor(id: "test.home-channels", resource: "discard", processGroup: .solo, namespaces: []),
                            configuration: configuration, inputReadiness: PageInputReadiness(configuration: configuration),
                            routes: [], route: nil, options: .standard, surface: nil, dynamicResources: nil, pooled: false,
-                           load: false, chromium: nil)
+                           load: false, chromium: nil, deadlines: .testing())
     }
 
     /// The composers' unsent input reaches the host as the page's `draft` keep reason

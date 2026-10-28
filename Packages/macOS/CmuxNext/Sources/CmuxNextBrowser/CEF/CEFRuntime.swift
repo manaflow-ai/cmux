@@ -240,7 +240,9 @@ final class CEFRuntime {
     private(set) var signInCallbacks = CEFSignInCallbacks()
     /// The main thread's one deadline queue (`MainWorkScheduler.wakeUps`, from the engine's `adopt`): the
     /// pump's delayed fire dates and the pages' keyed waits. A queue of the runtime's own until then (a
-    /// spy runtime in tests).
+    /// spy runtime in tests, and the queue an engine made without one shares): the process's one runtime is
+    /// made on Chromium's first use, before any engine can hand it the app's. Its timer stays parked while it
+    /// holds no entry, and every app path adopts first.
     private(set) var wakeUps = MainWakeUpQueue(energy: EnergyPolicySource())
     /// The pages' keyed waits on ``wakeUps``.
     var waitDeadlines: AlignedWakeups { AlignedWakeups(queue: wakeUps) }

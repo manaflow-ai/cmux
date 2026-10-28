@@ -69,6 +69,6 @@ struct IconPickerWarmTests {
 extension WebUIHost {
     /// A page host with no Chromium host and no open panel, so the picker's page is WebKit.
     static func iconPickerTestHost() -> WebUIHost {
-        WebUIHost(chromium: nil, openPanel: nil, memory: ManualMemoryLevelRegistry())
+        WebUIHost(chromium: nil, openPanel: nil, memory: ManualMemoryLevelRegistry(), deadlines: .testing())
     }
 }

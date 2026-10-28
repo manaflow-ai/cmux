@@ -4,6 +4,7 @@ import CmuxNextDesign
 import CmuxNextDesignTokens
 import CmuxNextSidebar
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// A right-panel width or a sidebar side change marks the root and lays out in
@@ -19,7 +20,7 @@ import Testing
         init() {
             _ = NSApplication.shared
             root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(),
-                                                                mainWork: MainWorkScheduler(budget: MainFrameBudget())))
+                                                                mainWork: MainWorkScheduler(budget: MainFrameBudget())), revealDeadlines: .testing())
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
                               styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)

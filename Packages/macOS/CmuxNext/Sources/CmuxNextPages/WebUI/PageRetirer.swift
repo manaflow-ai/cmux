@@ -27,7 +27,7 @@ public final class PageRetirer {
 
     /// - Parameter deadlines: The app's one deadline scheduler (`AppServices.mainDeadlines`); a test passes
     ///   one on a fake wake-up timer and uptime, or calls ``closeRetired()``.
-    public init(deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))) {
+    public init(deadlines: MainDeadlineScheduler) {
         deadline = MainDeadline(owner: "webui.retire", workClass: .background, scheduler: deadlines)
     }
 
