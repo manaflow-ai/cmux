@@ -558,7 +558,8 @@ final class TopHomePageView: NSView {
     func startChiefConversation() {
         guard !creatingChief, let services else { return }
         let home = services.home, registry = services.registry
-        let taken = home.homeStore.rows.filter { $0.kind == .chief }.map(\.title)
+        // The names the list shows (records and pending renames) and the Chief rows' titles.
+        let taken = Set(home.chiefNames.values).union(home.homeStore.rows.filter { $0.kind == .chief }.map(\.title))
         creatingChief = true
         // task-owner: one create; ends with the owner's answer
         Task { [weak self] in

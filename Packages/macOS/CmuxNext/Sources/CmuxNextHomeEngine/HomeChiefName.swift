@@ -17,7 +17,7 @@ public nonisolated enum HomeChiefName {
 
     /// The name of another Chief: the Chief's own name while no Chief has it, else the first free
     /// "Chief 2", "Chief 3", … (`taken`: the names Chiefs have now). Two Chiefs never share a name:
-    /// the owner refuses a Chief named by an ambiguous name, and their rows could not be told apart.
+    /// their rows could not be told apart, and `cmux chief` could not pick one of them by name.
     public static func next(taken: some Collection<String>) -> String {
         let base = HomeStrings.chiefName
         guard taken.contains(base) else { return base }
