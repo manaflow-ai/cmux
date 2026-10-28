@@ -11,6 +11,7 @@
 use super::Hub;
 use crate::config::{HarnessKind, HarnessProfile};
 use crate::live_models::{Cache, CacheKey, Cli, LiveModel, PROBE_TIMEOUT};
+use crate::supervised::{Fatal, ShutdownBehavior};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::sync::{Arc, PoisonError};
@@ -64,7 +65,9 @@ impl Hub {
             list.extend(names.iter().cloned());
         }
         let hub = self.clone();
-        tokio::spawn(async move { hub.probe_models_with(false, false, Some(names)).await });
+        self.supervise("hub.model-probes", Fatal, ShutdownBehavior::Skip, async move {
+            hub.probe_models_with(false, false, Some(names)).await
+        });
     }
 
     /// Whether the model probes may start harness `name`.

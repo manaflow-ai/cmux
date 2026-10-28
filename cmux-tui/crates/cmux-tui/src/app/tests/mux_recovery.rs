@@ -1322,3 +1322,33 @@ fn resize_events_do_not_refresh_clients_on_the_event_loop() {
     assert_eq!(action, RenderAction::Paint);
     assert!(!app.session.client_refresh_queued.load(Ordering::Acquire));
 }
+
+/// A client-list refresh whose read panics releases its claim when its
+/// thread unwinds, so the next refresh request starts a refresh again.
+#[test]
+fn a_panicking_client_refresh_does_not_stop_later_refreshes() {
+    let mux = Mux::new("client-refresh-panic-test", SurfaceOptions::default());
+    let (app, events) = test_app_with_events(Session::Local(mux));
+
+    // Disconnected once the refresh thread has unwound: the closure that
+    // owns the sender drops after the thread's own locals.
+    let (unwound_tx, unwound) = std::sync::mpsc::channel::<()>();
+    app.session.refresh_clients_with(move || {
+        let _unwound = &unwound_tx;
+        panic!("list-clients failed")
+    });
+    assert_eq!(
+        unwound.recv_timeout(crate::test_wait::EVENT),
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected)
+    );
+    assert!(!app.session.client_refresh_queued.load(Ordering::Acquire));
+
+    app.session.refresh_clients_with(|| Ok(Vec::new()));
+    loop {
+        let event = events.recv_timeout(crate::test_wait::EVENT).unwrap();
+        if let AppEvent::ClientsUpdated { result, .. } = event {
+            assert_eq!(result.map(|clients| clients.len()), Ok(0));
+            break;
+        }
+    }
+}

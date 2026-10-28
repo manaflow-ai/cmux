@@ -794,6 +794,7 @@ impl HangWatch {
         #[cfg(target_os = "macos")]
         sample_macos::install_image_table();
         let shared = Arc::clone(&watch.shared);
+        // supervise-allow: owned by HangWatch, which keeps the handle and joins it; it only observes, so a panic ends hang reports only and the threads it watches keep running.
         let handle = thread::Builder::new().name(THREAD_NAME.into()).spawn(move || shared.run())?;
         let _ = watch.shared.thread.set(handle.thread().clone());
         watch.watcher = Some(handle);
