@@ -38,6 +38,9 @@ import Testing
             unlink(path)
         }
 
+        /// The accepted connection's descriptor (-1 before ``accept()``), for a test that reads it in bulk.
+        var peerDescriptor: Int32 { peer }
+
         /// Accepts the transport's connection (already queued by its connect).
         func accept() throws {
             peer = Darwin.accept(listener, nil, nil)
