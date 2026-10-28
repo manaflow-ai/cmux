@@ -453,8 +453,12 @@ public final class ChiefSession {
     /// The conversation is on screen: what it shows now has been seen.
     public func markSeen() {
         seenMessageID = lastMessage?.id
+        guard let id = conversationID else { return }
+        // Kept for the next launch (in memory only, every question seen
+        // before a relaunch came back as Needs You).
+        if let seen = seenMessageID, preferences.seenMessageID(id) != seen { preferences.setSeenMessageID(seen, id) }
         // Its alerts in Notification Center are read now too.
-        if let id = conversationID { ChiefAlerts.shared.clearDelivered(conversationID: id) }
+        ChiefAlerts.shared.clearDelivered(conversationID: id)
     }
 
     /// Chief is waiting on the user: a message is still in the outbox, or
@@ -463,10 +467,8 @@ public final class ChiefSession {
     public var isWaitingOnYou: Bool {
         if !outbox.isEmpty { return true }
         guard let message = lastMessage, message.senderID == identity.chiefID, !message.isUnsent else { return false }
-        // Read anywhere (this phone, the Mac): not waiting. The seen marker
-        // alone lives only in memory, so after a relaunch every old question
-        // came back as Needs You.
-        return message.text.contains("?") && message.id != seenMessageID && unreadCount > 0
+        return message.text.contains("?") && message.id != seenMessageID
+            && conversationID.map { preferences.seenMessageID($0) != message.id } ?? true
     }
 
     /// Home's Needs You filter: something waits in the outbox, Chief is
@@ -555,7 +557,12 @@ public final class ChiefSession {
             lastTurnFailure = failure
             lastTurnFailureID = failure == nil ? nil : newest?.id
         }
-        if isVisible, seenMessageID != newest?.id { seenMessageID = newest?.id }
+        if isVisible, seenMessageID != newest?.id {
+            seenMessageID = newest?.id
+            if let seen = seenMessageID, let id = conversationID, preferences.seenMessageID(id) != seen {
+                preferences.setSeenMessageID(seen, id)
+            }
+        }
         if unreadCount != store.unreadCount {
             // Read on another device (the Mac): its alerts here are read too.
             if store.unreadCount == 0, let id = conversationID { ChiefAlerts.shared.clearDelivered(conversationID: id) }
@@ -619,7 +626,9 @@ public final class ChiefSession {
     /// Alerts for Chief's messages that arrived live (not the first page).
     private func alertNewMessages() {
         guard store.connection == .connected, let id = conversationID else { return }
-        let newest = store.messages.compactMap(\.seq).max() ?? 0
+        // Messages are in seq order: the newest numbered one is near the end
+        // (this runs on every store change, each keystroke and stream chunk).
+        let newest = store.messages.last { $0.seq != nil }?.seq ?? 0
         guard let seen = alertedSeq else {
             // The store says connected before its first page lands: what
             // that page brings is history, not news.

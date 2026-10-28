@@ -36,6 +36,17 @@ public struct ChiefPreferences: @unchecked Sendable {
         defaults.set(on, forKey: key("receipts", conversationID))
     }
 
+    /// The newest message seen with the conversation open on this phone
+    /// (Home's Needs You for an unseen question): kept, so a relaunch does not
+    /// bring back every question already seen.
+    public func seenMessageID(_ conversationID: String) -> String? {
+        defaults.string(forKey: key("seen", conversationID))
+    }
+
+    public func setSeenMessageID(_ id: String?, _ conversationID: String) {
+        defaults.set(id, forKey: key("seen", conversationID))
+    }
+
     /// The newest engine report read from the Mac `macID` (its model,
     /// harness, effort and the models it offered), so Chief's settings show
     /// the model even while that Mac's Chief can't list its models.

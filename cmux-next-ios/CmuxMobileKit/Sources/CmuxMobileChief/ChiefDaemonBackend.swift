@@ -491,7 +491,9 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
                 guard incoming > rev else { return }
                 if incoming > rev + 1, let id = conversationID {
                     // Missed ops: resync, and the store refetches the newest page.
-                    rev = incoming
+                    // The snapshot sets `rev`; if it fails, the next event finds
+                    // the same gap and tries again (moving `rev` first lost the
+                    // missed messages until some later gap).
                     try? await connect(id: id, lagged: true)
                     return
                 }
