@@ -61,7 +61,8 @@ extension AppActions {
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
         // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it;
         // the sidebar's Home entry, so a dock showing Channels goes back to Messages (cx-frn2y).
-        registry.bind("home.show") { if showHome(services), services.home.dockMode == .channels { HomeDockTab.view(services)?.switchTo(.messages) } }
+        // Home is Messages: the Home this run's window shows switches back from Channels (one Home per window).
+        registry.bind("home.show") { if showHome(services), let dock = HomeDockTab.view(services), dock.mode == .channels { dock.switchTo(.messages) } }
         services.lifetimeFollowers.append(HomeSettingActions().bind(
             into: registry, settings: { [weak services] in services?.settings }, unavailable: RefusalStrings.homeNotReady, mainWork: services.mainWork,
             summonChiefPet: { [weak services] petOn in services?.notifications.chiefPet?.summon(petOn: petOn) }))

@@ -198,6 +198,7 @@ final class TopPageHost {
     func focus(_ route: TopPageRoute, in window: NSWindow?) {
         switch views[route] {
         case let home as TopHomePageView: home.focusPrimaryInput()
+        case let dock as HomeDockView: dock.focusPrimaryInput()  // a window's own docked Home (multiwindow.md)
         case let page as InternalPageView: window?.makeFirstResponder(page.focusTarget)
         default: break
         }

@@ -18,6 +18,12 @@ enum TopPages {
     static func show(_ route: TopPageRoute, services: AppServices, in state: WindowState? = nil) -> String? {
         guard ActionRunScope.viewChangeAllowed(),
               let controller = state.flatMap({ services.windows.controllerBuildingIfWaiting(for: $0.id) }) ?? services.windows.active else { return nil }
+        // One Home per window: the window that lists the home workspace shows it as its Home.
+        if route == .home, !services.home.dock.isClassic, let home = services.home.homeWorkspace?.id,
+           services.windows.registry.value.owner(of: home) == controller.state.id {
+            services.windows.show(workspaceID: home, in: controller.state, from: .thisWindow)
+            return ""
+        }
         guard controller.topPages.view(for: route, in: controller) != nil else { return nil }
         let origin = controller.trailOrigin
         if controller.state.page != route {

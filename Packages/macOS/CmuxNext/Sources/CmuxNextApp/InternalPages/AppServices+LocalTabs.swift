@@ -141,7 +141,8 @@ extension AppServices {
             }
         }
         for controller in windows.controllers where controller.state.page == .home {
-            let page = controller.topPages.homePage
+            // Classic Home's page, else the window's own docked Home (multiwindow.md).
+            let page = controller.topPages.homePage ?? HomeDockTab.windowView(self, windowID: controller.state.id)?.messages
             reading.home.append(OracleAgentsFacet.HomePage(window: controller.state.id, conversation: page?.displayedConversation?.rawValue))
         }
         return reading

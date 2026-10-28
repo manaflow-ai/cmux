@@ -95,7 +95,7 @@ extension PreviousNext {
         let selected = SidebarNavigation.selectedItem(page: window.state.page, workspace: window.state.workspaceID,
                                                       layout: model.layout, room: window.state.profileID.rawValue,
                                                       refs: WorkspaceLayoutRefs(machines: services.machines), home: services.home.dockedHomeID,
-                                                      channels: services.home.dockShowsChannels)
+                                                      channels: HomeDockTab.showsChannels(services, windowID: window.state.id, page: window.state.page))
         let focusedTab = window.focusedPane?.stripModel.selectedID.map { CmuxNextSidebar.TabID($0.rawValue) }
         let from = current(selected, focusedTab: focusedTab, in: stops)
         switch stop(from: from, in: stops, by: offset, wraps: settings.steppingWraps) {

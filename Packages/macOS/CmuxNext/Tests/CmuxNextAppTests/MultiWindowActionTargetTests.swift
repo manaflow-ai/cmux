@@ -422,6 +422,19 @@ import Testing
         #expect(acted === own, "a Home action from window 2 acts on another window's Home")
     }
 
+    /// Each window marks Home or Channels by the Home it shows: window 2's own Home on Channels marks Channels in
+    /// window 2 only; window 1 (the home workspace's dock, on Messages) keeps Home marked.
+    @Test func eachWindowMarksChannelsByItsOwnHome() throws {
+        let world = try Self.homeWorld()
+        defer { world.close() }
+        let shell2 = try #require(world.w2.window)
+        world.services.windows.dispatching(eventFrom: shell2) { world.w2.sidebar.activate(.builtIn(.home)) }
+        world.services.home.dockModes[HomeDockTab.windowKey(world.w2.state.id)] = .channels
+        #expect(HomeDockTab.showsChannels(world.services, windowID: world.w2.state.id, page: world.w2.state.page))
+        #expect(!HomeDockTab.showsChannels(world.services, windowID: world.w1.state.id, page: world.w1.state.page),
+                "window 2's Channels marked Channels in window 1")
+    }
+
     /// A workspace row clicked in window 2's sidebar (the row of a workspace window 1 lists): window 2 shows
     /// it; windows 1 and 3 keep what they show.
     @Test func aWorkspaceRowClickedInWindowTwoShowsInWindowTwo() throws {

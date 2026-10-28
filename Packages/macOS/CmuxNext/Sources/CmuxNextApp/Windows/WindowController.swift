@@ -190,6 +190,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             discardParkedWorkspace(id)
         }
         if unmountedViews.keys.contains(where: { !listed.contains($0) }) { unmountedViews = unmountedViews.filter { listed.contains($0.key) } }
+        // One Home per window: a window that lists the home workspace shows it, never also its own Home page
+        // (a restore, Back/Forward, or the home workspace moving in while the page shows).
+        if state.page == .home, !services.home.dock.isClassic, let home = services.home.homeWorkspace?.id,
+           services.windows.registry.value.owner(of: home) == state.id {
+            state.page = nil
+            services.windows.select(home, in: state)
+            return showWorkspace(requested: home)
+        }
         if state.page.map(showTopPage) == true || showCreation() { return arrangeOnScreen() }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
             if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }

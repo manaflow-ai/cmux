@@ -115,7 +115,9 @@ extension AppActions {
         let named = invocation["view"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let view = named.flatMap(HomeDockView.Mode.init(rawValue:))
         guard named == nil || view != nil else { return services.registry.refuse(HomeDockMode.invalidViewMessage) }
-        let target = view ?? services.home.dockMode.other
+        // With no view named, the other one of the Home the run's window shows (one Home per window).
+        let shownChannels = services.windows.active.map { HomeDockTab.showsChannels(services, windowID: $0.state.id, page: $0.state.page) } ?? false
+        let target = view ?? (shownChannels ? HomeDockMode.channels : .messages).other
         guard target.isEnabled else { return services.registry.refuse(HomeDockMode.channelsOffMessage) }
         withDock(services) { $0.switchTo(target) }
     }

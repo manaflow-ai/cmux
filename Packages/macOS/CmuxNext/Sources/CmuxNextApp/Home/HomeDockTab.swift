@@ -14,7 +14,7 @@ extension InternalPageID {
 
 /// The docked Home's tab provider (cx-ebm.59.5): one `HomeDockView` per store tab. The view a new
 /// tab opens with is the Messages view (Lawrence 2026-10-14: the iMessage Chief by default); the
-/// sidebar marks its Home or Channels entry by the shown view (`HomeService.dockMode`, cx-frn2y).
+/// sidebar marks its Home or Channels entry by the view its window shows (`HomeService.dockModes`, cx-frn2y).
 @MainActor
 final class HomeDockTab: InternalPageProvider {
     private weak var services: AppServices?
@@ -41,7 +41,7 @@ final class HomeDockTab: InternalPageProvider {
         guard let services else { return NSView() }
         let view = HomeDockView(services: services, mode: .messages)
         view.channelsSelection = { await Self.askSelection($0) }
-        channelsFollows[key] = HomeDock.followChannelsSetting(view, work: services.mainWork) { [weak services] in services?.home.dockMode = $0 }
+        channelsFollows[key] = HomeDock.followChannelsSetting(view, work: services.mainWork) { [weak services] in services?.home.dockModes[key] = $0 }
         views[key] = view
         installs.bump()
         for tab in pending.keys where services.pages.storeKey(of: tab) == key {
@@ -57,7 +57,7 @@ final class HomeDockTab: InternalPageProvider {
         saved[key] = nil
         channelsFollows.removeValue(forKey: key)?.cancel()
         installs.bump()
-        services?.home.dockMode = .messages // no dock view shows Channels now
+        services?.home.dockModes[key] = nil // this dock shows nothing now
     }
 
     // MARK: Discard (`memoryDiscardInternalPages`)
@@ -88,7 +88,7 @@ final class HomeDockTab: InternalPageProvider {
         channelsFollows.removeValue(forKey: key)?.cancel()
         view.close()
         installs.bump()
-        if view.mode == .channels { services?.home.dockMode = .messages } // its next view opens on Messages
+        services?.home.dockModes[key] = nil // its next view opens on Messages
     }
 
     /// The Messages page restores its own state, list scroll included (`TopHomePageView.ViewState`),
@@ -134,26 +134,43 @@ final class HomeDockTab: InternalPageProvider {
         (services.pages.provider(.homeDock) as? HomeDockTab)?.views[windowKey(windowID)]
     }
 
-    /// The docked Home's view in the live tree, once its tab has shown (nil while it is discarded).
+    /// The Home view of the run's window (`WindowManager.active`), in the live tree: that window's own Home page
+    /// when it shows one, else the home workspace's dock (nil while it is discarded). One Home per window
+    /// (multiwindow.md): an action from window 2 acts on window 2's Home, never on the one window 1 shows.
     static func view(_ services: AppServices) -> HomeDockView? {
-        guard let found = dockTab(services) else { return nil }
+        guard let found = dockTab(services, in: services.windows.active) else { return nil }
         return found.provider.views[found.key]
     }
 
-    /// The conversation the docked Messages view shows, live or discarded
+    /// The conversation the run's window's Home shows, live or discarded
     /// (`memoryDiscardInternalPages`: the tab still stands for what its view showed), so an action
-    /// needs no live view. Nil before the dock first shows.
+    /// needs no live view. Nil before that Home first shows.
     static func shownConversation(_ services: AppServices) -> ConversationID? {
-        guard let found = dockTab(services) else { return nil }
+        guard let found = dockTab(services, in: services.windows.active) else { return nil }
         if let view = found.provider.views[found.key] { return view.messages?.shown }
         return found.provider.saved[found.key]?.messages?.shown
     }
 
-    /// The docked Home's provider and its tab's provider key.
-    private static func dockTab(_ services: AppServices) -> (provider: HomeDockTab, key: String)? {
-        guard let tab = services.home.homeWorkspace.flatMap(HomeDock.pageTab(in:))?.tab,
-              let provider = services.pages.provider(.homeDock) as? HomeDockTab else { return nil }
-        return (provider, services.pages.storeKey(of: tab.id) ?? tab.id)
+    /// Whether the Home window `windowID` shows (its own page when `page` is Home, else the home workspace's
+    /// dock) shows Channels: the window's sidebar marks its Channels entry by it.
+    static func showsChannels(_ services: AppServices, windowID: String, page: TopPageRoute?) -> Bool {
+        guard let key = dockKey(services, windowID: windowID, page: page) else { return false }
+        return services.home.dockModes[key] == .channels
+    }
+
+    /// The provider key of the Home window `windowID` shows: its own when `page` is Home (docked Home), else the
+    /// home workspace's dock tab.
+    static func dockKey(_ services: AppServices, windowID: String?, page: TopPageRoute?) -> String? {
+        if let windowID, page == .home, !services.home.dock.isClassic { return windowKey(windowID) }
+        guard let tab = services.home.homeWorkspace.flatMap(HomeDock.pageTab(in:))?.tab else { return nil }
+        return services.pages.storeKey(of: tab.id) ?? tab.id
+    }
+
+    /// The provider and the key of the Home `window` shows (``dockKey(_:windowID:page:)``).
+    private static func dockTab(_ services: AppServices, in window: WindowController?) -> (provider: HomeDockTab, key: String)? {
+        guard let provider = services.pages.provider(.homeDock) as? HomeDockTab,
+              let key = dockKey(services, windowID: window?.state.id, page: window?.state.page) else { return nil }
+        return (provider, key)
     }
 
     /// The page command that moves the Channels list (`home.moveConversation`, hostMove.ts).

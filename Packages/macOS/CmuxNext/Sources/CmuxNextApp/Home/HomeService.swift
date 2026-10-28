@@ -151,9 +151,10 @@ final class HomeService {
     @ObservationIgnored var launchListObservation: ServiceObservation<Void>?
     /// This Mac's old Messages-list pins, moved into those owners once (cx-frn2y).
     @ObservationIgnored private(set) lazy var pinMigration = HomePinMigration(account: { [weak self] in self?.pinAccount ?? "local" })
-    /// The docked Home's shown view: the sidebar marks its Home or Channels entry by it (cx-frn2y).
-    var dockMode: HomeDockMode = .messages
-    var dockShowsChannels: Bool { dockMode == .channels }
+    /// Each docked Home view's shown view, by its provider key (the home workspace's dock and each window's own
+    /// Home, multiwindow.md): a window's sidebar marks its Home or Channels entry by the view that window shows
+    /// (`HomeDockTab.showsChannels(_:windowID:page:)`, cx-frn2y). A key with no entry shows Messages.
+    var dockModes: [String: HomeDockMode] = [:]
     /// Its durable copy is keyed by the Chief owner (one per Chief home), so
     /// a relaunch or another build shows the same history before the owner
     /// answers (home-state-ownership.md section 4).

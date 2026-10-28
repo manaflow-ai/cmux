@@ -24,7 +24,11 @@ enum SidebarNavigation {
         let topItem = { (route: TopPageRoute) in
             layout.sections.filter { $0.region == .top }.flatMap(\.items).first { TopPageRoute.route(for: $0.ref) == route }
         }
-        if let page { return topItem(page).map { .topItem($0.id) } }
+        if let page {
+            // A window's own Home page (docked Home) on Channels marks the Channels entry, as the home workspace's dock does.
+            if page == .home, channels { return .topItem(SidebarTransientItem.channelsID) }
+            return topItem(page).map { .topItem($0.id) }
+        }
         if let creationRow { return .workspace(WorkspaceID(creationRow)) }
         guard let workspace else { return nil }
         if workspace == home, channels { return .topItem(SidebarTransientItem.channelsID) }
@@ -91,7 +95,8 @@ enum SidebarNavigation {
         selectedItem(page: window.state.page, workspace: window.state.workspaceID,
                      creationRow: window.state.cloudCreation.flatMap { services.cloud.creations.creation($0)?.rowID }, layout: window.sidebar.model.layout,
                      room: window.state.profileID.rawValue, refs: WorkspaceLayoutRefs(machines: services.machines),
-                     home: services.home.dockedHomeID, channels: services.home.dockShowsChannels)
+                     home: services.home.dockedHomeID,
+                     channels: HomeDockTab.showsChannels(services, windowID: window.state.id, page: window.state.page))
     }
 
     /// Selects `item` as a click does: a top item runs (its page opens), a
