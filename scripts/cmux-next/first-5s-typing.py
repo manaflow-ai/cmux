@@ -402,6 +402,17 @@ class NextApp:
     def probe_rows(self):
         return hid_input.probe_rows(self.probe)
 
+    def input_rows(self, action, start_ns, end_ns):
+        """`debug.input {action}` rows (late_keys, slots) whose key time is in [start_ns, end_ns]; [] on an app without it."""
+        try:
+            got = self.control.rpc("debug.input", {"action": action, "since_launch": True}, timeout=30) or {}
+        except Exception as error:  # an app without the action
+            return [{"error": repr(error)[:200]}]
+        if not isinstance(got, dict) or got.get("error"):
+            return [{"error": json.dumps(got)[:200]}]
+        rows = got.get("keys") if action == "late_keys" else got.get("slots")
+        return [r for r in rows or [] if start_ns - 100e6 <= (r.get("generated_ns") or 0) <= end_ns]
+
     def line(self):
         found = []
 
@@ -634,6 +645,16 @@ def run_round(app, scenario, index, sampled):
     if sampler:
         time.sleep(0.6)  # sample attaches before the open key
     typed = "".join(hid_input.LETTERS[i % 26] for i in range(nkeys))
+    # The tracker's ring keeps 256 closed slots, fewer than a round's (each key's press, release and a held key's second
+    # dispatch): read it mid-round too.
+    mid_slots = []
+    if app.family == "next":
+        mid_at = NOW_NS() + int(opts.seconds * 0.45 * 1e9)
+        def read_mid():
+            time.sleep(max(0, (mid_at - NOW_NS()) / 1e9))
+            mid_slots.extend(app.input_rows("slots", 0, 2 ** 63))
+        mid = threading.Thread(target=read_mid, daemon=True)
+        mid.start()
     sent, open_reply, open_ns = app.play(name, modifiers, typed)
     open_reply_ms = round((NOW_NS() - open_ns) / 1e6, 1)
     schedule = [open_ns + int((k + 1) * opts.interval * 1e9) for k in range(nkeys)]
@@ -644,6 +665,13 @@ def run_round(app, scenario, index, sampled):
     end_ns = NOW_NS()
     line = app.line()
     hangs = app.hangs(open_ns, end_ns)
+    late_rows = app.input_rows("late_keys", open_ns, end_ns) if app.family == "next" else []
+    slot_rows = app.input_rows("slots", open_ns, end_ns) if app.family == "next" else []
+    if app.family == "next":
+        mid.join(30)
+        seen = {(r.get("generated_ns"), r.get("kind"), json.dumps(r.get("stages_ms"), sort_keys=True)) for r in slot_rows}
+        slot_rows += [r for r in mid_slots if open_ns - 100e6 <= (r.get("generated_ns") or 0) <= end_ns
+                      and (r.get("generated_ns"), r.get("kind"), json.dumps(r.get("stages_ms"), sort_keys=True)) not in seen]
     try:
         journal = app.journal_since(marker)
     except Exception as error:
@@ -673,6 +701,21 @@ def run_round(app, scenario, index, sampled):
                      "output_received_ms": col("output_received_ms"), "contents_ms": col("contents_ms"), "commit_ms": col("commit_ms"),
                      "dispatch_start_ms": col("dispatch_start_ms"),
                      "delay_ms": sent[k].get("delay_ms") if k < len(sent) else None})
+    # The tracker's split per key (first-keys-held instrumentation): the dispatch that ran the key is its latest slot.
+    def near(rows, when):
+        return [r for r in rows if isinstance(r, dict) and abs((r.get("generated_ns") or 0) - when) < 1e6]
+    for k, key in enumerate(keys):
+        slots = [r for r in near(slot_rows, schedule[k]) if r.get("kind") == "keyPress"]
+        starts = [(r.get("stages_ms") or {}).get("dispatchStart") for r in slots]
+        starts = [v for v in starts if v is not None]
+        key["slot_count"] = len(slots)
+        key["tracker_dispatch_start_ms"] = round(max(starts), 2) if starts else None
+        last = max(slots, key=lambda r: (r.get("stages_ms") or {}).get("dispatchStart") or 0) if slots else None
+        key["tracker_arrived_main_ms"] = (last.get("stages_ms") or {}).get("arrivedMain") if last else None
+        key["tracker_total_ms"] = last.get("total_ms") if last else None
+        key["tracker_target"] = last.get("target") if last else None
+        late = near(late_rows, schedule[k])
+        key["late"] = late[-1] if late else None
     frames = app.photon.frames(open_ns - int(0.2e9), end_ns) if app.photon and not app.photon.error else []
     big = (app.photon_area or 10 ** 12) * 0.25
     for k, key in enumerate(keys):
@@ -686,7 +729,8 @@ def run_round(app, scenario, index, sampled):
            "shells_loaded": shells_loaded(app.zdot), "probe_rows": len(rows), "keys": keys, "hangs": hangs,
            "first_frame_ms": round(first_any, 1) if first_any is not None else None,
            "first_big_frame_ms": round(first_big, 1) if first_big is not None else None,
-           "frames": frames, "journal": journal}
+           "frames": frames, "journal": journal, "late_keys": late_rows,
+           "slot_errors": [r for r in slot_rows if "error" in r][:3]}
     if sampled:
         rec["sample"] = main_thread_tree(os.path.join(app.out, f"sample-{scenario}-{index}.txt"), min_share=0.01, limit=400)
         tree = (rec["sample"] or {}).get("tree") or []
@@ -743,6 +787,41 @@ def held(rounds, limit_ms=100):
     return out
 
 
+def split(rounds):
+    """Per bucket, from the app tracker (debug.input slots and late_keys): keys whose dispatch that ran them started more
+    than 100 ms / 50 ms after the key, and for the late ones the split: key -> arrived_main (the main thread did not
+    take it) vs arrived_main -> dispatch_start (a cmux path held it), with the path that held them."""
+    width = opts.bucket_ms
+    edges = int(opts.seconds * 1000 // width) + 1
+    out = []
+    for b in range(edges):
+        ks = [k for r in rounds if not r["sampled"] for k in r["keys"] if b * width <= k["t_ms"] < (b + 1) * width]
+        starts = [k["tracker_dispatch_start_ms"] for k in ks if k.get("tracker_dispatch_start_ms") is not None]
+        late = [k["late"] for k in ks if k.get("late")]
+        to_main = [l.get("to_arrived_main_ms") for l in late if l.get("to_arrived_main_ms") is not None]
+        held_ms = [l.get("arrived_to_dispatch_ms") for l in late if l.get("arrived_to_dispatch_ms") is not None]
+        by = {}
+        for l in late:
+            by[l.get("held_by")] = by.get(l.get("held_by"), 0) + 1
+        totals = [k["tracker_total_ms"] for k in ks if k.get("tracker_total_ms") is not None]
+        med = lambda v: round(statistics.median(v), 1) if v else None  # noqa: E731
+        out.append({"from_ms": int(b * width), "keys": len(ks), "tracked": len(starts),
+                    "over_100ms": sum(v > 100 for v in starts), "over_50ms": sum(v > 50 for v in starts),
+                    "late_logged": len(late), "to_arrived_main_ms_p50": med(to_main),
+                    "to_arrived_main_ms_max": round(max(to_main), 1) if to_main else None,
+                    "held_ms_p50": med(held_ms), "held_ms_max": round(max(held_ms), 1) if held_ms else None,
+                    "held_by": by, "total_ms_p50": med(totals), "total_n": len(totals)})
+    return out
+
+
+def print_split(name, scenario, data):
+    note(f"FIRST5S-SPLIT {name} {scenario}: per bucket: dispatchStart>100ms / >50ms of tracked keys; late keys' OS->arrivedMain p50/max vs arrivedMain->dispatchStart p50/max; held_by; total p50")
+    for row in data["split"]:
+        note(f"   {row['from_ms']:5d} {row['over_100ms']:3d} / {row['over_50ms']:3d} of {row['tracked']:3d}  "
+             f"toMain {row['to_arrived_main_ms_p50']}/{row['to_arrived_main_ms_max']}  held {row['held_ms_p50']}/{row['held_ms_max']}  "
+             f"{row['held_by']}  total p50 {row['total_ms_p50']} (n {row['total_n']})")
+
+
 def hops(rounds):
     width = opts.bucket_ms
     edges = int(opts.seconds * 1000 // width) + 1
@@ -791,8 +870,10 @@ def measure(app_path, zdot, result, family, features=""):
                                             "delay_buckets": buckets(rounds, "delay_ms"),
                                             "held": held(rounds),
                                             "dispatch_buckets": buckets(rounds, "dispatch_end_ms"),
-                                            "photon_buckets": buckets(rounds, "photon_ms"), "hops": hops(rounds)}
+                                            "photon_buckets": buckets(rounds, "photon_ms"), "hops": hops(rounds),
+                                            "split": split(rounds)}
             print_table(entry["app"], scenario, entry["scenarios"][scenario])
+            print_split(entry["app"], scenario, entry["scenarios"][scenario])
             print_dispatch(entry["app"], scenario, entry["scenarios"][scenario])
             save(result)
     finally:
