@@ -17,6 +17,17 @@ function harness() {
   w.cancelAnimationFrame = (id) => {
     frames.delete(id);
   };
+  const Mutation = w.MutationObserver;
+  w.MutationObserver = class extends Mutation {
+    observe(target: Node, options?: MutationObserverInit) {
+      observers.add(this);
+      super.observe(target, options);
+    }
+    disconnect() {
+      observers.delete(this);
+      super.disconnect();
+    }
+  };
   w.MessageChannel = class {
     closed = false;
     port1 = {
