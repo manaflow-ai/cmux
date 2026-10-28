@@ -271,6 +271,11 @@ async fn a_message_for_another_host_or_a_daemon_is_never_given_to_a_session_here
         fake.until(id, |s| !s.acked(id).is_empty()).await;
         assert_eq!(fake.with(|s| s.acked(id)[0].state), AckState::Refused, "{id}");
     }
+    // A daemon id is this daemon's only when it is the id the hub gave it.
+    let mine = Target { daemon_id: Some("inst_me".into()), ..Target::default() };
+    assert!(hub.mesh_for_here(&mine, Some("inst_me")).is_ok());
+    assert!(hub.mesh_for_here(&mine, Some("inst_other")).is_err());
+    assert!(hub.mesh_for_here(&mine, None).is_err());
     let own = acpmux::pairing::machine_name();
     let mut ran = 0;
     if own != "host" {
@@ -362,6 +367,16 @@ async fn control_messages_go_to_the_hook_and_without_one_are_refused() {
     fake.lease(message("c-2", "", Kind::Control));
     fake.until("the ack", |s| !s.acked("c-2").is_empty()).await;
     assert_eq!(fake.with(|s| s.acked("c-2")[0].state), AckState::Delivered);
+    // A control for another host or daemon never reaches the hook.
+    let elsewhere = [
+        ("c-3", Target { host: Some("other-host".into()), ..Target::default() }),
+        ("c-4", Target { daemon_id: Some("inst_other".into()), ..Target::default() }),
+    ];
+    for (id, to) in elsewhere {
+        fake.lease(InMessage { message_id: id.into(), to, ..message(id, "", Kind::Control) });
+        fake.until(id, |s| !s.acked(id).is_empty()).await;
+        assert_eq!(fake.with(|s| s.acked(id)[0].state), AckState::Refused, "{id}");
+    }
     assert_eq!(*hook.0.lock().unwrap(), vec!["c-2".to_owned()]);
     relay.stop().await;
 }
