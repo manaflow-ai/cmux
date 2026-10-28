@@ -265,22 +265,29 @@ async function mountNewTab({
     await act(async () => {
       dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true }));
     });
-    const menu = host.querySelector<HTMLElement>(".acpmux-quick-menu");
+    const menu = dom.window.document.querySelector<HTMLElement>(".acpmux-quick-menu");
     if (!menu) {
       const trigger = host.querySelector<HTMLElement>("[data-menu=Model]");
       expect(trigger).not.toBeNull();
       await act(async () => trigger!.click());
     }
-    const openMenu = host.querySelector<HTMLElement>(".acpmux-quick-menu");
+    const openMenu = dom.window.document.querySelector<HTMLElement>(".acpmux-quick-menu");
     expect(openMenu).not.toBeNull();
+    const search = openMenu!.querySelector<HTMLInputElement>(".acpmux-quick-search input");
+    expect(search).not.toBeNull();
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
     await act(async () => {
-      for (const key of query) openMenu!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true }));
+      setter.call(search, query);
+      search!.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
     });
-    const row = [...host.querySelectorAll<HTMLElement>('.acpmux-quick-menu [role="menuitemradio"]')].find(
+    const row = [...dom.window.document.querySelectorAll<HTMLElement>('.acpmux-quick-menu [role="menuitemradio"]')].find(
       (candidate) => candidate.textContent?.includes(label),
     );
     expect(row).not.toBeUndefined();
     await act(async () => row!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+  };
+  const settle = async () => {
+    for (let turn = 0; turn < 5; turn++) await new Promise((done) => setTimeout(done, 0));
   };
   // Return right after the pick (App's chat.new, then chat.send): the prompt queues on the switch,
   // which opens the chat, applies the picks and then sends it. With no switch holding it (a live
