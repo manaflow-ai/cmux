@@ -57,7 +57,7 @@ test("renders image, text, image, text in one inline content run", () => {
     { kind: "text", text: "caption two" },
   ]);
   const children = [...host.querySelectorAll<HTMLElement>("[data-inline-content] > *")].map(
-    (child) => child.dataset.kind ?? `text:${child.textContent}`,
+    (child) => (child.querySelector('[data-kind="image"]') ? "image" : `text:${child.textContent}`),
   );
   expect(children).toEqual(["image", "text:caption one", "image", "text:caption two"]);
 });
