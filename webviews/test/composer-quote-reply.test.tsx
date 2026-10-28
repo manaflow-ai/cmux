@@ -148,3 +148,25 @@ test("the composer sends the quote as Markdown even though the editor hides the 
   expect(sent).toContain("Draft text\n\n> Selected line");
   expect(handle.current!.agentText(handle.current!.value())).toContain("> Selected line");
 });
+
+for (const selected of [
+  "[ref]: https://example.com",
+  "Before the example\n\n[ref]: https://example.com\n\nAfter the example",
+  '[ref]:\n  https://example.com\n  "Reference title"',
+])
+  test("selected definition-like text remains visible and survives send: " + selected, async () => {
+    await render("Draft text");
+    // The transcript/native menu prefixes the visible selection's lines, including text that was
+    // shown literally in an escaped paragraph or a code block.
+    const markdown = selected.split("\n").map((line) => "> " + line).join("\n") + "\n\n";
+    await act(async () => handle.current!.quoteReply(markdown));
+    const quote = content().querySelector("blockquote")!;
+    expect(quote.innerHTML).not.toBe("");
+    expect(handle.current!.plainText()).toContain(selected);
+    expect(content().firstElementChild?.textContent).toBe("Draft text");
+    const sent = handle.current!.agentText(handle.current!.value());
+    expect(sent).toContain("[ref]:");
+    expect(sent).toContain("https://example.com");
+    await act(async () => handle.current!.insertTyped("Reply"));
+    expect(content().lastElementChild?.textContent).toBe("Reply");
+  });
