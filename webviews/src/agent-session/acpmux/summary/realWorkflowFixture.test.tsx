@@ -25,7 +25,7 @@ test("a real Claude workflow replay folds into its phases, agents, states, model
   expect(workflow).toMatchObject({
     id: "workflow-session/tool-workflow",
     title: "count-files-fixture",
-    description: "Two agents count files, then one reports the count",
+    description: "Tiny 2-phase fixture: two agents count files, one agent reports the combined count",
     state: "completed",
     runId: "workflow-run-1",
     elapsedMs: 10_780,
@@ -52,14 +52,14 @@ test("a real Claude workflow replay folds into its phases, agents, states, model
       state: "completed",
       model: "claude-opus-5-5",
       elapsedMs: 5_054,
-      startedAt: NOW - 10_216,
+      startedAt: NOW - 10_716,
     }),
     expect.objectContaining({
       name: "count-b",
       state: "completed",
       model: "claude-opus-5-5",
       elapsedMs: 4_640,
-      startedAt: NOW - 10_216,
+      startedAt: NOW - 10_716,
     }),
     expect.objectContaining({
       name: "report",
@@ -77,7 +77,7 @@ test("a running replay anchors agent start times to its injected clock", () => {
     startedAt: NOW - 8_760,
     elapsedMs: undefined,
   });
-  expect(runningWorkflow!.agents[0]).toMatchObject({ state: "completed", startedAt: NOW - 8_196 });
+  expect(runningWorkflow!.agents[0]).toMatchObject({ state: "completed", startedAt: NOW - 8_696 });
   expect(runningWorkflow!.agents[2]).toMatchObject({ state: "running", startedAt: NOW - 2_181 });
 });
 

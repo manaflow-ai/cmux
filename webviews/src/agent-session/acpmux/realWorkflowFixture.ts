@@ -1,7 +1,9 @@
 // l10n-allow-file: a scrubbed replay of a real Claude workflow, used by tests and the gallery.
-// The source recording was captured from acpmux's session/update stream. It keeps the event
-// sequence and workflow progress deltas while replacing session IDs, paths, and run IDs with
-// neutral fixture values.
+// Generated from acpmux's recording of a real Claude Code Workflow run (2 phases, 3 agents): every
+// `session/update` the agent pane received for subagents, with its `update` and its
+// `_meta.acpmux.subagents` exactly as sent. Only identifying values are replaced (session, tool-call,
+// run and agent ids; paths become /workspace/...), and epoch times become milliseconds since the
+// workflow's first event. Nothing is added, merged or carried forward between events.
 import { SubagentFold, type Subagent } from "./subagents/subagentFold";
 
 export type WorkflowReplayEvent = {
@@ -10,401 +12,787 @@ export type WorkflowReplayEvent = {
   subagents: Record<string, unknown>[];
 };
 
-const WORKFLOW = "workflow-session/tool-workflow";
-const RUN = "workflow-run-1";
-const MODEL = "claude-opus-5-5";
-const SCRIPT = "/workspace/workflows/count-files.js";
+/// Workflow agent fields that hold a time, recorded relative to the workflow's first event.
 const AGENT_TIMES = new Set(["queuedAt", "startedAt", "lastProgressAt"]);
-
-const agent = (
-  index: number,
-  label: string,
-  phase: string,
-  phaseIndex: number,
-  fields: Record<string, unknown> = {},
-) => ({
-  index,
-  label,
-  phase,
-  phaseIndex,
-  model: MODEL,
-  ...fields,
-});
-
-const phases = [
-  { index: 1, title: "Count" },
-  { index: 2, title: "Report" },
-];
-
-const workflow = (fields: Record<string, unknown>) => ({
-  id: WORKFLOW,
-  parent: null,
-  kind: "workflow",
-  name: "count-files-fixture",
-  ...fields,
-});
 
 /// The real event sequence, with timestamps normalized to the workflow's first event.
 export const REAL_WORKFLOW_RECORDING: readonly WorkflowReplayEvent[] = [
   {
     at: 0,
-    update: { sessionUpdate: "subagent_spawned", subagentSessionId: WORKFLOW },
-    subagents: [{ id: WORKFLOW, parent: null, state: "running" }],
+    update: {
+      _meta: {
+        claude: {
+          subagentType: "workflow",
+          toolUseId: "tool-workflow",
+        },
+      },
+      background: true,
+      capabilities: {},
+      name: "Workflow",
+      prompt: null,
+      sessionUpdate: "subagent_spawned",
+      subagentSessionId: "workflow-session/tool-workflow",
+      task: "Workflow",
+    },
+    subagents: [
+      {
+        background: true,
+        id: "workflow-session/tool-workflow",
+        kind: "workflow",
+        name: "Workflow",
+        parent: null,
+        state: "running",
+        task: "Workflow",
+        toolCallId: "tool-workflow",
+      },
+    ],
   },
   {
     at: 17,
     update: {
-      sessionUpdate: "subagent_progress",
-      subagentSessionId: WORKFLOW,
       name: "count-files-fixture",
-      runId: RUN,
-      scriptPath: SCRIPT,
-      task: "Two agents count files, then one reports the count",
+      runId: "workflow-run-1",
+      scriptPath: "/workspace/workflows/scripts/count-files-fixture-workflow-run-1.js",
+      sessionUpdate: "subagent_progress",
+      subagentSessionId: "workflow-session/tool-workflow",
+      task: "Tiny 2-phase fixture: two agents count files, one agent reports the combined count",
     },
     subagents: [
-      workflow({
+      {
+        id: "workflow-session/tool-workflow",
+        name: "count-files-fixture",
+        parent: null,
+        runId: "workflow-run-1",
+        scriptPath: "/workspace/workflows/scripts/count-files-fixture-workflow-run-1.js",
         state: "running",
-        runId: RUN,
-        scriptPath: SCRIPT,
-        task: "Two agents count files, then one reports the count",
-      }),
+        task: "Tiny 2-phase fixture: two agents count files, one agent reports the combined count",
+      },
     ],
   },
   {
     at: 40,
     update: {
+      action: "Tiny 2-phase fixture: two agents count files, one agent reports the combined count",
+      agents: {
+        done: 0,
+        started: 0,
+      },
+      elapsedMs: 26,
+      phases: [
+        {
+          index: 1,
+          title: "Count",
+        },
+        {
+          index: 2,
+          title: "Report",
+        },
+      ],
       sessionUpdate: "subagent_progress",
-      subagentSessionId: WORKFLOW,
-      phases,
-      action: "Two-phase file count",
-      agents: { done: 0, started: 0 },
+      subagentSessionId: "workflow-session/tool-workflow",
       tokens: 0,
       toolUses: 0,
-      elapsedMs: 26,
     },
     subagents: [
-      workflow({
+      {
+        action: "Tiny 2-phase fixture: two agents count files, one agent reports the combined count",
+        agents: {
+          done: 0,
+          started: 0,
+        },
+        elapsedMs: 26,
+        id: "workflow-session/tool-workflow",
+        parent: null,
+        phases: [
+          {
+            index: 1,
+            title: "Count",
+          },
+          {
+            index: 2,
+            title: "Report",
+          },
+        ],
         state: "running",
-        runId: RUN,
-        phases,
-        action: "Two-phase file count",
-        agents: { done: 0, started: 0 },
         tokens: 0,
         toolUses: 0,
-        elapsedMs: 26,
-      }),
+      },
     ],
   },
   {
     at: 111,
     update: {
-      sessionUpdate: "subagent_progress",
-      subagentSessionId: WORKFLOW,
       action: "Count: count-a",
-      agents: { done: 0, queued: 1, started: 1 },
-      workflowAgents: [
-        agent(1, "count-a", "Count", 1, {
-          agentId: "workflow-agent-1",
-          state: "running",
-          prompt: "Count regular files directly in the current working directory.",
-          queuedAt: 548,
-          startedAt: 564,
-          lastProgressAt: 565,
-          attempt: 1,
-        }),
-        agent(2, "count-b", "Count", 1, {
-          agentId: "workflow-agent-2",
-          state: "queued",
-          prompt: "Count regular files directly in the current working directory.",
-          queuedAt: 548,
-        }),
-      ],
+      agents: {
+        done: 0,
+        queued: 1,
+        started: 1,
+      },
       elapsedMs: 66,
+      sessionUpdate: "subagent_progress",
+      subagentSessionId: "workflow-session/tool-workflow",
+      tokens: 0,
+      toolUses: 0,
+      workflowAgents: [
+        {
+          agentId: "workflow-agent-1",
+          attempt: 1,
+          index: 1,
+          label: "count-a",
+          lastProgressAt: 65,
+          model: "claude-opus-5-5",
+          phase: "Count",
+          phaseIndex: 1,
+          prompt:
+            "Count the regular files (not directories) directly in the current working directory, non-recursive, including hidden files. Use one shell command such as `find . -maxdepth 1 -type f | wc -l`. Return the count.",
+          queuedAt: 48,
+          startedAt: 64,
+          state: "running",
+        },
+        {
+          index: 2,
+          label: "count-b",
+          lastProgressAt: 48,
+          model: "claude-opus-5-5",
+          phase: "Count",
+          phaseIndex: 1,
+          prompt:
+            "Count the files directly in the current working directory (non-recursive, regular files only, hidden included) using `ls -A` and filtering out directories. Return the count.",
+          queuedAt: 48,
+          state: "queued",
+        },
+      ],
     },
     subagents: [
-      workflow({
-        state: "running",
-        runId: RUN,
+      {
         action: "Count: count-a",
-        agents: { done: 0, queued: 1, started: 1 },
+        agents: {
+          done: 0,
+          queued: 1,
+          started: 1,
+        },
         elapsedMs: 66,
-      }),
+        id: "workflow-session/tool-workflow",
+        parent: null,
+        state: "running",
+        tokens: 0,
+        toolUses: 0,
+        workflowAgents: [
+          {
+            agentId: "workflow-agent-1",
+            attempt: 1,
+            index: 1,
+            label: "count-a",
+            lastProgressAt: 65,
+            model: "claude-opus-5-5",
+            phase: "Count",
+            phaseIndex: 1,
+            prompt:
+              "Count the regular files (not directories) directly in the current working directory, non-recursive, including hidden files. Use one shell command such as `find . -maxdepth 1 -type f | wc -l`. Return the count.",
+            queuedAt: 48,
+            startedAt: 64,
+            state: "running",
+          },
+          {
+            index: 2,
+            label: "count-b",
+            lastProgressAt: 48,
+            model: "claude-opus-5-5",
+            phase: "Count",
+            phaseIndex: 1,
+            prompt:
+              "Count the files directly in the current working directory (non-recursive, regular files only, hidden included) using `ls -A` and filtering out directories. Return the count.",
+            queuedAt: 48,
+            state: "queued",
+          },
+        ],
+      },
     ],
   },
   {
     at: 1954,
     update: {
-      sessionUpdate: "subagent_progress",
-      subagentSessionId: WORKFLOW,
       action: "Count: count-b",
-      agents: { done: 0, started: 2 },
-      workflowAgents: [
-        agent(2, "count-b", "Count", 1, {
-          agentId: "workflow-agent-2",
-          state: "running",
-          startedAt: 564,
-          queuedAt: 548,
-          lastProgressAt: 1937,
-          attempt: 1,
-        }),
-      ],
+      agents: {
+        done: 0,
+        started: 2,
+      },
       elapsedMs: 1940,
+      sessionUpdate: "subagent_progress",
+      subagentSessionId: "workflow-session/tool-workflow",
+      tokens: 0,
+      toolUses: 0,
+      workflowAgents: [
+        {
+          agentId: "workflow-agent-2",
+          attempt: 1,
+          index: 2,
+          lastProgressAt: 1937,
+          startedAt: 64,
+          state: "running",
+        },
+      ],
     },
     subagents: [
-      workflow({
-        state: "running",
-        runId: RUN,
+      {
         action: "Count: count-b",
-        agents: { done: 0, started: 2 },
+        agents: {
+          done: 0,
+          started: 2,
+        },
         elapsedMs: 1940,
-      }),
+        id: "workflow-session/tool-workflow",
+        parent: null,
+        state: "running",
+        tokens: 0,
+        toolUses: 0,
+        workflowAgents: [
+          {
+            agentId: "workflow-agent-2",
+            attempt: 1,
+            index: 2,
+            lastProgressAt: 1937,
+            startedAt: 64,
+            state: "running",
+          },
+        ],
+      },
     ],
   },
   {
     at: 2976,
     update: {
-      sessionUpdate: "subagent_progress",
-      subagentSessionId: WORKFLOW,
       action: "Count: count-a",
-      agents: { done: 0, started: 2 },
+      agents: {
+        done: 0,
+        started: 2,
+      },
+      elapsedMs: 2962,
+      sessionUpdate: "subagent_progress",
+      subagentSessionId: "workflow-session/tool-workflow",
       tokens: 27557,
       toolUses: 1,
-      elapsedMs: 2962,
     },
     subagents: [
-      workflow({
-        state: "running",
-        runId: RUN,
+      {
         action: "Count: count-a",
-        agents: { done: 0, started: 2 },
+        agents: {
+          done: 0,
+          started: 2,
+        },
+        elapsedMs: 2962,
+        id: "workflow-session/tool-workflow",
+        parent: null,
+        state: "running",
         tokens: 27557,
         toolUses: 1,
-        elapsedMs: 2962,
-      }),
+      },
     ],
   },
   {
     at: 4605,
     update: {
-      sessionUpdate: "subagent_progress",
-      subagentSessionId: WORKFLOW,
       action: "Count: count-b",
-      agents: { done: 0, started: 2 },
+      agents: {
+        done: 0,
+        started: 2,
+      },
+      elapsedMs: 4591,
+      sessionUpdate: "subagent_progress",
+      subagentSessionId: "workflow-session/tool-workflow",
       tokens: 55096,
       toolUses: 2,
-      elapsedMs: 4591,
     },
     subagents: [
-      workflow({
-        state: "running",
-        runId: RUN,
+      {
         action: "Count: count-b",
-        agents: { done: 0, started: 2 },
+        agents: {
+          done: 0,
+          started: 2,
+        },
+        elapsedMs: 4591,
+        id: "workflow-session/tool-workflow",
+        parent: null,
+        state: "running",
         tokens: 55096,
         toolUses: 2,
-        elapsedMs: 4591,
-      }),
+      },
     ],
   },
   {
     at: 5123,
     update: {
-      sessionUpdate: "subagent_progress",
-      subagentSessionId: WORKFLOW,
       action: "Count: count-a",
-      agents: { done: 1, started: 2 },
+      agents: {
+        done: 1,
+        started: 2,
+      },
+      elapsedMs: 5108,
+      sessionUpdate: "subagent_progress",
+      subagentSessionId: "workflow-session/tool-workflow",
       tokens: 55592,
       toolUses: 3,
       workflowAgents: [
-        agent(1, "count-a", "Count", 1, {
-          agentId: "workflow-agent-1",
-          state: "completed",
-          result: '{"count":2}',
+        {
+          action: "StructuredOutput",
           elapsedMs: 5054,
+          index: 1,
+          lastProgressAt: 5119,
+          result: '{"count":2}',
+          state: "completed",
           tokens: 28053,
           toolUses: 2,
-          lastProgressAt: 5119,
-        }),
-        agent(2, "count-b", "Count", 1, {
-          agentId: "workflow-agent-2",
-          state: "running",
-          action: "Count files",
+        },
+        {
+          action: 'ls -A | while IFS= read -r f; do [ -f "$f" ] && [ ! -L "$f"…',
+          index: 2,
+          lastProgressAt: 4589,
           tokens: 27539,
           toolUses: 1,
-          lastProgressAt: 4589,
-        }),
+        },
       ],
-      elapsedMs: 5108,
     },
     subagents: [
-      workflow({
-        state: "running",
-        runId: RUN,
+      {
         action: "Count: count-a",
-        agents: { done: 1, started: 2 },
+        agents: {
+          done: 1,
+          started: 2,
+        },
+        elapsedMs: 5108,
+        id: "workflow-session/tool-workflow",
+        parent: null,
+        state: "running",
         tokens: 55592,
         toolUses: 3,
-        elapsedMs: 5108,
-      }),
+        workflowAgents: [
+          {
+            action: "StructuredOutput",
+            elapsedMs: 5054,
+            index: 1,
+            lastProgressAt: 5119,
+            result: '{"count":2}',
+            state: "completed",
+            tokens: 28053,
+            toolUses: 2,
+          },
+          {
+            action: 'ls -A | while IFS= read -r f; do [ -f "$f" ] && [ ! -L "$f"…',
+            index: 2,
+            lastProgressAt: 4589,
+            tokens: 27539,
+            toolUses: 1,
+          },
+        ],
+      },
     ],
   },
   {
     at: 6589,
     update: {
-      sessionUpdate: "subagent_progress",
-      subagentSessionId: WORKFLOW,
       action: "Report: report",
-      agents: { done: 2, started: 3 },
+      agents: {
+        done: 2,
+        started: 3,
+      },
+      elapsedMs: 6575,
+      sessionUpdate: "subagent_progress",
+      subagentSessionId: "workflow-session/tool-workflow",
       tokens: 56126,
       toolUses: 4,
       workflowAgents: [
-        agent(2, "count-b", "Count", 1, {
-          agentId: "workflow-agent-2",
-          state: "completed",
-          result: '{"count":2}',
+        {
+          action: "StructuredOutput",
           elapsedMs: 4640,
+          index: 2,
+          lastProgressAt: 6577,
+          result: '{"count":2}',
+          state: "completed",
           tokens: 28073,
           toolUses: 2,
-          lastProgressAt: 6577,
-        }),
-        agent(3, "report", "Report", 2, {
+        },
+        {
           agentId: "workflow-agent-3",
-          state: "running",
-          prompt: "Recount the regular files and report whether both counts agree.",
+          attempt: 1,
+          index: 3,
+          label: "report",
+          lastProgressAt: 6579,
+          model: "claude-opus-5-5",
+          phase: "Report",
+          phaseIndex: 2,
+          prompt:
+            "Two agents counted the regular files in the current folder: agent A got 2, agent B got 2. Recount once with `find . -maxdepth 1 -type f | wc -l` and report the final count in one short sentence, noting whether the counts agreed.",
           queuedAt: 6578,
           startedAt: 6579,
-          lastProgressAt: 6579,
-          attempt: 1,
-        }),
+          state: "running",
+        },
       ],
-      elapsedMs: 6575,
     },
     subagents: [
-      workflow({
-        state: "running",
-        runId: RUN,
+      {
         action: "Report: report",
-        agents: { done: 2, started: 3 },
+        agents: {
+          done: 2,
+          started: 3,
+        },
+        elapsedMs: 6575,
+        id: "workflow-session/tool-workflow",
+        parent: null,
+        state: "running",
         tokens: 56126,
         toolUses: 4,
-        elapsedMs: 6575,
-      }),
+        workflowAgents: [
+          {
+            action: "StructuredOutput",
+            elapsedMs: 4640,
+            index: 2,
+            lastProgressAt: 6577,
+            result: '{"count":2}',
+            state: "completed",
+            tokens: 28073,
+            toolUses: 2,
+          },
+          {
+            agentId: "workflow-agent-3",
+            attempt: 1,
+            index: 3,
+            label: "report",
+            lastProgressAt: 6579,
+            model: "claude-opus-5-5",
+            phase: "Report",
+            phaseIndex: 2,
+            prompt:
+              "Two agents counted the regular files in the current folder: agent A got 2, agent B got 2. Recount once with `find . -maxdepth 1 -type f | wc -l` and report the final count in one short sentence, noting whether the counts agreed.",
+            queuedAt: 6578,
+            startedAt: 6579,
+            state: "running",
+          },
+        ],
+      },
     ],
   },
   {
     at: 8760,
     update: {
-      sessionUpdate: "subagent_progress",
-      subagentSessionId: WORKFLOW,
       action: "Report: report",
-      agents: { done: 2, started: 3 },
+      agents: {
+        done: 2,
+        started: 3,
+      },
+      elapsedMs: 8745,
+      sessionUpdate: "subagent_progress",
+      subagentSessionId: "workflow-session/tool-workflow",
       tokens: 83572,
       toolUses: 5,
-      elapsedMs: 8745,
     },
     subagents: [
-      workflow({
-        state: "running",
-        runId: RUN,
+      {
         action: "Report: report",
-        agents: { done: 2, started: 3 },
+        agents: {
+          done: 2,
+          started: 3,
+        },
+        elapsedMs: 8745,
+        id: "workflow-session/tool-workflow",
+        parent: null,
+        state: "running",
         tokens: 83572,
         toolUses: 5,
-        elapsedMs: 8745,
-      }),
+      },
     ],
   },
   {
     at: 10700,
     update: {
-      sessionUpdate: "subagent_progress",
-      subagentSessionId: WORKFLOW,
       action: "Report: report",
-      agents: { done: 2, started: 3 },
+      agents: {
+        done: 2,
+        started: 3,
+      },
+      elapsedMs: 10685,
+      sessionUpdate: "subagent_progress",
+      subagentSessionId: "workflow-session/tool-workflow",
       tokens: 84080,
       toolUses: 5,
-      elapsedMs: 10685,
     },
     subagents: [
-      workflow({
-        state: "running",
-        runId: RUN,
+      {
         action: "Report: report",
-        agents: { done: 2, started: 3 },
+        agents: {
+          done: 2,
+          started: 3,
+        },
+        elapsedMs: 10685,
+        id: "workflow-session/tool-workflow",
+        parent: null,
+        state: "running",
         tokens: 84080,
         toolUses: 5,
-        elapsedMs: 10685,
-      }),
+      },
     ],
   },
   {
     at: 10780,
     update: {
+      action: "Report: report",
+      agents: {
+        done: 3,
+        started: 3,
+      },
+      elapsedMs: 10761,
       sessionUpdate: "subagent_progress",
-      subagentSessionId: WORKFLOW,
-      agents: { done: 3, started: 3 },
+      subagentSessionId: "workflow-session/tool-workflow",
       tokens: 84080,
       toolUses: 5,
-      elapsedMs: 10761,
-      phases,
-      runId: RUN,
-      scriptPath: SCRIPT,
       workflowAgents: [
-        agent(1, "count-a", "Count", 1, {
-          agentId: "workflow-agent-1",
-          state: "completed",
-          result: '{"count":2}',
-          elapsedMs: 5054,
-          tokens: 28053,
-          toolUses: 2,
-          startedAt: 564,
-          queuedAt: 548,
-          lastProgressAt: 5119,
-        }),
-        agent(2, "count-b", "Count", 1, {
-          agentId: "workflow-agent-2",
-          state: "completed",
-          result: '{"count":2}',
-          elapsedMs: 4640,
-          tokens: 28073,
-          toolUses: 2,
-          startedAt: 564,
-          queuedAt: 548,
-          lastProgressAt: 6577,
-        }),
-        agent(3, "report", "Report", 2, {
-          agentId: "workflow-agent-3",
-          state: "completed",
-          result: "The recount found 2 regular files, matching both earlier counts.",
+        {
+          action: "find . -maxdepth 1 -type f | wc -l",
           elapsedMs: 4195,
+          index: 3,
+          lastProgressAt: 10774,
+          result: "The recount found 2 regular files, which matches the counts from agent A (2) and agent B (2).",
+          state: "completed",
           tokens: 27954,
           toolUses: 1,
-          startedAt: 6579,
-          queuedAt: 6578,
-          lastProgressAt: 10772,
-        }),
+        },
       ],
-      workflowAgentsFull: true,
     },
     subagents: [
-      workflow({
+      {
+        action: "Report: report",
+        agents: {
+          done: 3,
+          started: 3,
+        },
+        elapsedMs: 10761,
+        id: "workflow-session/tool-workflow",
+        parent: null,
         state: "running",
-        runId: RUN,
-        scriptPath: SCRIPT,
-        phases,
-        agents: { done: 3, started: 3 },
         tokens: 84080,
         toolUses: 5,
-        elapsedMs: 10753,
-      }),
+        workflowAgents: [
+          {
+            action: "find . -maxdepth 1 -type f | wc -l",
+            elapsedMs: 4195,
+            index: 3,
+            lastProgressAt: 10774,
+            result: "The recount found 2 regular files, which matches the counts from agent A (2) and agent B (2).",
+            state: "completed",
+            tokens: 27954,
+            toolUses: 1,
+          },
+        ],
+      },
     ],
   },
   {
     at: 10780,
-    update: { sessionUpdate: "subagent_state_update", subagentSessionId: WORKFLOW, state: "completed" },
-    subagents: [{ id: WORKFLOW, parent: null, state: "completed" }],
+    update: {
+      agents: {
+        done: 3,
+        started: 3,
+      },
+      elapsedMs: 10753,
+      phases: [
+        {
+          index: 1,
+          title: "Count",
+        },
+        {
+          index: 2,
+          title: "Report",
+        },
+      ],
+      runId: "workflow-run-1",
+      scriptPath: "/workspace/workflows/scripts/count-files-fixture-workflow-run-1.js",
+      sessionUpdate: "subagent_progress",
+      subagentSessionId: "workflow-session/tool-workflow",
+      tokens: 84080,
+      toolUses: 5,
+      workflowAgents: [
+        {
+          action: "StructuredOutput",
+          agentId: "workflow-agent-1",
+          attempt: 1,
+          elapsedMs: 5054,
+          index: 1,
+          label: "count-a",
+          lastProgressAt: 5119,
+          model: "claude-opus-5-5",
+          phase: "Count",
+          phaseIndex: 1,
+          prompt:
+            "Count the regular files (not directories) directly in the current working directory, non-recursive, including hidden files. Use one shell command such as `find . -maxdepth 1 -type f | wc -l`. Return the count.",
+          queuedAt: 48,
+          result: '{"count":2}',
+          startedAt: 64,
+          state: "completed",
+          tokens: 28053,
+          toolUses: 2,
+        },
+        {
+          action: "StructuredOutput",
+          agentId: "workflow-agent-2",
+          attempt: 1,
+          elapsedMs: 4640,
+          index: 2,
+          label: "count-b",
+          lastProgressAt: 6577,
+          model: "claude-opus-5-5",
+          phase: "Count",
+          phaseIndex: 1,
+          prompt:
+            "Count the files directly in the current working directory (non-recursive, regular files only, hidden included) using `ls -A` and filtering out directories. Return the count.",
+          queuedAt: 48,
+          result: '{"count":2}',
+          startedAt: 64,
+          state: "completed",
+          tokens: 28073,
+          toolUses: 2,
+        },
+        {
+          action: "find . -maxdepth 1 -type f | wc -l",
+          agentId: "workflow-agent-3",
+          attempt: 1,
+          elapsedMs: 4195,
+          index: 3,
+          label: "report",
+          lastProgressAt: 10774,
+          model: "claude-opus-5-5",
+          phase: "Report",
+          phaseIndex: 2,
+          prompt:
+            "Two agents counted the regular files in the current folder: agent A got 2, agent B got 2. Recount once with `find . -maxdepth 1 -type f | wc -l` and report the final count in one short sentence, noting whether the counts agreed.",
+          queuedAt: 6578,
+          result: "The recount found 2 regular files, which matches the counts from agent A (2) and agent B (2).",
+          startedAt: 6579,
+          state: "completed",
+          tokens: 27954,
+          toolUses: 1,
+        },
+      ],
+      workflowAgentsFull: true,
+    },
+    subagents: [
+      {
+        agents: {
+          done: 3,
+          started: 3,
+        },
+        elapsedMs: 10753,
+        id: "workflow-session/tool-workflow",
+        parent: null,
+        phases: [
+          {
+            index: 1,
+            title: "Count",
+          },
+          {
+            index: 2,
+            title: "Report",
+          },
+        ],
+        runId: "workflow-run-1",
+        scriptPath: "/workspace/workflows/scripts/count-files-fixture-workflow-run-1.js",
+        state: "running",
+        tokens: 84080,
+        toolUses: 5,
+        workflowAgents: [
+          {
+            action: "StructuredOutput",
+            agentId: "workflow-agent-1",
+            attempt: 1,
+            elapsedMs: 5054,
+            index: 1,
+            label: "count-a",
+            lastProgressAt: 5119,
+            model: "claude-opus-5-5",
+            phase: "Count",
+            phaseIndex: 1,
+            prompt:
+              "Count the regular files (not directories) directly in the current working directory, non-recursive, including hidden files. Use one shell command such as `find . -maxdepth 1 -type f | wc -l`. Return the count.",
+            queuedAt: 48,
+            result: '{"count":2}',
+            startedAt: 64,
+            state: "completed",
+            tokens: 28053,
+            toolUses: 2,
+          },
+          {
+            action: "StructuredOutput",
+            agentId: "workflow-agent-2",
+            attempt: 1,
+            elapsedMs: 4640,
+            index: 2,
+            label: "count-b",
+            lastProgressAt: 6577,
+            model: "claude-opus-5-5",
+            phase: "Count",
+            phaseIndex: 1,
+            prompt:
+              "Count the files directly in the current working directory (non-recursive, regular files only, hidden included) using `ls -A` and filtering out directories. Return the count.",
+            queuedAt: 48,
+            result: '{"count":2}',
+            startedAt: 64,
+            state: "completed",
+            tokens: 28073,
+            toolUses: 2,
+          },
+          {
+            action: "find . -maxdepth 1 -type f | wc -l",
+            agentId: "workflow-agent-3",
+            attempt: 1,
+            elapsedMs: 4195,
+            index: 3,
+            label: "report",
+            lastProgressAt: 10774,
+            model: "claude-opus-5-5",
+            phase: "Report",
+            phaseIndex: 2,
+            prompt:
+              "Two agents counted the regular files in the current folder: agent A got 2, agent B got 2. Recount once with `find . -maxdepth 1 -type f | wc -l` and report the final count in one short sentence, noting whether the counts agreed.",
+            queuedAt: 6578,
+            result: "The recount found 2 regular files, which matches the counts from agent A (2) and agent B (2).",
+            startedAt: 6579,
+            state: "completed",
+            tokens: 27954,
+            toolUses: 1,
+          },
+        ],
+        workflowAgentsFull: true,
+      },
+    ],
+  },
+  {
+    at: 10780,
+    update: {
+      sessionUpdate: "subagent_state_update",
+      state: "completed",
+      subagentSessionId: "workflow-session/tool-workflow",
+    },
+    subagents: [
+      {
+        id: "workflow-session/tool-workflow",
+        parent: null,
+        state: "completed",
+      },
+    ],
   },
 ];
+
+/// Anchors a recorded workflow agent's relative times to the replay's clock.
+const anchorAgents = (fields: Record<string, unknown>, start: number): Record<string, unknown> => {
+  if (!Array.isArray(fields.workflowAgents)) return fields;
+  const workflowAgents = fields.workflowAgents.map((entry) =>
+    Object.fromEntries(
+      Object.entries(entry as Record<string, unknown>).map(([key, value]) => [
+        key,
+        AGENT_TIMES.has(key) && typeof value === "number" ? start + value : value,
+      ]),
+    ),
+  );
+  return { ...fields, workflowAgents };
+};
 
 /// Feed the captured records through the production SubagentFold, preserving event order and timing.
 export function realWorkflowFixture(now = Date.now(), throughAt = REAL_WORKFLOW_RECORDING.at(-1)!.at): Subagent[] {
@@ -412,37 +800,8 @@ export function realWorkflowFixture(now = Date.now(), throughAt = REAL_WORKFLOW_
   const records = REAL_WORKFLOW_RECORDING.filter((record) => record.at <= throughAt);
   const start = now - throughAt;
   records.forEach((record, index) => {
-    const update = { ...record.update };
-    if (Array.isArray(update.workflowAgents)) {
-      update.workflowAgents = update.workflowAgents.map((entry) =>
-        Object.fromEntries(
-          Object.entries(entry as Record<string, unknown>).map(([key, value]) => [
-            key,
-            AGENT_TIMES.has(key) && typeof value === "number" ? start + value : value,
-          ]),
-        ),
-      );
-    }
-    // acpmux mirrors workflow progress fields in the `_meta.acpmux.subagents` snapshot that the
-    // pane consumes. Keep that wire shape here instead of feeding the fold a summary shortcut.
-    const mirrored = [
-      "name",
-      "runId",
-      "scriptPath",
-      "task",
-      "action",
-      "agents",
-      "tokens",
-      "toolUses",
-      "elapsedMs",
-      "phases",
-      "workflowAgents",
-      "workflowAgentsFull",
-    ];
-    const shared = Object.fromEntries(
-      mirrored.flatMap((key) => (update[key] === undefined ? [] : [[key, update[key]]])),
-    );
-    const subagents = record.subagents.map((change) => ({ ...shared, ...change }));
+    const update = anchorAgents(record.update, start);
+    const subagents = record.subagents.map((change) => anchorAgents(change, start));
     const msg = { method: "session/update", params: { update, _meta: { acpmux: { subagents } } } };
     fold.reduce({ seq: index + 1, at: start + record.at, msg }, update);
   });
