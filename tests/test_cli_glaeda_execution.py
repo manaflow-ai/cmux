@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -32,6 +33,27 @@ class GlaedaExecutionCLITests(unittest.TestCase):
             timeout=10,
             check=False,
         )
+
+    def test_standalone_usage_does_not_require_resource_bundles(self) -> None:
+        # Release installs can copy only the executable. Exercise that layout,
+        # rather than relying on resources beside the build product.
+        with tempfile.TemporaryDirectory(prefix="cmux-cli-usage-") as tmp:
+            executable = Path(tmp) / "cmux"
+            shutil.copy2(CLI, executable)
+            for args in ([], ["--help"]):
+                with self.subTest(args=args):
+                    result = subprocess.run(
+                        [str(executable), *args],
+                        cwd=tmp,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        timeout=10,
+                        check=False,
+                    )
+                    output = result.stdout + result.stderr
+                    self.assertIn(result.returncode, (0, 2), output.decode(errors="replace"))
+                    self.assertIn(b"usage", output.lower())
+                    self.assertNotIn(b"unable to find bundle", output.lower())
 
     def request_args(self) -> list[str]:
         return [
