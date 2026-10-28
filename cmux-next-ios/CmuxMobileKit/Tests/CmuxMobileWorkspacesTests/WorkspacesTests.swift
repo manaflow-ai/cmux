@@ -359,9 +359,13 @@ import SwiftUI
         let (store, source) = make(backend: backend)
         let claude = try #require(source.tabs.first { $0.id == "t-claude" })
         let menu = source.pageMenu(for: claude).flatMap { $0 }.map(\.title)
-        #expect(menu.contains("Fork") && menu.contains("Archive") && menu.contains("Duplicate Tab"))
+        #expect(menu.contains("Fork Conversation…") && menu.contains("Archive") && menu.contains("Duplicate Tab"))
+        // Fork Conversation… asks where (the Mac's fork destinations); In a New Tab is the fork beside it.
+        source.pageMenu(for: claude).flatMap { $0 }.first { $0.title == "Fork Conversation…" }?.action()
+        #expect(source.forkingTab?.id == "t-claude")
         let count = source.tabs.count
-        await source.fork("t-claude")
+        await source.fork("t-claude", to: .tab)
+        #expect(source.forkingTab == nil)
         #expect(source.tabs.count == count + 1)
         #expect(source.activeTabID == source.tabs.last?.id && source.openedTab == source.tabs.last?.id)
         // acpmux's refusal of a Mac-started Claude chat, in its own words.
