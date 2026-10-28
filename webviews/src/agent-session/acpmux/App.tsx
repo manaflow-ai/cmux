@@ -1,6 +1,5 @@
 import React, {
   lazy,
-  memo,
   Suspense,
   useCallback,
   useDeferredValue,
@@ -216,7 +215,6 @@ import { AgentNamesContext, agentNames } from "./conversation/agentNames";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { ANCHORED_COLLAPSE_EVENT, foldToggleAt, holdFold, keepFold, type FoldAnchor } from "./conversation/foldAnchor";
 import { settleTurnFold, startTurnFold, watchTurnFold, type TurnFold } from "./conversation/turnFold";
-import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { BackgroundTaskOutputContext, type BackgroundTaskOutputReader } from "./conversation/backgroundTaskOutput";
@@ -395,15 +393,9 @@ import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { useSideSessions } from "./aside/sideSessions";
-import { ReceivedResult, SuggestedTasks, type OfferActions } from "./offer/SuggestedTasks";
 import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
-import {
-  NO_MENTIONS,
-  StartedMentionsContext,
-  StartedSessionCards,
-  type StartedMentions,
-} from "./started/StartedSessionCard";
+import { NO_MENTIONS, StartedMentionsContext, type StartedMentions } from "./started/StartedSessionCard";
 import { type SessionHover, SessionHoverContext } from "./started/SessionHoverCard";
 import { SessionHoverStore, withSessionIds } from "./started/sessionHover";
 import { SubsessionContext, SubsessionStore, type Subsessions, subsessionRows } from "./subagents/subsessions";
@@ -425,7 +417,7 @@ import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrolle
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { RetryBackoff } from "../../pages/shared/retryBackoff";
 import { callNative } from "./callNative";
-import type { MeasurableRenderer, NativeRegistry, OpenDiff, RowProps } from "./rows/rowProps";
+import type { MeasurableRenderer, NativeRegistry, OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
 import { MessageRow } from "./rows/MessageRow";
 import { ToolActivityRow } from "./rows/ToolActivityRow";
@@ -454,6 +446,10 @@ import { SubagentRow } from "./rows/SubagentRow";
 import { SubagentDoneRow } from "./rows/SubagentDoneRow";
 import { WorkflowCardRow } from "./rows/WorkflowCardRow";
 import { SubagentOfPillRow } from "./rows/SubagentOfPillRow";
+import { EditedFilesRow } from "./rows/EditedFilesRow";
+import { SessionOfferRow } from "./rows/SessionOfferRow";
+import { OfferResultRow } from "./rows/OfferResultRow";
+import { StartedSessionsRow } from "./rows/StartedSessionsRow";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -840,42 +836,6 @@ const PREVIEW_TURNS = 8;
 /// How long a running line count's reveal holds a run open while its row draws (WorkingFor.tsx).
 const REVEAL_HOLD_MS = 2_000;
 
-/// The edited-files card (conversation/EditedFilesCard.tsx, data in turnChanges/).
-const EditedFilesRow = memo(
-  function EditedFilesRow({ row, sessionId, onOpenDiff }: RowProps) {
-    return <EditedFilesCard row={row} sessionId={sessionId} onOpenDiff={onOpenDiff} />;
-  },
-  (a, b) =>
-    a.row.id === b.row.id &&
-    a.row.version === b.row.version &&
-    a.sessionId === b.sessionId &&
-    a.onOpenDiff === b.onOpenDiff,
-);
-
-const offerActions: OfferActions = {
-  start: (offerId, worktree) => callNative("chat.offer.start", { offerId, worktree }),
-  here: (offerId) => callNative("chat.offer.here", { offerId }),
-  dismiss: (offerId) => callNative("chat.offer.dismiss", { offerId }),
-  open: openOfferChat,
-};
-
-/// An agent's suggested tasks (offer/SuggestedTasks.tsx); the reducer draws them only with Labs
-/// preview features or the session-offer experiment on (offer/offersShown.ts).
-const SessionOfferRow = memo(
-  function SessionOfferRow({ row }: RowProps) {
-    return row.offers?.length ? <SuggestedTasks offers={row.offers} actions={offerActions} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-
-/// A task's result waiting in the queue: its received line (offer/SuggestedTasks.tsx).
-const OfferResultRow = memo(
-  function OfferResultRow({ row }: RowProps) {
-    return row.received ? <ReceivedResult result={row.received} onOpen={openOfferChat} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
-
 const NO_STARTED: readonly StartedSession[] = [];
 const NO_EXPANDED: ReadonlySet<string> = new Set();
 const NO_SPAWNED: readonly AcpmuxSessionEntry[] = [];
@@ -883,14 +843,6 @@ const NO_COMMANDS: readonly BackgroundCommand[] = [];
 const NO_AGENTS: readonly Subagent[] = [];
 const sameItems = <T,>(a: readonly T[], b: readonly T[]) =>
   a.length === b.length && a.every((item, index) => item === b[index]);
-
-/// The chats this chat's agent started, as cards where each was started (started/StartedSessionCard.tsx).
-const StartedSessionsRow = memo(
-  function StartedSessionsRow({ row }: RowProps) {
-    return row.started?.length ? <StartedSessionCards started={row.started} onOpen={openOfferChat} /> : null;
-  },
-  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
-);
 
 const defaultRegistry: NativeRegistry = {
   user: MessageRow,
