@@ -173,6 +173,11 @@ describe("retired identities", () => {
       expect(store.get(machine, "user_a")).toBeNull()
       expect(dropped.sort()).toEqual(["fsid-left", "fsid-new"])
       expect(store.retired(10)).toEqual([])
+
+      // A grant that would expire within seconds of the answer is refused.
+      members = [true, true]
+      mint = async () => ({ grant: { identity: "fsid-late", token: "tok-late", expiresAt: 11_000, vmId: "fsvm-1", linuxUser: "cmux", apiBaseUrl: "https://freestyle.test", ssh: null }, stale: null })
+      expect(await mintClientSessionOn(host, p, machine, 600)).toEqual({ ok: false, refusal: "provider_failed" })
     })
   })
 })
@@ -279,5 +284,14 @@ describe("POST /v1/cloud/machines/{machine}/client-session", { timeout: 60_000 }
     const empty = await worker.fetch(`https://api.test${path}`, { method: "POST", headers: { authorization: `Bearer ${t}` } })
     expect(empty.status).toBe(200)
     expect((await post(`/v1/cloud/machines/vm_${"q".repeat(20)}/client-session`, t, {})).body.error.code).toBe("cloud.machine.not_found")
+    // A chunked body with no content-length is read only up to its cap.
+    const chunks = new ReadableStream<Uint8Array>({
+      start(c) {
+        for (let i = 0; i < 8; i++) c.enqueue(new TextEncoder().encode(" ".repeat(100)))
+        c.close()
+      }
+    })
+    const chunked = await worker.fetch(`https://api.test${path}`, { method: "POST", headers: { authorization: `Bearer ${t}` }, body: chunks })
+    expect(chunked.status).toBe(400)
   })
 })

@@ -1,5 +1,6 @@
 import type { Principal, SqlStore } from "@cmux/ownership"
 import { authenticate } from "./auth.ts"
+import { readBody } from "./cloud-acpmux.ts"
 import type { ClientSessionGrant, GuardedCloudDriver } from "./cloud-driver.ts"
 import type { MachineRow } from "./domains/cloud.ts"
 import type { Env } from "./env.ts"
@@ -216,15 +217,21 @@ export const mintClientSessionOn = async (host: ClientSessionHost, p: Principal,
     const { grant, stale } = minted
     host.identities.put(machine, user, grant.identity, grant.vmId, host.now())
     if (stale) host.identities.retire(stale, host.now())
-    // A member who left while the provider call ran gets nothing: the new identity is retired and deleted.
+    if (await sweepClientIdentities(host.identities, host.machine, driver, host.now()).catch(() => true)) host.retryLater()
+    // The membership check is the last wait before the answer: a member who left while the provider
+    // calls or the sweep ran gets nothing, and the new identity is retired and deleted.
     if (!(await host.member(user).catch(() => false))) {
       host.identities.forget(machine, user, host.now())
       host.audit({ op: "client_session", machine, by: p.identity, user, install: p.install ?? null, outcome: "auth.forbidden", at: host.now() })
       if (await sweepClientIdentities(host.identities, host.machine, driver, host.now()).catch(() => true)) host.retryLater()
       return refuse("forbidden")
     }
+    // A token that would expire within seconds of the answer is no session.
+    if (grant.expiresAt - host.now() < CLIENT_SESSION_TTL_MIN_S * 500) {
+      host.audit({ op: "client_session", machine, by: p.identity, user, install: p.install ?? null, outcome: "cloud.provider.unavailable", at: host.now() })
+      return refuse("provider_failed")
+    }
     host.audit({ op: "client_session", machine, by: p.identity, user, install: p.install ?? null, linux_user: grant.linuxUser, expires_at: grant.expiresAt, outcome: "minted", at: host.now() })
-    if (await sweepClientIdentities(host.identities, host.machine, driver, host.now()).catch(() => true)) host.retryLater()
     return {
       ok: true,
       value: { machine, vm_id: grant.vmId, linux_user: grant.linuxUser, token: grant.token, expires_at: grant.expiresAt, api_base_url: grant.apiBaseUrl, ssh: grant.ssh }
@@ -282,8 +289,10 @@ export const handleCloudClientSession = async (request: Request, env: Env, machi
   if (!(declared >= 0 && declared <= BODY_MAX)) return answer(400, "validation.invalid", "the request body is too large")
   const principal = await callerFor(request, env)
   if (principal instanceof Response) return principal
-  const raw = await request.text().catch(() => null)
-  if (raw === null || raw.length > BODY_MAX) return answer(400, "validation.invalid", "the request body is too large")
+  // Read at most BODY_MAX bytes, also for a chunked body with no content-length.
+  const bytes = await readBody(request, BODY_MAX).catch(() => null)
+  if (bytes === null) return answer(400, "validation.invalid", "the request body is too large")
+  const raw = new TextDecoder().decode(bytes)
   let body: unknown = null
   if (raw.trim() !== "") {
     try {
