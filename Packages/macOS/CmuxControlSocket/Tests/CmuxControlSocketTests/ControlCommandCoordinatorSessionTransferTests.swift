@@ -21,7 +21,8 @@ struct ControlCommandCoordinatorSessionTransferTests {
             sourcePath: "/support/cmux/session-com.cmuxterm.app.nightly.json",
             windowCount: 2,
             heldBackResumeCount: 0,
-            droppedRemoteWorkspaceCount: 0
+            droppedRemoteWorkspaceCount: 0,
+            droppedWorkspaceCount: 0
         )
 
         let result = call("session.import", ["source": .string(" nightly ")], context: context)
@@ -44,7 +45,8 @@ struct ControlCommandCoordinatorSessionTransferTests {
             sourcePath: "/Users/me/session.json",
             windowCount: 1,
             heldBackResumeCount: 3,
-            droppedRemoteWorkspaceCount: 1
+            droppedRemoteWorkspaceCount: 1,
+            droppedWorkspaceCount: 2
         )
 
         let result = call("session.import", ["path": .string("/Users/me/session.json")], context: context)
@@ -57,6 +59,7 @@ struct ControlCommandCoordinatorSessionTransferTests {
         #expect(payload["trusted"] == .bool(false))
         #expect(payload["held_back_resume_count"] == .int(3))
         #expect(payload["dropped_remote_workspace_count"] == .int(1))
+        #expect(payload["dropped_workspace_count"] == .int(2))
     }
 
     @Test(arguments: [

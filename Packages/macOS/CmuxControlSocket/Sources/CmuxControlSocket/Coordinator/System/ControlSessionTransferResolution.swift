@@ -23,12 +23,14 @@ public enum ControlSessionImportResolution: Sendable, Equatable {
     /// `heldBackResumeCount` counts terminals whose resume command was kept
     /// for manual restore instead of running automatically (file imports
     /// only); `droppedRemoteWorkspaceCount` counts workspaces whose SSH/cloud
-    /// connection or environment from the file was dropped.
+    /// connection or environment from the file was dropped; `droppedWorkspaceCount`
+    /// counts workspaces omitted from an untrusted import admission bound.
     case restored(
         sourcePath: String,
         windowCount: Int,
         heldBackResumeCount: Int,
-        droppedRemoteWorkspaceCount: Int
+        droppedRemoteWorkspaceCount: Int,
+        droppedWorkspaceCount: Int
     )
     /// The import failed. `code` is the socket error code (`not_found`,
     /// `invalid_params`, `unsupported`, `invalid_state`, `unavailable`),

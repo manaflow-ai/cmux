@@ -98,6 +98,34 @@ struct SessionSnapshotImportTrustTests {
         #expect(report == SessionSnapshotImportTrustReport())
     }
 
+    @Test("an untrusted import bounds its workspace restore graph")
+    func untrustedImportBoundsWorkspaceCountAndSelection() throws {
+        var original = Self.snapshot(terminal: SessionTerminalPanelSnapshot())
+        let workspace = try #require(original.windows[0].tabManager.workspaces.first)
+        original.windows[0].tabManager.workspaces = Array(
+            repeating: workspace,
+            count: SessionPersistencePolicy.maxUntrustedImportedWorkspacesPerWindow + 2
+        )
+        original.windows[0].tabManager.selectedWorkspaceIndex =
+            SessionPersistencePolicy.maxUntrustedImportedWorkspacesPerWindow + 1
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.fileImport
+        )
+
+        let restoredTabManager = try #require(restored.windows.first?.tabManager)
+        #expect(
+            restoredTabManager.workspaces.count
+                == SessionPersistencePolicy.maxUntrustedImportedWorkspacesPerWindow
+        )
+        #expect(
+            restoredTabManager.selectedWorkspaceIndex
+                == SessionPersistencePolicy.maxUntrustedImportedWorkspacesPerWindow - 1
+        )
+        #expect(report.droppedWorkspaceCount == 2)
+    }
+
     // MARK: - Built-in agents are rebuilt from kind and session id
 
     @Test("a built-in agent resumes from cmux's own command, not the file's launch argv or hook command")
