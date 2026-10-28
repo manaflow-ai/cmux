@@ -286,3 +286,34 @@ test("coalesced changes keep fresh ordering without mutating earlier snapshots",
     client.close();
   }
 });
+
+test("streaming snapshots reuse the list while unread changes still publish", async () => {
+  const { socket, client, latest, snapshots } = await openPane();
+  try {
+    const sessions = latest().sessions;
+    const before = snapshots();
+    for (let n = 1; n <= 20; n++) {
+      socket.notify("session/update", {
+        sessionId: SELECTED,
+        _meta: { acpmux: { seq: transcript.length + n, at: 2_000_000 + n } },
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "next " } },
+      });
+      flushFrames();
+      expect(latest().sessions).toBe(sessions);
+    }
+    expect(snapshots()).toBeGreaterThan(before);
+    socket.notify("_acpmux/session_changed", {
+      session: { ...summary(1), unread: true },
+      kind: "updated",
+    });
+    flushFrames();
+    const unread = latest().sessions;
+    expect(unread.find((session: any) => session.sessionId === SELECTED).unread).toBe(true);
+    await client.select(SELECTED);
+    flushFrames();
+    expect(latest().sessions.find((session: any) => session.sessionId === SELECTED).unread).toBe(false);
+    expect(unread.find((session: any) => session.sessionId === SELECTED).unread).toBe(true);
+  } finally {
+    client.close();
+  }
+});
