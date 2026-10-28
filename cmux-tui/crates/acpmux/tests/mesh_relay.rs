@@ -127,9 +127,11 @@ impl MeshHub for FakeHub {
             let deadline = tokio::time::Instant::now() + wait;
             loop {
                 let changed = self.changed.notified();
-                let mut state = self.state.lock().unwrap();
-                let leased: Vec<_> = state.waiting.drain(..max.min(state.waiting.len())).collect();
-                drop(state);
+                let leased: Vec<_> = {
+                    let mut state = self.state.lock().unwrap();
+                    let n = max.min(state.waiting.len());
+                    state.waiting.drain(..n).collect()
+                };
                 if !leased.is_empty() || self.impatient {
                     return Ok(leased);
                 }
@@ -197,7 +199,7 @@ async fn a_message_for_a_session_here_runs_once_and_is_acked_with_its_prompt_id(
     fake.lease(InMessage { attempt: 2, ..message("msg-1", "dep-land", Kind::Prompt) });
     fake.until("the second ack", |s| s.acked("msg-1").len() == 2).await;
     for ack in fake.with(|s| s.acked("msg-1")) {
-        assert_eq!(ack, Ack::delivered("msg-1", Kind::Prompt));
+        assert_eq!(ack, Ack::delivered("msg-1", None));
     }
     let mut info = Value::Null;
     for _ in 0..600 {
