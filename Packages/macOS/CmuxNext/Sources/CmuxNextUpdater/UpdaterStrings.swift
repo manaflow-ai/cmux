@@ -73,6 +73,16 @@ nonisolated enum UpdaterStrings {
     }
     static var testFeedTitle: String { text("updater.testFeed.title", "Test Update Feed") }
     static var testFeedUseReal: String { text("updater.testFeed.useReal", "Use Real Feed") }
+    // The question before a NIGHTLY build uses a test feed (updates.test_feed)
+    static var testFeedConfirmTitle: String { text("updater.testFeed.confirm.title", "Use a Test Update Feed?") }
+    static func testFeedConfirmBody(_ host: String) -> String {
+        format("updater.testFeed.confirm.body", "cmux will install updates from %@ instead of the cmux feed until it quits. Allow this only if you asked for it.", host)
+    }
+    static func testFeedConfirmPinnedBody(_ host: String) -> String {
+        format("updater.testFeed.confirm.pinnedBody", "cmux will install updates from %@ instead of the cmux feed, also after it restarts. Allow this only if you asked for it.", host)
+    }
+    static var testFeedConfirmUse: String { text("updater.testFeed.confirm.use", "Use Test Feed") }
+    static var testFeedConfirmCancel: String { text("updater.testFeed.confirm.cancel", "Cancel") }
 
 
     /// The footer pill's tooltip and VoiceOver label (SIDEBAR-FOOTER-MINIMAL):

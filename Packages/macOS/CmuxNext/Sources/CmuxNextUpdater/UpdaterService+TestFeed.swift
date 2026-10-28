@@ -4,11 +4,35 @@ import Foundation
 /// "Use Test Update Feed" (coordinator 2026-10-04): DEV and NIGHTLY builds
 /// may read a test appcast instead of the baked feed. Sparkle still checks
 /// every item against the app's own EdDSA key, so a test feed can only
-/// offer builds signed with that key. The feed shows in the card stack and
-/// `updates.status` while active, and ends with the process unless pinned.
+/// offer builds signed with that key, and only a build newer than the running
+/// one (Sparkle's standard version order). The feed shows in the card stack
+/// and `updates.status` while active, and ends with the process unless pinned.
+/// On NIGHTLY, which installs what the feed offers, only the person turns a
+/// test feed on: a request asks them first (``testFeedRequest(url:track:)``).
 extension UpdaterService {
-    /// The pinned test feed, read once at launch.
-    static let pinnedTestFeedKey = "cmux.next.updates.testFeedURL"
+    /// What a request to change the test feed does.
+    public enum TestFeedRequest: Sendable, Equatable {
+        /// Change it now.
+        case apply
+        /// Ask the person first; change it only on their yes.
+        case askFirst
+        /// Not on this build, or not an accepted feed address.
+        case refuse
+    }
+
+    /// A request for `url` (nil: back to the real feed) on a `track` build.
+    public nonisolated static func testFeedRequest(url: String?, track: UpdateTrack) -> TestFeedRequest {
+        guard track == .nightly || track == .development else { return .refuse }
+        guard let url else { return .apply }
+        guard acceptsTestFeed(url) else { return .refuse }
+        return track == .nightly ? .askFirst : .apply
+    }
+
+    /// The pinned test feed, read once at launch. A pin is written only after
+    /// the person's yes on NIGHTLY (the `.v2` key); pins of earlier builds,
+    /// which any socket client could set, are dropped at launch.
+    static let pinnedTestFeedKey = "cmux.next.updates.testFeedURL.v2"
+    static let unconfirmedPinnedTestFeedKey = "cmux.next.updates.testFeedURL"
 
     /// Uses `url` (nil clears) for every check until relaunch, or until
     /// cleared when `pinned`.
@@ -35,13 +59,24 @@ extension UpdaterService {
     }
 
     /// https anywhere, or http on a loopback host (a local test server).
-    static func acceptsTestFeed(_ text: String) -> Bool {
+    nonisolated static func acceptsTestFeed(_ text: String) -> Bool {
         guard let url = URL(string: text), let host = url.host?.lowercased(), !host.isEmpty else { return false }
         switch url.scheme?.lowercased() {
         case "https": return true
         case "http": return ["127.0.0.1", "localhost", "::1"].contains(host)
         default: return false
         }
+    }
+
+    /// The question a NIGHTLY build asks before it uses the test feed `url`
+    /// (``TestFeedRequest/askFirst``): its title, body (naming the feed's
+    /// host), and the use and cancel button titles.
+    public nonisolated static func testFeedConfirmation(url: String, pinned: Bool)
+        -> (title: String, body: String, use: String, cancel: String) {
+        let host = URL(string: url)?.host ?? url
+        return (UpdaterStrings.testFeedConfirmTitle,
+                pinned ? UpdaterStrings.testFeedConfirmPinnedBody(host) : UpdaterStrings.testFeedConfirmBody(host),
+                UpdaterStrings.testFeedConfirmUse, UpdaterStrings.testFeedConfirmCancel)
     }
 
     /// The card that shows while a test feed is active: title, the feed's
@@ -53,6 +88,7 @@ extension UpdaterService {
 
     /// Restores a pinned test feed at launch (DEV and NIGHTLY only).
     func restorePinnedTestFeed() {
+        defaults.removeObject(forKey: Self.unconfirmedPinnedTestFeedKey)
         guard identity.track == .nightly || identity.track == .development,
               let pinned = defaults.string(forKey: Self.pinnedTestFeedKey), Self.acceptsTestFeed(pinned) else { return }
         testFeedURL = pinned
@@ -61,5 +97,5 @@ extension UpdaterService {
 }
 
 extension UpdaterUnavailable {
-    static var testFeedRefused: UpdaterUnavailable { UpdaterUnavailable(text: UpdaterStrings.testFeedRefused) }
+    public static var testFeedRefused: UpdaterUnavailable { UpdaterUnavailable(text: UpdaterStrings.testFeedRefused) }
 }

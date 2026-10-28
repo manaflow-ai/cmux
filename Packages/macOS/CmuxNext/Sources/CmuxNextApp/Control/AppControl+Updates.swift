@@ -1,4 +1,5 @@
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextUpdater
 import CmuxNextWakeups
@@ -18,6 +19,23 @@ import WebKit
 // when the feed is slower than the control deadline), never installs.
 // `updates.web.*`: web updates (CmuxNextWebUpdates).
 extension AppControl {
+    /// The person's yes before a NIGHTLY build uses the test feed `url`:
+    /// Cancel is the default and Escape; only "Use Test Feed" applies it.
+    static func askToUseTestFeed(_ url: String, pinned: Bool, updater: UpdaterService) {
+        let text = UpdaterService.testFeedConfirmation(url: url, pinned: pinned)
+        let spec = CmuxDialogSpec(title: text.title, lines: [text.body],
+                                  buttons: [CmuxDialogButton(id: "cancel", title: text.cancel, role: .cancel),
+                                            CmuxDialogButton(id: "use", title: text.use, role: .normal)],
+                                  identifier: testFeedDialogIdentifier)
+        CmuxDialogCenter.shared.present(spec, in: .app) { answer in
+            guard answer.button == "use" else { return }
+            try? updater.useTestFeed(url, pinned: pinned)
+        }
+    }
+
+    /// The dialog's accessibility identifier; automation may not press it.
+    static let testFeedDialogIdentifier = "cmux.dialog.updatesTestFeed"
+
     func registerUpdateMethods(_ updater: UpdaterService, services appServices: AppServices) {
         service?.router.register([
             .mainActor("updates.status") { _ in .value(Self.json(updater.status, log: updater.log.recent)) },
@@ -72,16 +90,32 @@ extension AppControl {
             },
         ] + WebUpdates.shared.controlMethods)
         // DEV and NIGHTLY only: a test appcast for every check (signatures
-        // still required). `{url: null}` returns to the real feed.
+        // still required). `{url: null}` returns to the real feed. On NIGHTLY,
+        // which installs what the feed offers, the person answers a dialog
+        // first; the reply then says `pending` and the feed changes only on
+        // their yes (`updates.status` shows it).
         if updater.identity.track == .nightly || updater.identity.track == .development {
             service?.router.register([
                 .mainActor("updates.test_feed") { call in
-                    do {
-                        try updater.useTestFeed(call.params["url"]?.stringValue, pinned: call.params["pinned"]?.boolValue == true)
-                    } catch {
-                        throw ControlError.invalidParams(String(describing: error))
+                    let url = call.params["url"]?.stringValue
+                    let pinned = call.params["pinned"]?.boolValue == true
+                    switch UpdaterService.testFeedRequest(url: url, track: updater.identity.track) {
+                    case .refuse:
+                        throw ControlError.invalidParams(UpdaterUnavailable.testFeedRefused.description)
+                    case .apply:
+                        do {
+                            try updater.useTestFeed(url, pinned: pinned)
+                        } catch {
+                            throw ControlError.invalidParams(String(describing: error))
+                        }
+                        return .value(Self.json(updater.status, log: []))
+                    case .askFirst:
+                        guard let url else { throw ControlError.invalidParams(UpdaterUnavailable.testFeedRefused.description) }
+                        Self.askToUseTestFeed(url, pinned: pinned, updater: updater)
+                        guard case .object(var fields) = Self.json(updater.status, log: []) else { return .value(.null) }
+                        fields["pending"] = .bool(true)
+                        return .value(.object(fields))
                     }
-                    return .value(Self.json(updater.status, log: []))
                 },
                 .mainActor("debug.updater") { [weak services = appServices] call in
                     guard let services else { throw ControlError.invalidParams("debug.updater: the app is shutting down") }
