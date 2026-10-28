@@ -57,7 +57,7 @@ export const revokeInstallationToken = async (http: Http, token: string): Promis
  * Per isolate, never stored. Tokens handed to callers are narrowed and kept per principal in the ledger (github-tokens.ts).
  */
 const installationTokens = new Map<number, { token: string; expires_at: number }>()
-const installationToken = async (env: Env, http: Http, installation: number) => {
+export const installationToken = async (env: Env, http: Http, installation: number) => {
   const cached = installationTokens.get(installation)
   if (cached && cached.expires_at - 5 * 60_000 > Date.now()) return cached.token
   const res = await http(new Request(`${GH_API}/app/installations/${installation}/access_tokens`, { method: "POST", headers: ghHeaders(await appJwt(env)) }))

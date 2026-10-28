@@ -7,7 +7,7 @@ import { personalTeamIdFor } from "../domains/user.ts"
 import type { Env } from "../env.ts"
 import { ssoGate } from "../policy-gate.ts"
 import { principalForOwner, selectTeam } from "../team-select.ts"
-import type { TokenAsk, TokenReply } from "./github-tokens.ts"
+import type { RepoListReply, TokenAsk, TokenReply } from "./github-tokens.ts"
 
 /**
  * The GitHub token routes (gh-app-product contract; the work is in github-tokens.ts): POST /token
@@ -16,7 +16,7 @@ import type { TokenAsk, TokenReply } from "./github-tokens.ts"
  * `daemon`, `cli` or `mac` install, or a member's session; chief tokens (`agent`), team VMs, phone
  * and web installs are refused. Errors are `{error: {code, message}}` and never carry a token.
  */
-export const GITHUB_TOKEN_PATH = /^\/v1\/integrations\/github\/(token|token\/revoke|status)$/
+export const GITHUB_TOKEN_PATH = /^\/v1\/integrations\/github\/(token|token\/revoke|status|repos)$/
 
 const TOKEN_INSTALL_KINDS: ReadonlySet<string> = new Set(["vm", "daemon", "cli", "mac"])
 const NO_STORE = { "cache-control": "no-store" }
@@ -30,6 +30,7 @@ interface ConnectionStub {
   githubToken(entity: string, p: Principal, ask: TokenAsk): Promise<TokenReply>
   githubRevoke(entity: string, who: { principal: string } | { install: string }): Promise<number>
   githubStatus(entity: string, p: Principal): Promise<unknown>
+  githubRepos(entity: string, p: Principal, query: { readonly query?: string; readonly cursor?: string }): Promise<RepoListReply>
 }
 const connections = (env: Env, team: string) => env.CONNECTION_DO.get(env.CONNECTION_DO.idFromName(team)) as unknown as ConnectionStub
 
@@ -75,6 +76,18 @@ const teamAdmin = async (env: Env, p: Principal, team: string): Promise<boolean 
 }
 
 export const handleGithubToken = async (request: Request, env: Env, sub: string): Promise<Response> => {
+  if (sub === "repos") {
+    if (request.method !== "GET") return failed(no(405, "request.invalid", "GET"))
+    const url = new URL(request.url)
+    const raw = url.searchParams.get("team") ?? undefined
+    const team = raw === undefined ? undefined : decode(TeamId as unknown as Schema.Codec<string, unknown>, raw)
+    if (isFail(team)) return failed(team)
+    const who = await caller(request, env, team)
+    if (isFail(who)) return failed(who)
+    const query = { ...(url.searchParams.get("query") === null ? {} : { query: url.searchParams.get("query")! }), ...(url.searchParams.get("cursor") === null ? {} : { cursor: url.searchParams.get("cursor")! }) }
+    const listed = await connections(env, who.team).githubRepos(who.team, who.p, query).catch(() => null)
+    return listed === null ? failed(unreachable("the team's GitHub repositories")) : listed.ok ? Response.json(listed.value, { headers: NO_STORE }) : failed(listed)
+  }
   if (sub === "status") {
     if (request.method !== "GET") return failed(no(405, "request.invalid", "GET"))
     const raw = new URL(request.url).searchParams.get("team") ?? undefined

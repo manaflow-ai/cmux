@@ -4,7 +4,7 @@ import type { Connection } from "@cmux/protocol"
 import { githubRepoAllowed, mayUse, policyOf, providerAllowed, type ConnectionsState } from "../domains/connections.ts"
 import type { Env } from "../env.ts"
 import { open, seal, type SealedSecret } from "./crypto.ts"
-import { github, mintedToken, requestInstallationToken, revokeInstallationToken, type Http } from "./providers.ts"
+import { github, installationToken, mintedToken, requestInstallationToken, revokeInstallationToken, type Http } from "./providers.ts"
 
 /**
  * GitHub installation tokens handed to callers (POST /v1/integrations/github/token, gh-app-product
@@ -25,6 +25,10 @@ const [REUSE_MARGIN_MS, MINT_RATE, REVOKE_RETRY_MAX_MS] = [15 * 60_000, { burst:
 export type TokenAsk = { readonly repo: string; readonly permissions: Readonly<Record<string, "read" | "write">>; readonly label?: string; readonly machine?: string }
 export type TokenFail = { readonly ok: false; readonly status: number; readonly code: string; readonly message: string; readonly retry_after?: number }
 export type TokenReply = { readonly ok: true; readonly value: { token: string; expires_at: string; repo: string; permissions: Record<string, string>; token_id: string } } | TokenFail
+
+export type RepoListReply =
+  | { readonly ok: true; readonly value: { readonly repos: ReadonlyArray<{ readonly full_name: string; readonly private: boolean }>; readonly cursor: string | null } }
+  | TokenFail
 
 /** What the ledger needs from its ConnectionDO. */
 export interface LedgerHost {
@@ -110,6 +114,49 @@ export const githubToken = (h: LedgerHost, p: Principal, ask: TokenAsk, now: num
   const work = mintOrReuse(h, picked, p, pk, cacheKey, { ...ask, permissions }, now).finally(() => h.inflight.delete(cacheKey))
   h.inflight.set(cacheKey, work)
   return work
+}
+
+/** Lists repositories visible to every active GitHub installation this principal may use. */
+export const githubRepos = async (
+  h: { readonly env: Env; readonly http: Http; readonly state: () => ConnectionsState },
+  p: Principal,
+  query: { readonly query?: string; readonly cursor?: string },
+): Promise<RepoListReply> => {
+  if (!github.configured(h.env) || !h.env.INTEGRATIONS_KEK) return fail(503, "integration.unavailable", "the cmux GitHub App is not configured on this deployment")
+  const state = h.state()
+  if (!providerAllowed(policyOf(state), "github")) return fail(403, "policy.denied", "the team policy does not allow GitHub")
+  const connections = Object.values(state.connections).filter((c) => c.provider === "github" && c.status === "active" && mayUse(c, p))
+  if (connections.length === 0) return fail(404, "integration.not_found", "this team has no GitHub connection")
+  const seen = new Map<string, { full_name: string; private: boolean }>()
+  for (const connection of connections) {
+    const installation = Number(/^github:installation:(\d+)$/.exec(connection.account?.key ?? "")?.[1])
+    if (!Number.isSafeInteger(installation)) continue
+    let token: string
+    try {
+      token = await installationToken(h.env, h.http, installation)
+    } catch {
+      return fail(503, "integration.unavailable", "GitHub did not answer; retry")
+    }
+    for (let page = 1; page <= 10; page++) {
+      const response = await h.http(new Request(`https://api.github.com/installation/repositories?per_page=100&page=${page}`, { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "cmux-cloud" } })).catch(() => null)
+      if (!response) return fail(503, "integration.unavailable", "GitHub did not answer; retry")
+      if (!response.ok) return response.status === 401 ? fail(409, "needs_reauth", "the GitHub App installation needs to be linked again") : fail(503, "integration.unavailable", "GitHub repository listing failed")
+      const body = (await response.json().catch(() => ({}))) as { repositories?: Array<{ full_name?: unknown; private?: unknown }> }
+      const batch = body.repositories ?? []
+      for (const repo of batch) {
+        const fullName = typeof repo.full_name === "string" ? repo.full_name : ""
+        if (!fullName || !githubRepoAllowed(connection, policyOf(state), fullName)) continue
+        seen.set(fullName.toLowerCase(), { full_name: fullName, private: repo.private === true })
+      }
+      if (batch.length < 100) break
+    }
+  }
+  const needle = query.query?.trim().toLowerCase()
+  const all = [...seen.values()].filter((repo) => !needle || repo.full_name.toLowerCase().includes(needle)).sort((a, b) => a.full_name.localeCompare(b.full_name))
+  const start = query.cursor === undefined ? 0 : Number.parseInt(query.cursor, 10)
+  if (!Number.isSafeInteger(start) || start < 0) return fail(400, "request.invalid", "cursor is invalid")
+  const repos = all.slice(start, start + 100)
+  return { ok: true, value: { repos, cursor: start + repos.length < all.length ? String(start + repos.length) : null } }
 }
 
 /** A row is served only while it is live and nobody revoked it (checked after each await, with no await before the answer). */

@@ -217,6 +217,11 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
 
   async githubStatus(entity: string, principal: Principal) { return ghTokens.githubStatus(this.env, this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), principal) }
 
+  async githubRepos(entity: string, principal: Principal, query: { readonly query?: string; readonly cursor?: string }) {
+    if (!this.boundTo(entity)) return { ok: false as const, status: 404, code: "integration.not_found", message: "this team has no GitHub connection" }
+    return ghTokens.githubRepos({ env: this.env, http: this.http, state: () => this.bind(entity).currentState }, principal, query)
+  }
+
   /** UserDO revoked an install (install.revoke, a machine delete's VM install): its sockets close and its GitHub tokens are revoked. */
   override async closeInstall(entity: string, install: string, agent?: string): Promise<boolean> {
     const done = await super.closeInstall(entity, install, agent)
