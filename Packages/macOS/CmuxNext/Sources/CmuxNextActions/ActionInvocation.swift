@@ -106,6 +106,10 @@ public nonisolated struct ActionInvocation: Sendable, Hashable {
     /// (``ActionRunScope/windowID``). A handler acts in this window; it never asks which window is
     /// key at a later time. Nil only when no window exists.
     public var windowID: String?
+    /// The entrypoint named ``windowID`` itself (or a window target) before the registry resolved it: a
+    /// nested run that names its own window is a run of its own (`ActionRunScope.runID`). Set by
+    /// `ActionRegistry.perform`.
+    var namesOwnWindow = false
 
     public init(target: ActionTargetRef? = nil, arguments: [String: ActionValue] = [:], origin: ActionOrigin = .user,
                 focusRequested: Bool = false) {

@@ -473,7 +473,8 @@ final class KeyRouter: BrowserKeyRouting {
             return ChordTracker.decidesAfterChord(event, resolved: registry.resolveShortcut(for: event)) ? nil : true
         case .run(let id, let argument, let arguments):
             lastInterception = (id, controller.state.id, true)
-            let ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits)
+            let ran = RegistryKeyBindings(registry).run(KeyBinding(keys: [], command: id, argument: argument, arguments: arguments), keyContext: bits,
+                                                        windowID: controller.state.id)
             lastInterception = (id, controller.state.id, ran)
             return true
         case .mismatch:

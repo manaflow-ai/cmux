@@ -123,13 +123,17 @@ extension WindowManager {
     /// (`WindowActivation.didOrder`) and key change (`didActivate`) updates.
     var frontToBack: [WindowController] {
         let recency = registry.value.recency
-        let unlisted = controllers.filter { controller in !recency.contains(controller.state.id) }
-        return unlisted + recency.compactMap { controller(for: $0) }
+        let listed = Set(recency)
+        let byID = Dictionary(controllers.map { ($0.state.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return controllers.filter { !listed.contains($0.state.id) } + recency.compactMap { byID[$0] }
     }
 
     /// The window a sheet, toast, HUD or panel of the current run or input shows on: the run's window
-    /// (``active``), else, with no cmux window open, the key window (Settings, a standalone panel).
-    var presentingWindow: NSWindow? { active?.window ?? services.keyWindowSource() }
+    /// (``active``), else the front shown cmux window, else (no cmux window open) the key window
+    /// (Settings, a standalone panel).
+    var presentingWindow: NSWindow? {
+        active?.window ?? frontToBack.lazy.compactMap(\.window).first(where: \.isVisible) ?? services.keyWindowSource()
+    }
 
     /// The current action run's window: the window its own code brought forward since it started
     /// (`runDidBringForward`), else the window resolved at its entrypoint. Nil outside a run.

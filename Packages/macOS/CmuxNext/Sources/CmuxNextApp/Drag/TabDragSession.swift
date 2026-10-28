@@ -368,11 +368,17 @@ final class TabDragSession: NSObject {
     /// a WindowServer query per pointer event (audit H6). A window's own children (its pages, its overlay)
     /// sit inside its frame, so the window stands for them; the ghost is never a candidate. The app's other
     /// windows (panels, the palette) never hold a drop and are not listed.
+    /// The app's browser popups are top-level windows over the cmux windows: they come first, occluding,
+    /// so the ghost never draws in an overlay a popup covers (it falls back to its own panel). Windows on
+    /// another Space are not under the pointer (a full-screen window's frame is the whole screen).
     func windowOrder(ghost: NSWindow?) -> [TabDragWindowPick.Candidate] {
-        services.windows.frontToBack.compactMap { controller in
+        let shown = { (window: NSWindow) in window.isVisible && !window.isMiniaturized && window.isOnActiveSpace }
+        let popups = services.popups.windows.filter { $0 !== ghost }.map { window in
+            TabDragWindowPick.Candidate(frame: window.frame, controllerID: nil, isVisible: shown(window))
+        }
+        return popups + services.windows.frontToBack.compactMap { controller in
             guard let window = controller.window, window !== ghost else { return nil }
-            return TabDragWindowPick.Candidate(frame: window.frame, controllerID: controller.state.id,
-                                               isVisible: window.isVisible && !window.isMiniaturized)
+            return TabDragWindowPick.Candidate(frame: window.frame, controllerID: controller.state.id, isVisible: shown(window))
         }
     }
 

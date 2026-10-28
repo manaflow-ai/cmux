@@ -103,7 +103,7 @@ final class ScreenDragSession {
     private func window(at point: CGPoint) -> WindowController? {
         services.windows.frontToBack.first { controller in
             guard let window = controller.window else { return false }
-            return window.isVisible && !window.isMiniaturized && window.frame.contains(point)
+            return window.isVisible && !window.isMiniaturized && window.isOnActiveSpace && window.frame.contains(point)
         }
     }
 

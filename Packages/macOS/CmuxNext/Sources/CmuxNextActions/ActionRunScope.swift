@@ -102,7 +102,7 @@ extension ActionRegistry {
             .nested(in: ActionRunScope.current)
         // A run of its own: the outermost one, or a nested one whose input names another window than the outer
         // run's (its later work follows what it brings forward, not what the outer run did).
-        if run.runID == 0 || (invocation.windowID != nil && invocation.windowID != ActionRunScope.current?.windowID) {
+        if run.runID == 0 || (invocation.namesOwnWindow && invocation.windowID != ActionRunScope.current?.windowID) {
             runCount &+= 1
             run.runID = runCount
         }

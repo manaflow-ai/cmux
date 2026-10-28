@@ -215,7 +215,7 @@ extension KeyRouter {
         guard let winner = RegistryKeyBindings(registry).table.resolveWinner(CollectionOfOne(shortcut), in: context, isRunnable: { [registry] in
             RegistryKeyBindings(registry).canPerform($0, in: bits)
         }), registry.descriptor(for: winner.command)?.requires.contains(.browserFocused) == true else { return }
-        RegistryKeyBindings(registry).run(winner, keyContext: bits)
+        RegistryKeyBindings(registry).run(winner, keyContext: bits, windowID: controller.state.id)
     }
 
     /// A key without Command, Control or Option bound to a browser action

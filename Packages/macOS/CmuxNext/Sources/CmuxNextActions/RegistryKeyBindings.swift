@@ -53,8 +53,8 @@ public struct RegistryKeyBindings {
     /// Runs a resolved binding with the context of the window whose key
     /// ran it, so availability is checked against that window, never
     /// against the context another window published.
-    @discardableResult
     /// `windowID`: the window the key was typed in (the run's `WindowTarget`, named by the input itself).
+    @discardableResult
     public func run(_ binding: KeyBinding, keyContext: ActionContext, windowID: String? = nil) -> Bool {
         var invocation = ActionInvocation(arguments: binding.arguments)
         invocation.windowID = windowID
