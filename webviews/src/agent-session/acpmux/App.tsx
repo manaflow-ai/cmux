@@ -2175,6 +2175,9 @@ export function VirtualTranscript({
   const wheelGlide = useRef<ReturnType<typeof installWheelGlide>>(undefined);
   // The last transcript box on this page until this one is measured (before its first paint, below).
   const [height, setHeight] = useState(() => lastTranscriptBox.height);
+  // The native pane's width, distinct from the transcript scroller's width when Push always reserves
+  // a Session Info column. The pane-pinned rail uses this so its inset never follows that column.
+  const [paneWidth, setPaneWidth] = useState(() => lastTranscriptBox.width);
   /// The scrollbar's lane (scrollers.ts SHOWN_SCROLLER_ATTRIBUTE: always there, its thumb drawn while
   /// the chat overflows). The rows lay out across it, against the scroller's full width as the
   /// composer does, so the column matches the composer's and nothing reflows as a chat starts to scroll.
@@ -2636,6 +2639,8 @@ export function VirtualTranscript({
       const nextLane = Math.max(0, node.offsetWidth - node.clientWidth);
       setWidth(node.clientWidth + nextLane);
       setLane(nextLane);
+      const shellWidth = node.closest<HTMLElement>(".acpmux-shell")?.clientWidth;
+      setPaneWidth(shellWidth && shellWidth > 0 ? shellWidth : node.clientWidth + nextLane);
       if (node.clientHeight > 0) lastTranscriptBox.height = node.clientHeight;
       if (node.clientWidth > 0) lastTranscriptBox.width = node.clientWidth + nextLane;
     };
@@ -4010,7 +4015,8 @@ export function VirtualTranscript({
             // rail's rows stay above its bottom band.
             foot={height - dockSpace}
             scrolls={layout.totalHeight - height > 0.5}
-            width={width}
+            width={paneWidth}
+            columnWidth={width}
             placed={minimapPlaced}
             change={rowsChange.current}
           />

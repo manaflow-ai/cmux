@@ -6,7 +6,7 @@
 // mark jumps to it (a prompt as the compact rail's click does); a click on the track jumps there;
 // dragging anywhere scrubs the transcript. Geometry is the transcript's layout (mapGeometry.ts).
 import React, { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
+import { type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
 import { MinimapTick } from "../../../ui/MinimapTick";
 import { useHoverIntent } from "../../../ui/hoverIntent";
@@ -100,8 +100,8 @@ export function ScrollMap({
   const card = useRef<HTMLDivElement>(null);
   const cardId = useId();
   const press = useRef<Press | undefined>(undefined);
-  const placement = railPlacement(transcriptColumn(width).inset);
-  const shown = turns.length >= MAP_MIN_PROMPTS && scrolls && height > 4 * MAP_MARGIN && !placement.hidden;
+  const placement = railPlacement(width);
+  const shown = turns.length >= MAP_MIN_PROMPTS && scrolls && height > 4 * MAP_MARGIN;
 
   /// The marks the view bar covers (first and last place in `marks`), for their "current" tone.
   /// The bar moves by style on each scroll frame; this renders only when the covered marks change.
