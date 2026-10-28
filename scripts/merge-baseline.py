@@ -16,7 +16,7 @@ a conflict, written as ordinary conflict markers around that entry.
   .json        nested objects of counts in a generator's format (indent=1,
                sorted keys or the writer's own key order, which the result
                keeps), merged key by key; an object left empty is dropped.
-               Both sides lowering the same count keeps the higher one. A
+               Both sides lowering the same count keeps the lower one. A
                file in any other shape, or an entry both sides changed in
                any other way (a raise), is a conflict: both whole files
                between markers.
@@ -96,11 +96,11 @@ def is_count(value) -> bool:
 
 
 def merge_leaf(base, ours, theirs):
-    """(result, conflict) for one leaf. Both sides lowering the same count keeps the higher: the merged code can still
-    hold hits only one side removed, and a ratchet never rises above its base (a later --update-baseline lowers it)."""
+    """(result, conflict) for one leaf. Both sides lowering the same count keeps the lower: the merged code has both
+    sides' fixes, so its count is at most min(ours, theirs) (base + dA + dB with dA, dB <= 0) and the ratchet stays tight."""
     result, clash = merge_value(base, ours, theirs)
     if clash and is_count(base) and is_count(ours) and is_count(theirs) and ours < base and theirs < base:
-        return max(ours, theirs), False
+        return min(ours, theirs), False
     return result, clash
 
 
