@@ -77,8 +77,9 @@ export const sweepDeps = (env: Env): SweepDeps => ({
 
 /** A page of user ids from the PlanetScale Vitess projection. */
 export const listUsersMysql = async (env: Env, after: string | null, limit: number): Promise<Array<string>> => {
-  const target = env.PS_MYSQL_RO ?? env.PS_MYSQL
-  if (!target) throw new Error("PS_MYSQL binding missing")
+  // The reader only: a projection read never goes through the writer binding.
+  const target = env.PS_MYSQL_RO
+  if (!target) throw new Error("PS_MYSQL_RO binding missing")
   const { connectMysql } = await import("./mysql-connect.ts")
   const client = await connectMysql(target)
   try {

@@ -61,7 +61,7 @@
       "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1101", "simple": { "limit": 30, "period": 60 } }, { "name": "PAIR_BEGIN_LIMIT", "namespace_id": "1111", "simple": { "limit": 10, "period": 60 } }, { "name": "GOOGLE_HOOK_FAIL_LIMIT", "namespace_id": "1131", "simple": { "limit": 60, "period": 60 } }, { "name": "HOME_ATTACHMENT_LIMIT", "namespace_id": "1141", "simple": { "limit": 60, "period": 60 } }, { "name": "CLOUD_MUTATION_LIMIT", "namespace_id": "1151", "simple": { "limit": 30, "period": 60 } }, { "name": "CLOUD_KEYSET_LIMIT", "namespace_id": "1161", "simple": { "limit": 60, "period": 60 } }, { "name": "WIRE_TICKET_LIMIT", "namespace_id": "1191", "simple": { "limit": 60, "period": 60 } }, { "name": "STACK_READ_LIMIT", "namespace_id": "1201", "simple": { "limit": 4, "period": 60 } }, { "name": "INFERENCE_FREE_IP_LIMIT", "namespace_id": "1171", "simple": { "limit": 60, "period": 60 } }, { "name": "INFERENCE_FREE_GRANT_LIMIT", "namespace_id": "1181", "simple": { "limit": 2, "period": 60 } }],
       // Home attachments: private bucket (no public access, no custom domain); the Worker hashes uploads and signs downloads.
       "r2_buckets": [{ "binding": "HOME_ATTACHMENTS", "bucket_name": "cmux-home-attachments-development" }],
-      // PS_MYSQL/PS_MYSQL_RO: PlanetScale MySQL cmux-next-vitess development (readwriter / reader), the dual-write shadow (state-placement.md 4.5).
+      // PS_MYSQL/PS_MYSQL_RO: PlanetScale MySQL cmux-next-vitess development (readwriter / reader): every projection read (reader), writes per PROJECTION_PRIMARY/SHADOW.
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "395af91311c0494a91da6876b0df6d49" }, { "binding": "PS_MYSQL", "id": "60893ba4eaef437a91a77da71730ea9b" }, { "binding": "PS_MYSQL_RO", "id": "fe1e9fd2a3844fbfabcb12110832c394" }]
     },
     "staging": {
@@ -113,7 +113,7 @@
       "ratelimits": [{ "name": "SSO_DISCOVER_LIMIT", "namespace_id": "1102", "simple": { "limit": 30, "period": 60 } }, { "name": "PAIR_BEGIN_LIMIT", "namespace_id": "1112", "simple": { "limit": 10, "period": 60 } }, { "name": "GOOGLE_HOOK_FAIL_LIMIT", "namespace_id": "1132", "simple": { "limit": 60, "period": 60 } }, { "name": "HOME_ATTACHMENT_LIMIT", "namespace_id": "1142", "simple": { "limit": 60, "period": 60 } }, { "name": "CLOUD_MUTATION_LIMIT", "namespace_id": "1152", "simple": { "limit": 30, "period": 60 } }, { "name": "CLOUD_KEYSET_LIMIT", "namespace_id": "1162", "simple": { "limit": 60, "period": 60 } }, { "name": "WIRE_TICKET_LIMIT", "namespace_id": "1192", "simple": { "limit": 60, "period": 60 } }, { "name": "STACK_READ_LIMIT", "namespace_id": "1202", "simple": { "limit": 4, "period": 60 } }, { "name": "INFERENCE_FREE_IP_LIMIT", "namespace_id": "1172", "simple": { "limit": 60, "period": 60 } }, { "name": "INFERENCE_FREE_GRANT_LIMIT", "namespace_id": "1182", "simple": { "limit": 2, "period": 60 } }],
       // Home attachments: private bucket (no public access, no custom domain); the Worker hashes uploads and signs downloads.
       "r2_buckets": [{ "binding": "HOME_ATTACHMENTS", "bucket_name": "cmux-home-attachments-staging" }],
-      // PS_MYSQL/PS_MYSQL_RO: PlanetScale MySQL cmux-next-vitess staging (readwriter / reader), the dual-write shadow (state-placement.md 4.5).
+      // PS_MYSQL/PS_MYSQL_RO: PlanetScale MySQL cmux-next-vitess staging (readwriter / reader): every projection read (reader), writes per PROJECTION_PRIMARY/SHADOW.
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "9761093781aa4d6f8a1ad00848663266" }, { "binding": "PS_MYSQL", "id": "7262c6189a304aa691bb10a88732f65c" }, { "binding": "PS_MYSQL_RO", "id": "5127d85285c7461f8e6a8f799646fbd5" }],
       "routes": [{ "pattern": "cloud-api-staging.cmux.dev", "custom_domain": true }]
     },
@@ -165,8 +165,8 @@
       // Home attachments: private bucket (no public access, no custom domain); the Worker hashes uploads and signs downloads.
       "r2_buckets": [{ "binding": "HOME_ATTACHMENTS", "bucket_name": "cmux-home-attachments" }],
       // PS_MYSQL/PS_MYSQL_RO: PlanetScale MySQL cmux-next-vitess main (readwriter / reader passwords cmux-next-prod-rw/ro-20261028),
-      // Hyperdrive cmux-next-vitess-production / cmux-next-vitess-ro-production (caching disabled). Shadow writes and reads
-      // (vitess-migration-DESIGN.md section 4 step 4); Postgres stays primary until the production cutover.
+      // Hyperdrive cmux-next-vitess-production / cmux-next-vitess-ro-production (caching disabled). Every projection read
+      // goes to PS_MYSQL_RO; writes follow PROJECTION_PRIMARY/SHADOW (vitess-migration-DESIGN.md section 4).
       "hyperdrive": [{ "binding": "HYPERDRIVE", "id": "ef387ca3b20b4ea7878e02746d9545ef" }, { "binding": "PS_MYSQL", "id": "0533eedddc1e4195adf0d42a4c325fce" }, { "binding": "PS_MYSQL_RO", "id": "d3bc1fb86f494cd09810b4872238ceb1" }],
       "routes": [{ "pattern": "cloud-api.cmux.dev", "custom_domain": true }]
     }
