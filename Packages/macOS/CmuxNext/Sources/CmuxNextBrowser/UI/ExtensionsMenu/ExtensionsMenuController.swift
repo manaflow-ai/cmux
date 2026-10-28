@@ -71,7 +71,12 @@ final class ExtensionsMenuController {
             return button.bounds.contains(button.convert(event.locationInWindow, from: nil))
         }
         popup.onDismiss = { [weak self] in self?.closed() }
-        manifests.onLoad = { [weak self] in self?.render() }
+        manifests.onLoad = { [weak self] in
+            guard let self else { return }
+            // A manifest that loads after a prepare changes rows; a closed bubble commits them
+            // before a click does.
+            if !self.isShown, let host = self.host { self.prepare(host: host) } else { self.render() }
+        }
         content.actions = ExtensionsMenuView.Actions(
             run: { [weak self] id in self?.run(id) },
             // A side panel extension without a popup opens its panel from its action
@@ -147,18 +152,46 @@ final class ExtensionsMenuController {
         warmPanel()
     }
 
-    /// Whether the panel has been on screen once.
-    private var panelWarm = false
+    /// Whether a closed bubble's rows changed since the panel last committed them.
+    private var needsCommit = true
 
-    /// Orders the panel in once, invisible and without the keys, so the window server builds its
+    /// What the last render showed, so a render that changes nothing leaves the panel alone. It
+    /// holds what `ExtensionsMenuView.update` compares before it touches a row (an icon is not
+    /// re-applied to a row whose facts are unchanged).
+    private var renderedRows: RenderedRows?
+
+    private struct RenderedRows: Equatable {
+        struct Row: Equatable {
+            var info: BrowserExtensionInfo
+            var access: ExtensionSiteAccess
+            var canPin: Bool
+            var hasSidePanel: Bool
+            var tooltip: String?
+
+            init(_ entry: ExtensionsMenuView.Entry) {
+                info = entry.info
+                access = entry.access
+                canPin = entry.canPin
+                hasSidePanel = entry.hasSidePanel
+                tooltip = entry.tooltip
+            }
+        }
+
+        var rows: [Row]
+        var site: String?
+    }
+
+    /// Orders the panel in, invisible and without the keys, so the window server builds its
     /// backing store and the glass before the first click; that first order-in was most of a
     /// cold open. The content's layer tree is committed while the panel is in: without that
     /// commit the first click's entrance (`openPopup`'s flush) sent the whole tree to the render
     /// server, 45-120 ms of the click's main thread against 8 ms for a reopen (the fleet's
-    /// phase timing, 2026-10-27).
+    /// phase timing, 2026-10-27). It runs again after rows change while the bubble is closed
+    /// (a tab bind, an extension or manifest change), so a later first open commits nothing new;
+    /// those runs commit only what changed.
     private func warmPanel() {
-        guard !panelWarm, !panel.isVisible else { return }
-        panelWarm = true
+        guard needsCommit, !panel.isVisible else { return }
+        needsCommit = false
         let alpha = panel.alphaValue
         panel.alphaValue = 0
         let card = NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: content.frame.size)
@@ -166,7 +199,7 @@ final class ExtensionsMenuController {
         panel.contentView?.wantsLayer = true
         panel.orderFront(nil)
         panel.displayIfNeeded()
-        // perf-gate-ok: one commit per bubble, at prepare (off the click's path), so the first open commits only what changed.
+        // perf-gate-ok: commits the closed bubble's changed rows at prepare (off the click's path), so the first open commits only what changed.
         CATransaction.flush()
         panel.orderOut(nil)
         panel.alphaValue = alpha
@@ -183,7 +216,7 @@ final class ExtensionsMenuController {
         let listed = Self.listed(host)
         manifests.load(listed)
         let before = content.frame.size
-        content.update(listed.map { info in
+        let entries = listed.map { info in
             let facts = manifests.facts(for: info)
             return ExtensionsMenuView.Entry(
                 info: info, icon: icons.image(for: info, png: pngs[info.id] ?? nil), access: ExtensionSiteAccess(facts, url: url),
@@ -192,7 +225,14 @@ final class ExtensionsMenuController {
                 // The Web Store lists only uBlock Origin Lite; the full one ships inside cmux.
                 tooltip: builtInAdBlocker && info.id == CEFBuiltInExtensions.adBlockerID ? Strings.builtInAdBlocker : nil
             )
-        }, site: Self.site(of: url))
+        }
+        let site = Self.site(of: url)
+        let key = RenderedRows(rows: entries.map(RenderedRows.Row.init), site: site)
+        if key != renderedRows {
+            renderedRows = key
+            if !isShown { needsCommit = true }
+        }
+        content.update(entries, site: site)
         content.layoutSubtreeIfNeeded()
         if isShown, content.frame.size != before, let window = panel.parent {
             popup.show(size: content.frame.size, anchor: anchorRect, in: window, preferred: anchorView?.toolbarPopupSide ?? .below, trailing: true)
