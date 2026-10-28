@@ -517,3 +517,7 @@ pub(super) mod tests;
 #[cfg(all(test, unix))]
 #[path = "untrusted_mint_tests.rs"]
 mod untrusted_mint_tests;
+
+#[cfg(all(test, unix))]
+#[path = "switch_on_felt_terminal_async_start_tests.rs"]
+mod switch_on_felt_terminal_async_start_tests;
