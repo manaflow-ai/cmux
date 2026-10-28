@@ -89,6 +89,12 @@ impl Hub {
         if self.logged_prompt(session, &id).is_some() {
             return;
         }
+        // Stop need not wait for lazy log loading. If it arrived before this mark could be
+        // restored, persist its decision now; later restarts must respect that Stop too.
+        if session.cancels.load(std::sync::atomic::Ordering::SeqCst) != 0 {
+            self.settled_unretried(session, &turn_id, "stopped");
+            return;
+        }
         let wake = Arc::new(Notify::new());
         pending.insert(
             session.id.clone(),
