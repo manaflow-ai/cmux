@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  checkRunningLineLoops,
-  hasCompleteRunningLineShimmer,
-  type RunningLineLoop,
-} from "./runningLineMotion";
+import { checkRunningLineLoops, hasCompleteRunningLineShimmer, type RunningLineLoop } from "./runningLineMotion";
 
 const element = (className: string, parent?: Element): Element => {
   const classes = new Set(className.split(/\s+/).filter(Boolean));
@@ -22,9 +18,7 @@ const pair = () => {
 const loop = (
   name: string,
   target: Element | null,
-  overrides: Partial<
-    Pick<RunningLineLoop, "playState" | "playbackRate" | "currentTime" | "duration">
-  > = {},
+  overrides: Partial<Pick<RunningLineLoop, "playState" | "playbackRate" | "currentTime" | "duration">> = {},
 ): RunningLineLoop => ({
   name,
   target,
@@ -37,10 +31,7 @@ const loop = (
 
 test("the approved shimmer has one active loop on each text layer", () => {
   const { band, lit } = pair();
-  const check = checkRunningLineLoops([
-    loop("cmux-shimmer-band", band),
-    loop("cmux-shimmer-lit", lit),
-  ]);
+  const check = checkRunningLineLoops([loop("cmux-shimmer-band", band), loop("cmux-shimmer-lit", lit)]);
   expect(check.unapproved).toHaveLength(0);
   expect(check.duplicateTargets).toHaveLength(0);
   expect(hasCompleteRunningLineShimmer(check)).toBe(true);
@@ -59,15 +50,8 @@ test("a duplicate loop on one layer is still a running-line failure", () => {
 
 test("paused, zero-rate, and stalled layers are not treated as shimmer", () => {
   const { band, lit } = pair();
-  for (const overrides of [
-    { playState: "paused" as const },
-    { playbackRate: 0 },
-    { currentTime: null },
-  ]) {
-    const check = checkRunningLineLoops([
-      loop("cmux-shimmer-band", band, overrides),
-      loop("cmux-shimmer-lit", lit),
-    ]);
+  for (const overrides of [{ playState: "paused" as const }, { playbackRate: 0 }, { currentTime: null }]) {
+    const check = checkRunningLineLoops([loop("cmux-shimmer-band", band, overrides), loop("cmux-shimmer-lit", lit)]);
     expect(hasCompleteRunningLineShimmer(check)).toBe(false);
   }
 });
