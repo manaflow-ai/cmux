@@ -138,6 +138,85 @@ struct DeviceRouteSelectorTests {
     }
 
     @MainActor
+    @Test("Iroh refusals and identity failures never attempt a fallback connection")
+    func deniedIrohDoesNotFallBack() async throws {
+        let routes = try connectionRoutes()
+        let failures: [any Error] = [
+            IrxAdmissionDenied(code: .invalidGrant), IrxAdmissionDenied(code: .revoked),
+            IrxAdmissionDenied(code: .identityMismatch), IrxAdmissionDenied(code: .protocolMismatch),
+            IrxMacPeerAuthorization.Failure.revoked, IrxMacPeerAuthorization.Failure.notDiscoverable,
+            DeviceLinkError.identityMismatch, DeviceLinkError.identityUnproven,
+            MobileShellConnectionError.authorizationFailed, CancellationError(),
+        ]
+        for failure in failures {
+            var attempts: [CmxAttachTransportKind] = []
+            await #expect(throws: (any Error).self) {
+                try await DeviceLinkConnectionAttempt.connect(
+                    routes: routes, instance: studio, hostName: "Studio",
+                    selector: DeviceRouteSelector(allowsIroh: true), grant: { self.grant(for: $0) }
+                ) { selection -> CmxAttachRoute in
+                    attempts.append(selection.route.kind)
+                    if selection.route.kind == .iroh { throw failure }
+                    return selection.route
+                }
+            }
+            #expect(attempts == [.iroh])
+        }
+    }
+
+    @MainActor
+    @Test("Fallback requires a current grant and respects explicit opt-out", arguments: [false, true])
+    func connectionFallbackRequiresCurrentGrant(allowsFallback: Bool) async throws {
+        let routes = try connectionRoutes()
+        var attempts: [CmxAttachTransportKind] = []
+        var grantAvailable = true
+        await #expect(throws: DeviceLinkError.notConnected) {
+            try await DeviceLinkConnectionAttempt.connect(
+                routes: routes, instance: studio, hostName: "Studio",
+                selector: DeviceRouteSelector(allowsIroh: true, allowsLegacyTailscale: allowsFallback),
+                grant: { grantAvailable ? self.grant(for: $0) : nil }
+            ) { selection -> CmxAttachRoute in
+                attempts.append(selection.route.kind)
+                if selection.route.kind == .iroh {
+                    if allowsFallback { grantAvailable = false }
+                    throw DeviceLinkError.notConnected
+                }
+                return selection.route
+            }
+        }
+        #expect(attempts == [.iroh])
+    }
+
+    @MainActor
+    @Test("Cancellation during an Iroh attempt prevents a fallback dial")
+    func cancelledIrohDoesNotFallBack() async throws {
+        let routes = try connectionRoutes()
+        let task = Task { @MainActor in
+            var attempts: [CmxAttachTransportKind] = []
+            await #expect(throws: CancellationError.self) {
+                try await DeviceLinkConnectionAttempt.connect(
+                    routes: routes, instance: studio, hostName: "Studio",
+                    selector: DeviceRouteSelector(allowsIroh: true), grant: { self.grant(for: $0) }
+                ) { selection -> CmxAttachRoute in
+                    attempts.append(selection.route.kind)
+                    withUnsafeCurrentTask { $0?.cancel() }
+                    throw DeviceLinkError.notConnected
+                }
+            }
+            #expect(attempts == [.iroh])
+        }
+        await task.value
+    }
+
+    private func connectionRoutes() throws -> [CmxAttachRoute] {
+        try [
+            CmxAttachRoute(id: "iroh", kind: .iroh,
+                endpoint: .peer(identity: CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)), pathHints: [])),
+            route("ts", kind: .tailscale, host: "100.64.0.1", priority: 0),
+        ]
+    }
+
+    @MainActor
     @Test("The per-peer runtime retains real fallback transports and their authorization checks")
     func automaticRuntimeKeepsFallbackTransport() async throws {
         let suite = "DeviceRouteSelector-\(UUID().uuidString)"
