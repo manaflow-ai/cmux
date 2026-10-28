@@ -653,9 +653,29 @@ jobs:
           # job's runs-on (Blacksmith Linux), so a job still queued on the
           # retired Mac pools is not waited for.
           DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
+          # How long a live owner holds its key before a feat-cmux-next push
+          # takes it over. A healthy owner publishes about 20 minutes after it
+          # starts; on 2026-10-28 owners hung for up to an hour in a Zig fetch
+          # while every later push of the key deferred to them, and the
+          # feat-cmux-next tree went 2 hours unpublished.
+          OWNER_LEASE_MINUTES: 25
         run: |
           set -euo pipefail
           takeover=true
+          # A run still active past the lease since its (latest attempt's)
+          # start is stuck: it no longer holds its key.
+          past_lease() {
+            python3 -c '
+          import json, sys
+          from datetime import datetime, timezone
+          d = json.loads(sys.argv[1])
+          started = d.get("run_started_at") or d.get("created_at") or ""
+          if d.get("status") not in ("queued", "in_progress", "waiting", "pending", "requested") or not started:
+              raise SystemExit(1)
+          age = datetime.now(timezone.utc) - datetime.fromisoformat(started.replace("Z", "+00:00"))
+          raise SystemExit(0 if age.total_seconds() >= 60 * int(sys.argv[2]) else 1)
+          ' "$1" "${OWNER_LEASE_MINUTES:-25}" 2>/dev/null
+          }
           tree_ready() {
             local base="https://files.cmux.com/cmux-tui/tree/$KEY"
             for asset in cmux-tui-aarch64-apple-darwin cmux-tui-app-host-aarch64-apple-darwin cmux-tui-cloud-server-aarch64-apple-darwin; do
@@ -711,9 +731,17 @@ jobs:
             # key: it leaves a cmux-tui-tree-feat-builder-<key> artifact, and a
             # later feat-cmux-next push of the key defers to that run while it
             # is active. A lookup that fails keeps the old deferral.
+            #
+            # An owner of any kind still active past its lease is stuck (a hung
+            # build): a feat-cmux-next push takes the key over the same way,
+            # and later pushes defer to it, not to the stuck owner, through its
+            # builder marker while it holds its own lease.
             branch_owner_takeover=false
+            owner_stuck=false
+            if past_lease "$owner_json"; then owner_stuck=true; fi
             if [[ "${EVENT_NAME:-}" == push && "${REF:-}" == refs/heads/feat-cmux-next ]] &&
-                python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d.get("status") in ("queued", "in_progress", "waiting", "pending", "requested") and not (d.get("event") == "push" and d.get("head_branch") == "feat-cmux-next") else 1)' "$owner_json" 2>/dev/null; then
+                { [[ "$owner_stuck" == true ]] ||
+                  python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d.get("status") in ("queued", "in_progress", "waiting", "pending", "requested") and not (d.get("event") == "push" and d.get("head_branch") == "feat-cmux-next") else 1)' "$owner_json" 2>/dev/null; }; then
               if builders="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
                   -u "x-access-token:$GH_TOKEN" \
                   -H 'Accept: application/vnd.github+json' \
@@ -725,9 +753,13 @@ jobs:
                     -u "x-access-token:$GH_TOKEN" \
                     -H 'Accept: application/vnd.github+json' \
                     "$API_URL/repos/$REPOSITORY/actions/runs/$builder" 2>/dev/null \
-                    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({k: d.get(k) for k in ("status", "event", "head_branch")}))' 2>/dev/null || echo '{}')"
+                    | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({k: d.get(k) for k in ("status", "event", "head_branch", "run_started_at", "created_at")}))' 2>/dev/null || echo '{}')"
                   builder_state="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("status") or "unknown")' "$builder_json" 2>/dev/null || echo unknown)"
-                  if [[ "$builder_state" != completed ]]; then
+                  if [[ "$builder_state" == completed ]]; then
+                    continue
+                  elif past_lease "$builder_json"; then
+                    echo "feat-cmux-next builder run $builder of tree $KEY is past its ${OWNER_LEASE_MINUTES:-25}-minute lease; not deferring to it."
+                  else
                     echo "feat-cmux-next run $builder ($builder_state) already builds tree $KEY in place of branch owner $OWNER_RUN_ID; this run defers to it."
                     branch_owner_takeover=false
                     # The run deferred to from here on, for the marker check
@@ -774,7 +806,11 @@ jobs:
               feat_builder=true
               # Both may publish; the publish jobs keep whichever complete
               # commit and tree publication exists first (write-once objects).
-              echo "Owner run $OWNER_RUN_ID ($owner_state) is not a feat-cmux-next push; this feat-cmux-next head builds tree $KEY itself instead of waiting for that run's daemon tests."
+              if [[ "$owner_stuck" == true ]]; then
+                echo "Owner run $OWNER_RUN_ID ($owner_state) is past its ${OWNER_LEASE_MINUTES:-25}-minute lease without publishing tree $KEY; this feat-cmux-next head takes the key over and builds it."
+              else
+                echo "Owner run $OWNER_RUN_ID ($owner_state) is not a feat-cmux-next push; this feat-cmux-next head builds tree $KEY itself instead of waiting for that run's daemon tests."
+              fi
             elif [[ "$owner_state" == in_progress* || "$owner_state" == queued* || "$owner_state" == waiting* || "$owner_state" == pending* ]]; then
               # A live owner builds; the claim is not asked, since an owner the
               # run-list fallback elected holds no claim to refuse a second one.
@@ -3012,6 +3048,10 @@ jobs:
   # Main's promote guard and request-nightly-next.sh require one, so main never
   # needs the tree key; reading it is a CDN GET, no API call. Write-once. A
   # dispatch on feat-cmux-next (request-nightly-next.sh's backfill) runs it too.
+  # It also walks the last 40 from the branch tip as it is now: newer commits
+  # that share a tree this run published late (a takeover after the owner's
+  # publish failed) ran this job before the tree existed, so only this run can
+  # mark them without a backfill (2026-10-28: a P0 fix's promote waited on it).
   mark-tree-commits:
     environment: artifacts
     name: mark the commits whose tree is ready
@@ -3033,7 +3073,9 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-        run: scripts/cmux-next/tree-commit-marker.sh write --window 40
+        # --tip-branch: the script fetches the tip (the public repository needs
+        # no credentials) after listing this commit's window.
+        run: scripts/cmux-next/tree-commit-marker.sh write --window 40 --tip-branch feat-cmux-next
 
   # nightly-next is promoted only to a commit whose cmux-tui tree is published
   # and whose cmux-next Release compile passed, so the nightly builds its tip

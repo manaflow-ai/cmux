@@ -5538,6 +5538,62 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "space move-to-start",
+      "context_menu" : "dragGesture",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "space.moveToStart",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Space to Start",
+      "title_key" : "action.space.moveToStart",
+      "title_table" : "ProfileActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "space move-to-end",
+      "context_menu" : "dragGesture",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "space.moveToEnd",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move Space to End",
+      "title_key" : "action.space.moveToEnd",
+      "title_table" : "ProfileActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "space move",
       "context_menu" : "dragGesture",
       "context_menus" : [
@@ -28596,6 +28652,62 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "settings open-sign-in-pages-in-cmux",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "links.signInPagesInCmux",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Sign-In Pages: Open in cmux Browser",
+      "title_key" : "action.links.signInPagesInCmux",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings sign-in-pages-follow-link-settings",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "links.signInPagesByLinkSettings",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Sign-In Pages: Follow Link Settings",
+      "title_key" : "action.links.signInPagesByLinkSettings",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "settings toggle-focus-ring",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -29117,6 +29229,174 @@
       "palette_suggested" : null,
       "title" : "Reset Interface Scale",
       "title_key" : "action.appearance.uiScale.reset",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action help-troubleshooting",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "help.troubleshooting",
+      "main_menu" : "help",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Troubleshooting and Support",
+      "title_key" : "action.help.troubleshooting",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action help-discord",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "help.discord",
+      "main_menu" : "help",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Join the cmux Discord",
+      "title_key" : "action.help.discord",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action help-follow-on-x",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "help.followOnX",
+      "main_menu" : "help",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Follow @cmux on X",
+      "title_key" : "action.help.followOnX",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action help-github",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "help.github",
+      "main_menu" : "help",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "cmux on GitHub",
+      "title_key" : "action.help.github",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action help-reveal-logs",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "help.revealLogs",
+      "main_menu" : "help",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Reveal Logs in Finder",
+      "title_key" : "action.help.revealLogs",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action help-copy-logs",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "help.copyLogs",
+      "main_menu" : "help",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Copy Logs",
+      "title_key" : "action.help.copyLogs",
       "title_table" : "ActionCatalog"
     },
     {
@@ -34140,6 +34420,62 @@
       "palette_suggested" : null,
       "title" : "Restore Sidebar Fade",
       "title_key" : "action.sidebar.noFade.off",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar hide-controls-until-hover",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.controlsOnHover.on",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Sidebar Controls Only on Hover",
+      "title_key" : "action.sidebar.controlsOnHover.on",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "sidebar show-controls-always",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.controlsOnHover.off",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Always Show Sidebar Controls",
+      "title_key" : "action.sidebar.controlsOnHover.off",
       "title_table" : "SidebarSectionActions"
     },
     {
@@ -41996,14 +42332,40 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.controlsOnHover.on",
+              "kind" : "action",
+              "order" : 9,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.controlsOnHover.off",
+              "kind" : "action",
+              "order" : 10,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 9
+              "order" : 11
             },
             {
               "enabled_when" : "can_perform",
               "id" : "sidebar.layout.reset",
               "kind" : "action",
-              "order" : 10,
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

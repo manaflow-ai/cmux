@@ -174,7 +174,9 @@ impl Translator {
                             // One model call's own usage, marked so a client can add a turn's
                             // calls up (the pane's running line). The result's resend below is
                             // the context ring's and is not marked. A subagent's calls are
-                            // marked too: they are the turn's spend.
+                            // marked too: they are the turn's spend. The four counts split the
+                            // call so the line can say its output apart from what it read (fresh
+                            // input, cache reads and cache writes).
                             out.push(upd(json!({
                                 "sessionUpdate": "usage_update",
                                 "used": used,

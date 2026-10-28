@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 511,
+  "count": 515,
   "sections": [
     {
       "id": "general",
@@ -1407,6 +1407,27 @@
           "kind": "toggle",
           "default": true,
           "group": "Sidebar"
+        },
+        {
+          "key": "workspaces.hibernation.enabled",
+          "title": "Hibernate Idle Workspaces",
+          "help": "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Hibernation"
+        },
+        {
+          "key": "workspaces.hibernation.idleMinutes",
+          "title": "Hibernate After",
+          "help": "A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate.",
+          "kind": "number",
+          "default": 60,
+          "group": "Hibernation",
+          "range": {
+            "min": 5,
+            "max": 10080,
+            "unit": "minutes"
+          }
         },
         {
           "key": "workspaces.newPlacement",
@@ -2998,6 +3019,14 @@
           ]
         },
         {
+          "key": "sidebar.controlsOnHover",
+          "title": "Show Sidebar Controls Only on Hover",
+          "help": "The sidebar's New Workspace button, spaces, profile button and Search button show only while the pointer is over the sidebar. Off, they always show.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
+        },
+        {
           "key": "sidebar.density",
           "title": "Sidebar Density",
           "help": "Comfortable rows keep one line on taller rows with more space around them. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
@@ -3434,7 +3463,7 @@
         {
           "key": "sidebar.spacesVisibility",
           "title": "Show Spaces",
-          "help": "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons.",
+          "help": "Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then.",
           "kind": "choice",
           "default": "hover",
           "group": "Sidebar",
@@ -4706,6 +4735,14 @@
           "key": "browser.openLinksInCmuxBrowser",
           "title": "Open Links in cmux Browser",
           "help": "When off, links you click in terminals, agent chats, Home and cmux pages open in your default browser. Shift-Command-click opens a link in the other browser.",
+          "kind": "toggle",
+          "default": true,
+          "group": "Opening Links"
+        },
+        {
+          "key": "browser.openSignInPagesInCmux",
+          "title": "Open Sign-In Pages in cmux Browser",
+          "help": "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win.",
           "kind": "toggle",
           "default": true,
           "group": "Opening Links"

@@ -1,17 +1,4 @@
-import type { CreateOptions, VmTag } from "./cloud-driver.ts"
-
-/**
- * One Freestyle TLS rule (CreateTlsRuleRequest, workers/cmux-vm/upstream/openapi.json). Inline at
- * create, `source: {}` means the VM being created; a later replace names it by `vmId`. Header values
- * are write-only at Freestyle (read back as `***`); never log a rule.
- */
-export interface EdgeTlsRule {
-  readonly action: "allow"
-  readonly domain: string
-  readonly source: { readonly vmId?: string }
-  readonly destination: { readonly host: string; readonly port: number }
-  readonly transform: ReadonlyArray<{ readonly headers: Readonly<Record<string, string>> }>
-}
+import { vmTagMetadata, type CreateOptions, type VmTag } from "../contract.ts"
 
 /**
  * The create body (Freestyle SDK 0.2.10 CreateVmOptions, web/services/vms/drivers/freestyle.ts):
@@ -25,7 +12,8 @@ export interface EdgeTlsRule {
  *   adds a `{ vpcId }` rule with the attach.
  * - size: create takes no resources (the snapshot decides; resize is a separate, grow-only call),
  *   so the plan checks cpu, memory and disk but the size is not sent yet.
- * - tls: the coderouter edge rule (cloud-coderouter-edge.ts), only when the create carries one.
+ * - tls: the coderouter edge rule (cloud-coderouter-edge.ts; EdgeTlsRule is Freestyle's CreateTlsRuleRequest,
+ *   workers/cmux-vm/upstream/openapi.json), only when the create carries one.
  *   Rules must be inline: Freestyle writes the guest's hosts entry and egress CA only at create.
  */
 export const createBody = (name: string, snapshot: string, tag: VmTag, opts: CreateOptions) => ({
@@ -37,7 +25,7 @@ export const createBody = (name: string, snapshot: string, tag: VmTag, opts: Cre
   maxRunSeconds: -1,
   maxRunTotalSeconds: -1,
   automaticRestart: true,
-  metadata: { cmux_next_team: tag.team, cmux_next_machine: tag.machine },
+  metadata: vmTagMetadata(tag),
   firewall: { rules: [{ action: "allow", source: {}, destination: { public: true } }] },
   ...(opts.edgeRules?.length ? { tls: { rules: opts.edgeRules } } : {})
 })
