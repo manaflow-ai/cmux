@@ -152,9 +152,15 @@ class DecideTests(unittest.TestCase):
         self.assertIn("off", decide(gh, [push(NEWER)], max_resumes=0))
         self.assertEqual((gh.dispatches, gh.reads), ([], []))
 
+    def test_a_valid_run_behind_newer_failed_compiles_is_still_found(self):
+        gh = FakeGitHub({NEWER - i: jobs(app="failure") for i in range(3)})
+        decide(gh, [push(NEWER - i) for i in range(4)])
+        self.assertEqual(gh.dispatches[0][2]["nightly_next_unsigned_run"], str(NEWER - 3))
+
     def test_reads_are_bounded(self):
-        gh = FakeGitHub({NEWER - i: jobs(app="failure") for i in range(10)})
-        decide(gh, [push(NEWER - i) for i in range(10)])
+        many = resume.CANDIDATES_READ + 10
+        gh = FakeGitHub({NEWER - i: jobs(app="failure") for i in range(many)})
+        decide(gh, [push(NEWER - i) for i in range(many)])
         self.assertEqual(len([read for read in gh.reads if read[0] == "jobs"]), resume.CANDIDATES_READ)
 
 

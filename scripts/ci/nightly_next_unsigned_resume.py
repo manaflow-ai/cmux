@@ -62,7 +62,10 @@ PUSH_RUNS_READ = 30  # nightly-next push runs read, newest first: more than a da
 # resume is kept one day, so no earlier resume of a still-resumable run is older.
 RESUME_LOOKBACK = dt.timedelta(hours=26)
 JOB_PAGES = 3
-CANDIDATES_READ = 3  # failed runs whose jobs and artifacts are read per check
+# Every failed push run newer than the feed is judged, newest first, until one resumes: a run
+# older than the feed costs no read, so this is bounded by the push runs read, not a fixed few
+# (a valid run behind three failed compiles must still be found).
+CANDIDATES_READ = PUSH_RUNS_READ
 
 
 def resume_source(run: dict) -> tuple[int, int] | None:
