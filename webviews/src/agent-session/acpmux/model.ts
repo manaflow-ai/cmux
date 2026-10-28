@@ -1337,6 +1337,14 @@ function isPlainUserPrompt(text: string): boolean {
   );
 }
 
+/// A short ASCII prompt cannot wrap past the ten-line disclosure threshold in the minimum
+/// transcript column. Its bubble can therefore use the model estimate without forcing a Range
+/// measurement during the send's first layout effect; longer or non-ASCII text keeps the measured
+/// path so font and narrow-column wrapping remain exact.
+export function isShortPlainUserPrompt(text: string): boolean {
+  return text.length <= 64 && /^[\x20-\x7e]*$/.test(text) && isPlainUserPrompt(text);
+}
+
 function measuredRowHeight(
   row: AcpmuxRow,
   width: number,

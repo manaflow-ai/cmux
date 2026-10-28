@@ -25,6 +25,7 @@ export function PromptText({
   text,
   pasted,
   show,
+  skipMeasurement = false,
 }: {
   rowId: string;
   /// The prompt as recorded: what Find searches and the paste ranges point into.
@@ -32,6 +33,10 @@ export function PromptText({
   pasted?: readonly PasteRange[];
   /// How a typed part reads in the bubble (a `data:` image as its name, UserBubble.tsx).
   show: (text: string) => string;
+  /// A short plain prompt's model estimate is already below the disclosure threshold. Skipping its
+  /// synchronous Range read keeps the first send frame free of forced layout; uncertain prompts
+  /// retain the measured path.
+  skipMeasurement?: boolean;
 }) {
   const t = useT();
   const id = useId();
@@ -45,6 +50,7 @@ export function PromptText({
   const long = measured?.parts === parts ? measured.long : guess;
   const body = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
+    if (skipMeasurement) return;
     const node = body.current;
     if (!node) return;
     const measure = () => {
@@ -70,7 +76,7 @@ export function PromptText({
     // The bubble: a text drawn whole has no box to observe.
     observer.observe(node.parentElement ?? node);
     return () => observer.disconnect();
-  }, [parts, long, open]);
+  }, [parts, long, open, skipMeasurement]);
   const collapsed = long && !open;
   // Show more and Show less (Leo 2026-10-21: "these all need animations for expand and collpase"),
   // over the fold's token, without moving what the reader looks at ("just expand the area at the

@@ -2,7 +2,7 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import * as marked from "marked";
 import { setChatDisplay } from "./chatDisplay";
-import { layoutConversation, type AcpmuxRow } from "./model";
+import { isShortPlainUserPrompt, layoutConversation, type AcpmuxRow } from "./model";
 
 const text = "Describe this synthetic onboarding fixture";
 const long = "A long ordinary prompt about a session and its next sensible step. ".repeat(8).trim();
@@ -57,6 +57,13 @@ test("a cold plain user prompt is placed without initializing the Markdown parse
   } finally {
     lexer.mockRestore();
   }
+});
+
+test("the first-paint shortcut excludes text whose wrapping or Markdown can change", () => {
+  expect(isShortPlainUserPrompt(text)).toBe(true);
+  expect(isShortPlainUserPrompt("**bold**")).toBe(false);
+  expect(isShortPlainUserPrompt("Réponds en français")).toBe(false);
+  expect(isShortPlainUserPrompt("x".repeat(65))).toBe(false);
 });
 
 test("Markdown-looking, multiline, attachment and Chief paths retain their parser", () => {
