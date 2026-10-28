@@ -215,6 +215,14 @@ def run_round(name, app, opts, roots):
         t_launch = time.time()
         bench.launch()
         report["launch_s"] = round(time.time() - t_launch, 1)
+        try:
+            listed = bench.rpc("features.list", timeout=10)
+            text = json.dumps(listed)
+            report["feature_ad_blocker_at_first_tab"] = [f for f in (listed.get("features") or []) if isinstance(f, dict)
+                                                         and "AdBlockerAtFirstTab" in json.dumps(f)] or text[:300]
+        except Exception as error:  # noqa: BLE001
+            report["feature_ad_blocker_at_first_tab"] = f"error {error}"[:200]
+        note(f"FIRSTRUN {name}: FEATURE {json.dumps(report['feature_ad_blocker_at_first_tab'])[:500]}")
         # The launch's own first minutes: the pump per 10 s from the launch on, then the window.
         series = []
         last = bench.rpc("debug.cef", timeout=10)
@@ -365,6 +373,13 @@ def main():
     result = {"bench": "first-run-idle", "host": os.uname().nodename, "app": app, "bundle_id": ident, "roots": roots,
               "roots_existed": [os.path.isdir(r) for r in roots], "fetch": fetched, "rounds": {}}
     note(f"FIRSTRUN app {app} bundle {ident} roots {roots} existed {result['roots_existed']}")
+    cef = glob.glob(os.path.join(app, "Contents", "Frameworks", "Chromium Embedded Framework.framework", "Chromium Embedded Framework"))
+    if cef:
+        syms = subprocess.run(["nm", "-gU", cef[0]], capture_output=True, text=True).stdout
+        result["fork_symbols"] = sorted({l.split()[-1] for l in syms.splitlines() if "cmux_ext_" in l})
+        note(f"FIRSTRUN fork cmux_ext_ symbols: {result['fork_symbols']}")
+    else:
+        note(f"FIRSTRUN no CEF framework at {app}/Contents/Frameworks")
     saved = []
     try:
         for root in roots:
