@@ -111,13 +111,20 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     public func importableSnapshot(
         fileURL: URL
     ) -> Result<SessionSnapshotImport<SnapshotValue>, SessionSnapshotImportError> {
+        importableSnapshot(fileURL: fileURL, reader: SessionSnapshotImportReader())
+    }
+
+    private func importableSnapshot(
+        fileURL: URL,
+        reader: SessionSnapshotImportReader
+    ) -> Result<SessionSnapshotImport<SnapshotValue>, SessionSnapshotImportError> {
         if isOwnPrimarySnapshot(fileURL) {
             return .failure(.liveSnapshot(fileURL))
         }
         guard fileManager.fileExists(atPath: fileURL.path) else {
             return .failure(.fileNotFound(fileURL))
         }
-        switch SessionSnapshotImportReader().read(fileURL: fileURL) {
+        switch reader.read(fileURL: fileURL) {
         case .success(let data):
             return importableSnapshot(data: data, fileURL: fileURL)
         case .failure(let error):
@@ -161,7 +168,12 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
             return .failure(.liveSnapshot(primaryURL))
         }
         let primaryError: SessionSnapshotImportError
-        switch importableSnapshot(fileURL: primaryURL) {
+        // Channel snapshots may contain all 4,096 supported panels. Real
+        // snapshots use 110–345 structural tokens per panel; allow 512 per
+        // panel, including container metadata, while retaining every byte,
+        // nesting and encoding guard before either primary or backup decoding.
+        let reader = SessionSnapshotImportReader(maximumJSONStructuralTokens: 4_096 * 512)
+        switch importableSnapshot(fileURL: primaryURL, reader: reader) {
         case .success(let imported):
             return .success(imported)
         case .failure(let error):
@@ -172,7 +184,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         let backupURL = SessionSnapshotFileLocation(appSupportDirectory: appSupport).backupFileURL(
             bundleIdentifier: bundleIdentifier
         )
-        switch importableSnapshot(fileURL: backupURL) {
+        switch importableSnapshot(fileURL: backupURL, reader: reader) {
         case .success(let imported):
             return .success(imported)
         case .failure(let backupError):

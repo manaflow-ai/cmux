@@ -47,13 +47,12 @@ struct SessionSnapshotImportReader {
 
     /// Lexical limits applied to an imported file before Foundation
     /// materializes the Codable graph, so an arbitrary file can't build
-    /// millions of objects. Only imports are scanned: real snapshots run about
-    /// 110-345 tokens per panel, so a large own session can exceed these and
-    /// must still load for the restore budget to trim. String length is not
+    /// millions of objects. Only imports are scanned; startup and export must
+    /// still read the user's complete session for recovery. String length is not
     /// limited: the file size already bounds it, and the app's own snapshot
     /// may legitimately hold a large draft or scrollback string.
     private let maximumJSONNesting = 512
-    private let maximumJSONStructuralTokens = 1_000_000
+    var maximumJSONStructuralTokens = 1_000_000
 
     private func jsonIsWithinDecodeLimits(_ data: Data) -> Bool {
         var nesting = 0
