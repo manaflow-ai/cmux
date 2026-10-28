@@ -454,6 +454,7 @@ function uncataloguedHarness(entry: AcpmuxHarness, join: Join): PickerHarness {
   // is not one of this profile's releases (applyUserLayer drops it so from its own harness).
   const listed = (kin?.models ?? []).filter(
     (model) =>
+      (join.provisional || !isIdentityOnlyCurrentModel(model)) &&
       ![...(model.aliases ?? []), model.id].some((id) => isHiddenByUser(entry.id, id, join)) &&
       ![...reported].some(([id, name]) => isHiddenByUser(entry.id, id, join) && namesRelease(name, model, join)),
   );

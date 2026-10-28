@@ -88,6 +88,21 @@ test("identity-only current releases stay offline until a live account reports t
     provisional: false,
   });
   expect(ids(reported.harnesses.find((entry) => entry.id === "codex")!.models)).toContain("gpt-6.1-terra");
+
+  const profile = buildPickerCatalog({
+    catalog: BUNDLED_MODEL_CATALOG,
+    acpmux: [
+      {
+        id: "codex-sr",
+        family: "codex-sr",
+        name: "Codex profile",
+        models: [{ id: "gpt-6.1-sol", name: "GPT-6.1 Sol" }],
+      },
+    ],
+    session: { harness: "codex-sr" },
+    provisional: false,
+  });
+  expect(ids(profile.harnesses.find((entry) => entry.id === "codex-sr")!.models)).not.toContain("gpt-6.1-terra");
 });
 
 test("Retry keeps the running unavailable model and excludes unavailable alternatives", () => {
