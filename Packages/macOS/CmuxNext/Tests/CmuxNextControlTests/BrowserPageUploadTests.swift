@@ -32,9 +32,9 @@ import Testing
             guard delay > .zero else { return }
             if ignoreCancellation {
                 let components = delay.components
-                let nanoseconds = components.seconds * 1_000_000_000 + components.attoseconds / 1_000_000_000
+                let nanoseconds = Int(components.seconds * 1_000_000_000 + components.attoseconds / 1_000_000_000)
                 await withCheckedContinuation { continuation in
-                    DispatchQueue.global().asyncAfter(deadline: .now() + .nanoseconds(Int(nanoseconds))) {
+                    DispatchQueue.global().asyncAfter(deadline: .now() + .nanoseconds(nanoseconds)) {
                         continuation.resume()
                     }
                 }
