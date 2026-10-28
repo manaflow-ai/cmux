@@ -185,7 +185,7 @@ test("each workflow a group started is its own card row, so each row is one card
   ]);
 });
 
-test("a finished turn's fold retains its workflow card when expanded", () => {
+test("a finished turn's fold keeps the workflow card outside it, where the workflow started", () => {
   const [node] = workflowFixture("finished", NOW);
   const rows: AcpmuxRow[] = [
     { id: "u", version: 1, at: NOW - 200_000, kind: "user", text: "go" },
@@ -201,12 +201,10 @@ test("a finished turn's fold retains its workflow card when expanded", () => {
     { id: "a", version: 1, at: NOW - 10_000, kind: "assistant", text: "done" },
     { id: "s", version: 1, at: NOW - 9_000, kind: "turnSummary", durationMs: 190_000, toolCount: 1 },
   ];
-  const source = withSubagentLines(rows, new Map(), true);
-  const view = turnViewFrom(source, new Set(), { now: NOW });
+  const view = turnViewFrom(withSubagentLines(rows, new Map(), true), new Set(), { now: NOW });
+  // The turn folded its work (the read) but the card is still drawn.
   expect(view.rows.some((row) => row.id === "w1")).toBe(false);
-  expect(view.rows.some((row) => row.kind === WORKFLOW_CARD)).toBe(false);
-  const open = turnViewFrom(source, new Set(["worked-u"]), { now: NOW });
-  expect(open.rows.some((row) => row.kind === WORKFLOW_CARD)).toBe(true);
+  expect(view.rows.some((row) => row.kind === WORKFLOW_CARD)).toBe(true);
 });
 
 test("with Labs, a workflow is in neither tray list, running or ended (App.tsx trayAgents)", () => {

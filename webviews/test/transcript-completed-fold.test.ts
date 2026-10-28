@@ -117,3 +117,43 @@ test("an expanded provisional steer fold stays open when its older prompt arrive
   expect(loaded).toContainEqual(expect.objectContaining({ id: `${WORKED}-prompt` }));
   expect(loaded).toContainEqual(expect.objectContaining({ id: "report" }));
 });
+
+test("a completed fold keeps asks, refusals, and turn context available without opening the work", () => {
+  const kinds = [
+    "permission", "notice", "failover", "policyUnenforced", "agentPair", "sessionStart",
+    "sessionOffer", "startedSessions", "workflowCard", "questionRecord", "backgroundTask", "subagents",
+  ];
+  for (const kind of kinds) {
+    const rows = completedTurn();
+    const context = row(`${kind}-context`, kind);
+    rows.splice(2, 0, context);
+    for (const expanded of [new Set<string>(), new Set([`${WORKED}-prompt`])]) {
+      const shown = turnView(rows, expanded);
+      expect(shown.filter((entry) => entry.id === context.id)).toHaveLength(1);
+      expect(shown.find((entry) => entry.id === context.id)?.settled).not.toBe(true);
+      expect(shown.findIndex((entry) => entry.id === context.id)).toBeLessThan(
+        shown.findIndex((entry) => entry.id === "final"),
+      );
+    }
+  }
+});
+
+test("render cards keep their call order around the answer and inside their own turn", () => {
+  const render = (id: string) => row(id, "activity", {
+    items: [{ kind: "tool", text: "", tool: {
+      id, title: "mcp__cmux__render", status: "completed", inputSummary: '{"html":"<p>Report</p>"}',
+    } }],
+  });
+  const rows = [
+    row("u1", "user"), tool("read"), render("first"),
+    row("context", "notice"), render("second"), answer("a1", "First result."),
+    render("after"), row("s1", "turnSummary", { status: "completed" }),
+    row("u2", "user"), render("third"), answer("a2", "Second result."),
+    row("s2", "turnSummary", { status: "completed" }),
+  ];
+  const visible = turnView(rows, new Set()).filter((entry) => !["date", WORKED].includes(entry.kind));
+  expect(visible.map((entry) => entry.id)).toEqual([
+    "u1", "render-first", "context", "render-second", "a1", "render-after", "s1",
+    "u2", "render-third", "a2", "s2",
+  ]);
+});

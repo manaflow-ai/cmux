@@ -16,7 +16,7 @@ const plan = (id: string) => row(id, "plan", { plan: [{ content: "Run the tests"
 const summary = (id: string) => row(id, "turnSummary", { status: "completed" });
 
 const planRow = (rows: AcpmuxRow[], id: string, working = false) =>
-  turnView(rows, new Set(["worked-u"]), { working }).find((shaped) => shaped.id === id);
+  turnView(rows, new Set(), { working }).find((shaped) => shaped.id === id);
 
 test("a running turn's plan stays live", () => {
   expect(planRow([row("u", "user"), plan("p")], "p", true)?.turnEnded).toBeUndefined();
