@@ -356,6 +356,7 @@ const workflowProps = (stage: WorkflowFixtureStage, workflowAgentRowVariant?: Pr
     workflows: createWorkflowAdapter()(nodes, "gallery-chat"),
     onStopWorkflow: async () => undefined,
     onOpenSubagent: () => undefined,
+    onOpenWorkflowAgent: () => undefined,
     workflowAgentRowVariant,
     onSaveEnvironment: () => undefined,
     remoteControl: { on: true, set: () => undefined },

@@ -30,6 +30,7 @@ export function WorkflowTasks({
   workflows,
   onStop,
   onOpenSubagent,
+  onOpenWorkflowAgent,
   agentRowVariant = "detail",
 }: {
   workflows: readonly WorkflowSummary[];
@@ -37,6 +38,8 @@ export function WorkflowTasks({
   onStop?: (id: string) => Promise<unknown>;
   /// Opens a Claude workflow agent by its transcript id through the native subagent pane path.
   onOpenSubagent?: (id: string) => void;
+  /// Opens a workflow agent through the workflow transcript bridge.
+  onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
   /// Gallery-only row treatments; the shipped row uses the detail treatment.
   agentRowVariant?: WorkflowAgentRowVariant;
 }) {
@@ -57,6 +60,7 @@ export function WorkflowTasks({
           now={now}
           onStop={onStop}
           onOpenSubagent={onOpenSubagent}
+          onOpenWorkflowAgent={onOpenWorkflowAgent}
           agentRowVariant={agentRowVariant}
         />
       ))}
@@ -69,6 +73,7 @@ export function WorkflowTasks({
           workflow={workflow}
           now={now}
           onOpenSubagent={onOpenSubagent}
+          onOpenWorkflowAgent={onOpenWorkflowAgent}
           agentRowVariant={agentRowVariant}
         />
       ))}
@@ -94,12 +99,14 @@ function WorkflowTask({
   now,
   onStop,
   onOpenSubagent,
+  onOpenWorkflowAgent,
   agentRowVariant,
 }: {
   workflow: WorkflowSummary;
   now: number;
   onStop?: (id: string) => Promise<unknown>;
   onOpenSubagent?: (id: string) => void;
+  onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
   agentRowVariant: WorkflowAgentRowVariant;
 }) {
   const t = useT();
@@ -143,6 +150,7 @@ function WorkflowTask({
               now={now}
               running={running}
               onOpenSubagent={onOpenSubagent}
+              onOpenWorkflowAgent={onOpenWorkflowAgent}
               agentRowVariant={agentRowVariant}
             />
           ))}
@@ -170,6 +178,7 @@ function WorkflowPhaseRow({
   now,
   running,
   onOpenSubagent,
+  onOpenWorkflowAgent,
   agentRowVariant,
 }: {
   workflow: WorkflowSummary;
@@ -177,6 +186,7 @@ function WorkflowPhaseRow({
   now: number;
   running: boolean;
   onOpenSubagent?: (id: string) => void;
+  onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
   agentRowVariant: WorkflowAgentRowVariant;
 }) {
   const t = useT();
@@ -206,6 +216,7 @@ function WorkflowPhaseRow({
               agent={agent}
               now={now}
               onOpenSubagent={onOpenSubagent}
+              onOpenWorkflowAgent={onOpenWorkflowAgent}
               variant={agentRowVariant}
             />
           ))}
@@ -221,6 +232,7 @@ export function WorkflowAgentRow({
   agent,
   now,
   onOpenSubagent,
+  onOpenWorkflowAgent,
   variant = "detail",
 }: {
   /// The folded workflow agent to render.
@@ -229,6 +241,8 @@ export function WorkflowAgentRow({
   now: number;
   /// Opens the agent's Claude transcript in the existing right pane when available.
   onOpenSubagent?: (id: string) => void;
+  /// Opens the workflow transcript through the workflow-specific bridge when available.
+  onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
   /// Gallery-only row treatment; detail is the shipped default.
   variant?: WorkflowAgentRowVariant;
 }) {
@@ -240,14 +254,17 @@ export function WorkflowAgentRow({
   const state = agentStateWord(t, agent.state);
   const model = agent.model ? modelName(agent.model) : undefined;
   const modelEffort = [model, agent.effort].filter((value): value is string => Boolean(value)).join(" · ");
-  const openable = Boolean(agent.agentId && onOpenSubagent);
+  const openable = Boolean(onOpenWorkflowAgent || (agent.agentId && onOpenSubagent));
   const row = (
     <button
       type="button"
       className={`acpmux-workflow-agent__button acpmux-workflow-agent__button--${variant}`}
       disabled={!openable}
       aria-label={`${agent.name}: ${state}`}
-      onClick={() => agent.agentId && onOpenSubagent?.(agent.agentId)}
+      onClick={() => {
+        if (onOpenWorkflowAgent) onOpenWorkflowAgent(agent);
+        else if (agent.agentId) onOpenSubagent?.(agent.agentId);
+      }}
     >
       <span className="acpmux-workflow-agent__icon" aria-hidden="true">
         {agent.state === "running" ? (

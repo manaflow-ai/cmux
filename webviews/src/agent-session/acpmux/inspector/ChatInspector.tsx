@@ -89,7 +89,7 @@ import { SubagentLimitStepper } from "./SubagentLimitStepper";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
 import { WorkflowTasks, type WorkflowAgentRowVariant } from "./WorkflowTasks";
-import type { WorkflowSummary } from "../summary/workflow";
+import type { WorkflowAgent, WorkflowSummary } from "../summary/workflow";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentProgress } from "../subagents/subagentProgress";
 import { RAIL_MIN_GUTTER } from "../threadMinimap/model";
@@ -910,6 +910,7 @@ export function ChatInspector({
   workflows = [],
   onStopWorkflow,
   workflowAgentRowVariant,
+  onOpenWorkflowAgent,
   onOpenSession,
   onSetRunningLimit,
   revealed,
@@ -972,6 +973,8 @@ export function ChatInspector({
   onStopWorkflow?: (id: string) => Promise<unknown>;
   /// Gallery-only alternatives for the live workflow agent row.
   workflowAgentRowVariant?: WorkflowAgentRowVariant;
+  /// Opens a workflow agent through its workflow transcript bridge.
+  onOpenWorkflowAgent?: (agent: WorkflowAgent) => void;
   /// The section a running line's count opened: scrolled into view (`at` tells one ask from the next).
   revealed?: { section: InspectorSectionId; at: number };
   /// The reveal has scrolled: the caller forgets it.
@@ -1203,7 +1206,7 @@ export function ChatInspector({
         <WorkflowTasks
           workflows={workflows}
           onStop={onStopWorkflow}
-          onOpenSubagent={onOpenSubagent}
+          onOpenWorkflowAgent={onOpenWorkflowAgent}
           agentRowVariant={workflowAgentRowVariant}
         />
       )}
