@@ -10,6 +10,15 @@ enum SessionPriorityPaneState: Equatable {
     case notApplied(SessionPriorityApplyResult.Refusal?)
     case manual(SessionPriorityManualSignal)
 
+    /// Whether cmux leaves every one of these panes alone, so their workspace's target applies to
+    /// none of them. `false` for no panes.
+    static func allLeftAlone(_ states: [SessionPriorityPaneState]) -> Bool {
+        !states.isEmpty && states.allSatisfy {
+            if case .manual = $0 { return true }
+            return false
+        }
+    }
+
     /// Higher is shown in preference to lower.
     fileprivate var severity: Int {
         switch self {
@@ -31,6 +40,8 @@ enum SessionPriorityStatusRow {
     /// error, priority 100), which it never hides.
     static let priority = 50
 
+    /// The row for a workspace in the plan. The effort segment is left out when no pane takes
+    /// `target` (every pane is left alone), as the CLI's snapshot reports no target then.
     static func entry(
         tier: SessionPriorityTier,
         difficulty: ClaudeSessionDifficulty,
@@ -39,7 +50,9 @@ enum SessionPriorityStatusRow {
         paneStates: [SessionPriorityPaneState]
     ) -> SidebarStatusEntry {
         var segments = [tierName(tier), difficultyText(difficulty, source: difficultySource)]
-        if let target, let effortText = targetText(target) { segments.append(effortText) }
+        if let target, !SessionPriorityPaneState.allLeftAlone(paneStates), let effortText = targetText(target) {
+            segments.append(effortText)
+        }
         if let state = paneStates.max(by: { $0.severity < $1.severity }) {
             segments.append(stateText(state))
         }

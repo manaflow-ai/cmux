@@ -25,8 +25,9 @@ struct SessionPrioritySnapshot: Equatable, Sendable {
     var isManual: Bool
     /// Why cmux leaves the workspace alone: the user's flag, else a pane's signal.
     var manualSignal: SessionPriorityManualSignal?
-    /// What the workspace's tier and difficulty ask for; `nil` while off or while the workspace
-    /// is manual for any reason (``manualSignal``, the flag or a pane's signal).
+    /// What the workspace's tier and difficulty ask for; `nil` while off, while the workspace is
+    /// marked manual, or while every Claude pane is left alone for its own signal. One pane's
+    /// signal leaves the target in place: cmux still restarts the other panes to it.
     var target: SessionPriorityTarget?
     /// Empty while session priority is off.
     var panes: [Pane]
@@ -35,8 +36,8 @@ struct SessionPrioritySnapshot: Equatable, Sendable {
 extension SessionPrioritySnapshot {
     /// The snapshot of a workspace from what the coordinator read: its `priority` state, its
     /// plan `entry` (`nil` while off or outside the plan) and its Claude `panes` (none while
-    /// off). A manual signal clears the target, so no arrow points at an effort cmux will not
-    /// apply.
+    /// off). The flag, or a signal on every pane, clears the target, so no arrow points at an
+    /// effort cmux applies to none of the panes.
     @MainActor
     init(
         workspaceId: UUID,
@@ -50,6 +51,7 @@ extension SessionPrioritySnapshot {
             return nil
         }.first
         let manualSignal = enabled ? (priority.isManual ? .flag : paneSignal) : nil
+        let appliesToNoPane = priority.isManual || SessionPriorityPaneState.allLeftAlone(panes.map(\.state))
         self.init(
             workspaceId: workspaceId,
             tier: entry?.tier,
@@ -59,7 +61,7 @@ extension SessionPrioritySnapshot {
             difficultyAuto: priority.autoDifficulty,
             isManual: priority.isManual,
             manualSignal: manualSignal,
-            target: manualSignal == nil ? entry?.target : nil,
+            target: appliesToNoPane ? nil : entry?.target,
             panes: panes
         )
     }
