@@ -252,6 +252,7 @@ export function PaletteMenu({
         }}
         {...press}
         onPointerDown={(event) => {
+          if (event.button !== 0) return;
           const pointer = isMousePress(event);
           press.onPointerDown(event);
           if (!pointer) openMenu();
@@ -315,6 +316,7 @@ export function PaletteMenu({
                       className={`acpmux-menu-item${at === selected ? " acpmux-menu-active" : ""}`}
                       onMouseMove={() => at !== selected && setActive(at)}
                       onMouseDown={(event) => {
+                        if (event.button !== 0) return;
                         event.preventDefault();
                         void pick(at);
                       }}
