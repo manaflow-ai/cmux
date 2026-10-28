@@ -324,6 +324,13 @@ extension TerminalController: ControlSystemContext {
                 imported.snapshot,
                 source: source
             )
+            guard !snapshot.windows.isEmpty else {
+                return .failed(
+                    code: "not_found",
+                    message: Self.sessionImportErrorMessage(.noWindows(imported.fileURL)),
+                    path: imported.fileURL.path
+                )
+            }
             // Count what restore will actually open: crash-diagnostic windows
             // are dropped and the window count is capped.
             let windowCount = min(
@@ -405,82 +412,6 @@ extension TerminalController: ControlSystemContext {
                     url.path
                 ),
                 path: url.path
-            )
-        }
-    }
-
-    private static func sessionImportErrorCode(_ error: SessionSnapshotImportError) -> String {
-        switch error {
-        case .fileNotFound, .noWindows:
-            return "not_found"
-        case .unreadable:
-            return "invalid_state"
-        case .notASessionSnapshot, .liveSnapshot:
-            return "invalid_params"
-        case .newerSchemaVersion, .olderSchemaVersion:
-            return "unsupported"
-        }
-    }
-
-    private static func sessionImportErrorMessage(_ error: SessionSnapshotImportError) -> String {
-        let path = error.fileURL.path
-        switch error {
-        case .fileNotFound:
-            return String(
-                format: String(
-                    localized: "session.import.error.fileNotFound",
-                    defaultValue: "No saved cmux session at %@."
-                ),
-                path
-            )
-        case .unreadable:
-            return String(
-                format: String(localized: "session.import.error.unreadable", defaultValue: "Could not read %@."),
-                path
-            )
-        case .notASessionSnapshot:
-            return String(
-                format: String(
-                    localized: "session.import.error.notASnapshot",
-                    defaultValue: "%@ is not a cmux session snapshot."
-                ),
-                path
-            )
-        case let .newerSchemaVersion(_, found, supported):
-            return String(
-                format: String(
-                    localized: "session.import.error.newerSchema",
-                    defaultValue: "%1$@ was saved by a newer cmux (session format %2$@, this cmux reads %3$@). Update cmux to import it."
-                ),
-                path,
-                String(found),
-                String(supported)
-            )
-        case let .olderSchemaVersion(_, found, supported):
-            return String(
-                format: String(
-                    localized: "session.import.error.olderSchema",
-                    defaultValue: "%1$@ uses an older session format (%2$@) that this cmux no longer reads (%3$@)."
-                ),
-                path,
-                String(found),
-                String(supported)
-            )
-        case .noWindows:
-            return String(
-                format: String(
-                    localized: "session.import.error.noWindows",
-                    defaultValue: "%@ has no windows to restore."
-                ),
-                path
-            )
-        case .liveSnapshot:
-            return String(
-                format: String(
-                    localized: "session.import.error.liveSnapshot",
-                    defaultValue: "%@ is the session this cmux is saving right now. Run cmux restore-session without --from to reopen the previous launch."
-                ),
-                path
             )
         }
     }

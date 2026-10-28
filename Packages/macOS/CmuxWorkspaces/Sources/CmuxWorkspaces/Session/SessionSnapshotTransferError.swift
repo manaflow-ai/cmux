@@ -12,6 +12,9 @@ public enum SessionSnapshotImportError: Error, Equatable, Sendable {
     /// The file is not a cmux session snapshot (not JSON, no `version`, or
     /// the payload does not decode at the current schema).
     case notASessionSnapshot(URL)
+    /// The file exceeded an import resource limit before decoding (size,
+    /// encoding, nesting, or structural-token budget).
+    case resourceLimitExceeded(URL)
     /// The snapshot was written by a newer cmux with a schema this build
     /// cannot read.
     case newerSchemaVersion(URL, found: Int, supported: Int)
@@ -29,6 +32,7 @@ public enum SessionSnapshotImportError: Error, Equatable, Sendable {
         case .fileNotFound(let url),
              .unreadable(let url),
              .notASessionSnapshot(let url),
+             .resourceLimitExceeded(let url),
              .newerSchemaVersion(let url, _, _),
              .olderSchemaVersion(let url, _, _),
              .noWindows(let url),

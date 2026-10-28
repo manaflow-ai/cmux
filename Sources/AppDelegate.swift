@@ -3896,7 +3896,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
         let sanitizedStartupSnapshot = loadStartupSessionSnapshotPruningCrashDiagnostics(
             primaryOutcome: primaryOutcome
-        )
+        ).map {
+            // Startup and manual reopen use trusted snapshots, but they still
+            // need the same topology/panel bounds as file imports. Without
+            // this normalization, a deeply nested or wide own-session file
+            // reaches the recursive Bonsplit restore path unchanged.
+            Self.boundedSnapshotForRestore($0, phase: "local-startup")
+        }
         // Before the restore guard, so a skipped restore still drops stale checkpoints.
         prepareSessionScrollbackCheckpointsForLaunch(previousLaunchWasUnclean: previousSessionLaunchWasUnclean)
         guard SessionRestorePolicy.shouldAttemptRestore(),
@@ -4248,23 +4254,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @discardableResult
-    func reopenPreviousSession(shouldActivate: Bool = true) -> Bool {
-        guard let snapshot = sessionSnapshotStore.loadReopenSessionSnapshot(fileURL: nil) else {
-            return false
-        }
-        return restorePreviousSessionSnapshot(snapshot, shouldActivate: shouldActivate)
-    }
-
-    @discardableResult
     func restorePreviousSessionSnapshot(
         _ snapshot: AppSessionSnapshot,
         shouldActivate: Bool = true
     ) -> Bool {
-        guard let snapshot = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot).snapshot else {
+        guard let prunedSnapshot = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot).snapshot else {
             return false
         }
+        let normalizedSnapshot = Self.boundedSnapshotForRestore(prunedSnapshot, phase: "manual-reopen")
         let snapshotWindows = Array(
-            snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
+            normalizedSnapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
         )
         guard !snapshotWindows.isEmpty else { return false }
 

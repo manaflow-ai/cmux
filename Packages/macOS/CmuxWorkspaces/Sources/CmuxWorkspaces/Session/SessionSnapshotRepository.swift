@@ -75,6 +75,9 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         return .loaded(snapshot)
     }
 
+    /// Decodes without the import guard: the app's own snapshot and its
+    /// backups are trusted, and a large real session must still load so the
+    /// restore budget can trim it. Imports scan first (`importableSnapshot`).
     private func decodedSnapshot(from data: Data) -> SnapshotValue? {
         let decoder = JSONDecoder()
         for (key, value) in decoderUserInfo {
@@ -108,49 +111,27 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     public func importableSnapshot(
         fileURL: URL
     ) -> Result<SessionSnapshotImport<SnapshotValue>, SessionSnapshotImportError> {
+        importableSnapshot(fileURL: fileURL, reader: SessionSnapshotImportReader())
+    }
+
+    private func importableSnapshot(
+        fileURL: URL,
+        reader: SessionSnapshotImportReader
+    ) -> Result<SessionSnapshotImport<SnapshotValue>, SessionSnapshotImportError> {
         if isOwnPrimarySnapshot(fileURL) {
             return .failure(.liveSnapshot(fileURL))
         }
         guard fileManager.fileExists(atPath: fileURL.path) else {
             return .failure(.fileNotFound(fileURL))
         }
-        switch Self.readRegularFile(atPath: fileURL.path, maximumBytes: Self.maximumImportableSnapshotBytes) {
-        case .data(let data):
+        switch reader.read(fileURL: fileURL) {
+        case .success(let data):
             return importableSnapshot(data: data, fileURL: fileURL)
-        case .notRegularOrTooLarge:
-            return .failure(.notASessionSnapshot(fileURL))
-        case .unreadable:
-            return .failure(.unreadable(fileURL))
+        case .failure(let error):
+            return .failure(error)
         }
     }
 
-    private enum BoundedFileRead {
-        case data(Data)
-        case notRegularOrTooLarge
-        case unreadable
-    }
-
-    /// Reads a regular file of at most `maximumBytes`. A FIFO or device node
-    /// would block the reader forever and an unbounded file would be read
-    /// whole into memory, so the file is opened non-blocking and its type
-    /// and size are checked on the same descriptor that is read (no window
-    /// for a symlink to be re-pointed between the check and the read).
-    private static func readRegularFile(atPath path: String, maximumBytes: Int64) -> BoundedFileRead {
-        let descriptor = open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
-        guard descriptor >= 0 else { return .unreadable }
-        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-        var status = stat()
-        guard fstat(descriptor, &status) == 0 else { return .unreadable }
-        guard (status.st_mode & S_IFMT) == S_IFREG, Int64(status.st_size) <= maximumBytes else {
-            return .notRegularOrTooLarge
-        }
-        guard let data = try? handle.readToEnd() else { return .unreadable }
-        return .data(data)
-    }
-
-    /// Upper bound on a snapshot file accepted for import. Real snapshots
-    /// (scrollback included) are a few MiB at most.
-    static var maximumImportableSnapshotBytes: Int64 { 256 * 1024 * 1024 }
 
     private func importableSnapshot(
         data: Data,
@@ -187,7 +168,12 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
             return .failure(.liveSnapshot(primaryURL))
         }
         let primaryError: SessionSnapshotImportError
-        switch importableSnapshot(fileURL: primaryURL) {
+        // Channel snapshots may contain all 4,096 supported panels. Real
+        // snapshots use 110–345 structural tokens per panel; allow 512 per
+        // panel, including container metadata, while retaining every byte,
+        // nesting and encoding guard before either primary or backup decoding.
+        let reader = SessionSnapshotImportReader(maximumJSONStructuralTokens: 4_096 * 512)
+        switch importableSnapshot(fileURL: primaryURL, reader: reader) {
         case .success(let imported):
             return .success(imported)
         case .failure(let error):
@@ -198,7 +184,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         let backupURL = SessionSnapshotFileLocation(appSupportDirectory: appSupport).backupFileURL(
             bundleIdentifier: bundleIdentifier
         )
-        switch importableSnapshot(fileURL: backupURL) {
+        switch importableSnapshot(fileURL: backupURL, reader: reader) {
         case .success(let imported):
             return .success(imported)
         case .failure(let backupError):

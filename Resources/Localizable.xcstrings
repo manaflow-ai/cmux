@@ -671652,6 +671652,65 @@
           }
         }
       }
+    },
+    "session.import.error.resourceLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not open the selected session file. Choose a smaller or different file."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر فتح ملف الجلسة المحدد. اختر ملفًا أصغر أو مختلفًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die ausgewählte Sitzungsdatei konnte nicht geöffnet werden. Wählen Sie eine kleinere oder andere Datei."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo abrir el archivo de sesión seleccionado. Elige un archivo más pequeño o diferente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’ouvrir le fichier de session sélectionné. Choisissez un fichier plus petit ou différent."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択したセッションファイルを開けませんでした。より小さい別のファイルを選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 세션 파일을 열 수 없습니다. 더 작거나 다른 파일을 선택하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开所选会话文件。请选择更小或其他文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法開啟所選工作階段檔案。請選擇較小或其他檔案。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

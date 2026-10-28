@@ -17,6 +17,13 @@ struct SessionSnapshotImportTrustReport: Equatable, Sendable {
     var sanitizedBrowserPanelCount = 0
     /// Terminals whose scrollback had terminal control strings removed.
     var sanitizedScrollbackCount = 0
+    /// Terminals whose imported scrollback exceeded the replay budget and was
+    /// truncated to the newest bounded suffix.
+    var truncatedScrollbackCount = 0
+    /// Windows, workspaces, or panels removed by the structural import caps.
+    var droppedWindowCount = 0
+    var droppedWorkspaceCount = 0
+    var droppedPanelCount = 0
     /// Terminals whose text box draft attachments were dropped.
     var droppedDraftAttachmentCount = 0
 }
@@ -76,15 +83,33 @@ enum SessionSnapshotImportTrust {
         return Dictionary(builtIns.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// The snapshot to restore for an import from `source`: unchanged for
-    /// another install's own session file, sanitized for an arbitrary file.
+    /// Bounds topology for every source and sanitizes commands for file imports.
     static func snapshotForRestore(
         _ snapshot: AppSessionSnapshot,
         source: ControlSessionImportSource
     ) -> (snapshot: AppSessionSnapshot, report: SessionSnapshotImportTrustReport) {
-        source.isTrusted
-            ? (snapshot, SessionSnapshotImportTrustReport())
-            : sanitizingUntrustedImport(snapshot)
+        var report = SessionSnapshotImportTrustReport()
+        // Drop crash-diagnostic and phantom windows before spending the
+        // window cap, as startup restore does; otherwise twelve of them can
+        // use the whole cap and push the real windows out.
+        var pruned = snapshot
+        pruned.windows = SessionPersistencePolicy.pruningCmuxCrashDiagnosticWindows(from: snapshot)
+            .snapshot?.windows ?? []
+        let bounded = SessionSnapshotRestoreNormalizer().normalize(pruned, report: &report)
+        guard !source.isTrusted else {
+            return (bounded, report)
+        }
+        let (sanitized, importReport) = sanitizingUntrustedImport(bounded)
+        report.droppedWindowCount += importReport.droppedWindowCount
+        report.droppedWorkspaceCount += importReport.droppedWorkspaceCount
+        report.droppedPanelCount += importReport.droppedPanelCount
+        report.heldBackResumeCount += importReport.heldBackResumeCount
+        report.droppedRemoteWorkspaceCount += importReport.droppedRemoteWorkspaceCount
+        report.sanitizedBrowserPanelCount += importReport.sanitizedBrowserPanelCount
+        report.sanitizedScrollbackCount += importReport.sanitizedScrollbackCount
+        report.truncatedScrollbackCount += importReport.truncatedScrollbackCount
+        report.droppedDraftAttachmentCount += importReport.droppedDraftAttachmentCount
+        return (sanitized, report)
     }
 
     static func sanitizingUntrustedImport(
@@ -94,6 +119,8 @@ enum SessionSnapshotImportTrust {
         var report = SessionSnapshotImportTrustReport()
         var sanitized = snapshot
         let builtIns = builtInRegistrationsByID
+        // Structure is already bounded by `snapshotForRestore`; this pass only
+        // removes what an untrusted file must not run or reach.
         func sanitize(_ panels: [SessionPanelSnapshot]) -> [SessionPanelSnapshot] {
             panels.map {
                 sanitizedPanel($0, builtIns: builtIns, isExistingDirectory: isExistingDirectory, report: &report)
@@ -195,11 +222,17 @@ enum SessionSnapshotImportTrust {
         }
 
         if let scrollback = terminal.scrollback {
-            let stripped = strippingTerminalControlStrings(scrollback)
-            if stripped != scrollback {
+            // Truncate first: stripping copies the whole string into a scalar
+            // array, and an imported string is bounded only by the file size.
+            let bounded = SessionPersistencePolicy.truncatedScrollback(scrollback)
+            if let bounded, bounded != scrollback {
+                report.truncatedScrollbackCount += 1
+            }
+            let stripped = bounded.map(strippingTerminalControlStrings)
+            if let stripped, stripped != bounded {
                 report.sanitizedScrollbackCount += 1
             }
-            terminal.scrollback = stripped
+            terminal.scrollback = stripped.flatMap { $0.isEmpty ? nil : $0 }
         }
 
         if let draft = terminal.textBoxDraft {
