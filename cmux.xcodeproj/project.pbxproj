@@ -775,6 +775,7 @@
 		C1AB00000000000000000010 /* CLICommandSuggestionDerivationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1AB00000000000000000011 /* CLICommandSuggestionDerivationTests.swift */; };
 		C1A900000000000000000020 /* CLICompletionCandidateLiveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A900000000000000000021 /* CLICompletionCandidateLiveTests.swift */; };
 		C1A900000000000000000010 /* CLICompletionCandidateSafetyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A900000000000000000011 /* CLICompletionCandidateSafetyTests.swift */; };
+		AB51A9138DD7097F30E8F1C1 /* CLIDifficultyAssessmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 067DE6719DBA28DDA93D9B71 /* CLIDifficultyAssessmentTests.swift */; };
 		C11218000000000000000052 /* CLIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000051 /* CLIError.swift */; };
 		C11218000000000000000053 /* CLIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000051 /* CLIError.swift */; };
 		C11218000000000000000054 /* CLIError.swift in Sources */ = {isa = PBXBuildFile; fileRef = C11218000000000000000051 /* CLIError.swift */; };
@@ -5713,6 +5714,7 @@
 		C1AB00000000000000000011 /* CLICommandSuggestionDerivationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICommandSuggestionDerivationTests.swift; sourceTree = "<group>"; };
 		C1A900000000000000000021 /* CLICompletionCandidateLiveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICompletionCandidateLiveTests.swift; sourceTree = "<group>"; };
 		C1A900000000000000000011 /* CLICompletionCandidateSafetyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLICompletionCandidateSafetyTests.swift; sourceTree = "<group>"; };
+		067DE6719DBA28DDA93D9B71 /* CLIDifficultyAssessmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CLIDifficultyAssessmentTests.swift"; sourceTree = "<group>"; };
 		C11218000000000000000051 /* CLIError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIError.swift; sourceTree = "<group>"; };
 		12756C0212756C0212756C02 /* CLIEventsStreamPeerCloseTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIEventsStreamPeerCloseTests.swift; sourceTree = "<group>"; };
 		C51600000000000000000002 /* CLIExecInheritedSignalStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CLIExecInheritedSignalStateTests.swift; sourceTree = "<group>"; };
@@ -14557,6 +14559,7 @@
 				4CA12E953536E7C96D6D80B8 /* SessionPriorityNoticeTests.swift */,
 				C9FD84923E5DC420DC9F4EF3 /* SessionPriorityPaneTrackingTests.swift */,
 				124F531170622CD46FC841D7 /* SessionPriorityStatusSnapshotTests.swift */,
+				067DE6719DBA28DDA93D9B71 /* CLIDifficultyAssessmentTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18864,6 +18867,7 @@
 				C1AB00000000000000000010 /* CLICommandSuggestionDerivationTests.swift in Sources */,
 				C1A900000000000000000020 /* CLICompletionCandidateLiveTests.swift in Sources */,
 				C1A900000000000000000010 /* CLICompletionCandidateSafetyTests.swift in Sources */,
+				AB51A9138DD7097F30E8F1C1 /* CLIDifficultyAssessmentTests.swift in Sources */,
 				C11218000000000000000053 /* CLIError.swift in Sources */,
 				12756C0112756C0112756C01 /* CLIEventsStreamPeerCloseTests.swift in Sources */,
 				C51600000000000000000001 /* CLIExecInheritedSignalStateTests.swift in Sources */,
