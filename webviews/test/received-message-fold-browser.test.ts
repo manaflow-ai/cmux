@@ -260,6 +260,28 @@ await requireBrowserLane("received-message-fold-browser.test.ts", async () => {
     await page.close();
   });
 
+  test("a plain sender chip toggles without becoming a gap selection", async () => {
+    const page = await open("reduce");
+    await show(page, [...done, received, after]);
+    await settle(page);
+    const chip = page.locator('[data-row-id="msg"] .cv-received__name.is-plain');
+    await expect(chip).toHaveAttribute("data-interactive", "");
+    await page.evaluate(() => {
+      document.addEventListener(
+        "pointerdown",
+        (event) => {
+          document.body.dataset.senderPressPrevented = String(event.defaultPrevented);
+        },
+        { capture: true, once: true },
+      );
+    });
+    await chip.click();
+    expect(await page.locator('[data-row-id="msg"] .cv-received').getAttribute("data-open")).toBe("true");
+    expect(await page.locator("body").getAttribute("data-sender-press-prevented")).toBe("false");
+    expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
+    await page.close();
+  });
+
   test("under Reduce Motion the message opens and closes at once, and stays on its pixel", async () => {
     const page = await open("reduce");
     await show(page, [...done, received, after]);
