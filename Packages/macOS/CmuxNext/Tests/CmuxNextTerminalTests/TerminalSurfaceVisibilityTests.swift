@@ -183,6 +183,48 @@ struct TerminalSurfaceVisibilityTests {
         #expect(second.surfaceView.pause == nil, "the shown second tab stayed paused \(String(describing: second.surfaceView.pause))")
         #expect(first.surfaceView.pause == .hidden, "the retired first tab still draws")
     }
+
+    /// A terminal's host moved from a hidden pane to a shown one in the same window (a tab dragged out of a
+    /// hidden workspace, a pane's content moved): the surface keeps its superview and its window, so it gets
+    /// neither a move to a new window nor, when AppKit does not send one for a reparent, an unhide. Its draw
+    /// pause must still follow: it draws in the shown pane, and pauses `hidden` again when moved back.
+    @Test func aHostMovedFromAHiddenPaneToAShownOneDraws() throws {
+        _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
+        let drawsWhenOccluded = WindowDrawPolicy.drawsWhenOccluded
+        WindowDrawPolicy.drawsWhenOccluded = true
+        defer { WindowDrawPolicy.drawsWhenOccluded = drawsWhenOccluded }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        window.contentView = root
+        let hiddenPane = NSView(frame: root.bounds), shownPane = NSView(frame: root.bounds)
+        root.addSubview(hiddenPane)
+        root.addSubview(shownPane)
+        let io = ScriptedTerminalIO()
+        let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()),
+                                      node: VisibilityNode(root: "tab", own: .visible))
+        defer {
+            io.finish()
+            session.close()
+        }
+        session.view.frame = hiddenPane.bounds
+        hiddenPane.addSubview(session.view)
+        hiddenPane.isHidden = true
+        let surface = session.surfaceView
+        try #require(surface.isHiddenOrHasHiddenAncestor)
+        #expect(surface.pause == .hidden, "a terminal in a hidden pane draws")
+
+        shownPane.addSubview(session.view) // the same window: a reparent only
+
+        try #require(surface.window === window && !surface.isHiddenOrHasHiddenAncestor)
+        #expect(surface.pause == nil, "the terminal moved into a shown pane stayed paused \(String(describing: surface.pause))")
+
+        hiddenPane.addSubview(session.view)
+
+        #expect(surface.pause == .hidden, "the terminal moved back into the hidden pane still draws")
+    }
 }
 
 /// The grids a session reported, in its main-actor turn (``MainGridIO``).
