@@ -78,7 +78,10 @@ XCTEST_RESTART = re.compile(r"(?:Restarting after unexpected exit, crash, or tes
 TRUNCATED = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*(?:no \"Test run with\" summary line|"
                        r"swift test ended early|reported fewer tests than it ran|swift test stuck|.*\bnever finished\b|"
                        r"The job running on runner .* has exceeded the maximum execution time|"
-                       r"The operation was canceled|.*\blog (?:is|was) truncated)|^This log was truncated")
+                       r"The operation was canceled|.*\blog (?:is|was) truncated|"
+                       # the hang watchdog (hung_test_watchdog.py) and run_with_timeout.py
+                       r".*\b(?:timed out after|made no progress|stopped by SIG[A-Z]+|stalled|[Hh]ung test|"
+                       r"[Cc]ancelled test|[Tt]imeout))|^This log was truncated", re.I)
 RUN_STARTED = re.compile(r"^◇ Test run started\.")
 RUN_ENDED = re.compile(r"^[✔✘━] Test run with \d+ tests?")
 RUN_COUNT = re.compile(r"^[✔✘━] Test run with (\d{1,9}) tests?")

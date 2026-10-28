@@ -144,6 +144,15 @@ class PerTest(unittest.TestCase):
         self.assertTrue(verdict.own)
         self.assertIn("crashed (signal 6)", verdict.reasons[0])
 
+    def test_the_hang_watchdog_and_timeout_annotations_are_cut_short(self):
+        for line in ("::error title=Hung test::CmuxNextAppTests: a() made no progress for 600s",
+                     "::error title=Cancelled test::a() was stopped by SIGTERM",
+                     "::error::command timed out after 1800s: swift test"):
+            with self.subTest(line):
+                shared = log("◇ Test run started.", failed("a()"), "✘ Test a() failed after 0.1 seconds with 1 issue.",
+                             "✘ Test run with 1 test in 1 suite failed after 0.1 seconds with 1 issue.", line)
+                self.assertTrue(reds.classify(shared, log(failed("a()"), SUMMARY), "cmux-next swift test").own)
+
     def test_a_compile_job_that_prints_fatal_error_is_left_to_the_caller(self):
         compile_log = log("Fatal error: module map file not found")
         self.assertIsNone(reds.classify(compile_log, compile_log, "cmux app scheme compile (Debug)"))

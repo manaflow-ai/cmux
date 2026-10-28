@@ -283,6 +283,14 @@ class CrashIsNeverABaseRed(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "never finished"):
             self.judge()
 
+    def test_a_non_test_job_that_died_on_a_signal_the_base_did_not_blocks(self):
+        scheme = "cmux app scheme compile (Debug)"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, scheme, "Build"), 2: failed_job(2, 20, BASE_SHA, scheme, "Build")}
+        self.gh.logs[1] = log(scheme, "Build", "error: cannot find 'x' in scope", "the test helper died on signal 11")
+        self.gh.logs[2] = log(scheme, "Build", "error: cannot find 'x' in scope")
+        with self.assertRaisesRegex(excuse.Refused, "signal 11"):
+            self.judge()
+
     def test_a_red_test_the_base_does_not_fail_blocks(self):
         self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE, OTHER)
         self.gh.logs[2] = log(SWIFT, TEST_STEP, ISSUE)

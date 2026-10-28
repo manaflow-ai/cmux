@@ -172,13 +172,18 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}); "
                           "fix it on this head")
         head_steps, head_tests, head_errors = signature(job, head_log)
-        if not head_tests and not head_errors:
+        head_crash = crash_signals(head_log)
+        if not head_tests and not head_errors and not head_crash:
             raise Refused(f"'{name}': no failing test or error line to match; nothing to compare with the base")
         base_log = github.log(repo, base_job)
         base_steps, base_tests, base_errors = signature(base_job, base_log)
         verdict = test_reds.classify(head_log, base_log, name, f"{base} run {base_run['id']}")
         if verdict is not None and verdict.own:
             raise Refused(f"'{name}': " + "; ".join(verdict.reasons)[:800])
+        # Not a test job (a compile or tool that died on a signal): the base must have died the same way.
+        if missing := sorted(head_crash - crash_signals(base_log)):
+            raise Refused(f"'{name}': the process died on signal {', '.join(missing)}, "
+                          f"and {base} run {base_run['id']} did not")
         compared = [("failed steps", head_steps, base_steps), ("failing tests", head_tests, base_tests)]
         if not head_tests:
             compared.append(("errors", head_errors, base_errors))
