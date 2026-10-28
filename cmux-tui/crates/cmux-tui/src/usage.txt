@@ -50,8 +50,7 @@ START OPTIONS
                     Refresh the relay ticket from an argv-based command.
   --iroh            Publish an Iroh route for NAT traversal and mobile use.
   --advertise <url> Add a non-secret route hint to enrollment invitations.
-  --term <value>     TERM for child shells (default: keep the outer terminal's
-                     xterm-ghostty, else xterm-256color).
+  --term <value>     TERM for child shells (default: xterm-256color).
   --terminal-reap-grace-seconds <seconds>
                      End a terminal with no tab after this long unless it is
                      kept (default: never; 0 ends it at once; at most 604800).

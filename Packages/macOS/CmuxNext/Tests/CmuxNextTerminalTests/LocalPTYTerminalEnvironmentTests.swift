@@ -23,9 +23,10 @@ struct LocalPTYTerminalEnvironmentTests {
         #expect(env["TERMINFO"] == nil)
     }
 
-    @Test func aTerminfoTheCallerFoundSelectsGhosttysTerm() {
-        let env = LocalPTYTerminalIO.terminalEnvironment(resourcesDirectory: nil, version: nil, installedTerminfo: true)
+    @Test func theCallersResolvedTermIsTheShellsTerm() {
+        let env = LocalPTYTerminalIO.terminalEnvironment(resourcesDirectory: nil, version: nil, term: "xterm-ghostty")
         #expect(env["TERM"] == "xterm-ghostty")
+        #expect(env["COLORTERM"] == "truecolor")
         #expect(env["GHOSTTY_RESOURCES_DIR"] == nil)
     }
 }

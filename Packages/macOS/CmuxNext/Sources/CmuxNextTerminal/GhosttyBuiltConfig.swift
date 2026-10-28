@@ -60,8 +60,10 @@ public nonisolated final class GhosttyBuiltConfig: Sendable {
     let filesBlur: Int
     /// libghostty's messages from the load (unknown keys, bad values).
     let diagnostics: [String]
+    /// The config files' explicit `term` (``GhosttyConfigTerm``); nil when they set none.
+    let term: String?
 
-    init(config: ghostty_config_t, opacity: Double, filesOpacity: Double, filesBlur: Int, diagnostics: [String]) {
+    init(config: ghostty_config_t, opacity: Double, filesOpacity: Double, filesBlur: Int, diagnostics: [String], term: String? = nil) {
         // SAFETY: the build hands over its new finalized config, which this object carries until its
         // one owner adopts or frees it (`config`'s note).
         self.handle = unsafe UncheckedPointer(raw: config)
@@ -69,6 +71,7 @@ public nonisolated final class GhosttyBuiltConfig: Sendable {
         self.filesOpacity = filesOpacity
         self.filesBlur = filesBlur
         self.diagnostics = diagnostics
+        self.term = term
     }
 
     /// Frees a config nothing adopted (a superseded build).

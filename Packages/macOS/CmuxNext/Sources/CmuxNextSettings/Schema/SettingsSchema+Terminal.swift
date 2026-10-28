@@ -2,12 +2,13 @@
 nonisolated enum TerminalSettingsSchema {
     /// `terminal.fontFamily` and `terminal.fontSize` (Ghostty overrides,
     /// `TerminalFontSetting`), `terminal.linkOpener.*` (`TerminalLinkOpener`) and
-    /// `terminal.predictiveEcho` (`TerminalPredictiveEchoSetting`).
+    /// `terminal.predictiveEcho` (`TerminalPredictiveEchoSetting`) and `terminal.term` (`TerminalTermSetting`).
     static var descriptors: [SettingDescriptor] {
         let font = SettingsText.keyed("settings.group.terminalFont", "Font")
         let ghostty = SettingsText.keyed("settings.source.ghostty", "Ghostty")
         let links = SettingsText.keyed("settings.group.openingLinks", "Opening Links")
         let typing = SettingsText.keyed("settings.group.terminalTyping", "Typing")
+        let compatibility = SettingsText.keyed("settings.group.terminalCompatibility", "Compatibility")
         return [
             SettingDescriptor(
                 TerminalFontSetting().familyPath, section: .terminal, group: font,
@@ -53,6 +54,14 @@ nonisolated enum TerminalSettingsSchema {
                 ]),
                 default: .string(TerminalPredictiveEchoSetting.fallback.rawValue),
                 keywords: ["predictive", "echo", "local echo", "mosh", "latency", "lag", "ssh", "remote", "typing"]
+            ),
+            SettingDescriptor(
+                TerminalTermSetting().path, section: .terminal, group: compatibility,
+                title: SettingsText.keyed("settings.terminal.term", "Terminal Type (TERM)"),
+                help: SettingsText.keyed("settings.terminal.term.help",
+                                         "The TERM that new terminals get. xterm-256color works with every program and on every ssh host. Set xterm-ghostty to use Ghostty's own entry: cmux uses it only when that terminfo entry is installed on this Mac, else xterm-256color. When this is not set, a term in your Ghostty config applies."),
+                kind: .text, default: .string(TerminalTermSetting().standard),
+                keywords: ["TERM", "terminfo", "xterm", "xterm-256color", "xterm-ghostty", "ssh", "unknown terminal type", "infocmp", "compatibility"]
             ),
         ]
     }

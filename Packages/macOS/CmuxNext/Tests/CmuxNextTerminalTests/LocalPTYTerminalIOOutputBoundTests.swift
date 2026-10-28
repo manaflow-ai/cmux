@@ -16,7 +16,7 @@ import Testing
         let bound = 256 << 10
         let script = try FloodScript(bytes: total)
         defer { script.remove() }
-        let io = try LocalPTYTerminalIO(shell: script.path, workingDirectory: "/", installedTerminfo: false, outputBound: bound)
+        let io = try LocalPTYTerminalIO(shell: script.path, workingDirectory: "/", outputBound: bound)
         defer { io.terminate() }
 
         // The bound, the chunk that filled it, and the PTY's own buffer the last drain reads past the
@@ -56,7 +56,7 @@ import Testing
         let bound = 64 << 10
         let script = try FloodScript(bytes: 4 << 20)
         defer { script.remove() }
-        let io = try LocalPTYTerminalIO(shell: script.path, workingDirectory: "/", installedTerminfo: false, outputBound: bound)
+        let io = try LocalPTYTerminalIO(shell: script.path, workingDirectory: "/", outputBound: bound)
         defer { io.terminate() }
 
         var withheld = 0

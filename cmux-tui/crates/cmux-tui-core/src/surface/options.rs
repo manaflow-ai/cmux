@@ -9,9 +9,8 @@ pub struct SurfaceOptions {
     /// Command argv; defaults to the platform shell.
     pub command: Option<Vec<String>>,
     pub cwd: Option<String>,
-    /// TERM value for children: the outer terminal's xterm-ghostty when it
-    /// advertised that (see [`default_child_term`]), else the compatible
-    /// xterm-256color. CMUX_TUI_TERM/CMUX_MUX_TERM override.
+    /// TERM value for children: xterm-256color (see [`default_child_term`]).
+    /// CMUX_TUI_TERM/CMUX_MUX_TERM override, and a caller env's TERM wins.
     pub term: String,
     pub cols: u16,
     pub rows: u16,
@@ -59,30 +58,18 @@ pub struct SurfaceOptions {
     pub host_panic_log: Option<crate::terminal_host_runtime::HostPanicLog>,
 }
 
-/// Default TERM for child shells.
-///
-/// `xterm-ghostty` when the OUTER terminal advertised it (this process's
-/// own TERM), else the compatible `xterm-256color`. No terminfo probing:
-/// a Ghostty session that sets TERM=xterm-ghostty also exports TERMINFO
-/// pointing at its bundled database, and children inherit that variable
-/// through cmux-tui untouched, so the entry resolves for them exactly as
-/// it does for programs in the raw Ghostty pane. Children — local and
-/// remote (ssh forwards TERM, not terminfo) — therefore see precisely the
-/// TERM they would have seen without the multiplexer, never a less
-/// compatible one, and TERM-name-sniffing prompts (oh-my-zsh themes
-/// matching `*256color`) take the same branch inside cmux-tui as in raw
-/// Ghostty, so colors match. Only xterm-ghostty passes through: the inner
-/// terminal IS ghostty-vt, so that name is truthful regardless of which
-/// client later attaches; any other outer TERM would misdescribe it.
-/// Servers started outside a Ghostty session (launchd, ssh, cron) keep
-/// xterm-256color. CMUX_TUI_TERM, CMUX_MUX_TERM, and --term override.
+/// Default TERM for child shells: `xterm-256color`, the name every tool and
+/// every ssh target, VM and container knows, whatever terminal the server
+/// itself runs in (Lawrence 2026-10-28: "default echo $TERM should not use
+/// the ghostty one but should use the standard one that every tool
+/// recognizes, for all cmux"). An outer `xterm-ghostty` no longer passes
+/// through: ssh forwards TERM, not terminfo, so hosts without that entry
+/// failed with "unknown terminal type". `COLORTERM=truecolor` (set at every
+/// spawn) and the app's `TERM_PROGRAM=ghostty` still let programs detect the
+/// features. CMUX_TUI_TERM, CMUX_MUX_TERM, --term and a caller env's TERM
+/// (the app's `terminal.term`) choose another.
 pub fn default_child_term() -> String {
-    child_term_for(std::env::var("TERM").ok().as_deref()).into()
-}
-
-/// Pure selection rule for [`default_child_term`].
-pub(super) fn child_term_for(outer_term: Option<&str>) -> &'static str {
-    if outer_term == Some("xterm-ghostty") { "xterm-ghostty" } else { "xterm-256color" }
+    "xterm-256color".into()
 }
 
 impl Default for SurfaceOptions {

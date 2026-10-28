@@ -16,6 +16,8 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     /// every terminal reads it at each key it takes.
     private var predictiveEcho: TerminalPredictiveEcho.Mode?
     private var predictiveEchoWatch: FrameObservation<TerminalPredictiveEchoSetting>?
+    /// Follows `terminal.term` into `GhosttyRuntime.shared.termChoice` (``followTerminalTerm(_:on:)``).
+    private var termWatch: FrameObservation<String?>?
 
     /// A Ghostty keybind (`new_split:right`, `goto_split:left`, ...) runs the
     /// registry action every other entrypoint runs, targeted at this
@@ -51,6 +53,15 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         predictiveEchoWatch = FrameObservation(owner: "terminal.predictiveEcho", delivery: .automation, on: work) {
             settings.snapshot.terminalPredictiveEcho
         } onChange: { [weak self] setting in self?.predictiveEcho = TerminalPredictiveEcho.Mode(setting: setting.rawValue) }
+    }
+
+    /// Follows `terminal.term` from `settings` into `GhosttyRuntime.shared.termChoice`, which each new
+    /// terminal's environment reads at spawn: one apply per change; terminals already running keep their `TERM`.
+    func followTerminalTerm(_ settings: SettingsController, on work: MainWorkScheduler) {
+        GhosttyRuntime.shared.termChoice.setting = settings.snapshot.terminalTerm
+        termWatch = FrameObservation(owner: "terminal.term", delivery: .automation, on: work) {
+            settings.snapshot.terminalTerm
+        } onChange: { GhosttyRuntime.shared.termChoice.setting = $0 }
     }
 
     /// The declared terminal context menu (`ContextMenuCatalog`), targeted at the right-clicked

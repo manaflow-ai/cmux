@@ -13,7 +13,7 @@ import Testing
     @Test func eachDrainAndFlushIsOneScopeAndTheReadinessWaitIsNone() async throws {
         let hangs = PTYLaneScopeLog()
         let io = try LocalPTYTerminalIO(shell: "/bin/sh", workingDirectory: "/", environment: ["PS1": ""],
-                                        installedTerminfo: false, hangs: hangs)
+                                        hangs: hangs)
         defer { io.terminate() }
         #expect(hangs.lanes == ["localpty.read", "localpty.write"])
 

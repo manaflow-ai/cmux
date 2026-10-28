@@ -164,7 +164,7 @@ import Testing
     }
 
     @Test func theLocalPTYDrainsOnItsWriteQueue() throws {
-        let io = try LocalPTYTerminalIO(shell: "/bin/sh", workingDirectory: "/", environment: ["PS1": ""], installedTerminfo: false)
+        let io = try LocalPTYTerminalIO(shell: "/bin/sh", workingDirectory: "/", environment: ["PS1": ""])
         defer { io.terminate() }
 
         let drain = io.inputDrain()

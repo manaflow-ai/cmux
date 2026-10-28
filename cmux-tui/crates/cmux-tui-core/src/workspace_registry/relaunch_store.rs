@@ -51,9 +51,12 @@ pub(crate) use agent_launch::{
 
 /// The environment keys a relaunch record keeps, by exact name.
 ///
-/// - `TERM`, `TERMINFO`, `COLORTERM`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`:
-///   the terminal identity the app gave the shell, so programs see the same
-///   terminal after reopen (`TERM` is replayed only with a usable `TERMINFO`).
+/// - `TERMINFO`, `COLORTERM`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`: the
+///   terminal identity the app gave the shell, so programs see the same
+///   terminal after reopen (`TERMINFO` only while its directory exists).
+///   `TERM` is not kept: a reopened terminal gets the TERM new terminals get
+///   now (`xterm-256color` unless the person chose another), never one an
+///   older build recorded (xterm-ghostty broke ssh; Lawrence 2026-10-28).
 /// - `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, `CMUX_TAG`: which app owns the
 ///   terminal, so the `cmux` CLI in the reopened shell talks to that app.
 ///
@@ -62,7 +65,6 @@ pub(crate) use agent_launch::{
 /// new ids and its creator sets them again; a stale id would point the CLI at
 /// the wrong surface.
 pub(crate) const ENV_KEYS: &[&str] = &[
-    "TERM",
     "TERMINFO",
     "COLORTERM",
     "TERM_PROGRAM",
@@ -593,7 +595,6 @@ pub(crate) fn replay(tab: &Value) -> (Option<String>, Vec<(String, String)>) {
         .into_iter()
         .filter(|(key, _)| keeps_env_key(key))
         .filter(|(key, _)| key != "TERMINFO" || terminfo_usable)
-        .filter(|(key, _)| key != "TERM" || terminfo_usable)
         .filter_map(|(key, value)| value.as_str().map(|value| (key, value.to_string())))
         .collect();
     (cwd, env)

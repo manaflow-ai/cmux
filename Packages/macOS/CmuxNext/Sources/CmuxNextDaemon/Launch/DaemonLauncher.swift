@@ -139,8 +139,8 @@ public struct DaemonLauncher: Sendable {
     /// `CMUX_BUNDLE_ID`, `CMUX_TAG`) and the bundled `cmux` (`<Resources>/bin` first) reach every shell it spawns;
     /// `daemonEnvironment` joins only `server ensure`; every cmux-tui process takes `CMUX_APPS_FIRST_PARTY_DIR` out of its
     /// environment at startup and honors it only inside its own app bundle, so no child inherits it (bead cx-e0cs).
-    /// `resolvedTerminalEnvironment` adds the keys the app looks up on the disk off the main thread (Ghostty's `TERM`
-    /// and resources), awaited when `server ensure` builds its environment, over `terminalEnvironment`.
+    /// `resolvedTerminalEnvironment` adds the keys the app looks up on the disk off the main thread (Ghostty's
+    /// resources), awaited when `server ensure` builds its environment, over `terminalEnvironment`.
     /// `team` is this process's Team ID (``CodeSigningTeam``), read by the caller off the main thread: an
     /// unsigned build (nil) proves itself with a `FrontendInstallKey`.
     public static func forApp(

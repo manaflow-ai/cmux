@@ -141,15 +141,17 @@ pub(in crate::mux) fn respawn_shell(record: Option<&StoredRelaunch>) -> String {
         .unwrap_or_else(crate::platform::default_shell)
 }
 
-/// The record's environment, without `TERM` and `TERMINFO` when the
-/// recorded terminfo directory is gone.
+/// The record's environment without `TERM`, and without `TERMINFO` when the
+/// recorded terminfo directory is gone. A respawned shell gets the TERM new
+/// terminals get now, never one an older build recorded (xterm-ghostty broke
+/// ssh to hosts without that entry; Lawrence 2026-10-28).
 fn usable_env(env: &[(String, String)]) -> Vec<(String, String)> {
     let terminfo_usable = env
         .iter()
         .find(|(key, _)| key == "TERMINFO")
         .is_none_or(|(_, path)| Path::new(path).is_dir());
     env.iter()
-        .filter(|(key, _)| terminfo_usable || (key != "TERM" && key != "TERMINFO"))
+        .filter(|(key, _)| key != "TERM" && (terminfo_usable || key != "TERMINFO"))
         .cloned()
         .collect()
 }

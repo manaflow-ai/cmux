@@ -47,22 +47,11 @@ fn local_surface_retains_real_status_after_final_pty_bytes() {
 
 /// Lawrence 2026-10-28: children get the standard TERM that every tool and
 /// every ssh host knows, even when the outer terminal is Ghostty
-/// (TERM=xterm-ghostty). CMUX_TUI_TERM, CMUX_MUX_TERM and --term still
-/// choose another.
+/// (TERM=xterm-ghostty): the default reads no outer TERM at all.
+/// CMUX_TUI_TERM, CMUX_MUX_TERM and --term still choose another.
 #[test]
 fn child_term_is_the_standard_one_whatever_the_outer_terminal() {
-    assert_eq!(child_term_for(Some("xterm-ghostty")), "xterm-256color");
-    assert_eq!(child_term_for(Some("xterm-256color")), "xterm-256color");
-    assert_eq!(child_term_for(Some("screen")), "xterm-256color");
-    assert_eq!(child_term_for(None), "xterm-256color");
-}
-
-/// default_child_term composes the rule with this process's real TERM
-/// and must agree with it.
-#[test]
-fn default_child_term_matches_selection_rule() {
-    let outer = std::env::var("TERM").ok();
-    assert_eq!(default_child_term(), child_term_for(outer.as_deref()));
+    assert_eq!(default_child_term(), "xterm-256color");
 }
 
 #[cfg(unix)]

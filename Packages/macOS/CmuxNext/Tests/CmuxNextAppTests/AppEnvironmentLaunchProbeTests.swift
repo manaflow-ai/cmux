@@ -15,8 +15,7 @@ import Testing
 @MainActor
 struct AppEnvironmentLaunchProbeTests {
     /// What a lane found on a Mac with Ghostty's terminfo installed and this build's helper.
-    nonisolated static let found = GhosttyLaunchProbe(resources: "/probe/Resources/ghostty", binary: "/probe/Resources/bin/ghostty",
-                                                      terminfoInstalled: true)
+    nonisolated static let found = GhosttyLaunchProbe(resources: "/probe/Resources/ghostty", binary: "/probe/Resources/bin/ghostty")
     static let work = BackgroundWork(label: "test.ghostty-probe")
     nonisolated static let login: @Sendable () async -> [String: String]? = { ["PATH": "/usr/bin:/bin", "SHELL": "/bin/zsh"] }
 
@@ -35,16 +34,54 @@ struct AppEnvironmentLaunchProbeTests {
     }
     #endif
 
-    @Test("A shell's env carries what the launch read found: helper, TERM and resources")
+    @Test("A shell's env carries what the launch read found: helper and resources")
     func aShellsEnvCarriesTheLaunchRead() async {
         var environment = AppEnvironment.current([:])
         environment.ghosttyProbe = GhosttyLaunchProbe.start(on: Self.work) { Self.found }
         let env = await environment.terminalEnvironmentProvider(login: Self.login, settings: { nil })()
         #expect(env["GHOSTTY_BIN"] == "/probe/Resources/bin/ghostty")
-        #expect(env["TERM"] == "xterm-ghostty")
+        #expect(env["TERM"] == "xterm-256color")
         #expect(env["GHOSTTY_RESOURCES_DIR"] == "/probe/Resources/ghostty")
         // The daemon's own environment gets the same keys over its overrides.
-        #expect(await environment.resolvedTerminalEnvironment()?() == ["TERM": "xterm-ghostty", "GHOSTTY_RESOURCES_DIR": "/probe/Resources/ghostty"])
+        #expect(await environment.resolvedTerminalEnvironment()?() == ["GHOSTTY_RESOURCES_DIR": "/probe/Resources/ghostty"])
+    }
+
+    /// `terminal.term` (or the Ghostty config's `term`) names another `TERM`: shells get it when its entry is
+    /// installed, checked on the files lane, and the standard one with a log line when it is not.
+    @Test("An asked-for TERM is used only when its terminfo entry is installed")
+    func anAskedForTermNeedsItsEntry() async {
+        let installed: Set = ["/home/me/.terminfo/78/xterm-ghostty"]
+        var environment = AppEnvironment.current([:])
+        environment.terminfo = TerminfoLookup(work: Self.work, home: "/home/me", fileExists: { installed.contains($0) })
+        let ghostty = await environment.terminalEnvironmentProvider(login: Self.login, settings: { nil },
+                                                                    term: { TerminalTermChoice(setting: "xterm-ghostty") })()
+        #expect(ghostty["TERM"] == "xterm-ghostty")
+        #expect(ghostty["TERM_PROGRAM"] == "ghostty")
+        let missing = await environment.terminalEnvironmentProvider(login: Self.login, settings: { nil },
+                                                                    term: { TerminalTermChoice(setting: "wezterm") })()
+        #expect(missing["TERM"] == "xterm-256color")
+        let invalid = await environment.terminalEnvironmentProvider(login: Self.login, settings: { nil },
+                                                                    term: { TerminalTermChoice(setting: "../../etc/x") })()
+        #expect(invalid["TERM"] == "xterm-256color")
+    }
+
+    /// A `term` the person set in their Ghostty config is honored; cmux.json's `terminal.term` wins over it.
+    @Test("The Ghostty config's explicit term applies unless terminal.term is set")
+    func theGhosttyConfigsTermApplies() async {
+        let installed: Set = ["/usr/share/terminfo/x/xterm-ghostty", "/usr/share/terminfo/s/screen-256color"]
+        var environment = AppEnvironment.current([:])
+        environment.terminfo = TerminfoLookup(work: Self.work, home: "/home/me", fileExists: { installed.contains($0) })
+        let fromConfig = await environment.terminalEnvironmentProvider(login: Self.login, settings: { nil },
+                                                                       term: { TerminalTermChoice(ghosttyConfig: "xterm-ghostty") })()
+        #expect(fromConfig["TERM"] == "xterm-ghostty")
+        let settingWins = await environment.terminalEnvironmentProvider(
+            login: Self.login, settings: { nil },
+            term: { TerminalTermChoice(setting: "screen-256color", ghosttyConfig: "xterm-ghostty") })()
+        #expect(settingWins["TERM"] == "screen-256color")
+        let standardWins = await environment.terminalEnvironmentProvider(
+            login: Self.login, settings: { nil },
+            term: { TerminalTermChoice(setting: "xterm-256color", ghosttyConfig: "xterm-ghostty") })()
+        #expect(standardWins["TERM"] == "xterm-256color")
     }
 
     /// Lawrence 2026-10-28: "default echo $TERM should not use the ghostty one but should use the standard one
@@ -89,11 +126,11 @@ struct AppEnvironmentLaunchProbeTests {
     func theProbeUsesItsSeams() {
         let inherited = "/inherited/ghostty"
         let present: Set = [inherited + "/themes", "/home/me/.terminfo/78/xterm-ghostty"]
-        let probe = GhosttyLaunchProbe.look(environment: ["GHOSTTY_RESOURCES_DIR": inherited], home: "/home/me",
+        let probe = GhosttyLaunchProbe.look(environment: ["GHOSTTY_RESOURCES_DIR": inherited],
                                             fileExists: { present.contains($0) }, isExecutable: { _ in false })
-        #expect(probe == GhosttyLaunchProbe(resources: inherited, binary: nil, terminfoInstalled: true))
-        let none = GhosttyLaunchProbe.look(environment: [:], home: "/home/me", fileExists: { _ in false }, isExecutable: { _ in false })
-        #expect(none.terminalEnvironment == ["TERM": "xterm-256color"])
+        #expect(probe == GhosttyLaunchProbe(resources: inherited, binary: nil))
+        let none = GhosttyLaunchProbe.look(environment: [:], fileExists: { _ in false }, isExecutable: { _ in false })
+        #expect(none.terminalEnvironment.isEmpty)
     }
 
     @Test("The app integrates the shell only from its bundled resources")

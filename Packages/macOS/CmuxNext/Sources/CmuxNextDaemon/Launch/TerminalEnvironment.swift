@@ -1,5 +1,4 @@
 public import Foundation
-public import CmuxNextCompat
 
 /// The environment the app hands the daemon and its terminals.
 ///
@@ -83,43 +82,27 @@ public struct TerminalEnvironment: Sendable {
     /// The terminal identity Ghostty exports to every shell it starts
     /// (`ghostty/src/termio/Exec.zig`, `Subprocess.init`), so programs in a
     /// cmux-next terminal choose the same color depth and theme branch as in
-    /// Ghostty. The daemon's terminal is ghostty-vt, so the Ghostty names are
-    /// truthful. The app passes this as an override, which wins over the
-    /// login shell's `TERM`/`COLORTERM`/`TERM_PROGRAM` (those stay excluded).
+    /// Ghostty, with the standard `TERM`. The app passes this as an override,
+    /// which wins over the login shell's `TERM`/`COLORTERM`/`TERM_PROGRAM`
+    /// (those stay excluded).
     ///
-    /// - `TERM=xterm-256color`, unless the `xterm-ghostty` terminfo entry is
-    ///   installed in a system terminfo directory (`installedTerminfo`, which
-    ///   the caller looked up on a lane: the app's `GhosttyLaunchProbe`),
-    ///   then ``installedTerm``. The bundled entry never selects it: ssh targets,
-    ///   VMs and containers lack it, and `clear`/`htop` fail there with
-    ///   "unknown terminal type". `TERMINFO` is not set.
+    /// - `TERM=xterm-256color`, the name every tool and every ssh target,
+    ///   VM and container knows (Lawrence 2026-10-28: "default echo $TERM
+    ///   should not use the ghostty one but should use the standard one that
+    ///   every tool recognizes, for all cmux"). The app sets another only when
+    ///   the person asks and its entry is installed (`TerminalTermChoice`,
+    ///   `TerminfoLookup` in CmuxNextTerminal). `TERMINFO` is not set.
     /// - `COLORTERM=truecolor`: 24-bit SGR is parsed and drawn losslessly.
     /// - `TERM_PROGRAM=ghostty`, `TERM_PROGRAM_VERSION`: feature detection
     ///   (neovim and others).
     /// - `GHOSTTY_RESOURCES_DIR`: themes and shell-integration lookups.
     ///
     /// It reads no file: the app builds it on the main thread at launch (p02-threads-006).
-    public func ghostty(resourcesDirectory: String?, version: String?, installedTerminfo: Bool = false) -> [String: String] {
+    public func ghostty(resourcesDirectory: String?, version: String?) -> [String: String] {
         var env = ["TERM": "xterm-256color", "COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty"]
         if let version, !version.isEmpty { env["TERM_PROGRAM_VERSION"] = version }
-        if installedTerminfo { env["TERM"] = Self.installedTerm }
         if let resourcesDirectory, !resourcesDirectory.isEmpty { env["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory }
         return env
-    }
-
-    /// The `TERM` of a terminal when ``hasInstalledGhosttyTerminfo(home:fileExists:)`` is true.
-    public static let installedTerm = "xterm-ghostty"
-
-    /// Whether `xterm-ghostty` is in a terminfo directory ncurses searches by default. It checks 14 paths,
-    /// two in the home folder (which can be a network volume), so it is the body of a blocking-work lane
-    /// item, never main-thread work (the app's launch check is `GhosttyLaunchProbe`, on its files lane).
-    public static func hasInstalledGhosttyTerminfo(
-        home: String = NSHomeDirectory(),
-        fileExists: (String) -> Bool = { FileManager.checked.fileExists(atPath: $0) }
-    ) -> Bool {
-        let roots = [home + "/.terminfo", "/usr/share/terminfo", "/usr/lib/terminfo", "/etc/terminfo", "/lib/terminfo",
-                     "/opt/homebrew/share/terminfo", "/usr/local/share/terminfo"]
-        return roots.contains { fileExists($0 + "/78/xterm-ghostty") || fileExists($0 + "/x/xterm-ghostty") }
     }
 
     /// Shared per-launch provider for terminal `env`: the login environment

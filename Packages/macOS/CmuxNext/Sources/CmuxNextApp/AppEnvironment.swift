@@ -48,14 +48,17 @@ struct AppEnvironment: Sendable {
     /// terminal identity Ghostty gives its shells (`TerminalEnvironment.instance.ghostty`),
     /// so prompts and tools pick the same colors as in Ghostty. Also the
     /// daemon's launch overrides, so terminals it creates without a
-    /// per-terminal `env` match. Made with no disk call: the keys that need
-    /// one (`TERM`, `GHOSTTY_RESOURCES_DIR`) come from ``ghosttyProbe``.
+    /// per-terminal `env` match. Made with no disk call: the key that needs
+    /// one (`GHOSTTY_RESOURCES_DIR`) comes from ``ghosttyProbe``.
     let terminalEnvironment: [String: String]
-    /// The launch's Ghostty lookups (``GhosttyLaunchProbe``: resources, CLI helper,
-    /// terminfo), on a launch lane, never on the main thread; each shell's env and the
+    /// The launch's Ghostty lookups (``GhosttyLaunchProbe``: resources, CLI helper),
+    /// on a launch lane, never on the main thread; each shell's env and the
     /// daemon's `server ensure` await it. Only the real app process starts it; nil
-    /// gives shells xterm-256color and no Ghostty folder or helper (tests that build `AppServices`).
+    /// gives shells no Ghostty folder or helper (tests that build `AppServices`).
     var ghosttyProbe: LaunchRead<GhosttyLaunchProbe>?
+    /// Checks the terminfo entry of a `TERM` the person asked for (`terminal.term`, the Ghostty
+    /// config's `term`) on the files lane; nil (tests) finds none, so shells keep `xterm-256color`.
+    var terminfo: TerminfoLookup?
     /// Whether this app resolves Ghostty's shell integration for its local
     /// terminals (the daemon connection then echoes
     /// `terminal-frontend-shell-integration-v1`): when it runs from its app
@@ -188,19 +191,24 @@ struct AppEnvironment: Sendable {
     /// The per-terminal `env` provider every local spawn path uses (daemon
     /// connection, new workspaces, the compat CLI): the filtered login
     /// environment, ``terminalEnvironment`` with ``ghosttyProbe``'s keys over
-    /// it, then Ghostty's shell integration from the config applied at spawn
+    /// it, the `TERM` asked for at spawn time (`term`: `xterm-256color` unless
+    /// `terminal.term` or the Ghostty config's `term` names an installed entry,
+    /// ``terminfo``), then Ghostty's shell integration from the config applied at spawn
     /// time (`settings`), so `reload-config` affects the next terminal.
     /// `login` is the login environment (nil: `LoginEnvironmentCache`; a test's own).
     func terminalEnvironmentProvider(
         login: (@Sendable () async -> [String: String]?)? = nil,
-        settings: @escaping @MainActor @Sendable () -> GhosttyShellIntegrationSettings? = { GhosttyRuntime.shared.shellIntegrationSettings }
+        settings: @escaping @MainActor @Sendable () -> GhosttyShellIntegrationSettings? = { GhosttyRuntime.shared.shellIntegrationSettings },
+        term: @escaping @MainActor @Sendable () -> TerminalTermChoice = { GhosttyRuntime.shared.termChoice }
     ) -> @Sendable () async -> [String: String] {
-        let (overrides, probe) = (terminalEnvironment, ghosttyProbe)
+        let (overrides, probe, terminfo) = (terminalEnvironment, ghosttyProbe, terminfo ?? TerminfoLookup(work: nil))
         let cli = Self.bundledCLI(appResources: Bundle.main.resourceURL?.path, resolvesShellIntegration: resolvesShellIntegration)
         return {
             let probed = await probe?.finished()
+            var keys = overrides.merging(probed?.terminalEnvironment ?? [:]) { _, found in found }
+            keys["TERM"] = await terminfo.term(for: await term().requested)
             let shared = TerminalEnvironment.instance.shared(
-                overrides: overrides.merging(probed?.terminalEnvironment ?? [:]) { _, found in found }, login: login,
+                overrides: keys, login: login,
                 integration: { Self.shellIntegration(await settings(), resources: probed?.resources, binary: probed?.binary) }, cli: cli)
             return await shared()
         }

@@ -173733,6 +173733,399 @@
           }
         }
       }
+    },
+    "settings.group.terminalCompatibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compatibility"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التوافق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kompatibilnost"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kompatibilitet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kompatibilität"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compatibilidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compatibilité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compatibilità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "互換性"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ភាពត្រូវគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호환성"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kompatibilitet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zgodność"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compatibilidade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Совместимость"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ความเข้ากันได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uyumluluk"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сумісність"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tương thích"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "兼容性"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相容性"
+          }
+        }
+      }
+    },
+    "settings.terminal.term": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal Type (TERM)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نوع الطرفية (TERM)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tip terminala (TERM)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminaltype (TERM)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminaltyp (TERM)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tipo de terminal (TERM)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type de terminal (TERM)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tipo di terminale (TERM)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "端末タイプ (TERM)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប្រភេទទែមីណាល់ (TERM)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널 유형(TERM)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminaltype (TERM)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Typ terminala (TERM)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tipo de terminal (TERM)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тип терминала (TERM)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ประเภทเทอร์มินัล (TERM)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Terminal türü (TERM)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Тип термінала (TERM)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Loại terminal (TERM)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端类型 (TERM)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終端機類型 (TERM)"
+          }
+        }
+      }
+    },
+    "settings.terminal.term.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The TERM that new terminals get. xterm-256color works with every program and on every ssh host. Set xterm-ghostty to use Ghostty's own entry: cmux uses it only when that terminfo entry is installed on this Mac, else xterm-256color. When this is not set, a term in your Ghostty config applies."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيمة TERM التي تحصل عليها الطرفيات الجديدة. تعمل xterm-256color مع كل برنامج وعلى كل مضيف ssh. اضبطها على xterm-ghostty لاستخدام إدخال Ghostty الخاص: يستخدمه cmux فقط عندما يكون إدخال terminfo هذا مثبتًا على جهاز Mac هذا، وإلا فيستخدم xterm-256color. عندما لا يكون هذا الإعداد مضبوطًا، يُطبَّق term الموجود في إعدادات Ghostty."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "TERM koji dobijaju novi terminali. xterm-256color radi sa svakim programom i na svakom ssh hostu. Postavite xterm-ghostty da koristite Ghosttyjev vlastiti unos: cmux ga koristi samo kada je taj terminfo unos instaliran na ovom Macu, inače xterm-256color. Kada ovo nije postavljeno, primjenjuje se term iz vaše Ghostty konfiguracije."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den TERM, som nye terminaler får. xterm-256color virker med alle programmer og på alle ssh-værter. Vælg xterm-ghostty for at bruge Ghosttys egen post: cmux bruger den kun, når den terminfo-post er installeret på denne Mac, ellers xterm-256color. Når dette ikke er angivet, gælder en term i din Ghostty-konfiguration."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der TERM-Wert, den neue Terminals erhalten. xterm-256color funktioniert mit jedem Programm und auf jedem ssh-Host. Setze xterm-ghostty, um Ghosttys eigenen Eintrag zu verwenden: cmux nutzt ihn nur, wenn dieser terminfo-Eintrag auf diesem Mac installiert ist, sonst xterm-256color. Ist dies nicht gesetzt, gilt ein term aus deiner Ghostty-Konfiguration."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El TERM que reciben los terminales nuevos. xterm-256color funciona con cualquier programa y en cualquier host ssh. Usa xterm-ghostty para la entrada propia de Ghostty: cmux la usa solo cuando esa entrada terminfo está instalada en este Mac; si no, usa xterm-256color. Si no se establece, se aplica el term de tu configuración de Ghostty."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le TERM que reçoivent les nouveaux terminaux. xterm-256color fonctionne avec tous les programmes et sur tous les hôtes ssh. Choisissez xterm-ghostty pour utiliser l'entrée propre à Ghostty : cmux ne l'utilise que si cette entrée terminfo est installée sur ce Mac, sinon xterm-256color. Si ce réglage n'est pas défini, le term de votre configuration Ghostty s'applique."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il TERM che ricevono i nuovi terminali. xterm-256color funziona con ogni programma e su ogni host ssh. Imposta xterm-ghostty per usare la voce di Ghostty: cmux la usa solo se quella voce terminfo è installata su questo Mac, altrimenti xterm-256color. Se non è impostato, vale il term della configurazione di Ghostty."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しい端末に設定される TERM です。xterm-256color はすべてのプログラムとすべての ssh ホストで使えます。Ghostty 独自のエントリを使うには xterm-ghostty を設定します。cmux はその terminfo エントリがこの Mac にインストールされている場合にだけ使い、ない場合は xterm-256color を使います。この設定がない場合は、Ghostty の設定にある term が使われます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "TERM ដែលទែមីណាល់ថ្មីទទួលបាន។ xterm-256color ដំណើរការជាមួយកម្មវិធីទាំងអស់ និងលើម៉ាស៊ីន ssh ទាំងអស់។ កំណត់ xterm-ghostty ដើម្បីប្រើធាតុផ្ទាល់របស់ Ghostty៖ cmux ប្រើវាតែនៅពេលធាតុ terminfo នោះត្រូវបានដំឡើងលើ Mac នេះ បើមិនដូច្នោះទេ xterm-256color។ នៅពេលមិនបានកំណត់ term ក្នុងការកំណត់ Ghostty របស់អ្នកត្រូវបានប្រើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 터미널에 설정되는 TERM입니다. xterm-256color는 모든 프로그램과 모든 ssh 호스트에서 작동합니다. Ghostty 고유 항목을 쓰려면 xterm-ghostty로 설정하세요. cmux는 해당 terminfo 항목이 이 Mac에 설치된 경우에만 사용하고, 그렇지 않으면 xterm-256color를 사용합니다. 설정하지 않으면 Ghostty 설정의 term이 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "TERM-verdien nye terminaler får. xterm-256color fungerer med alle programmer og på alle ssh-verter. Velg xterm-ghostty for å bruke Ghosttys egen oppføring: cmux bruker den bare når den terminfo-oppføringen er installert på denne Macen, ellers xterm-256color. Når dette ikke er angitt, gjelder en term i Ghostty-konfigurasjonen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "TERM, który dostają nowe terminale. xterm-256color działa z każdym programem i na każdym hoście ssh. Ustaw xterm-ghostty, aby użyć własnego wpisu Ghostty: cmux użyje go tylko wtedy, gdy ten wpis terminfo jest zainstalowany na tym Macu, w przeciwnym razie xterm-256color. Gdy to nie jest ustawione, obowiązuje term z konfiguracji Ghostty."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O TERM que os novos terminais recebem. xterm-256color funciona com qualquer programa e em qualquer host ssh. Defina xterm-ghostty para usar a entrada própria do Ghostty: o cmux só a usa quando essa entrada terminfo está instalada neste Mac; caso contrário, usa xterm-256color. Quando não está definido, vale o term da sua configuração do Ghostty."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значение TERM для новых терминалов. xterm-256color работает с любой программой и на любом ssh-хосте. Укажите xterm-ghostty, чтобы использовать собственную запись Ghostty: cmux применяет её, только если эта запись terminfo установлена на этом Mac, иначе xterm-256color. Если значение не задано, действует term из вашей конфигурации Ghostty."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค่า TERM ที่เทอร์มินัลใหม่ได้รับ xterm-256color ใช้ได้กับทุกโปรแกรมและทุกโฮสต์ ssh ตั้งเป็น xterm-ghostty เพื่อใช้รายการของ Ghostty เอง: cmux จะใช้เฉพาะเมื่อมีรายการ terminfo นั้นติดตั้งอยู่บน Mac เครื่องนี้ มิฉะนั้นจะใช้ xterm-256color เมื่อไม่ได้ตั้งค่านี้ จะใช้ term ในการตั้งค่า Ghostty ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni terminallerin aldığı TERM. xterm-256color her programla ve her ssh sunucusunda çalışır. Ghostty'nin kendi girdisini kullanmak için xterm-ghostty ayarlayın: cmux bunu yalnızca o terminfo girdisi bu Mac'te yüklüyse kullanır, aksi halde xterm-256color kullanır. Bu ayarlanmadığında Ghostty yapılandırmanızdaki term geçerli olur."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Значення TERM для нових терміналів. xterm-256color працює з будь-якою програмою та на будь-якому ssh-хості. Укажіть xterm-ghostty, щоб використати власний запис Ghostty: cmux застосовує його, лише якщо цей запис terminfo встановлено на цьому Mac, інакше xterm-256color. Якщо значення не задано, діє term із вашої конфігурації Ghostty."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giá trị TERM mà các terminal mới nhận. xterm-256color hoạt động với mọi chương trình và trên mọi máy chủ ssh. Đặt xterm-ghostty để dùng mục riêng của Ghostty: cmux chỉ dùng nó khi mục terminfo đó đã được cài trên máy Mac này, nếu không thì dùng xterm-256color. Khi không đặt, term trong cấu hình Ghostty của bạn được áp dụng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新终端获得的 TERM。xterm-256color 适用于所有程序和所有 ssh 主机。设置为 xterm-ghostty 可使用 Ghostty 自己的条目：仅当此 Mac 上安装了该 terminfo 条目时 cmux 才会使用它，否则使用 xterm-256color。未设置时，使用你 Ghostty 配置中的 term。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新終端機取得的 TERM。xterm-256color 適用於所有程式與所有 ssh 主機。設定為 xterm-ghostty 可使用 Ghostty 自己的項目：只有當這台 Mac 上安裝了該 terminfo 項目時 cmux 才會使用，否則使用 xterm-256color。未設定時，會套用你 Ghostty 設定中的 term。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

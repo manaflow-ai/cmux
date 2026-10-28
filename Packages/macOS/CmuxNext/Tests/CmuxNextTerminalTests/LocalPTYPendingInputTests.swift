@@ -14,7 +14,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: script) }
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
 
-        let io = try LocalPTYTerminalIO(shell: script.path, workingDirectory: "/", installedTerminfo: false)
+        let io = try LocalPTYTerminalIO(shell: script.path, workingDirectory: "/")
         defer { io.terminate() }
         // A stuck flush ends the program and the stream here, and fails the count below with its output.
         let deadline = Task {

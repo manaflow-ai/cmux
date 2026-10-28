@@ -234,6 +234,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var terminalFontSize: Double?
     /// `terminal.predictiveEcho`: off (no prediction engine) when unset or invalid.
     public var terminalPredictiveEcho = TerminalPredictiveEchoSetting.fallback
+    /// `terminal.term`: the `TERM` new terminals ask for; nil (the Ghostty config's `term`, else xterm-256color) when unset or invalid.
+    public var terminalTerm: String?
     /// `history.terminalCommands` (opt-in terminal command history).
     public var recordsTerminalCommands: Bool = TerminalCommandHistorySetting.fallback
     /// `navigation.historyScope`: what Back and Forward walk (`workspace`, `window`, `surface`).

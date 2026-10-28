@@ -685,7 +685,8 @@ impl HostLaunch {
     }
 
     /// The TERM the child runs with: the caller's environment is applied
-    /// after `term`, so its last TERM wins (the NEXT app sends xterm-ghostty).
+    /// after `term`, so its last TERM wins (the NEXT app sends the TERM the
+    /// person chose, `xterm-256color` unless `terminal.term` names another).
     pub(crate) fn child_term(&self) -> &str {
         self.extra_env
             .iter()

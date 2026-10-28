@@ -138,10 +138,11 @@ public struct CmuxNextApp {
         // from here, while AppKit starts, so each pane's first frame can use them without waiting. Where each chat
         // rests and its unsent chips are kept beside them too (AgentPaneChatStores, made with the agent tabs).
         let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
-        // Ghostty's resources folder, CLI helper and terminfo (a few stats), before the other launch reads on the
+        // Ghostty's resources folder and CLI helper (a few stats), before the other launch reads on the
         // files lane: every shell's env and the daemon's start await it.
         watchdog.startupStep("main.launch_reads")
         environment.ghosttyProbe = GhosttyLaunchProbe.start(on: work)
+        environment.terminfo = TerminfoLookup(work: work)
         // The incognito workspaces a crashed run left, then the settings read, in one sequence: the launch window
         // (made after the settings read lands) knows whether it may list every workspace (p08-startup 038).
         let ledgerThenSettings = work.sequence("launch.ledger-then-settings")

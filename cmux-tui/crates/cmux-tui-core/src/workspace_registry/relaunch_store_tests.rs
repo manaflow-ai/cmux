@@ -106,8 +106,8 @@ fn replay_drops_a_gone_directory_and_a_term_without_its_terminfo() {
     assert_eq!(cwd, None);
     assert_eq!(env, vec![("COLORTERM".to_string(), "truecolor".to_string())]);
 
-    let tab = json!({"cwd": "/tmp", "relaunch": {"env": {"TERM": "xterm-256color"}}});
+    let tab = json!({"cwd": "/tmp", "relaunch": {"env": {"TERM_PROGRAM": "ghostty"}}});
     let (cwd, env) = replay(&tab);
     assert_eq!(cwd.as_deref(), Some("/tmp"));
-    assert_eq!(env, vec![("TERM".to_string(), "xterm-256color".to_string())]);
+    assert_eq!(env, vec![("TERM_PROGRAM".to_string(), "ghostty".to_string())]);
 }

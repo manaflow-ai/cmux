@@ -46,17 +46,16 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     /// as it does under any terminal whose reader is slower.
     public static let outputBound = 1 << 20
 
-    /// Spawns `shell` as a login shell in `workingDirectory`. `installedTerminfo` is the caller's lane read of
-    /// ``GhosttyLaunchProbe/terminfoInstalled``: true makes the shell's `TERM`
-    /// `xterm-ghostty`, false `xterm-256color` (``terminalEnvironment(resourcesDirectory:version:installedTerminfo:)``),
-    /// unless `environment` sets it. The init reads no file for it. `hangs` watches each read chunk
+    /// Spawns `shell` as a login shell in `workingDirectory`. `term` is the shell's `TERM`, the standard
+    /// `xterm-256color` unless the caller resolved another (``TerminfoLookup``), and `environment` can set it
+    /// (``terminalEnvironment(resourcesDirectory:version:term:)``). The init reads no file for it. `hangs` watches each read chunk
     /// (`localpty.read`) and each input flush (`localpty.write`); nil watches nothing. `outputBound`: the
     /// output `events` may hold that the session has not taken before the PTY is read no more.
     public init(
         shell: String = LocalPTYTerminalIO.defaultShell,
         workingDirectory: String = NSHomeDirectory(),
         environment extra: [String: String] = [:],
-        installedTerminfo: Bool,
+        term: String = TerminalTermChoice.standard,
         columns: Int = 80,
         rows: Int = 24,
         hangs: (any HangWatchScoping)? = nil,
@@ -66,7 +65,7 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
         for key in ["CMUX_SOCKET_PATH", "CMUX_SOCKET_ENABLE", "CMUX_TAG", "CMUX_BUNDLE_ID"] {
             environment.removeValue(forKey: key)
         }
-        environment.merge(Self.terminalEnvironment(installedTerminfo: installedTerminfo)) { _, new in new }
+        environment.merge(Self.terminalEnvironment(term: term)) { _, new in new }
         environment.merge(extra) { _, new in new }
 
         // Everything the child touches is allocated before fork: after fork
@@ -268,21 +267,18 @@ public nonisolated final class LocalPTYTerminalIO: TerminalIO {
     }
 
     /// Ghostty's terminal identity, as the daemon's terminals get it
-    /// (`TerminalEnvironment.instance.ghostty` in CmuxNextDaemon): `xterm-256color`
-    /// unless `installedTerminfo` (the caller's lane read of
-    /// ``GhosttyLaunchProbe/terminfoInstalled``) says `xterm-ghostty` is
-    /// installed in a system terminfo directory; `COLORTERM`, `TERM_PROGRAM=ghostty`
+    /// (`TerminalEnvironment.instance.ghostty` in CmuxNextDaemon): `term` (the standard
+    /// `xterm-256color` unless the caller resolved another), `COLORTERM`, `TERM_PROGRAM=ghostty`
     /// and its version. `TERMINFO` is not set. It reads no file, so a shell can be
     /// spawned from the main thread (p02-threads-006).
     static func terminalEnvironment(
         resourcesDirectory: String? = GhosttyRuntime.resourcesDirectory(),
         version: String? = GhosttyRuntime.version,
-        installedTerminfo: Bool = false
+        term: String = TerminalTermChoice.standard
     ) -> [String: String] {
-        var result = ["COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty", "TERM": "xterm-256color"]
+        var result = ["COLORTERM": "truecolor", "TERM_PROGRAM": "ghostty", "TERM": term]
         if let version, !version.isEmpty { result["TERM_PROGRAM_VERSION"] = version }
         if let resourcesDirectory, !resourcesDirectory.isEmpty { result["GHOSTTY_RESOURCES_DIR"] = resourcesDirectory }
-        if installedTerminfo { result["TERM"] = "xterm-ghostty" }
         return result
     }
 }

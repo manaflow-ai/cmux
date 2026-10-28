@@ -63,6 +63,10 @@ public final class GhosttyRuntime {
 
     /// Messages from the last config load (unknown keys, bad values).
     public internal(set) var configDiagnostics: [String] = []
+    /// The `TERM` new terminals ask for: cmux.json's `terminal.term` (the app follows the settings into
+    /// ``TerminalTermChoice/setting``) and the loaded config files' explicit `term` (each load). Each shell's
+    /// environment reads it at spawn.
+    public var termChoice = TerminalTermChoice()
 
     /// Frontend-level actions that have no surface target (for example `quit` or `new_window` from an
     /// app-scoped keybind). Return true when handled.

@@ -88,9 +88,12 @@ nonisolated extension GhosttyConfigInputs {
             diagnostics.append(text)
             Runtime.logger.warning("ghostty config: \(text, privacy: .public)")
         }
+        // The files' own `term` (libghostty has no getter for a string slice key), read here on the loader lane.
+        // SAFETY: the live config.
+        let term = GhosttyConfigTerm.term(inFiles: unsafe Runtime.loadedFiles(of: config))
         // SAFETY: ownership of the live config goes to the built config, whose one owner adopts or
         // frees it (GhosttyBuiltConfig's `config`).
         return unsafe GhosttyBuiltConfig(config: config, opacity: opacity, filesOpacity: filesOpacity, filesBlur: Int(filesBlur),
-                                         diagnostics: diagnostics)
+                                         diagnostics: diagnostics, term: term)
     }
 }

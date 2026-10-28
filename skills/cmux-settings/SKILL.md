@@ -84,7 +84,7 @@ first; do not invent keys the schema does not list.
 ## Quick reference
 
 - Appearance: `appearance.theme`, `appearance.appTheme`, `appearance.accent`, `appearance.backgroundOpacity`, `appearance.backgroundBlur`.
-- Terminal: `terminal.fontFamily`, `terminal.fontSize` (default from Ghostty config).
+- Terminal: `terminal.fontFamily`, `terminal.fontSize` (default from Ghostty config), `terminal.term` (the `TERM` of new terminals: `xterm-256color` by default; `xterm-ghostty` only where its terminfo entry is installed; user-only).
 - Sidebar: `sidebar.density`, `sidebar.groupBy`, `sidebar.minimalMode` (`off | bottom | top | both`).
 - Notifications: `notifications.dockBadge`, `notifications.desktop`, `notifications.attention.*`.
 - Browser: `browser.defaultEngine`, `browser.hostsToOpenInEmbeddedBrowser` (user-only), `browser.links.*`, `browser.hibernation`.

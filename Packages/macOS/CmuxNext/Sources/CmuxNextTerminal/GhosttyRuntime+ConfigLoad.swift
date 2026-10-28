@@ -61,5 +61,6 @@ extension GhosttyRuntime {
         configDiagnostics = built.diagnostics
         GhosttyConfigBackground.loaded = GhosttyConfigBackground(opacity: built.filesOpacity, blur: built.filesBlur)
         GhosttyConfigFontFamily.recordLoad()
+        termChoice.ghosttyConfig = built.term
     }
 }

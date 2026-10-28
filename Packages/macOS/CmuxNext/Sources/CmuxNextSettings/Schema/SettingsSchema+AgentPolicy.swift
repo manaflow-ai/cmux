@@ -292,6 +292,8 @@ extension SettingsSchema {
         // not pick what runs or move a sign-in page into a browser it drives.
         "terminal.linkOpener.default": .userOnly,
         "terminal.linkOpener.rules": .userOnly,
+        // The TERM of every new terminal: the person picks what their programs and ssh hosts see, not an agent.
+        "terminal.term": .userOnly,
         // Which of the person's editor settings files cmux reads (VS Code, Zed...).
         "editor.importFrom": .userOnly,
         "browser.hostsToOpenInEmbeddedBrowser": .privacy,
