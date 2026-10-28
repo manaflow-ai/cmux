@@ -79,6 +79,8 @@ enum DebugCEF {
                      "screen_shares": .number(Double(report.screenShares)), "answers": .number(Double(report.answers))])
         } ?? .null
         object["host_resize"] = services.cache.cef.hostResizeCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
+        // Host mode with feature chromiumHostHangBanner (p01-process-084): the busy banner's deadline and the host's hangs.
+        object["host_hang"] = services.cache.cef.hostHangCounters.map { counters in .object(counters.mapValues { value in .number(value) }) } ?? .null
         // Swipes over Chromium pages (p01-process-234): a hosted page on a host that acks wheels probes nothing.
         let swipe = services.cache.cef.swipeStats
         object["swipe"] = .object([
@@ -285,6 +287,8 @@ enum DebugCEF {
             "install": .string(service.state.name),
             "fraction": service.state.fraction.map { .number($0) } ?? .null,
             "frameworks": service.source.layout.map { .string($0.frameworksDirectory.path) } ?? .null,
+            // `host` when Chromium tabs run in the Chromium Host (chromium-popups-live.py --window-requests).
+            "backend": .string(service.source.backend.rawValue),
         ]
         if case .failed(let error, let attempt) = service.state {
             object["error"] = .object(["code": .string(error.code), "detail": .string(error.detail), "attempt": .number(Double(attempt))])

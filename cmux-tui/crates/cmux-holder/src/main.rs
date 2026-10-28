@@ -7,6 +7,8 @@
 //! ends a terminal. Each panic appends one line to `holder-panics.jsonl`
 //! beside the socket (`cmux_holder::serve_process`).
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 #[cfg(unix)]
 fn main() -> std::process::ExitCode {
     let args = std::env::args().skip(1).collect::<Vec<_>>();

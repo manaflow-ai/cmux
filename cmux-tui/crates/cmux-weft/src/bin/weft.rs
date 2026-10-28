@@ -16,6 +16,8 @@
 //! ```
 //! The admin token comes from `WEFT_ADMIN_TOKEN`, never from the command line.
 
+#![forbid(unsafe_code)]
+
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
