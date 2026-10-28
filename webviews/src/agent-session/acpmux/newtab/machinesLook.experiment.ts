@@ -11,15 +11,18 @@ export const newTabMachinesLook = defineExperiment({
   arms: {
     pills: {
       label: "Outlined pills",
-      description: "Each machine an outlined pill (as the quick actions), its link mark after the name; Add Machine… the last pill.",
+      description:
+        "Each machine an outlined pill (as the quick actions), its link mark after the name; Add Machine… the last pill.",
     },
     quiet: {
       label: "Quiet row",
-      description: "The ambient row's caption text, each machine a borderless button with its mark; Add Machine… a quiet + at the end.",
+      description:
+        "The ambient row's caption text, each machine a borderless button with its mark; Add Machine… a quiet + at the end.",
     },
     tiles: {
       label: "Two-line tiles",
-      description: "Small tiles with the name over its state in words (Connected, Reconnecting, Not connected); Add Machine… a dashed tile.",
+      description:
+        "Small tiles with the name over its state in words (Connected, Reconnecting, Not connected); Add Machine… a dashed tile.",
     },
   },
   defaultArm: "pills",

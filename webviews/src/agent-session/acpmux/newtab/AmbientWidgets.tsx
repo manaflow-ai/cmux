@@ -11,7 +11,15 @@ import { linkWords, MachineLinkMark } from "../machineLink";
 import type { AcpmuxSnapshot } from "../model";
 import { PlusIcon } from "../ComposerPickers";
 import { Tooltip } from "../../../ui/Tooltip";
-import { degrees, machinePress, newTabMachines, type NewTabMachine, type NewTabWeather, weatherGlyph, weatherIsStale } from "./ambient";
+import {
+  degrees,
+  machinePress,
+  newTabMachines,
+  type NewTabMachine,
+  type NewTabWeather,
+  weatherGlyph,
+  weatherIsStale,
+} from "./ambient";
 import { newTabMachinesLook } from "./machinesLook.experiment";
 import { useNt } from "./strings";
 
@@ -168,10 +176,17 @@ function MachineButtonRow({ list, buttons }: { list: NewTabMachine[]; buttons: M
               onClick={() => press(machine)}
             >
               <span className="nt-machine-face">
-                <MachineFace machine={machine} />
-                {machine.link && <MachineLinkMark link={machine.link} {...(words ? { words } : {})} />}
+                <span className="nt-ambient-machine-icon" style={machine.color ? { color: machine.color } : undefined}>
+                  <Icon name={MACHINE_ICONS[machine.kind]} size={14} />
+                </span>
+                <span className="nt-machine-text">
+                  <span className="nt-machine-line">
+                    <span className="nt-ambient-machine-name">{machine.label}</span>
+                    {machine.link && <MachineLinkMark link={machine.link} {...(words ? { words } : {})} />}
+                  </span>
+                  {look === "tiles" && <span className="nt-machine-state">{words ?? nt("widgets.online")}</span>}
+                </span>
               </span>
-              {look === "tiles" && <span className="nt-machine-state">{words ?? nt("widgets.online")}</span>}
             </button>
           </Tooltip>
         );

@@ -1054,13 +1054,11 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
 }
 .nt-machine {
   display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
+  align-items: center;
   max-width: 200px;
   min-width: 0;
   margin: 0;
@@ -1074,66 +1072,78 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-machine-face {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
   max-width: 100%;
 }
+.nt-machine-text {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+.nt-machine-line {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
+}
 .nt-machine .acpmux-link-mark {
-  margin-left: 1px;
+  margin-left: 4px;
 }
 .nt-machine[aria-disabled="true"] {
   opacity: 0.6;
 }
-.nt-machine-add .nt-ambient-machine-icon svg {
-  width: 12px;
-  height: 12px;
-}
 /* Pills: outlined, as the quick actions (Lucas #21133: they read as buttons, not as text). */
+.nt-machines[data-look="pills"] {
+  gap: 8px;
+}
 .nt-machines[data-look="pills"] .nt-machine {
-  height: 26px;
-  padding: 0 10px 0 8px;
+  height: 28px;
+  padding: 0 12px 0 8px;
   border-radius: 8px;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 12%, transparent);
   color: var(--agent-soft);
 }
-.nt-machines[data-look="pills"] .nt-machine[aria-pressed="true"] {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 28%, transparent);
-  color: var(--agent-text);
-}
 /* Quiet: the ambient row's caption text, a borderless button per machine. */
 .nt-machines[data-look="quiet"] .nt-machine {
-  height: 22px;
-  padding: 0 6px;
+  height: 24px;
+  padding: 0 4px;
   border-radius: 6px;
-}
-.nt-machines[data-look="quiet"] .nt-machine[aria-pressed="true"] {
-  color: var(--agent-text);
 }
 /* Tiles: the name over its state in words; Add Machine… dashed. */
 .nt-machines[data-look="tiles"] {
   gap: 8px;
 }
 .nt-machines[data-look="tiles"] .nt-machine {
-  min-height: 40px;
-  padding: 5px 12px 5px 9px;
+  padding: 4px 12px 4px 8px;
   border-radius: 10px;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 10%, transparent);
   color: var(--agent-soft);
 }
-.nt-machines[data-look="tiles"] .nt-machine[aria-pressed="true"] {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 28%, transparent);
-  color: var(--agent-text);
+.nt-machines[data-look="tiles"] .nt-machine-face {
+  align-items: flex-start;
 }
 .nt-machines[data-look="tiles"] .nt-machine-add {
+  align-self: stretch;
   box-shadow: none;
   outline: 1px dashed color-mix(in srgb, var(--agent-text) 18%, transparent);
   outline-offset: -1px;
 }
+.nt-machines[data-look="tiles"] .nt-machine-add .nt-machine-face {
+  align-items: center;
+}
 .nt-machine-state {
-  padding-left: 19px;
   color: var(--acpmux-composer-dim, var(--agent-muted));
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+}
+.nt-machines .nt-machine[aria-pressed="true"] {
+  color: var(--agent-text);
+}
+.nt-machines[data-look="pills"] .nt-machine[aria-pressed="true"],
+.nt-machines[data-look="tiles"] .nt-machine[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-text) 28%, transparent);
 }
 .nt-machines .nt-machine:hover:not([aria-disabled="true"]),
 .nt-machines .nt-machine:focus-visible {

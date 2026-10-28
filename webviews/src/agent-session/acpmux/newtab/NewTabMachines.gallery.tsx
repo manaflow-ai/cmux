@@ -54,8 +54,7 @@ export default componentEntry<Props>({
   pane: true,
   covers: ["agent-session/acpmux/newtab/AmbientWidgets.tsx"],
   keywords: ["new tab", "machines", "remote", "ssh", "cloud", "add machine", "reconnect"],
-  styles: () =>
-    Promise.all([import("../styles.css"), import("../composerLocation.css"), import("./screen.css")]),
+  styles: () => Promise.all([import("../styles.css"), import("../composerLocation.css"), import("./screen.css")]),
   load: () => import("./AmbientWidgets").then((module) => module.AmbientWidgets),
   widths: { narrow: 400, normal: 620, wide: 760 },
   height: 160,
