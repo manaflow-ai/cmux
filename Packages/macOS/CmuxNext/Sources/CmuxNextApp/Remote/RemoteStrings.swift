@@ -24,7 +24,7 @@ enum RemoteStrings {
     static var needsRemoteTerminalTabs: String { String(localized: "remote.terminal.needsCapability", defaultValue: "This workspace's machine runs a cmux-tui without terminals from other machines. Update it first.", table: "Remote", bundle: .module) }
     static var machineHasNoTerminal: String { String(localized: "remote.terminal.noResource", defaultValue: "That machine's cmux-tui cannot name the terminal. Update it first.", table: "Remote", bundle: .module) }
     static var noClient: String { String(localized: "remote.unavailable.noClient", defaultValue: "The bundled cmux-tui is missing, so SSH machines cannot connect.", table: "Remote", bundle: .module) }
-    static var noMachine: String { String(localized: "remote.failed.noMachine", defaultValue: "No SSH machine is selected. Right-click a machine or pass --machine <name>.", table: "Remote", bundle: .module) }
+    static var noMachine: String { String(localized: "remote.failed.noMachine", defaultValue: "No SSH machine is selected. Choose Connect to Machine in the command palette, or pass --machine <name>.", table: "Remote", bundle: .module) }
     static var workspaceNotOnSSHMachine: String { String(localized: "remote.failed.workspaceNotSSH", defaultValue: "This workspace does not run on an SSH machine.", table: "Remote", bundle: .module) }
     static var tabNotOnSSHMachine: String { String(localized: "remote.failed.tabNotSSH", defaultValue: "This tab does not run on an SSH machine.", table: "Remote", bundle: .module) }
     static func unknownMachine(_ name: String) -> String { String(format: String(localized: "remote.failed.unknownMachine", defaultValue: "No SSH machine is named “%@”.", table: "Remote", bundle: .module), name) }
@@ -43,6 +43,9 @@ enum RemoteStrings {
     static func invalidPath(_ path: String) -> String { String(format: String(localized: "remote.failed.path", defaultValue: "“%@” is not a usable path. Use a plain path, optionally starting with ~/.", table: "Remote", bundle: .module), path) }
     static var noPinnedBuild: String { String(localized: "remote.failed.noPinnedBuild", defaultValue: "This build does not know which cmux-tui to install.", table: "Remote", bundle: .module) }
     static func unsupportedPlatform(_ name: String) -> String { String(format: String(localized: "remote.failed.unsupportedPlatform", defaultValue: "cmux-tui has no build for %@. It runs on macOS and Linux (x86_64 and arm64).", table: "Remote", bundle: .module), name) }
+    static var retry: String { String(localized: "remote.recovery.retry", defaultValue: "Retry", table: "Remote", bundle: .module) }
+    static var copyError: String { String(localized: "remote.recovery.copyError", defaultValue: "Copy Error", table: "Remote", bundle: .module) }
+    static var checkMachine: String { String(localized: "remote.recovery.checkMachine", defaultValue: "Check Machine", table: "Remote", bundle: .module) }
     static var connectTitle: String { String(localized: "remote.connect.title", defaultValue: "Connect to Machine", table: "Remote", bundle: .module) }
     static var notARemoteGroup: String { String(localized: "remote.removeGroup.notAGroup", defaultValue: "This machine is not a remote group.", table: "Remote", bundle: .module) }
     static var newGroupTitle: String { String(localized: "remote.newGroup.title", defaultValue: "New Remote Group", table: "Remote", bundle: .module) }

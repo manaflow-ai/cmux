@@ -34,7 +34,10 @@ extension AddDeviceServices {
                 guard let registry = services?.registry, !registry.perform("newCloudMachine") else { return }
                 _ = registry.perform("palette.auth.signIn")
             },
-            copy: { CloudPresenter.copy($0) })
+            copy: { CloudPresenter.copy($0) },
+            installTailscale: {
+                if let url = URL(string: "https://tailscale.com/download/mac") { NSWorkspace.shared.openInBackground(url) }
+            })
     }
 }
 

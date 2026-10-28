@@ -59,6 +59,11 @@ public final class AddDeviceModel {
         return listing.network.detail
     }
 
+    public var canInstallTailscale: Bool {
+        guard case let .loaded(listing) = candidates else { return false }
+        return listing.network.kind == "none" && !listing.network.up
+    }
+
     public func choose(_ way: AddDeviceWay) {
         chosenByHand = true
         copied = false
@@ -104,6 +109,9 @@ public final class AddDeviceModel {
         case .enterCode:
             services.enterCode()
             return true
+        case .installTailscale:
+            if canInstallTailscale { services.installTailscale() }
+            return false
         case .copyLine:
             guard let line = platform.setupLine else { return false }
             services.copy(line)

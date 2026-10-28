@@ -86,6 +86,9 @@ public final class AddDeviceView: NSView {
         case .loaded:
             if let problem = model.networkProblem {
                 stack.addArrangedSubview(label(problem, font: Typography.body, color: Palette.danger, width: width))
+                if model.canInstallTailscale {
+                    stack.addArrangedSubview(button(.installTailscale, key: nil, id: "cmux.addDevice.button.installTailscale"))
+                }
                 // The ssh config's computers do not need the network.
                 if !model.available.isEmpty { stack.addArrangedSubview(list(model.available, width: width)) }
             } else if model.available.isEmpty {
@@ -208,6 +211,7 @@ public final class AddDeviceView: NSView {
         case .otherComputer: "otherComputer"
         case .newCloudMachine: "newCloudMachine"
         case .enterCode: "enterCode"
+        case .installTailscale: "installTailscale"
         case .copyLine: "copyLine"
         case .done: "done"
         case .cancel: "cancel"

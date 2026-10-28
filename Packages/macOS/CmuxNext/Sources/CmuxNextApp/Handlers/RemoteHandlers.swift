@@ -163,27 +163,12 @@ enum RemoteHandlers {
 
     /// After a Connect from the UI: shows the machine's first workspace in
     /// the active window once its tree loads (creating one when it has
-    /// none). Gives up when the machine stops connecting.
+    /// none). Keeps recovery available through retries; ends on dismissal or disconnect.
     static func showWhenConnected(_ session: SSHMachineSession, _ context: AppActionContext) {
-        let daemon = session.daemon
-        // task-owner: ends when the tree loads or the machine stops connecting
-        Task { @MainActor in
-            for await (loaded, status) in ObservationStream({ (daemon.store.isLoaded && daemon.connection != nil, session.linkStatus) }) {
-                if loaded {
-                    let id: String?
-                    if let first = daemon.store.workspaces.first { id = first.id } else { id = await context.services.windows.createWorkspace(on: daemon) }
-                    if let id { CloudHandlers.show(id, context) }
-                    return
-                }
-                switch status {
-                case .connecting, .connected, .reconnecting, .installing, .needsInstall, .unreachable, .failed: continue
-                case .offline, .authFailed, .hostKeyUntrusted, .installFailed:
-                    if status != .offline { CloudPresenter.show(RemoteStrings.connectFailedTitle(session.host.label),
-                                                                 RemoteStrings.detail(session) ?? "", in: CloudHandlers.window(context)) }
-                    return
-                }
-            }
-        }
+        session.connectRecovery?.stop()
+        let recovery = SSHConnectRecovery(session: session, context: context)
+        session.connectRecovery = recovery
+        recovery.start()
     }
 }
 

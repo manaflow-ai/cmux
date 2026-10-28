@@ -45,6 +45,7 @@ final class SSHMachineSession {
     /// old (set by a user-initiated connect, cleared when offered).
     @ObservationIgnored var offersInstall = false
     @ObservationIgnored var onStatusChange: ((SSHMachineSession, SSHConnectionMachine.Status) -> Void)?
+    @ObservationIgnored var connectRecovery: SSHConnectRecovery?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
     @ObservationIgnored private var startupTask: Task<Void, Never>?
 
@@ -96,6 +97,8 @@ final class SSHMachineSession {
 
     /// Ends the session for good (forget, quit).
     func close() {
+        connectRecovery?.stop()
+        connectRecovery = nil
         disconnect(keepAutoConnect: true)
         statusTask?.cancel()
         startupTask?.cancel()

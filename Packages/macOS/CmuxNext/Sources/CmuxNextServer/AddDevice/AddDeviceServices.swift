@@ -10,16 +10,18 @@ public struct AddDeviceServices {
     public var enterCode: () -> Void
     /// The app's New Cloud Machine flow (sign-in first when signed out).
     public var newCloudMachine: () -> Void
+    public var installTailscale: () -> Void
     public var copy: (String) -> Void
 
     public init(list: @escaping () async -> DeviceListing?, addComputer: @escaping (String, String) -> Void,
                 addByName: @escaping () -> Void, enterCode: @escaping () -> Void, newCloudMachine: @escaping () -> Void = {},
-                copy: @escaping (String) -> Void) {
+                copy: @escaping (String) -> Void, installTailscale: @escaping () -> Void = {}) {
         self.list = list
         self.addComputer = addComputer
         self.addByName = addByName
         self.enterCode = enterCode
         self.newCloudMachine = newCloudMachine
         self.copy = copy
+        self.installTailscale = installTailscale
     }
 }
