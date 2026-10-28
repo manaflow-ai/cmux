@@ -71,8 +71,8 @@ final class ProfileBarView: NSView {
     // MARK: Geometry
 
     private var slot: CGFloat { Metrics.roomDotSlot }
-    /// The pointer is over the bar: the "+" shows (Lawrence: only on hover,
-    /// and the dots stay in place without it).
+    /// The pointer is over the bar (hover marks, tooltips). The "+" no longer waits for it
+    /// (``showsPlus``).
     private(set) var isPointerInside = false {
         didSet {
             guard isPointerInside != oldValue else { return }
@@ -92,8 +92,21 @@ final class ProfileBarView: NSView {
     /// on the sidebar even when the bar starts after the profile control.
     var centerX: CGFloat? { didSet { if centerX != oldValue { relayout() } } }
 
-    /// Where every space and the "+" sit now.
+    /// The "+" for a new space shows whenever the strip does, the pointer over it or not
+    /// (Lawrence 2026-10-27: "the plus button for new space needs to be visible by default too").
+    /// `sidebar.controlsOnHover` fades it with the rest of the strip.
+    var showsPlus: Bool { !model.profiles.isEmpty }
+
+    /// Where every space and the "+" sit now. A lone space draws no dot, so its slot takes no room
+    /// and the "+" takes its centered place.
     var strip: SpaceStrip {
+        let full = layoutStrip
+        guard drawnDotCount == 0, let lone = full.slots.first else { return full }
+        return SpaceStrip(slots: full.slots.map { (x: $0.x + $0.width / 2, width: 0) },
+                          plus: (x: lone.x + (lone.width - full.plus.width) / 2, width: full.plus.width), compact: false)
+    }
+
+    private var layoutStrip: SpaceStrip {
         ProfileBarLogic.strip(count: model.profiles.count, active: activeIndex, width: Double(bounds.width),
                               center: Double(centerX ?? bounds.width / 2),
                               minLeading: Double(leadingInset ?? SidebarStyle.horizontalInset),
@@ -116,7 +129,7 @@ final class ProfileBarView: NSView {
         let rects = slotRects()
         guard let hit = rects.firstIndex(where: { $0.contains(point) }) else { return nil }
         guard hit == model.profiles.count else { return hit }
-        return isPointerInside ? Self.plusIndex : nil
+        return showsPlus ? Self.plusIndex : nil
     }
 
     private func relayout() {
@@ -135,10 +148,10 @@ final class ProfileBarView: NSView {
 
     // MARK: Drawing
 
-    /// The dots drawn now: none for a lone space at rest (it switches nothing; the bar stays
-    /// mounted so the chrome never shifts), every space otherwise.
+    /// The dots drawn now: none for a lone space (it switches nothing, and its dot read as a second
+    /// switcher beside the profile control, Leo 2026-10-11), every space otherwise.
     var drawnDotCount: Int {
-        ProfileBarLogic.isVisible(profileCount: model.profiles.count) || isPointerInside ? model.profiles.count : 0
+        ProfileBarLogic.isVisible(profileCount: model.profiles.count) ? model.profiles.count : 0
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -211,7 +224,7 @@ final class ProfileBarView: NSView {
                 draw(profile: profile, in: rects[offset], active: active, hovered: hovered == offset,
                      compact: strip.compact && !active)
             }
-            if isPointerInside { drawPlus(in: rects[model.profiles.count]) }
+            if showsPlus { drawPlus(in: rects[model.profiles.count]) }
         }
     }
 
@@ -243,7 +256,7 @@ final class ProfileBarView: NSView {
             // The emoji is shown here, not on the dot.
             (rects[offset], profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name)
         }
-        if isPointerInside { regions.append((rects[model.profiles.count], Strings.newProfile)) }
+        if showsPlus { regions.append((rects[model.profiles.count], Strings.newProfile)) }
         setThemedToolTipRegions(regions)
     }
 

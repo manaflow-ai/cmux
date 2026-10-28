@@ -302,13 +302,13 @@ public final class SidebarView: NSView {
         let visibleSlots = SidebarAccessorySlot.allCases.compactMap { slot in
             accessories[slot].flatMap { view in view.isHidden ? nil : (slot, view) }
         }
-        // A lone space switches nothing, so the footer keeps one control, the
-        // profile control (Leo 2026-10-11: its mark and the History dot beside
-        // it read as a duplicate switcher). Two or more spaces show the strip.
+        // A lone space switches nothing, so its strip draws no dot (Leo 2026-10-11:
+        // its mark and the History dot beside it read as a duplicate switcher), only
+        // the "+" for a new space, which shows by default (Lawrence 2026-10-27).
         // `sidebar.showSpaces` off (cx-wab7m) shows no strip, wherever it would sit.
         // `sidebar.noFade` (Lawrence 2026-10-26) hides the bottom profile and search bar and every edge fade.
         let noFade = design.sidebarSections.noFade
-        let showsProfiles = ProfileBarLogic.isVisible(profileCount: model.profiles.count) && design.sidebarSections.showSpaces && !noFade
+        let showsProfiles = !model.profiles.isEmpty && design.sidebarSections.showSpaces && !noFade
         profileBar.isHidden = !showsProfiles
         footerRegion.isHidden = noFade
         searchButton.isHidden = noFade

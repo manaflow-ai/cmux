@@ -44,6 +44,6 @@ extension SidebarViewComponents {
     public var shortcutHintSpaceFrames: [CGRect] {
         // No hints over a strip faded out (`sidebar.spacesVisibility` hover).
         guard !isHiddenOrHasHiddenAncestor, !profileBar.isHidden, profileBar.alphaValue > 0.5, bounds.width > 1 else { return [] }
-        return profileBar.slotRects().prefix(model.profiles.count).map { profileBar.convert($0, to: self) }
+        return profileBar.slotRects().prefix(profileBar.drawnDotCount).map { profileBar.convert($0, to: self) }
     }
 }
