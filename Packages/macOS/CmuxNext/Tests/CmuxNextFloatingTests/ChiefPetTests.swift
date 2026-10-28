@@ -188,8 +188,8 @@ import Testing
         var settings = 0, hides = 0
         let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
                                             actions: ChiefPetActions(open: { _ in }, send: { _, _ in true },
-        defer { controller.closeForTest() }
                                                                      openSettings: { settings += 1 }, hide: { hides += 1 }))
+        defer { controller.closeForTest() }
         controller.sync(true)
         let panel = try #require(controller.panel)
         let menu = panel.contextMenu()
