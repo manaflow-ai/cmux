@@ -188,6 +188,30 @@ import Testing
         #expect(ran == ["a", "a continued", "b"])
     }
 
+    @Test("A continuation posted while no task of its queue runs does not pass a fence; the queue stays FIFO")
+    func strayContinuationDoesNotPassAFence() {
+        let (selector, _) = rig()
+        var ran: [String] = []
+        let queue = selector.queue(.visible, owner: board.owner("fenced"))
+        let other = selector.queue(.background, owner: board.owner("other"))
+        queue.post { ran.append("a") }
+        #expect(selector.runNext(), "a ran and returned")
+        queue.insertFence(.now)
+        queue.post { ran.append("b") }
+        // Neither is the rest of a task of this queue: one comes from no task, one from another queue's task.
+        queue.postContinuation { ran.append("c") }
+        other.post {
+            ran.append("other")
+            queue.postContinuation { ran.append("d") }
+        }
+        drain(selector)
+        #expect(ran == ["a", "other"], "the fence holds every task posted after it")
+        #expect(queue.isBlockedByFence && queue.pendingCount == 3)
+        queue.removeFence()
+        drain(selector)
+        #expect(ran == ["a", "other", "b", "c", "d"], "a stray continuation is a plain post: behind b, in post order")
+    }
+
     @Test("The selector skips a type the manager does not admit and takes the next priority")
     func admitsPredicate() {
         let (selector, _) = rig()
