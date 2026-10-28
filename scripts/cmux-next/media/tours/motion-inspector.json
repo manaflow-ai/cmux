@@ -24,6 +24,19 @@
       "shot": false
     },
     {
+      "title": "Row opening motion on (ui.animations.newWorkspace is off by default: a new row applies in one frame)",
+      "rpc": {
+        "method": "debug.motion",
+        "params": {
+          "action": "kind",
+          "name": "newWorkspace",
+          "value": true
+        }
+      },
+      "wait": 0.3,
+      "shot": false
+    },
+    {
       "title": "Review the sidebar rows only",
       "rpc": {
         "method": "debug.motion",
@@ -48,36 +61,45 @@
       "shot": false
     },
     {
-      "title": "Three new workspaces: their rows open in slow motion",
-      "cmux": [
-        "workspace",
-        "new",
-        "--name",
-        "Motion one"
-      ],
+      "title": "Cmd-N three times: the new rows open in slow motion (a person's key; a CLI-made row shows in place)",
       "wait": 0.3,
-      "shot": false
+      "shot": false,
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "n",
+          "modifiers": [
+            "cmd"
+          ]
+        }
+      }
     },
     {
       "title": "Second",
-      "cmux": [
-        "workspace",
-        "new",
-        "--name",
-        "Motion two"
-      ],
       "wait": 0.3,
-      "shot": false
+      "shot": false,
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "n",
+          "modifiers": [
+            "cmd"
+          ]
+        }
+      }
     },
     {
       "title": "Third, mid-motion: the list shows each insert's spring, layers, frames and owner",
-      "cmux": [
-        "workspace",
-        "new",
-        "--name",
-        "Motion three"
-      ],
-      "wait": 0.8
+      "wait": 0.8,
+      "rpc": {
+        "method": "debug.key",
+        "params": {
+          "key": "n",
+          "modifiers": [
+            "cmd"
+          ]
+        }
+      }
     },
     {
       "title": "Paused and stepped one frame",
