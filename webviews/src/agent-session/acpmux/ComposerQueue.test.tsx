@@ -783,3 +783,157 @@ test("an edit pulled back while its images load, from a row that turned out a te
   await settle();
   expect(touched).toEqual([]);
 });
+
+// Each build gets a new page origin; only the native draft directory is shared.
+function draftHost() {
+  const saved = new Map<string, Record<string, any>>();
+  Object.assign(dom!.window, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage({ method, params }: { method: string; params: Record<string, any> }) {
+            const key = `${params.sessionId}/${params.promptId}`;
+            if (method === "chat.queuedEditDrafts.set") saved.set(key, structuredClone(params.draft));
+            if (method === "chat.queuedEditDrafts.clear" && saved.get(key)?.revision === params.revision)
+              saved.delete(key);
+            const value =
+              method === "chat.queuedEditDrafts.get"
+                ? Object.fromEntries(
+                    [...saved]
+                      .filter(([key]) => key.startsWith(`${params.sessionId}/`))
+                      .map(([key, value]) => [key.slice(params.sessionId.length + 1), structuredClone(value)]),
+                  )
+                : null;
+            return { ok: true, value };
+          },
+        },
+      },
+    },
+  });
+  return saved;
+}
+
+async function typeQueueEdit(container: HTMLElement, text: string) {
+  const field = container.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => {
+    field.value = text;
+    field.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+  return field;
+}
+
+async function relaunchQueue(
+  container: HTMLElement,
+  queue: Parameters<typeof ComposerQueue>[0]["queue"],
+  onChange: Parameters<typeof ComposerQueue>[0]["onChange"] = async () => true,
+) {
+  await act(async () => root!.unmount());
+  dom!.reconfigure({ url: "http://new-build.local/agent-pane" });
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<ComposerQueue queue={queue} chat="c" t={t} onChange={onChange} />);
+  });
+}
+
+test("a queued edit typed before quit restores across build origins with its image removals, without sending", async () => {
+  const container = installDom();
+  const kept = draftHost();
+  const pictured = [
+    {
+      id: "p-1",
+      prompt: "original",
+      images: [
+        { id: SHOT_A, mimeType: "image/png" },
+        { id: SHOT_B, mimeType: "image/png" },
+      ],
+    },
+  ];
+  const edits: QueueEdit[] = [];
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={pictured}
+        chat="c"
+        t={t}
+        onChange={async (_, edit) => {
+          edits.push(edit);
+          return true;
+        }}
+      />,
+    );
+  });
+  await startEdit(container, "p-1");
+  await typeQueueEdit(container, "my unfinished correction");
+  await act(async () => container.querySelector<HTMLButtonElement>(".acpmux-queued-image-remove")!.click());
+  expect(kept.size).toBe(1);
+  await relaunchQueue(container, pictured, async (_, edit) => {
+    edits.push(edit);
+    return true;
+  });
+  expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("my unfinished correction");
+  expect(thumbnails(container)).toHaveLength(1);
+  expect(thumbnails(container)[0]?.dataset.imageId).toBe(SHOT_B);
+  expect(edits).toEqual([]);
+});
+
+test("a saved edit remains recoverable until queue_edit acknowledges it; that acknowledgement clears it", async () => {
+  let acknowledge: (ok: boolean) => void = () => {};
+  const container = await render(
+    () =>
+      new Promise<boolean>((resolve) => {
+        acknowledge = resolve;
+      }),
+    async () => true,
+  );
+  const kept = draftHost();
+  await startEdit(container, "p-1");
+  const field = await typeQueueEdit(container, "pending save");
+  await act(async () => field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+  expect(kept.size).toBe(1);
+  await relaunchQueue(container, queue);
+  expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("pending save");
+  await act(async () => acknowledge(true));
+  expect(kept.size).toBe(0);
+});
+
+test("a removed, steered or newer daemon prompt never revives or resends a saved edit", async () => {
+  const container = await render(
+    async () => true,
+    async () => true,
+  );
+  const kept = draftHost();
+  await startEdit(container, "p-1");
+  await typeQueueEdit(container, "stale correction");
+  await relaunchQueue(container, [{ id: "p-1", prompt: "newer daemon text" }, queue[1]!]);
+  expect(container.querySelector("textarea")).toBeNull();
+  expect(container.textContent).toContain("newer daemon text");
+  expect(kept.size).toBe(0);
+  await startEdit(container, "p-1");
+  await typeQueueEdit(container, "another correction");
+  await relaunchQueue(container, [{ id: "p-1", prompt: "newer daemon text", next: true }]);
+  expect(container.querySelector("textarea")).toBeNull();
+  expect(kept.size).toBe(0);
+  await startEdit(container, "p-1");
+  await typeQueueEdit(container, "removed correction");
+  await relaunchQueue(container, [queue[1]!]);
+  expect(container.querySelector("textarea")).toBeNull();
+  expect(kept.size).toBe(0);
+});
+
+test("Escape explicitly discards the persisted queue edit", async () => {
+  const container = await render(
+    async () => true,
+    async () => true,
+  );
+  const kept = draftHost();
+  await startEdit(container, "p-1");
+  const field = await typeQueueEdit(container, "discard me");
+  expect(kept.size).toBe(1);
+  await act(async () =>
+    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+  );
+  expect(kept.size).toBe(0);
+  await relaunchQueue(container, queue);
+  expect(container.querySelector("textarea")).toBeNull();
+});
