@@ -259,6 +259,7 @@ fn attach(s: UnixStream, t: u32) -> i32 {
     let raw = RawMode::enter();
     let winch_writer = writer.clone();
     // A resize is a person's action but not the echo path.
+    // supervise-allow: this attach client's resize forwarder, ending with the process; a panic ends resize forwarding only (a panic holding the writer lock makes the next input write fail, which ends the attach).
     cmux_threads::spawn("mux2-winch", cmux_threads::ThreadQos::UserInitiated, move || {
         loop {
             let mut sig = 0;
@@ -281,6 +282,7 @@ fn attach(s: UnixStream, t: u32) -> i32 {
     let mut reader = s;
     // Output the person waits for: UserInitiated (only ECHO_PATH_QOS
     // threads are user-interactive, threading-model.md).
+    // supervise-allow: joined at the end of attach; a panic finishes the thread, so the input loop stops and the client exits.
     let out =
         cmux_threads::spawn("mux2-out", cmux_threads::ThreadQos::UserInitiated, move || -> i32 {
             let mut stdout = io::stdout().lock();

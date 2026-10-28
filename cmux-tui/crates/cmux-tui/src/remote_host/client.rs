@@ -126,6 +126,7 @@ pub(crate) fn dial(host: &str, port: u16) -> i32 {
         return 1;
     }
     let Ok(mut tcp_write) = stream.try_clone() else { return 1 };
+    // supervise-allow: one dial or probe of this CLI run; a panic drops its sender or ends the copy, and the run ends with its stream.
     let stdin_copy = cmux_threads::spawn(
         "remote-host-stdin",
         cmux_threads::ThreadQos::UserInitiated,
@@ -187,6 +188,7 @@ pub(crate) fn probe_all(nodes: Vec<Node>, port: u16) -> Vec<Found> {
     let count = nodes.len();
     for node in nodes {
         let tx = tx.clone();
+        // supervise-allow: one dial or probe of this CLI run; a panic drops its sender or ends the copy, and the run ends with its stream.
         // A probe that cannot start drops its sender: that node is not found.
         let _ = cmux_threads::spawn(
             "remote-host-probe",

@@ -175,6 +175,7 @@ impl Ticker {
         let Some(progress) = progress else { return Self { stop: None, thread: None } };
         let (stop, stopped) = mpsc::channel::<()>();
         let started = Instant::now();
+        // supervise-allow: owned by Ticker and joined at its end; it only sends progress notes.
         let spawned = cmux_threads::spawn(
             "cmux-mcp-wait-progress",
             cmux_threads::ThreadQos::Utility,

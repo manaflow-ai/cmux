@@ -89,6 +89,7 @@ impl TraceControl for ProcessTrace {
         }
         if !self.mapping {
             let (mapped, wake, map) = (self.mapped.clone(), self.wake, self.map);
+            // supervise-allow: one-shot map of the trace ring; a panic leaves the ring unmapped, so this trace request stays waiting and the holder's terminals are not touched.
             cmux_threads::spawn(
                 "cmux-holder-trace-map",
                 cmux_threads::ThreadQos::Utility,

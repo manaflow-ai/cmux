@@ -347,6 +347,7 @@ impl HostInputRuntime {
         body: impl FnOnce() + Send + 'static,
     ) -> std::io::Result<()> {
         let control = self.reader.clone();
+        // supervise-allow: owned by HostInputRuntime (attach_reader); HostInputReaderExit reports its end, a panic included.
         let reader =
             cmux_threads::spawn(name, cmux_threads::ThreadQos::UserInitiated, move || {
                 let _exit = HostInputReaderExit(control);

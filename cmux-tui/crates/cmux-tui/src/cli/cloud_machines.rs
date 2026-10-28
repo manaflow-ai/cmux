@@ -59,6 +59,7 @@ fn app_found() -> bool {
 /// the command's exit ends it.
 fn read_by_deadline(socket: PathBuf) -> Result<Vec<Value>, String> {
     let (sender, receiver) = mpsc::channel();
+    // supervise-allow: one-shot helper whose result comes back on a channel; a panic drops the sender, so the caller's wait ends with an error.
     cmux_threads::spawn("cmux-cloud-machines", cmux_threads::ThreadQos::Utility, move || {
         let cloud = super::app::connect(&socket).and_then(|mut stream| cloud_machines(&mut stream));
         let _ = sender.send(cloud);

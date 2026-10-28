@@ -224,6 +224,7 @@ fn build_remote_runtime(thread_name: &str) -> anyhow::Result<tokio::runtime::Run
 fn reap_failed_startup(runtime_thread: thread::JoinHandle<anyhow::Result<()>>, runtime_name: &str) {
     let (finished_tx, finished_rx) = mpsc::sync_channel(1);
     let reaper_name = format!("{runtime_name}-startup-reaper");
+    // supervise-allow: owned by its runtime handle: is_finished and shutdown see its end, a panic included.
     let reaper = cmux_threads::spawn(reaper_name, cmux_threads::ThreadQos::Utility, move || {
         let _ = finished_tx.send(runtime_thread.join());
     });
@@ -647,6 +648,7 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (finished_tx, finished_rx) = watch::channel(false);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+    // supervise-allow: owned by its runtime handle: is_finished and shutdown see its end, a panic included.
     let thread = cmux_threads::spawn(
         "cmux-remote-client",
         cmux_threads::ThreadQos::UserInitiated,
@@ -2060,6 +2062,7 @@ fn start_daemon_runtime_with_timeout(
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
     let finished = Arc::new(AtomicBool::new(false));
     let thread_finished = finished.clone();
+    // supervise-allow: owned by its runtime handle: is_finished and shutdown see its end, a panic included.
     let thread = cmux_threads::spawn(
         format!("cmux-remote-{}", options.session),
         cmux_threads::ThreadQos::UserInitiated,

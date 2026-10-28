@@ -143,6 +143,7 @@ impl FrontendJournalWorker {
     pub(super) fn spawn() -> anyhow::Result<Self> {
         let queue = Arc::new(FrontendJournalQueue::default());
         let worker_queue = queue.clone();
+        // supervise-allow: owned by FrontendJournalWorker and joined at its drop; a panic ends journal writes only.
         let worker = cmux_threads::spawn(
             "frontend-session-journal",
             cmux_threads::ThreadQos::Utility,

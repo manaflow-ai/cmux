@@ -188,6 +188,7 @@ impl Link {
         let _ = self.reader.get_ref().set_read_timeout(None);
         let handle = EventsHandle::of(self.writer.as_ref())?;
         let mut reader = self.reader;
+        // supervise-allow: this CLI run's event reader; it ends with the stream, and a panic drops `sink`, so the run sees its input end.
         cmux_threads::spawn("chief-events", cmux_threads::ThreadQos::Utility, move || {
             let mut reason = String::from("closed");
             while let Ok(Some(value)) = read_line(&mut reader) {
@@ -246,6 +247,7 @@ impl Link {
         let handle = EventsHandle::of(self.writer.as_ref())?;
         let mut reader = self.reader;
         let conversation = conversation.to_owned();
+        // supervise-allow: this CLI run's event reader; it ends with the stream, and a panic drops `sink`, so the run sees its input end.
         cmux_threads::spawn("chief-cloud-events", cmux_threads::ThreadQos::Utility, move || {
             let mut early: Option<Vec<Value>> = Some(Vec::new());
             let mut reason = String::from("closed");

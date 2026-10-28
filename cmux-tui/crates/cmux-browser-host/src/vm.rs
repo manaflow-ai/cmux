@@ -89,6 +89,7 @@ impl VmSession {
     pub fn spawn(config: VmConfig, host: Arc<dyn VmHost>) -> io::Result<VmSession> {
         let (tx, rx) = mpsc::channel();
         let loop_tx = tx.clone();
+        // supervise-allow: this REPL session's VM; its state is the session's own, and a panic drops its receiver and each pending reply, so the session's evals answer "stopped" at once.
         cmux_threads::spawn(
             format!("cmux-browser-host-vm-{}", config.session_id),
             cmux_threads::ThreadQos::UserInitiated,
@@ -360,6 +361,7 @@ fn run(
                 // engine calls run off the VM thread.
                 if timed_out {
                     let host = host.clone();
+                    // supervise-allow: one cancel of a timed-out cell's fetches; a panic leaves those fetches to end at their own deadlines.
                     let _ = cmux_threads::spawn(
                         "cmux-browser-host-fetch-cancel",
                         cmux_threads::ThreadQos::Utility,
@@ -566,6 +568,7 @@ fn install(
                 if let Some(object) = request.as_object_mut() {
                     object.insert("cell".into(), json!(fetch_shared.borrow().cell));
                 }
+                // supervise-allow: one net.fetch for the VM; a panic drops `sender` with no result, so that call ends at the cell's deadline and the VM goes on.
                 let spawned = cmux_threads::spawn(
                     "cmux-browser-host-fetch",
                     cmux_threads::ThreadQos::UserInitiated,
@@ -630,6 +633,7 @@ fn install(
                 let results = results.clone();
                 let sender = results.clone();
                 let params: Value = serde_json::from_str(&params).unwrap_or(json!({}));
+                // supervise-allow: one driver call for the VM; a panic drops `sender` with no result, so that call ends at the cell's deadline and the VM goes on.
                 let spawned = cmux_threads::spawn(
                     "cmux-browser-host-driver-call",
                     cmux_threads::ThreadQos::UserInitiated,

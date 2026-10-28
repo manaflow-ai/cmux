@@ -599,6 +599,7 @@ fn connect_before(
     let socket = socket.to_path_buf();
     let display = socket.display().to_string();
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    // supervise-allow: one-shot helper of this short-lived hook process; a panic drops its sender, so the bounded wait below ends.
     let connector =
         cmux_threads::spawn("journal-hook-connect", cmux_threads::ThreadQos::Utility, move || {
             let _ = sender.send(transport::connect(&socket));
@@ -762,6 +763,7 @@ mod detach {
         // A reader thread plus a bounded channel wait gives one absolute
         // deadline on every platform (Windows pipe reads have no timeout).
         let (sender, receiver) = mpsc::channel();
+        // supervise-allow: one-shot helper of this short-lived hook process; a panic drops its sender, so the bounded wait below ends.
         let reader = cmux_threads::spawn(
             "journal-hook-handoff",
             cmux_threads::ThreadQos::Utility,

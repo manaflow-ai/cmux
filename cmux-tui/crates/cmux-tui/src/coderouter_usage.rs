@@ -292,6 +292,7 @@ fn start_poller_with_source(
 ) -> Option<UsagePoller> {
     let stop = Arc::new(Notify::new());
     let stop_for_thread = stop.clone();
+    // supervise-allow: owned by UsagePoller and stopped with it; a panic ends usage polling only.
     let spawn =
         cmux_threads::spawn("machine-usage-poll", cmux_threads::ThreadQos::Background, move || {
             let runtime = match cmux_threads::tokio::builder(

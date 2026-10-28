@@ -127,10 +127,12 @@ pub fn serve(
     let (stopped_tx, stopped_rx) = mpsc::channel::<Result<(), ServeError>>();
     let writer_report =
         StopReport { tx: Some(stopped_tx.clone()), stopped: "tasks writer stopped" };
+    // supervise-allow: Fatal to serve: StopReport sends an error when the writer unwinds, so serve returns it and the tasks server stops instead of serving nothing.
     cmux_threads::spawn("tasks-writer", cmux_threads::ThreadQos::Utility, move || {
         writer_report.send(writer_loop(engine, rx));
     })?;
     let accept_report = StopReport { tx: Some(stopped_tx), stopped: "tasks accept loop stopped" };
+    // supervise-allow: Fatal to serve: StopReport sends an error when the accept loop unwinds, so serve returns it and the tasks server stops instead of serving nothing.
     cmux_threads::spawn("tasks-accept", cmux_threads::ThreadQos::Utility, move || {
         accept_report.send(accept_loop(&listener, &tx).map_err(ServeError::Io));
     })?;
@@ -150,6 +152,7 @@ fn accept_loop(listener: &UnixListener, tx: &SyncSender<Msg>) -> io::Result<()> 
         next_conn += 1;
         let conn = next_conn;
         let tx = tx.clone();
+        // supervise-allow: one client connection; a panic ends that connection only (its socket closes and the client reconnects).
         cmux_threads::spawn(
             format!("tasks-conn-{conn}"),
             cmux_threads::ThreadQos::Utility,
@@ -167,6 +170,7 @@ fn connection(conn: u64, stream: UnixStream, tx: SyncSender<Msg>) {
     if tx.send(Msg::Connected { conn, out: out_tx }).is_err() {
         return;
     }
+    // supervise-allow: this connection's writer, joined at the connection's end; a panic drops its queue, so the writer's next send to it fails and drops the connection.
     let Ok(pump) = cmux_threads::spawn(
         format!("tasks-conn-{conn}-out"),
         cmux_threads::ThreadQos::Utility,

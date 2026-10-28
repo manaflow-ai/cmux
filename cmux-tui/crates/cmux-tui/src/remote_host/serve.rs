@@ -210,6 +210,7 @@ fn accept_loop(host: &Arc<Host>, listener: &TcpListener) {
                     continue;
                 };
                 let host = Arc::clone(host);
+                // supervise-allow: one connection's server or reader; Pending bounds how many wait, and a panic ends that connection only.
                 let started = cmux_threads::spawn(
                     "remote-host-conn",
                     cmux_threads::ThreadQos::UserInitiated,
@@ -394,6 +395,7 @@ pub(crate) fn ensure_session(exe: &Path, session: &str) -> anyhow::Result<PathBu
         let _ = child.wait();
         bail!("`daemon ensure` started without its output pipe");
     };
+    // supervise-allow: one connection's server or reader; Pending bounds how many wait, and a panic ends that connection only.
     let reader = cmux_threads::spawn(
         "remote-host-ensure-out",
         cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),

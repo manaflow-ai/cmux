@@ -87,6 +87,7 @@ impl ActionWatch {
 /// `changed` each time the client must list the tools again (`serve` writes
 /// the notification, the shared host tells every client of that app).
 pub(super) fn spawn(global: GlobalArgs, changed: impl Fn() + Send + 'static) {
+    // supervise-allow: this MCP process's catalog watcher; a panic ends tool-list change notices only, and the tools still answer.
     let started =
         cmux_threads::spawn("cmux-mcp-actions", cmux_threads::ThreadQos::Utility, move || {
             let params = json!({"names": [CATALOG_CHANGED], "include_heartbeats": false});

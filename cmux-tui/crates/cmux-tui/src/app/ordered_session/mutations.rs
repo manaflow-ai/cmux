@@ -78,6 +78,7 @@ impl OrderedSession {
         let refresh_sequence = self.remote_refresh_sequence.fetch_add(1, Ordering::AcqRel) + 1;
         let pending = self.pending_mutation_with_impact(MutationImpact::PointerMap);
         let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
+        // supervise-allow: one background tree refresh; RemoteRefreshClaim releases the claim on its end, a panic included.
         let spawn = cmux_threads::spawn(
             "remote-tree-refresh",
             cmux_threads::ThreadQos::UserInitiated,
@@ -131,6 +132,7 @@ impl OrderedSession {
         let refresh_sequence = self.remote_refresh_sequence.fetch_add(1, Ordering::AcqRel) + 1;
         let destination_generation = self.destination_mutation_committed.load(Ordering::Acquire);
         let claim = RemoteRefreshClaim(self.remote_refresh_queued.clone());
+        // supervise-allow: one background tree refresh; RemoteRefreshClaim releases the claim on its end, a panic included.
         let spawn = cmux_threads::spawn(
             "remote-tree-refresh",
             cmux_threads::ThreadQos::UserInitiated,

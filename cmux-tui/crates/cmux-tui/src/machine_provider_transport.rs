@@ -124,6 +124,7 @@ impl ProviderIoGuard {
         let (cancel, cancelled) = mpsc::sync_channel(1);
         let timed_out = Arc::new(AtomicBool::new(false));
         let thread_timed_out = Arc::clone(&timed_out);
+        // supervise-allow: owned by its guard and joined at close; a panic ends only this deadline or stderr drain.
         let worker = cmux_threads::spawn(
             "machine-provider-deadline",
             cmux_threads::ThreadQos::UserInitiated,
@@ -550,6 +551,7 @@ fn spawn_command(
         closed: AtomicBool::new(false),
     });
     let worker_diagnostics = Arc::clone(&diagnostics);
+    // supervise-allow: owned by its guard and joined at close; a panic ends only this deadline or stderr drain.
     let worker = cmux_threads::spawn(
         "machine-provider-stderr",
         cmux_threads::ThreadQos::Utility,

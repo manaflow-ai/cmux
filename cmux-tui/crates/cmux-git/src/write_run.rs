@@ -63,10 +63,13 @@ impl WriteGit<'_> {
             return Err(GitFailure::Unavailable("git pipes are missing".to_string()));
         };
         let bytes = stdin.to_vec();
+        // supervise-allow: joined below in this function on every path; a panic ends the input write only.
         let writer = pipe_thread(&mut child, "git-stdin", move || {
             let _ = input.write_all(&bytes);
         })?;
+        // supervise-allow: joined below in this function on every path; a panic reads as empty output.
         let stdout = pipe_thread(&mut child, "git-stdout", move || drain(stdout, max_stdout))?;
+        // supervise-allow: joined below in this function on every path; a panic reads as empty output.
         let stderr =
             pipe_thread(&mut child, "git-stderr", move || drain(stderr, MAX_STDERR_BYTES))?;
         let waited = match bound {

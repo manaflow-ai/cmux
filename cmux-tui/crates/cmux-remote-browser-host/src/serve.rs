@@ -456,12 +456,17 @@ unsafe extern "C" fn on_ready(_: *mut c_void) {
         return;
     };
     if lifeline {
+        // supervise-allow: the lifeline watch, Fatal by hand: the host quits at the end of stdin or at a panic in the watch, so it never outlives its parent.
         let watch = cmux_threads::spawn("rb-lifeline", cmux_threads::ThreadQos::Utility, || {
-            crate::launch::watch_lifeline(std::io::stdin().lock(), || {
-                eprintln!("serve: lifeline closed, quitting");
-                // SAFETY: `on_quit` runs on the UI thread and takes no context.
-                unsafe { rb_shim_post(on_quit, std::ptr::null_mut()) }
+            let watched = std::panic::catch_unwind(|| {
+                crate::launch::watch_lifeline(std::io::stdin().lock(), || {});
             });
+            match watched {
+                Ok(()) => eprintln!("serve: lifeline closed, quitting"),
+                Err(_) => eprintln!("serve: the lifeline watch failed, quitting"),
+            }
+            // SAFETY: `on_quit` runs on the UI thread and takes no context.
+            unsafe { rb_shim_post(on_quit, std::ptr::null_mut()) }
         });
         if let Err(e) = watch {
             // Without the watch the host would outlive its launcher.
@@ -471,14 +476,22 @@ unsafe extern "C" fn on_ready(_: *mut c_void) {
             return;
         }
     }
+    // supervise-allow: the viewer listener, Fatal by hand: when it ends (an error or a panic) the host quits, never a host that admits no viewer.
     let listener =
         cmux_threads::spawn("rb-listen", cmux_threads::ThreadQos::UserInitiated, move || {
-            if let Err(e) = listen(addr) {
-                eprintln!("serve: {e}");
+            match std::panic::catch_unwind(move || listen(addr)) {
+                Ok(Ok(())) => eprintln!("serve: the listener ended, quitting"),
+                Ok(Err(e)) => eprintln!("serve: {e}; quitting"),
+                Err(_) => eprintln!("serve: the listener failed, quitting"),
             }
+            // SAFETY: `on_quit` runs on the UI thread and takes no context.
+            unsafe { rb_shim_post(on_quit, std::ptr::null_mut()) }
         });
     if let Err(e) = listener {
-        eprintln!("serve: listener did not start: {e}");
+        // A host that admits no viewer quits, as when the listener ends.
+        eprintln!("serve: listener did not start ({e}), quitting");
+        // SAFETY: `on_quit` runs on the UI thread and takes no context.
+        unsafe { rb_shim_post(on_quit, std::ptr::null_mut()) }
     }
 }
 
@@ -879,6 +892,7 @@ fn session(viewer: crate::launch::Admitted) -> std::io::Result<String> {
     stream.set_read_timeout(None)?;
     let (tx, rx) = mpsc::channel::<Vec<u8>>();
     let mut out = stream.try_clone()?;
+    // supervise-allow: this viewer session's writer, joined at the session's end; a panic drops `rx`, so the next frame send fails and the session ends as when the socket closes.
     let writer =
         cmux_threads::spawn("rb-session-out", cmux_threads::ThreadQos::UserInitiated, move || {
             for bytes in rx {

@@ -823,10 +823,22 @@ impl CloudConversations {
             let inner = self.inner.clone();
             let driver_target = target.clone();
             // A subscribed client shows this stream's events as they arrive.
+            // supervise-allow: one conversation's stream driver; a panic removes its subscription, so the next subscribe starts a fresh driver instead of finding a subscription nothing feeds.
             let spawned = cmux_threads::spawn(
                 "mux-cloud-stream",
                 cmux_threads::ThreadQos::UserInitiated,
-                move || run_driver(&inner, driver_target),
+                move || {
+                    let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        run_driver(&inner, driver_target.clone());
+                    }));
+                    if ran.is_err() {
+                        inner
+                            .subscriptions
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .remove(&driver_target);
+                    }
+                },
             );
             if let Err(error) = spawned {
                 self.inner

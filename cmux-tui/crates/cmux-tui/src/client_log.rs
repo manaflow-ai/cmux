@@ -114,6 +114,7 @@ fn queue() -> Option<&'static SyncSender<Message>> {
             // startup.
             let path = PATH_OVERRIDE.get().cloned().or_else(platform::client_log_path)?;
             let (sender, receiver) = sync_channel::<Message>(QUEUE_CAPACITY);
+            // supervise-allow: the client log's background I/O (a bounded queue and one sink); a panic loses log lines only.
             cmux_threads::spawn("client-log", cmux_threads::ThreadQos::Utility, move || {
                 // Bound the open itself: a FIFO override or a dead
                 // network mount can block open(2) forever, and while the
@@ -123,6 +124,7 @@ fn queue() -> Option<&'static SyncSender<Message>> {
                 // stderr goes back to the terminal; if the stray open
                 // ever completes, the opener thread just drops the file.
                 let (sink_sender, sink_receiver) = sync_channel(1);
+                // supervise-allow: the client log's background I/O (a bounded queue and one sink); a panic loses log lines only.
                 let opened = cmux_threads::spawn(
                     "client-log-open",
                     cmux_threads::ThreadQos::Utility,
@@ -475,6 +477,7 @@ pub(crate) fn redirect_stderr_into_log() {
         }
         // SAFETY: read_fd is owned by this File from here on.
         let mut reader = unsafe { File::from_raw_fd(read_fd) };
+        // supervise-allow: the client log's background I/O (a bounded queue and one sink); a panic loses log lines only.
         let spawned =
             cmux_threads::spawn("stderr-pump", cmux_threads::ThreadQos::Utility, move || {
                 let mut buffer = [0u8; 4096];

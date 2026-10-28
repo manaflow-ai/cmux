@@ -116,6 +116,7 @@ impl MachineActionWorker {
         let worker_stop = stop.clone();
         let cancellation = EventCancellation::new();
         let worker_cancellation = cancellation.clone();
+        // supervise-allow: owned by its worker struct and joined at stop_and_join; a panic drops its channel ends, so the app sees the machine stream end.
         let worker = cmux_threads::spawn(
             "machine-actions",
             cmux_threads::ThreadQos::UserInitiated,
@@ -458,6 +459,7 @@ impl MachineUpdatePump {
         let forwarder_stop = stop.clone();
         let cancellation = EventCancellation::new();
         let forwarder_cancellation = cancellation.clone();
+        // supervise-allow: owned by its worker struct and joined at stop_and_join; a panic drops its channel ends, so the app sees the machine stream end.
         let forwarder = match cmux_threads::spawn(
             "machine-provider-events",
             cmux_threads::ThreadQos::UserInitiated,

@@ -326,6 +326,7 @@ impl Upstream {
         output: impl std::io::Read + Send + 'static,
     ) -> Result<mpsc::Receiver<String>, String> {
         let (tx, lines) = mpsc::channel();
+        // supervise-allow: one upstream connection's output reader; it ends at EOF, and a panic drops `tx`, so requests to that upstream fail.
         cmux_threads::spawn(
             format!("cmux-mcp-upstream-{}", self.prefix),
             cmux_threads::ThreadQos::UserInitiated,

@@ -574,6 +574,7 @@ impl<B: Backend> Server<B> {
                 {
                     let caller = caller_env::current();
                     let call_id = id.clone();
+                    // supervise-allow: one proxied tool call; a panic ends that call only, and the MCP client's own timeout ends its wait.
                     let started = cmux_threads::spawn(
                         "cmux-mcp-proxied-call",
                         cmux_threads::ThreadQos::UserInitiated,

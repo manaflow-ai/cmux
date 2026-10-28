@@ -73,6 +73,7 @@ impl Supervisor {
     pub fn start(paths: RolePaths) -> std::io::Result<Supervisor> {
         let (tx, rx) = mpsc::channel();
         let loop_tx = tx.clone();
+        // supervise-allow: the role loop, owned by Supervisor (joined at drop); a panic drops its receiver, so the running roles go unmanaged (no restart, no reload) until cmux-host stops, and stop_all, apply and health return at once.
         let thread =
             cmux_threads::spawn("cmux-host-roles", cmux_threads::ThreadQos::Utility, move || {
                 Loop { paths, entries: BTreeMap::new(), invalid: Vec::new(), published: None }

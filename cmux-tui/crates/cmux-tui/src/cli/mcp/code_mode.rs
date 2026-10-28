@@ -270,6 +270,7 @@ pub(super) fn exec(
         return Err(format!("{EXEC} script is larger than {} KiB", MAX_SCRIPT_BYTES >> 10));
     }
     let (to_server, from_script) = mpsc::channel();
+    // supervise-allow: one script run, read until Done; a panic drops `to_server`, so the loop below ends and the call reports no outcome.
     let engine = cmux_threads::spawn_with_stack(
         "cmux-mcp-code-mode",
         cmux_threads::ThreadQos::UserInitiated,

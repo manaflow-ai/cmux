@@ -250,6 +250,7 @@ impl Role for CloudRole {
         let (done_tx, done) = std::sync::mpsc::channel::<()>();
         let github_stop = Arc::new(Stop::default());
         let worker_stop = Arc::clone(&github_stop);
+        // supervise-allow: owned by the role's WorkerHandle, joined at halt; a panic ends the cloud worker as its error return does, and drops `done_tx`, so halt does not wait for it.
         let thread =
             cmux_threads::spawn("cmux-host-cloud", cmux_threads::ThreadQos::Utility, move || {
                 let _done = done_tx;
