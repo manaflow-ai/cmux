@@ -318,7 +318,7 @@ fn fit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     /// A Claude store with chat session `s1` in project `-work`.
     fn store(name: &str) -> PathBuf {
@@ -354,7 +354,10 @@ mod tests {
         write(&project.join("s0/subagents/workflows/wf_old"), "a02", 2);
         write(&project.join("s1/subagents"), "b01", 2);
         // Every line counts (the attachment too); only messages are replayed.
-        assert_eq!(read(&home, "s1", Some("wf_new"), "a01").unwrap().0.lines.len(), 4);
+        assert_eq!(
+            read(&home, "s1", Some("wf_new"), "a01").unwrap().0.lines.len(),
+            4
+        );
         assert!(read(&home, "s1", Some("wf_old"), "a02").is_err());
         assert_eq!(read(&home, "s1", None, "b01").unwrap().0.lines.len(), 3);
         // A background agent is the chat's own: never another session's.
@@ -394,7 +397,8 @@ mod tests {
         if id == "chat" {
             *session.meta.lock().unwrap() = meta;
         } else {
-            hub.make_session(meta);
+            let session = hub.make_session(meta);
+            hub.sessions.lock().unwrap().insert(id.into(), session);
         }
     }
 
@@ -402,9 +406,13 @@ mod tests {
     async fn fork_transcript_reads_earlier_claude_id_of_the_same_chat() {
         let home = scoped_store("same-chat-fork");
         let hub = transcript_hub(&home);
-        replace_meta(&hub, "chat", json!({
-            "agentSessionId": "new-session", "previousAgentSessionIds": ["s1"]
-        }));
+        replace_meta(
+            &hub,
+            "chat",
+            json!({
+                "agentSessionId": "new-session", "previousAgentSessionIds": ["s1"]
+            }),
+        );
         let page = handle(&hub, &transcript_request("wf_own")).await.unwrap();
         assert_eq!(page["lines"], 4);
         let absent = handle(&hub, &transcript_request("wf_missing")).await.unwrap_err();
@@ -418,15 +426,22 @@ mod tests {
         let home = scoped_store("parent-cycle");
         let hub = transcript_hub(&home);
         replace_meta(&hub, "parent", json!({"parentId": "chat", "forkSeq": 1}));
-        replace_meta(&hub, "chat", json!({
-            "agentSessionId": "child-session", "parentId": "parent", "forkSeq": 1
-        }));
+        replace_meta(
+            &hub,
+            "chat",
+            json!({
+                "agentSessionId": "child-session", "parentId": "parent", "forkSeq": 1
+            }),
+        );
         let page = handle(&hub, &transcript_request("wf_own")).await.unwrap();
         assert_eq!(page["lines"], 4);
         let absent = tokio::time::timeout(
             std::time::Duration::from_secs(2),
             handle(&hub, &transcript_request("wf_missing")),
-        ).await.unwrap().unwrap_err();
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
         let sibling = handle(&hub, &transcript_request("wf_other")).await.unwrap_err();
         assert_eq!(serde_json::to_vec(&sibling).unwrap(), serde_json::to_vec(&absent).unwrap());
         let _ = std::fs::remove_dir_all(home);
@@ -459,10 +474,40 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn peer_and_paired_device_read_only_the_listed_chats_own_transcript() {
+    async fn peer_and_paired_device_read_only_readable_fork_ancestors() {
         use crate::server::{ConnAuth, Origin, serve_connection_authed};
         let home = scoped_store("peer-scope");
         let hub = transcript_hub(&home);
+        // The immediate ancestor is local and readable. Its own parent is only a cached
+        // session on another peer: neither its native ID nor its parent may grant a folder.
+        replace_meta(
+            &hub,
+            "parent",
+            json!({
+                "agentSessionId": "parent-new", "previousAgentSessionIds": ["s1"],
+                "parentId": "remote-parent", "forkSeq": 1
+            }),
+        );
+        replace_meta(
+            &hub,
+            "chat",
+            json!({
+                "agentSessionId": "child-new", "parentId": "parent", "forkSeq": 1
+            }),
+        );
+        let (notices, _recv) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new("other", "ws://127.0.0.1:1", None, None, notices);
+        hub.peers.lock().unwrap().insert("other".into(), peer.clone());
+        hub.apply_peer_notice(
+            "other",
+            peer.generation,
+            crate::peer::PeerNotice::Sessions(vec![
+                json!({"sessionId": "remote-parent", "name": "remote-parent", "status": "idle",
+                "agentSessionId": "sibling", "updatedAt": 1}),
+            ]),
+        );
+        std::fs::write(home.join("projects/-work/sibling.jsonl"), "{}\n").unwrap();
+        assert!(hub.resolve_remote("other/remote-parent").is_some());
         for auth in [ConnAuth::PeerToken, ConnAuth::Device] {
             let (send, inbound) = tokio::sync::mpsc::channel(8);
             let (out, mut recv) = tokio::sync::mpsc::channel(64);
@@ -508,6 +553,46 @@ mod tests {
             drop(send);
             server.await.unwrap();
         }
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[tokio::test]
+    async fn fork_transcript_parent_id_is_never_a_name_or_prefix() {
+        let home = scoped_store("parent-exact");
+        let hub = transcript_hub(&home);
+        replace_meta(&hub, "parent-long-id", json!({"name": "parent"}));
+        replace_meta(
+            &hub,
+            "chat",
+            json!({
+                "agentSessionId": "child-new", "parentId": "parent", "forkSeq": 1
+            }),
+        );
+        assert!(hub.resolve("parent").is_ok(), "normal lookup permits the name");
+        let missing = handle(&hub, &transcript_request("wf_missing")).await.unwrap_err();
+        let sibling = handle(&hub, &transcript_request("wf_own")).await.unwrap_err();
+        assert_eq!(serde_json::to_vec(&sibling).unwrap(), serde_json::to_vec(&missing).unwrap());
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn fork_transcript_ancestor_symlinks_are_refused_as_missing() {
+        let home = scoped_store("ancestor-links");
+        let hub = transcript_hub(&home);
+        replace_meta(&hub, "parent", json!({}));
+        replace_meta(
+            &hub,
+            "chat",
+            json!({
+                "agentSessionId": "child-new", "parentId": "parent", "forkSeq": 1
+            }),
+        );
+        let workflows = home.join("projects/-work/s1/subagents/workflows");
+        std::os::unix::fs::symlink(workflows.join("wf_own"), workflows.join("wf_link")).unwrap();
+        let missing = handle(&hub, &transcript_request("wf_missing")).await.unwrap_err();
+        let linked = handle(&hub, &transcript_request("wf_link")).await.unwrap_err();
+        assert_eq!(serde_json::to_vec(&linked).unwrap(), serde_json::to_vec(&missing).unwrap());
         let _ = std::fs::remove_dir_all(home);
     }
 
