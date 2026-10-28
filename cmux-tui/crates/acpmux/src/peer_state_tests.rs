@@ -310,15 +310,22 @@ async fn recovery_clears_an_outage_saved_before_the_handshake_completed() {
     peer.with_link(|l| {
         l.down(old, Duration::ZERO);
     });
-    hub.apply_peer_notice("box", peer.generation, PeerNotice::Disconnected("gone".into()));
+    let mut settled = peer.settled();
+    let post = |notice| hub.peer_notices.send(("box".into(), peer.generation, notice));
+    post(PeerNotice::Disconnected("gone".into())).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), settled.changed()).await.unwrap().unwrap();
     peer.with_link(|l| l.opened(crate::store::now_ms()));
-    hub.apply_peer_notice("box", peer.generation, PeerNotice::Sessions(vec![]));
+    post(PeerNotice::Sessions(vec![])).await.unwrap();
+    // A Connected notice is a hub-consumption barrier; it does not make Link ready.
+    post(PeerNotice::Connected).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), settled.changed()).await.unwrap().unwrap();
     let read = || -> Value {
         serde_json::from_slice(&std::fs::read(dir.path().join("peers/box.json")).unwrap()).unwrap()
     };
     assert_eq!(read()["downSince"], old, "watch list preceded ready");
     peer.with_link(|l| l.ready(crate::store::now_ms()));
-    hub.apply_peer_notice("box", peer.generation, PeerNotice::Connected);
+    post(PeerNotice::Connected).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), settled.changed()).await.unwrap().unwrap();
     let saved = read();
     assert!(saved["downSince"].is_null(), "resolved outage persisted: {saved}");
     // A fresh process restores this cache and has one transient failure: normal cadence.
