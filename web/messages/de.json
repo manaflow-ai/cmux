@@ -2541,6 +2541,7 @@
       "sendKeyDesc": "Einen Tastendruck senden. Tasten: enter, tab, escape, backspace, delete, up, down, left, right.",
       "sendSurfaceDesc": "Text an eine bestimmte Oberfläche senden.",
       "sendKeySurfaceDesc": "Einen Tastendruck an eine bestimmte Oberfläche senden.",
+      "textboxDesc": "TextBox-Eingabe eines Terminals ein- oder ausblenden oder umschalten. Mit state abfragen, ob sie angezeigt wird. --focus setzt den Tastaturfokus in die TextBox.",
       "notificationCommands": "Benachrichtigungsbefehle",
       "notifyDesc": "Eine Benachrichtigung senden.",
       "listNotificationsDesc": "Alle Benachrichtigungen auflisten.",

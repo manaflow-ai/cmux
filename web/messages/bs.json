@@ -2541,6 +2541,7 @@
       "sendKeyDesc": "Pošalji pritisak tipke. Tipke: enter, tab, escape, backspace, delete, up, down, left, right.",
       "sendSurfaceDesc": "Pošalji tekst na specifičnu površinu.",
       "sendKeySurfaceDesc": "Pošalji pritisak tipke na specifičnu površinu.",
+      "textboxDesc": "Prikaži, sakrij ili uključi/isključi TextBox unos terminala. Koristi state da provjeriš je li prikazan. --focus premješta fokus tastature u TextBox.",
       "notificationCommands": "Komande notifikacija",
       "notifyDesc": "Pošalji notifikaciju.",
       "listNotificationsDesc": "Izlistaj sve notifikacije.",

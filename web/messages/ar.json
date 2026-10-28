@@ -2541,6 +2541,7 @@
       "sendKeyDesc": "إرسال ضغطة مفتاح. المفاتيح: enter, tab, escape, backspace, delete, up, down, left, right.",
       "sendSurfaceDesc": "إرسال نص إلى سطح محدد.",
       "sendKeySurfaceDesc": "إرسال ضغطة مفتاح إلى سطح محدد.",
+      "textboxDesc": "إظهار مربع إدخال TextBox في الطرفية أو إخفاؤه أو تبديله. استخدم state لمعرفة ما إذا كان ظاهرًا. ينقل --focus تركيز لوحة المفاتيح إلى TextBox.",
       "notificationCommands": "أوامر الإشعارات",
       "notifyDesc": "إرسال إشعار.",
       "listNotificationsDesc": "عرض جميع الإشعارات.",
