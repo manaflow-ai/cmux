@@ -40,6 +40,35 @@ impl Mux {
         self.pending_terminals.lock().recover_poison().values().any(|(id, _)| id == terminal_id)
     }
 
+    /// The host id of the terminal an attach names, by its tab's placement
+    /// `slot` or by its public id, while its host still adopts here. `None`
+    /// for a terminal with a runtime, an ended one, or one this build cannot
+    /// adopt. Takes the state lock and then this table's, each briefly.
+    pub(crate) fn adopting_terminal_for_attach(
+        &self,
+        slot: Option<SurfaceId>,
+        terminal: Option<&TerminalPublicId>,
+    ) -> Option<String> {
+        let public_id = match (terminal, slot) {
+            (Some(terminal), _) => terminal.as_str().to_owned(),
+            (None, Some(slot)) => {
+                let state = self.state.lock().recover_poison();
+                let Some(ContentPublicId::Terminal(id)) =
+                    state.resource_indexes.content_ids.get(&slot)
+                else {
+                    return None;
+                };
+                id.as_str().to_owned()
+            }
+            (None, None) => return None,
+        };
+        let pending = self.pending_terminals.lock().recover_poison();
+        match pending.get(&public_id)? {
+            (host_id, PendingTerminal::Adopting) => Some(host_id.clone()),
+            _ => None,
+        }
+    }
+
     /// Whether a pending terminal may be closed. An adopting host speaks this
     /// build's protocol and is ended by the close. An unadoptable one is ended
     /// only with proof that its recorded PID is its live host; without proof

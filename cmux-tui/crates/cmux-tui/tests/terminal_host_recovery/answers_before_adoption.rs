@@ -79,3 +79,7 @@ fn a_replacement_owner_answers_before_its_stalled_hosts_are_adopted() {
         std::thread::sleep(Duration::from_millis(20));
     }
 }
+
+/// An attach to a terminal that still adopts goes first and waits for it.
+#[path = "attach_first.rs"]
+mod attach_first;

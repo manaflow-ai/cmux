@@ -79,7 +79,7 @@ fn limited_retries_bound_concurrency_and_leave_the_system_lane_free() {
             Duration::ZERO,
             Priority::UserVisible,
             Lane::System,
-            &mux.terminal_replays,
+            (&mux.terminal_replays, None),
             move |_| {
                 let _ = started_tx.send(index);
                 cmux_threads::work::will_block(|| {
@@ -122,6 +122,64 @@ fn limited_retries_bound_concurrency_and_leave_the_system_lane_free() {
         std::thread::yield_now();
     }
     assert_eq!(mux.terminal_replays.parked(), 0);
+    mux.shutdown();
+}
+
+/// A try whose key a caller waits on (`Permits::promote`, an attach to a
+/// terminal that still adopts) leaves its place in the queue: it runs at
+/// once, past the width, while every permit is held and earlier tries wait.
+#[test]
+fn a_promoted_try_runs_before_the_queued_ones() {
+    use crate::mux::terminal_adoption::ADOPTION_REPLAYS;
+    let mux = Mux::new_for_test("mux-retry-promoted", SurfaceOptions::default());
+    let tries = ADOPTION_REPLAYS + 4;
+    let (started_tx, started) = mpsc::channel();
+    let (release_tx, release) = mpsc::channel::<()>();
+    let release = Arc::new(Mutex::new(release));
+    for index in 0..tries {
+        let (started_tx, release) = (started_tx.clone(), Arc::clone(&release));
+        let key: Arc<str> = Arc::from(format!("term-{index}"));
+        mux.post_mux_retry_limited(
+            Duration::ZERO,
+            Priority::UserVisible,
+            Lane::System,
+            (&mux.terminal_replays, Some(key)),
+            move |_| {
+                let _ = started_tx.send(index);
+                // Only the held tries wait; the promoted one ends at once.
+                if index < ADOPTION_REPLAYS {
+                    cmux_threads::work::will_block(|| {
+                        let _ = release.lock().unwrap().recv();
+                    });
+                }
+                Retry::Done
+            },
+        )
+        .unwrap();
+        if index + 1 == ADOPTION_REPLAYS {
+            // The held tries take every permit before the rest are posted.
+            for _ in 0..ADOPTION_REPLAYS {
+                started.recv_timeout(WAIT).expect("a try started");
+            }
+        }
+    }
+    let deadline = Instant::now() + WAIT;
+    while mux.terminal_replays.parked() != tries - ADOPTION_REPLAYS {
+        assert!(Instant::now() < deadline, "the tries past the width did not park");
+        std::thread::yield_now();
+    }
+    let last = tries - 1;
+    mux.terminal_replays.promote(&format!("term-{last}"));
+    assert_eq!(started.recv_timeout(WAIT), Ok(last), "the promoted try waited for a permit");
+    assert_eq!(started.try_recv(), Err(mpsc::TryRecvError::Empty), "a queued try ran too");
+    mux.terminal_replays.demote(&format!("term-{last}"));
+    for _ in 0..ADOPTION_REPLAYS {
+        release_tx.send(()).unwrap();
+    }
+    let mut rest: Vec<usize> =
+        (0..tries - ADOPTION_REPLAYS - 1).map(|_| started.recv_timeout(WAIT).unwrap()).collect();
+    rest.sort_unstable();
+    assert_eq!(rest, (ADOPTION_REPLAYS..last).collect::<Vec<_>>());
     mux.shutdown();
 }
 
