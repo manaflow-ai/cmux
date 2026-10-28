@@ -136,6 +136,8 @@ export class PlatformOperations {
       if (m && m.status !== "deleting") await host.submit(p, { t: "op", op: "cloud.machine.delete", params: { machine: m.id }, idempotency_key: this.stepKey(o, `delete:${m.revision}`), origin: "script" })
       const create = host.ledger(ledgerKey(p.identity, this.stepKey(o, "create")))
       if (create?.state === "pending" && !create.cancel) throw new Error("platform create cancellation has not committed")
+      const resize = host.ledger(ledgerKey(p.identity, this.stepKey(o, "resize")))
+      if (resize?.state === "pending") throw new Error("platform resize cancellation has not committed")
     }
   }
 
