@@ -478,6 +478,11 @@ async fn session_auth_asks_the_peer_and_answers_for_a_peer_that_is_down() {
     let out = c.auth(json!({"target": {"harness": "fake", "host": "gone"}})).await;
     assert_eq!(state(&out), ("peerUnreachable", "peerLink"), "{out}");
     assert!(out["evidenceAt"].as_u64().is_some(), "{out}");
+    // A target's own route stays named when the peer cannot answer for it.
+    let routed = json!({"target": {"harness": "fake", "host": "gone", "routeId": "far-route"}});
+    let out = c.auth(routed).await;
+    assert_eq!(state(&out), ("peerUnreachable", "peerLink"), "{out}");
+    assert_eq!(out["routeId"], "far-route", "{out}");
 
     for old in
         [json!({"sessionId": "old-1"}), json!({"target": {"harness": "fake", "host": "old"}})]
@@ -487,6 +492,9 @@ async fn session_auth_asks_the_peer_and_answers_for_a_peer_that_is_down() {
         assert_eq!(out["host"], "old", "{out}");
         assert!(out["detail"].as_str().unwrap().contains("acpmux host update old"), "{out}");
     }
+    let routed = json!({"target": {"harness": "fake", "host": "old", "routeId": "old-route"}});
+    let out = c.auth(routed).await;
+    assert_eq!((state(&out), &out["routeId"]), (("unknown", "none"), &json!("old-route")), "{out}");
 }
 
 /// `initialize` lists the feature a client checks before it asks.

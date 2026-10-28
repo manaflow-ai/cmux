@@ -43,7 +43,7 @@ pub(super) async fn handle(
                     &params,
                     &mut forwarded,
                 );
-                ask_peer(&peer, forwarded, harness).await?
+                ask_peer(&peer, forwarded, harness, None).await?
             }
         },
         (None, Some(target)) => match target.host.as_deref() {
@@ -60,7 +60,7 @@ pub(super) async fn handle(
                     &params,
                     &mut forwarded,
                 );
-                ask_peer(&peer, forwarded, &target.harness).await?
+                ask_peer(&peer, forwarded, &target.harness, target.route_id.as_deref()).await?
             }
         },
         _ => {
@@ -72,11 +72,13 @@ pub(super) async fn handle(
     serde_json::to_value(reply).map_err(|e| RpcError::internal(e.to_string()))
 }
 
-/// The peer's answer, as from that host; or this daemon's own when the peer cannot answer.
+/// The peer's answer, as from that host; or this daemon's own when the peer cannot answer, naming
+/// the route a target asked about (`route_id`; a chat's route is the peer's to know).
 async fn ask_peer(
     peer: &Arc<Peer>,
     params: Value,
     harness: &str,
+    route_id: Option<&str>,
 ) -> Result<SessionAuthResult, RpcError> {
     let here = |state, detail: String| {
         let link = (state == SessionAuthState::PeerUnreachable).then(|| peer.link());
@@ -91,7 +93,7 @@ async fn ask_peer(
             detail,
             harness: harness.to_owned(),
             host: Some(peer.name.clone()),
-            route_id: None,
+            route_id: route_id.map(str::to_owned),
             login: None,
             from_session_id: None,
         }
