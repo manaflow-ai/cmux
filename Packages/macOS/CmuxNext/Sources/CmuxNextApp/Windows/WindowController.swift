@@ -263,7 +263,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
         guard content?.workspace !== workspace else { return arrangeOnScreen() }
         // Parking the current one never trims the one to show; a current one of the same id (a rebuilt model) is torn down below.
-        if let current = content { park(current, keeping: workspace.id) }
+        if let current = content { park(current, leaving: workspace.id) }
         DebugWorkspaceSwitch.mark(self, "park")
         let controller: WorkspaceContentController, kept = parked.removeValue(forKey: workspace.id)
         if let kept, kept.workspace === workspace, kept.daemon === daemon {

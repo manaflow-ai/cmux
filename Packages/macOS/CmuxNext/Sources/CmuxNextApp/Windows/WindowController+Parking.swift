@@ -20,22 +20,22 @@ extension WindowController {
         }
     }
 
-    /// Parks `controller`; past the budget the oldest leave, never `controller` itself (a page may cover it) nor
-    /// `next`, the workspace about to show.
-    func park(_ controller: WorkspaceContentController, keeping next: String? = nil) {
+    /// Parks `controller`; past the budget the oldest leave, never `controller` itself (a page may cover it).
+    /// `leaving` is the workspace about to show: `show` takes it out next, so it neither counts nor leaves.
+    func park(_ controller: WorkspaceContentController, leaving: String? = nil) {
         parkSerial &+= 1
         controller.park(serial: parkSerial)
         parked[controller.workspace.id] = controller
-        trimParked(keeping: [controller.workspace.id] + (next.map { [$0] } ?? []))
+        trimParked(keeping: controller.workspace.id, leaving: leaving)
     }
 
     /// Past `ParkedWorkspaceBudget.standard`'s capacity, the least recently parked workspaces leave as under
     /// critical pressure, so a window that visited hundreds keeps a bounded set mounted.
-    private func trimParked(keeping alsoKept: [String]) {
+    private func trimParked(keeping parkedNow: String, leaving: String?) {
         let budget = ParkedWorkspaceBudget.standard
-        guard parked.count > budget.capacity else { return }
-        let entries = parked.map { (id: $0.key, serial: $0.value.parkedSerial) }
-        let kept = Set(parked.keys.filter(keepsParked)).union(alsoKept)
+        let entries = parked.compactMap { $0.key == leaving ? nil : (id: $0.key, serial: $0.value.parkedSerial) }
+        guard entries.count > budget.capacity else { return }
+        let kept = Set(parked.keys.filter(keepsParked)).union([parkedNow])
         for id in budget.evictions(parked: entries, kept: kept) {
             parked.removeValue(forKey: id)?.teardown()
         }
