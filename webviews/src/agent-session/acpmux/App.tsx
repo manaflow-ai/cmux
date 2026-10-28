@@ -134,8 +134,6 @@ import { uploadToMachine } from "./cloudUploads";
 import { droppedPaths } from "./composer/intakeFiles";
 import { useToolCards } from "./toolCards/toolCardStore";
 import { cardTakesShortcuts } from "./permissionKeys";
-import { QUESTION_RECORD } from "./question/record";
-import { PERMISSION_RECORD } from "./permissions/record";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
@@ -247,16 +245,11 @@ import {
 import { ChatFindBar } from "./conversation/ChatFindBar";
 import { ChatFindScope } from "./conversation/ChatFindScope";
 import {
-  ACTIVITY_LINE,
-  DATE,
-  PREVIEW,
   RENDER,
-  THINKING,
   WORKED,
   messageRevealTarget,
   turnFoldFor,
   turnFooterFrom,
-  WORKING,
   type TurnView,
   turnViewFrom,
 } from "./conversation/turns";
@@ -335,14 +328,12 @@ import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { HostError } from "./HostError";
-import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
-import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
+import { ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
+import { type Subagent } from "./subagents/subagentFold";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
 import {
   SUBAGENT_DONE,
   SUBAGENT_OF,
-  SUBAGENT_ROW,
-  WORKFLOW_CARD,
   type SubagentRows,
   childView,
   runningGroups,
@@ -359,7 +350,7 @@ import {
   running,
 } from "./subagents/SubagentGroup";
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
-import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
+import { ShellActionsContext, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
 import { BACKGROUND_NOTICE_TEXT, useBackgroundNotice } from "./conversation/backgroundNotice";
 import { InstructionsNotice, type InstructionsFailure } from "./header/InstructionsNotice";
@@ -393,14 +384,13 @@ import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { useSideSessions } from "./aside/sideSessions";
-import { OFFER_RESULT, setSuggestedTasks } from "./offer/offersShown";
+import { setSuggestedTasks } from "./offer/offersShown";
 import { offerWorktree } from "./offer/offerWorktree";
 import { NO_MENTIONS, StartedMentionsContext, type StartedMentions } from "./started/StartedSessionCard";
 import { type SessionHover, SessionHoverContext } from "./started/SessionHoverCard";
 import { SessionHoverStore, withSessionIds } from "./started/sessionHover";
 import { SubsessionContext, SubsessionStore, type Subsessions, subsessionRows } from "./subagents/subsessions";
 import {
-  STARTED_SESSIONS,
   type StartedCache,
   type StartedSession,
   offerChildren,
@@ -419,37 +409,9 @@ import { RetryBackoff } from "../../pages/shared/retryBackoff";
 import { callNative } from "./callNative";
 import type { MeasurableRenderer, NativeRegistry, OpenDiff } from "./rows/rowProps";
 import { editQueued, openOfferChat, openSenderChat } from "./rows/rowActions";
-import { MessageRow } from "./rows/MessageRow";
-import { ToolActivityRow } from "./rows/ToolActivityRow";
-import { WorkedRow } from "./rows/WorkedRow";
-import { DateRow } from "./rows/DateRow";
-import { ThinkingRow } from "./rows/ThinkingRow";
-import { WorkingRow } from "./rows/WorkingRow";
-import { ActivityLineRow } from "./rows/ActivityLineRow";
-import { PreviewRow } from "./rows/PreviewRow";
-import { RenderRow } from "./rows/RenderRow";
-import { SummaryRow } from "./rows/SummaryRow";
-import { PlanRow } from "./rows/PlanRow";
 import { NoticeRow } from "./rows/NoticeRow";
-import { BackgroundTaskRow } from "./rows/BackgroundTaskRow";
-import { CompactionRow } from "./rows/CompactionRow";
-import { FailoverRow } from "./rows/FailoverRow";
-import { PolicyUnenforcedRow } from "./rows/PolicyUnenforcedRow";
-import { AgentPairRow } from "./rows/AgentPairRow";
-import { SessionStartRow } from "./rows/SessionStartRow";
 import { PermissionAsk } from "./rows/PermissionAsk";
-import { PermissionRow } from "./rows/PermissionRow";
-import { QuestionRecordRow } from "./rows/QuestionRecordRow";
-import { PermissionRecordRow } from "./rows/PermissionRecordRow";
-import { SubagentGroupRow } from "./rows/SubagentGroupRow";
-import { SubagentRow } from "./rows/SubagentRow";
-import { SubagentDoneRow } from "./rows/SubagentDoneRow";
-import { WorkflowCardRow } from "./rows/WorkflowCardRow";
-import { SubagentOfPillRow } from "./rows/SubagentOfPillRow";
-import { EditedFilesRow } from "./rows/EditedFilesRow";
-import { SessionOfferRow } from "./rows/SessionOfferRow";
-import { OfferResultRow } from "./rows/OfferResultRow";
-import { StartedSessionsRow } from "./rows/StartedSessionsRow";
+import { defaultRegistry, currentRegistry } from "./rows/registry";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -844,42 +806,6 @@ const NO_AGENTS: readonly Subagent[] = [];
 const sameItems = <T,>(a: readonly T[], b: readonly T[]) =>
   a.length === b.length && a.every((item, index) => item === b[index]);
 
-const defaultRegistry: NativeRegistry = {
-  user: MessageRow,
-  assistant: MessageRow,
-  activity: ToolActivityRow,
-  [WORKED]: WorkedRow,
-  [DATE]: DateRow,
-  [THINKING]: ThinkingRow,
-  [WORKING]: WorkingRow,
-  [ACTIVITY_LINE]: ActivityLineRow,
-  [PREVIEW]: PreviewRow,
-  [RENDER]: RenderRow,
-  editedFiles: EditedFilesRow,
-  turnSummary: SummaryRow,
-  notice: NoticeRow,
-  plan: PlanRow,
-  backgroundTask: BackgroundTaskRow,
-  compaction: CompactionRow,
-  failover: FailoverRow,
-  policyUnenforced: PolicyUnenforcedRow,
-  agentPair: AgentPairRow,
-  sessionStart: SessionStartRow,
-  sessionOffer: SessionOfferRow,
-  [OFFER_RESULT]: OfferResultRow,
-  [STARTED_SESSIONS]: StartedSessionsRow,
-  typing: NoticeRow,
-  permission: PermissionRow,
-  [QUESTION_RECORD]: QuestionRecordRow,
-  [PERMISSION_RECORD]: PermissionRecordRow,
-  [SHELL_ROW]: ShellRow,
-  [SUBAGENTS]: SubagentGroupRow,
-  [SUBAGENT_ROW]: SubagentRow,
-  [SUBAGENT_DONE]: SubagentDoneRow,
-  [SUBAGENT_OF]: SubagentOfPillRow,
-  [WORKFLOW_CARD]: WorkflowCardRow,
-};
-
 /// A row's height as the page drew it at a width. It places the row until its next version is drawn.
 type DrawnHeight = { sessionId?: string; version: number; width: number; height: number };
 /// `height` is undefined for a row the page has not laid out (drawnHeightOf).
@@ -1161,10 +1087,6 @@ const disclosureControls = (rows: readonly AcpmuxRow[], after: number): string |
   }
   return ids.length > 0 ? ids.join(" ") : undefined;
 };
-const currentRegistry = (): NativeRegistry => ({
-  ...defaultRegistry,
-  ...(window.cmuxAcpmuxRegistry as unknown as NativeRegistry | undefined),
-});
 
 /// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places,
 /// so the transcript ends this far past their total height.
