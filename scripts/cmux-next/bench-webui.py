@@ -43,6 +43,12 @@ Modes (each prints `WEBUI-ROW` lines, one per row, and writes OUT/webui-<mode>.j
             settle. The override is cleared (`none`) at the end.
   priority  D12. Page renderers (or WebContent processes) with every page hidden: backgrounded (`ps` priority <= 4,
             darwinbg) within --priority-wait s.
+  priority-roles
+            D12 in depth (task 083, bench_webui_priority.py, its own launch and options): per engine, the scheduling
+            role (thread base priority and ceiling), the QoS class that ran the CPU, footprint, CPU and wakeups of
+            every process kind while pages are parked, one shown and all hidden; the p50 to max time from a switch
+            to each page renderer backgrounded and back; with --purge-arm, Blink's MemoryPurgeOnFreeze arm and its
+            page renderer footprint gain. Prints PERF-WEBUI-PRIORITY(-OVER) and PERF-WEBUI-PURGE; --out is a file.
   delivery  D3's delivery rows alone: events and native pushes to frozen pages over --measure s while
             `debug.webui publish` drives one stream per page at 10 Hz and the appearance toggles every second.
   push      Task 079's A/B (the page push channel, feature `pagePushChannel`, fork API 39): the ten pages open,
@@ -106,6 +112,8 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 MODES = ("home", "pages10", "open", "crash", "pressure", "priority", "delivery", "push", "park")
+# Modes with their own module, launch path and options: {mode: module file in HERE}.
+MODULE_MODES = {"priority-roles": "bench_webui_priority"}
 # Spike 090: the preload's park state, chosen per run through this debug tunable (the preload owner reads it).
 PARK_STATES = ("frozen", "rendered")
 PARK_TUNABLE = "webui.preloadPark"
@@ -1452,10 +1460,30 @@ def launch_env(opts, tunables):
     return env
 
 
+def module_mode(mode):
+    """The module of a MODULE_MODES mode (it imports its siblings by name, so HERE goes on sys.path)."""
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    name = MODULE_MODES[mode]
+    return load(name, os.path.join(HERE, name + ".py"))
+
+
+def module_parser(mode):
+    """The command line of a MODULE_MODES mode: its module's options, `mode` set to the mode."""
+    module = module_mode(mode)
+    parser = argparse.ArgumentParser(prog=f"bench-webui.py {mode}", description=module.__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.set_defaults(mode=mode)
+    module.add_arguments(parser)
+    return parser
+
+
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["park-table"]:
         return park_table_main(argv[1:])
+    if argv and argv[0] in MODULE_MODES:
+        return module_mode(argv[0]).main(module_parser(argv[0]).parse_args(argv[1:]))
     opts = parse(argv)
     if sys.platform != "darwin":
         raise SystemExit("bench-webui: macOS only (a fleet GUI mini, never a laptop)")

@@ -356,6 +356,7 @@ impl HostReplica {
         }
         let inner = self.inner.clone();
         // Publishing the cloud's read copy: background sync no request waits on.
+        // supervise-allow: owned by HostReplica (its handle stays in `driver`); a panic ends the cloud read copy's publishing only, the daemon's own sessions keep serving, and the cloud asks for a new lease (cloud-host-replica-needed).
         *driver = Some(cmux_threads::spawn(
             "mux-host-replica",
             cmux_threads::ThreadQos::Utility,

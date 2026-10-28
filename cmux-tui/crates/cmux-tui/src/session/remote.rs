@@ -1338,6 +1338,7 @@ impl InteractiveWriter {
         let worker_shared = shared.clone();
         let qos = cmux_tui_core::echo_thread::ECHO_PATH_QOS;
         let worker = move || interactive_writer_worker(worker_shared, writer);
+        // supervise-allow: owned by InteractiveWriter (its shared state and abort); a panic ends this session's writes, which then fail.
         cmux_threads::spawn("remote-input-writer", qos, worker)?;
         Ok(Self { shared, abort })
     }
