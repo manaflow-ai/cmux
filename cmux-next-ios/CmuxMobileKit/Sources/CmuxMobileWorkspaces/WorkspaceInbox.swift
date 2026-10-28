@@ -224,7 +224,7 @@ public struct WorkspaceInbox: Hashable, Sendable {
         }
         self.stale = stale
         func sorted(_ list: [Workspace]) -> [Workspace] {
-            list.sorted { Self.isNewer($0, $1, order: order) }
+            Self.newestFirst(list, order: order)
         }
         let live = matching.filter { ws in
             guard let mac = byID[ws.macID], mac.isOnline else { return false }
@@ -308,6 +308,37 @@ public struct WorkspaceInbox: Hashable, Sendable {
         return (order[a.id] ?? 0) < (order[b.id] ?? 0)
     }
 
+    /// `list` in `isNewer` order, with each row's keys read once (the
+    /// comparator looked up two ids per comparison: most of a 500-row inbox).
+    static func newestFirst(_ list: [Workspace], order: [String: Int]) -> [Workspace] {
+        struct Key {
+            var sidebar: Int?
+            var macID: String
+            var hasTime: Bool
+            var time: Date
+            var focus: Int
+            var index: Int
+        }
+        func newer(_ a: Key, _ b: Key) -> Bool {
+            switch (a.sidebar, b.sidebar) {
+            case let (x?, y?): return (a.macID, x) == (b.macID, y) ? a.index < b.index : (a.macID, x) < (b.macID, y)
+            case (.some, nil): return true
+            case (nil, .some): return false
+            case (nil, nil): break
+            }
+            if a.hasTime != b.hasTime { return a.hasTime }
+            if a.hasTime, a.time != b.time { return a.time > b.time }
+            if a.focus != b.focus { return a.focus > b.focus }
+            return a.index < b.index
+        }
+        var keyed = list.enumerated().map { offset, ws in
+            (key: Key(sidebar: ws.sidebarIndex, macID: ws.macID, hasTime: ws.hasActivityTime, time: ws.lastActivityAt,
+                      focus: ws.focusOrder, index: order[ws.id] ?? 0), offset: offset)
+        }
+        keyed.sort { newer($0.key, $1.key) }
+        return keyed.map { list[$0.offset] }
+    }
+
     /// Search matches the name, branch, directory, Mac name and agent tabs' titles.
     static func matches(_ workspace: Workspace, macName: String?, _ query: String) -> Bool {
         guard !query.isEmpty else { return true }
@@ -369,15 +400,26 @@ extension WorkspaceInbox {
             public var scope: MacScope
             public var macs: [MacDevice]
             public var workspaces: [Workspace]
+            /// The store's revision of `workspaces` (`AppStore.workspacesRevision`):
+            /// when both inputs carry one, it stands in for comparing every workspace.
+            public var workspacesRevision: Int?
             public var query: String
             public var context: Context
 
-            public init(scope: MacScope, macs: [MacDevice], workspaces: [Workspace], query: String = "", context: Context = Context()) {
+            public init(scope: MacScope, macs: [MacDevice], workspaces: [Workspace], workspacesRevision: Int? = nil,
+                        query: String = "", context: Context = Context()) {
                 self.scope = scope
                 self.macs = macs
                 self.workspaces = workspaces
+                self.workspacesRevision = workspacesRevision
                 self.query = query
                 self.context = context
+            }
+
+            public static func == (a: Self, b: Self) -> Bool {
+                guard a.scope == b.scope, a.query == b.query, a.macs == b.macs, a.context == b.context else { return false }
+                if let x = a.workspacesRevision, let y = b.workspacesRevision { return x == y }
+                return a.workspaces == b.workspaces
             }
         }
 
