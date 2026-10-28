@@ -153,6 +153,30 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/tailnet/login",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/tailnet/logout",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/tailnet/start",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/tailnet/state",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/status",
       "params": true,
       "result": true
@@ -1445,6 +1469,27 @@
           ],
           "description": "`{device, feedItem}`, from the person's connection only."
         },
+        "approverDecision": {
+          "anyOf": [
+            {
+              "$ref": "#/types/ApproverDecision"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "An enrolled approver's signed answer beside `decisionNonce`: a phone's\n(`hub/approvers.rs`) or a Mac's (`hub/mac_approvers.rs`)."
+        },
+        "approverDecisions": {
+          "additionalProperties": {
+            "$ref": "#/types/MemberApproverDecision"
+          },
+          "description": "A group's one-time allow from an enrolled Mac (`_acpmux/permission_group_respond`):\none signed allow per pending member of the group, by permission id.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
         "decisionNonce": {
           "type": [
             "string",
@@ -1479,6 +1524,30 @@
       "required": [
         "device",
         "feedItem"
+      ],
+      "type": "object"
+    },
+    "ApproverDecision": {
+      "additionalProperties": false,
+      "description": "`{approver, expiresAt, signature}`: ECDSA P-256 / SHA-256, raw `r || s` as\nlowercase hex, over the approver's message for this exact answer.",
+      "properties": {
+        "approver": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "description": "Unix seconds, at most 300 ahead.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "signature": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "approver",
+        "expiresAt",
+        "signature"
       ],
       "type": "object"
     },
@@ -2096,7 +2165,7 @@
           "type": "integer"
         },
         "errorKind": {
-          "description": "What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,\n`peer.unreachable`, `daemon.restarting`, `spawn.failed` or `agent.exited`. A client\ntreats a kind it does not know as a plain error. The same key is on a request's error\n`data` and on the `turn_error` and `turn_result` records.",
+          "description": "What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,\n`peer.unreachable`, `daemon.restarting`, `spawn.failed`, `agent.exited`,\n`auth.signed_out` or `auth.expired`. A client treats a kind it does not know as a plain\nerror. The same key is on a request's error `data` and on the `turn_error` and\n`turn_result` records.",
           "type": [
             "string",
             "null"
@@ -2441,6 +2510,23 @@
       ],
       "type": "object"
     },
+    "MemberApproverDecision": {
+      "additionalProperties": false,
+      "description": "One group member's signed one-time allow: the member prompt's nonce and the signature.",
+      "properties": {
+        "approverDecision": {
+          "$ref": "#/types/ApproverDecision"
+        },
+        "decisionNonce": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "decisionNonce",
+        "approverDecision"
+      ],
+      "type": "object"
+    },
     "MessageRole": {
       "enum": [
         "agent",
@@ -2665,6 +2751,13 @@
             "$ref": "#/types/PermissionGroup"
           },
           "type": "array"
+        },
+        "macAllowOnce": {
+          "description": "Set (true) beside `allowRefused` when this daemon still counts a group's\none-time allow signed by an enrolled Mac for every pending member\n(`_meta.acpmux.approverDecisions`, `hub/mac_approvers.rs`).",
+          "type": [
+            "boolean",
+            "null"
+          ]
         }
       },
       "required": [

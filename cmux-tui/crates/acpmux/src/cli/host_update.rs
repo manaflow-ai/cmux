@@ -110,7 +110,7 @@ const PROBE_SPLIT: &str = "ACPMUX_PROBE";
 /// A cmux Cloud VM has this file. Its daemon runs in a keyed `systemd-run`
 /// scope that `cmux link machine update --to-bundled` owns, so `host update`
 /// never replaces its binary or restarts it.
-const CLOUD_VM_MARK: &str = "/etc/cmux/vm-kind";
+pub(crate) const CLOUD_VM_MARK: &str = "/etc/cmux/vm-kind";
 
 /// What [`probe_script`] prints on a cmux Cloud VM ([`CLOUD_VM_MARK`]).
 const CLOUD_VM: &str = "ACPMUX_CLOUD_VM";

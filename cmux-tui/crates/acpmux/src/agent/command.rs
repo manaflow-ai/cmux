@@ -12,7 +12,9 @@ use tokio::process::Command;
 pub(crate) const REMOTE_ENV_POLICY_KEY: &str = "ACPMUX_REMOTE_ENV_POLICY";
 /// Recorded with every remote durable host. A changed or missing id means
 /// that host predates this process-authority boundary and is not adopted.
-pub(crate) const REMOTE_ENV_POLICY_ID: &str = "remote-env-v3";
+/// v4: a vmHost machine no longer runs remote Claude without the sandbox
+/// (`hub/vm_host.rs`), so a host an older daemon started there is ended.
+pub(crate) const REMOTE_ENV_POLICY_ID: &str = "remote-env-v4";
 /// Reserved legacy projection marker. A profile cannot control internal
 /// environment projection even if an older config used this valid env name.
 const REMOTE_ENV_CLEARED_KEY: &str = "__ACPMUX_REMOTE_ENV_CLEARED";

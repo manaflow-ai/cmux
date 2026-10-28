@@ -22,6 +22,10 @@ export interface AcpmuxRequests {
   "acp.trust.set": { params: unknown; result: unknown };
   "catalog.get": { params: unknown; result: unknown };
   "catalog.refresh": { params: unknown; result: unknown };
+  "_acpmux/tailnet/login": { params: unknown; result: unknown };
+  "_acpmux/tailnet/logout": { params: unknown; result: unknown };
+  "_acpmux/tailnet/start": { params: unknown; result: unknown };
+  "_acpmux/tailnet/state": { params: unknown; result: unknown };
   "_acpmux/status": { params: unknown; result: unknown };
   "_acpmux/sessions": { params: SessionsParams; result: SessionsResult };
   "_acpmux/attach": { params: AttachParams; result: AttachResult };
@@ -105,6 +109,8 @@ export interface AcpmuxRequests {
   "_acpmux/file_put_chunk": { params: unknown; result: unknown };
   "_acpmux/file_put_finish": { params: unknown; result: unknown };
   "_acpmux/file_put_cancel": { params: unknown; result: unknown };
+  "_acpmux/file_put_status": { params: unknown; result: unknown };
+  "_acpmux/file_put_data": { params: unknown; result: unknown };
   "_acpmux/dispatch": { params: unknown; result: unknown };
   "_acpmux/steer": { params: unknown; result: unknown };
   "_acpmux/briefs": { params: unknown; result: unknown };
@@ -269,6 +275,10 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "catalog.get", kind: "request", acp: false, typed: false },
   { name: "catalog.refresh", kind: "request", acp: false, typed: false },
   { name: "catalog.changed", kind: "notification", acp: false, typed: false },
+  { name: "_acpmux/tailnet/login", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/tailnet/logout", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/tailnet/start", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/tailnet/state", kind: "request", acp: false, typed: false },
   { name: "_acpmux/status", kind: "request", acp: false, typed: false },
   { name: "_acpmux/sessions", kind: "request", acp: false, typed: true },
   { name: "_acpmux/attach", kind: "request", acp: false, typed: true },
@@ -353,6 +363,8 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/file_put_chunk", kind: "request", acp: false, typed: false },
   { name: "_acpmux/file_put_finish", kind: "request", acp: false, typed: false },
   { name: "_acpmux/file_put_cancel", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/file_put_status", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/file_put_data", kind: "request", acp: false, typed: false },
   { name: "_acpmux/dispatch", kind: "request", acp: false, typed: false },
   { name: "_acpmux/steer", kind: "request", acp: false, typed: false },
   { name: "_acpmux/briefs", kind: "request", acp: false, typed: false },

@@ -31,12 +31,26 @@ async fn call(ws: &mut Ws, id: i64, method: &str, params: Value) -> Value {
 
 #[tokio::test]
 async fn linux_remote_chain_uses_the_production_sandbox_without_a_switch() {
+    production_spawn("linux-production", false).await;
+}
+
+/// config.json's `vmHost: true` is guest state (the agent can write the file):
+/// the remote chain still runs in bwrap after the canary, as with `false`.
+#[tokio::test]
+async fn linux_remote_chain_with_vm_host_true_still_runs_in_the_production_sandbox() {
+    production_spawn("linux-vm-host", true).await;
+}
+
+/// A daemon with `vmHost` as given spawns a Web session's Claude Code: the
+/// canary passed, the agent's probe is denied outside its folders, and it
+/// inherits none of the daemon's own secrets.
+async fn production_spawn(tag: &str, vm_host: bool) {
     if let Err(error) = Hub::linux_sandbox_probe_for_tests() {
         assert!(std::env::var_os("ACPMUX_REQUIRE_BWRAP").is_none(), "{error}");
         eprintln!("remote_sandbox: skipped ({error})");
         return;
     }
-    let d = dir("linux-production");
+    let d = dir(tag);
     use std::os::unix::fs::DirBuilderExt;
     for path in [d.join("home"), d.join("runtime"), d.join("work/.git/hooks")] {
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(path).unwrap();
@@ -49,7 +63,7 @@ async fn linux_remote_chain_uses_the_production_sandbox_without_a_switch() {
                 "env": {"ANTHROPIC_AUTH_TOKEN": "synthetic-profile-token"}
             }},
             "defaultHarness": "fakeclaude", "permissionPolicy": "ask",
-            "webRoots": [d.join("work")], "vmHost": false,
+            "webRoots": [d.join("work")], "vmHost": vm_host,
             "pool": {"debounceMs": 0}
         })
         .to_string(),
@@ -81,6 +95,8 @@ async fn linux_remote_chain_uses_the_production_sandbox_without_a_switch() {
         .env("ACPMUX_SOCKET", d.join("s.sock"))
         .env("ACPMUX_LOGIN_ENV", "0")
         .env("XDG_RUNTIME_DIR", d.join("runtime"))
+        .env("CMUX_REMOTE_TEST_SECRET", "synthetic-cmux-secret")
+        .env("UNRELATED_TOKEN", "synthetic-unrelated-token")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -153,6 +169,41 @@ async fn linux_remote_chain_uses_the_production_sandbox_without_a_switch() {
     }
     assert!(listener.accept().is_err(), "host loopback connection arrived");
     assert_eq!(std::fs::read_to_string(d.join("work/ok")).unwrap(), "x");
+    let sandbox: Vec<&Value> = events["result"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["kind"] == "remote_sandbox")
+        .map(|e| &e["msg"])
+        .collect();
+    assert!(sandbox.iter().any(|m| m["canary"] == "passed"), "no canary: {sandbox:?}");
+    assert!(sandbox.iter().all(|m| m.get("vmHost").is_none()), "{sandbox:?}");
+
+    let names = "ANTHROPIC_AUTH_TOKEN,CMUX_REMOTE_TEST_SECRET,UNRELATED_TOKEN,HOME,PATH";
+    let prompt = json!({
+        "sessionId": session, "prompt": [{"type": "text", "text": format!("envs: {names}")}]
+    });
+    let reply = call(&mut ws, 4, "session/prompt", prompt).await;
+    assert!(reply.get("error").is_none(), "production Linux prompt refused: {reply}");
+    let events =
+        call(&mut ws, 5, "_acpmux/events", json!({"sessionId": session, "limit": 1000})).await;
+    let env: Value = events["result"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| {
+            e.pointer("/msg/params/update/sessionUpdate") == Some(&json!("agent_message_chunk"))
+        })
+        .filter_map(|e| e.pointer("/msg/params/update/content/text").and_then(Value::as_str))
+        .filter_map(|text| serde_json::from_str::<Value>(text).ok())
+        .find(|v| v.get("UNRELATED_TOKEN").is_some())
+        .expect("agent answered envs");
+    assert_eq!(env["ANTHROPIC_AUTH_TOKEN"], "synthetic-profile-token", "{env}");
+    for dropped in ["CMUX_REMOTE_TEST_SECRET", "UNRELATED_TOKEN"] {
+        assert_eq!(env[dropped], "", "remote child inherited {dropped}: {env}");
+    }
+    assert!(env["HOME"].as_str().is_some_and(|v| !v.is_empty()), "{env}");
+    assert!(env["PATH"].as_str().is_some_and(|v| !v.is_empty()), "{env}");
     drop(ws);
     tokio::time::timeout(Duration::from_secs(5), daemon.kill()).await.unwrap().unwrap();
     let _ = std::fs::remove_dir_all(d);

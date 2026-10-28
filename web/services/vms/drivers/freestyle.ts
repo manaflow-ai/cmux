@@ -1577,7 +1577,8 @@ export class FreestyleProvider implements VMProvider {
       }),
       async (span) => {
         try {
-          const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS);
+          // A caller's signal (ExecOptions.signal) ends the request with it.
+          const fs = this.deps.client(timeoutMs + EXEC_OVERHEAD_TIMEOUT_MS, opts?.signal);
           if (opts?.stdin) {
             const r = await execWithStdin(fs, vmId, command, timeoutMs, opts.stdin);
             setSpanAttributes(span, { "cmux.exec.exit_code": r.exitCode });

@@ -256,3 +256,169 @@ fn only_a_valid_key_is_this_machines_own() {
     assert_eq!(r["fingerprint"], fingerprint(k.public_key().as_ref()));
     assert_eq!(set.view(&json!({}))["thisMac"]["id"], "mac-1");
 }
+
+/// A group's members (`permission_groups.rs`): the tool ask `p` with tool call `call`, nonce
+/// `nonce`, signed by `k` as `mac` on `instance`, session `s1`, until `expires`.
+fn member_decision(
+    k: &EcdsaKeyPair,
+    mac: &str,
+    instance: &str,
+    (p, call, nonce): (&str, &str, &str),
+    expires: u64,
+) -> Value {
+    let sig = sign(
+        k,
+        &Parts {
+            instance,
+            mac,
+            session: "s1",
+            permission: p,
+            tool_call: call,
+            option: "yes",
+            nonce,
+            expires_at: expires,
+            answers: "",
+        },
+    );
+    json!({"approver": mac, "expiresAt": expires, "signature": sig})
+}
+
+fn member_ask(call: &str) -> Value {
+    let mut ask = tool_ask();
+    ask["toolCall"]["toolCallId"] = json!(call);
+    ask
+}
+
+/// A reload that drops the Mac while a group's answer is being committed returns only after
+/// that commit (it never lands between two members), and from then on no member counts.
+#[test]
+fn a_reload_during_a_groups_commit_waits_for_the_whole_answer() {
+    use std::time::Duration;
+    let k = key();
+    let (set, path) = enrolled(&k, "group-race");
+    let set = std::sync::Arc::new(set);
+    let (a1, a2) = (member_ask("call-1"), member_ask("call-2"));
+    let d1 = member_decision(&k, "mac-1", "inst", ("p1", "call-1", "n1"), 200);
+    let d2 = member_decision(&k, "mac-1", "inst", ("p2", "call-2", "n2"), 200);
+    let proofs = [
+        MacProof {
+            permission: "p1",
+            request: &a1,
+            option: "yes",
+            nonce: "n1",
+            answers: None,
+            decision: &d1,
+        },
+        MacProof {
+            permission: "p2",
+            request: &a2,
+            option: "yes",
+            nonce: "n2",
+            answers: None,
+            decision: &d2,
+        },
+    ];
+    let (reloaded, returned) = std::sync::mpsc::channel();
+    let reloader = set.clone();
+    let committed = set.all_verify_then("inst", "s1", &proofs, 100, || {
+        write(&path, json!([]));
+        std::thread::spawn(move || {
+            reloader.view(&json!({"reload": true}));
+            let _ = reloaded.send(());
+        });
+        returned.recv_timeout(Duration::from_millis(300)).is_err()
+    });
+    assert!(committed, "the reload returned while the group's answer was being committed");
+    returned.recv_timeout(Duration::from_secs(10)).expect("the reload returns");
+    assert!(!set.all_verify_then("inst", "s1", &proofs[..1], 100, || true));
+}
+
+/// The person gate's group check (`PersonGate::macs_prove`, `macs_spend`): only an enrolled
+/// Mac's signatures count, never a phone approver's, and the nonces are spent all together or
+/// not at all, so a refused answer leaves every member answerable.
+#[test]
+fn a_groups_allow_takes_only_macs_and_spends_every_nonce_or_none() {
+    let k = key();
+    let gate = crate::hub::person::PersonGate::default();
+    let path = dir("gate").join(FILE);
+    write(
+        &path,
+        json!([{"id": "mac-1", "publicKey": hex(k.public_key().as_ref()), "name": "Mac"}]),
+    );
+    gate.macs.open(path);
+    let instance = gate.instance().to_owned();
+    let exp = super::super::approvers::unix_now() + 120;
+    let (a1, a2) = (member_ask("call-1"), member_ask("call-2"));
+    let d1 = member_decision(&k, "mac-1", &instance, ("p1", "call-1", "n1"), exp);
+    let d2 = member_decision(&k, "mac-1", &instance, ("p2", "call-2", "n2"), exp);
+    let proofs = [
+        MacProof {
+            permission: "p1",
+            request: &a1,
+            option: "yes",
+            nonce: "n1",
+            answers: None,
+            decision: &d1,
+        },
+        MacProof {
+            permission: "p2",
+            request: &a2,
+            option: "yes",
+            nonce: "n2",
+            answers: None,
+            decision: &d2,
+        },
+    ];
+    // The second member's nonce counted already: the whole answer is refused, and the first
+    // member's nonce is still unspent.
+    assert!(gate.spend_decision("n2"));
+    assert!(gate.macs_prove("s1", &proofs[..1]));
+    assert!(!gate.macs_prove("s1", &proofs));
+    assert!(!gate.macs_spend("s1", &proofs));
+    assert!(gate.macs_prove("s1", &proofs[..1]), "a refused group spent a member's nonce");
+    // Spent together, once.
+    assert!(gate.macs_spend("s1", &proofs[..1]));
+    assert!(!gate.macs_spend("s1", &proofs[..1]));
+    assert!(!gate.spend_decisions(&["n3", "n3"]));
+    assert!(gate.spend_decision("n3"), "a refused batch spent a nonce");
+
+    // A phone approver's valid signature over the same member is not a Mac's: refused.
+    let phone = key();
+    gate.approvers
+        .set(&json!({"macDevice": "dev-1", "approvers": [
+            {"id": "phone-1", "publicKey": hex(phone.public_key().as_ref()), "name": "Phone"}]}))
+        .unwrap();
+    let phone_sig = hex(phone
+        .sign(
+            &ring::rand::SystemRandom::new(),
+            &super::super::approvers::message(&super::super::approvers::Parts {
+                instance: &instance,
+                mac: "dev-1",
+                approver: "phone-1",
+                session: "s1",
+                permission: "p9",
+                option: "yes",
+                nonce: "n9",
+                expires_at: exp,
+                answers: "",
+            }),
+        )
+        .unwrap()
+        .as_ref());
+    let by_phone = json!({"approver": "phone-1", "expiresAt": exp, "signature": phone_sig});
+    let a9 = member_ask("call-9");
+    assert!(
+        gate.approver_proves("s1", "p9", &a9, "yes", "n9", None, &by_phone),
+        "a valid phone signature"
+    );
+    let phone_proof = [MacProof {
+        permission: "p9",
+        request: &a9,
+        option: "yes",
+        nonce: "n9",
+        answers: None,
+        decision: &by_phone,
+    }];
+    assert!(!gate.macs_prove("s1", &phone_proof));
+    assert!(!gate.macs_spend("s1", &phone_proof));
+}

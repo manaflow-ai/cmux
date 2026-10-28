@@ -91,6 +91,19 @@ import Testing
         #expect(toolbar.view.reservedCount == 0)
     }
 
+    /// The native creation actions are offered by the pane's + and "…" menu, never duplicated as
+    /// resting buttons. This applies to chat and every other pane kind.
+    @Test func creationActionsAreNeverRestingButtons() {
+        let registry = ActionRegistry.standard()
+        let toolbar = PaneToolbar(registry: { registry }, newTabMenu: { nil },
+                                   paneTarget: ActionTargetRef(kind: .pane, id: "pane"))
+        let kinds: [PaneToolbar.Kind?] = [.newTab, .terminal, .browser, .other, nil]
+        for (index, kind) in kinds.enumerated() {
+            toolbar.update(target: "pane-\(index)", kind: kind)
+            #expect(toolbar.view.items.map(\.id).filter { PaneToolbar.creationActions.map(\.rawValue).contains($0) }.isEmpty)
+        }
+    }
+
     /// New Tab and the chat pane share this toolbar. Revealing it changes opacity alone,
     /// including the exit and Reduce Motion.
     @Test(arguments: [PaneToolbar.Kind.newTab, .terminal], [false, true])

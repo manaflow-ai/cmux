@@ -26,6 +26,9 @@ final class ControlSnapshotPublisher {
     private let router: ControlRouter
     private unowned let services: AppServices
     private let frames: any ControlFrameSource
+    /// Where the key-window and app-activation changes come from: the app's `NotificationCenter.default`. A test
+    /// passes its own, so the windows other tests in the process open, key and close never publish its snapshot.
+    private let notifications: NotificationCenter
     private var isScheduled = false
     private var isStopped = false
     private var observers: [MainActorObservation] = []
@@ -40,10 +43,11 @@ final class ControlSnapshotPublisher {
     private(set) var builds = 0
     private(set) var sequencePublishes = 0
 
-    init(router: ControlRouter, services: AppServices, frames: any ControlFrameSource) {
+    init(router: ControlRouter, services: AppServices, frames: any ControlFrameSource, notifications: NotificationCenter = .default) {
         self.router = router
         self.services = services
         self.frames = frames
+        self.notifications = notifications
     }
 
     func start() {
@@ -53,7 +57,7 @@ final class ControlSnapshotPublisher {
         // (`ControlSnapshotStore.fresh`), once for any number of frames, and a read waiting on its barrier now.
         router.workQueue.setAfterFrame { [weak self] in self?.workQueueFrameRan() }
         router.snapshots.setRefresher { [weak self] in await self?.publishIfStale() }
-        let center = NotificationCenter.default
+        let center = notifications
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, NSWindow.willCloseNotification,
                      NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
             observers.append(MainActorObservation(name, center: center) { [weak self] in

@@ -293,6 +293,22 @@ if [[ "$mode" == pair-e2e ]]; then
   mac_tag="iospair-$(git rev-parse --short=8 HEAD)-$$"
   prev_last_log="$(cat /tmp/cmux-last-debug-log-path 2>/dev/null || true)"
   mac_dd="$work/mac-dd"
+  # A fleet step checks out no submodules (only their empty gitlink directories): the Mac app
+  # needs Ghostty's headers, the ghostty-next tree and GhosttyKit.xcframework (a prebuilt
+  # download), as the measure steps do (scripts/measure/action-signposts.sh). Without them
+  # reload.sh stops at once: "ghostty/include/ghostty.h is missing" (step 4baf44ec, 2026-10-27).
+  for sub in ghostty ghostty-next; do
+    [[ -e "$sub/.git" ]] || git submodule update --init --depth 1 "$sub" >"$work/submodules.log" 2>&1 ||
+      { tail -20 "$work/submodules.log"; echo "error: could not check out the $sub submodule" >&2; exit 1; }
+  done
+  if [[ ! -f GhosttyKit.xcframework/Info.plist ]]; then
+    rm -rf GhosttyKit.xcframework
+    if [[ -z "${GHOSTTYKIT_ARCHIVE_CACHE_DIR:-}" && -n "${CI_SHARED_CACHE_DIR:-}" ]]; then
+      export GHOSTTYKIT_ARCHIVE_CACHE_DIR="$CI_SHARED_CACHE_DIR/ghosttykit-archives"
+    fi
+    ./scripts/download-prebuilt-ghosttykit.sh >"$work/ghosttykit.log" 2>&1 ||
+      { tail -20 "$work/ghosttykit.log"; echo "error: could not download GhosttyKit.xcframework" >&2; exit 1; }
+  fi
   # A fleet build (CMUX_FLEET_BUILD_TAG) builds acpmux, optchat-chief and
   # cmux-mobile-host on a cache miss and requires them in the bundle.
   set +e

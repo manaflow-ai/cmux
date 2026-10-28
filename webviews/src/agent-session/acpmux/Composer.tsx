@@ -55,6 +55,7 @@ import {
 import { BoltIcon } from "./BoltIcon";
 import {
   flushPendingDraftWrites,
+  forgetQueuedDraft,
   hasPendingDraftWrite,
   lastQueuedDraftText,
   readDurableDraft,
@@ -71,7 +72,7 @@ import { useComposerChrome } from "./composerChrome";
 import { useQueueing } from "./queueing";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { setScrollToBottomOnSend, useComposerSettings } from "./composerSettings";
-import { useComposerLook, useQuietRow } from "./composerLook";
+import { useComposerLook } from "./composerLook";
 import { LookSwitch } from "./LookSwitch";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
@@ -507,11 +508,12 @@ export function Composer({
   const locationSlotWasShown = useRef(false);
   const sendButton = useRef<HTMLButtonElement>(null);
   // Whether Esc stops a turn on a double press (escapeStop.ts).
-  const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend } = useComposerSettings();
-  // The composer's look (composerLook.ts): with Claude's, the default, and the plain footer the mode,
-  // model and effort sit in the quiet row and Send waits for a draft; Codex's keeps the box's one row.
+  const { showContextUsage, spellChecking, escapeDoublePress, scrollToBottomOnSend, plainFooter } =
+    useComposerSettings();
+  // Both looks put the model in the footer. Claude keeps its draft-sensitive Send and Stop layout;
+  // Codex keeps its action behavior even though the model moved.
   const look = useComposerLook();
-  const quietRow = useQuietRow();
+  const quietActions = plainFooter && look === "claude";
   const usage = snapshot.summary?.usage;
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
@@ -712,6 +714,8 @@ export function Composer({
     const carried = carryPrompt.current ? (field.current?.value() ?? text) : "";
     const previous = persistedSession.current;
     if (previous && hydratedSession.current === previous) writePersistedDraft(previous, field.current?.value() ?? text);
+    // This composer leaves that chat: only a quit compares its queued text, and only for the chat shown.
+    forgetQueuedDraft(previous);
     persistedSession.current = sessionId;
     // Another chat's prompt comes in: no key before it was typing for this one.
     notTyped();
@@ -729,6 +733,8 @@ export function Composer({
     setCaret(initial.length);
     pendingCaret.current = initial.length;
   }, [sessionId, text, draft]);
+  // The pane closes: what it queued for its chat still goes to acpmux, but no quit compares it again.
+  useEffect(() => () => forgetQueuedDraft(persistedSession.current), []);
   // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
   useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments, () => carryPrompt.current);
   // WEB-SWAP: a web update reloads the page only when the prompt comes back as it is: text and
@@ -1968,14 +1974,14 @@ export function Composer({
                 <ReturnIcon />
               </button>
             )}
-            {quietRow && stopButton}
+            {quietActions && stopButton}
           </>
         }
         accessory={accessory}
         trailing={
-          !quietRow && stop ? (
+          !quietActions && stop ? (
             stopButton
-          ) : remote.canSend && (!quietRow || shell || (hasDraft && !(running && steerable))) ? (
+          ) : remote.canSend && (!quietActions || shell || (hasDraft && !(running && steerable))) ? (
             // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, the mic
             // alone on the right; Send comes in after it with the first letter. Mid-turn it
             // queues the draft, unless the ↵ control is there to put it into the turn.

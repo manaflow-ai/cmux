@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AutomationsRouteImport } from './routes/automations'
+import { Route as BillingRouteImport } from './routes/billing'
 import { Route as DevicesRouteImport } from './routes/devices'
 import { Route as PolicyRouteImport } from './routes/policy'
 import { Route as TeamRouteImport } from './routes/team'
@@ -18,6 +19,7 @@ import { Route as ICodeRouteImport } from './routes/i.$code'
 import { Route as IntegrationsIndexRouteImport } from './routes/integrations/index'
 import { Route as IntegrationsCallbackRouteImport } from './routes/integrations/callback'
 import { Route as PreviewAiUsageRouteImport } from './routes/preview.ai-usage'
+import { Route as PreviewBillingRouteImport } from './routes/preview.billing'
 import { Route as OgInviteCodeRouteImport } from './routes/og.invite.$code'
 
 const IndexRoute = IndexRouteImport.update({
@@ -28,6 +30,11 @@ const IndexRoute = IndexRouteImport.update({
 const AutomationsRoute = AutomationsRouteImport.update({
   id: '/automations',
   path: '/automations',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BillingRoute = BillingRouteImport.update({
+  id: '/billing',
+  path: '/billing',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DevicesRoute = DevicesRouteImport.update({
@@ -65,6 +72,11 @@ const PreviewAiUsageRoute = PreviewAiUsageRouteImport.update({
   path: '/preview/ai-usage',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PreviewBillingRoute = PreviewBillingRouteImport.update({
+  id: '/preview/billing',
+  path: '/preview/billing',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const OgInviteCodeRoute = OgInviteCodeRouteImport.update({
   id: '/og/invite/$code',
   path: '/og/invite/$code',
@@ -74,24 +86,28 @@ const OgInviteCodeRoute = OgInviteCodeRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/automations': typeof AutomationsRoute
+  '/billing': typeof BillingRoute
   '/devices': typeof DevicesRoute
   '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
   '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/preview/ai-usage': typeof PreviewAiUsageRoute
+  '/preview/billing': typeof PreviewBillingRoute
   '/integrations/': typeof IntegrationsIndexRoute
   '/og/invite/$code': typeof OgInviteCodeRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/automations': typeof AutomationsRoute
+  '/billing': typeof BillingRoute
   '/devices': typeof DevicesRoute
   '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
   '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/preview/ai-usage': typeof PreviewAiUsageRoute
+  '/preview/billing': typeof PreviewBillingRoute
   '/integrations': typeof IntegrationsIndexRoute
   '/og/invite/$code': typeof OgInviteCodeRoute
 }
@@ -99,12 +115,14 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/automations': typeof AutomationsRoute
+  '/billing': typeof BillingRoute
   '/devices': typeof DevicesRoute
   '/policy': typeof PolicyRoute
   '/team': typeof TeamRoute
   '/i/$code': typeof ICodeRoute
   '/integrations/callback': typeof IntegrationsCallbackRoute
   '/preview/ai-usage': typeof PreviewAiUsageRoute
+  '/preview/billing': typeof PreviewBillingRoute
   '/integrations/': typeof IntegrationsIndexRoute
   '/og/invite/$code': typeof OgInviteCodeRoute
 }
@@ -113,36 +131,42 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/automations'
+    | '/billing'
     | '/devices'
     | '/policy'
     | '/team'
     | '/i/$code'
     | '/integrations/callback'
     | '/preview/ai-usage'
+    | '/preview/billing'
     | '/integrations/'
     | '/og/invite/$code'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/automations'
+    | '/billing'
     | '/devices'
     | '/policy'
     | '/team'
     | '/i/$code'
     | '/integrations/callback'
     | '/preview/ai-usage'
+    | '/preview/billing'
     | '/integrations'
     | '/og/invite/$code'
   id:
     | '__root__'
     | '/'
     | '/automations'
+    | '/billing'
     | '/devices'
     | '/policy'
     | '/team'
     | '/i/$code'
     | '/integrations/callback'
     | '/preview/ai-usage'
+    | '/preview/billing'
     | '/integrations/'
     | '/og/invite/$code'
   fileRoutesById: FileRoutesById
@@ -150,12 +174,14 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AutomationsRoute: typeof AutomationsRoute
+  BillingRoute: typeof BillingRoute
   DevicesRoute: typeof DevicesRoute
   PolicyRoute: typeof PolicyRoute
   TeamRoute: typeof TeamRoute
   ICodeRoute: typeof ICodeRoute
   IntegrationsCallbackRoute: typeof IntegrationsCallbackRoute
   PreviewAiUsageRoute: typeof PreviewAiUsageRoute
+  PreviewBillingRoute: typeof PreviewBillingRoute
   IntegrationsIndexRoute: typeof IntegrationsIndexRoute
   OgInviteCodeRoute: typeof OgInviteCodeRoute
 }
@@ -174,6 +200,13 @@ declare module '@tanstack/react-router' {
       path: '/automations'
       fullPath: '/automations'
       preLoaderRoute: typeof AutomationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/billing': {
+      id: '/billing'
+      path: '/billing'
+      fullPath: '/billing'
+      preLoaderRoute: typeof BillingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/devices': {
@@ -225,6 +258,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PreviewAiUsageRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/preview/billing': {
+      id: '/preview/billing'
+      path: '/preview/billing'
+      fullPath: '/preview/billing'
+      preLoaderRoute: typeof PreviewBillingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/og/invite/$code': {
       id: '/og/invite/$code'
       path: '/og/invite/$code'
@@ -238,12 +278,14 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AutomationsRoute: AutomationsRoute,
+  BillingRoute: BillingRoute,
   DevicesRoute: DevicesRoute,
   PolicyRoute: PolicyRoute,
   TeamRoute: TeamRoute,
   ICodeRoute: ICodeRoute,
   IntegrationsCallbackRoute: IntegrationsCallbackRoute,
   PreviewAiUsageRoute: PreviewAiUsageRoute,
+  PreviewBillingRoute: PreviewBillingRoute,
   IntegrationsIndexRoute: IntegrationsIndexRoute,
   OgInviteCodeRoute: OgInviteCodeRoute,
 }

@@ -215,8 +215,9 @@ it ships.
   for the link rule, tool calls made or not, word count, no question,
   silence, files written) and a model judge (Sonnet, PASS/FAIL with a
   reason) for what no regex can say.
-- CI: `.github/workflows/chief-evals.yml`, GitHub-hosted `ubuntu-24.04`
-  (not Blacksmith), on every push to feat-cmux-next touching
+- CI: `.github/workflows/chief-evals.yml`, Blacksmith Linux
+  (`blacksmith-4vcpu-ubuntu-2404`; no manaflow-ai job selects a
+  GitHub-hosted runner), on every push to feat-cmux-next touching
   `Native/OptChat/**` or the cmux-chief / cmux-conversation crates.
   Deterministic cases gate. Model cases reach the team subrouter through
   the tailnet (`tag:ci` may reach port 31415), gate at an 80% pass rate
