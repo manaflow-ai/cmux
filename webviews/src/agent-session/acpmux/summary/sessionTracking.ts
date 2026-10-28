@@ -26,8 +26,7 @@ type TrackingOptions = {
   resolved?: readonly TrackingSessionRecord[];
 };
 
-const text = (value: unknown): string | undefined =>
-  typeof value === "string" && value.trim() ? value : undefined;
+const text = (value: unknown): string | undefined => (typeof value === "string" && value.trim() ? value : undefined);
 const record = (value: unknown): Record<string, unknown> | undefined =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
 const timestamp = (value: unknown): number | undefined =>
@@ -39,7 +38,9 @@ function hostOf(session: TrackingSessionRecord, localHost?: string): string | un
 
 function identity(session: TrackingSessionRecord, localHost?: string): string {
   const qualified = text(session.qualifiedSessionId);
-  return qualified ? JSON.stringify([qualified]) : JSON.stringify([hostOf(session, localHost) ?? null, session.sessionId]);
+  return qualified
+    ? JSON.stringify([qualified])
+    : JSON.stringify([hostOf(session, localHost) ?? null, session.sessionId]);
 }
 
 /** Preserve transport uncertainty even when the last mirrored lane still says working. */
@@ -98,7 +99,7 @@ export function sessionTrackingRows(
     const state = sourceState(session, entry.trackingState);
     const lane = record(session.lane);
     const stuckReason = state === "stuck" ? entry.stuckReason : undefined;
-    const reason = stuckReason ?? ((state === "failed" || state === "lost") ? text(lane?.error) : undefined);
+    const reason = stuckReason ?? (state === "failed" || state === "lost" ? text(lane?.error) : undefined);
     const turn = record(session.turn);
     const startedAt = state === "working" || state === "running" ? timestamp(turn?.startedAt) : undefined;
     const resolvedEntry = resolved ? sessionEntry(resolved) : undefined;

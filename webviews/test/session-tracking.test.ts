@@ -39,18 +39,23 @@ describe("sessions projected onto workflow rows", () => {
   });
 
   test("keeps a reported stuck reason and area, overriding an older running status", () => {
-    const [row] = sessionTrackingRows([{
-      sessionId: "s",
-      qualifiedSessionId: "fixture-worker/s",
-      peer: "fixture-worker",
-      status: "running",
-      state: "stuck",
-      stuckReason: "Provider unavailable",
-      tags: { area: "Search" },
-      lane: { state: "working" },
-    }]);
+    const [row] = sessionTrackingRows([
+      {
+        sessionId: "s",
+        qualifiedSessionId: "fixture-worker/s",
+        peer: "fixture-worker",
+        status: "running",
+        state: "stuck",
+        stuckReason: "Provider unavailable",
+        tags: { area: "Search" },
+        lane: { state: "working" },
+      },
+    ]);
     expect(row).toMatchObject({
-      host: "fixture-worker", area: "Search", sourceState: "stuck", stuckReason: "Provider unavailable",
+      host: "fixture-worker",
+      area: "Search",
+      sourceState: "stuck",
+      stuckReason: "Provider unavailable",
       agent: { state: "failed", retryReason: "Provider unavailable" },
     });
   });
@@ -64,7 +69,11 @@ describe("sessions projected onto workflow rows", () => {
   test("a stale peer is unknown and a delayed resolve cannot restore running", () => {
     const [row] = sessionTrackingRows(
       [{ sessionId: "s", qualifiedSessionId: "fixture-worker/s", stale: true, lane: { state: "working" } }],
-      { resolved: [{ sessionId: "s", qualifiedSessionId: "fixture-worker/s", host: "fixture-worker", status: "running" }] },
+      {
+        resolved: [
+          { sessionId: "s", qualifiedSessionId: "fixture-worker/s", host: "fixture-worker", status: "running" },
+        ],
+      },
     );
     expect(row!.agent.state).toBe("unknown");
     expect(row!.host).toBe("fixture-worker");
@@ -82,7 +91,9 @@ describe("sessions projected onto workflow rows", () => {
     expect(rows[0]!.currentPullRequest).toBeUndefined();
     expect(rows[1]!.pullRequests).toEqual([]);
     expect(sessionTrackingRows(sessions, { resolved: [match, match] })[0]!.pullRequests).toEqual([]);
-    expect(sessionTrackingRows(sessions, { resolved: [{ ...match, sessionId: "different" }] })[0]!.pullRequests).toEqual([]);
+    expect(
+      sessionTrackingRows(sessions, { resolved: [{ ...match, sessionId: "different" }] })[0]!.pullRequests,
+    ).toEqual([]);
   });
 
   test("an explicit empty PR list supersedes an older resolve result", () => {
@@ -95,10 +106,13 @@ describe("sessions projected onto workflow rows", () => {
 
   test("retains the daemon's current branch PR separately from recorded history", () => {
     const current = { number: 15, title: "Improve search", state: "draft", checks: "pending" };
-    const [row] = sessionTrackingRows([{
-      sessionId: "s", pullRequest: current,
-      pullRequests: ["https://github.com/example/project/pull/12"],
-    }]);
+    const [row] = sessionTrackingRows([
+      {
+        sessionId: "s",
+        pullRequest: current,
+        pullRequests: ["https://github.com/example/project/pull/12"],
+      },
+    ]);
     expect(row!.currentPullRequest).toMatchObject(current);
     expect(row!.pullRequests).toEqual(["https://github.com/example/project/pull/12"]);
   });
@@ -116,9 +130,9 @@ describe("sessions projected onto workflow rows", () => {
   });
 
   test("missing metadata stays unknown; prompts, paths and names never supply an area", () => {
-    const [row] = sessionTrackingRows([{
-      sessionId: "s", name: "search-helper", cwd: "/work/search", lastPrompt: "secret prompt",
-    }]);
+    const [row] = sessionTrackingRows([
+      { sessionId: "s", name: "search-helper", cwd: "/work/search", lastPrompt: "secret prompt" },
+    ]);
     expect(row!.host).toBeUndefined();
     expect(row!.area).toBeUndefined();
     expect(row!.agent.name).toBe("search-helper");
