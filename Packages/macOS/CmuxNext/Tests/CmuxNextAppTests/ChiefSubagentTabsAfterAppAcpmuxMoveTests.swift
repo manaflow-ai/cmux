@@ -63,7 +63,10 @@ struct ChiefSubagentTabsAfterAppAcpmuxMoveTests {
         let id = "old-session"
         try FileManager.default.createDirectory(at: home.acpmuxHome.appendingPathComponent("sessions/\(id)"), withIntermediateDirectories: true)
         let legacy = ChiefSubagentWarmHost()
-        let chief = ChiefHomeAcpmux(home: home, local: NamedHost(name: "app"), ensureHost: {}, ownHost: { _ in legacy })
+        let chief = ChiefHomeAcpmux(home: home, local: NamedHost(name: "app"), ensureHost: {}, startHost: {
+            Issue.record("warming a migrated legacy session must not start the Chief brain host")
+            return false
+        }, ownHost: { _ in legacy })
         #expect(await chief.legacyPaneHost?.hasWarmedSessions == false)
         try await chief.localRouter(NamedHost(name: "app")).warm(sessionIds: [id])
         #expect(await chief.legacyPaneHost?.hasWarmedSessions == true)
