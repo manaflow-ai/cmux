@@ -37,6 +37,16 @@ import os
 ///   request, from AppKit, CEF/Chromium, or app code, is dropped, so an agent
 ///   run never takes focus from the user's frontmost app. The startup of an update relaunch nobody
 ///   clicked refuses it too, for a few seconds (`InputVerificationService.endRelaunchBehind`).
+/// Calls NSApplication's own `reportException:` on `app`, as `super` does,
+/// from any isolation: Swift's `super` call from a `nonisolated` override
+/// needs the main actor, and asserting it is the check that crashed.
+private nonisolated func appKitReportException(_ app: NSApplication, _ exception: NSException) {
+    typealias ReportException = @convention(c) (NSApplication, Selector, NSException) -> Void
+    let selector = #selector(NSApplication.reportException(_:))
+    guard let implementation = class_getMethodImplementation(NSApplication.self, selector) else { return }
+    unsafeBitCast(implementation, to: ReportException.self)(app, selector, exception)
+}
+
 final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     private var handlingSendEvent = false
     /// Set in `CmuxNextApp.shared.main` before `run()`; an update relaunch's startup turns it
@@ -157,9 +167,18 @@ final class CmuxApplication: NSApplication, CEFAppProtocol, ActivationRefusing {
     ///
     /// With crashing on, the crash has begun here: the crash deadline then
     /// ends the process even if a crash handler after this blocks.
-    override func reportException(_ exception: NSException) {
+    ///
+    /// `nonisolated`, so the `@objc` entry point runs no main-actor check.
+    /// AppKit calls this after an Objective-C exception unwound the main
+    /// thread; when it unwound a Swift job, the thread's current-executor
+    /// record still points into the job's freed frame, and the check read it
+    /// and crashed with SIGSEGV before the exception was recorded (NIGHTLY
+    /// 1.0.0-nightly.4062224162001, 2026-10-27). Nothing here needs the main
+    /// actor: the record and the defaults read are thread-safe, and AppKit's
+    /// method is called through its implementation, as `super` would.
+    nonisolated override func reportException(_ exception: NSException) {
         CrashReporter.reportException(exception, crashes: UserDefaults.standard.bool(forKey: CrashOnExceptions.key),
-                                      record: UncaughtExceptionRecorder.handle) { super.reportException(exception) }
+                                      record: UncaughtExceptionRecorder.handle) { appKitReportException(self, exception) }
     }
 
     // MARK: Accessibility windows

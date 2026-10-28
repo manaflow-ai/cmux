@@ -40,11 +40,11 @@ enum ReportExceptionChild {
         let marker = await CrashChild.markRun("report-exception")
         // AppKit logs a reported exception and goes on (the user's own setting; the app registers true).
         UserDefaults.standard.register(defaults: [CrashOnExceptions.key: false])
-        // The child's process-wide application object, read by the thread below; nothing else touches it.
-        nonisolated(unsafe) let app = CmuxApplication.shared
+        let app = CmuxApplication.shared
         // A plain NSApplication made first would test AppKit's method, not the override.
         guard app is CmuxApplication else { exit(2) }
-        let exception = NSException(name: NSExceptionName(name), reason: reason)
+        // Made here and only read by the thread below.
+        nonisolated(unsafe) let exception = NSException(name: NSExceptionName(name), reason: reason)
         let selector = #selector(NSApplication.reportException(_:))
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             Thread {
