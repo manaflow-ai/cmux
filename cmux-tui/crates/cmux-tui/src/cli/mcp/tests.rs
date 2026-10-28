@@ -1596,6 +1596,25 @@ fn cmux_docs_answers_a_task_with_its_guide() {
     assert!(plain["structuredContent"].get("guides").is_none(), "{plain}");
 }
 
+/// An agent's docs query is often a sentence with a word no tool has
+/// ("pane split terminal send"). It finds the tool that matches the most
+/// words, not nothing (tests/tool-evals, 2026-10-27: Sonnet searched three
+/// times before its first call).
+#[test]
+fn cmux_docs_finds_a_tool_from_a_sentence() {
+    let mut server = code_mode_server(Fake::with_actions());
+    let found = call(
+        &mut server,
+        "cmux_docs",
+        json!({"query": "split the pane to the right and send text"}),
+    );
+    let names = found["structuredContent"]["tools"]
+        .as_array()
+        .map(|tools| tools.iter().filter_map(|tool| tool["name"].as_str()).collect::<Vec<_>>())
+        .unwrap_or_default();
+    assert_eq!(names.first(), Some(&"pane_split"), "{found}");
+}
+
 /// The tools the acpmux sub-session server's instructions point agents at
 /// (`acpmux::subsession_mcp::CMUX_TOOLS`) stay tools of this server, and the
 /// instructions reach them the way an agent's `cmux mcp serve` does: in

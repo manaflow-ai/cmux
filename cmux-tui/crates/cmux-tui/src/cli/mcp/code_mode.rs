@@ -179,13 +179,24 @@ pub(super) fn docs(tools: &[Value], arguments: &Map<String, Value>) -> Result<Va
     Ok(search(tools, &query, limit))
 }
 
-/// Tools whose name, description or argument names contain every word of
-/// `query`, best first: a word in the name counts most.
+/// Query words that name no tool.
+const STOP_WORDS: [&str; 15] = [
+    "a", "an", "and", "as", "for", "in", "into", "it", "my", "of", "on", "or", "the", "to", "with",
+];
+
+/// Tools whose name, description or argument names contain words of
+/// `query`, best first: a word in the name counts most, then the tools that
+/// match more words, then a daemon tool before the app action that does the
+/// same (`app_*`). A tool must match at least half the words, so an
+/// agent's sentence ("pane split terminal send") still finds `pane_split`
+/// (tool-evals, 2026-10-27: an all-words match found nothing and the agent
+/// searched again).
 fn search(tools: &[Value], query: &str, limit: usize) -> Value {
     let terms = query
         .split(|c: char| c.is_whitespace() || matches!(c, '_' | '.' | '-'))
-        .filter(|t| !t.is_empty())
+        .filter(|t| !t.is_empty() && !STOP_WORDS.contains(t))
         .collect::<Vec<_>>();
+    let needed = terms.len().div_ceil(2).max(1);
     let mut scored = tools
         .iter()
         .filter_map(|tool| {
@@ -196,21 +207,27 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
                 .map(|properties| properties.keys().cloned().collect::<Vec<_>>().join(" "))
                 .unwrap_or_default()
                 .to_lowercase();
-            let mut score = 0;
+            let (mut matched, mut score) = (0, 0);
             for term in &terms {
-                score += match () {
+                let points = match () {
                     () if name.contains(term) => 4,
                     () if description.contains(term) => 1,
                     () if arguments.contains(term) => 1,
-                    () => return None,
+                    () => 0,
                 };
+                matched += usize::from(points > 0);
+                score += points;
             }
-            Some((score, tool))
+            (matched >= needed).then_some((matched, score, name.starts_with("app_"), tool))
         })
         .collect::<Vec<_>>();
     scored.sort_by(|a, b| {
-        b.0.cmp(&a.0).then_with(|| a.1["name"].as_str().cmp(&b.1["name"].as_str()))
+        b.1.cmp(&a.1)
+            .then(b.0.cmp(&a.0))
+            .then(a.2.cmp(&b.2))
+            .then_with(|| a.3["name"].as_str().cmp(&b.3["name"].as_str()))
     });
+    let scored = scored.into_iter().map(|(_, score, _, tool)| (score, tool)).collect::<Vec<_>>();
     let more = scored
         .iter()
         .skip(limit)
