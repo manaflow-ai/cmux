@@ -212,7 +212,17 @@ where
 /// is the OS's, so a sender that dies lets go of it at once.
 pub(super) struct Record {
     path: PathBuf,
-    _lock: std::fs::File,
+    lock: std::fs::File,
+}
+
+/// Dropping it unlocks explicitly: a child forked but not yet exec'd (an agent the daemon
+/// starts, a test's forked child) shares the lock's open file description, so closing this
+/// descriptor alone would leave the record held until that child execs or exits, and the next
+/// send of the file would upload without one. The daemon's own lock does the same.
+impl Drop for Record {
+    fn drop(&mut self) {
+        let _ = self.lock.unlock();
+    }
 }
 
 impl Record {
@@ -243,7 +253,7 @@ impl Record {
         std::os::unix::fs::OpenOptionsExt::mode(&mut open, 0o600);
         let lock = open.open(dir.join(format!("{hash}.lock"))).ok()?;
         lock.try_lock().ok()?;
-        Some(Self { path: dir.join(format!("{hash}.json")), _lock: lock })
+        Some(Self { path: dir.join(format!("{hash}.json")), lock })
     }
 
     /// The upload it names: `(uploadId, ownerToken)`.
@@ -483,6 +493,42 @@ mod tests {
         assert!(again.forget());
         assert!(again.read().is_none());
         assert!(again.forget(), "a record already gone is forgotten");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A sender that ends lets go of its record even while a child it forked has not exec'd
+    /// yet: the child shares the lock's open file description (in the test binary, other tests
+    /// fork such children at any moment, which made the test above fail on CI).
+    #[cfg(unix)]
+    #[test]
+    fn a_forked_child_does_not_keep_an_ended_senders_record() {
+        let dir = std::env::temp_dir().join(format!("amx-rec-fork-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("big.bin");
+        std::fs::write(&file, b"bytes").unwrap();
+        let meta = std::fs::metadata(&file).unwrap();
+        let records = dir.join("records");
+        let first = Record::claim_in(&records, "chat", &file, &meta).expect("the first claim");
+        let nap = libc::timespec { tv_sec: 30, tv_nsec: 0 };
+        // SAFETY: the child only calls nanosleep and _exit, both async-signal-safe, and touches
+        // no Rust state; the parent kills and reaps it below.
+        let child = unsafe { libc::fork() };
+        if child == 0 {
+            unsafe {
+                libc::nanosleep(&nap, std::ptr::null_mut());
+                libc::_exit(0);
+            }
+        }
+        assert!(child > 0, "fork: {}", std::io::Error::last_os_error());
+        drop(first);
+        let again = Record::claim_in(&records, "chat", &file, &meta);
+        // SAFETY: signals and reaps only the child forked above.
+        unsafe {
+            libc::kill(child, libc::SIGKILL);
+            libc::waitpid(child, std::ptr::null_mut(), 0);
+        }
+        assert!(again.is_some(), "the forked child kept the ended sender's record");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
