@@ -62,7 +62,8 @@ pub(crate) struct PersonInputLaneGate(AtomicBool);
 
 impl PersonInputLaneGate {
     /// From `CMUX_ENABLE_FEATURES` and `CMUX_DISABLE_FEATURES` (disable
-    /// wins); the registry default is off on every channel.
+    /// wins), for a mux no owner installs features on (tests); the owner sets
+    /// its channel-resolved value at start (`install_daemon_features`).
     pub(crate) fn from_env() -> Self {
         Self(AtomicBool::new(cmux_features::listed_in_env(PERSON_INPUT_LANE_FEATURE)))
     }
@@ -71,9 +72,14 @@ impl PersonInputLaneGate {
         self.0.load(Ordering::Relaxed)
     }
 
+    /// The owner's resolved value, set once at start (`install_daemon_features`).
+    pub(crate) fn set(&self, enabled: bool) {
+        self.0.store(enabled, Ordering::Relaxed);
+    }
+
     #[cfg(test)]
     pub(crate) fn set_for_test(&self, enabled: bool) {
-        self.0.store(enabled, Ordering::Relaxed);
+        self.set(enabled);
     }
 }
 

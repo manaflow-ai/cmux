@@ -3,7 +3,7 @@
   "name": "daemonPersonInputLane",
   "owner": "Performance Lead",
   "description": "The verified app's keys, pastes, scrolls and view focus run on their connection's person-input lane at input priority, ahead of control requests of other surfaces and of automation, instead of in order behind them.",
-  "defaults": { "dev": false, "nightly": false, "release": false },
+  "defaults": { "dev": true, "nightly": true, "release": false },
   "kind": "perfPath",
   "expires": "2026-12-20",
   "process": "daemon",
