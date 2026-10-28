@@ -1523,6 +1523,11 @@ final class WindowBrowserHostViewTests: XCTestCase {
         }
     }
 
+    /// Inspector probe with AppKit's default hit testing, which converts the
+    /// point from superview coordinates; use it when the inspector is not at
+    /// its superview's origin.
+    private final class FramedWKInspectorProbeView: NSView {}
+
     private final class EdgeTransparentWKInspectorProbeView: NSView {
         override func hitTest(_ point: NSPoint) -> NSView? {
             let localPoint = convert(point, from: superview)
@@ -1980,6 +1985,31 @@ final class WindowBrowserHostViewTests: XCTestCase {
             inContentHit(fixture, xInSplit: 300) === fixture.slotContents[1],
             "Browser content away from the divider must stay interactive"
         )
+    }
+
+    /// A browser on the left with a trailing-docked Web Inspector squeezed to
+    /// the slot's right edge, beside the app split. The inspector divider's
+    /// grab band overlaps the app split's, and the inspector divider must win.
+    func testInContentHostKeepsHostedInspectorDividerAheadOfOverlappingSplitBand() {
+        guard let fixture = installInContentSplitFixture(slotRanges: [0...200]) else { return }
+        defer { fixture.window.orderOut(nil) }
+        guard let slot = fixture.slotContents[0].superview else {
+            XCTFail("Expected browser slot")
+            return
+        }
+        let pageView = PrimaryPageProbeView(frame: NSRect(x: 0, y: 0, width: 196, height: slot.bounds.height))
+        let inspectorView = FramedWKInspectorProbeView(frame: NSRect(x: 196, y: 0, width: 4, height: slot.bounds.height))
+        slot.addSubview(pageView)
+        slot.addSubview(inspectorView)
+
+        // x=196 is the inspector divider, 4pt left of the app split at x=200,
+        // so it lies inside both grab bands.
+        let hit = inContentHit(fixture, xInSplit: 196)
+        XCTAssertTrue(
+            isInspectorOwnedHit(hit, inspectorView: inspectorView, pageView: pageView),
+            "The hosted inspector divider must stay interactive inside the app split's grab band. actual=\(String(describing: hit))"
+        )
+        XCTAssertFalse(fixture.host.shouldPassThroughToSidebarResizer(at: inContentHostPoint(fixture, xInSplit: 196)))
     }
 
     func testHostViewPassesThroughDockDividerWhenBrowserSlotsShareTheTrailingEdge() throws {
