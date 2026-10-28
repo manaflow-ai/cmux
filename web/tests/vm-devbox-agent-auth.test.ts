@@ -347,8 +347,9 @@ describe("Codex sign-in precedence", () => {
     writeFileSync(path.join(m.home, ".codex/hooks.json"), "{}\n");
     writeFileSync(m.kind, "team\n");
     choose(m, "team", "codex");
-    await launch(m, "codex");
+    await Promise.all([launch(m, "codex"), launch(m, "codex")]);
     const team = readFileSync(path.join(m.home, ".config/cmux/codex-team/config.toml"), "utf8");
+    expect(() => Bun.TOML.parse(team)).not.toThrow();
     expect(team).toContain(`[hooks.state.\"${path.join(m.home, ".codex/hooks.json:pre_tool_use:0:0")}\"]`);
     expect(team).toContain('trusted_hash = "sha256:pre-tool"');
     expect(team).not.toContain("sha256:user");
