@@ -247,7 +247,7 @@ describe("Cloud Chief D (pi-durable)", { timeout: 120_000 }, () => {
     expect(call, "the turn's model request").toBeDefined()
     expect(call!.system).toContain("You run in cmux Cloud")
     expect(call!.system).toContain("owner approval required")
-    expect(call!.system).not.toContain("spawn(")
+    for (const absent of ["spawn(", "sleep(", "react(", "remember(", "transcript("]) expect(call!.system, absent).not.toContain(absent)
     expect(call!.tools.map((t) => t.name).sort()).toEqual(["date", "reply", "send", "stop", "zoom"])
   })
 })

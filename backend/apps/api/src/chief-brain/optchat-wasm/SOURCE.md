@@ -24,3 +24,5 @@ The experiment's copy is older (its JS differs) and was not touched.
 2026-10-28 (later): rebuilt the same way from feat-cmux-next a71a7c2c3c8 for the kernel's cloud prompt
 (`renderSystem` mode `cloud` with `offered`, f368f766bce), the ask and schedule ledgers (0361a630432,
 cc183f53146) and the shorter Replies rule (aef76d5873a). 730 KB, no wasm-opt on that host.
+
+2026-10-28 (later still): rebuilt from feat-cmux-next for dd5ff9e41a1 (the cloud base names only offered tools).
