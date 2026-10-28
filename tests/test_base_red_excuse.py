@@ -442,6 +442,17 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         self.gh.statuses = [{"context": "cmux-next/compile", "state": "success"}]
         self.assertIn("cmux-next/compile status", "\n".join(self.judge()))
 
+    def test_another_job_printing_the_marker_is_never_set_aside(self):
+        """Only the compile jobs that can end without a verdict are set aside by a compile pass; any other
+        job with the same line is compared with the base like every red."""
+        other = "cmux-next swift test"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, other, TEST_STEP), 2: failed_job(2, 20, BASE_SHA, other, TEST_STEP)}
+        self.gh.logs[1] = log(other, TEST_STEP, f"##[error]cmux-next/compile is not a pass for {HEAD} (no result)", OTHER)
+        self.gh.logs[2] = log(other, TEST_STEP, ISSUE)
+        self.release_run(6)
+        with self.assertRaisesRegex(excuse.Refused, "palettePagesReleaseTheRegistry"):
+            self.judge()
+
     def test_a_release_compile_without_a_job_link_or_from_another_run_is_not_a_pass(self):
         self.release_run(6)
         self.gh.check_runs[-1]["details_url"] = "https://example.com/job/1006"
