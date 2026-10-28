@@ -45,9 +45,9 @@ static ENABLED: OnceLock<bool> = OnceLock::new();
 
 /// Why this process runs the model it runs, fixed with [`ENABLED`]
 /// (`server-stats` `terminal_models`, H12): `default`, `env-alias`
-/// ([`MODEL_ENV`]), `feature-list` (the enable/disable list or a client
-/// hello) or `policy` (managed policy or the signed document's
-/// `DisabledFeatures`).
+/// ([`MODEL_ENV`]), `feature-list` (the env enable/disable lists) or
+/// `policy` (managed policy or the signed document's `DisabledFeatures`).
+/// A client hello never changes it: the hello arrives after [`install`].
 static REASON: OnceLock<&'static str> = OnceLock::new();
 
 /// Why this process runs the model it runs (see [`REASON`]).
@@ -187,7 +187,9 @@ mod model_tests {
         let defaults = Snapshot::defaults(release);
         let enable = lists(release, Some("terminalHolder"), None);
         let disable = lists(release, None, Some("terminalHolder"));
-        let cases: [(&Snapshot, Option<&str>, &str); 9] = [
+        let both = lists(release, Some("terminalHolder"), Some("terminalHolder"));
+        let killed = lists(release, Some("terminalHolder"), None).with_disabled(["terminalHolder"]);
+        let cases: [(&Snapshot, Option<&str>, &str); 13] = [
             (&defaults, None, "default"),
             (&defaults, Some("hosts"), "env-alias"),
             (&defaults, Some("holder"), "env-alias"),
@@ -197,6 +199,10 @@ mod model_tests {
             (&disable, None, "feature-list"),
             (&disable, Some("holder"), "feature-list"),
             (&disable, Some("other"), "feature-list"),
+            (&both, None, "feature-list"),
+            (&killed, None, "policy"),
+            (&killed, Some("holder"), "policy"),
+            (&killed, Some("hosts"), "policy"),
         ];
         for (features, alias, expected) in cases {
             assert_eq!(
