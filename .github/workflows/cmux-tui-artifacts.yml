@@ -277,11 +277,6 @@ jobs:
           # job's runs-on (Blacksmith Linux), so a job still queued on the
           # retired Mac pools is not waited for.
           DAEMON_POOL: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
-          # The run-list election ends this many seconds into this step (bash
-          # SECONDS), whatever the tree checks and the claim before it took. The
-          # rest of the 6 minute job timeout covers the steps before this one
-          # and the same-SHA lookup after the election (see the election below).
-          ELECTION_DEADLINE_SECONDS: "200"
         run: |
           set -euo pipefail
           superseded=false
@@ -439,9 +434,14 @@ jobs:
             # it found, and with none this run owns the key and builds: a
             # duplicate build is acceptable, a lost one is not. SECONDS counts
             # whole seconds, so a call may end up to 3 s past the deadline.
+            # It ends 200 s into this step (bash SECONDS), whatever the tree
+            # checks and the claim before it took; the rest of the 6 minute job
+            # timeout covers the steps before this one and the same-SHA lookup
+            # after it. ELECTION_DEADLINE_SECONDS overrides it in tests.
+            election_deadline="${ELECTION_DEADLINE_SECONDS:-200}"
             examined=0
             election_left() {
-              local left=$(( ELECTION_DEADLINE_SECONDS - SECONDS ))
+              local left=$(( election_deadline - SECONDS ))
               (( left > ${1:-30} )) && left="${1:-30}"
               echo "$left"
             }
@@ -474,13 +474,13 @@ jobs:
                 fi
               done < <(python3 -c 'import json,sys; [print("{}\t{}".format(run.get("id", ""), run.get("head_sha", ""))) for run in json.loads(sys.stdin.read()).get("workflow_runs", []) if run.get("status") != "completed"]' <<<"$runs_json")
             fi
-            if (( SECONDS >= ELECTION_DEADLINE_SECONDS )); then
+            if (( SECONDS >= election_deadline )); then
               if [[ "$owner_run_id" == "$RUN_ID" ]]; then
                 elected="no owner found, so this run owns the key and builds it"
               else
                 elected="keeping the lowest owner found, run $owner_run_id"
               fi
-              echo "::warning::the owner election stopped at its deadline, ${ELECTION_DEADLINE_SECONDS} s into this step, after $examined candidate runs; $elected"
+              echo "::warning::the owner election stopped at its deadline, ${election_deadline} s into this step, after $examined candidate runs; $elected"
             fi
           fi
           # The same commit pushed to two branches at once (a lane branch,

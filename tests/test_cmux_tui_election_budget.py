@@ -16,6 +16,7 @@ it found, and otherwise lets this run build.
 """
 
 import os
+import re
 import signal
 import stat
 import subprocess
@@ -121,8 +122,8 @@ def elect(runs, fetch_seconds, deadline, key_seconds=0, limit=40, **fake):
                    GITHUB_OUTPUT=output, RUNNER_TEMP=tmp, FAKE_LOG=log, FAKE_KEY=KEY, FAKE_LEGACY_KEY=LEGACY_KEY,
                    FAKE_RUNS=",".join(f"{run_id}:{sha}" for run_id, sha in runs),
                    FAKE_FETCH_SECONDS=str(fetch_seconds), FAKE_KEY_SECONDS=str(key_seconds), **fake)
-        env["ELECTION_DEADLINE_SECONDS"] = str(deadline if deadline is not None
-                                               else inspect_step()["env"].get("ELECTION_DEADLINE_SECONDS", 200))
+        if deadline is not None:
+            env["ELECTION_DEADLINE_SECONDS"] = str(deadline)
         start = time.monotonic()
         proc = subprocess.Popen(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", inspect_step()["run"]],
                                 cwd=tmp, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -146,10 +147,11 @@ def elect(runs, fetch_seconds, deadline, key_seconds=0, limit=40, **fake):
 def main():
     job = preflight_job()
     step = inspect_step()
-    deadline = step.get("env", {}).get("ELECTION_DEADLINE_SECONDS")
-    _check(deadline is not None and str(deadline).isdigit(),
-           f"the inspect step sets the election's deadline (ELECTION_DEADLINE_SECONDS={deadline!r})")
-    if deadline is not None and str(deadline).isdigit():
+    match = re.search(r'election_deadline="\$\{ELECTION_DEADLINE_SECONDS:-(\d+)\}"', step["run"])
+    deadline = match and match.group(1)
+    _check(deadline is not None,
+           f"the inspect step sets the election's deadline (election_deadline={deadline!r})")
+    if deadline is not None:
         # The steps before inspect (checkout, the read token's mint, bounded at
         # a minute, and the superseded check) and the same-SHA lookup after the
         # election (15 s) need the rest of the job time.
