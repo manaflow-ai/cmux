@@ -71,7 +71,7 @@ function rows(
   const pick = async (index = 0) => {
     const item = items[index] as Exclude<ChatMenuItem, "separator">;
     item.onSelect!();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setImmediate(resolve));
   };
   return { items, calls, pick, reads: () => reads, state };
 }
@@ -121,7 +121,7 @@ test("a turn that starts again in the chat after the stop is not frozen", async 
     },
   );
   (items[0] as Exclude<ChatMenuItem, "separator">).onSelect!();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setImmediate(resolve));
   expect(calls).toEqual(["chat.cancel"]);
 });
 
@@ -152,7 +152,7 @@ test("a pick for a chat the pane has left pauses nothing", async () => {
     },
   );
   (items[0] as Exclude<ChatMenuItem, "separator">).onSelect!();
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setImmediate(resolve));
   expect(calls).toEqual(["chat.cancel"]);
   expect(reads).toBe(1);
 });
