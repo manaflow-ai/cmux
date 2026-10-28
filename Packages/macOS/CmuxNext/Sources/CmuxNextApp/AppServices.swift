@@ -89,6 +89,8 @@ final class AppServices {
     private(set) lazy var peerUploadExpiry = MainDeadline(owner: "AgentPeerUploads.stageExpiry", workClass: .background, scheduler: mainDeadlines)
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
+    /// The local store's open browser tabs by site, for the site icons rows draw (AppServices+SiteFavicon.swift).
+    private(set) lazy var openTabSiteFavicons = BrowserTabsBySite(store: machines.local.store, site: AppServices.faviconSite)
     let machines: MachineRegistry
     /// The names sidebar rows keep while their front tab's is briefly unknown (`WorkspaceAutoNameWiring`).
     let autoNameHold = WorkspaceAutoNameHold()
