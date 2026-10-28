@@ -273,7 +273,7 @@ async fn an_incompatible_controller_is_refused_and_the_agent_keeps_running() {
     .unwrap();
     let reply: HostFrame = agent_host::read_frame(&mut rd).await.unwrap().unwrap();
     assert!(
-        matches!(reply, HostFrame::Incompatible { min: 1, max: 2, .. }),
+        matches!(reply, HostFrame::Incompatible { min: 1, max: agent_host::PROTOCOL_MAX, .. }),
         "expected Incompatible, got {reply:?}"
     );
     assert_eq!(
@@ -918,6 +918,44 @@ async fn a_fenced_line_to_a_closed_stdin_settles() {
         .await
         .expect("a line its harness can not take settles");
     let mut logged = 0;
+    owner.terminate(Duration::from_millis(500)).await.unwrap();
+    read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The residual risk of #26241 (#23322 a3 fence): a host logs each fenced line as queued, with its
+/// receipt, before the line itself, and its receipt once the harness has it, so a next daemon can
+/// tell from the log which fenced lines its harness may not have yet.
+#[tokio::test]
+async fn a_fenced_line_is_logged_as_queued_before_it_and_written_after() {
+    let dir = scratch("queued");
+    let record = link::spawn(&launcher(), &slow_reader(&dir, "s-queued")).await.unwrap();
+    let lock = live_lock(&dir, &record);
+    let (owner, adopted) = connected(&record, 0).await;
+    assert_eq!(adopted.version, agent_host::QUEUED_VERSION);
+    owner.line_fenced(big_line(), Some(acpmux::agent::Fence::default())).await.unwrap();
+    let note = |e: &Entry, method: &str| match e {
+        Entry::Tap { dir: TapDir::Out, msg } if msg["method"] == method => {
+            msg["params"]["receipt"].as_u64()
+        }
+        _ => None,
+    };
+    let mut logged = 0;
+    let seen =
+        read_until(&owner, &mut logged, |e| note(e, agent_host::WRITTEN_METHOD).is_some()).await;
+    let queued = seen.iter().position(|(_, e)| note(e, agent_host::QUEUED_METHOD).is_some());
+    let line = seen.iter().position(
+        |(_, e)| matches!(e, Entry::Tap { dir: TapDir::Out, msg } if msg["method"] == "note"),
+    );
+    let (Some(queued), Some(line)) = (queued, line) else { panic!("{seen:?}") };
+    assert!(queued < line, "the line was logged before it was logged as queued");
+    let receipt = |at: usize, method| note(&seen[at].1, method);
+    assert_eq!(
+        receipt(queued, agent_host::QUEUED_METHOD),
+        receipt(seen.len() - 1, agent_host::WRITTEN_METHOD),
+        "the queued line and its receipt name different receipts"
+    );
     owner.terminate(Duration::from_millis(500)).await.unwrap();
     read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
     wait_dead(lock).await;

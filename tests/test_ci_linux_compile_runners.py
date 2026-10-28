@@ -10,12 +10,16 @@ The size must not come from `vars.LINUX_RUNNER` while it names a Blacksmith
 label: that shared variable names `blacksmith-4vcpu-ubuntu-2404` for every
 small Linux job (docs/ci-runners.md), so `vars.LINUX_RUNNER ||
 'blacksmith-32vcpu-ubuntu-2404'` would still run on 4 vCPU. But the Blacksmith
-outage switch (scripts/ci/cloud_overflow_switch.py) points `LINUX_RUNNER` at
-`ubuntu-24.04`, and these jobs must follow it there, or the switch's
-force-cancel and rerun sends them straight back to the stalled pool. So each
-trusted fallback ends in exactly
+outage switch (scripts/ci/cloud_overflow_switch.py) moves Linux overflow to
+another Blacksmith size while its CI_CLOUD_OVERFLOW_SAVED record exists, and
+these jobs move with it (16 and 32 vCPU swap), or the switch's force-cancel and
+rerun sends them straight back to the stalled pool; a non-Blacksmith
+`LINUX_RUNNER` an operator sets still wins. Never GitHub-hosted Ubuntu (Leo,
+2026-10-27: "just put it on blacksmith / 16vcpu blacksmiths do exist"). So
+each trusted fallback ends in exactly
 
-    !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || '<size>'
+    !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER
+      || vars.CI_CLOUD_OVERFLOW_SAVED && '<other size>' || '<size>'
 
 Fork pull requests use the same sized Blacksmith lane as the trusted job for
 the compile and test suites below. Small routing/status jobs can keep the
@@ -109,8 +113,10 @@ SHARED_VARIABLE = re.compile(r"vars\.LINUX_RUNNER(?!\w)")
 
 
 def trusted_fallback(label: str) -> str:
-    """The size, unless the outage switch names a non-Blacksmith runner."""
-    return f"!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || '{label}'"
+    """The size; the other size while the outage record exists; an operator's non-Blacksmith runner first."""
+    other = SMALL if label == BIG else BIG
+    return (f"!startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || "
+            f"vars.CI_CLOUD_OVERFLOW_SAVED && '{other}' || '{label}'")
 
 
 # What comes before the trusted fallback: the fork and fork pull request

@@ -180562,6 +180562,402 @@
         }
       }
     },
+    "turn.tokens.detail": {
+      "comment": "Agent pane: the hover on a turn's split tokens (↓ 12.4K out ↑ 3.9M in). {output} is what the model wrote, {input} the fresh input, {cacheRead} and {cacheWrite} the prompt cache's reads and writes, each a compact count (12.4K, 3.8M).",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "المخرجات {output} · مدخلات جديدة {input} · قراءات ذاكرة التخزين المؤقت {cacheRead} · كتابات ذاكرة التخزين المؤقت {cacheWrite}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izlaz {output} · novi ulaz {input} · čitanja iz keša {cacheRead} · upisi u keš {cacheWrite}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Output {output} · nyt input {input} · cachelæsninger {cacheRead} · cacheskrivninger {cacheWrite}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ausgabe {output} · neue Eingabe {input} · Cache-Lesezugriffe {cacheRead} · Cache-Schreibzugriffe {cacheWrite}"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Output {output} · fresh input {input} · cache reads {cacheRead} · cache writes {cacheWrite}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Salida {output} · entrada nueva {input} · lecturas de caché {cacheRead} · escrituras de caché {cacheWrite}"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sortie {output} · nouvelle entrée {input} · lectures du cache {cacheRead} · écritures du cache {cacheWrite}"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Output {output} · nuovo input {input} · letture dalla cache {cacheRead} · scritture nella cache {cacheWrite}"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "出力 {output} · 新規入力 {input} · キャッシュ読み取り {cacheRead} · キャッシュ書き込み {cacheWrite}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លទ្ធផល {output} · ការបញ្ចូលថ្មី {input} · ការអានឃ្លាំងសម្ងាត់ {cacheRead} · ការសរសេរឃ្លាំងសម្ងាត់ {cacheWrite}"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "출력 {output} · 새 입력 {input} · 캐시 읽기 {cacheRead} · 캐시 쓰기 {cacheWrite}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utdata {output} · ny inndata {input} · hurtigbufferlesinger {cacheRead} · hurtigbufferskrivinger {cacheWrite}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyjście {output} · nowe wejście {input} · odczyty z pamięci podręcznej {cacheRead} · zapisy do pamięci podręcznej {cacheWrite}"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Saída {output} · entrada nova {input} · leituras do cache {cacheRead} · gravações no cache {cacheWrite}"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вывод {output} · новый ввод {input} · чтения из кэша {cacheRead} · записи в кэш {cacheWrite}"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เอาต์พุต {output} · อินพุตใหม่ {input} · การอ่านแคช {cacheRead} · การเขียนแคช {cacheWrite}"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Çıktı {output} · yeni girdi {input} · önbellek okumaları {cacheRead} · önbellek yazmaları {cacheWrite}"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вивід {output} · новий ввід {input} · читання з кешу {cacheRead} · записи в кеш {cacheWrite}"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đầu ra {output} · đầu vào mới {input} · lượt đọc bộ nhớ đệm {cacheRead} · lượt ghi bộ nhớ đệm {cacheWrite}"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "输出 {output} · 新输入 {input} · 缓存读取 {cacheRead} · 缓存写入 {cacheWrite}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "輸出 {output} · 新輸入 {input} · 快取讀取 {cacheRead} · 快取寫入 {cacheWrite}"
+          }
+        }
+      }
+    },
+    "turn.tokens.in": {
+      "comment": "Agent pane: a turn's line, after its time, the tokens the model read: fresh input, cache reads and cache writes (↑ 3.9M in). {tokens} is a compact count (3.9M, 840K). Keep the up arrow.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ {tokens} مدخلات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ {tokens} ulaz"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ {tokens} ind"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ {tokens} ein"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↑ {tokens} in"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ {tokens} entrada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ {tokens} entrée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ {tokens} input"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ 入力 {tokens}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ {tokens} ចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ 입력 {tokens}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ {tokens} inn"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ {tokens} wej."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ {tokens} entrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ {tokens} ввод"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ {tokens} ขาเข้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ {tokens} girdi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ {tokens} ввід"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ {tokens} vào"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ 输入 {tokens}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↑ 輸入 {tokens}"
+          }
+        }
+      }
+    },
+    "turn.tokens.out": {
+      "comment": "Agent pane: a turn's line, after its time, the tokens the model wrote (↓ 12.4K out), shown before what it read. {tokens} is a compact count (12.4K, 2.1M). Keep the down arrow.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ {tokens} مخرجات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ {tokens} izlaz"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ {tokens} ud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ {tokens} aus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "↓ {tokens} out"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ {tokens} salida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ {tokens} sortie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ {tokens} output"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ 出力 {tokens}"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ {tokens} ចេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ 출력 {tokens}"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ {tokens} ut"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ {tokens} wyj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ {tokens} saída"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ {tokens} вывод"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ {tokens} ขาออก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ {tokens} çıktı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ {tokens} вивід"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ {tokens} ra"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ 输出 {tokens}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "↓ 輸出 {tokens}"
+          }
+        }
+      }
+    },
     "composer.menu.undo": {
       "comment": "Composer context menu: undo the last edit in the prompt.",
       "extractionState": "manual",

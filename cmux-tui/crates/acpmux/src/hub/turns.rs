@@ -1082,6 +1082,9 @@ impl Hub {
         // that comes and goes while it waits on the agent still holds for it (reviews 73, 75 and
         // 77 of #23322).
         let off = self.off_latch();
+        // The idle pass never ends the harness under a mode change (`idle.rs`).
+        self.touch(session);
+        let _using = session.harness_use.read().await;
         // Every switch into a mode that skips approvals, from any client (the app, the CLI, a
         // script), passes here: refused while `sessions.allowFullAccess` is off.
         if super::start_mode::requests_full_access(m, &params) && !off.allows_full_access() {
@@ -1370,17 +1373,10 @@ impl Hub {
         Ok(())
     }
 
-    /// Sets `session`'s own policy; its mode follows (`follow_policy`), so a policy acpmux sets
-    /// itself (an aside's, a handoff target's) holds as one a client sets does.
-    pub async fn set_policy(self: &Arc<Self>, session: &Arc<Session>, policy: PermissionPolicy) {
-        self.permission_policy_changed(session, |m| m.permission_policy = Some(policy.to_string()));
-        self.append(session, "mux", "policy", json!({"policy": policy.to_string()}));
-        self.save_meta(session);
-        self.follow_policy(session).await;
-    }
-
     /// Stop the child. The log stays. `purge` also deletes the log.
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
+        // An idle pass under way ends first; none starts while this stop runs (`idle.rs`).
+        let _using = session.harness_use.read().await;
         // Counted first: a start for a request from before this stop ends (`ensure_child`).
         session.stops.fetch_add(1, Ordering::SeqCst);
         session.closing.store(true, Ordering::SeqCst);
