@@ -15,7 +15,7 @@
 .acpmux-chat-inspector-agent-summary__chips>span[data-status=running]{color:var(--agent-accent)}
 .acpmux-chat-inspector-agent-summary__chips>span[data-status=failed]{color:var(--agent-status-failure)}
 .acpmux-chat-inspector-agent-summary__workflow{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:var(--agent-muted);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
-.acpmux-chat-inspector-agent-summary__chevron{flex:none;color:var(--agent-muted);font-size:17px;line-height:1}
+.acpmux-chat-inspector-agent-summary__chevron{flex:none;color:var(--agent-muted);font-size:var(--text-control);line-height:1}
 .acpmux-summary-stack--avatars{padding-left:5px}
 .acpmux-summary-avatar{position:relative;display:flex;width:22px;height:22px;margin-left:-5px;box-sizing:border-box;align-items:center;justify-content:center;border:2px solid var(--agent-page-bg);border-radius:50%;background:var(--agent-control);overflow:hidden}
 .acpmux-summary-avatar .cv-subagent-avatar{width:18px;height:18px}
