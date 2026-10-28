@@ -206,21 +206,22 @@ def nightly_item(item: bytes) -> bool:
 
 
 def keep_earlier_builds(ours: bytes, live: bytes, keep: int = KEEP_BUILDS) -> bytes:
-    """OURS, plus the live feed's items for the KEEP - 1 newest builds below OURS' newest build that a
-    Nightly-ring app is offered (untagged or cmux-next), counted over both feeds, that OURS lacks.
+    """OURS, holding a Nightly-ring item (untagged or cmux-next) for each of the KEEP - 1 newest builds
+    below OURS' newest that either feed offers Nightly apps, taken from the live feed when OURS lacks it.
 
     Counting over both feeds means a feed combined from an older read (a lost race) still takes a
-    build that landed meanwhile. A Dev-tagged (cmux-next-dev) item is never kept: a Nightly app rejects
-    it, so it could not serve a rollback. Each kept item is copied byte for byte after OURS' last item."""
+    build that landed meanwhile. A Dev-tagged (cmux-next-dev) item never counts: a Nightly app rejects
+    it, so it could not serve a rollback. Where OURS has a wanted build only as Dev items (a promotion
+    raced this write), those items give way to the live feed's Nightly item. Kept items are the live
+    feed's bytes, after OURS' last item."""
     mine = item_builds(ours)
     if not mine:
         return ours
-    have = {build for _, build in mine}
-    newest = max(have)
+    newest = max(build for _, build in mine)
+    nightly_mine = {build for match, build in mine if nightly_item(match.group(0))}
     theirs = [(match, build) for match, build in item_builds(live) if nightly_item(match.group(0))]
-    earlier = {build for match, build in mine if build < newest and nightly_item(match.group(0))}
-    earlier |= {build for _, build in theirs if build < newest}
-    wanted = set(sorted(earlier, reverse=True)[:keep - 1]) - have
+    earlier = {build for build in nightly_mine if build < newest} | {build for _, build in theirs if build < newest}
+    wanted = set(sorted(earlier, reverse=True)[:keep - 1]) - nightly_mine
     added, taken = [], set()
     for match, build in sorted(theirs, key=lambda entry: entry[1], reverse=True):
         if build in wanted and build not in taken:
@@ -229,8 +230,16 @@ def keep_earlier_builds(ours: bytes, live: bytes, keep: int = KEEP_BUILDS) -> by
             taken.add(build)
     if not added:
         return ours
-    end = mine[-1][0].end()
-    return ours[:end] + b"".join(added) + ours[end:]
+    kept, cursor = [], 0
+    for match, build in mine:
+        kept.append(ours[cursor:match.start()])
+        if build not in taken:  # a Dev item of a build whose Nightly item is added gives way to it
+            kept.append(match.group(0))
+        cursor = match.end()
+    end = len(b"".join(kept))
+    kept.append(ours[cursor:])
+    body = b"".join(kept)
+    return body[:end] + b"".join(added) + body[end:]
 
 
 def _uploader_module():

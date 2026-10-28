@@ -191,6 +191,25 @@ class KeepEarlierBuildsTests(FeedWriteCase):
         self.assertEqual(self.run_with([live], [0]), 0)
         self.assertEqual(self.builds(), [200, 150])
 
+    def test_a_promotion_that_raced_the_write_keeps_the_nightly_item(self) -> None:
+        # Ours tags 190 Dev; the live feed promoted it to Nightly meanwhile. The written feed serves
+        # 190 to Nightly apps, so a rollback of 200 has a build to serve.
+        self.path.write_text(feed((200, "a", 5), (190, "b", 5), channel={200: "cmux-next", 190: "cmux-next-dev"}),
+                             encoding="utf-8")
+        live = feed((200, "a", 5), (190, "b", 5), channel={200: "cmux-next", 190: "cmux-next"}).encode()
+        self.assertEqual(self.run_with([live], [0], same_build=True), 0)
+        text = self.path.read_bytes()
+        self.assertEqual(self.builds(), [200, 190])
+        self.assertNotIn(b"cmux-next-dev", text)
+
+    def test_the_promotion_race_survives_a_lost_cas(self) -> None:
+        self.path.write_text(feed((200, "a", 5), (190, "b", 5), channel={190: "cmux-next-dev"}), encoding="utf-8")
+        first = feed((150, "c", 4)).encode()
+        second = feed((190, "b", 5), (150, "c", 4), channel={190: "cmux-next"}).encode()
+        self.assertEqual(self.run_with([first, second], [r2.CONFLICT, 0]), 0)
+        self.assertEqual(self.builds(), [200, 190])
+        self.assertNotIn(b"cmux-next-dev", self.path.read_bytes())
+
     def test_a_lost_race_keeps_from_the_feed_it_read_last(self) -> None:
         first, second = feed((100, "x", 1)).encode(), feed((180, "y", 1), (100, "x", 1)).encode()
         self.assertEqual(self.run_with([first, second], [r2.CONFLICT, 0]), 0)
