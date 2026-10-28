@@ -33,6 +33,54 @@ test("a daemon burst presents the latest snapshot once in the display frame", ()
   expect(shown).toEqual([latest]);
 });
 
+test("a snapshot already delivered in a client frame presents without another frame", () => {
+  const { presenter, shown, frames } = rig();
+  const next = { ...emptySnapshot(), sessionId: "streaming" };
+  presenter.push(next, "frame");
+  expect(shown).toEqual([next]);
+  expect(frames).toHaveLength(0);
+});
+
+test("an already-framed snapshot drains pending snapshots without letting an old callback drain a later burst", () => {
+  const { presenter, shown, frames, paint } = rig();
+  const first = {
+    ...emptySnapshot(),
+    sessionId: "chat",
+    canHandoff: true,
+    handoff: { ready: true, record: { id: "new" } },
+  } as unknown as AcpmuxSnapshot;
+  const streamed = { ...first, handoff: { ready: false } } as AcpmuxSnapshot;
+  presenter.push(first);
+  presenter.push(streamed, "frame");
+  expect(shown).toHaveLength(1);
+  expect(shown[0]!.handoff?.record).toEqual(first.handoff!.record);
+  const next = { ...emptySnapshot(), sessionId: "next" };
+  const old = frames[0]!;
+  presenter.push(next);
+  expect(frames).toHaveLength(2);
+  old();
+  old();
+  expect(shown).toHaveLength(1);
+  paint();
+  expect(shown).toHaveLength(1);
+  paint();
+  expect(shown).toHaveLength(2);
+  expect(shown[1]).toEqual(next);
+});
+
+test("stop after an already-framed flush blocks marked deliveries and queued callbacks", () => {
+  const { presenter, shown, frames } = rig();
+  presenter.push(emptySnapshot());
+  presenter.push({ ...emptySnapshot(), sessionId: "flushed" }, "frame");
+  expect(shown).toHaveLength(1);
+  presenter.push({ ...emptySnapshot(), sessionId: "pending" });
+  presenter.stop();
+  presenter.push({ ...emptySnapshot(), sessionId: "stopped" }, "frame");
+  for (const callback of frames) callback();
+  expect(shown).toHaveLength(1);
+  expect(shown[0]!.sessionId).toBe("flushed");
+});
+
 test("an intermediate handoff record survives a later partial snapshot of the same chat", () => {
   const { presenter, shown, paint } = rig();
   const first = {
@@ -179,70 +227,72 @@ test("a stopped connection cannot run a second disconnect callback", () => {
   expect(disconnected).toBe(1);
 });
 
-test("the frame reducer preserves the latest ready handoff record", () => {
-  const frames: (() => void)[] = [];
-  let shown = {
-    ...emptySnapshot(),
-    sessionId: "chat",
-    canHandoff: true,
-    handoff: { ready: true, record: { id: "committed-A" } },
-  } as unknown as AcpmuxSnapshot;
-  const presenter = snapshotFrames(
-    (run) => frames.push(run),
-    (update) => {
-      shown = update(shown);
-    },
-  );
-  const newer = {
-    ...shown,
-    handoff: { ready: true, record: { id: "newer-B" } },
-  } as unknown as AcpmuxSnapshot;
-  presenter.push(newer);
-  presenter.push({ ...shown, handoff: { ready: false } } as AcpmuxSnapshot);
-  frames.shift()?.();
-  expect(shown.handoff?.record).toBe(newer.handoff!.record);
-});
+for (const timing of [undefined, "frame"] as const) {
+  test(`${timing ?? "scheduled"}: the frame reducer preserves the latest ready handoff record`, () => {
+    const frames: (() => void)[] = [];
+    let shown = {
+      ...emptySnapshot(),
+      sessionId: "chat",
+      canHandoff: true,
+      handoff: { ready: true, record: { id: "committed-A" } },
+    } as unknown as AcpmuxSnapshot;
+    const presenter = snapshotFrames(
+      (run) => frames.push(run),
+      (update) => {
+        shown = update(shown);
+      },
+    );
+    const newer = {
+      ...shown,
+      handoff: { ready: true, record: { id: "newer-B" } },
+    } as unknown as AcpmuxSnapshot;
+    presenter.push(newer);
+    presenter.push({ ...shown, handoff: { ready: false } } as AcpmuxSnapshot, timing);
+    frames.shift()?.();
+    expect(shown.handoff?.record).toBe(newer.handoff!.record);
+  });
 
-test("an explicit handoff clear remains cleared through a same-frame partial snapshot", () => {
-  const frames: (() => void)[] = [];
-  let shown = {
-    ...emptySnapshot(),
-    sessionId: "chat",
-    canHandoff: true,
-    handoff: { ready: true, record: { id: "committed-A" } },
-  } as unknown as AcpmuxSnapshot;
-  const presenter = snapshotFrames(
-    (run) => frames.push(run),
-    (update) => {
-      shown = update(shown);
-    },
-  );
-  presenter.push({ ...shown, handoff: { ready: true } });
-  presenter.push({ ...shown, handoff: { ready: false } });
-  frames.shift()?.();
-  expect(shown.handoff?.record).toBeUndefined();
-});
+  test(`${timing ?? "scheduled"}: an explicit handoff clear remains cleared through a same-frame partial snapshot`, () => {
+    const frames: (() => void)[] = [];
+    let shown = {
+      ...emptySnapshot(),
+      sessionId: "chat",
+      canHandoff: true,
+      handoff: { ready: true, record: { id: "committed-A" } },
+    } as unknown as AcpmuxSnapshot;
+    const presenter = snapshotFrames(
+      (run) => frames.push(run),
+      (update) => {
+        shown = update(shown);
+      },
+    );
+    presenter.push({ ...shown, handoff: { ready: true } });
+    presenter.push({ ...shown, handoff: { ready: false } }, timing);
+    frames.shift()?.();
+    expect(shown.handoff?.record).toBeUndefined();
+  });
 
-test("a handoff record cannot cross a same-frame session change and return", () => {
-  const frames: (() => void)[] = [];
-  let shown = {
-    ...emptySnapshot(),
-    sessionId: "chat-A",
-    canHandoff: true,
-    handoff: { ready: true, record: { id: "committed-A" } },
-  } as unknown as AcpmuxSnapshot;
-  const presenter = snapshotFrames(
-    (run) => frames.push(run),
-    (update) => {
-      shown = update(shown);
-    },
-  );
-  presenter.push({ ...emptySnapshot(), sessionId: "chat-B", canHandoff: true });
-  presenter.push({ ...emptySnapshot(), sessionId: "chat-A", canHandoff: true });
-  frames.shift()?.();
-  expect(shown.sessionId).toBe("chat-A");
-  expect(shown.handoff?.record).toBeUndefined();
-});
+  test(`${timing ?? "scheduled"}: a handoff record cannot cross a same-frame session change and return`, () => {
+    const frames: (() => void)[] = [];
+    let shown = {
+      ...emptySnapshot(),
+      sessionId: "chat-A",
+      canHandoff: true,
+      handoff: { ready: true, record: { id: "committed-A" } },
+    } as unknown as AcpmuxSnapshot;
+    const presenter = snapshotFrames(
+      (run) => frames.push(run),
+      (update) => {
+        shown = update(shown);
+      },
+    );
+    presenter.push({ ...emptySnapshot(), sessionId: "chat-B", canHandoff: true });
+    presenter.push({ ...emptySnapshot(), sessionId: "chat-A", canHandoff: true }, timing);
+    frames.shift()?.();
+    expect(shown.sessionId).toBe("chat-A");
+    expect(shown.handoff?.record).toBeUndefined();
+  });
+}
 
 test("a frame folds against the state current when React applies its updater", () => {
   const frames: (() => void)[] = [];

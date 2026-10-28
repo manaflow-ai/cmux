@@ -7266,7 +7266,7 @@ function AcpmuxPane() {
           : mockHost;
         const client = await AcpmuxDirectClient.connect(
           mock ? mockConfig : (host as AcpmuxHostConfig),
-          presentation.guard((next: AcpmuxSnapshot) => {
+          presentation.guard((next: AcpmuxSnapshot, timing?: "frame") => {
             harnessSwitch.reconcile(next);
             rowsRef.current = next.rows;
             snapshotRef.current = next;
@@ -7287,7 +7287,7 @@ function AcpmuxPane() {
                 showsNewTabRef.current,
               );
             }
-            presentation.push(next);
+            presentation.push(next, timing);
           }),
           presentation.guard(() => {
             // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
