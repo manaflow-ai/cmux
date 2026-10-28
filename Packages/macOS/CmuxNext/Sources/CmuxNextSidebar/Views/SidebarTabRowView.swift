@@ -128,20 +128,23 @@ final class SidebarTabRowView: SidebarRowView {
         icon.frame = NSRect(x: iconX, y: (b.height - iconSide) / 2, width: iconSide, height: iconSide)
         // Without a favicon the title takes the icon's place (Lawrence 2026-10-23: "as left as possible").
         let textX = icon.isHidden ? iconX - SidebarStyle.labelCellPadding : icon.frame.maxX + Metrics.space2
-        // The dot sits where a workspace row's dot does: its slot at the row's trailing inset.
         var trailing = b.width - SidebarStyle.horizontalInset
-        // The tab's status centers on the trailing column, as a workspace row's does; the dot goes left of it.
+        // The tab's status, else its dot, centers on the trailing column, as a workspace row's does (Leo 2026-10-28:
+        // "do we seriously not have these fucking things aligned? ... because it's the inner tab thing"); a dot
+        // beside a status goes left of the column.
+        let cy = b.height / 2
         if activity.showsGlyph {
-            let side = SidebarStyle.indicatorSize
-            activity.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: b.height / 2, side: side)
+            activity.frame = SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: cy, side: SidebarStyle.indicatorSize)
             trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: b.width))
         } else {
             activity.frame = .zero
         }
         if unreadDot.state.isUnread {
             let side = SidebarStyle.dotSize
-            unreadDot.frame = NSRect(x: trailing - side - Metrics.space2, y: (b.height - side) / 2, width: side, height: side)
-            trailing = unreadDot.frame.minX - Metrics.space2
+            unreadDot.frame = activity.showsGlyph
+                ? NSRect(x: trailing - side - Metrics.space2, y: cy - side / 2, width: side, height: side)
+                : SidebarStyle.trailingColumnFrame(rowWidth: b.width, centerY: cy, side: side)
+            trailing = min(trailing, SidebarStyle.trailingColumnStart(rowWidth: b.width), unreadDot.frame.minX) - Metrics.space2
         }
         let height = title.intrinsicContentSize.height, y = (b.height - height) / 2
         guard !detail.isHidden else {

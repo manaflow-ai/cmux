@@ -324,7 +324,8 @@ class WorkflowTests(unittest.TestCase):
         job = text[text.index("\n  publish-nightly:"):text.index("\n  publish-nightly-next-github:")]
         keep = job.index("- name: Keep the live feed's newest Nightly item beside the new build")
         step = job[keep:job.index("\n      - ", keep + 1)]
-        self.assertIn("publish-next-feed-keep-nightly.sh $(printf 'nightly-out/%s ' $NIGHTLY_FEEDS)", step)
+        self.assertIn('read -r -a feeds <<<"$NIGHTLY_FEEDS"', step)
+        self.assertIn('publish-next-feed-keep-nightly.sh "${feeds[@]/#/nightly-out/}"', step)
         self.assertIn("DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}", step)
         # Before the live-ring retag, the hand-off, the guard and the live write.
         for later in ("- name: Tag the new build's items from the live Dev ring switch",

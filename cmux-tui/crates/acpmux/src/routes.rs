@@ -749,6 +749,27 @@ pub fn bound_route(
     b.global.clone().map(|r| (r, "global"))
 }
 
+/// The route a spawn of `family` on a profile with env `profile_env` takes, and the scope that
+/// chose it: a chat or workspace binding, else the profile's own route ([`PROFILE_ROUTE_KEY`]),
+/// else none for your own endpoint (`byo_endpoint.rs` names its provider itself), else a
+/// family or global binding. The route may be gone or not serve the family; the caller checks.
+pub fn spawn_route(
+    b: &Bindings,
+    session_id: &str,
+    workspace: Option<&str>,
+    family: &str,
+    profile_env: &BTreeMap<String, String>,
+) -> Option<(String, &'static str)> {
+    let bound = bound_route(b, session_id, workspace, family);
+    let own_endpoint = crate::byo_endpoint::Kind::of_env(profile_env).is_some();
+    match (bound, profile_env.get(PROFILE_ROUTE_KEY).cloned()) {
+        (Some((id, scope)), _) if matches!(scope, "chat" | "workspace") => Some((id, scope)),
+        (_, Some(id)) => Some((id, "profile")),
+        (_, None) if own_endpoint => None,
+        (bound, None) => bound,
+    }
+}
+
 // ---------------------------------------------------------------- spawn env
 
 /// What a bound route does to a spawn's env: the variables it sets (secret

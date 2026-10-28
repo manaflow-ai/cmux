@@ -177,7 +177,8 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
   test("without an offered row the header is its own row and reports nothing", async () => {
     const page = await openChat();
     const before = await header(page);
-    expect(before).toMatchObject({ tabRow: false, height: 44, inset: 8 });
+    // Its own row is the compact toolbar's 28px (5b181c2efb9f, --acpmux-header-height).
+    expect(before).toMatchObject({ tabRow: false, height: 28, inset: 8 });
     // A row of height 0 (the setting is off, or the pane's tabs are hidden) changes nothing.
     await offer(page, { height: 0, trailingInset: 40 });
     // header() reads after two painted frames: the row, had it applied, and any report are in by then.
@@ -206,7 +207,7 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
     // The row ends (the setting turned off): the header's own row again, and the tabs get the width back.
     await offer(page, { height: 0, trailingInset: 0 });
     await page.waitForFunction(() => !document.querySelector(".acpmux-header[data-tab-row]"));
-    expect(await header(page)).toMatchObject({ tabRow: false, height: 44 });
+    expect(await header(page)).toMatchObject({ tabRow: false, height: 28, inset: 8 });
     await page.waitForFunction(() => {
       const last = ((window as Recorder).__tabRowCalls ?? []).at(-1) as { width?: number } | undefined;
       return last?.width === 0;

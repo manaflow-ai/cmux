@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""The cmux_next_ daemon tests that gate nightly-next run on Blacksmith 32 vCPU.
+"""The cmux_next_ daemon tests run on Blacksmith 32 vCPU.
 
 Leo, 2026-10-26: "I THOUGHT THESE COULD JUST GO ON LINUX".
 
-cmux-tui-artifacts.yml's cmux-next-daemon-tests job is the nightly-next
-promotion gate: its pass writes tree/<key>/daemon-tests.json
-(publish-tree-tested), which request-nightly-next.sh requires. It ran on the
+cmux-tui-artifacts.yml's cmux-next-daemon-tests job gates the feat-cmux-next
+channel: its pass writes tree/<key>/daemon-tests.json (publish-tree-tested),
+which point-feat-channel requires. Until 2026-10-28 nightly-next promotion
+required it too; now the tree-commit marker follows the publish (Leo,
+2026-10-23: "we want no smoke tests"). It ran on the
 owned Macs (the promote pool the Release compile also needs, then the side
 lane) and queued there for 20+ minutes while nightly-next waited. None of
 the cmux_next_ tests is gated to macOS, and cmux-tui.yml's Linux job runs the
@@ -14,8 +16,8 @@ attempt, and its pass writes the marker.
 
 Leo, 2026-10-27: "ok do NOT label stuff as os=linux...". The job name, its
 steps and the marker name no runner OS. Markers written before that carry an
-"os" field; the promote reader checks only that a marker exists, so both
-kinds promote (scripts/cmux-next/tests/request-nightly-next.test.sh).
+"os" field; its readers (cmux-tui-point-channel.sh, tree-commit-marker.sh
+daemon-tested) check only that a marker exists, so both kinds count.
 
 The tests that genuinely need macOS (acpmux's Keychain and Seatbelt tests,
 the idle wakeup counter) run in their own workflow,

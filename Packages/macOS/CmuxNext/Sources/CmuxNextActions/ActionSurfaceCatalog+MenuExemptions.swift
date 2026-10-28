@@ -24,6 +24,8 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.browserToggleOmnibar",
         ],
         .noObject: [
+            "window.toggleDockLeft", "window.toggleDockRight", "window.toggleDockTop", "window.toggleDockBottom",
+            "window.toggleDockOrientation",
             "palette.openFilesPane", "palette.openFindPane",
             "sidebar.profileMenu", "browser.downloads.showFolder",
             "home.show",
@@ -138,7 +140,11 @@ nonisolated extension ActionSurfaceCatalog {
             "space.setDefaults", "space.clearDefaults", "browserProfile.clearSpaceDefault",
         ],
         // Leo 2026-10-23: the workspace row menu drops this long tail; the palette keeps it.
-        .pointerMenuTrim: ["workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder", "palette.copyWorkspaceID",
+        .pointerMenuTrim: [
+            // Docked workspaces are a default-off prototype (`window.dockedWorkspaces`): palette, CLI and MCP only,
+            // so the workspace row's Move menu does not grow six rows nobody can use yet.
+            "workspace.dockLeft", "workspace.dockRight", "workspace.dockTop", "workspace.dockBottom", "workspace.undock",
+            "workspace.toggleDockFloating","workspace.setTint", "workspace.copyPath", "copyWorkspaceSSHError", "revealWorkspaceInFinder", "palette.copyWorkspaceID",
             "palette.copyWorkspaceIDAndRef", "palette.copyWorkspaceLink", "workspace.showResources", "palette.openWorkspacePullRequests",
             "workspace.setRemoteLocalhost"],
         .paletteInternal: [

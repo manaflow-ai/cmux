@@ -3,6 +3,7 @@ import CmuxConversationCore
 import CmuxMobileArtifacts
 import CmuxConversationUI
 import CmuxMobileModel
+import CmuxMobileSupport
 import SwiftUI
 import UIKit
 
@@ -102,7 +103,8 @@ struct ChiefConversationController: UIViewControllerRepresentable {
     let openInfo: () -> Void
 
     func makeUIViewController(context: Context) -> ChiefConversationContainer {
-        let conversation = ConversationViewController(store: session.store, options: .chief)
+        let conversation = ConversationViewController(store: session.store, options: .chief,
+                                                      keyboard: context.environment.mobileKeyboardFrameTracker)
         let container = ChiefConversationContainer(conversation: conversation, session: session)
         // Home's compose focuses the composer once: a container rebuilt on a
         // new store (Try Again) opens without the keyboard.
