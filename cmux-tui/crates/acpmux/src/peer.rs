@@ -117,6 +117,9 @@ pub struct Peer {
     /// The link (`link_epoch` + 1; 0 for none) whose handshake's watch was answered by the peer
     /// serving this daemon as a peer: the only link a GitHub action is taken on.
     github_link: AtomicU64,
+    /// Wakes this peer's running GitHub actions when lending ends (`githubBroker` off, the link
+    /// ended, the peer stopped), so they stop then rather than run on.
+    github_revoked: tokio::sync::Notify,
     /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
     file_put: AtomicBool,
     /// It lists `filePutChunks` (`hub/file_uploads.rs`).
@@ -200,6 +203,7 @@ impl Peer {
             github_broker: AtomicBool::new(false),
             github_slots: crate::github_broker::owner_slots(name),
             github_link: AtomicU64::new(0),
+            github_revoked: tokio::sync::Notify::new(),
             file_put: AtomicBool::new(false),
             file_put_chunks: AtomicBool::new(false),
             media_read: AtomicBool::new(false),
@@ -458,6 +462,9 @@ impl Peer {
     /// GitHub login. Read again for each action, so turning it off holds at once.
     pub fn set_github_broker(&self, on: bool) {
         self.github_broker.store(on, Ordering::SeqCst);
+        if !on {
+            self.github_revoked.notify_waiters();
+        }
     }
 
     pub fn github_broker(&self) -> bool {
@@ -484,7 +491,23 @@ impl Peer {
         // `OWNER_SLOTS` of these tasks exist per peer name, across reconnects, even when the link
         // stops reading.
         tokio::spawn(async move {
-            let reply = crate::github_broker::serve_owner(&me.name, params).await;
+            // Lending that ends while it runs (`githubBroker` off, the peer removed, the link
+            // ended) stops it: its `gh` is killed (`kill_on_drop`), and a link still up is told.
+            let revoked = me.github_revoked.notified();
+            tokio::pin!(revoked);
+            revoked.as_mut().enable();
+            if me.link_epoch() != epoch || !me.github_broker() {
+                return;
+            }
+            let reply = tokio::select! {
+                reply = crate::github_broker::serve_owner(&me.name, params) => reply,
+                () = &mut revoked => {
+                    let Err(e) = crate::github_broker::admit_owner(&me.name, false, &me.github_slots) else {
+                        return;
+                    };
+                    Err(e)
+                }
+            };
             let msg = match reply {
                 Ok(v) => Message::ok(id, v),
                 Err(e) => Message::err(id, e),
@@ -524,6 +547,7 @@ impl Peer {
     /// A connection to the peer ended: what the peer kept for it is gone.
     pub(crate) fn link_ended(&self) {
         self.link_epoch.fetch_add(1, Ordering::SeqCst);
+        self.github_revoked.notify_waiters();
     }
 
     /// Whether the peer said at its last handshake that it serves subagent transcripts.
@@ -1047,15 +1071,27 @@ impl Peer {
                             match admitted {
                                 Ok(slot) => self.serve_github_action(id, params.unwrap_or(Value::Null), slot),
                                 Err(e) => {
-                                    let _ = sink.send(Frame::Text(Message::err(id, e).to_value().to_string().into())).await;
+                                    // Bounded like any frame: a peer that asks and never reads
+                                    // cannot hold this loop.
+                                    let refusal = Frame::Text(Message::err(id, e).to_value().to_string().into());
+                                    match tokio::time::timeout(budget, sink.send(refusal)).await {
+                                        Ok(Ok(())) => {}
+                                        Ok(Err(e)) => break Err(e.to_string()),
+                                        Err(_) => break Err(stopped_reading(budget)),
+                                    }
                                 }
                             }
                         }
                         Message::Request { id, .. } => {
                             // Any other request from the peer: the broker's is the only one.
-                            let _ = sink.send(tokio_tungstenite::tungstenite::Message::Text(
+                            let refusal = Frame::Text(
                                 Message::err(id, RpcError::method_not_found("client-side request")).to_value().to_string().into(),
-                            )).await;
+                            );
+                            match tokio::time::timeout(budget, sink.send(refusal)).await {
+                                Ok(Ok(())) => {}
+                                Ok(Err(e)) => break Err(e.to_string()),
+                                Err(_) => break Err(stopped_reading(budget)),
+                            }
                         }
                     }
                 }
@@ -1493,6 +1529,37 @@ mod frame_epoch_tests {
         }
         assert!(!seen.iter().any(|t| t.contains("\"stale\"")), "a stale frame went out: {seen:?}");
         serving.abort();
+    }
+
+    /// Review of #24797 at f2e68a4: a peer's request was refused with a send that had no time
+    /// limit, so a peer that asks and never reads held the link's loop, pings and all, for good.
+    #[tokio::test]
+    async fn a_peer_that_asks_and_never_reads_loses_the_link() {
+        let (tx, _rx) = mpsc::channel(8);
+        let mut peer = Peer::new("p", "ws://127.0.0.1:9", None, None, tx);
+        let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+        timings.ping_every = Duration::from_millis(200);
+        timings.ping_misses = 2;
+        let (ours, theirs) = tokio::io::duplex(1024);
+        let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+        let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+        let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+        let link = peer.clone();
+        let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+        let asking = tokio::spawn(async move {
+            for i in 0u64.. {
+                let ask =
+                    Message::request(json!(i), method::MUX_GITHUB_ACTION, json!({})).to_line();
+                if server.send(Frame::Text(ask.trim_end().to_owned().into())).await.is_err() {
+                    break;
+                }
+            }
+        });
+        let ended = tokio::time::timeout(Duration::from_secs(10), serving)
+            .await
+            .expect("the link ends instead of hanging");
+        assert!(ended.unwrap().is_err());
+        asking.abort();
     }
 }
 
