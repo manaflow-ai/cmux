@@ -47,7 +47,7 @@ pub struct Spec {
     pub session_id: String,
     pub command: String,
     pub cwd: PathBuf,
-    /// Set over the runner's own environment.
+    /// The task's whole environment (the runner's own is not passed on).
     #[serde(default)]
     pub env: BTreeMap<String, String>,
     pub segment: u64,
@@ -162,12 +162,13 @@ pub struct Output {
 }
 
 /// Up to `max` bytes of a task's output from `from` (`None`: its last `max`). A start before the
-/// oldest kept byte reads from it.
+/// oldest kept byte reads from it. A spool that rotated under every try is an error, never an
+/// empty read (a reader would take it for no output and start again from 0).
 pub fn read_output(dir: &Path, id: &str, from: Option<u64>, max: u64) -> std::io::Result<Output> {
     use std::io::{Read, Seek, SeekFrom};
     // The newest two segments, opened before anything is measured: a rotation meanwhile deletes
     // a name but not an open file, and every segment but the newest no longer grows.
-    let mut open = Vec::new();
+    let mut open = None;
     for _ in 0..3 {
         let starts = segments(dir, id);
         let opened: std::io::Result<Vec<_>> = starts[starts.len().saturating_sub(2)..]
@@ -176,13 +177,19 @@ pub fn read_output(dir: &Path, id: &str, from: Option<u64>, max: u64) -> std::io
             .collect();
         match opened {
             Ok(files) => {
-                open = files;
+                open = Some(files);
                 break;
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
             Err(e) => return Err(e),
         }
     }
+    let mut open = open.ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::Interrupted,
+            "the task's output rotated while it was read; read again",
+        )
+    })?;
     let Some((last, last_file)) = open.last() else { return Ok(Output::default()) };
     let total = last + last_file.metadata()?.len();
     let kept_from = open[0].0;
@@ -337,7 +344,8 @@ pub fn main() -> anyhow::Result<()> {
         let (reader, writer) = std::io::pipe()?;
         let shell = ["/bin/bash", "/bin/sh"].into_iter().find(|s| Path::new(s).exists());
         let mut cmd = std::process::Command::new(shell.unwrap_or("/bin/sh"));
-        cmd.arg("-c").arg(&spec.command).current_dir(&spec.cwd).envs(&spec.env);
+        // Exactly the env the daemon built (the agent's), never this runner's own on top of it.
+        cmd.arg("-c").arg(&spec.command).current_dir(&spec.cwd).env_clear().envs(&spec.env);
         cmd.stdin(std::process::Stdio::null()).stdout(writer.try_clone()?).stderr(writer);
         // SAFETY: setsid, signal and sigprocmask are async-signal-safe. The task leads its own
         // session and group, with SIGPIPE back to its default and no signal blocked.
@@ -473,5 +481,23 @@ mod tests {
         assert_eq!(tail.data, data[27..]);
         let across = read_output(dir.path(), "t", Some(0), 12).unwrap();
         assert_eq!((across.start, across.data.as_slice()), (20, &data[20..32]));
+    }
+
+    /// A segment that is listed but gone at every open (here a dangling link, as a rotation
+    /// between the listing and the open leaves it) is an error, not an empty output; a spool
+    /// with no segment at all is empty.
+    #[cfg(unix)]
+    #[test]
+    fn a_read_that_loses_every_race_with_rotation_is_an_error() {
+        let dir = cmux_unix_socket::short_test_dir("bg-spool-race");
+        let none = read_output(dir.path(), "t", None, 8).unwrap();
+        assert_eq!((none.data.len(), none.total), (0, 0));
+        let mut spool = Spool::create(dir.path(), "t", 10).unwrap();
+        spool.write(b"0123456789abc").unwrap();
+        let gone = segment_path(dir.path(), "t", 0);
+        std::fs::remove_file(&gone).unwrap();
+        std::os::unix::fs::symlink(dir.path().join("nowhere"), &gone).unwrap();
+        let err = read_output(dir.path(), "t", None, 8).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::Interrupted, "{err}");
     }
 }
