@@ -88,7 +88,14 @@ public nonisolated struct AgentPaneQuestionReply: Sendable, Equatable {
             }
             guard labels.allSatisfy({ !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && $0.utf8.count <= AcpmuxPaneMethods.maximumAnswerBytes }) else { return false }
-            if item["allowsOther"] as? Bool != true {
+            // Match AgentQuestion.Item and the web decoder: absent/null defaults to true;
+            // a malformed flag must not gain the free-text allowance of that default.
+            let allowsOther: Bool
+            if let raw = item["allowsOther"], !(raw is NSNull) {
+                guard let flag = raw as? Bool else { return false }
+                allowsOther = flag
+            } else { allowsOther = true }
+            if !allowsOther {
                 let options = item["options"] as? [[String: Any]] ?? []
                 let allowed = options.compactMap { $0["label"] as? String }
                 let picked = !codex && item["multiSelect"] as? Bool == true
