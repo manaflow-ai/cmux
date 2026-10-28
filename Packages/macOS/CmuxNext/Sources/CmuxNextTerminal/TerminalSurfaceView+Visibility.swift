@@ -11,14 +11,22 @@ import CmuxNextWakeups
 /// ancestors for hidden state. An occluded window keeps its terminals shown: they keep their layout ready
 /// and their own occlusion watch pauses the drawing (``Visibility/occluded``).
 extension TerminalSurfaceView {
+    // The draw pause reads AppKit's own hidden state (``WindowDrawPolicy/inputs(for:suspended:forced:)``), not the
+    // node, so AppKit's hide and unhide recompute it here (a no-op when it did not change). A node flip alone did
+    // not: a surface that joined an already hidden container never got viewDidHide, its node stayed visible, and
+    // the container's unhide left it paused `hidden` with nothing hidden (v2.2.5-opt, a second tab beside Home).
+    // visibility-walk-allow: the draw pause reads AppKit's hidden state (WindowDrawPolicy.inputs, itself allowed), so AppKit's hide transition recomputes it; transitions only, never per frame
     public override func viewDidHide() {
         super.viewDidHide()
         visibilityNode.set(.hidden)
+        updateOcclusion()
     }
 
+    // visibility-walk-allow: the draw pause reads AppKit's hidden state (WindowDrawPolicy.inputs, itself allowed), so AppKit's unhide transition recomputes it; transitions only, never per frame
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         visibilityNode.set(.visible)
+        updateOcclusion()
     }
 
     /// In a window and no container above parked (``ParkingContainer``): read when the view changes windows,
