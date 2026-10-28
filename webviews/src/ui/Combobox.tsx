@@ -155,6 +155,7 @@ export function Combobox({
   }, [keep]);
   const held = keep && tallest > 0;
   const hasPinned = Boolean(pinnedSuggestions?.length);
+  const deliberatelyHighlighted = useRef(false);
   const enabledSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
   const disabledSuggestions = suggestions.filter(
     (item) => isItemDisabled?.(item) && !pinnedSuggestions?.includes(item),
@@ -179,10 +180,15 @@ export function Combobox({
           : undefined;
       const matchingCurrent =
         completed?.text === typed ? enabledSuggestions.find((item) => completionText?.(item) === typed) : undefined;
+      // Typing a match must not submit a pinned action that Base UI highlighted automatically.
+      // Arrowing or pointing at an action still selects it intentionally.
+      const firstMatch =
+        typed.trim() && hasPinned ? enabledSuggestions.find((item) => !pinnedSuggestions?.includes(item)) : undefined;
+      const active = highlighted && enabledSuggestions.includes(highlighted) ? highlighted : undefined;
       const next =
-        highlighted && enabledSuggestions.includes(highlighted)
-          ? highlighted
-          : (completedKey ?? matchingCurrent ?? typed);
+        deliberatelyHighlighted.current && active
+          ? active
+          : (completedKey ?? matchingCurrent ?? firstMatch ?? (typed.trim() && hasPinned ? typed : (active ?? typed)));
       if (!isItemDisabled?.(next)) onSubmit(next);
     } else if (event.key === "Escape") {
       event.preventDefault();
@@ -286,6 +292,7 @@ export function Combobox({
       value={value}
       onValueChange={(next) => {
         if (completionRef.current?.text !== next) completionRef.current = undefined;
+        deliberatelyHighlighted.current = false;
         update(next);
       }}
       open={inline || enabledSuggestions.length > 0}
@@ -293,6 +300,7 @@ export function Combobox({
       autoHighlight={autoHighlight}
       onItemHighlighted={(item, details) => {
         highlightedRef.current = item as string | undefined;
+        if (details.reason === "keyboard" || details.reason === "pointer") deliberatelyHighlighted.current = true;
         onHighlight?.(item as string | undefined, details.reason);
       }}
     >

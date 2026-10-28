@@ -155,6 +155,18 @@ export default componentEntry<Props>({
       props: { projects, current: projects[0]!.cwd, currentLabel: projects[0]!.label, icon, onPick: () => undefined },
       play: typedPath,
     },
+    "long-no-actions": {
+      note: "A long recent-project list without action rows still scrolls to its last folder.",
+      props: {
+        projects: Array.from({ length: 40 }, (_, index) => ({
+          cwd: `/demo/review-${index + 1}`,
+          label: `review-${index + 1}`,
+        })),
+        icon,
+        onPick: () => undefined,
+      },
+      play: open,
+    },
     "long-names": {
       note: "Long project labels and paths truncate inside stable rows while badges remain visible.",
       props: {

@@ -48,6 +48,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
   const ENTRY_PATHS: Record<string, string> = {
     "agent-pane.composer-strip": "src/agent-session/acpmux/composerStrip.gallery.ts",
     "agent-pane.composer-context": "src/agent-session/acpmux/ComposerContext.gallery.tsx",
+    "agent-pane.project-chooser": "src/agent-session/acpmux/ProjectChooser.gallery.tsx",
     "agent-pane.new-tab": "src/agent-session/acpmux/newtab/NewTabScreen.gallery.ts",
   };
   const stageURL = (entry: string, variant: string) =>
@@ -558,6 +559,48 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
         const list = node.closest(".acpmux-location-folders")!.getBoundingClientRect();
         const row = node.getBoundingClientRect();
         return row.bottom <= list.bottom && row.top >= list.top;
+      }),
+    ).toBe(true);
+    await page.close();
+  });
+
+  test("a long project list without actions wheels to its last folder", async () => {
+    const page = await open("agent-pane.project-chooser", "long-no-actions", 720);
+    const list = page.locator(".acpmux-project-menu .acpmux-project-folders");
+    expect(await list.locator("[role=option]").count()).toBe(40);
+    expect(await page.locator(".acpmux-project-menu .ui-combobox-pinned").count()).toBe(0);
+    expect(await list.evaluate((node) => node.scrollHeight)).toBeGreaterThan(
+      await list.evaluate((node) => node.clientHeight),
+    );
+    await list.hover();
+    await page.mouse.wheel(0, 3000);
+    await page.waitForFunction(
+      () => {
+        const list = document.querySelector<HTMLElement>(".acpmux-project-menu .acpmux-project-folders");
+        return list != null && list.scrollTop > 0;
+      },
+      null,
+      { timeout: 1500 },
+    );
+    const last = list.locator("[role=option]").last();
+    expect(
+      await last.evaluate((node) => {
+        const row = node.getBoundingClientRect();
+        const viewport = node.closest(".acpmux-project-folders")!.getBoundingClientRect();
+        return row.top >= viewport.top && row.bottom <= viewport.bottom;
+      }),
+    ).toBe(true);
+    await list.evaluate((node) => {
+      node.scrollTop = 0;
+    });
+    await page.getByRole("combobox", { name: "Search projects" }).focus();
+    for (let index = 0; index < 40; index++) await page.keyboard.press("ArrowDown");
+    expect(await last.getAttribute("data-highlighted")).not.toBeNull();
+    expect(
+      await last.evaluate((node) => {
+        const row = node.getBoundingClientRect();
+        const viewport = node.closest(".acpmux-project-folders")!.getBoundingClientRect();
+        return row.top >= viewport.top && row.bottom <= viewport.bottom;
       }),
     ).toBe(true);
     await page.close();

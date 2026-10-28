@@ -421,6 +421,55 @@ test("an unmatched proposed project path is never checked as the private-folder 
   expect(proposed!.getAttribute("aria-current")).toBeNull();
 });
 
+for (const query of ["atlas", "/demo/atlas"]) {
+  test(`typing ${query} then Enter picks the project instead of a pinned action`, async () => {
+    const { createRoot } = await import("react-dom/client");
+    const { ProjectChooser } = await import("../src/agent-session/acpmux/ProjectChooser");
+    const calls: string[] = [];
+    root = createRoot(host);
+    await act(async () =>
+      root!.render(
+        <ProjectChooser
+          projects={[{ cwd: "/demo/atlas", label: "atlas" }]}
+          icon={null}
+          onPick={(cwd) => calls.push(cwd)}
+          onNoProject={() => calls.push("none")}
+          onBrowse={() => calls.push("browse")}
+        />,
+      ),
+    );
+    await click(host.querySelector<HTMLButtonElement>("button")!);
+    const field = document.querySelector<HTMLInputElement>("[role=combobox]")!;
+    await type(field, query);
+    await key(field, "Enter");
+    expect(calls).toEqual(["/demo/atlas"]);
+  });
+}
+
+test("folder search Enter chooses its matching project instead of a pinned action", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
+  const calls: string[] = [];
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <ComposerContext
+        sessions={[]}
+        localName="This Mac"
+        projectChoices={[{ cwd: "/demo/atlas", label: "atlas" }]}
+        onProject={(cwd) => calls.push(cwd)}
+        onNoProject={() => calls.push("none")}
+        onBrowseProject={() => calls.push("browse")}
+      />,
+    ),
+  );
+  await click(host.querySelector<HTMLButtonElement>("[aria-label=Folder]")!);
+  const field = document.querySelector<HTMLInputElement>("[role=combobox]")!;
+  await type(field, "atlas");
+  await key(field, "Enter");
+  expect(calls).toEqual(["/demo/atlas"]);
+});
+
 test("pinned picker actions precede scrolling suggestions and remain keyboard selectable", async () => {
   const { createRoot } = await import("react-dom/client");
   const { Combobox } = await import("../src/ui/Combobox");
