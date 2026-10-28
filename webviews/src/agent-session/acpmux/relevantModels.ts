@@ -45,6 +45,7 @@ function newer(a: Model, b: Model): boolean {
 export function relevantModelSections<T extends Model>(
   models: readonly T[],
   top: readonly string[] | undefined,
+  currentModel?: string,
 ): { shown: T[]; more: T[] } {
   const available = (model: T) => (model.offers ?? [model]).some((offer) => !offer.unavailable);
   const chosen = new Set<T>();
@@ -65,5 +66,14 @@ export function relevantModelSections<T extends Model>(
     }
     for (const model of families.values()) chosen.add(model);
   }
-  return { shown: [...chosen], more: models.filter((model) => !chosen.has(model)) };
+  const current = currentModel
+    ? models.find((model) => model.id === currentModel || (model.offers ?? []).some((offer) => offer.id === currentModel))
+    : undefined;
+  const currentFamily = current?.family ? familyKey(current) : undefined;
+  const shown = [...chosen].sort((a, b) => {
+    const aCurrent = currentFamily !== undefined && familyKey(a) === currentFamily;
+    const bCurrent = currentFamily !== undefined && familyKey(b) === currentFamily;
+    return Number(bCurrent) - Number(aCurrent);
+  });
+  return { shown, more: models.filter((model) => !chosen.has(model)) };
 }
