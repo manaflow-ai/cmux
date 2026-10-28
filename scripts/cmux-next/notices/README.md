@@ -60,7 +60,7 @@ install-cmux-tui-client.sh installs the binary only while bundle-map.json maps i
 CEF binaries need Chromium's `CREDITS.html` (`install-cef-credits.sh`) and
 CEF's own `LICENSE.txt` (`install-cef-license.sh`) in the embedded framework.
 
-Remote browser host: `Contents/Helpers/cmux-remote-browser-host.app` holds a pinned prebuilt
+Remote browser host: `Contents/MacOS/cmux-remote-browser-host` (with its helper apps in `Contents/Frameworks`) is a pinned prebuilt
 binary (`remote-browser-host.pin.json`) and four helper copies of it. Its Rust section
 (`rust-cmux-remote-browser-host`) comes from the crate's own Cargo.lock at the pin's
 `source_commit` (checked against `crate_tree`), which the permanent tag

@@ -32,7 +32,7 @@
 #   rust-cmux-diff-sidecar  bin/cmux-diff-sidecar            Native/DiffSidecar/Cargo.lock (this tree)
 #   rust-optchat-chief      bin/optchat-chief (nightly-next) Native/OptChat/optchat-chief/Cargo.lock (this tree)
 #   rust-mobile-host          bin/cmux-mobile-host                    cmux-next-ios/rust/Cargo.lock (this tree)
-#   rust-cmux-remote-browser-host  Helpers/cmux-remote-browser-host.app
+#   rust-cmux-remote-browser-host  MacOS/cmux-remote-browser-host
 #                           cmux-tui/crates/cmux-remote-browser-host/Cargo.lock at the
 #                           pinned binary's source_commit (remote-browser-host.pin.json)
 #   rust-iroh-ffi           Iroh.framework                   manaflow-ai/iroh-ffi at the Package.resolved revision
@@ -236,7 +236,7 @@ section rust-mobile-host "Rust crates: iPhone connection host (bin/cmux-mobile-h
   --lock "$ROOT/cmux-next-ios/rust/Cargo.lock" --lock-label "cmux-next-ios/rust/Cargo.lock" \
   --root cmux-mobile-host --workspace "$ROOT/cmux-next-ios/rust" --workspace "$ROOT/cmux-tui" --repo-root "$ROOT" \
   --first-party 'cmux-next-ios/rust/crates/*' --first-party 'cmux-tui/crates/*' --first-party 'cmux-tui/bindings/*'
-section rust-cmux-remote-browser-host "Rust crates: remote browser host (Helpers/cmux-remote-browser-host.app)" \
+section rust-cmux-remote-browser-host "Rust crates: remote browser host (MacOS/cmux-remote-browser-host)" \
   --lock "$rbh_src/$rbh_crate/Cargo.lock" --lock-label "$rbh_crate/Cargo.lock at ${rbh_rev:0:11} (the pinned binary's source)" \
   --root cmux-remote-browser-host --workspace "$rbh_src/$rbh_crate" --repo-root "$rbh_src" \
   --first-party 'cmux-tui/crates/*' --source-tag "$rbh_ref"

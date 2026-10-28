@@ -12,7 +12,7 @@ tab service) on `cmux.rd/1` (the remote desktop media protocol). The cmux-next
 app runs it for its own remote browser tabs. The parts are:
 
 - `cmux-remote-browser-host`, the CEF fork host bundled in DEV builds at
-  `Contents/Helpers/cmux-remote-browser-host.app`, which the app starts with
+  `Contents/MacOS/cmux-remote-browser-host`, which the app starts with
   `LocalRemoteBrowserHost`;
 - VideoToolbox IOSurface encode (`cmux-encode`);
 - the shared media engine (`cmux-rd-engine`: frame gate, delay-based
@@ -116,7 +116,7 @@ From there the app did everything:
 - It started its bundled `cmux-mobile-host`, built from this branch by the fleet,
   which registered in the personal space.
 - On the phone's request it started its own bundled
-  `Contents/Helpers/cmux-remote-browser-host.app` (CEF fork). That process's
+  `Contents/MacOS/cmux-remote-browser-host` (CEF fork). That process's
   parent is the `cmux DEV` app process.
 
 There was no standalone helper or test host. A python `http.server` on

@@ -1103,7 +1103,7 @@ unchanged, for each rustc that built one of its binaries:
 
 - `Contents/Resources/toolchain-licenses/rust-1.95.0/COPYRIGHT-library.html`:
   `bin/cmux`, `bin/cmux-tui-ssh/*`, `bin/cmux-app-host`, `bin/cmux-cloud`,
-  `bin/cmux-mobile-host` and `Helpers/cmux-remote-browser-host.app`
+  `bin/cmux-mobile-host` and `MacOS/cmux-remote-browser-host`
 - `Contents/Resources/toolchain-licenses/rust-1.91.0/COPYRIGHT-library.html`:
   iroh-ffi (`Iroh.framework`; Release builds merge its code into the app binary)
 - `Contents/Resources/toolchain-licenses/rust-1.98.1/COPYRIGHT-library.html`:
