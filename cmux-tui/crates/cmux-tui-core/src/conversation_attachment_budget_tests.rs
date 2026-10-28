@@ -57,7 +57,7 @@ fn upload(store: &mut ConversationStore, conversation: &str, data: &[u8]) -> Str
 fn attachment_budget_admits_uploads_and_keeps_fresh_and_referenced_bytes() {
     let scratch = Scratch::new();
     let (mut store, conversation) = setup(&scratch.0);
-    store.attachments.storage_cap = 1;
+    store.attachments.storage_budget = 1;
     let live = upload(&mut store, &conversation, b"live attachment");
     store
         .connection
@@ -99,21 +99,45 @@ fn attachment_budget_admits_uploads_and_keeps_fresh_and_referenced_bytes() {
 #[test]
 fn attachment_budget_accepts_sparse_original_larger_than_default_budget() {
     let scratch = Scratch::new();
-    let (mut store, _) = setup(&scratch.0);
-    let size = DEFAULT_STORAGE_CAP + 1;
+    let (mut store, conversation) = setup(&scratch.0);
+    let size = DEFAULT_STORAGE_BUDGET + 1;
     let source = scratch.0.join("original.bin");
     let mut file = fs::File::create(&source).unwrap();
     file.set_len(size).unwrap();
     file.seek(SeekFrom::Start(size - 1)).unwrap();
     file.write_all(b"Z").unwrap();
     // Admission uses the file's logical length, without loading or copying it.
-    store.make_room(fs::metadata(&source).unwrap().len()).unwrap();
+    store.warn_storage_budget(fs::metadata(&source).unwrap().len()).unwrap();
     assert_eq!(fs::metadata(&source).unwrap().len(), size);
     let mut file = fs::File::open(&source).unwrap();
     file.seek(SeekFrom::Start(size - 1)).unwrap();
     let mut last = [0];
     file.read_exact(&mut last).unwrap();
     assert_eq!(last, *b"Z");
+    // A persisted sparse original reads at u64 offsets in bounded chunks. Keep
+    // its source intact; only the private fixture gets linked into the blob store.
+    let hash = "a".repeat(64);
+    fs::hard_link(&source, scratch.0.join(ATTACHMENTS_DIRECTORY).join(&hash)).unwrap();
+    store.connection.execute(
+        "INSERT INTO attachment_record(conversation, hash, mime_type, byte_count, uploaders_json, created_at_ms)
+         VALUES(?1, ?2, 'application/octet-stream', ?3, ?4, 0)",
+        params![conversation, hash, size, r#"["user_local"]"#],
+    ).unwrap();
+    store
+        .connection
+        .execute(
+            "INSERT INTO attachment_ref VALUES(?1, ?2, 'message_sparse')",
+            params![conversation, hash],
+        )
+        .unwrap();
+    upload(&mut store, &conversation, b"next upload");
+    let read = store
+        .attachment_read("user_local", &conversation, &hash, Piece::Original, size - 1, usize::MAX)
+        .unwrap();
+    assert_eq!(read.data, b"Z");
+    assert!(read.eof);
+    assert_eq!(read.byte_count, size);
+    assert_eq!(fs::metadata(&source).unwrap().len(), size);
 }
 
 #[test]
