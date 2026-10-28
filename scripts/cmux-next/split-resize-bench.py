@@ -15,11 +15,12 @@ With --variants=live,hold,synced each `browserResize.dragResize` value runs in i
 same build, back to back, through a Debug Settings override file (CMUX_NEXT_DEBUG_TUNABLES_FILE).
 resizeSync is #26595's mode; a build without it reads the override as unknown and runs its default.
 With --pages=probe,heavy each variant also runs once per page (split_resize.HEAVY_PAGE: a long page
-whose every width is a real relayout), each in its own launch. Every launch also records one drag
+whose every width is a real relayout), each in its own launch. --drag-hz=120,480 runs each of those once per
+pointer event rate (events a drag sends per second), each in its own launch. Every launch also records one drag
 out and back (debug.window_record JPEG frames under its folder's record/).
 
 Usage: split-resize-bench.py --app APP --out DIR [--json PATH] [--tag TAG] [--variants=live,hold,synced,resizeSync]
-                             [--pages=probe,heavy]
+                             [--pages=probe,heavy] [--drag-hz=120,480]
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ parser.add_argument("--tag")
 # (live: AsyncLiveResize, the behaviour before cmux#25842; hold; synced: AsyncLiveResize off).
 parser.add_argument("--variants", default="")
 parser.add_argument("--pages", default="probe")
+parser.add_argument("--drag-hz", default="120")
 opts, _ = parser.parse_known_args()
 VARIANTS = ("live", "hold", "synced", "resizeSync")
 variants = [v for v in opts.variants.split(",") if v] or [None]
@@ -53,6 +55,9 @@ pages = [page for page in opts.pages.split(",") if page] or ["probe"]
 for page in pages:
     if page not in ("probe", "heavy"):
         sys.exit(f"--pages: {page!r} is not one of probe, heavy")
+rates = [float(hz) for hz in opts.drag_hz.split(",") if hz]
+if not rates or any(not 30 <= hz <= 2000 for hz in rates):
+    sys.exit(f"--drag-hz: {opts.drag_hz!r} is not a list of rates from 30 to 2000")
 
 out = Path(opts.out)
 out.mkdir(parents=True, exist_ok=True)
@@ -84,7 +89,7 @@ def recording_frames(folder: Path, count: int = 24) -> list[dict]:
     return shown
 
 
-def measure(variant: str | None, folder: Path, page: str = "probe") -> dict:
+def measure(variant: str | None, folder: Path, page: str = "probe", hz: float = 120) -> dict:
     """One launch: the harness's drags and its recording drag, judged."""
     folder.mkdir(parents=True, exist_ok=True)
     env = {}
@@ -93,14 +98,14 @@ def measure(variant: str | None, folder: Path, page: str = "probe") -> dict:
         tunables.write_text(json.dumps({"version": 1, "values": {"browserResize.dragResize": variant}}))
         env["CMUX_NEXT_DEBUG_TUNABLES_FILE"] = str(tunables)
     app = BenchApp(opts.app, out=str(folder), env=env, window=(80, 80, 1100, 720))
-    report: dict = {"variant": variant, "page": page}
+    report: dict = {"variant": variant, "page": page, "drag_hz": hz}
     try:
         app.launch()
         driver = golden.Driver(app.socket, folder)
         driver.call("debug.motion", {"action": "speed", "value": "fast"})
         driver.call("debug.motion", {"action": "reduce", "value": False})
         split_resize.drive(driver, folder, strip=True, page_kind=page, pid=app.process.pid if app.process else None,
-                           record=True)
+                           record=True, drag_hz=hz)
         data = json.loads((folder / "split_resize.json").read_text())
         refresh = next((float(d.get("refresh_ms") or 0) for d in data.get("drags") or [] if float(d.get("refresh_ms") or 0) > 0),
                        1000 / 60)
@@ -111,18 +116,19 @@ def measure(variant: str | None, folder: Path, page: str = "probe") -> dict:
                             "png": strip_png(folder / shot["path"])} for shot in (data.get("strip") or [])[:20]]
         report["recorded"] = data.get("recorded")
         report["recording"] = recording_frames(folder)
-        print(f"[{variant or 'default'} {page}] " + split_resize.markdown_row(report))
+        print(f"[{variant or 'default'} {page} {hz:g} Hz] " + split_resize.markdown_row(report))
         print("SPLIT-RESIZE " + json.dumps({k: v for k, v in report.items() if k not in ("drags", "strip", "log")}))
     except (Exception, SystemExit) as error:  # one variant's failure (BenchApp's launch error is a SystemExit) still reports the others
         report["error"] = repr(error)
-        print(f"[{variant or 'default'} {page}] failed: {error!r}")
+        print(f"[{variant or 'default'} {page} {hz:g} Hz] failed: {error!r}")
     finally:
         app.stop()
     return report
 
 
-reports = [measure(variant, out / ((variant or "default") + ("" if page == "probe" else f"-{page}")), page)
-           for variant in variants for page in pages]
+reports = [measure(variant, out / ((variant or "default") + ("" if page == "probe" else f"-{page}")
+                                   + ("" if hz == 120 else f"-{hz:g}hz")), page, hz)
+           for variant in variants for page in pages for hz in rates]
 result = reports[0] if len(reports) == 1 else {"variants": reports}
 if opts.json:
     Path(opts.json).parent.mkdir(parents=True, exist_ok=True)

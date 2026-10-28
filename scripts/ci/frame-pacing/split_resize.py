@@ -29,6 +29,9 @@ reports, per drag:
 - `cpu`: with the app's pid, CPU ms the app's main thread, the whole app and its Chromium
   helpers (renderer, GPU, other) spent over the drag, and the main thread's ms per drag step.
 
+`drag_hz` is how many pointer events a drag sends per second (120 by default; a gaming mouse
+or a high-rate trackpad sends 500 or more, several per display frame).
+
 `page="heavy"` opens HEAVY_PAGE instead of the probe: the same recorder over a long page of
 wrapping text, a table and a grid, so each width costs Chromium a real relayout (a long
 docs page or a pull request diff), not the probe's 30 boxes.
@@ -133,7 +136,7 @@ def _page(sample: dict) -> list | None:
 
 
 def drive(driver, out: Path, strip: bool = False, page_kind: str = "probe", pid: int | None = None,
-          record: bool = False) -> None:
+          record: bool = False, drag_hz: float = 120) -> None:
     """Splits right, opens the probe (or HEAVY_PAGE) in the right pane, then traces four divider drags.
 
     `strip`: then one more drag, held open while `debug.window_snapshot` takes the window every
@@ -180,9 +183,10 @@ def drive(driver, out: Path, strip: bool = False, page_kind: str = "probe", pid:
     y = float(divider[2]) + float(divider[4]) / 2
 
     def drag(dx: float, steps: int = STEPS) -> dict:
-        """The divider pressed once at (x, y), then one drag event per 120 Hz frame, then released."""
+        """The divider pressed once at (x, y), then one drag event every 1/drag_hz s, then released."""
         nonlocal x
-        period = 1 / 120
+        steps = max(steps, round(steps * drag_hz / 120))
+        period = 1 / drag_hz
         before = cpu_snapshot(pid)
         down = driver.call("debug.mouse", {"action": "down", "x": x, "y": y})
         began = time.monotonic()
@@ -237,7 +241,7 @@ def drive(driver, out: Path, strip: bool = False, page_kind: str = "probe", pid:
         shots.append({"step": "landed", "path": path.name,
                       "result": driver.call("debug.window_snapshot", {"kind": "main", "path": str(path)}, timeout=20)})
     driver.save("split_resize", {"drags": drags, "split": split, "opened": opened, "strip": shots, "page": page_kind,
-                                 "recorded": recorded})
+                                 "recorded": recorded, "drag_hz": drag_hz})
 
 
 # The recording drag: a window snapshot every this many of its 96 moves (16 frames, then one after it landed).
