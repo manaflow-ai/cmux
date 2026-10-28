@@ -51,6 +51,16 @@ public nonisolated struct TerminalLinkOpener: Sendable, Hashable {
         return Decision(target: defaultTarget, rule: nil)
     }
 
+    /// ``decide(_:callers:)``, then a sign-in or device-code page that no rule matched opens in
+    /// cmux whatever ``defaultTarget`` says, when `routing` keeps sign-in pages in cmux
+    /// (``LinkRouting/keepsSignInPageInCmux(_:)``, `browser.openSignInPagesInCmux`). A rule is the
+    /// person's explicit choice and still wins; any other link keeps the default.
+    public func decide(_ url: URL, callers: [String], routing: LinkRouting) -> Decision {
+        let decision = decide(url, callers: callers)
+        guard decision.rule == nil, routing.keepsSignInPageInCmux(url) else { return decision }
+        return Decision(target: .cmux, rule: nil)
+    }
+
     static func parse(_ root: JSONValue) -> (TerminalLinkOpener, [SettingsDiagnostic]) {
         var setting = fallback
         var diagnostics: [SettingsDiagnostic] = []

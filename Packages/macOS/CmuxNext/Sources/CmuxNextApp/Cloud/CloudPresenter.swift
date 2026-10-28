@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCloudCredentials
 import CmuxNextDesign
+import CmuxNextPages
 import os
 
 /// Cloud results as toasts and Cloud questions as cmux dialogs, on the
@@ -172,7 +173,7 @@ enum CloudPresenter {
 
     @MainActor static func presentCodexDeviceCode(_ prompt: CloudCodexLoginPrompt, in window: NSWindow) async -> Bool {
         await presentCodexDeviceCode(prompt, in: .window(window), center: .shared,
-                                     open: { NSWorkspace.shared.openInBackground($0) })
+                                     open: { LinkRouter.shared.open($0) }) // a cmux tab: browser.openSignInPagesInCmux
     }
 
     @MainActor static func presentCodexDeviceCode(_ prompt: CloudCodexLoginPrompt, in scope: CmuxDialogScope,

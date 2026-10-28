@@ -13,13 +13,21 @@ Every cmux-next terminal starts with:
 
 - `BROWSER=cmux-open-url`, unless `BROWSER` is already set. Tools that honor
   `BROWSER` (Python `webbrowser`, so the AWS CLI and gcloud; gh) run it. A
-  `BROWSER` you set in your shell startup files wins.
+  `BROWSER` you set in your shell startup files wins, except `BROWSER=open`
+  (also `/usr/bin/open` or `xdg-open`), which names no browser: prezto's stock
+  `.zprofile` exports it whenever `BROWSER` is unset, so the shims treat it as
+  unset.
 - The app's `Contents/Resources/bin` first on `PATH` (kept first after your
   startup files). It holds `open` and `xdg-open` shims. `open` with only http(s)
   URLs (optionally `-g`, `-W`, `--`) goes to `cmux-open-url`; files, folders,
   apps (`open -a`) and every other option go to `/usr/bin/open` unchanged. When
   `BROWSER` is set to something other than `cmux-open-url`, every `open` goes to
   `/usr/bin/open`.
+
+Agents that cmux starts (agent chats, Chief and its subagents, through acpmux)
+get the same `BROWSER` and `PATH`, so a sign-in page an agent's tool opens
+(`gh auth login`, `aws sso login`, a script's `open <url>`) opens in cmux too,
+also inside the `zsh -lc` that Codex and Claude Code run each command in.
 
 `cmux-open-url` passes the URL on stdin (never in argv) to `cmux open --link -`
 with the names of the processes that asked (the program and its parents, such
@@ -65,6 +73,27 @@ Settings > Terminal > Opening Links, or `~/.config/cmux/cmux.json`:
   profile's folder name, such as `Default` or `Profile 1`) and to Firefox (`-P`).
   Other apps ignore it.
 
+## Sign-in pages
+
+Sign-in and device-code pages open in a cmux browser tab, where your cmux
+browser passkeys and saved passwords work, even when other links go elsewhere
+(`"browser.openSignInPagesInCmux": true`, the default). A sign-in page is an
+http(s) URL with a path segment such as `device`, `login`, `signin`, `oauth`,
+`authorize` or `auth`, a sign-in host (`login.*`, `signin.*`, `accounts.*`,
+`device.sso.*`) or a `user_code` query item: GitHub's device page, the Codex and
+OpenCode device codes, AWS SSO, Google and Microsoft sign-ins.
+
+- It wins over `terminal.linkOpener.default`, `browser.openLinksInCmuxBrowser`
+  and `browser.hostsToOpenInEmbeddedBrowser`. A `terminal.linkOpener` rule that
+  matches and `browser.urlsToAlwaysOpenExternally` still win.
+- cmux's own device-code prompts (Set Up GitHub on a Cloud machine, the Codex
+  sign-in for a Cloud owner VM) open the page the same way.
+- Turn it off in Settings > Browser > Opening Links, with the palette's
+  "Sign-In Pages: Follow Link Settings" (and "Sign-In Pages: Open in cmux
+  Browser" to turn it on), or `cmux settings sign-in-pages-follow-link-settings`
+  / `cmux settings open-sign-in-pages-in-cmux`. Off, a sign-in page goes where
+  any other link would.
+
 ## The command hook
 
 `command:<shell command>` runs in the terminal's shell environment (its `PATH`
@@ -100,7 +129,8 @@ esac
 | Go `pkg/browser`, `cli/browser` | `open` on `PATH` | yes |
 | Claude Code (`claude` sign-in) | Node `open` package | yes |
 | Shell scripts calling `open <url>` / `xdg-open <url>` | `PATH` shims | yes |
-| Programs that run `/usr/bin/open` by absolute path, or LaunchServices directly (Rust `webbrowser`/`open` crates, so the Codex CLI's sign-in; native macOS apps) | not through `PATH` or `BROWSER` | no: they open the default browser; copy the printed URL |
+| coderouter (`coderouter login`, OpenCode Go device code) | `BROWSER`, else the system browser | yes |
+| Programs that run `/usr/bin/open` by absolute path, or LaunchServices directly (Rust `webbrowser`/`open` crates, so the Codex CLI's own sign-in; native macOS apps) | not through `PATH` or `BROWSER` | no: they open the default browser; copy the printed URL |
 
 ## Turning it off
 
