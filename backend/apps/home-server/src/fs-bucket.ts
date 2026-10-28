@@ -1,7 +1,6 @@
 import { createHash, randomBytes } from "node:crypto"
 import { createReadStream, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { open } from "node:fs/promises"
-import { Readable } from "node:stream"
 import { dirname, join, relative, sep } from "node:path"
 
 /** What the attachment code reads back from a stored object (the R2 subset it uses). */
@@ -239,7 +238,7 @@ export class FsBucket {
       }
     }
     length = Math.max(0, Math.min(length, meta.size - offset))
-    const body = length === 0 ? new Blob().stream() : Readable.toWeb(createReadStream(this.path(key), { start: offset, end: offset + length - 1 })) as ReadableStream<Uint8Array>
+    const body = Bun.file(this.path(key)).slice(offset, offset + length).stream()
     return this.object(key, meta, body, options.range ? { offset, length } : undefined)
   }
 
