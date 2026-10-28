@@ -49,6 +49,14 @@ struct ComputerUseFrameCornersTests {
         #expect(ComputerUseFrameCorners.clearingCorners(try Self.windowFrame(fill: 0)) == nil)
     }
 
+    /// The corner walk read past the pixels of a frame one pixel high or wide and crashed the app.
+    @Test func aBlackFrameOnePixelHighOrWideStaysAsItIs() throws {
+        for (width, height) in [(180, 1), (1, 180), (1, 1), (2, 2)] {
+            let data = try Self.windowFrame(width: width, height: height, radius: 0, fill: 0)
+            #expect(ComputerUseFrameCorners.clearingCorners(data) == nil)
+        }
+    }
+
     @Test func dataThatIsNotAnImageStaysAsItIs() {
         #expect(ComputerUseFrameCorners.clearingCorners(Data([0, 1, 2])) == nil)
     }
