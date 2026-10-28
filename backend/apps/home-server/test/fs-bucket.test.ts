@@ -72,4 +72,52 @@ describe("self-hosted attachment bucket", () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it("completes only from a parts list in ascending order, without duplicates, of parts it stored with their etags", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      const upload = await bucket.createMultipartUpload("home/v1/ordered")
+      const one = await upload.uploadPart(1, "one,")
+      const two = await upload.uploadPart(2, "two,")
+      const three = await upload.uploadPart(3, "three")
+      const wrongEtag = "0".repeat(32)
+      const refused: Array<[Array<{ partNumber: number; etag: string }>, RegExp]> = [
+        [[], /InvalidPart/],
+        [[two, one, three], /InvalidPartOrder/],
+        [[one, one, two, three], /InvalidPartOrder/],
+        [[one, three, two], /InvalidPartOrder/],
+        [[one, two, three, { partNumber: 4, etag: three.etag }], /InvalidPart/],
+        [[one, { partNumber: 2, etag: wrongEtag }, three], /InvalidPart/],
+        [[one, { partNumber: 2, etag: three.etag }, three], /InvalidPart/],
+        [[{ partNumber: 0, etag: one.etag }, two, three], /InvalidPart/],
+        [[{ partNumber: 1.5, etag: one.etag }, two, three], /InvalidPart/],
+        [[one, two, { partNumber: "3/../../escape" as unknown as number, etag: three.etag }], /InvalidPart/]
+      ]
+      for (const [parts, error] of refused) {
+        await expect(upload.complete(parts)).rejects.toThrow(error)
+        // A refused completion writes no object and leaves the upload open.
+        expect(await bucket.head("home/v1/ordered")).toBeNull()
+      }
+      expect(readdirSync(root).filter((name) => name !== ".multipart" && name !== "home")).toEqual([])
+      expect(readdirSync(join(root, "home", "v1"))).toEqual([])
+
+      // Quoted etags, as an HTTP client echoes them, match the stored part.
+      const done = await upload.complete([one, { partNumber: 2, etag: `"${two.etag}"` }, three])
+      expect(done.size).toBe("one,two,three".length)
+      expect(await new Response((await bucket.get("home/v1/ordered"))!.body!).text()).toBe("one,two,three")
+      expect(readdirSync(join(root, ".multipart"))).toEqual([])
+
+      // A completion may leave out parts that were stored, as R2 allows; the rest are discarded.
+      const gaps = await bucket.createMultipartUpload("home/v1/gaps")
+      const a = await gaps.uploadPart(1, "a")
+      await gaps.uploadPart(2, "dropped")
+      const c = await gaps.uploadPart(5, "c")
+      await gaps.complete([a, c])
+      expect(await new Response((await bucket.get("home/v1/gaps"))!.body!).text()).toBe("ac")
+      expect(readdirSync(join(root, ".multipart"))).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
