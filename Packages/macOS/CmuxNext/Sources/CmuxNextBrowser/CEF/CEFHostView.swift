@@ -269,7 +269,11 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil { dropHold() }
+        if window == nil {
+            dropHold()
+            // A container leaving the window (its tab closed or moved mid-drag) may never hear the drag's end.
+            endSyncedDrag()
+        }
         guard let tab else { return }
         tab.pageThemeDidChange()
         // A tab parked hidden in its pane (PaneContentView+Parking) shows
@@ -376,8 +380,7 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
     /// the new size, up to a bounded deadline (`CEFLayerHosting.paneResizeDrag`).
     func paneResizeGestureDidChange(active: Bool) {
         guard active else {
-            for hosting in syncedDragHostings { hosting.paneResizeDrag(active: false) }
-            syncedDragHostings = []
+            endSyncedDrag()
             guard heldPageSize != nil else { return }
             dropHold()
             layoutContent()
@@ -399,11 +402,23 @@ final class CEFTabContentView: NSView, PaneMotionSettling, PaneResizeGestureFoll
         layer?.backgroundColor = tab.host.hostView.pageSeeThrough ? nil : tab.pageBackdropColor
     }
 
-    /// Every page window over this pane waits for its frame at each size of the drag.
+    /// Every page window over this pane waits for its frame at each size of the drag: the pane's shared one from
+    /// every tab container (a tab switch mid-drag stays synced), a docked DevTools' only from the shown tab's (a
+    /// parked tab's DevTools window draws nothing, so it would only spend the wait).
     private func startSyncedDrag() {
         guard syncedDragHostings.isEmpty, window != nil, let tab else { return }
-        syncedDragHostings = [tab.host.hostView.layerHosting] + [tab.devToolsController.views?.host.layerHosting].compactMap { $0 }
+        syncedDragHostings = [tab.host.hostView.layerHosting]
+        if !isHiddenOrHasHiddenAncestor, let devTools = tab.devToolsController.views?.host.layerHosting {
+            syncedDragHostings.append(devTools)
+        }
         for hosting in syncedDragHostings { hosting.paneResizeDrag(active: true) }
+    }
+
+    /// Hands back this container's share of a resize-sync drag.
+    private func endSyncedDrag() {
+        let hostings = syncedDragHostings
+        syncedDragHostings = []
+        for hosting in hostings { hosting.paneResizeDrag(active: false) }
     }
 
     /// A plain page shown here: no docked DevTools, side panel or device fit, which place the page themselves.

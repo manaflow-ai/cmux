@@ -345,15 +345,35 @@ import Testing
         #expect(fake.syncs.map(\.timeoutMs) == [8, 30, 8])
     }
 
-    /// One start and one end reach the fork, however often a listener repeats them.
-    @Test func aRepeatedStartOrEndMakesNoForkCall() {
+    /// Every tab container of the pane shares the page window and tells its own start and end: the wait lasts
+    /// until the last one ended (a parked container's early end does not cut the shown one's landing short).
+    @Test func theDragLastsUntilTheLastContainerEnded() {
         let hosting = makeHosting(enabled: false)
         hosting.pageWindowCreated(browser: 4, fork: fake.fork)
         hosting.paneResizeDrag(active: true)
         hosting.paneResizeDrag(active: true)
         hosting.paneResizeDrag(active: false)
+        #expect(hosting.inPaneDrag)
+        #expect(fake.syncs.map(\.timeoutMs) == [30])
         hosting.paneResizeDrag(active: false)
+        hosting.paneResizeDrag(active: false)
+        #expect(!hosting.inPaneDrag, "an end with no start is ignored")
         #expect(fake.syncs.map(\.timeoutMs) == [30, 0])
+    }
+
+    /// Review 1 of cmux#26037: a pane's only tab closed mid-drag; its container never heard the end, and the next
+    /// page window of the pane took the drag's wait for every later resize. A closed page window ends it.
+    @Test func aClosedPageWindowDoesNotPassTheDragsWaitToTheNextOne() {
+        let hosting = makeHosting(enabled: false)
+        hosting.pageWindowCreated(browser: 4, fork: fake.fork)
+        hosting.paneResizeDrag(active: true)
+        hosting.stop()
+        hosting.pageWindowCreated(browser: 9, fork: fake.fork)
+        #expect(!hosting.inPaneDrag)
+        #expect(fake.syncs.map(\.browser) == [4, 4])
+        #expect(fake.syncs.map(\.timeoutMs) == [30, 0])
+        hosting.paneResizeDrag(active: false)
+        #expect(fake.syncs.count == 2, "the closed tab's late end changes nothing")
     }
 
     /// The wait never passes half the shortest display frame: 4 ms once a display runs at 120 Hz.

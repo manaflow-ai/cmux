@@ -100,8 +100,11 @@ final class CEFLayerHosting {
     private var appliedDeadlineMs: Int32 = 0
     /// The window is in a live resize (``windowLiveResize(active:)``).
     private var inLiveResize = false
-    /// A person drags the view's pane in resize sync (``paneResizeDrag(active:)``).
-    private(set) var inPaneDrag = false
+    /// Tab containers that told a resize-sync drag of the view's pane and have not told its end
+    /// (``paneResizeDrag(active:)``): every tab of a pane shares this page window.
+    private(set) var paneDragHolders = 0
+    /// A person drags the view's pane in resize sync.
+    var inPaneDrag: Bool { paneDragHolders > 0 }
 
     /// Runs a block later on the main actor.
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
@@ -216,9 +219,13 @@ final class CEFLayerHosting {
     /// so the app's frame still commits by its display link's target time) for its frame at the pane's new size, and
     /// shows it in the same frame as its pane. After it a hosted page goes back to its pane deadline and a page
     /// window to none. Below fork API 27 nothing reaches the fork: the page lays out live.
+    ///
+    /// Each tab container of the pane tells its own start and end (a parked container leaves early, the shown one
+    /// lands), so the drag lasts until the last of them ended; an end with no start is ignored.
     func paneResizeDrag(active: Bool) {
-        guard active != inPaneDrag else { return }
-        inPaneDrag = active
+        let wasDragging = inPaneDrag
+        paneDragHolders = active ? paneDragHolders + 1 : max(0, paneDragHolders - 1)
+        guard inPaneDrag != wasDragging else { return }
         syncDeadline()
     }
 
@@ -233,6 +240,8 @@ final class CEFLayerHosting {
     /// hosting off for the browser and drops the hosted view.
     func stop() {
         pending = .none
+        // The page window closed: a drag's wait does not pass to the next one (an end that comes later is ignored).
+        paneDragHolders = 0
         if page != nil, let fork, let browser {
             forkCalls += 1
             _ = fork.setLayerHosting(browser, false)

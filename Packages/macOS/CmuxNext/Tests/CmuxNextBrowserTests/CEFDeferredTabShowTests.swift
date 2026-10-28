@@ -209,9 +209,10 @@ import Testing
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, first, container) = try Self.liveHost(runtime)
+        // In the app the tab's own content view is the pane's container (`CEFTabContentView.viewDidMoveToWindow`).
         let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
-        window.contentView?.addSubview(container)
+        window.contentView?.addSubview(first.container)
 
         TabSpyShim.resizeSyncs = []
         first.container.paneResizeGestureDidChange(active: true)
@@ -228,14 +229,35 @@ import Testing
         #expect(TabSpyShim.resizeSyncs.last?.timeoutMs == 0, "a page in its own window stops waiting when the drag lands")
     }
 
+    /// Review 1 of cmux#26037: a container that leaves its window mid-drag (its tab closed or moved) may never hear
+    /// the drag's end, which the listener holds weakly; it hands its share back as it leaves.
+    @Test func aContainerLeavingItsWindowMidDragEndsItsWait() throws {
+        Self.setDragResize(.resizeSync)
+        defer { Self.setDragResize(nil) }
+        let (runtime, root) = try Self.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, first, container) = try Self.liveHost(runtime)
+        // In the app the tab's own content view is the pane's container (`CEFTabContentView.viewDidMoveToWindow`).
+        let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(first.container)
+
+        first.container.paneResizeGestureDidChange(active: true)
+        #expect(host.hostView.layerHosting.inPaneDrag)
+        first.container.removeFromSuperview()
+        #expect(!host.hostView.layerHosting.inPaneDrag)
+        #expect(first.container.syncedDragHostings.isEmpty)
+    }
+
     /// Every other mode leaves the page window's wait alone.
     @Test func aDragInAnotherModeMakesNoPageWindowWait() throws {
         let (runtime, root) = try Self.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, first, container) = try Self.liveHost(runtime)
+        // In the app the tab's own content view is the pane's container (`CEFTabContentView.viewDidMoveToWindow`).
         let window = NSWindow(contentRect: container.frame, styleMask: .borderless, backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
-        window.contentView?.addSubview(container)
+        window.contentView?.addSubview(first.container)
         defer { Self.setDragResize(nil) }
         TabSpyShim.resizeSyncs = []
         for mode in [BrowserDragResize.live, .hold, .synced] {
