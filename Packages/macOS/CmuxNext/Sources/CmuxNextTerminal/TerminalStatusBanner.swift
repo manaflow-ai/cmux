@@ -6,6 +6,8 @@ import CmuxNextDesign
 /// secondary text, no accent.
 final class TerminalStatusBanner: NSView {
     private let label = ThemedLabel(labelWithString: "")
+    /// Speaks a new message to VoiceOver (tests record it).
+    var announce: @MainActor (String) -> Void = { _ in }
 
     init() {
         super.init(frame: .zero)
