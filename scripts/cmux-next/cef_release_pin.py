@@ -3,7 +3,7 @@
 (plans/cmux-next/chrome-parity/p01-process.md, task 178: one fork release train, pinned once).
 
   cef_release_pin.py pin TAG [--repo manaflow-ai/cef] [--min-api N] [--accept-missing-api N,N]
-                         [--fork-branch NAME] [--manifest PATH] [--from DIR --ref SHA]
+                         [--fork-branch NAME] [--debug-symbols NAME] [--manifest PATH] [--from DIR --ref SHA]
   cef_release_pin.py check [--manifest PATH] [--min-api N] [--keys]
 
 `pin` reads the release TAG (its SHA256SUMS, and cef_cmux.h and CHROMIUM_BUILD_COMPATIBILITY.txt at
@@ -11,7 +11,9 @@ the tag's commit) and writes a whole manifest: the arm64 artifact at the top lev
 object, each with its debug (dSYM) asset, and nothing of an earlier pin (a staging pin's `staging`
 object and R2 keys go). It refuses a release that lacks one of the four assets
 (<tag>-macos-<arch>.tar.xz and <tag>-macos-<arch>-debug.tar.xz, or -dsym.tar.xz) and a header below
---min-api (default 31). The app gates fork features with `>= N`, so a fork line that skips a number
+--min-api (default: the app's own floor, kMinForkAPI of the Chromium host's chromium_host_wire.h; the
+host exits on an older fork). --debug-symbols NAME records the Chromium dSYM archive each arch's dist
+holds at its top (`debug_symbols`, which embed-cef.sh keeps beside a Release build). The app gates fork features with `>= N`, so a fork line that skips a number
 passes a gate it does not implement: when the header's history skips numbers up to its
 CMUX_CEF_API_VERSION, --accept-missing-api must name exactly those numbers and the manifest records
 them in `missing_api`. --from DIR reads SHA256SUMS, cef_cmux.h and CHROMIUM_BUILD_COMPATIBILITY.txt
@@ -46,11 +48,23 @@ API_ENTRY_RE = re.compile(r"^// {1,3}(\d+)[: ]")
 API_DEFINE_RE = re.compile(r"^#define CMUX_CEF_API_VERSION (\d+)\s*$", re.M)
 CHROMIUM_RE = re.compile(r"'chromium_checkout':\s*'refs/tags/([0-9.]+)'")
 DEFAULT_MANIFEST = Path(__file__).resolve().parent / "cef-manifest.json"
-DEFAULT_MIN_API = 31
+HOST_WIRE = Path(__file__).resolve().parents[2] / "Packages/macOS/CmuxNext/ChromiumHost/src/chromium_host_wire.h"
+MIN_FORK_API_RE = re.compile(r"^inline constexpr int kMinForkAPI = (\d+);", re.M)
 
 
 class PinError(Exception):
     """A release or manifest that cannot be pinned; the message says which and why."""
+
+
+def app_min_api() -> int:
+    """The oldest fork API the app runs: the Chromium host's kMinForkAPI (it exits on an older fork)."""
+    try:
+        match = MIN_FORK_API_RE.search(HOST_WIRE.read_text())
+    except OSError as error:
+        raise PinError(f"cannot read the app's fork API floor in {HOST_WIRE}: {error}") from None
+    if not match:
+        raise PinError(f"{HOST_WIRE} has no `inline constexpr int kMinForkAPI = N;`")
+    return int(match.group(1))
 
 
 def api_of(header: str) -> tuple[int, list[int]]:
@@ -114,7 +128,7 @@ def github_inputs(repo: str, tag: str) -> tuple[str, str, str, str]:
 
 
 def build_manifest(tag: str, repo: str, sums: str, header: str, compat: str, ref: str, *, min_api: int,
-                   accept_missing: list[int], fork_branch: str | None) -> dict:
+                   accept_missing: list[int], fork_branch: str | None, debug_symbols: str | None = None) -> dict:
     match = TAG_RE.fullmatch(tag)
     if not match:
         raise PinError(f"tag {tag!r} is not cef-<x.y.z>-cmux.<n>")
@@ -136,6 +150,8 @@ def build_manifest(tag: str, repo: str, sums: str, header: str, compat: str, ref
     manifest = {"version": tag, "cef": match.group(1), "chromium": chromium.group(1), "arch": "arm64",
                 "repo": repo, "tag": tag, "asset": arm["asset"], "url": url + arm["asset"],
                 "sha256": arm["sha256"], "debug_asset": arm["debug_asset"], "debug_sha256": arm["debug_sha256"]}
+    if debug_symbols:
+        manifest["debug_symbols"] = debug_symbols
     if fork_branch:
         manifest["fork_branch"] = fork_branch
     manifest.update({"fork_ref": ref, "cmux_cef_api_version": api})
@@ -143,6 +159,8 @@ def build_manifest(tag: str, repo: str, sums: str, header: str, compat: str, ref
         manifest["missing_api"] = missing
     manifest["x86_64"] = {"asset": x86["asset"], "sha256": x86["sha256"], "url": url + x86["asset"],
                           "debug_asset": x86["debug_asset"], "debug_sha256": x86["debug_sha256"], "fork_ref": ref}
+    if debug_symbols:
+        manifest["x86_64"]["debug_symbols"] = debug_symbols
     manifest["require_dcheck_off"] = True
     return manifest
 
@@ -191,7 +209,8 @@ def main(argv: list[str]) -> int:
     pin = sub.add_parser("pin")
     pin.add_argument("tag")
     pin.add_argument("--repo", default="manaflow-ai/cef")
-    pin.add_argument("--min-api", type=int, default=DEFAULT_MIN_API)
+    pin.add_argument("--min-api", type=int)
+    pin.add_argument("--debug-symbols", help="the dSYM archive at the top of each arch's dist")
     pin.add_argument("--accept-missing-api", default="")
     pin.add_argument("--fork-branch")
     pin.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
@@ -199,10 +218,11 @@ def main(argv: list[str]) -> int:
     pin.add_argument("--ref")
     check = sub.add_parser("check")
     check.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
-    check.add_argument("--min-api", type=int, default=DEFAULT_MIN_API)
+    check.add_argument("--min-api", type=int)
     check.add_argument("--keys", action="store_true")
     args = parser.parse_args(argv)
     try:
+        min_api = args.min_api if args.min_api is not None else app_min_api()
         if args.command == "pin":
             accept = [int(n) for n in args.accept_missing_api.split(",") if n.strip()]
             if args.source:
@@ -212,15 +232,16 @@ def main(argv: list[str]) -> int:
                                ("SHA256SUMS", "cef_cmux.h", "CHROMIUM_BUILD_COMPATIBILITY.txt")) + (args.ref,)
             else:
                 inputs = github_inputs(args.repo, args.tag)
-            manifest = build_manifest(args.tag, args.repo, *inputs, min_api=args.min_api,
-                                      accept_missing=accept, fork_branch=args.fork_branch)
+            manifest = build_manifest(args.tag, args.repo, *inputs, min_api=min_api,
+                                      accept_missing=accept, fork_branch=args.fork_branch,
+                                      debug_symbols=args.debug_symbols)
             args.manifest.write_text(json.dumps(manifest, indent=2) + "\n")
             print(f"==> pinned {args.tag} (fork API {manifest['cmux_cef_api_version']}, "
                   f"{manifest['fork_ref'][:12]}) in {args.manifest}; next: publish-cef-r2.sh {args.tag} "
                   f"--manifest {args.manifest}", file=sys.stderr)
             return 0
         manifest = json.loads(args.manifest.read_text())
-        findings, keys = check_manifest(manifest, args.min_api)
+        findings, keys = check_manifest(manifest, min_api)
         for finding in findings:
             print(f"FAIL {args.manifest}: {finding}", file=sys.stderr)
         if findings:
