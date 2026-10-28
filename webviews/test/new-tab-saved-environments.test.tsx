@@ -119,7 +119,7 @@ async function mount({
   runMode?: { mode: "persistent" | "sandboxed"; onMode(mode: "persistent" | "sandboxed"): void };
   /// The machines the widget asked to reconnect.
   reconnects?: string[];
-  /// acpmux lists devbox as down (offline) rather than connected.
+  /// acpmux says devbox is down (offline); otherwise no peer states are pushed.
   devboxDown?: boolean;
 } = {}) {
   const { createRoot } = await import("react-dom/client");
@@ -167,7 +167,7 @@ async function mount({
         snapshot={noChat([], {
           peers: ["devbox", "cloud-1"],
           peerKinds: { devbox: "ssh", "cloud-1": "cloud" },
-          peerStates: { devbox: devboxDown ? "offline" : "connected", "cloud-1": "connected" },
+          ...(devboxDown ? { peerStates: { devbox: "offline" } } : {}),
         })}
         {...(machines ? { pageWidgets: new Set(["machines"] as const) } : {})}
         {...(runMode ? { runMode, onSandbox: () => true } : {})}
