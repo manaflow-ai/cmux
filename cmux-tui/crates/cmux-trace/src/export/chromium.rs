@@ -371,8 +371,11 @@ fn counters<'a>(
             name.push_str(&format!(" {id}"));
         }
         if series.len() > 1 || key != "value" {
+            if url_filter::is_url_text(key) {
+                builder.stats.chromium_urls_stripped += 1;
+            }
             name.push('.');
-            name.push_str(key);
+            name.push_str(url_filter::scrub(key));
         }
         let parts: [&[u8]; 3] = [b"chromium-counter", &pid.to_le_bytes(), name.as_bytes()];
         let track = builder.tracks.insert(uuid_of(&parts), || Track {
@@ -417,12 +420,12 @@ fn metadata(builder: &mut Builder, event: &Value<'_>, pid: i64, tid: i64) -> boo
 }
 
 /// `args` as debug annotations with inline names: numbers, booleans and strings as themselves,
-/// nested values as their JSON, and each URL-like value as `__stripped__` ([`url_filter`]).
+/// nested values as their JSON, and each URL-like name or value as `__stripped__` ([`url_filter`]).
 fn write_args(message: &mut Message, args: Option<&Value<'_>>) {
     let Some(entries) = args.and_then(Value::as_object) else { return };
     for (key, value) in entries {
         message.message(field::EVENT_DEBUG_ANNOTATIONS, |annotation| {
-            annotation.string(field::ANNOTATION_NAME, key);
+            annotation.string(field::ANNOTATION_NAME, url_filter::scrub(key));
             if url_filter::is_url_key(key) {
                 annotation.string(field::ANNOTATION_STRING, url_filter::STRIPPED);
                 return;

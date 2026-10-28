@@ -900,15 +900,20 @@ fn export_estimated_instant_is_marked() {
 }
 
 /// URLs planted every way a Chromium trace carries one: `url`, `src` and `href` args, a data URI,
-/// a `scheme://` string under another name, nested members, an event name and a process label.
+/// a `scheme://` string under another name, nested members, an event name, a process label, an
+/// argument name, a nested member name and a counter series name; and non-ASCII text that is no
+/// URL and stays as written.
 const CHROMIUM_URLS: &str = r##"[
  {"ph":"M","pid":7,"tid":7,"name":"process_name","args":{"name":"Renderer"}},
+ {"ph":"M","pid":7,"tid":1,"name":"thread_name","args":{"name":"Thréad • 主"}},
  {"ph":"M","pid":7,"tid":7,"name":"process_labels","args":{"labels":"https://planted.example/label"}},
  {"ph":"X","pid":7,"tid":1,"ts":1,"dur":2,"cat":"navigation","name":"Navigate","args":{"url":"https://planted.example/a?q=1","src_file":"a.cc"}},
  {"ph":"i","pid":7,"tid":1,"ts":2,"cat":"blink","name":"Load","s":"t","args":{"src":"/relative/planted.png","href":"#planted","URL":"about:planted"}},
  {"ph":"i","pid":7,"tid":1,"ts":3,"cat":"blink","name":"Image","s":"t","args":{"image":"data:image/png;base64,cGxhbnRlZA==","note":"see wss://planted.example/ws"}},
  {"ph":"i","pid":7,"tid":1,"ts":4,"cat":"loading","name":"Frame","s":"t","args":{"data":{"frame":"F1","documentURL":"https://planted.example/doc","children":["chrome-extension://planted/x.js","kept"]}}},
- {"ph":"i","pid":7,"tid":1,"ts":5,"cat":"loading","name":"Fetch https://planted.example/name","s":"t"}
+ {"ph":"i","pid":7,"tid":1,"ts":5,"cat":"loading","name":"Fetch https://planted.example/name","s":"t"},
+ {"ph":"i","pid":7,"tid":1,"ts":6,"cat":"blink","name":"日本語のページ","s":"t","args":{"title":"abcdé • 🙂","https://planted.example/key":"v","m":{"wss://planted.example/nested":1,"ok":"Tab • x"}}},
+ {"ph":"C","pid":7,"tid":1,"ts":7,"name":"Mem","args":{"https://planted.example/series":5,"used":3}}
 ]"##;
 
 #[test]
@@ -920,7 +925,7 @@ fn export_filter_planted_urls_are_absent() {
             "{planted:?} reached the export"
         );
     }
-    assert_eq!(stats.chromium_urls_stripped, 10);
+    assert_eq!(stats.chromium_urls_stripped, 13);
     let parsed = parse(&trace);
     let navigate = parsed.events.iter().find(|event| event.name == "Navigate").unwrap();
     assert_eq!(
@@ -941,6 +946,31 @@ fn export_filter_planted_urls_are_absent() {
         )]
     );
     assert!(parsed.events.iter().any(|event| event.name == "__stripped__"), "the URL name");
+    let page = parsed.events.iter().find(|event| event.name == "日本語のページ").unwrap();
+    assert_eq!(
+        page.args,
+        [
+            ("title".to_owned(), "string abcdé • 🙂".to_owned()),
+            ("__stripped__".to_owned(), "string v".to_owned()),
+            ("m".to_owned(), r#"json {"__stripped__":1,"ok":"Tab • x"}"#.to_owned())
+        ],
+        "a URL name is stripped; non-ASCII text that is no URL stays"
+    );
+    let mut counters: Vec<String> = parsed
+        .events
+        .iter()
+        .filter(|event| event.kind == COUNTER)
+        .map(|event| track_name(&parsed, event.track).unwrap())
+        .filter(|name| name.starts_with("Mem."))
+        .collect();
+    counters.sort();
+    assert_eq!(counters, ["Mem.__stripped__", "Mem.used"], "a URL series name is stripped");
+    assert!(
+        parsed.tracks.values().any(|track| track
+            .msg(TD_THREAD)
+            .is_some_and(|thread| thread.text(5).as_deref() == Some("Thréad • 主"))),
+        "a non-ASCII thread name stays"
+    );
 }
 
 #[test]

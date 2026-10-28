@@ -10,8 +10,9 @@
 //! - a string that starts with `data:` (a data URI) or holds a `scheme://` anywhere.
 //!
 //! Nested objects and arrays are filtered member by member and written again as JSON; a value
-//! with nothing to strip keeps its text as Chromium wrote it. Event and track names that look like
-//! a URL are stripped the same way.
+//! with nothing to strip keeps its text as Chromium wrote it. Event and track names, argument
+//! names, nested member names and counter series names that look like a URL are stripped the same
+//! way.
 
 use crate::json::Value;
 
@@ -29,8 +30,8 @@ pub(super) fn is_url_key(key: &str) -> bool {
 
 /// Whether `text` is a data URI or holds a `scheme://` URL.
 pub(super) fn is_url_text(text: &str) -> bool {
-    let trimmed = text.trim_start();
-    if trimmed.len() >= 5 && trimmed[..5].eq_ignore_ascii_case("data:") {
+    let head = text.trim_start().as_bytes().get(..5);
+    if head.is_some_and(|head| head.eq_ignore_ascii_case(b"data:")) {
         return true;
     }
     let bytes = text.as_bytes();
@@ -58,23 +59,26 @@ pub(super) fn scrub(text: &str) -> &str {
     if is_url_text(text) { STRIPPED } else { text }
 }
 
-/// How many values of `args` the filter strips.
+/// How many names and values of `args` the filter strips.
 pub(super) fn stripped_in(args: Option<&Value<'_>>) -> u64 {
     let Some(entries) = args.and_then(Value::as_object) else { return 0 };
-    entries
-        .iter()
-        .map(|(key, value)| if is_url_key(key) { 1 } else { stripped_values(value) })
-        .sum()
+    entries.iter().map(|(key, value)| stripped_member(key, value)).sum()
+}
+
+/// An object member's stripped count: one for a name that is URL text, then one for the whole
+/// value under a URL name (`url`, `src`), else what the value holds.
+fn stripped_member(key: &str, value: &Value<'_>) -> u64 {
+    let name = u64::from(is_url_text(key));
+    name + if is_url_key(key) { 1 } else { stripped_values(value) }
 }
 
 fn stripped_values(value: &Value<'_>) -> u64 {
     match value {
         Value::String(text) => u64::from(is_url_text(text)),
         Value::Array(items, _) => items.iter().map(stripped_values).sum(),
-        Value::Object(entries, _) => entries
-            .iter()
-            .map(|(key, value)| if is_url_key(key) { 1 } else { stripped_values(value) })
-            .sum(),
+        Value::Object(entries, _) => {
+            entries.iter().map(|(key, value)| stripped_member(key, value)).sum()
+        }
         Value::Null | Value::Bool(_) | Value::Number(_) => 0,
     }
 }
@@ -112,7 +116,7 @@ fn write_json(out: &mut String, value: &Value<'_>) {
                 if index > 0 {
                     out.push(',');
                 }
-                write_string(out, key);
+                write_string(out, scrub(key));
                 out.push(':');
                 if is_url_key(key) {
                     write_string(out, STRIPPED);
@@ -170,10 +174,23 @@ mod tests {
             "loading blob:https://example.com/1 now",
             "file:///Users/me/secret.txt",
             "a+b.c-d://host",
+            "日本語 https://example.com/ページ",
         ] {
             assert!(is_url_text(text), "{text}");
         }
-        for text in ["a.cc", "://no-scheme", "1://digit-first", "metadata: 3", "Renderer", ""] {
+        for text in [
+            "a.cc",
+            "://no-scheme",
+            "1://digit-first",
+            "metadata: 3",
+            "Renderer",
+            "",
+            "日本語のページ",
+            "abcdé",
+            "Tab • x",
+            "  é",
+            "🙂🙂",
+        ] {
             assert!(!is_url_text(text), "{text}");
         }
     }
@@ -192,6 +209,20 @@ mod tests {
         assert_eq!(json::parse(&out).unwrap().get("frame").and_then(Value::as_str), Some("F1"));
         let clean = json::parse(r#"{"a":[1,"b"]}"#).unwrap();
         assert_eq!(nested_json(&clean), None, "a clean value keeps its own text");
+    }
+
+    #[test]
+    fn export_filter_url_member_names() {
+        let parsed =
+            json::parse(r#"{"m":{"https://e.com/k":1,"ok":"日本語"},"l":[{"ws://h":"v"}]}"#)
+                .unwrap();
+        assert_eq!(stripped_values(&parsed), 2);
+        assert_eq!(
+            nested_json(&parsed).expect("the names are stripped"),
+            r#"{"m":{"__stripped__":1,"ok":"日本語"},"l":[{"__stripped__":"v"}]}"#
+        );
+        let args = json::parse(r#"{"https://e.com/a":"x","file://u/frame_url":"y"}"#).unwrap();
+        assert_eq!(stripped_in(Some(&args)), 3, "each name, and the value under a src name");
     }
 
     #[test]
