@@ -195,7 +195,8 @@ struct EternalTerminalCommandBuilderTests {
         #expect(EternalTerminalOptions(serverPort: 0) == nil)
         #expect(EternalTerminalOptions(serverPort: 65_536) == nil)
         #expect(EternalTerminalOptions(terminalPath: " ") == nil)
-        #expect(EternalTerminalOptions(tunnels: ["80:80\n"]) == nil)
+        #expect(EternalTerminalOptions(tunnels: ["80\n:80"]) == nil)
+        #expect(EternalTerminalOptions(tunnels: [" 80:80\n"])?.tunnels == ["80:80"])
         #expect(EternalTerminalOptions.default.clientArguments == ["--port", "2022"])
 
         let options = try #require(EternalTerminalOptions(serverPort: 2400, terminalPath: "/opt/et", tunnels: ["1:2"]))
