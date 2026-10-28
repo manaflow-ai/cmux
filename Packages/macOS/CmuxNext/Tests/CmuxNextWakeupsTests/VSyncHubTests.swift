@@ -105,7 +105,7 @@ import Testing
         let posts = MainPosts()
         let hub = VSyncHub(makeLink: links.make, postToMain: posts.post)
         defer { hub.stopThreads() }
-        let displays = DisplayClock(hub: hub, displayOf: { _ in 1 }, clock: ManualClock())
+        let displays = DisplayClock(hub: hub, displayOf: { _ in 1 }, isAsleep: { _ in false }, clock: ManualClock())
         let scheduler = FrameScheduler(name: "window", host: .screen, displays: displays, budget: nil)
         var mainTicks: [CFTimeInterval] = []
         let client = FrameClient(owner: "spring", on: scheduler) { tick in
@@ -218,7 +218,7 @@ import Testing
         let hub = VSyncHub(makeLink: factory.make, postToMain: { _ in })
         defer { hub.stopThreads() }
         let time = ClockTime()
-        let displays = DisplayClock(hub: hub, displayOf: { _ in nil }, clock: ManualClock(), mediaTime: time.read)
+        let displays = DisplayClock(hub: hub, displayOf: { _ in nil }, isAsleep: { _ in false }, clock: ManualClock(), mediaTime: time.read)
         let scheduler = FrameScheduler(name: "headless", host: .screen, displays: displays, budget: nil)
         let client = FrameClient(owner: "daemon mirror", on: scheduler) { _ in true }
         client.activate()
@@ -242,7 +242,7 @@ import Testing
         let hub = VSyncHub(makeLink: links.make, postToMain: { _ in })
         defer { hub.stopThreads() }
         let time = ClockTime()
-        let displays = DisplayClock(hub: hub, displayOf: { _ in 1 }, clock: ManualClock(), mediaTime: time.read)
+        let displays = DisplayClock(hub: hub, displayOf: { _ in 1 }, isAsleep: { _ in false }, clock: ManualClock(), mediaTime: time.read)
         let scheduler = FrameScheduler(name: "window", host: .screen, displays: displays, budget: nil)
         let client = FrameClient(owner: "spring", on: scheduler) { _ in true }
         let offMain = CallbackLog()
