@@ -96,7 +96,7 @@ if ((${#changed[@]})); then
     for path in "${changed[@]}" "${stale[@]}" "${EXPORTS[@]}"; do
       if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else restore_absent "$path"; fi
     done
-    for file in "${present[@]}"; do cp "$temp/head/$file" "$file"; done
+    for file in ${present[@]+"${present[@]}"}; do cp "$temp/head/$file" "$file"; done
     if build > "$temp/head-build.log" 2>&1; then return 0; fi
     cat "$temp/head-build.log" >&2
     echo "::error::the package could not be rebuilt from HEAD's sources; removing its built products so that nothing runs against the base's binaries" >&2
