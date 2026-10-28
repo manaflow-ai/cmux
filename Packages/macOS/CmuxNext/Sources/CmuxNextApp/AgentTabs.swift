@@ -39,6 +39,10 @@ final class AgentTabStore {
     var lookup: @MainActor (String) -> (record: AgentSessionRef, store: DaemonStore)? = { _ in nil }
     /// The pane holding tab `key` and its daemon (New side chat opens its fork there first).
     var locate: @MainActor (String) -> (pane: PaneID, daemon: DaemonService)? = { _ in nil }
+    /// The existing right pane for a chat, if one is present in the same workspace. Beside opens
+    /// use this before creating a split so header documents and inspector links share LinkOpener's
+    /// right-column target.
+    var rightPane: @MainActor (String) -> PaneID? = { _ in nil }
     /// Main pane layout (``MainPaneLayout``): opens what chat tab `chat` opens beside it (through
     /// `open`, focused with `focus`) in the column on the chat's right, then `created` and
     /// `finished` as ``openBeside`` calls them. Nil when the chat is not its screen's main pane:
