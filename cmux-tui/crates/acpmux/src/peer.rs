@@ -120,6 +120,9 @@ pub struct Peer {
     /// Wakes this peer's running GitHub actions when lending ends (`githubBroker` off, the link
     /// ended, the peer stopped), so they stop then rather than run on.
     github_revoked: tokio::sync::Notify,
+    /// The cmux sign-in the app lent this daemon, for an App token when `gh` has no keyring
+    /// login (`github_app_token.rs`); set once by the hub.
+    github_app: std::sync::OnceLock<Arc<crate::github_app_token::AppLease>>,
     /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
     file_put: AtomicBool,
     /// It lists `filePutChunks` (`hub/file_uploads.rs`).
@@ -204,6 +207,7 @@ impl Peer {
             github_slots: crate::github_broker::owner_slots(name),
             github_link: AtomicU64::new(0),
             github_revoked: tokio::sync::Notify::new(),
+            github_app: std::sync::OnceLock::new(),
             file_put: AtomicBool::new(false),
             file_put_chunks: AtomicBool::new(false),
             media_read: AtomicBool::new(false),
@@ -473,6 +477,11 @@ impl Peer {
         self.github_broker.load(Ordering::SeqCst) && lends_over(&self.url)
     }
 
+    /// The hub's lent cmux sign-in (`github_app_token.rs`).
+    pub fn set_github_app(&self, app: Arc<crate::github_app_token::AppLease>) {
+        let _ = self.github_app.set(app);
+    }
+
     /// Whether the link `link` (the epoch it was read on) takes a GitHub action now: lent, the
     /// peer not stopped, `link` still the live one, and its handshake finished with the peer
     /// serving this daemon as a peer (not Web), so nothing sent before or around it is.
@@ -509,8 +518,9 @@ impl Peer {
             if !me.github_ready(epoch) {
                 return;
             }
+            let app = me.github_app.get().map(Arc::as_ref);
             let reply = tokio::select! {
-                reply = crate::github_broker::serve_owner(&me.name, params) => reply,
+                reply = crate::github_broker::serve_owner(&me.name, params, app) => reply,
                 () = &mut revoked => {
                     let Err(e) = crate::github_broker::admit_owner(&me.name, false, &me.github_slots) else {
                         return;
