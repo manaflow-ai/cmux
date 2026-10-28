@@ -22,6 +22,7 @@ struct CloudGitHubAppTests {
         (200, #"{"connection":{"status":"active"}}"#, .unknown),
         (200, #"{"configured":true,"app_slug":"","connection":{"status":"active"}}"#, .unknown),
         (200, #"{"configured":true,"connection":{"status":"active"}}"#, .unknown),
+        (200, #"{"configured":true,"app_slug":" \n","connection":{"status":"active"}}"#, .unknown),
         (200, "not json", .unknown),
         (502, "", .unknown),
     ])

@@ -175,7 +175,8 @@ nonisolated enum CloudGitHubSetup {
 
     /// The App's git helper (`cmux github setup`, which replaces any helper git had for github.com),
     /// when the machine's Cloud agent socket is there to mint its tokens and `cmux` has the verb;
-    /// prints `cmux-gh: app`. Else `cmux-app: unavailable`, and the device flow follows.
+    /// prints `cmux-gh: app`. Else `cmux-app: unavailable` (no agent socket or no `cmux`: an older image)
+    /// or `cmux-app: failed` (the helper did not go in), and the device flow follows.
     static let appCommand = CloudGitHubSetup.appCommand(at: agentSocket)
 
     /// The Cloud agent's socket on the machine, which `cmux github` asks for each token.
@@ -183,10 +184,12 @@ nonisolated enum CloudGitHubSetup {
 
     static func appCommand(at socket: String) -> String {
         [
-            "if [ -S \(shellQuote(socket)) ] && command -v cmux >/dev/null 2>&1 && cmux github setup >/dev/null 2>&1; then",
-            "  echo 'cmux-gh: app'; exit 0",
+            "if [ -S \(shellQuote(socket)) ] && command -v cmux >/dev/null 2>&1; then",
+            "  if cmux github setup >/dev/null 2>&1; then echo 'cmux-gh: app'; exit 0; fi",
+            "  echo 'cmux-app: failed'",
+            "else",
+            "  echo 'cmux-app: unavailable'",
             "fi",
-            "echo 'cmux-app: unavailable'",
         ].joined(separator: "\n")
     }
 
@@ -277,7 +280,8 @@ nonisolated enum CloudGitHubSetup {
             default: continue
             }
         }
-        guard exitCode == 0 else { return Outcome(identity: identity == .set ? .set : .failed, gitHub: .failed, appNotOnMachine: notOnMachine) }
+        // A run that did not finish says nothing sure about the machine: its fallback reason is unknown.
+        guard exitCode == 0 else { return Outcome(identity: identity == .set ? .set : .failed, gitHub: .failed) }
         return Outcome(identity: identity, gitHub: gitHub, deviceCode: code, appNotOnMachine: notOnMachine)
     }
 

@@ -164,7 +164,7 @@ struct CloudGitHubSetupTests {
 
     /// The helper line, run by a real `/bin/sh` with a stand-in `cmux`: the App when the Cloud agent's
     /// socket is there and `cmux github setup` succeeds, else `unavailable` and the device flow follows.
-    @Test(arguments: [(true, 0, "cmux-gh: app\n"), (false, 0, "cmux-app: unavailable\n"), (true, 1, "cmux-app: unavailable\n")])
+    @Test(arguments: [(true, 0, "cmux-gh: app\n"), (false, 0, "cmux-app: unavailable\n"), (true, 1, "cmux-app: failed\n")])
     func theHelperIsUsedOnlyWithTheAgentAndAWorkingCmux(socket: Bool, cmuxExit: Int, expected: String) throws {
         let root = URL(fileURLWithPath: "/tmp/cn-gh-app-\(UUID().uuidString.prefix(8))")
         let bin = root.appendingPathComponent("bin")
@@ -178,7 +178,7 @@ struct CloudGitHubSetupTests {
         defer { if listener >= 0 { Darwin.close(listener) } }
         let script = CloudGitHubSetup.appCommand(at: path) + "\necho 'cmux-gh: logged_in'"
         let ran = try Self.run("/bin/sh", ["-c", script], environment: ["PATH": bin.path + ":/usr/bin:/bin", "SEEN": seen.path])
-        #expect(ran.output == expected + (expected.contains("unavailable") ? "cmux-gh: logged_in\n" : ""))
+        #expect(ran.output == expected + (expected.hasPrefix("cmux-app:") ? "cmux-gh: logged_in\n" : ""))
         let called = (try? String(contentsOf: seen, encoding: .utf8)) ?? ""
         #expect(called == (socket ? "github setup\n" : ""))
     }
@@ -205,6 +205,11 @@ struct CloudGitHubSetupTests {
         // A run that never said whether the machine has the App (a failed exec) is not `notOnMachine`.
         let failed = CloudGitHubSetup.parse(exitCode: 124, stdout: "")
         #expect(CloudGitHubSetup.fallback(.ready, failed) == .unknown)
+        // Nor one that said so and then timed out, nor a helper that failed to go in.
+        let timedOut = CloudGitHubSetup.parse(exitCode: 124, stdout: "cmux-git: set\ncmux-app: unavailable\n")
+        #expect(CloudGitHubSetup.fallback(.ready, timedOut) == .unknown)
+        let helperFailed = CloudGitHubSetup.parse(exitCode: 0, stdout: "cmux-git: set\ncmux-app: failed\ncmux-gh: logged_in\n")
+        #expect(CloudGitHubSetup.fallback(.ready, helperFailed) == .unknown)
         let summary = CloudGitHubSetup.summary(unavailable, fallback: .notConnected)
         #expect(summary.hasPrefix(CloudStrings.gitHubFallback(.notConnected)))
         #expect(summary.hasSuffix(CloudStrings.gitHubEnterCode("AB12-CD34")))
