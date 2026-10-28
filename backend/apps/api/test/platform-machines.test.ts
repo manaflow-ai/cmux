@@ -98,6 +98,24 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(warm.value.id).not.toBe(machine)
   })
 
+  it("a user who left the team can no longer boot, exec or snapshot, but its cleanup still deletes the builder", async () => {
+    const c = { user: caller().user, team: SHARED_TEAM }
+    const stub = cloudStub(SHARED_TEAM)
+    await inDO(stub, async (instance) => {
+      instance.creatorIsMember = async () => true
+    })
+    const name = nameOf()
+    const booted = await rpc.boot(c, name)
+    expect(booted).toMatchObject({ ok: true })
+    await inDO(stub, async (instance) => {
+      instance.creatorIsMember = async () => false
+    })
+    expect(await rpc.boot(c, nameOf())).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(await rpc.exec(c, booted.value.id, "true", null, 1000)).toMatchObject({ ok: false, code: "auth.forbidden" })
+    expect(await rpc.find(c, name)).toEqual({ ok: true, value: { id: booted.value.id } })
+    expect(await rpc.destroy(c, booted.value.id)).toEqual({ ok: true, value: { deleted: true } })
+  })
+
   it("refuses a user who may not use the team's machines, and a team without a plan", async () => {
     const c = caller()
     const stub = cloudStub(SHARED_TEAM)

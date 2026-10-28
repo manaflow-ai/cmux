@@ -13,10 +13,11 @@ import type { SnapshotRow } from "./domains/cloud-snapshot.ts"
  * quotas, the per-team limit and the provider-call ledger apply exactly as for a person's machine.
  *
  * The principal is the named user in the named team, with its own identity (`platform:<user>`) so
- * its idempotency keys never meet the person's. Every call first checks that the user may use the
- * team's machines (personal team, or a member with team.resources now). Exec, snapshot and delete
- * reach only machines a platform boot of the same user made (the row's `platform` flag), never a
- * person's own machine. Exec runs as the image's work user, never root.
+ * its idempotency keys never meet the person's. Boot, exec and snapshot first check that the user may
+ * use the team's machines (personal team, or a member with team.resources now); find and delete do
+ * not, so cleanup outlives a departure. Exec, snapshot and delete reach only machines a platform boot
+ * of the same user made (the row's `platform` flag), never a person's own machine. Exec runs as the
+ * image's work user, never root.
  */
 
 /** Shown in the team's machine and snapshot lists. */
@@ -72,7 +73,10 @@ const snapshotReply = (s: SnapshotRow | undefined): PlatformReply<{ id: string }
       : refused("cloud.snapshot.failed", "the snapshot failed", false)
 
 export const platformCall = async (host: PlatformHost, user: string, call: PlatformCall): Promise<PlatformReply> => {
-  if (!(await host.mayUse(user).catch(() => false))) return refused("auth.forbidden", "this user may not use the team's machines", false)
+  // Find and delete reach only this user's own platform boots, and a delete only stops cost: both work
+  // after the user lost access to the team, so a setup's cleanup always deletes its builder.
+  const cleanup = call.op === "find" || call.op === "destroy"
+  if (!cleanup && !(await host.mayUse(user).catch(() => false))) return refused("auth.forbidden", "this user may not use the team's machines", false)
   const p = platformPrincipal(host.team, user)
   const submit = (op: string, params: unknown, k: string) => host.submit(p, { t: "op", op, params, idempotency_key: k, origin: "script" }).then(replyOf)
   /** A machine this user's platform boots made, or a refusal (another person's machine is not found). */
