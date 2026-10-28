@@ -41,11 +41,7 @@ export function GitHubAccountsCard() {
               <span className="row-title">{connection.account}</span>
               <p className="row-help">{connection.status}</p>
               <p className="row-help">{connection.permissions.join(" · ")}</p>
-              {confirming === connection.id && (
-                <p className="row-help" role="status">
-                  {github.confirm}
-                </p>
-              )}
+              {confirming === connection.id && <output className="row-help">{github.confirm}</output>}
             </div>
             <div className="accounts-body">
               <div className="accounts-buttons">

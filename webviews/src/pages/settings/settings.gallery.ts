@@ -1192,7 +1192,7 @@ variants["github-connect-confirm"] = variant("accounts", {
   play: async (ctx) => {
     await ctx.waitFor(() => ctx.document.querySelector('[data-github-action="disconnect"]'));
     await ctx.click({ selector: '[data-github-action="disconnect"]' });
-    await ctx.waitFor(() => ctx.document.querySelector('[data-card="github-connection"] [role="status"]'));
+    await ctx.waitFor(() => ctx.document.querySelector('[data-card="github-connection"] output'));
   },
 });
 
