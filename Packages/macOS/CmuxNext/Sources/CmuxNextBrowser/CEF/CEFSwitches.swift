@@ -122,6 +122,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         result.append("cmux-pump-time-slice-us=\(Self.pumpTimeSliceMicroseconds)")
         result.append(contentsOf: Self.chromePromptOffSwitches)
         result.append(Self.syncOffSwitch)
+        result.append(Self.componentUpdaterDelaySwitch)
         // One entry each: the shim merges them into CEF's own lists (CEFShim/src/command_line_switches.h),
         // and Chromium passes the lists to every child process.
         result.append("enable-features=" + enabledFeatures.joined(separator: ","))
@@ -371,6 +372,15 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// and owns the bookmarks tree; password code reads a null sync service as "not syncing"
     /// (password_sync_util.cc GetPasswordSyncState), and the fork's generation switch needs no sync.
     static let syncOffSwitch = "disable-sync"
+
+    /// The component updater's first check 300 s after Chromium starts, not Chromium's 60 s
+    /// (components/component_updater/configurator_impl.cc InitialDelay; the `initial-delay` value of
+    /// `--component-updater`, component_updater_command_line_config_policy.cc). The updater stays on (Widevine,
+    /// CRLSet, the rest: perf-lead.md "Chrome runtime idle services"); only its first check moves. In process the
+    /// app's main thread is Chromium's UI thread, and that check downloaded 60-100 MB of components through
+    /// `SimpleURLLoader` reads on it in a launch's second minute: the pump woke main 14-26 times a second
+    /// (first-seconds bench, 2026-10-28). Later checks keep Chromium's 5 h period.
+    static let componentUpdaterDelaySwitch = "component-updater=initial-delay=300"
 
     /// `EnableHangWatcher` and `EnableHangWatcherOnGpuProcess` (base/threading/hang_watcher.cc): a
     /// HangWatcher thread in each Chromium process (the app is the browser process) wakes every 10 s
