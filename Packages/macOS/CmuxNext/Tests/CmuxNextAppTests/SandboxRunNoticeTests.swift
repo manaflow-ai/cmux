@@ -113,6 +113,51 @@ struct SandboxRunNoticeTests {
         #expect(ends.all.map(\.record.id) == ["r2"])
     }
 
+    @Test func aCancelNotedBeforeTheFollowStartsStillTellsNothing() async throws {
+        let server = Server()
+        await server.script("r1", [.success(Self.cancelled)])
+        let (follower, ends) = follower(server, defaults: try defaults())
+        // `runs.cancel` can win the race with the send's hand-off to the follower.
+        follower.noteCancel("r1")
+        _ = try await follower.follow(record("r1"))
+        #expect(ends.all.isEmpty)
+    }
+
+    @Test func aBodyThatIsNoRunSnapshotIsNeverAnEnd() {
+        func read(_ body: String) -> String {
+            switch SandboxRunFollower.read(Data(body.utf8)) {
+            case .running: "running"
+            case .unreadable: "unreadable"
+            case .ended(let outcome, _): outcome.rawValue
+            }
+        }
+        #expect(read(#"{"run":{}}"#) == "unreadable")
+        #expect(read(#"{"run":{"status":"weird"}}"#) == "unreadable")
+        #expect(read(#"[]"#) == "unreadable")
+        #expect(read(#"{"run":{"status":"failed"},"receipt":{}}"#) == "unreadable")
+        // A terminal status before its receipt is written: the Run's end is the receipt.
+        #expect(read(#"{"run":{"status":"failed"},"receipt":null}"#) == "running")
+        #expect(read(Self.running) == "running")
+        #expect(read(Self.succeeded) == "succeeded")
+        #expect(read(Self.cancelled) == "cancelled")
+        #expect(read(#"{"run":{"status":"failed"},"receipt":{"status":"failed","timedOut":true}}"#) == "timedOut")
+        #expect(read(#"{"run":{"status":"failed"},"receipt":{"status":"failed","timedOut":false}}"#) == "failed")
+    }
+
+    @Test func anEndedRunsCardOutlivesARelaunch() async throws {
+        let server = Server()
+        await server.script("r1", [.success(Self.succeeded)])
+        let defaults = try defaults()
+        let (first, _) = follower(server, defaults: defaults)
+        _ = try await first.follow(record())
+        let (relaunched, _) = follower(server, defaults: defaults)
+        let ended = try #require(relaunched.endedRun("r1"))
+        #expect(ended.key == "key-r1" && ended.task == "Fix the flaky test\nthen push")
+        let card = try #require(ended.card.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        #expect((card["receipt"] as? [String: Any])?["status"] as? String == "succeeded")
+        #expect(card["run"] == nil)
+    }
+
     @Test func aFailedWaitAnswersTheSendButTheFollowGoesOnToTheNotice() async throws {
         let server = Server()
         await server.script("r1", [.failure(.transport("offline")), .success(Self.succeeded)])

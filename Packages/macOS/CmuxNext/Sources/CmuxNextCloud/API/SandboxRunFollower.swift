@@ -1,33 +1,6 @@
 public import Foundation
 import CmuxNextWakeups
 
-/// A sandboxed Run this app handed off (hq#3367), as the follower keeps it across a relaunch.
-public nonisolated struct SandboxRunRecord: Codable, Hashable, Sendable {
-    public var id: String
-    /// The task as the person wrote it.
-    public var task: String
-    /// The page's attempt key (the create's idempotency key): which tab's send this Run is.
-    public var key: String
-    /// The signed-in user that created it: only that user's session may read it.
-    public var user: String
-    /// The team the create went to; the waits go there too.
-    public var team: String?
-    public var started: Date
-
-    public init(id: String, task: String, key: String, user: String, team: String?, started: Date) {
-        (self.id, self.task, self.key, self.user, self.team, self.started) = (id, task, key, user, team, started)
-    }
-}
-
-/// How a followed Run ended.
-public nonisolated struct SandboxRunEnd: Sendable {
-    public enum Outcome: String, Sendable { case succeeded, failed, timedOut, cancelled }
-    public var record: SandboxRunRecord
-    public var outcome: Outcome
-    /// The terminal snapshot (`{run, attempts, artifacts, receipt}`) as the server sent it.
-    public var snapshot: Data
-}
-
 /// The app's one waiter on each sandboxed Run it handed off, whatever happens to the tab that sent
 /// it (closed, reloaded) and across a relaunch. Each Run gets one long-poll of `GET /api/runs/:id/wait`
 /// (the server holds a call up to 10 s; there is no push), and the tab's send awaits that same wait
@@ -59,10 +32,12 @@ public final class SandboxRunFollower {
     private let clock: any Clock<Duration>
     private var records: [String: SandboxRunRecord] = [:]
     /// Runs that ended here, newest last (bounded): a late ``follow(_:)`` of one never tells it again.
-    private var ended: [String] = []
+    private var ended: [SandboxRunEnded] = []
     private var polls: [String: Task<Void, Never>] = [:]
     private var waiters: [String: [UUID: CheckedContinuation<Data, any Error>]] = [:]
-    private var cancelledHere: Set<String> = []
+    /// Runs this app asked to cancel, newest last (bounded), noted before or after their follow
+    /// starts: a cancel that races the send's hand-off still ends silently.
+    private var cancelledHere: [String] = []
     private var user: String?
 
     public init(wait: @escaping Wait, defaults: UserDefaults = .standard, now: @escaping @MainActor () -> Date = { Date() },
@@ -79,6 +54,9 @@ public final class SandboxRunFollower {
 
     /// The Runs in flight, oldest first.
     public var following: [SandboxRunRecord] { records.values.sorted { $0.started < $1.started } }
+
+    /// The Run `id` that ended here, if it is still kept.
+    public func endedRun(_ id: String) -> SandboxRunEnded? { ended.last { $0.id == id } }
 
     /// Whether a poll runs for `id` (tests).
     public func isPolling(_ id: String) -> Bool { polls[id] != nil }
@@ -101,7 +79,7 @@ public final class SandboxRunFollower {
     /// snapshot. An error of a wait (or a 200 that is no Run snapshot) answers this call with
     /// `timedOut`, as the send's own poll did, while the follow goes on for the notification.
     public func follow(_ record: SandboxRunRecord) async throws -> Data {
-        if records[record.id] == nil, !ended.contains(record.id) {
+        if records[record.id] == nil, endedRun(record.id) == nil {
             records[record.id] = record
             trim()
             save()
@@ -124,7 +102,9 @@ public final class SandboxRunFollower {
 
     /// This app asked the server to cancel Run `id` (the person's own action): it ends silently.
     public func noteCancel(_ id: String) {
-        if records[id] != nil { cancelledHere.insert(id) }
+        guard !cancelledHere.contains(id) else { return }
+        cancelledHere.append(id)
+        if cancelledHere.count > Self.limit { cancelledHere.removeFirst(cancelledHere.count - Self.limit) }
     }
 
     /// Ends every poll (the app quits); the saved Runs stay for the next launch.
@@ -175,19 +155,21 @@ public final class SandboxRunFollower {
 
     private func end(_ id: String, outcome: SandboxRunEnd.Outcome, snapshot: Data) {
         guard let record = records.removeValue(forKey: id) else { return }
-        ended.append(id)
+        ended.append(SandboxRunEnded(id: id, task: record.task, key: record.key, card: Self.card(snapshot)))
         if ended.count > Self.limit { ended.removeFirst(ended.count - Self.limit) }
         save()
         polls.removeValue(forKey: id)
         answerAll(id, .success(snapshot))
-        let silent = cancelledHere.remove(id) != nil && outcome == .cancelled
+        let cancelled = cancelledHere.contains(id)
+        cancelledHere.removeAll { $0 == id }
+        let silent = cancelled && outcome == .cancelled
         if !silent { onEnd?(SandboxRunEnd(record: record, outcome: outcome, snapshot: snapshot)) }
     }
 
     /// Stops following `id` without telling it.
     private func drop(_ id: String, error: any Error) {
         records[id] = nil
-        cancelledHere.remove(id)
+        cancelledHere.removeAll { $0 == id }
         save()
         endPoll(id, error: error)
     }
@@ -216,7 +198,14 @@ public final class SandboxRunFollower {
 
     private nonisolated struct Saved: Codable {
         var following: [SandboxRunRecord]
-        var ended: [String]
+        var ended: [SandboxRunEnded]
+    }
+
+    /// The part of a final snapshot the Run's card needs: its receipt.
+    nonisolated static func card(_ snapshot: Data) -> Data? {
+        guard let object = (try? JSONSerialization.jsonObject(with: snapshot)) as? [String: Any],
+              let receipt = object["receipt"] as? [String: Any] else { return nil }
+        return try? JSONSerialization.data(withJSONObject: ["receipt": receipt])
     }
 
     nonisolated enum Read {
@@ -225,17 +214,21 @@ public final class SandboxRunFollower {
         case unreadable
     }
 
-    /// One wait's answer: terminal once the snapshot carries its receipt or a terminal status.
+    /// One wait's answer. A sandboxed Run is terminal once its snapshot carries its receipt (the
+    /// server writes it with the terminal status); until then it runs. A body that is no Run snapshot,
+    /// or names a status the Run API has not, is unreadable, never an end.
     nonisolated static func read(_ data: Data) -> Read {
+        let statuses: Set<String> = ["queued", "running", "cancelling", "succeeded", "failed", "cancelled"]
         guard let snapshot = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let run = snapshot["run"] as? [String: Any] else { return .unreadable }
-        let receipt = snapshot["receipt"] as? [String: Any]
-        let status = receipt?["status"] as? String ?? run["status"] as? String
-        guard receipt != nil || ["succeeded", "failed", "cancelled"].contains(status) else { return .running }
-        switch status {
+              let run = snapshot["run"] as? [String: Any], let status = run["status"] as? String,
+              statuses.contains(status) else { return .unreadable }
+        guard let receiptValue = snapshot["receipt"], !(receiptValue is NSNull) else { return .running }
+        guard let receipt = receiptValue as? [String: Any], let ending = receipt["status"] as? String else { return .unreadable }
+        switch ending {
         case "succeeded": return .ended(.succeeded, data)
         case "cancelled": return .ended(.cancelled, data)
-        default: return .ended(receipt?["timedOut"] as? Bool == true ? .timedOut : .failed, data)
+        case "failed": return .ended(receipt["timedOut"] as? Bool == true ? .timedOut : .failed, data)
+        default: return .unreadable
         }
     }
 }

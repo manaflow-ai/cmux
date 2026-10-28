@@ -19,10 +19,6 @@ final class SandboxRunNotices {
     let follower: SandboxRunFollower
     private weak var services: AppServices?
     private var account: Task<Void, Never>?
-    /// Ended Runs' cards by Run id, for a click after their tab closed (bounded, this launch only).
-    private var results: [String: (task: String, key: String, snapshot: [String: Any])] = [:]
-    private var order: [String] = []
-    private static let resultLimit = 16
 
     init(services: AppServices, follower: SandboxRunFollower? = nil) {
         self.services = services
@@ -54,10 +50,6 @@ final class SandboxRunNotices {
     }
 
     func ended(_ end: SandboxRunEnd) {
-        let snapshot = (try? JSONSerialization.jsonObject(with: end.snapshot)) as? [String: Any] ?? [:]
-        results[end.record.id] = (end.record.task, end.record.key, snapshot)
-        order.append(end.record.id)
-        if order.count > Self.resultLimit { results[order.removeFirst()] = nil }
         post(end)
     }
 
@@ -105,13 +97,16 @@ final class SandboxRunNotices {
     @discardableResult
     func open(banner: String) -> Bool {
         guard banner.hasPrefix(Self.bannerPrefix) else { return false }
-        guard let services, let result = results[String(banner.dropFirst(Self.bannerPrefix.count))] else { return true }
-        if let key = tab(holding: result.key), let tab = NotificationCenterService.tab(id: key, in: services.daemon.store) {
+        // The follower keeps the ended Runs (bounded) across a relaunch, so a banner left in
+        // Notification Center still opens its card.
+        guard let services, let run = follower.endedRun(String(banner.dropFirst(Self.bannerPrefix.count))) else { return true }
+        if let key = tab(holding: run.key), let tab = NotificationCenterService.tab(id: key, in: services.daemon.store) {
             services.notifications.open(surface: tab.surface)
             return true
         }
+        let card = run.card.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
         let seed = AgentPaneSeedSource(AgentPaneSeed())
-        seed.sandboxResult = result
+        seed.sandboxResult = (run.task, run.key, card)
         services.windows.active?.focusedPane?.newTabPage(seed: seed)
         return true
     }
