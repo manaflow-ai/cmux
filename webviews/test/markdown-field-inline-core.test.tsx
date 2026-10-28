@@ -201,7 +201,7 @@ function clipboardData() {
   };
 }
 
-function clipboardEvent(type: "copy" | "paste", data: ReturnType<typeof clipboardData>) {
+function clipboardEvent(type: "copy" | "cut" | "paste", data: ReturnType<typeof clipboardData>) {
   const event = new dom.window.Event(type, { bubbles: true, cancelable: true });
   Object.defineProperty(event, "clipboardData", { value: data });
   return event;
@@ -227,4 +227,20 @@ test("copying an inline atom and pasting it in the prompt brings a copy of the a
   expect(ids[0]).toBe("one");
   expect(ids[1]).toStartWith("one~copy-");
   expect(handle.current!.value()).toContain(inlineToken(ids[1]!));
+});
+
+test("cutting an inline atom and pasting it moves the same attachment", async () => {
+  const editor = await render(`a ${inlineToken("one")} b`, {
+    inlineAttachments: true,
+    isInlineAttachment: () => true,
+    onInlineViews: () => {},
+  });
+  handle.current!.selectAll();
+  const data = clipboardData();
+  editor.dispatchEvent(clipboardEvent("cut", data));
+  await settle();
+  expect(handle.current!.inlineIds()).toEqual([]);
+  editor.dispatchEvent(clipboardEvent("paste", data));
+  await settle();
+  expect(handle.current!.inlineIds()).toEqual(["one"]);
 });
