@@ -261,7 +261,9 @@ struct SidebarRowsMoveOnRenderServerTests {
         try #require(!Self.springing(list).isEmpty, "the first change did not start a row move")
 
         Motion.reduceMotionOverride = true
-        model.sections = Self.grouped(["new"] + (1...8).map { "w\($0)" })
+        // Keep the removed workspace absent so `animate` remains true; this exercises the
+        // effective snap gate (`!Motion.sidebar.animatesMovement`) rather than its `!animate` arm.
+        model.sections = Self.grouped(["new"] + (1...7).reversed().map { "w\($0)" })
         list.reload(animated: true)
 
         #expect(Self.springing(list).isEmpty, "still springing after Reduce Motion snap: \(Self.springing(list))")
