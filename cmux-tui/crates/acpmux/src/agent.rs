@@ -1027,11 +1027,6 @@ impl ChildAgent {
         }
     }
 
-    /// A request to it waits for its answer (or its map is busy): the idle pass keeps it up.
-    pub(crate) fn has_pending(&self) -> bool {
-        self.pending.try_lock().map_or(true, |p| !p.map.is_empty())
-    }
-
     /// Whether [`Self::retire`] ran.
     pub fn is_retired(&self) -> bool {
         *self.retired.lock().unwrap_or_else(|e| e.into_inner())

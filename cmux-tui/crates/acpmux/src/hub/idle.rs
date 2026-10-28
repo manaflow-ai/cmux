@@ -140,11 +140,7 @@ impl Hub {
             let spawning = session.spawn_lock.try_lock();
             let child = session.child.lock().await.clone();
             let Some(child) = child else { continue };
-            if turn.is_err()
-                || using.is_err()
-                || spawning.is_err()
-                || child.has_pending()
-                || !self.idle_eligible(&session)
+            if turn.is_err() || using.is_err() || spawning.is_err() || !self.idle_eligible(&session)
             {
                 // In use at its deadline: a full idle period starts now.
                 self.touch(&session);
@@ -159,7 +155,6 @@ impl Hub {
             }
             // Anything that happened while the census ran moved the deadline.
             if session.last_active.load(Ordering::Relaxed).saturating_add(idle) > self.clock_now()
-                || child.has_pending()
                 || !self.idle_eligible(&session)
             {
                 continue;

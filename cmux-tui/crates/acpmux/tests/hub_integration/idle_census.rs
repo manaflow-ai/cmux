@@ -71,7 +71,9 @@ async fn an_idle_harness_ends_only_once_nothing_but_its_mcp_servers_runs_under_i
         clock.advance(Duration::from_secs(3));
         tokio::time::sleep(Duration::from_millis(1500)).await;
         assert_ne!(session.meta().status, acpmux::store::SessionStatus::Idle, "{kept} running");
-        assert!(pids.values().all(|p| running(*p)), "an idle pass ended a child");
+        let left = if kept == "worker" { ["worker", "escaped"] } else { ["escaped", "sidecar"] };
+        assert!(left.iter().all(|n| running(pids[*n])), "an idle pass ended a child");
+        assert!(running(pids["sidecar"]), "an idle pass ended the MCP server");
         children.end(kept);
     }
     // Only its MCP server is left: the harness ends, and the server with it.
