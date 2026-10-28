@@ -4,9 +4,18 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseConfig, lintGeometry, type GeometryArtifact } from "./geometry";
 import { parseManifest } from "./runner";
-import { captureEnvironment } from "./geometry-audit";
+import { captureEnvironment, configForCapture } from "./geometry-audit";
 
 const baseline = JSON.parse(readFileSync(join(import.meta.dir, "geometry-baseline.json"), "utf8"));
+
+test("baseline source is the gallery entry and run SHA is bound to the captured tip", () => {
+  expect(baseline.revision.source).toBe("src/agent-session/acpmux/inspector/ChatInspector.gallery.tsx");
+  expect(baseline.revision.sha).toMatch(/^[0-9a-f]{40}$/);
+  const effective = configForCapture(baseline, "f".repeat(40));
+  expect(effective.revision.sha).toBe("f".repeat(40));
+  expect(effective.revision.source).toBe(baseline.revision.source);
+  expect(baseline.revision.sha).not.toBe(effective.revision.sha);
+});
 
 test("capture environment requires an existing fleet or CI flag", () => {
   expect(captureEnvironment({})).toBe(false);

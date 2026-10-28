@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "revision": {
     "sha": "025db075fae19040c3d3c3eb686e2aca4f353b81",
-    "source": "fleet capture 0e45b912aef01d3b17ad0eb4; product tree from 92c51f49804f48da9f46a86bbebea2bc11cd7f99"
+    "source": "src/agent-session/acpmux/inspector/ChatInspector.gallery.tsx"
   },
   "required": [
     {

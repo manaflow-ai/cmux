@@ -10,23 +10,32 @@ export function captureEnvironment(env = process.env): boolean {
   return env.CMUX_GALLERY_IN_VM === "1" || env.CI === "1" || env.CI === "true";
 }
 
+export function configForCapture<T extends { revision: { sha: string; source: string } }>(config: T, expectedSha: string): T {
+  return { ...config, revision: { ...config.revision, sha: expectedSha } };
+}
+
 export async function audit(args = process.argv.slice(2)): Promise<number> {
   const { values } = parseArgs({ args, options: { config: { type: "string", default: join(import.meta.dir, "geometry-baseline.json") }, "gallery-dir": { type: "string" }, "output-dir": { type: "string" }, "expected-sha": { type: "string" } } });
   if (!values["gallery-dir"] || !values["output-dir"] || !values["expected-sha"]) throw new Error("--gallery-dir, --output-dir and --expected-sha are required");
   if (!captureEnvironment()) throw new Error("geometry capture runs only on fleet/CI");
   const config = JSON.parse(await readFile(values.config!, "utf8"));
   parseConfig(config);
-  const cases = parseManifest(config.cases);
+  // The baseline supplies rule debt and source identity; each run captures the current tip.
+  // Bind that run's source SHA explicitly instead of requiring a stale baseline SHA.
+  const effective = configForCapture(config, values["expected-sha"]);
+  const cases = parseManifest(effective.cases);
   const output = resolve(values["output-dir"]);
   await mkdir(output, { recursive: true });
   const manifest = join(output, "manifest.json");
   const selectors = join(output, "selectors.json");
   await writeFile(manifest, JSON.stringify(cases));
-  await writeFile(selectors, JSON.stringify(config.selectors));
+  await writeFile(selectors, JSON.stringify(effective.selectors));
+  const effectiveConfig = join(output, "geometry-config.json");
+  await writeFile(effectiveConfig, `${JSON.stringify(effective, null, 2)}\n`);
   process.env.CMUX_GEOMETRY_SELECTORS = selectors;
   await runLocal({ manifest, galleryDir: values["gallery-dir"], outputDir: output, threshold: 0, engines: ["chromium"], shardCount: 1, shardIndex: 0 });
   const captureExitCode = Number(process.exitCode ?? 0);
-  const lintExitCode = await lint(["--artifact-dir", output, "--config", values.config!, "--report-dir", join(output, "geometry-report"), "--expected-sha", values["expected-sha"]]);
+  const lintExitCode = await lint(["--artifact-dir", output, "--config", effectiveConfig, "--report-dir", join(output, "geometry-report"), "--expected-sha", values["expected-sha"]]);
   // Keep diagnostic geometry even after a failed play, without turning that capture green.
   return captureExitCode || lintExitCode;
 }
