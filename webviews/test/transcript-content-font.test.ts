@@ -31,59 +31,130 @@ await requireBrowserLane("transcript-content-font.test.ts", async () => {
     await vite?.close();
   });
 
-  const font = (page: Page, selector: string) => page.locator(selector).first().evaluate((node) => parseFloat(getComputedStyle(node).fontSize));
-  const contained = (page: Page, selector: string) => page.locator(selector).evaluateAll((nodes) => nodes.map((node) => {
-    const box = node.getBoundingClientRect();
-    const range = document.createRange();
-    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-    const overflow: string[] = [];
-    for (let text = walker.nextNode(); text; text = walker.nextNode()) {
-      if (!text.nodeValue?.trim()) continue;
-      range.selectNodeContents(text);
-      for (const glyph of range.getClientRects())
-        if (glyph.top < box.top - 1 || glyph.bottom > box.bottom + 1) overflow.push(text.nodeValue);
-    }
-    return { selector: node.className, overflow };
-  }));
-
-  for (const theme of ["light", "dark"]) test(`${theme}: transcript text scales with intact headers and previews`, async () => {
-    for (const { engine, browser } of browsers) {
-      const page = await browser.newPage({ viewport: { width: 760, height: 1100 } });
-      try {
-        const port = (vite.httpServer!.address() as { port: number }).port;
-        await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant: "reading", theme: theme === "light" ? "Apple System Colors Light" : "Apple System Colors" })}`);
-        await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-        await page.locator(".cv-footnotes").waitFor({ state: "attached" });
-        for (const size of [10, 14, 28]) {
-          await page.evaluate(async (size) => {
-            const modulePath = "/gallery/src/agent-session/acpmux/chatDisplay.ts";
-            const { setChatDisplay } = await import(modulePath);
-            setChatDisplay({ "agentPane.display.font.size": size });
-          }, size);
-          for (const [selector, base] of [
-            [".cv-codeblock__header", 14], [".cv-edit-diff__header", 13],
-            [".cv-shell__label", 13], [".cv-shell__body", 12], [".cv-shell__exit", 13],
-            [".cv-code-plain", 12], [".cv-footnotes", 12.5], [".cv-turn-auth-action", 12],
-            [".acpmux-shell-block-command", 12.5], [".acpmux-shell-block-output", 12],
-            [".acpmux-render-card-title", 12.5], [".cv-diagram__bar", 11],
-          ] as const) expect(await font(page, selector), `${engine} ${selector} at ${size}`).toBeCloseTo(base * size / 14, 2);
-
-          for (const [width, zoom] of [[760, 1], [390, 1.25]] as const) {
-            await page.setViewportSize({ width, height: 1100 });
-            await page.evaluate((zoom) => { document.documentElement.style.zoom = String(zoom); }, zoom);
-            const headers = await contained(page, ".cv-codeblock__header, .cv-edit-diff__header, .acpmux-shell-block-head, .cv-turn-auth-action, .cv-diagram__bar");
-            expect(headers.flatMap((row) => row.overflow), `${engine} ${size}px ${width} headers`).toEqual([]);
-            const preview = await page.locator(".cv-shell__body").evaluate((node) => ({ height: node.clientHeight, line: parseFloat(getComputedStyle(node).lineHeight) }));
-            expect(preview.height, "eight scaled lines remain in the preview").toBeGreaterThanOrEqual(Math.floor(preview.line * 8));
-            expect(await page.locator(".acpmux-shell-block-head").evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
-            if (capture) await page.screenshot({ path: path.join(capture, `${engine}-${theme}-${size}-${width}.png`) });
-          }
+  const font = (page: Page, selector: string) =>
+    page
+      .locator(selector)
+      .first()
+      .evaluate((node) => parseFloat(getComputedStyle(node).fontSize));
+  const contained = (page: Page, selector: string) =>
+    page.locator(selector).evaluateAll((nodes) =>
+      nodes.map((node) => {
+        const box = node.getBoundingClientRect();
+        const range = document.createRange();
+        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+        const overflow: string[] = [];
+        for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+          if (!text.nodeValue?.trim()) continue;
+          range.selectNodeContents(text);
+          for (const glyph of range.getClientRects())
+            if (glyph.top < box.top - 1 || glyph.bottom > box.bottom + 1) overflow.push(text.nodeValue);
         }
-        await page.getByRole("button", { name: "Open image", exact: true }).click();
-        await page.locator(".acpmux-image-viewer-title").waitFor();
-        expect(await font(page, ".acpmux-image-viewer-title")).toBeCloseTo(26, 2);
-        expect((await contained(page, ".acpmux-image-viewer-bar")).flatMap((row) => row.overflow)).toEqual([]);
-      } finally { await page.close(); }
-    }
-  });
+        return { selector: node.className, overflow };
+      }),
+    );
+
+  for (const theme of ["light", "dark"])
+    test(`${theme}: transcript text scales with intact headers and previews`, async () => {
+      for (const { engine, browser } of browsers) {
+        const page = await browser.newPage({ viewport: { width: 760, height: 1100 } });
+        try {
+          const port = (vite.httpServer!.address() as { port: number }).port;
+          await page.goto(
+            `http://127.0.0.1:${port}${galleryFrame(entry, { variant: "reading", theme: theme === "light" ? "Apple System Colors Light" : "Apple System Colors" })}`,
+          );
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+          await page.locator(".cv-footnotes").waitFor({ state: "attached" });
+          await page.locator(".cv-diagram").scrollIntoViewIfNeeded();
+          await page.locator(".cv-diagram__error").waitFor();
+          for (const size of [10, 14, 28]) {
+            await page.evaluate(async (size) => {
+              const modulePath = "/gallery/src/agent-session/acpmux/chatDisplay.ts";
+              const { setChatDisplay } = await import(modulePath);
+              setChatDisplay({ "agentPane.display.font.size": size });
+            }, size);
+            for (const [selector, base] of [
+              [".cv-codeblock__header", 14],
+              [".cv-edit-diff__header", 13],
+              [".cv-shell__label", 13],
+              [".cv-shell__body", 12],
+              [".cv-shell__exit", 13],
+              [".cv-tool-output", 12],
+              [".cv-command__line", 12.5],
+              [".cv-command__meta", 12],
+              [".cv-code-plain", 12],
+              [".cv-footnotes", 12.5],
+              [".cv-turn-auth-action", 12],
+              [".acpmux-shell-block-command", 12.5],
+              [".acpmux-shell-block-output", 12],
+              [".acpmux-render-card-title", 12.5],
+              [".cv-diagram__bar", 11],
+              [".cv-diagram__error", 12],
+            ] as const)
+              expect(await font(page, selector), `${engine} ${selector} at ${size}`).toBeCloseTo((base * size) / 14, 2);
+
+            for (const [width, zoom] of [
+              [760, 1],
+              [390, 1.25],
+            ] as const) {
+              await page.setViewportSize({ width, height: 1100 });
+              await page.evaluate((zoom) => {
+                document.documentElement.style.zoom = String(zoom);
+              }, zoom);
+              if (size === 14 && width === 760) {
+                for (const [selector, height] of [
+                  [".cv-codeblock__header", 45.5],
+                  [".cv-edit-diff__header", 33],
+                  [".acpmux-shell-block-head", 32],
+                  [".cv-diagram__bar", 28],
+                ] as const)
+                  expect(
+                    await page
+                      .locator(selector)
+                      .first()
+                      .evaluate((node) => node.getBoundingClientRect().height),
+                    `default ${selector}`,
+                  ).toBeCloseTo(height, 1);
+              }
+              const headers = await contained(
+                page,
+                ".cv-codeblock__header, .cv-edit-diff__header, .acpmux-shell-block-head, .cv-turn-auth-action, .cv-diagram__bar",
+              );
+              expect(
+                headers.flatMap((row) => row.overflow),
+                `${engine} ${size}px ${width} headers`,
+              ).toEqual([]);
+              const previews = await page.locator(".cv-shell__body, .cv-tool-output").evaluateAll((nodes) =>
+                nodes.map((node) => ({
+                  height: node.clientHeight,
+                  line: parseFloat(getComputedStyle(node).lineHeight),
+                })),
+              );
+              for (const preview of previews)
+                expect(preview.height, "eight scaled lines remain in the preview").toBeGreaterThanOrEqual(
+                  Math.floor(preview.line * 8),
+                );
+              expect(
+                await page
+                  .locator(".acpmux-shell-block-head")
+                  .evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
+              ).toBe(true);
+              if (capture)
+                await page.locator("main").evaluate((node) => {
+                  node.scrollTop = 0;
+                });
+              if (capture)
+                await page.screenshot({
+                  path: path.join(capture, `${engine}-${theme}-${size}-${width}.png`),
+                });
+            }
+          }
+          await page.getByRole("button", { name: "Open image", exact: true }).click();
+          await page.locator(".acpmux-image-viewer-title").waitFor();
+          expect(await font(page, ".acpmux-image-viewer-title")).toBeCloseTo(26, 2);
+          expect((await contained(page, ".acpmux-image-viewer-bar")).flatMap((row) => row.overflow)).toEqual([]);
+        } finally {
+          await page.close();
+        }
+      }
+    });
 });

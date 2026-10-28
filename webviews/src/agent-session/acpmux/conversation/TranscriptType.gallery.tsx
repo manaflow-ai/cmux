@@ -13,6 +13,8 @@ import { RenderCard } from "./RenderCard";
 import { ImageViewer } from "./ImageViewer";
 import { TurnFooter } from "./TurnRows";
 import { TurnActionsContext } from "./turnActions";
+import { ToolRow } from "./ToolRow";
+import { CommandRow } from "./CommandRow";
 
 const output = Array.from({ length: 14 }, (_, index) => `step ${index + 1}: completed`).join("\n");
 const file = toolFiles([
@@ -29,9 +31,13 @@ function TranscriptType() {
   const [viewer, setViewer] = useState(false);
   return (
     <main className="acpmux-scroll" style={{ padding: 18, overflow: "auto", height: "100%", boxSizing: "border-box" }}>
-      <PlainCode lang="typescript" code={'export const retry = 3;\n\nretry();'} open />
+      <PlainCode lang="typescript" code={"export const retry = 3;\n\nretry();"} open />
       <EditDiff file={file} />
       <ShellBlock command="cd ~/src/atlas && bun test" output={output} exitCode={2} />
+      <div data-type="tool-output">
+        <ToolRow item={tool("Fetch retry log", "fetch", "completed", { output })} />
+      </div>
+      <CommandRow item={tool("Run retry tests", "execute", "completed", { command: "bun test", exitCode: 2 })} />
       <ShellRow
         row={{
           id: "type-shell",
@@ -52,13 +58,28 @@ function TranscriptType() {
         expanded={false}
         onToggleActivity={() => {}}
       />
-      <Markdown>{"The retry report has a note.[^report]\n\n[^report]: The timeout is retried three times, then returned to the caller."}</Markdown>
+      <Markdown>
+        {
+          "The retry report has a note.[^report]\n\n[^report]: The timeout is retried three times, then returned to the caller."
+        }
+      </Markdown>
       <TurnActionsContext.Provider value={{ switchModel: () => {}, reauthenticate: () => {} }}>
-        <TurnFooter row={{ id: "type-auth", kind: "turnSummary", version: 1, at: 1000, status: "failed", error: "401 unauthorized" }} />
+        <TurnFooter
+          row={{
+            id: "type-auth",
+            kind: "turnSummary",
+            version: 1,
+            at: 1000,
+            status: "failed",
+            error: "401 unauthorized",
+          }}
+        />
       </TurnActionsContext.Provider>
       <RenderCard call={{ html: "<p>Retry report</p>", title: "Retry report with a deliberately long title" }} />
-      <DiagramBlock lang="vega-lite" code={'{"mark":"bar","data":{"values":[]}}'} />
-      <button type="button" onClick={() => setViewer(true)}>Open image</button>
+      <DiagramBlock lang="vega-lite" code="{ invalid chart" />
+      <button type="button" onClick={() => setViewer(true)}>
+        Open image
+      </button>
       {viewer && <ImageViewer images={[image, image]} index={0} onIndex={() => {}} onClose={() => setViewer(false)} />}
     </main>
   );
@@ -81,8 +102,19 @@ export default componentEntry({
     "agent-session/acpmux/conversation/RenderCard.tsx",
     "agent-session/acpmux/conversation/DiagramBlock.tsx",
     "agent-session/acpmux/conversation/ImageViewer.tsx",
+    "agent-session/acpmux/conversation/ToolRow.tsx",
+    "agent-session/acpmux/conversation/CommandRow.tsx",
   ],
   load: async () => TranscriptType,
   styles: () => Promise.all([import("../styles.css"), import("./conversation.css")]),
-  variants: { reading: { props: {}, note: "Real transcript headers, code, output, footnotes, actions, diagrams and media." } },
+  variants: {
+    reading: {
+      props: {},
+      note: "Real transcript headers, code, output, footnotes, actions, diagrams and media.",
+      play: async (ctx) => {
+        await ctx.click({ selector: '[data-type="tool-output"] .cv-tool' });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-tool-output"));
+      },
+    },
+  },
 });
