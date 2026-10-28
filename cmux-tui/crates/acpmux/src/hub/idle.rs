@@ -133,21 +133,27 @@ impl Hub {
             if !has_child {
                 continue;
             }
-            // Held until the harness is ended: no turn, start, mode change or close's spawn
+            // Its MCP servers, read before the leases: the configs are files (`idle_census.rs`).
+            let Some(child) = session.child.lock().await.clone() else { continue };
+            let sidecars = self.sidecars(&session, &child).await;
+            // Held until the harness is ended: no turn, start, mode change, fork or stop
             // begins meanwhile, and one that already began keeps the harness up.
             let turn = session.turn_lock.try_lock();
             let using = session.harness_use.try_write();
             let spawning = session.spawn_lock.try_lock();
-            let child = session.child.lock().await.clone();
-            let Some(child) = child else { continue };
-            if turn.is_err() || using.is_err() || spawning.is_err() || !self.idle_eligible(&session)
+            let same = session.child.lock().await.as_ref().is_some_and(|c| Arc::ptr_eq(c, &child));
+            if turn.is_err()
+                || using.is_err()
+                || spawning.is_err()
+                || !same
+                || !self.idle_eligible(&session)
             {
                 // In use at its deadline: a full idle period starts now.
                 self.touch(&session);
                 continue;
             }
             // Nothing it did not report may end with it (`idle_census.rs`).
-            let census = self.idle_census(&session, child.pid).await;
+            let census = self.idle_census(child.pid, sidecars).await;
             if !matches!(census, super::idle_census::Census::Clear) {
                 self.note_refusal(&session, &census);
                 self.touch(&session);
