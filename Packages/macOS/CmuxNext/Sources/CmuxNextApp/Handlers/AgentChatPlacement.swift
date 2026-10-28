@@ -12,6 +12,13 @@ struct AgentChatPlacement {
     let workspace: WorkspaceModel
     let daemon: DaemonService
 
+    /// The existing destination anchor, before creating a workspace when none is available.
+    @MainActor static func destination(on daemon: DaemonService, services: AppServices) -> AgentChatPlacement? {
+        guard let workspace = daemon.store.workspaces.first, workspace.key != nil,
+              let pane = workspace.screens.first?.panes.first else { return nil }
+        return AgentChatPlacement(pane: pane, workspace: workspace, daemon: daemon)
+    }
+
     /// The pane `target` names (`pane_…` or a pane id, else a workspace's `ws_…`, key or id).
     @MainActor static func resolve(_ target: ActionTargetRef, services: AppServices) -> AgentChatPlacement? {
         for (workspace, daemon) in services.machines.allWorkspaces {

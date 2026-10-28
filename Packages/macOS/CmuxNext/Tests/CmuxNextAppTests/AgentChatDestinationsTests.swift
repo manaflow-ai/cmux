@@ -9,6 +9,29 @@ import Testing
 
 @MainActor @Suite
 struct AgentChatDestinationsTests {
+    @Test func aCloudDestinationUsesItsFocusedWorkspaceAndPane() throws {
+        let services = MachineIconTests.services()
+        let session = MachineIconTests.cloudMachine(services, id: "vm-chat-focus")
+        let first = PaneSnapshot(id: PaneID(rawValue: 11), focusedAt: 1,
+            tabs: [TabSnapshot(surface: SurfaceID(rawValue: 11), cwd: "/unrelated")])
+        let other = PaneSnapshot(id: PaneID(rawValue: 21), focusedAt: 2,
+            tabs: [TabSnapshot(surface: SurfaceID(rawValue: 21), cwd: "/other")])
+        let focused = PaneSnapshot(id: PaneID(rawValue: 22), focusedAt: 9,
+            tabs: [TabSnapshot(surface: SurfaceID(rawValue: 22), cwd: "/focused-project")])
+        session.daemon.store.apply(snapshot: DaemonTree(workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "first-project"), name: "First",
+                screens: [ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(first.id), panes: [first])]),
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 2), key: WorkspaceKey(rawValue: "focused-project"), name: "Focused",
+                screens: [ScreenSnapshot(id: ScreenID(rawValue: 2), layout: .leaf(other.id), panes: [other, focused])]),
+        ]))
+        let destination = try #require(AgentChatPlacement.destination(on: session.daemon, services: services))
+        #expect(destination.daemon === session.daemon)
+        #expect(destination.workspace.id == "focused-project")
+        #expect(destination.pane.handle == focused.id)
+        #expect(destination.cwd(nil) == "/focused-project")
+        #expect(destination.cwd("/explicit") == "/explicit")
+    }
+
     static var source: AgentChatDestinations {
         AgentChatDestinations(localTitle: "This Mac", peers: {
             [AgentChatPeer(name: "dev-box", isSSH: true, connected: true, state: "connected"),
@@ -73,6 +96,33 @@ struct AgentChatDestinationsTests {
 /// fixture data; no remote account or peer process is needed to check routing and refusals.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct AgentChatDestinationActionTests {
+    @Test(arguments: ["local", "This Mac", "dev-box"])
+    func aLocalOrPeerDestinationWorksWhileARemoteDaemonIsActive(host: String) async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "destination-from-remote")
+            try #require(services.agentTabs.canHostChat)
+            let remote = MachineIconTests.cloudMachine(services, id: "vm-current-chat")
+            services.routedDaemon = remote.daemon
+            defer { services.routedDaemon = nil }
+            #expect(!services.activeDaemon.isLocal)
+            let before = Set(PasswordManagerRouteTests.tabs(services).map(\.id))
+            let invocation = ActionInvocation(arguments: ["host": .string(host), "cwd": .string("/tmp")], origin: .cli)
+            let result = await AgentHandlers.createOnHost(host, invocation: invocation,
+                destinations: AgentChatDestinationsTests.source, context: AppActionContext(services: services))
+            _ = try result.get()
+            try await PasswordManagerRouteTests.until {
+                PasswordManagerRouteTests.tabs(services).contains { !before.contains($0.id) }
+            }
+            let created = try #require(PasswordManagerRouteTests.tabs(services).first { !before.contains($0.id) })
+            let view = try #require(services.agentTabs.view(for: created.id))
+            let reply = await view.model.respond(to: AgentPaneRequest(body: ["method": "ready"]))
+            let handshake = try #require(reply["value"] as? [String: Any])
+            #expect(handshake["cwd"] as? String == "/tmp")
+            #expect(handshake["peer"] as? String == (host == "dev-box" ? host : nil))
+            #expect(remote.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).isEmpty)
+        }
+    }
+
     @Test(arguments: [false, true])
     func aLocalDestinationTitleCreatesALocalChat(targeted: Bool) async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in

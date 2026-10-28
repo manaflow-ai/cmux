@@ -143,6 +143,8 @@ extension AgentHandlers {
                         return .failure(ActionWorkFailure(WorkspaceVerbStrings.noMachine))
                     }
                     anchor = (placement.workspace.id, placement.pane)
+                } else if let placement = AgentChatPlacement.destination(on: session.daemon, services: services) {
+                    anchor = (placement.workspace.id, placement.pane)
                 } else {
                     let first = try await CloudHandlers.terminalAnchor(on: session, context)
                     anchor = (first.id, first.pane)
