@@ -6,7 +6,8 @@
 /// - FIFO: tasks run in post order, except that a continuation goes to the front (``postContinuation(file:line:_:)``).
 /// - Voters: the queue runs only while every voter votes enabled (visibility, freeze, startup phase).
 /// - Fence: tasks enqueued after the fence wait until it is removed; the ones before it still run.
-///   The queue stays FIFO: a fence never lets a later task pass an earlier one.
+///   The queue stays FIFO: a fence never lets a later task pass an earlier one. A continuation is the
+///   rest of the task this queue gave last, so the fence judges it by that task's place.
 ///
 /// The queue owns its tasks. When its owner releases it they are dropped and their closures
 /// released at once; the selector keeps only a weak reference.
@@ -36,6 +37,8 @@ public final class MainSequenceQueue {
         let site: MainPostSite
         /// Its place in the selector's enqueue order (one counter across all queues).
         let order: UInt64
+        /// The place a fence judges it by: its own, or for a continuation the yielding task's.
+        var fenceOrder: UInt64
         /// When it was posted, on the selector's clock.
         let enqueuedAt: Duration
     }
@@ -54,6 +57,8 @@ public final class MainSequenceQueue {
     private var voters = QueueVoterSet()
     /// Tasks with an enqueue order above this wait; nil when there is no fence.
     private var fence: UInt64?
+    /// The fence order of the task this queue gave last: a continuation posted now is its rest.
+    private var lastTakenFenceOrder: UInt64?
 
     init(type: MainQueueType, owner: MainTaskOwner, selector: MainTaskSelector, turn: UInt64) {
         self.type = type
@@ -76,15 +81,17 @@ public final class MainSequenceQueue {
     }
 
     /// Queues `body` at the front of this queue, for a long task that yielded and continues. It takes a
-    /// new enqueue order, so across queues of its priority it does not keep the yielding task's place,
-    /// and a fence inserted before it holds it like any later post.
+    /// new enqueue order, so across queues of its priority it does not keep the yielding task's place;
+    /// a fence judges it as the task this queue gave last (the one that yields), so the rest of a task
+    /// posted before a fence is not held by it.
     ///
     /// - Parameters:
     ///   - file: The posting file (leave the default).
     ///   - line: The posting line (leave the default).
     ///   - body: The rest of the task.
     public func postContinuation(file: StaticString = #fileID, line: UInt = #line, _ body: @escaping @MainActor () -> Void) {
-        guard let item = selector?.item(body, site: MainPostSite(file: file, line: line)) else { return }
+        guard var item = selector?.item(body, site: MainPostSite(file: file, line: line)) else { return }
+        item.fenceOrder = min(item.order, lastTakenFenceOrder ?? item.order)
         if head > 0 {
             head -= 1
             pending[head] = item
@@ -128,8 +135,8 @@ public final class MainSequenceQueue {
 
     /// Whether the fence holds the queue's next task.
     public var isBlockedByFence: Bool {
-        guard let fence, let order = headOrder else { return false }
-        return order > fence
+        guard let fence, head < pending.count else { return false }
+        return pending[head].fenceOrder > fence
     }
 
     // MARK: Selection
@@ -151,6 +158,7 @@ public final class MainSequenceQueue {
     /// Removes and returns the next task (the caller checked ``isRunnable``).
     func take() -> Item {
         let item = pending[head]
+        lastTakenFenceOrder = item.fenceOrder
         pending[head].body = {}
         head += 1
         compact()

@@ -88,7 +88,7 @@ public final class MainTaskSelector {
     /// A queue's new task: the next enqueue order and the time now.
     func item(_ body: @escaping @MainActor () -> Void, site: MainPostSite) -> MainSequenceQueue.Item {
         lastOrder += 1
-        return MainSequenceQueue.Item(body: body, site: site, order: lastOrder, enqueuedAt: elapsed())
+        return MainSequenceQueue.Item(body: body, site: site, order: lastOrder, fenceOrder: lastOrder, enqueuedAt: elapsed())
     }
 
     private func select(admitting admits: (MainQueueType) -> Bool) -> MainSequenceQueue? {
