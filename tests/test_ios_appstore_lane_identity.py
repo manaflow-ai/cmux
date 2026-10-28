@@ -462,6 +462,7 @@ if "archive" in args:
             "CMUXIrohBrokerBaseURL": setting("CMUX_IROH_BROKER_BASE_URL=") or "https://cmux.com",
             "CMUXPresenceBaseURL": setting("CMUX_PRESENCE_BASE_URL=") or "https://presence.cmux.dev",
             "CMUXDevTag": setting("CMUX_DEV_TAG="),
+            "CMUXAppStoreBuild": setting("CMUX_APPSTORE_BUILD="),
             # A manual archive builds with code signing disabled, so
             # $(AppIdentifierPrefix) expands to "" and the group bakes as the
             # bare bundle id, the exact mis-bake that made TestFlight builds
@@ -494,12 +495,17 @@ if "-exportArchive" in args:
     export_path = Path(after("-exportPath"))
     export_options = Path(after("-exportOptionsPlist"))
     shutil.copyfile(export_options, os.environ["CMUX_FAKE_EXPORT_OPTIONS_COPY"])
+    export_options_data = plistlib.loads(export_options.read_bytes())
+    export_profiles = export_options_data.get("provisioningProfiles", {{}})
     app_info = next((archive / "Products" / "Applications").glob("*.app/Info.plist"))
     archived_info = plistlib.loads(app_info.read_bytes())
     bundle_id = archived_info["CFBundleIdentifier"]
     payload_root = export_path / "Payload"
     app = payload_root / "cmux.app"
     write_plist(app / "Info.plist", archived_info)
+    archived_plugins = app_info.parent / "PlugIns"
+    for archived_extension in sorted(archived_plugins.glob("*.appex")):
+        shutil.copytree(archived_extension, app / "PlugIns" / archived_extension.name)
     extension = app / "PlugIns" / "NotificationService.appex"
     write_plist(
         extension / "Info.plist",
@@ -510,12 +516,19 @@ if "-exportArchive" in args:
         }},
     )
     cloud_vpn = app / "PlugIns" / "CloudVPN.appex"
-    write_plist(
-        cloud_vpn / "Info.plist",
-        {{
-            "CFBundleIdentifier": f"{{bundle_id}}.CloudVPN",
-        }},
-    )
+    # Keep a CloudVPN directory in the fake export even when the App Store
+    # export options omit its profile. This models a stale exporter artifact so
+    # the lane's post-export strip is exercised instead of making the test pass
+    # only because the fixture silently omitted the extension.
+    if (
+        bundle_id == APPSTORE_BUNDLE_ID or f"{{bundle_id}}.CloudVPN" in export_profiles
+    ) and not cloud_vpn.exists():
+        write_plist(
+            cloud_vpn / "Info.plist",
+            {{
+                "CFBundleIdentifier": f"{{bundle_id}}.CloudVPN",
+            }},
+        )
     if os.environ.get("CMUX_FAKE_EMBED_INVALID_FRAMEWORK_SHELL") == "1":
         write_plist(
             app / "Frameworks" / "Iroh.framework" / "Info.plist",
@@ -536,8 +549,9 @@ if "-exportArchive" in args:
     profile_marker = "beta profile" if bundle_id == BETA_BUNDLE_ID else "fake profile"
     (app / "embedded.mobileprovision").write_text(profile_marker, encoding="utf-8")
     (extension / "embedded.mobileprovision").write_text("extension profile", encoding="utf-8")
-    (cloud_vpn / "embedded.mobileprovision").write_text("cloud vpn profile", encoding="utf-8")
-    write_plist(cloud_vpn / "FakeSignedEntitlements.plist", entitlements_for_bundle(f"{{bundle_id}}.CloudVPN"))
+    if cloud_vpn.exists():
+        (cloud_vpn / "embedded.mobileprovision").write_text("cloud vpn profile", encoding="utf-8")
+        write_plist(cloud_vpn / "FakeSignedEntitlements.plist", entitlements_for_bundle(f"{{bundle_id}}.CloudVPN"))
     # upload-testflight.sh refuses IPAs without Symbols/*.symbols.
     symbols_root = export_path / "Symbols"
     symbols_root.mkdir(parents=True, exist_ok=True)
@@ -715,7 +729,7 @@ def _base_env(tmp: Path, fakebin: Path) -> dict[str, str]:
     # profile (#12935); the lane refuses to export without the name.
     env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_NAME"] = APPSTORE_EXTENSION_PROFILE_NAME
     env["IOS_APPSTORE_EXTENSION_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"extension profile").decode()
-    env["IOS_APPSTORE_ENABLE_CLOUD_VPN"] = "1"
+    env["IOS_APPSTORE_ENABLE_CLOUD_VPN"] = "0"
     env["IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_NAME"] = APPSTORE_CLOUD_VPN_PROFILE_NAME
     env["IOS_APPSTORE_CLOUD_VPN_PROVISIONING_PROFILE_BASE64"] = base64.b64encode(b"cloud vpn profile").decode()
     env["IOS_BETA_EXTENSION_PROVISIONING_PROFILE_NAME"] = "cmux Beta Notification Service Distribution"
@@ -826,6 +840,7 @@ def _write_fake_archive(path: Path, *, bundle_id: str, build_number: str, market
         "CFBundleIdentifier": bundle_id,
         "CFBundleVersion": build_number,
         "CFBundleShortVersionString": marketing_version,
+        "CMUXAppStoreBuild": "",
         **PRODUCTION_RUNTIME_ORIGINS,
     }
     (path).mkdir(parents=True, exist_ok=True)
@@ -1178,6 +1193,37 @@ def test_upload_beta_archive_path_accepts_marketing_version_override(tmp: Path, 
     )
 
 
+def test_upload_appstore_rejects_unmarked_reused_archive(tmp: Path, fakebin: Path) -> None:
+    archive = tmp / "cmux-appstore.xcarchive"
+    _write_fake_archive(
+        archive,
+        bundle_id=APPSTORE_BUNDLE_ID,
+        build_number="20260710041748",
+        marketing_version=APPSTORE_MARKETING_VERSION,
+    )
+    env = _base_env(tmp, fakebin)
+    env["CMUX_IOS_UPLOAD_DIR"] = str(tmp / "upload")
+    result = _run(
+        [
+            "bash",
+            str(ROOT / "ios" / "scripts" / "upload-app-store.sh"),
+            "--archive-path",
+            str(archive),
+            "--signing",
+            "manual",
+            "--export-only",
+        ],
+        env=env,
+        tmp=tmp,
+        log_failure=False,
+    )
+    _check(result.returncode != 0, "App Store rejects a reused archive without the VPN-free build marker")
+    _check(
+        "CMUXAppStoreBuild=YES" in result.stderr,
+        "unmarked App Store archive error names the required build marker",
+    )
+
+
 def test_upload_beta_auto_version_uses_checked_in_beta_floor(tmp: Path, fakebin: Path) -> None:
     isolated_repo = _copy_isolated_ios_upload_repo(tmp / "isolated")
     expected_version = _bump_patch(BETA_MARKETING_VERSION)
@@ -1344,6 +1390,18 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         "CMUX_CRASH_REPORTING_ENABLED=YES" in archive_call,
         "App Store archive keeps crash reporting enabled",
     )
+    _check(
+        "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_APPSTORE" in archive_call,
+        "App Store archive adds the VPN-free condition on top of each target's own conditions",
+    )
+    _check(
+        "SWIFT_ACTIVE_COMPILATION_CONDITIONS=CMUX_APPSTORE" not in archive_call,
+        "App Store archive does not replace package conditions such as swift-crypto's CRYPTO_IN_SWIFTPM",
+    )
+    _check(
+        "CMUX_APPSTORE_BUILD=YES" in archive_call,
+        "App Store archive carries the VPN-free build marker",
+    )
     for build_arg in PRODUCTION_RUNTIME_BUILD_ARGS:
         _check(build_arg in archive_call, f"App Store archive stamps {build_arg.split('=', 1)[0]}")
     _check(
@@ -1365,10 +1423,7 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         profiles.get(APPSTORE_EXTENSION_BUNDLE_ID) == APPSTORE_EXTENSION_PROFILE_NAME,
         "export options map the notification extension to its App Store profile",
     )
-    _check(
-        profiles.get(APPSTORE_CLOUD_VPN_BUNDLE_ID) == APPSTORE_CLOUD_VPN_PROFILE_NAME,
-        "export options map CloudVPN to its packet-tunnel App Store profile",
-    )
+    _check(APPSTORE_CLOUD_VPN_BUNDLE_ID not in profiles, "export options omit the disabled CloudVPN profile")
     _check("com.cmuxterm.app" not in profiles, "export options do not include the retired app id")
 
     ipa_line = next(line for line in result.stdout.splitlines() if line.startswith("IPA_PATH="))
@@ -1389,14 +1444,13 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
             in zf.namelist()
             else {}
         )
-        cloud_vpn_entitlements = plistlib.loads(
-            zf.read("Payload/cmux.app/PlugIns/CloudVPN.appex/FakeSignedEntitlements.plist")
-        )
+        members = set(zf.namelist())
     _check(info.get("CFBundleIdentifier") == APPSTORE_BUNDLE_ID, "final signed IPA Info.plist is com.cmux.app")
     _check(
         info.get("CMUXKeychainAccessGroup") == APPSTORE_APP_ID,
         "final signed App Store IPA Info.plist carries the exact App Store keychain group",
     )
+    _check(info.get("CMUXAppStoreBuild") == "YES", "final signed App Store IPA carries the VPN-free build marker")
     _check(
         extension_info.get("CMUXKeychainAccessGroup") == APPSTORE_APP_ID,
         "notification extension Info.plist carries the exact App Store keychain group",
@@ -1406,14 +1460,8 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         "notification extension signature carries the exact App Store keychain group",
     )
     _check(
-        cloud_vpn_entitlements.get("application-identifier")
-        == f"{TEAM_ID}.{APPSTORE_CLOUD_VPN_BUNDLE_ID}",
-        "CloudVPN signature carries its exact App Store application identifier",
-    )
-    _check(
-        cloud_vpn_entitlements.get("com.apple.developer.networking.networkextension")
-        == ["packet-tunnel-provider"],
-        "CloudVPN signature carries the packet-tunnel-provider entitlement",
+        "Payload/cmux.app/PlugIns/CloudVPN.appex/Info.plist" not in members,
+        "final signed App Store IPA omits the system-VPN extension",
     )
     _check(
         info.get("CFBundleShortVersionString") == APPSTORE_MARKETING_VERSION,
@@ -1493,6 +1541,7 @@ def test_upload_appstore_checks_asc_app_bundle_id_before_upload(tmp: Path, fakeb
 
 def test_profile_installer_accepts_production_profile_by_default(tmp: Path, fakebin: Path) -> None:
     env = _base_env(tmp, fakebin)
+    env["IOS_APPSTORE_ENABLE_CLOUD_VPN"] = "1"
     # These fixtures select profiles without an imported signing certificate.
     env.pop("IOS_DISTRIBUTION_IDENTITY", None)
     env["RUNNER_TEMP"] = str(tmp / "runner")
@@ -1700,7 +1749,7 @@ def test_validate_appstore_release_prepares_content_rights_and_build(
             "attach-build",
             "--version-id",
             ASC_VERSION_ID,
-            "--build",
+            "--build-id",
             ASC_BUILD_ID,
         ],
         "submission preparation attaches the selected build to version 1.0.0",
@@ -1713,6 +1762,15 @@ def test_validate_appstore_release_prepares_content_rights_and_build(
         )
     else:
         _check(False, "submission state is prepared before canonical readiness validation")
+
+
+def test_validate_appstore_release_uses_asc5_build_flags() -> None:
+    script = (ROOT / "ios" / "scripts" / "validate-app-store-release.sh").read_text(encoding="utf-8")
+    # asc 5.0 removed --build from attach-build, release stage and review submit.
+    _check(
+        '--build "$BUILD_ID"' not in script,
+        "App Store validation helper passes --build-id, which asc 5 requires",
+    )
 
 
 def test_bootstrap_appstore_availability_creates_all_territories_once(tmp: Path) -> None:
@@ -1968,6 +2026,7 @@ def main() -> None:
         test_bootstrap_appstore_availability_creates_all_territories_once(
             tmp / "availability-bootstrap-test"
         )
+        test_validate_appstore_release_uses_asc5_build_flags()
 
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")

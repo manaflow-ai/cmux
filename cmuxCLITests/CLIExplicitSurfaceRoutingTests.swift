@@ -98,6 +98,33 @@ struct CLIExplicitSurfaceRoutingTests {
         }
     }
 
+    @Test func browserProfilesRejectMalformedArgumentsBeforeImplicitSocketDiscovery() throws {
+        let temporaryHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-browser-profile-invalid-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryHome) }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "CMUX_SOCKET_PATH")
+        environment.removeValue(forKey: "CMUX_SOCKET")
+        environment["CFFIXED_USER_HOME"] = temporaryHome.path
+        environment["HOME"] = temporaryHome.path
+        environment["CMUX_TEST_ISOLATED_SOCKET_DISCOVERY"] = "1"
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: ["browser", "profiles", "list", "--bogus"],
+            environment: environment,
+            timeout: Self.processTimeout
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(result.stderr.contains("unexpected arguments"), Comment(rawValue: result.stderr))
+        #expect(!result.stderr.localizedCaseInsensitiveContains("socket not found"), Comment(rawValue: result.stderr))
+    }
+
     @Test func notifyAcceptsDesktopValueOption() throws {
         // `--desktop true|false` (#14688) must pass argument validation and reach the socket.
         let execution = try runMockCommand(
@@ -700,7 +727,7 @@ struct CLIExplicitSurfaceRoutingTests {
         }
     }
 
-    private func runMockCommand(
+    func runMockCommand(
         arguments: [String],
         socketName: String,
         environmentOverrides: [String: String] = [:],
@@ -833,7 +860,7 @@ struct CLIExplicitSurfaceRoutingTests {
     private final class CLIExplicitSurfaceRoutingBundleToken {}
 
     // Records socket callbacks from a background queue; `lock` guards both arrays.
-    private final class ServerState: @unchecked Sendable {
+    final class ServerState: @unchecked Sendable {
         private let lock = NSLock()
         private var requestLines: [String] = []
         private var errors: [String] = []
@@ -879,7 +906,7 @@ struct CLIExplicitSurfaceRoutingTests {
         }
     }
 
-    private struct ProcessRunResult {
+    struct ProcessRunResult {
         let status: Int32
         let stdout: String
         let stderr: String
@@ -989,7 +1016,7 @@ struct CLIExplicitSurfaceRoutingTests {
         return handled
     }
 
-    private static func v2Response(
+    static func v2Response(
         id: String,
         ok: Bool,
         result: [String: Any]? = nil,
@@ -1002,7 +1029,7 @@ struct CLIExplicitSurfaceRoutingTests {
         return String(data: data ?? Data("{}".utf8), encoding: .utf8) ?? "{}"
     }
 
-    private static func malformedRequestResponse(id: String? = nil, raw: String) -> String {
+    static func malformedRequestResponse(id: String? = nil, raw: String) -> String {
         v2Response(
             id: id ?? "unknown",
             ok: false,
@@ -1010,7 +1037,7 @@ struct CLIExplicitSurfaceRoutingTests {
         )
     }
 
-    private static func jsonObject(_ line: String) -> [String: Any]? {
+    static func jsonObject(_ line: String) -> [String: Any]? {
         guard let data = line.data(using: .utf8) else { return nil }
         return try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any]
     }

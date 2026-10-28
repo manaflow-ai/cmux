@@ -1,0 +1,195 @@
+name: risk tier
+
+# Labels each feat-cmux-next pull request risk:low, risk:normal or risk:high from what it changes
+# (docs/ci/risk-tiers.md on feat-cmux-next). Low and normal never wait for a person: the check passes
+# as soon as it has graded them. High stays red until a person has looked: an approving review on the
+# head commit, or risk:human-ok from a maintainer. Any tier is held while it takes back another pull
+# request's change from the last week, until a `Takes back #N: <why>` line owns it. gh-merge-green
+# and next-autoland refuse a red `risk evidence` check.
+#
+# This copy is the one that runs. GitHub runs pull_request_target workflows from the default branch
+# (main) whatever the pull request's base, so the copy on feat-cmux-next never ran: no feat pull
+# request got a risk label or a `risk evidence` check, and risk:high pull requests (the updater,
+# nightly.yml, signing) merged with no person looking (#22781, 2026-10-21). It grades with the
+# classifier at the pull request's base commit (scripts/ci/risk_tier.py lives on feat-cmux-next),
+# so the classifier's rules stay on the branch they describe.
+#
+# pull_request_target so fork pull requests can be labeled. It never checks out or runs the
+# pull request's code: the classifier comes from the base commit and reads only the changed-file
+# list, the commit list and the description through the API.
+
+on:
+  pull_request_target:
+    branches: [feat-cmux-next]
+    types: [opened, synchronize, reopened, edited, ready_for_review, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  evidence:
+    # Every event grades, with no job-level `if`: a skipped `risk evidence` run would be the newest
+    # check of that name and read as a pass. The unit tests live in risk-tier-tests.yml for the
+    # same reason. A newer event cancels an older grading run; gh-merge-green refuses a cancelled
+    # check, so the newest finished run is always a real verdict.
+    name: risk evidence
+    concurrency:
+      group: risk-evidence-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    timeout-minutes: 8
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+    steps:
+      # The tip of feat-cmux-next (the branch filter makes base.ref that branch), not base.sha: base.sha
+      # is the base as of the pull request's last push, so a label or description event on an older pull
+      # request would grade it with an older classifier, or find none from before #21718.
+      - name: Checkout the classifier at the tip of the pull request's base branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci/risk_tier.py
+          sparse-checkout-cone-mode: false
+      # The base's last 9 days of history, for the check that flags taking back a change another
+      # pull request merged recently (a stale base). A fresh repository with full blobs, not the
+      # sparse checkout above: actions/checkout makes that a blobless partial clone, and blame in
+      # one fetches blobs one by one, past its timeout on busy files. This takes about 60 s and
+      # 270 MB, then blame takes seconds. Capped at 120 s so the job (8 min) always finishes: a
+      # slow fetch skips the check with a warning instead of turning the check red.
+      - name: Fetch the base's recent history
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          REPO: ${{ github.repository }}
+        run: |
+          history="$RUNNER_TEMP/base-history"
+          git init -q "$history"
+          if timeout 120 git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
+              "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"; then
+            echo "BASE_HISTORY=$history" >> "$GITHUB_ENV"
+          else
+            echo "::warning::recent-revert check skipped: base history unavailable"
+          fi
+      # The manaflow-glaeda-route App's token, so the grading reads (files, the pull request, the
+      # compare, and for high the comments, reviews and label events) draw on the App's own budget
+      # rather than the GITHUB_TOKEN budget every workflow shares (it ran out again on 2026-10-26).
+      # A failed mint leaves GITHUB_TOKEN, and a refused read is graded again on GITHUB_TOKEN.
+      - name: Mint the glaeda-route token
+        id: glaeda-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+          skip-token-revoke: true
+      # The glaeda-route App installation's budget around the reads below (a free
+      # rate_limit read): the installation is shared, so the delta between `before`
+      # and `after` is this step's reads plus whatever else ran meanwhile.
+      - name: Log the glaeda-route App budget before
+        if: ${{ (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/evidence/before
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+
+      - name: Grade the pull request
+        id: grade
+        env:
+          READ_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          grade() {
+            : > "$RUNNER_TEMP/grade.out"; : > "$RUNNER_TEMP/grade.md"
+            python3 scripts/ci/risk_tier.py pr --repo "$REPO" --number "$NUMBER" ${BASE_HISTORY:+--repo-dir "$BASE_HISTORY"} \
+              --github-output "$RUNNER_TEMP/grade.out" --summary "$RUNNER_TEMP/grade.md"
+          }
+          if [ -z "${READ_TOKEN:-}" ] || ! GH_TOKEN="$READ_TOKEN" grade; then
+            [ -z "${READ_TOKEN:-}" ] || echo "::warning::the glaeda-route App's read failed; grading on GITHUB_TOKEN"
+            grade
+          elif ! grep -qx 'ready=true' "$RUNNER_TEMP/grade.out"; then
+            # A held verdict is read again on GITHUB_TOKEN: the classifier treats an unreadable
+            # sign-off (a refused comments, reviews or label-events read) as none, so the App's
+            # budget may only ever cost a held pull request extra calls, never its sign-off.
+            echo "held on the App's read; grading again on GITHUB_TOKEN"
+            grade
+          fi
+          cat "$RUNNER_TEMP/grade.out" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/grade.md" >> "$GITHUB_STEP_SUMMARY"
+      # The label is a convenience; the check's verdict is the gate, so a label API error never fails it.
+      # The risk labels are in .github/labels.json (labels-sync.yml keeps them, risk:human-ok
+      # included), so this step creates them only when adding one fails: creating all four on every
+      # run spent four GITHUB_TOKEN calls on 422s. The read goes on the App's budget; writes stay on
+      # GITHUB_TOKEN, whose label events start no workflow (this one would re-grade itself otherwise).
+      - name: Set the risk label
+        continue-on-error: true
+        env:
+          READ_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          LABEL: ${{ steps.grade.outputs.label }}
+        run: |
+          create_labels() {
+            for tier in low normal high; do
+              gh label create "risk:$tier" --repo "$REPO" --color "$(case $tier in low) echo 0E8A16;; normal) echo FBCA04;; high) echo B60205;; esac)" \
+                --description "Risk tier (docs/ci/risk-tiers.md)" 2>/dev/null || true
+            done
+            gh label create "risk:human-ok" --repo "$REPO" --color 5319E7 \
+              --description "A maintainer looked at this high-risk PR (agents never add it)" 2>/dev/null || true
+          }
+          labels() { gh pr view "$NUMBER" --repo "$REPO" --json labels --jq '.labels[].name'; }
+          if [ -z "${READ_TOKEN:-}" ] || ! current=$(GH_TOKEN="$READ_TOKEN" labels); then
+            current=$(labels)
+          fi
+          # risk:medium is the old name for risk:normal.
+          for old in $(grep -E '^risk:(low|medium|normal|high)$' <<<"$current" || true); do
+            [ "$old" = "$LABEL" ] || gh pr edit "$NUMBER" --repo "$REPO" --remove-label "$old"
+          done
+          if ! grep -qx "$LABEL" <<<"$current"; then
+            gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL" || {
+              create_labels
+              gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"
+            }
+          fi
+
+      - name: Log the glaeda-route App budget after
+        if: ${{ !cancelled() && (steps.glaeda-token.outputs.token) != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          PROBE: ${{ github.workflow }}/evidence/after
+        run: >-
+          gh api rate_limit --jq
+          '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
+      # Enforced from ENFORCE_FROM: the feat-cmux-next copy's advisory window (to 2026-10-24) let high
+      # pull requests merge unchecked, so this one holds from the start. gh-merge-green reads the value
+      # from the base's copy.
+      - name: Hold high until a person looked
+        if: steps.grade.outputs.ready != 'true'
+        env:
+          TIER: ${{ steps.grade.outputs.tier }}
+          ENFORCE_FROM: "2026-10-21T00:00:00Z"
+        run: |
+          if [ "$(date -u +%s)" -lt "$(date -u -d "$ENFORCE_FROM" +%s)" ]; then
+            echo "::warning::risk:$TIER is held (the job summary says why); this is advisory until $ENFORCE_FROM, then it blocks merge."
+            echo "Advisory until $ENFORCE_FROM: this check passes now and blocks merge after that." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "::error::risk:$TIER is held before merge; the job summary says what clears it."
+          exit 1

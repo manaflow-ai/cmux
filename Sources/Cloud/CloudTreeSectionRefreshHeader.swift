@@ -20,9 +20,11 @@ struct CloudTreeSectionRefreshHeader: View {
     @State private var isHovered = false
 
     var body: some View {
-        HStack(alignment: .center, spacing: scaled(4)) {
+        HStack(alignment: .center, spacing: 0) {
             // The shared header, hugging its title and count (its own spacer
-            // collapses) so the icon sits right after the count.
+            // collapses) so the icon sits right after the count. No extra
+            // spacing: the 22 pt hit area already leaves the glyph ~6 pt
+            // from the count, close to the title-to-count gap.
             CloudTreeGroupRowContent(title: title, count: count, style: style)
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.trailing, -style.rowGrid.trailingPadding)
@@ -41,9 +43,13 @@ struct CloudTreeSectionRefreshHeader: View {
                         .controlSize(.mini)
                         .scaleEffect(0.7)
                 } else {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: scaled(max(8, style.detailSize - 2)), weight: .semibold))
-                        .foregroundStyle(isHovered ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
+                    CmuxSystemSymbolImage(
+                        systemName: "arrow.clockwise",
+                        pointSize: scaled(max(8, style.detailSize - 2)),
+                        weight: .semibold,
+                        tint: Color(nsColor: isHovered ? .secondaryLabelColor : .tertiaryLabelColor),
+                        appliesGlobalFontMagnification: false
+                    )
                 }
             }
             // The same hit area and hover fill as the headers' + and ⋯

@@ -10,9 +10,10 @@ name: CI queue janitor
 # admission` or `app-host unit tests` shard, in that order. Draft pull requests are never cancelled for being
 # drafts, and a run whose diff changes what the failing shard does is never
 # cancelled for being doomed.
-# Main pushes, merge groups, main schedules/dispatches, release/tag, nightly
-# and TestFlight/App Store runs are never candidates. scripts/ci/queue_janitor.py
-# holds the policy; every decision is written to the step summary.
+# Main and feat-cmux-next pushes, merge groups, main schedules/dispatches,
+# release/tag, nightly and TestFlight/App Store runs are never candidates.
+# scripts/ci/queue_janitor.py holds the policy; every decision is written to
+# the step summary.
 #
 # Scheduled sweeps cancel for real unless the repository variable
 # CI_JANITOR_DRY_RUN is "true". A manual dispatch defaults to a dry run.
@@ -21,11 +22,28 @@ name: CI queue janitor
 # job queued with no runner for CI_JANITOR_ORPHAN_MINUTES (default 120) while
 # a newer job on the same labels got one, or a run still queued after a day.
 # These are lost runner assignments, not demand, so no queue threshold gates
-# them; release, tag and merge-queue orphans are only reported.
+# them; release, tag, merge-queue and nightly/DEV/promote orphans
+# (scripts/ci/delivery_workflows.py) are only reported, never cancelled.
+#
+# Sooner than that, category e takes a push or pull request run (never a
+# protected one) whose job has queued with no runner for 30 minutes while a
+# newer job on exactly its labels was taken. A stale run is cancelled; a run
+# at an open pull request's head is cancelled and, on a later sweep, its failed
+# jobs are re-run once, unless a newer run at that head took over; a bot's
+# re-run there is left to the owned-pool rescue. That pending re-run rides in
+# the `macos-pool-load` snapshot below, which the next sweep reads back. It
+# shares the cancel cap.
 #
 # Each sweep also publishes the per-pool macOS queue it saw as the
 # `macos-pool-load` artifact, which pull request CI reads to overflow off a
 # backed-up pool.
+#
+# It also alerts on starved fleet labels: a glaeda-* label with a job queued
+# over 10 minutes and no job on it running or started in that time
+# (scripts/ci/starved_labels.py). Each gets an ::error:: annotation, a summary
+# line and one open issue titled "Runner label starved: <label>", closed when
+# the label is served again. The issues use the cmux-bot token's issues: write;
+# without that token a starved label fails the alert step.
 #
 # GitHub delays scheduled runs (the */10 cron fired 55 minutes apart on
 # 2026-09-25), and pull request CI trusts a snapshot for at most
@@ -38,6 +56,14 @@ name: CI queue janitor
 # none for the cron, CI being requested hundreds of times an hour drove about
 # 12 sweeps an hour, and the budget ran out on 2026-10-06. Now there are about
 # 6. The concurrency group keeps one sweep running and one waiting.
+#
+# Since the budget ran out again on 2026-10-21, the sweep reads and cancels with the
+# manaflow-glaeda-route App's token, which has its own budget (minted first, so the
+# freshness probe uses it too; a mint costs the App's budget, not GITHUB_TOKEN's), and
+# falls back to GITHUB_TOKEN when the App's is refused. A CI run of a pull request into
+# feat-cmux-next starts no sweep: that branch's ci.yml never routes its pull requests to
+# macOS (`macos` needs `Fast static checks`, which it skips for them), and the cron still
+# sweeps their stale runs.
 on:
   schedule:
     - cron: "*/10 * * * *"
@@ -72,19 +98,46 @@ jobs:
       pull-requests: read
       contents: read
     name: Sweep wasted macOS demand
+    if: ${{ !(github.event_name == 'workflow_run' && github.event.workflow_run.pull_requests[0].base.ref == 'feat-cmux-next') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
+      # Before the freshness gate, so its one read is on the App's budget too. Minting
+      # spends the App's own requests, never GITHUB_TOKEN's.
+      - name: Mint the glaeda-route token
+        id: glaeda-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: write
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+
       - name: Skip when the pool snapshot is fresh
         id: fresh
         if: github.event_name != 'workflow_dispatch'
         env:
-          GH_TOKEN: ${{ github.token }}
+          # This gate stays ahead of every other API use so requested-run
+          # freshness stays cheap; the cmux-bot token is minted only after a
+          # stale snapshot needs the cancellation API.
+          GH_TOKEN: ${{ steps.glaeda-token.outputs.token || github.token }}
+          FALLBACK_TOKEN: ${{ github.token }}
           FRESH_SECONDS: ${{ github.event_name == 'workflow_run' && '600' || '300' }}
         run: |
           set -euo pipefail
-          newest="$(gh api "repos/${{ github.repository }}/actions/artifacts?name=macos-pool-load&per_page=20" \
-            --jq '[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == "main") | .created_at] | max // ""')" || newest=""
+          query=(api "repos/${{ github.repository }}/actions/artifacts?name=macos-pool-load&per_page=20"
+            --jq '[.artifacts[] | select(.expired | not) | select(.workflow_run.head_branch == "main") | .created_at] | max // ""')
+          # A refused App token (no budget left, say) gets one more try on GITHUB_TOKEN.
+          newest="$(gh "${query[@]}")" ||
+            { [ "$FALLBACK_TOKEN" != "$GH_TOKEN" ] && newest="$(GH_TOKEN="$FALLBACK_TOKEN" gh "${query[@]}")"; } ||
+            newest=""
           age=999999
           if [ -n "$newest" ]; then
             age=$(( $(date -u +%s) - $(date -u -d "$newest" +%s) ))
@@ -93,6 +146,21 @@ jobs:
           if [ "$age" -lt "$FRESH_SECONDS" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != '' && steps.fresh.outputs.skip != 'true'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-checks: read
+          permission-contents: read
+          permission-issues: write
+          permission-pull-requests: write
 
       - name: Check out trusted janitor
         if: steps.fresh.outputs.skip != 'true'
@@ -103,7 +171,9 @@ jobs:
       - name: Cancel wasted macOS runs
         if: steps.fresh.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token || github.token }}
+          # Takes over when the App's token is refused (queue_janitor.GitHub).
+          GH_FALLBACK_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || vars.CI_JANITOR_DRY_RUN == 'true' && 'true' || 'false' }}
           QUEUE_THRESHOLD: ${{ vars.CI_JANITOR_QUEUE_THRESHOLD }}
@@ -124,6 +194,30 @@ jobs:
           # `warm` (scripts/ci/owned_warm_state.py) for warm affinity.
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
         run: python3 scripts/ci/queue_janitor.py
+
+      # Early warning for the GITHUB_TOKEN budget every workflow shares: when it ran out on
+      # 2026-10-25 every NEXT nightly's legacy publish failed and nothing said so first. One
+      # GET /rate_limit (it costs no budget) per sweep that ran, about one every 5-10 minutes;
+      # under 20% left it warns here and files one issue with the cmux-bot token, commenting at
+      # most once an hour while it stays low. Never fails the sweep.
+      - name: Warn when the GITHUB_TOKEN budget runs low
+        if: ${{ !cancelled() && steps.fresh.outputs.skip != 'true' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          # The token whose budget is measured; not GH_TOKEN, which in this job is cmux-bot.
+          BUDGET_TOKEN: ${{ github.token }}
+          ISSUE_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/github_token_budget.py
+
+      - name: Alert on starved fleet runner labels
+        if: ${{ !cancelled() && steps.fresh.outputs.skip != 'true' }}
+        env:
+          # Not github.token: this job's GITHUB_TOKEN has no issues permission.
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_REPO: ${{ github.repository }}
+          POOL_LOAD_OUT: ${{ runner.temp }}/macos-pool-load.json
+        run: python3 scripts/ci/starved_labels.py
 
       # What this sweep saw on each macOS pool. ci.yml's `changes` job reads
       # the newest copy (scripts/ci/pr_runner_pool.py) to pick the pool a

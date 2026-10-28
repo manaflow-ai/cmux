@@ -4,6 +4,13 @@
 
 ## Rules that must never be broken
 
+- Nightlies never use Blacksmith (user decision 2026-10-19). Every
+  `*nightly*.yml` and `*notarization*.yml` job compiles on the trusted minis
+  (`build-nightly-app` on cmux15) or runs on an ephemeral GitHub-hosted image
+  (`ubuntu-24.04`, `macos-26`, `macos-15`): signing, notarization and
+  publishing stay ephemeral. These workflows read no shared runner variable
+  (`LINUX_RUNNER`, `MACOS_RUNNER_*`, ...) and never reach the benchmark mini
+  cmux11s. `tests/test_ci_nightly_off_blacksmith.py` enforces it.
 - CI is minis first. Blacksmith is overflow; do not disable an owned lane to
   make room for a dev build.
 - Every mini must have every pinned Xcode from
@@ -15,7 +22,38 @@
 
 ## Exact-head merging
 
-`gh-merge-green` requires a completed, successful `ci-status` check on the
+`gh-merge-green` is optional. On `feat-cmux-next` a plain
+`gh pr merge --squash --match-head-commit <sha>` under that branch's merge rules
+is fine. When used there, the helper applies a fast gate by default. It waits up to
+`--wait` seconds (2400 by default) for path routing, the fast tier and the
+touched compiles on the exact head, then merges. Whether the change needs the
+routing wait follows the base's `cmux-next.yml` paths filter, not the head's, so a
+pull request can't drop itself from it. It also waits for god-file,
+l10n and concurrency lint and `risk evidence`, and refuses a red one with no
+override or base excuse, as the full gate does. It refuses a completed red in
+the fast lanes, in the web, app size and crash families, or in `ci-status`,
+the Release compile or the swift test, unless the base has the same red. A
+cancelled, timed-out or skipped fast tier refuses even with `--override`. It
+refuses conflict markers and frozen paths, and a pull request from an untrusted
+fork, before it waits for anything, unless `--trust-fork-head <sha>` names its reviewed head. React-apps-check is waited for when
+`detect_ci_change_areas.py` routes a changed file to ci.yml's `web` job, or
+when that job is running. The gate keys on job names, so it refuses when one
+it waits for is no longer a job in the head's `cmux-next.yml`, `ci.yml` or
+`ci-web.yml`. It skips the merged-tree checks (merge cleanliness, the god-file
+check and `vp check`), except for a pull request that changes a path listed in
+`scripts/ci/merge-fast-gate-protected-paths.txt` on the base: workflows, shared CI
+scripts and `gh-merge-green` itself. That one gets every merged-tree check. The full
+suites run after the merge. It prints one `gh-merge-green:` line saying what
+it checked and how long it waited.
+
+On both gates the helper re-reads the pull request just before merging and
+refuses if its head or base changed, since `--match-head-commit` pins only the
+head.
+
+`--full` keeps the wait for every check, as below; every base other than
+`feat-cmux-next` (main and classic) always gets it.
+
+With `--full`, `gh-merge-green` requires a completed, successful `ci-status` check on the
 exact pull-request head. App diffs also require the completed
 `macos / macOS compile admission` check. A missing, queued, stale, or
 unsuccessful check is a refusal, and the helper prints the repair pointer.
@@ -529,7 +567,20 @@ The queue janitor treats an owned label as one more macOS pool. A stale pull
 request run (category b: closed, merged or superseded) is cancelled there on
 every sweep whatever the queue, which frees minis for current work. The other
 categories cancel only while more than `CI_JANITOR_QUEUE_THRESHOLD` jobs queue
-on a pool the run holds, owned pools included. With `CI_PR_POOL_OWNED=1` the
+on a pool the run holds, owned pools included. A lost runner assignment
+(category e: a job queued with no runner for 30 minutes while a newer job on
+exactly its labels was taken, read from GitHub alone, and no other job of its
+run is still unfinished unless lost itself) is cancelled whatever the queue.
+Two cases on 2026-10-21 set the pattern: job 119450713364 (run
+39631559018, glaeda-side-std-xcode-26.6) and job 119458409272 (PR #23694's
+run 39667716636, `cmux-next swift test` on glaeda-gui-std-xcode-26.6), each
+queued for hours with no runner while newer jobs on its labels started. At an
+open pull request's head, a later sweep re-runs the run's failed jobs once
+(and, for ci.yml, dispatches ci-ui-tests.yml for the new attempt), unless a
+newer run of the workflow at that head took over. The janitor leaves an
+attempt a bot started alone at an open pull request's head, so it never
+preempts or extends the owned-pool rescue's attempts, and it never touches
+pushes to main, `rc/*` or feat-cmux-next. With `CI_PR_POOL_OWNED=1` the
 janitor also lists the artifacts of each in-flight attempt-1, same-repository
 pull request CI run or main full-suite dispatch (one request per run, more only past 100 artifacts) to
 read its marker's peak into `committed`. A run's other macOS jobs do not rule
@@ -836,6 +887,16 @@ notarization are not on it: no signing run on an owned Mac has been proven,
 and the retired self-hosted fleet failed `codesign` with
 `errSecInternalComponent` (#6264).
 
+NEXT nightly routing has separate `CI_NIGHTLY_NEXT_TRUSTED_POOL` and
+`CI_NIGHTLY_NEXT_TRUSTED_RUNNER` variables, restricted to the same trusted-pool
+and runner-name shapes as main's pair. Main's rescue watches attempt 1 of
+same-repository `nightly-next` pushes, moves refused or stalled jobs to their
+hosted retry, and compares newer pending runs only within that branch.
+A schedule on `nightly-next` is never admitted. These variables must remain
+unset until the NEXT workflow supports the route and an eligible worker's hook
+admits exactly its workflow, job and ref. They authorize no PR-pool or signing
+work on the trusted worker. Main's nightly runner selection is unchanged.
+
 | Jobs | Route | Why |
 | --- | --- | --- |
 | `ci-macos.yml` compile admission, app-host shards, `tests-build-and-lag`, `cli-product-tests` | owned via `pr_runner_pool.py` (root label), pull requests and main's full-suite dispatch | canonical-root jobs |
@@ -923,13 +984,21 @@ Blacksmith is overflow, so when it stops starting jobs the fix is to stop
 sending overflow there, not to reroute a lane. `ci-cloud-overflow-probe.yml`
 does that automatically (`scripts/ci/cloud_overflow_switch.py`). Every 10
 minutes its `probe` job asks for one Blacksmith label and prints a line, and
-its `watch` job, on GitHub-hosted Linux, waits for the probe:
+its `watch` job waits for the probe. The watch never runs on GitHub-hosted
+Ubuntu: while overflow is on it takes `blacksmith-16vcpu-ubuntu-2404` (a size
+the probe does not ask for), and while it is off it takes
+`blacksmith-6vcpu-macos-26`, so it can always put overflow back. On
+2026-10-27 a watch on hosted Ubuntu queued 94 minutes behind the switch's own
+failover and held the workflow's concurrency group, so every later run was
+evicted with nothing decided.
 
 - **The probe waits `CI_CLOUD_PROBE_MINUTES` (default 5, 2 to 20) with no
   runner.** Overflow goes off. The switch first writes the
   `CI_CLOUD_OVERFLOW_SAVED` record (each variable's value before, its
   failover, when and which run), then points the variables at their
-  failovers: `LINUX_RUNNER` and `CI_TRUSTED_RUNNER` to `ubuntu-24.04`, `MACOS_RUNNER_15`, `_26`,
+  failovers: `LINUX_RUNNER` to `blacksmith-16vcpu-ubuntu-2404` and
+  `CI_TRUSTED_RUNNER` to `blacksmith-2vcpu-ubuntu-2404` (another Blacksmith
+  size; never GitHub-hosted Ubuntu), `MACOS_RUNNER_15`, `_26`,
   `_26_LARGE`, `_PR` and `_DUAL_XCODE` to the std owned pool of the lane's
   Xcode pin (`glaeda-std-xcode-<version>` from `CMUX_CI_XCODE_APP_PR`),
   `MACOS_RUNNER_DISPLAY` to its gui label, `MACOS_RUNNER_IOS` to
@@ -949,14 +1018,16 @@ its `watch` job, on GitHub-hosted Linux, waits for the probe:
 - **The probe starts.** If the record exists, each variable it changed is put
   back (a variable changed by hand since is left alone and named) and the
   record is deleted. While the record exists the probe asks for the label it
-  names, not `LINUX_RUNNER`, which is GitHub-hosted then.
+  names, not `LINUX_RUNNER`, which names the failover size then.
 
 The lane switches (`CI_PR_POOL_OWNED`, `CI_E2E_OWNED_UI`, `CI_IOS_OWNED` and
 the other `CI_OWNED_*`) are never touched: minis first does not change, only
 where overflow lands. `CI_CLOUD_FAILOVER` (JSON, variable name to value, `""`
 to leave one alone) overrides a failover, for example
 `{"MACOS_RUNNER_15": "macos-15"}`; it may name only the variables above and
-`MACOS_RUNNER_TESTS`, never a `blacksmith-*` label. While the record exists,
+`MACOS_RUNNER_TESTS`, never GitHub-hosted Ubuntu and never a `blacksmith-*`
+label except another Blacksmith Linux size for `LINUX_RUNNER` or
+`CI_TRUSTED_RUNNER`. While the record exists,
 `check_repo_variables.py` accepts exactly the failover values it lists.
 
 Writing variables needs a token no workflow permission grants. The workflow

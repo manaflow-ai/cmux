@@ -1,5 +1,7 @@
 import CmuxCloud
+import CmuxProductAnalytics
 import AppKit
+import CMUXMobileCore
 import Bonsplit
 import Foundation
 import SwiftUI
@@ -11,15 +13,53 @@ import SwiftUI
 /// workspace creation is unavailable. Every caller names its
 /// ``ProUpgradeSource`` so the resulting checkout is attributable.
 enum ProUpgradePresenter {
-    static let intentEvent = "cmux_upgrade_entrypoint_opened"
-
     @MainActor
     private static var workspaceReuseState = ProUpgradeWorkspaceReuseState()
 
+    /// Menu title for an upgrade entrypoint that offers `tier`, the next
+    /// tier above the account's plan (``CmuxPlanTier/upgradeOffer(isSignedIn:knownTier:)``).
+    nonisolated static func upgradeMenuTitle(for tier: CmuxPlanTier) -> String {
+        switch tier {
+        case .max:
+            String(localized: "menu.help.upgradeToMax", defaultValue: "Upgrade to cmux Max…")
+        case .free, .go, .pro:
+            String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…")
+        }
+    }
+
+    /// Command palette title for the same offer, without the ellipsis.
+    nonisolated static func upgradeCommandTitle(for tier: CmuxPlanTier) -> String {
+        switch tier {
+        case .max:
+            String(localized: "command.pro.upgradeToMax.title", defaultValue: "Upgrade to cmux Max")
+        case .free, .go, .pro:
+            String(localized: "command.pro.upgrade.title", defaultValue: "Upgrade to cmux Pro")
+        }
+    }
+
+    /// The offer every upgrade entrypoint shows, or nil when the account is
+    /// already on the top tier or its plan is not yet known.
     @MainActor
-    static func present(source: ProUpgradeSource) {
-        PostHogAnalytics.shared.capture(intentEvent, properties: CheckoutAttribution.intentProperties(source: source))
-        presentAppPricingWeb(source: source)
+    static var currentUpgradeOffer: CmuxPlanTier? {
+        guard let flow = AppDelegate.shared?.auth?.accountFlow else { return .pro }
+        return flow.upgradeOffer
+    }
+
+    /// Records the click as `cmux_upgrade_entrypoint_opened` (the funnel's
+    /// first client step) and opens pricing.
+    ///
+    /// - Parameters:
+    ///   - source: The surface; it also travels to checkout as `cmux_source`.
+    ///   - analytics: The emitter. Tests pass their own.
+    ///   - open: Opens pricing. Tests pass a no-op.
+    @MainActor
+    static func present(
+        source: ProUpgradeSource,
+        analytics: ProductAnalytics = .app,
+        open: @MainActor (ProUpgradeSource) -> Void = { presentAppPricingWeb(source: $0) }
+    ) {
+        analytics.track(.upgradeOpened(source, destination: .pricingPage))
+        open(source)
     }
 
     /// Hover hook for upgrade entrypoints: loads the pricing page into a
@@ -36,8 +76,12 @@ enum ProUpgradePresenter {
            appDelegate.proUpgradeWorkspaceExists(workspaceId: workspaceId) {
             return
         }
+        let url = appPricingURLForCurrentAppearance(source: source)
+        // A signed-in app loads pricing through the native session exchange,
+        // which a profile-store prewarm cannot serve.
+        guard !BrowserPanel.requiresAppSessionBootstrap(url) else { return }
         BrowserPrewarmedWebViewPool.shared.prewarm(
-            url: appPricingURLForCurrentAppearance(source: source),
+            url: url,
             profileID: BrowserPanel.resolvedProfileID(requested: nil)
         )
     }
@@ -61,8 +105,12 @@ enum ProUpgradePresenter {
     }
 
     @MainActor
-    static func presentCheckout(source: ProUpgradeSource, plan: CheckoutPlan = .pro) {
-        PostHogAnalytics.shared.capture(intentEvent, properties: CheckoutAttribution.intentProperties(source: source, plan: plan))
+    static func presentCheckout(
+        source: ProUpgradeSource,
+        plan: CheckoutPlan = .pro,
+        analytics: ProductAnalytics = .app
+    ) {
+        analytics.track(.upgradeOpened(source, plan: plan, destination: .checkout))
         NSWorkspace.shared.open(checkoutURL(source: source, plan: plan))
     }
 
@@ -490,7 +538,7 @@ private struct NativePricingPlansView: View {
                 isProminent: !snapshot.isMax && !snapshot.isGo,
                 features: [
                     String(localized: "pricing.native.pro.feature.vms", defaultValue: "Cloud agents on isolated Cloud VMs"),
-                    String(localized: "pricing.native.pro.feature.hours", defaultValue: "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM"),
+                    String(localized: "pricing.native.pro.feature.hours", defaultValue: "Up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM; one VM can use up to 16 GB RAM / 8 vCPU. The 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max."),
                     String(localized: "pricing.native.pro.feature.gateway", defaultValue: "Unlimited workspaces"),
                     String(localized: "pricing.native.pro.feature.ios", defaultValue: "cmux iOS app and email support"),
                 ]
@@ -504,7 +552,7 @@ private struct NativePricingPlansView: View {
                 action: snapshot.isMax ? nil : { ProUpgradePresenter.presentCheckout(source: .nativePricingPreview, plan: .max) },
                 isProminent: snapshot.isMax,
                 features: [
-                    String(localized: "pricing.native.max.feature.sizes", defaultValue: "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM"),
+                    String(localized: "pricing.native.max.feature.sizes", defaultValue: "Up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM; Max unlocks 24 GB / 12 vCPU, 32 GB / 16 vCPU, and up to 64 GB / 32 vCPU"),
                     String(localized: "pricing.native.max.feature.pro", defaultValue: "Unlimited workspaces and the iOS app"),
                 ]
             )
@@ -736,9 +784,9 @@ private struct NativePricingComparisonSection: View {
             id: "largestVm",
             label: String(localized: "pricing.native.compare.largestVm", defaultValue: "Largest Cloud VM"),
             free: .unavailable,
-            pro: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "32 GB RAM")),
-            max: .text(String(localized: "pricing.native.compare.largestVm.max", defaultValue: "64 GB RAM")),
-            team: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "32 GB RAM")),
+            pro: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "16 GB RAM / 8 vCPU")),
+            max: .text(String(localized: "pricing.native.compare.largestVm.max", defaultValue: "64 GB RAM / 32 vCPU")),
+            team: .text(String(localized: "pricing.native.compare.largestVm.standard", defaultValue: "16 GB RAM / 8 vCPU")),
             enterprise: .text(String(localized: "pricing.native.compare.custom", defaultValue: "Custom"))
         ),
         NativePricingCompareRow(
@@ -908,13 +956,13 @@ private struct NativePricingSizeSection: View {
                 .foregroundStyle(.secondary)
             Text(String(
                 localized: "pricing.native.sizes.body",
-                defaultValue: "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. Team adds the same pool for each paid seat, shared across the team. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. There is no metering or overage billing."
+                defaultValue: "Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM. One VM can use up to 16 GB RAM / 8 vCPU; the 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes require Max. Team adds the same pool for each paid seat, shared across the team. Your VMs draw from one pool. Run one large VM or five small ones. Paused VMs do not use the pool. There is no metering or overage billing."
             ))
             .font(.system(size: 13))
             .foregroundStyle(.secondary)
             Text(String(
                 localized: "pricing.native.sizes.max",
-                defaultValue: "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM, and one VM can use up to 64 GB RAM."
+                defaultValue: "Max includes up to 5 Cloud VMs sharing 80 vCPUs and 160 GB RAM. It unlocks 24 GB / 12 vCPU and 32 GB / 16 vCPU sizes, and one VM can use up to 64 GB RAM / 32 vCPU."
             ))
             .font(.system(size: 13))
             .foregroundStyle(.secondary)

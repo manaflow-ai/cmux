@@ -404,15 +404,18 @@ MAIN_BRANCH = "main"
 # swift-package-tests (SWIFT_PACKAGE_JOB) is a third side lane on a run that
 # builds no Release helper (package_lane_owned()): a package change, or a full
 # suite with release_build false, which then peaks at all three side lanes
-# beside admission and its nine follow-on jobs. MAX_RUN_JOBS counts all three;
+# beside admission and its twelve follow-on jobs. MAX_RUN_JOBS counts all three;
 # the replay charge leaves out the package lane, which a compile-only run
 # carries only on a package change. release-build (RELEASE_BUILD_JOB) is the
 # package lane's alternative: it runs only on a full suite with release_build,
 # exactly when swift-package-tests builds the SDK 15 helper on Blacksmith, so a
 # run still has at most three side lanes.
 APP_HOST_SHARDS = 7
+# ci-macos.yml cli-regressions: the shell and CLI no-socket regressions in this
+# many shards beside cli-product-tests, for a CLI change or a full suite.
+CLI_REGRESSION_SHARDS = 3
 SIDE_LANES = 3
-MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2
+MAX_RUN_JOBS = SIDE_LANES + APP_HOST_SHARDS + 2 + CLI_REGRESSION_SHARDS
 REPLAYED_RUN_JOBS = 3
 # Owned pools once had a stricter snapshot age (20 minutes) than the rest,
 # but GitHub delays scheduled runs: the janitor's */10 cron fired 55 minutes
@@ -493,6 +496,17 @@ class Settings:
     stale: tuple[str, ...] = ()
     # CI_PR_POOL_QUEUE_ROUNDS; 0 for a caller that does not pass it (E2E, iOS).
     queue_rounds: int = 0
+
+
+# The dedicated nightly-next builder's label (feat-cmux-next's nightly_build_runner.py offers it
+# first): one mini whose job-started hook admits only nightly-next's app build. The rescue moves a
+# build queued on it past its budget, as on an owned pool, so no build waits on that one machine.
+NIGHTLY_DEDICATED_LABEL = "glaeda-trusted-next-nightly"
+
+
+def nightly_dedicated(label: str) -> bool:
+    """The dedicated nightly-next builder's label."""
+    return (label or "") == NIGHTLY_DEDICATED_LABEL
 
 
 def persistent(label: str) -> bool:
@@ -734,8 +748,13 @@ def shard_job(index: int) -> str:
     return f"shard-{index}"
 
 
+CLI_REGRESSION_JOBS = tuple(f"cli-regressions-{index}" for index in range(1, CLI_REGRESSION_SHARDS + 1))
+# What a CLI change or a full suite runs after admission: cli-product-tests and the regression shards.
+CLI_JOBS = ("cli-product", *CLI_REGRESSION_JOBS)
+
+
 # A full suite with every side lane: what a run whose routing is unknown is charged.
-FULL_RUN = RunJobs(True, (*(shard_job(index) for index in range(1, APP_HOST_SHARDS + 1)), "lag", "cli-product"),
+FULL_RUN = RunJobs(True, (*(shard_job(index) for index in range(1, APP_HOST_SHARDS + 1)), "lag", *CLI_JOBS),
                    ("claude-wrapper", "remote-daemon", "swift-package"))
 
 
@@ -773,7 +792,7 @@ def run_plan(*, macos: str | None, full_suite: str | None, unit_suite: str | Non
         shards = (shard_job(CHANGED_SUITES_SHARD),)
     else:
         shards = ()
-    after = shards + (("lag",) if full else ()) + (("cli-product",) if flag(cli) or full else ())
+    after = shards + (("lag",) if full else ()) + (CLI_JOBS if flag(cli) or full else ())
     return RunJobs(True, after, side)
 
 
@@ -814,10 +833,10 @@ def run_jobs(**routing: str | None) -> int:
 # session; CI_PR_POOL_OWNED_GUI=0 keeps them off.
 # release-build is not light (a 15-minute universal compile), but it follows
 # cli-product: it is the side lane that saves the most Blacksmith time.
-LIGHT_JOBS = ("cli-product", RELEASE_BUILD_JOB, "remote-daemon", "claude-wrapper", SWIFT_PACKAGE_JOB)
+LIGHT_JOBS = (*CLI_JOBS, RELEASE_BUILD_JOB, "remote-daemon", "claude-wrapper", SWIFT_PACKAGE_JOB)
 # glaeda's canonical-root jobs: admission and every job after it (RunJobs.after:
 # the shards, tests-build-and-lag, cli-product-tests). The side lanes are not.
-ROOT_JOBS = "admission, shards, lag, cli-product"
+ROOT_JOBS = "admission, shards, lag, cli-product, cli-regressions"
 # The side lanes (RunJobs.side): light, no canonical root; they take side_runner() on a pool with a root count.
 SIDE_LANE_JOBS = ("claude-wrapper", "remote-daemon", SWIFT_PACKAGE_JOB, RELEASE_BUILD_JOB)
 

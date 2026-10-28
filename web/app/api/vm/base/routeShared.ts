@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import type { AuthedUser } from "../../../../services/vms/auth";
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../services/vms/teamDirectory";
 import { defaultMemoryMbForPlan } from "../../../../services/vms/entitlements";
@@ -21,6 +22,7 @@ import {
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
+  runAfterResponse,
   vmActiveLimitExceededResponse,
   vmErrorResponse,
   resolveVmProvisioningAccountScope,
@@ -72,6 +74,7 @@ export async function runBaseRoute(input: {
     imageSelection = resolveVmImage(provider, parsed.body.image, process.env, {
       kind: parsed.body.kind,
       memoryMb: defaultMemoryMbForPlan(entitlements.planId, process.env),
+      callerUserId: user.id,
     });
   } catch (err) {
     if (isVmCreateDisabledError(err)) {
@@ -124,6 +127,8 @@ export async function runBaseRoute(input: {
       stackUserId: user.id,
     }),
     timing: input.timing,
+    // The guest vm-kind write runs after the answer, kept alive by the platform.
+    deferAfterResponse: (work: Effect.Effect<void>) => runAfterResponse(() => Effect.runPromise(work)),
   };
   const run = await runVmRoute(
     input.operation === "reset"
@@ -182,6 +187,7 @@ function baseWorkflowErrorResponders(operation: BaseOperation, planId: string): 
       vmActiveLimitExceededResponse({
         locale: context.locale,
         limit: error.limit,
+        activeMachines: error.activeMachines,
         planId,
         retryAction: operation === "reset"
           ? "Delete another active Cloud VM, then retry Base reset. The current Base is still retained."

@@ -16,12 +16,20 @@
       "schedule": "* * * * *"
     },
     {
+      "path": "/api/cron/hexclave-inbox",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/vm-reconcile",
       "schedule": "7,17,27,37,47,57 * * * *"
     },
     {
       "path": "/api/cron/vm-alerts",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/vm-health",
+      "schedule": "4,9,14,19,24,29,34,39,44,49,54,59 * * * *"
     },
     {
       "path": "/api/cron/coderouter-alerts",
@@ -62,6 +70,18 @@
     {
       "path": "/api/cron/apple-notifications",
       "schedule": "17,47 * * * *"
+    },
+    {
+      "path": "/api/cron/vm-usage-analytics",
+      "schedule": "5 * * * *"
+    },
+    {
+      "path": "/api/cron/runs",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/hang-reports-retention",
+      "schedule": "41 4 * * *"
     }
   ]
 }

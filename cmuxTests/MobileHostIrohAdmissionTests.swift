@@ -51,7 +51,7 @@ extension MobileHostAuthorizationTests {
             MobileHostService.shared.debugResetMobileLifecycleStateForTesting()
         }
 
-        let peer = try irohPeer(endpointCharacter: "p")
+        let peer = try irohPeer(endpointCharacter: "e")
         let connectionID = UUID()
         let connection = MobileHostConnection(
             id: connectionID,

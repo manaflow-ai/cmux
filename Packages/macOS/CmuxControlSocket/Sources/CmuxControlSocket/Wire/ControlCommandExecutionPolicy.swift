@@ -81,6 +81,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // hop to the main actor.
         "session.agent_recovery.list",
         "session.agent_recovery.restore",
+        // Minting a hosted CodeRouter lease performs an authenticated HTTP
+        // request and must never block the main actor.
+        "coderouter.handoff.complete",
         "auth.status",
         "auth.sign_in_url",
         "auth.begin_sign_in",
@@ -125,6 +128,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "agent.message.ack",
         "agent.message.mark_read",
         "agent.message.poll", "agent.message.settings",
+        // Chief: owner-actor reads and writes, the store's send, and at most
+        // one main-actor hop for app state (`TerminalController+Chief`).
+        // `chief.approve`, `chief.answer` and `chief.debug` answer only in DEBUG builds.
+        "chief.open", "chief.send", "chief.status", "chief.conversations",
+        "chief.read", "chief.mark_read", "chief.stop", "chief.approve", "chief.answer", "chief.debug",
         "browser.download.list", "browser.download.wait",
         "browser.profiles.list",
         "browser.profiles.create",
@@ -196,6 +204,10 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // export in one short `v2MainSync` hop (`cmux send` asks it before
         // typing). App-side for the same reason as `surface.read_text`.
         "surface.input_state",
+        // `surface.wait_text_change` parks until the terminal prints, then
+        // rereads it through the `surface.read_text` worker body. Waiting on
+        // the main actor would freeze the app for the whole timeout.
+        "surface.wait_text_change",
         // Selection providers own AppKit/WebKit state on the main actor, then
         // return one immutable snapshot for response shaping on this worker.
         // The async bridge must never be entered inline by a main-thread caller.
@@ -206,6 +218,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "current.list",
         "surface.project",
         "surface.new_terminal",
+        "surface.new_display",
         // SSH-session attach resolves ownership and reads the remote PTY
         // registry before any surface mutation; keep the bounded remote query
         // off the main actor.
@@ -241,6 +254,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // compositor before falling back to AppKit. Keep that wait on the
         // socket worker so WebKit-backed panels can render on the main actor.
         "debug.window.screenshot",
+        // Waits for Global Search's index refresh and query, which hop to the
+        // main actor; blocking the main lane on them would deadlock.
+        "debug.global_search.query",
         // Window recording samples ScreenCaptureKit on a schedule for as long
         // as the clip lasts. The sampling loop must never own the main actor:
         // the window it is filming has to keep drawing.
@@ -267,6 +283,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // Presents the Cloud tree style gallery window: one v2MainSync hop for
         // the presentation, like debug.window.screenshot's capture wait.
         "debug.cloudtree.gallery",
+        // Reads hint mode's labels: one v2MainSync hop, like the gallery.
+        "debug.window_hints",
         // Browser automation methods that wait on page JavaScript, WebKit
         // cookies, or capture callbacks run on the socket worker: on the main
         // actor they block SwiftUI updates for their full duration, and on a
@@ -338,6 +356,8 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "browser.addinitscript",
         "browser.addscript",
         "browser.addstyle", "browser.design_mode.set", "browser.design_mode.status",
+        // Offline mode compiles a content rule list before replying.
+        "browser.geolocation.set", "browser.offline.set",
         // The v2 surface-telemetry twins of the v1 report family. Parse and
         // response encoding run on the worker; each body crosses to the main
         // actor exactly once (the resolution + write + ref minting hop), so

@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect";
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../../services/vms/teamDirectory";
 import { assertVmCreateEnabled } from "../../../../services/vms/config";
 import { defaultProviderId, vmCapabilitiesFor } from "../../../../services/vms/drivers";
@@ -7,6 +8,7 @@ import { vmModelPlaneGatewayFor } from "../../../../services/vms/modelPlaneGatew
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
+  runAfterResponse,
   vmCreateLikeErrorResponders,
   vmErrorResponse,
   withAuthedVmApiRoute,
@@ -122,8 +124,11 @@ export async function POST(request: Request): Promise<Response> {
           stackUserId: user.id,
         }),
         timing,
+        // The guest vm-kind write runs after the answer, kept alive by the platform.
+        deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
       }), {
         request,
+        deadline: { operation: "restore" },
         onError: vmCreateLikeErrorResponders({
           operation: "restore",
           planId: entitlements.planId,

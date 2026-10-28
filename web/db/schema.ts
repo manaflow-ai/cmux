@@ -6,6 +6,7 @@ import {
   bigint,
   boolean,
   check,
+  date,
   foreignKey,
   index,
   integer,
@@ -78,6 +79,123 @@ export const cloudVmNotificationDeliveryStatus = pgEnum("cloud_vm_notification_d
   "read",
   "dismissed",
 ]);
+
+/** Durable team-owned Runs. Session and provider credentials never enter these rows. */
+export const runStatus = pgEnum("run_status", [
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+
+export const runAttemptStatus = pgEnum("run_attempt_status", [
+  "queued",
+  "running",
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+
+export const runEventKind = pgEnum("run_event_kind", [
+  "run.created",
+  "attempt.queued",
+  "attempt.started",
+  "attempt.succeeded",
+  "attempt.failed",
+  "attempt.cancelled",
+  "run.cancelled",
+]);
+
+export const runs = pgTable("runs", {
+  ownerTeamId: text("owner_team_id"),
+  spec: jsonb("spec").$type<Record<string, unknown>>(),
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: text("user_id").notNull(),
+  billingTeamId: text("billing_team_id"),
+  idempotencyKey: text("idempotency_key"),
+  requestDigest: text("request_digest").notNull(),
+  source: jsonb("source").$type<Record<string, unknown>>().notNull(),
+  recipe: text("recipe").notNull(),
+  provider: text("provider").notNull().default("cloud-vm"),
+  desiredAttempts: integer("desired_attempts").notNull().default(1),
+  status: runStatus("status").notNull().default("queued"),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("runs_user_idempotency_key_unique")
+    .on(table.userId, table.idempotencyKey)
+    .where(sql`${table.ownerTeamId} is null and ${table.idempotencyKey} is not null`),
+  index("runs_user_created_idx").on(table.userId, table.createdAt, table.id),
+  uniqueIndex("runs_owner_idempotency_unique").on(table.ownerTeamId, table.idempotencyKey).where(sql`${table.ownerTeamId} is not null and ${table.idempotencyKey} is not null`),
+]);
+
+export const runAttempts = pgTable("run_attempts", {
+  leaseId: uuid("lease_id"),
+  leaseUntil: timestamp("lease_until", { withTimezone: true }),
+  workerId: text("worker_id"),
+  cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+  checkpoint: jsonb("checkpoint").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  cleanupState: text("cleanup_state").notNull().default("pending"),
+  retainedUntil: timestamp("retained_until", { withTimezone: true }),
+  promotedAt: timestamp("promoted_at", { withTimezone: true }),
+  runtimeId: uuid("runtime_id"),
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  ordinal: integer("ordinal").notNull(),
+  variant: jsonb("variant").$type<Record<string, unknown>>().notNull(),
+  status: runAttemptStatus("status").notNull().default("queued"),
+  providerVmId: text("provider_vm_id"),
+  result: jsonb("result").$type<Record<string, unknown>>(),
+  error: text("error"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("run_attempts_run_ordinal_unique").on(table.runId, table.ordinal),
+  index("run_attempts_run_status_idx").on(table.runId, table.status),
+]);
+
+export const runEvents = pgTable("run_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  attemptId: uuid("attempt_id").references(() => runAttempts.id, { onDelete: "cascade" }),
+  sequence: integer("sequence").notNull(),
+  kind: runEventKind("kind").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("run_events_run_sequence_unique").on(table.runId, table.sequence),
+  index("run_events_run_cursor_idx").on(table.runId, table.sequence, table.id),
+]);
+
+
+/** Receipt artifacts are immutable JSON, never arbitrary external URLs. */
+export const runArtifacts = pgTable("run_artifacts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  attemptId: uuid("attempt_id").notNull().references(() => runAttempts.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  digest: text("digest").notNull(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("run_artifacts_attempt_name_unique").on(table.attemptId, table.name)]);
+
+export const runAttachTickets = pgTable("run_attach_tickets", {
+  digest: text("digest").primaryKey(),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  attemptId: uuid("attempt_id").notNull().references(() => runAttempts.id, { onDelete: "cascade" }),
+  ownerTeamId: text("owner_team_id").notNull(),
+  userId: text("user_id").notNull(),
+  providerVmId: text("provider_vm_id").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
+});
+
 
 /** Teams own pools; a VM is assigned one pool from its own team. */
 export const coderouterPools = pgTable("coderouter_pools", {
@@ -2340,6 +2458,20 @@ export const cloudVmAlertStates = pgTable("cloud_vm_alert_states", {
   check("cloud_vm_alert_states_severity_check", sql`${table.severity} in ('critical', 'warning')`),
 ]);
 
+/**
+ * One staff Cloud VM health sweep per row (services/vms/health). Read-only
+ * observations of the provider account; the page reads the newest row and
+ * the sweep prunes rows past its retention window.
+ */
+export const cloudVmHealthSnapshots = pgTable("cloud_vm_health_snapshots", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  attentionNeeded: boolean("attention_needed").notNull(),
+  report: jsonb("report").notNull(),
+}, (table) => [
+  index("cloud_vm_health_snapshots_created_at_idx").on(table.createdAt),
+]);
+
 /** Sanitized Cloud diagnostics. The receipt and export lease survive server restarts. */
 export const cloudDiagnosticEvents = pgTable("cloud_diagnostic_events", {
   userId: text("user_id").notNull(),
@@ -2590,6 +2722,32 @@ export const hexclavePendingRevocations = pgTable("hexclave_pending_revocations"
   index("hexclave_pending_revocations_user_idx").on(table.userId),
 ]);
 
+/**
+ * A Stack session that must be revoked because the Cloud access grant it
+ * enrolled was revoked. Written in the same transaction that revokes the
+ * grant, so no crash can lose it. The row is deleted once Stack accepts the
+ * revocation; until then the vm-reconcile cron claims due rows (lease in
+ * `claimed_until`, `FOR UPDATE SKIP LOCKED`) and retries with bounded
+ * backoff. After the attempt cap or 24 hours it stops (`gave_up_at`) and is
+ * reported.
+ */
+export const stackSessionRevocations = pgTable("stack_session_revocations", {
+  stackSessionId: text("stack_session_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  accessGrantId: uuid("access_grant_id"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  claimedUntil: timestamp("claimed_until", { withTimezone: true }),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  gaveUpAt: timestamp("gave_up_at", { withTimezone: true }),
+}, (table) => [
+  index("stack_session_revocations_due_idx")
+    .on(table.nextAttemptAt)
+    .where(sql`${table.gaveUpAt} is null`),
+  index("stack_session_revocations_user_idx").on(table.userId),
+]);
+
 export type HexclaveWebhookOutcome = "processed" | "ignored" | "invalid" | "failed";
 
 /**
@@ -2597,6 +2755,56 @@ export type HexclaveWebhookOutcome = "processed" | "ignored" | "invalid" | "fail
  * revocations reflect Hexclave; a redelivery of such an id is acknowledged
  * without work. Invalid and failed deliveries keep `processed_at` null.
  */
+/**
+ * Verified Hexclave webhook deliveries waiting to be applied. The webhook
+ * answers 200 once a delivery is stored here; a rate-limited drain (the
+ * webhook's own after-response kick and the every-minute `hexclave-inbox`
+ * cron) applies them, coalescing events for one user or team into one
+ * Hexclave read. A row is deleted once applied (and recorded in
+ * `hexclave_webhook_events`). After the attempt cap a row is dead-lettered
+ * (kept, reported, purged after 30 days). Only the target is stored, never
+ * the payload.
+ */
+export const hexclaveWebhookInbox = pgTable("hexclave_webhook_inbox", {
+  svixId: text("svix_id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  entityKind: text("entity_kind").$type<"user" | "team">().notNull(),
+  entityId: text("entity_id").notNull(),
+  revokeCandidateTeamIds: jsonb("revoke_candidate_team_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  claimedUntil: timestamp("claimed_until", { withTimezone: true }),
+  lastError: text("last_error"),
+  deadLetteredAt: timestamp("dead_lettered_at", { withTimezone: true }),
+}, (table) => [
+  check("hexclave_webhook_inbox_entity_kind_check", sql`${table.entityKind} in ('user', 'team')`),
+  index("hexclave_webhook_inbox_due_idx").on(table.nextAttemptAt).where(sql`${table.deadLetteredAt} is null`),
+  index("hexclave_webhook_inbox_entity_idx").on(table.entityKind, table.entityId),
+]);
+
+/** At most this many inbox drains run at once, each holding one leased slot. */
+export const hexclaveWebhookInboxDrainSlots = pgTable("hexclave_webhook_inbox_drain_slots", {
+  slot: integer("slot").primaryKey(),
+  /** The holder's token: only it may release the slot. */
+  leaseId: uuid("lease_id").notNull(),
+  leasedUntil: timestamp("leased_until", { withTimezone: true }).notNull(),
+});
+
+/**
+ * The inbox's single state row: a global Hexclave backoff every drain checks
+ * before it starts, and the stuck and dead-letter counts last reported (an
+ * alert fires only when they change).
+ */
+export const hexclaveWebhookInboxState = pgTable("hexclave_webhook_inbox_state", {
+  id: integer("id").primaryKey().default(1),
+  throttledUntil: timestamp("throttled_until", { withTimezone: true }).notNull().default(sql`'epoch'`),
+  reportedStuck: integer("reported_stuck").notNull().default(0),
+  reportedDeadLettered: integer("reported_dead_lettered").notNull().default(0),
+}, (table) => [
+  check("hexclave_webhook_inbox_state_singleton", sql`${table.id} = 1`),
+]);
+
 export const hexclaveWebhookEvents = pgTable("hexclave_webhook_events", {
   svixId: text("svix_id").primaryKey(),
   eventType: text("event_type").notNull(),
@@ -2719,4 +2927,31 @@ export const appleNotifications = pgTable("apple_notifications", {
   index("apple_notifications_pending_idx")
     .on(table.receivedAt)
     .where(sql`${table.processedAt} is null`),
+]);
+
+/**
+ * Opt-in hang reports from cmux NEXT Nightly (schema 2, see
+ * `app/api/hang-reports`). Anonymous: `install_id` is a random per-Mac UUID
+ * the client rotates every 30 days. No IP address, account or user agent is
+ * stored. `received_day` is the server's UTC day and carries the per-install
+ * daily cap. Rows are deleted after 90 days by `/api/cron/hang-reports-retention`.
+ */
+export const hangReports = pgTable("hang_reports", {
+  reportId: uuid("report_id").primaryKey(),
+  installId: uuid("install_id").notNull(),
+  receivedDay: date("received_day", { mode: "string" }).notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  appVersion: text("app_version"),
+  appBuild: text("app_build"),
+  channel: text("channel"),
+  osVersion: text("os_version"),
+  arch: text("arch"),
+  chip: text("chip"),
+  cores: integer("cores"),
+  memoryGb: integer("memory_gb"),
+  counts: jsonb("counts").$type<Record<string, string>>(),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+}, (table) => [
+  index("hang_reports_install_day_idx").on(table.installId, table.receivedDay),
+  index("hang_reports_received_at_idx").on(table.receivedAt),
 ]);

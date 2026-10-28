@@ -1,8 +1,12 @@
 import { readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { tmpdir } from "node:os";
 import { describe, expect, setSystemTime, test } from "bun:test";
-import { FreestyleApiError, type Freestyle } from "freestyle";
+import { Freestyle, FreestyleApiError } from "freestyle";
 import {
+  FREESTYLE_CREATE_ATTEMPT_METADATA_KEY,
   FREESTYLE_NETWORK_FIREWALL_RULES,
   FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
   FreestyleProvider,
@@ -21,6 +25,7 @@ import {
 import type { VMProvider } from "../services/vms/drivers/types";
 import { ProviderError, ProviderTunnelNetworkOverlapError, type VmEdgeRule } from "../services/vms/drivers/types";
 import { isProviderTunnelNetworkOverlap } from "../services/vms/providerErrors";
+import { isProviderCreateCleanupError, type ProviderCreateCleanupError } from "../services/vms/drivers/providerCreateCleanup";
 import { DEVBOX_DESKTOP_NOVNC_PORT } from "../services/vms/images/desktop";
 
 const VM_ID = "vm-d05087e5773e4a978036fc806b0cd759";
@@ -38,12 +43,14 @@ function fakeFreestyle(input: { readonly probeExit: number; readonly guestCliExi
   const networkData = { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.4.0.7", ipv6: "fd00:4::7" }] };
   const creates: unknown[] = [];
   const execs: string[] = [];
+  const execUsers: Array<string | undefined> = [];
   const writes: Array<{ path: string; content: string }> = [];
   const deletes: string[] = [];
   let guestCliProbeSeen = false;
   const vm = {
-    exec: async ({ command }: { command: string }) => {
+    exec: async ({ command, linuxUser }: { command: string; linuxUser?: string }) => {
       execs.push(command);
+      execUsers.push(linuxUser);
       const statusCode = command.includes("sha256sum") && !guestCliProbeSeen
         ? (guestCliProbeSeen = true, input.guestCliExit ?? 0)
         : command.includes("/api/coderouter/vm-usage/self") ? input.probeExit : 0;
@@ -73,7 +80,7 @@ function fakeFreestyle(input: { readonly probeExit: number; readonly guestCliExi
       ref: () => vm,
     },
   } as unknown as Freestyle;
-  return { client, creates, execs, writes, deletes };
+  return { client, creates, execs, execUsers, writes, deletes };
 }
 
 function providerWith(fake: { readonly client: Freestyle }): FreestyleProvider {
@@ -81,6 +88,29 @@ function providerWith(fake: { readonly client: Freestyle }): FreestyleProvider {
     client: () => fake.client,
   });
 }
+
+// https://github.com/manaflow-ai/cmux/issues/21820: a "destroyed" answer
+// retires the machine's row, so only Freestyle's explicit not-found contract
+// may produce it. A bare 404 from a gateway or a moved endpoint is an outage.
+describe("FreestyleProvider status of a missing machine", () => {
+  function statusProvider(response: () => Response): FreestyleProvider {
+    const client = new Freestyle({ apiKey: "test-only", fetch: (async () => response()) as typeof fetch });
+    return new FreestyleProvider({ client: () => client });
+  }
+
+  test("an explicit NOT_FOUND answer reports the machine destroyed", async () => {
+    const provider = statusProvider(() => Response.json({ code: "NOT_FOUND", message: "VM not found" }, { status: 404 }));
+    await expect(provider.getStatus(VM_ID)).resolves.toBe("destroyed");
+  });
+
+  test.each([
+    { name: "an HTML gateway page", response: () => new Response("<html>404 Not Found</html>", { status: 404 }) },
+    { name: "an unrecognized code", response: () => Response.json({ code: "ROUTE_NOT_FOUND", message: "no route" }, { status: 404 }) },
+  ])("a bare 404 with $name is a provider error, not a destroyed machine", async ({ response }) => {
+    const provider = statusProvider(response);
+    await expect(provider.getStatus(VM_ID)).rejects.toBeInstanceOf(ProviderError);
+  });
+});
 
 describe("FreestyleProvider transport contract", () => {
   test("cmux-remote is the only session transport", () => {
@@ -104,6 +134,184 @@ describe("FreestyleProvider transport contract", () => {
     // menu must not offer a verb the driver cannot serve.
     const provider = new FreestyleProvider();
     expect((provider as { fork?: unknown }).fork).toBeUndefined();
+  });
+});
+
+describe("Freestyle fork readiness", () => {
+  // The fork readiness error is stored on the row and alerted on, so it names
+  // the stalled stage from the guest's fixed vocabulary and nothing else; the
+  // guest's log lines go only to the server log.
+  const forkClient = (stderr: string | Error) => {
+    const deletes: string[] = [];
+    const exec = async () => {
+      if (stderr instanceof Error) throw stderr;
+      return { statusCode: 1, stdout: "", stderr };
+    };
+    return {
+      deletes,
+      client: {
+        vms: {
+          create: async () => ({
+            vmId: VM_ID,
+            data: {},
+            vm: { exec, delete: async () => { deletes.push(VM_ID); } },
+          }),
+        },
+      } as unknown as Freestyle,
+    };
+  };
+
+  test("names the stalled stage without guest log text", async () => {
+    const fake = forkClient("cmux fork daemon did not become ready: stage=unbound supervisor=active\ncmux-tui: /home/cmux/private-path refused\n");
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=unbound supervisor=active)");
+    expect((error as Error).message).not.toContain("private-path");
+    expect(fake.deletes).toEqual([VM_ID]);
+  });
+
+  test("a stage outside the fixed set reads as unknown", async () => {
+    const fake = forkClient("cmux fork daemon did not become ready: stage=leaked-token supervisor=active\n");
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=unknown)");
+    expect((error as Error).message).not.toContain("leaked-token");
+  });
+
+  test("a readiness exec that never answered reads as exec-unavailable and the clone is deleted", async () => {
+    const fake = forkClient(new Error("exec transport failed"));
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=exec-unavailable)");
+    expect(fake.deletes).toEqual([VM_ID]);
+  });
+
+  test("does not echo an unrecognized guest answer into the error", async () => {
+    const fake = forkClient("something else entirely: stage=$(rm -rf /)\n");
+    const error = await providerWith(fake).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect((error as Error).message).toContain("forked machine daemon did not become ready (stage=unknown)");
+    expect((error as Error).message).not.toContain("rm -rf");
+  });
+
+  test("a clone whose rollback delete fails is reported as unconfirmed cleanup, not dropped", async () => {
+    const client = {
+      vms: {
+        create: async () => ({
+          vmId: VM_ID,
+          data: {},
+          vm: {
+            exec: async () => ({ statusCode: 1, stdout: "", stderr: "" }),
+            delete: async () => { throw new FreestyleApiError(502, { code: "BAD_GATEWAY", message: "upstream" }); },
+          },
+        }),
+      },
+    } as unknown as Freestyle;
+    const error = await providerWith({ client }).create({ image: "sh-fork", forked: true }).catch((err: unknown) => err);
+    expect(isProviderCreateCleanupError(error)).toBe(true);
+    expect((error as ProviderCreateCleanupError).providerVmId).toBe(VM_ID);
+  });
+});
+
+// A create can fail after Freestyle already allocated the VM: the error carries
+// no VM id, so the machine used to survive with no row pointing at it (stopped
+// "cmux Cloud VM" ghosts on the account). Every create is tagged with a one-off
+// attempt id, and a failed create deletes whatever Freestyle made under it.
+describe("Freestyle failed create leaves no VM behind", () => {
+  const LEAKED_VM_ID = "vm-0f725dd3d5664d1d8c5e0a6f0b7c1e22";
+  function leakingClient(options: {
+    readonly failLeakedDelete?: boolean;
+    readonly leakedDeleteNotFound?: boolean;
+    readonly ignoreListFilter?: boolean;
+    readonly failList?: boolean;
+  } = {}) {
+    const store: Array<{ id: string; metadata: Record<string, string> }> = [];
+    const creates: Array<{ metadata?: Record<string, string> }> = [];
+    const lists: string[] = [];
+    const deletes: string[] = [];
+    const client = {
+      vms: {
+        create: async (request: { metadata?: Record<string, string> }) => {
+          creates.push(request);
+          store.push({ id: LEAKED_VM_ID, metadata: request.metadata ?? {} });
+          store.push({ id: "vm-unrelated", metadata: { cmux: "cloud", [FREESTYLE_CREATE_ATTEMPT_METADATA_KEY]: "other-attempt" } });
+          throw new FreestyleApiError(502, { code: "VM_START_FAILED", message: "guest did not start" }, "/v5/vms");
+        },
+        list: async ({ metadata }: { metadata?: string }) => {
+          lists.push(metadata ?? "");
+          if (options.failList) throw new FreestyleApiError(503, { code: "UNAVAILABLE", message: "busy" });
+          const [key, value] = (metadata ?? "").split(":");
+          return { vms: options.ignoreListFilter ? store : store.filter((vm) => vm.metadata[key!] === value) };
+        },
+        ref: (id: string) => ({
+          delete: async () => {
+            if (options.failLeakedDelete) throw new FreestyleApiError(503, { code: "UNAVAILABLE", message: "busy" });
+            if (options.leakedDeleteNotFound) throw new FreestyleApiError(404, { code: "NOT_FOUND", message: "gone" });
+            deletes.push(id);
+          },
+        }),
+      },
+    } as unknown as Freestyle;
+    return { client, creates, lists, deletes };
+  }
+
+  test.each([
+    { name: "create", run: (provider: FreestyleProvider) => provider.create({ image: "sh-image" }) },
+    { name: "restore", run: (provider: FreestyleProvider) => provider.restore("sh-snapshot") },
+  ])("a failed $name deletes the VM Freestyle allocated for it, and only that VM", async ({ run }) => {
+    const fake = leakingClient();
+    const error = await run(providerWith(fake)).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(isProviderCreateCleanupError(error)).toBe(false);
+    const attempt = fake.creates[0]?.metadata?.[FREESTYLE_CREATE_ATTEMPT_METADATA_KEY];
+    expect(attempt).toMatch(/^[0-9a-f-]{36}$/);
+    expect(fake.creates[0]?.metadata?.cmux).toBe("cloud");
+    expect(fake.lists).toEqual([`${FREESTYLE_CREATE_ATTEMPT_METADATA_KEY}:${attempt}`]);
+    expect(fake.deletes).toEqual([LEAKED_VM_ID]);
+  });
+
+  test("a leaked VM that cannot be deleted keeps the create's cleanup pending with its id", async () => {
+    const fake = leakingClient({ failLeakedDelete: true });
+    const error = await providerWith(fake).create({ image: "sh-image" }).catch((err: unknown) => err);
+    expect(isProviderCreateCleanupError(error)).toBe(true);
+    expect((error as ProviderCreateCleanupError).providerVmId).toBe(LEAKED_VM_ID);
+  });
+
+  test("a list answer that ignored the filter deletes only the VM carrying this attempt's tag", async () => {
+    const fake = leakingClient({ ignoreListFilter: true });
+    await providerWith(fake).create({ image: "sh-image" }).catch(() => {});
+    expect(fake.deletes).toEqual([LEAKED_VM_ID]);
+  });
+
+  test("a leaked VM already gone counts as cleaned up", async () => {
+    const fake = leakingClient({ leakedDeleteNotFound: true });
+    const error = await providerWith(fake).create({ image: "sh-image" }).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(isProviderCreateCleanupError(error)).toBe(false);
+  });
+
+  test("a lookup that fails reports the create's own failure, not unconfirmed cleanup", async () => {
+    const fake = leakingClient({ failList: true });
+    const logged: unknown[][] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => { logged.push(args); };
+    const error = await providerWith(fake).create({ image: "sh-image" }).catch((err: unknown) => err).finally(() => {
+      console.error = original;
+    });
+    // Reported as an operator fault so the attempt can be found by its tag.
+    expect(logged.some(([event, context]) => event === "cmux.observability.error"
+      && (context as { code?: string }).code === "provider_create_cleanup_lookup_failed")).toBe(true);
+    expect(error).toBeInstanceOf(ProviderError);
+    expect(isProviderCreateCleanupError(error)).toBe(false);
+    expect(((error as ProviderError).cause as FreestyleApiError).code).toBe("VM_START_FAILED");
+    expect(fake.deletes).toEqual([]);
+  });
+
+  test("every create carries a fresh attempt id", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await providerWith(fake).create({ image: "sh-image" });
+    await providerWith(fake).create({ image: "sh-image" });
+    const attempts = (fake.creates as Array<{ metadata: Record<string, string> }>)
+      .map((request) => request.metadata[FREESTYLE_CREATE_ATTEMPT_METADATA_KEY]);
+    expect(new Set(attempts).size).toBe(2);
   });
 });
 
@@ -404,8 +612,16 @@ describe("Freestyle platform contract", () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     const result = await providerWith(fake).exec(VM_ID, "echo hi", { timeoutMs: 5_000 });
     expect(result.exitCode).toBe(0);
-    expect(fake.execs).toEqual(["echo hi"]);
+    expect(fake.execs[0]).toContain("getent passwd");
+    expect(fake.execUsers).toEqual([undefined]);
     expect(fake.writes).toHaveLength(0);
+  });
+
+  test("cmux's own guest maintenance through exec can still ask for root", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    const result = await providerWith(fake).exec(VM_ID, "true", { timeoutMs: 5_000, asRoot: true });
+    expect(result.exitCode).toBe(0);
+    expect(fake.execUsers).toEqual(["root"]);
   });
 
   test("exec does not repair an absent guest CLI during a command", async () => {
@@ -413,7 +629,8 @@ describe("Freestyle platform contract", () => {
     const result = await providerWith(fake).exec(VM_ID, "cmux self --json");
     expect(result.exitCode).toBe(0);
     expect(fake.writes).toHaveLength(0);
-    expect(fake.execs).toEqual(["cmux self --json"]);
+    expect(fake.execs[0]).toContain("getent passwd");
+    expect(fake.execUsers).toEqual([undefined]);
   });
 
   test("exec timeouts clamp to the per-exec cap; killed execs read as 124", () => {
@@ -640,7 +857,13 @@ describe("FreestyleProvider create with edge rules", () => {
       // explicitly pauses or destroys it. The explicit -1 also overrides a
       // provider/account default that would otherwise idle-pause the VM.
       idleTimeoutSeconds: -1,
+      automaticRestart: true,
     });
+  });
+
+  test("does not expose hard restart without a supported provider contract", () => {
+    const provider: VMProvider = providerWith(fakeFreestyle({ probeExit: 0 }));
+    expect(provider.restart).toBeUndefined();
   });
 
   test("passes the rule inline and returns a snapshot-v2 machine without guest setup", async () => {
@@ -703,6 +926,7 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(restored.image).toBe("snap-1");
     expect(ok.creates[0]).toMatchObject({
       snapshotId: "snap-1",
+      automaticRestart: true,
       idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
       tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
     });
@@ -836,14 +1060,45 @@ describe("Freestyle attach route source", () => {
 });
 
 describe("Freestyle client configuration", () => {
-  test("every guest exec is pinned to root", () => {
-    // The 0.2 API's linuxUser default is uid 1000, not root. The devbox image
-    // ships such a user, so an unpinned exec would silently move the daemon,
-    // its install, and the model-plane write off the root layout.
+  test("driver maintenance execs stay pinned to root", () => {
+    // Public vm exec intentionally uses the provider's uid-1000 default so it
+    // lands in the same home as Cloud terminals. Driver maintenance must keep
+    // its explicit root pin so installs and probes retain their privileged
+    // layout.
     const execCalls = driverSource.match(/\.exec\(\{[\s\S]*?\}\)/g) ?? [];
     expect(execCalls.length).toBeGreaterThan(0);
-    for (const call of execCalls) {
+    for (const call of execCalls.filter((call) => !call.includes("freestyleExecCommand(command)"))) {
       expect(call).toContain("linuxUser");
+    }
+  });
+
+  test("public vm exec leaves the guest user to the provider default", () => {
+    expect(driverSource).toContain(
+      "const r = await vm.exec(opts?.asRoot\n            ? { command, timeoutMs, linuxUser: GUEST_LINUX_USER }\n            : { command: freestyleExecCommand(command), timeoutMs });",
+    );
+  });
+
+  test("public vm exec derives HOME from the guest passwd entry", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "cmux-exec-home-"));
+    const bin = path.join(root, "bin");
+    await mkdir(bin, { recursive: true });
+    await writeFile(path.join(bin, "getent"), "#!/bin/sh\nprintf '%s\n' 'cmux:x:1000:1000::/home/cmux:/bin/bash'\n", { mode: 0o755 });
+    try {
+      const fake = fakeFreestyle({ probeExit: 0 });
+      await providerWith(fake).exec(VM_ID, 'printf "%s" "$HOME"');
+      const result = await new Promise<{ status: number | null; stdout: string }>((resolve) => {
+        const child = spawn("/bin/sh", ["-c", fake.execs[0]], {
+          env: { ...process.env, HOME: "/home/ubuntu", PATH: `${bin}:/usr/bin:/bin` },
+          stdio: ["ignore", "pipe", "ignore"],
+        });
+        let stdout = "";
+        child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+        child.on("close", (status: number | null) => resolve({ status, stdout }));
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe("/home/cmux");
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 

@@ -108,10 +108,12 @@ class ApprovedLabelsPass(unittest.TestCase):
             "blacksmith-4vcpu-ubuntu-2404",
             "warp-macos-15-arm64-6x",
             "ubuntu-24.04-arm",
-            "macos-15",
         ):
             with self.subTest(label=label):
                 self.assertIsNone(forbidden_reason(label))
+        # A GitHub-hosted Mac is never a runner variable's value
+        # (tests/test_ci_no_github_hosted_macos.py).
+        self.assertIsNotNone(forbidden_reason("macos-15"))
 
     def test_an_unset_variable_is_not_drift(self) -> None:
         self.assertIsNone(forbidden_reason(""))
@@ -207,9 +209,12 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
         # label, so the label policy does not apply to them.
         read = set()
         for path in (ROOT / ".github" / "workflows").glob("*.y*ml"):
+            text = path.read_text(encoding="utf-8")
+            # runs_on_values.py's input in ci-repo-variables.yml also names other branches' runs-on variables.
+            text = re.sub(r"^( +)CMUX_CI_RUNS_ON_VARIABLES: \|\n(?:\1 +.*\n)+", "", text, flags=re.M)
             read |= {
                 name
-                for name in re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", path.read_text(encoding="utf-8"))
+                for name in re.findall(r"vars\.([A-Z0-9_]*RUNNER[A-Z0-9_]*)", text)
                 if name not in NON_LABEL_RUNNER_VARIABLES
             }
         self.assertTrue(read)
@@ -284,6 +289,41 @@ class NightlyRunnerVariable(unittest.TestCase):
         self.assertIn("fromJSON(format('[\"{0}\", \"{1}\"]', vars.CI_SEED_TRUSTED_POOL, "
                       "vars.CI_NIGHTLY_TRUSTED_RUNNER))", text)
         self.assertIn("vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != ''", text)
+
+
+class NextNightlyTrustedLabels(unittest.TestCase):
+    def test_next_has_a_separate_trusted_pool_and_runner(self):
+        self.assertEqual(drifted_runner_variables({
+            "CI_NIGHTLY_NEXT_TRUSTED_POOL": "glaeda-trusted-std-xcode-26.6",
+            "CI_NIGHTLY_NEXT_TRUSTED_RUNNER": "glaeda-runner-next-glaeda",
+        }), [])
+        for label in ("glaeda-std-xcode-26.6", "glaeda-promote-trusted-std-xcode-26.6",
+                      "glaeda-side-std-xcode-26.6", 'x", "self-hosted'):
+            with self.subTest(label=label):
+                self.assertEqual([name for name, _, _ in drifted_runner_variables({
+                    "CI_NIGHTLY_NEXT_TRUSTED_POOL": label})], ["CI_NIGHTLY_NEXT_TRUSTED_POOL"])
+
+
+class NextNightlyCapabilityGuard(unittest.TestCase):
+    def test_only_complete_tuple_in_nightly_is_exempt(self):
+        import subprocess
+        import tempfile
+        selector = "fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
+        script = 'ROOT_DIR="$1"\ncheck_no_self_hosted_fleet_runners() {\n' + _guard_function(GUARD_SCRIPT.read_text()) + '\n}\ncheck_no_self_hosted_fleet_runners'
+        with tempfile.TemporaryDirectory() as directory:
+            workflows = Path(directory) / '.github/workflows'
+            workflows.mkdir(parents=True)
+            nightly = workflows / 'nightly.yml'
+            nightly.write_text('runs-on: ${{ ' + selector + ' }}\n')
+            def check():
+                return subprocess.run(['bash', '-c', script, 'guard', directory], capture_output=True, text=True)
+            self.assertEqual(check().returncode, 0)
+            other = workflows / 'another.yml'
+            nightly.rename(other)
+            self.assertNotEqual(check().returncode, 0)
+            other.unlink()
+            nightly.write_text('runs-on: glaeda-trusted-next-nightly\n')
+            self.assertNotEqual(check().returncode, 0)
 
 
 class OwnedPoolLabels(unittest.TestCase):

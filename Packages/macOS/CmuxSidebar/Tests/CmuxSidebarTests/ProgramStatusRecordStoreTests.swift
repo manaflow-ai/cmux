@@ -53,4 +53,68 @@ struct ProgramStatusRecordStoreTests {
         #expect(store.record(id: "idle") != nil)
         #expect(store.record(id: "done") != nil)
     }
+
+    @Test func changedPayloadUsesSafeProtocolFields() {
+        var store = ProgramStatusRecordStore()
+        let report = ProgramStatusReport(
+            state: .blocked,
+            kind: .permission,
+            progress: 40,
+            id: "deploy/eu",
+            app: "provider-with-secret-name",
+            title: "Apply production credentials",
+            message: "token=super-secret"
+        )
+        store.apply(report)
+
+        let payload = ProgramStatusChangedPayload(report: report, store: store)
+        #expect(payload.event == .report)
+        #expect(payload.id == "deploy/eu")
+        #expect(payload.record?.state == .blocked)
+        #expect(payload.record?.kind == .permission)
+        #expect(payload.record?.progress == 40)
+        #expect(payload.records.map(\.id) == ["deploy/eu"])
+    }
+
+    @Test func changedPayloadMapsClearAndLifecycleCleanup() {
+        var store = ProgramStatusRecordStore()
+        store.apply(ProgramStatusReport(state: .done, id: "lint"))
+        store.apply(ProgramStatusReport(state: .clear, id: "build"))
+
+        let clear = ProgramStatusChangedPayload(
+            report: ProgramStatusReport(state: .clear, id: "build"),
+            store: store
+        )
+        #expect(clear.event == .clear)
+        #expect(clear.id == "build")
+        #expect(clear.record == nil)
+        #expect(clear.records.map(\.id) == ["lint"])
+
+        let cleanup = ProgramStatusChangedPayload(
+            event: .transientDrop,
+            store: store
+        )
+        #expect(cleanup.event == .transientDrop)
+        #expect(cleanup.id == nil)
+        #expect(cleanup.record == nil)
+        #expect(cleanup.records.map(\.id) == ["lint"])
+    }
+
+    @Test func changedPayloadMapsTerminalRemovalAndAdoption() {
+        var store = ProgramStatusRecordStore()
+        store.apply(ProgramStatusReport(state: .working, progress: 30, id: "build", app: "cargo"))
+
+        let removed = ProgramStatusChangedPayload(event: .removed, store: ProgramStatusRecordStore())
+        #expect(removed.event.rawValue == "removed")
+        #expect(removed.id == nil)
+        #expect(removed.record == nil)
+        #expect(removed.records.isEmpty)
+
+        let adopted = ProgramStatusChangedPayload(event: .adopted, store: store)
+        #expect(adopted.event.rawValue == "adopted")
+        #expect(adopted.id == nil)
+        #expect(adopted.record == nil)
+        #expect(adopted.records.map(\.id) == ["build"])
+        #expect(adopted.records.first?.progress == 30)
+    }
 }

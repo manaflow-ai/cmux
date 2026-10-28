@@ -209,13 +209,13 @@ class CollectionTests(unittest.TestCase):
         def graphql(query):
             objects = re.findall(r'(c\d+): object\(oid: "([0-9a-f]{40})"\)', query)
             self.assertGreater(len(objects), 0)
-            self.assertLessEqual(len(objects), 25)
+            self.assertLessEqual(len(objects), NOTES.COMMIT_BATCH)
             return {alias: self.associations(expected) if sha == shas[-1] else self.associations()
                     for alias, sha in objects}
 
         github.graphql.side_effect = graphql
         self.assertEqual(NOTES.collect_prs(github, BASE, HEAD, "main"), [expected])
-        self.assertEqual(github.graphql.call_count, 2)
+        self.assertEqual(github.graphql.call_count, 3)
 
     def test_identical_publication_needs_no_metadata_requests(self):
         github = Mock(repo=REPO)
