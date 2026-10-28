@@ -571,11 +571,28 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
 .nt-foot .acpmux-composer-strip::after { content: none; }
 .nt-foot .acpmux-composer-context > .acpmux-location-leading {
   order: -3;
-  flex: 0 1 auto;
+  flex: 0 0 45%;
   max-width: 45%;
   margin-inline-end: auto;
 }
 .nt-foot:has(.acpmux-access) .acpmux-location-leading { margin-inline-end: 0; }
+/* Choosing a project replaces the folder glyph with its badge and can shorten its name.
+   Keep the footer's icon and label columns reserved, so the machine, permission and disclosure
+   controls stay where the person found them. Long project names still truncate in the label. */
+.nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child { flex: 1; }
+.nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-button {
+  padding-inline-start: calc(var(--ui-ghost-inset) - var(--ui-ghost-bearing));
+}
+.nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-location-label {
+  flex: 1;
+  text-align: start;
+}
+.nt-foot .acpmux-location-leading > .acpmux-location-picker:first-child .acpmux-project-badge {
+  width: var(--ui-ghost-icon-size);
+  height: var(--ui-ghost-icon-size);
+}
+
+.nt-foot .acpmux-location-leading .acpmux-project-badge > img { max-width: 100%; max-height: 100%; }
 .nt-foot .acpmux-composer-context > .acpmux-location-picker:last-child {
   order: -2;
   margin-inline: 0;
@@ -896,12 +913,24 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
   display: flex;
   flex-direction: column;
   align-items: center;
+  --nt-headline-gap: 6px;
   gap: 6px;
   margin: 0 0 10px;
   text-align: center;
 }
+/* The no-project headline has a second row for its chooser. Keep that row's space after a
+   project is selected, so replacing the chooser with the inline project button never moves the
+   headline or the composer (the gallery measures this transition at CLS 0). */
+.nt-headline {
+  min-height: calc(var(--text-heading--line-height) + var(--text-body--line-height) + var(--nt-headline-gap));
+}
 .nt-headline-text {
   margin: 0;
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  white-space: pre;
   max-width: 560px;
   /* A new chat's hero question (.acpmux-empty-title, styles.css: 20px on a 28px line): the
      heading step is that 20px. */
