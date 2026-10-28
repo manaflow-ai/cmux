@@ -56,7 +56,7 @@ impl HiddenFlush {
 pub(super) struct VisibilityScope {
     visible: HashSet<SurfaceId>,
     /// Held slots by sequence, so a flush keeps their order.
-    held: BTreeMap<u128, (CoalescedEventKey, MuxEvent, EventCause)>,
+    held: BTreeMap<u128, (CoalescedEventKey, Arc<MuxEvent>, EventCause)>,
     held_sequences: HashMap<CoalescedEventKey, u128>,
     /// The grid's origin: the scope's start.
     origin: Instant,
@@ -104,7 +104,7 @@ impl MuxEventMailboxState {
         &mut self,
         sequence: u128,
         key: CoalescedEventKey,
-        event: MuxEvent,
+        event: Arc<MuxEvent>,
         cause: EventCause,
     ) -> bool {
         let Some(scope) = self.visibility.as_mut() else { return false };
@@ -121,7 +121,7 @@ impl MuxEventMailboxState {
     pub(super) fn take_held(
         &mut self,
         key: CoalescedEventKey,
-    ) -> Option<(CoalescedEventKey, MuxEvent, EventCause)> {
+    ) -> Option<(CoalescedEventKey, Arc<MuxEvent>, EventCause)> {
         let scope = self.visibility.as_mut()?;
         let sequence = scope.held_sequences.remove(&key)?;
         let slot = scope.held.remove(&sequence);

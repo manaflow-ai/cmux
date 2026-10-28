@@ -199,11 +199,11 @@ public final class DaemonService {
     /// `work` (the app's one ``BackgroundWork``). `team`: this process's Team ID, as the prestart got it.
     /// `launchSnapshot` is the snapshot's read `main` began; without one
     /// the read is posted to `work` here (``DaemonLaunchSnapshot/take(_:session:stateDirectory:work:)``).
-    /// `featureHello`: the app's daemon features for every hello.
+    /// `featureHello`: the app's daemon features for every hello. `terminalStreams`: as in `localConfiguration`.
     public func start(work: BackgroundWork, launch: LaunchIdentity, team: String?, terminalEnvironment: [String: String],
                resolvedTerminalEnvironment: (@Sendable () async -> [String: String])? = nil,
                terminalEnvironmentProvider: @escaping @Sendable () async -> [String: String],
-               resolvesShellIntegration: Bool = false,
+               resolvesShellIntegration: Bool = false, terminalStreams: TerminalStreamsDevice? = nil,
                prestart: DaemonPrestart? = nil, launchSnapshot: LaunchSnapshotPrefetch? = nil,
                featureHello: DaemonFeatureHello? = nil) {
         guard runTask == nil else { return }
@@ -240,7 +240,8 @@ public final class DaemonService {
                                                     resolvesShellIntegration: resolvesShellIntegration,
                                                     installKey: launcher.configuration.installKey,
                                                     echoesPlacementShift: echoesPlacementShift, retryWake: retryWake,
-                                                    hangWatch: hangWatch, featureHello: self.featureHello)
+                                                    hangWatch: hangWatch, featureHello: self.featureHello,
+                                                    terminalStreams: terminalStreams)
         // The launch's connect milestones: the prestart's, or this start's first attempt's when there is none.
         let marks = prestart?.marks ?? Self.launchConnectMarks()
         marks.mark(.connectStarted)
