@@ -146,7 +146,7 @@ struct DeviceRouteSelectorTests {
             IrxAdmissionDenied(code: .identityMismatch), IrxAdmissionDenied(code: .protocolMismatch),
             IrxMacPeerAuthorization.Failure.revoked, IrxMacPeerAuthorization.Failure.notDiscoverable,
             DeviceLinkError.identityMismatch, DeviceLinkError.identityUnproven,
-            MobileShellConnectionError.authorizationFailed, CancellationError(),
+            MobileShellConnectionError.authorizationFailed("Denied"), CancellationError(),
         ]
         for failure in failures {
             var attempts: [CmxAttachTransportKind] = []
