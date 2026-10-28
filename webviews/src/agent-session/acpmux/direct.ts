@@ -3850,9 +3850,14 @@ export class AcpmuxDirectClient {
         this.streamingActivity = undefined;
       }
       const previous = this.rows.get(row.id)?.subagents;
-      const changed = row.subagents?.some(
-        (agent, index) => agent.id !== previous?.[index]?.id || agent.state !== previous[index]?.state,
-      );
+      const changed =
+        row.subagents?.length !== previous?.length ||
+        row.subagents?.some(
+          (agent, index) =>
+            agent.id !== previous?.[index]?.id ||
+            agent.state !== previous[index]?.state ||
+            agent.name !== previous[index]?.name,
+        );
       this.rows.set(row.id, row, changed);
     }
   }

@@ -233,6 +233,8 @@ function toolFindings(tool: Tool): Finding[] {
       kind: issue ? "issue" : "pullRequest",
       ...(outputTitle(tool) ? { title: outputTitle(tool) } : {}),
     });
+    const state = !issue && SETTLES[match[1]!.slice(3)];
+    if (state) found.push({ how: "settle", ...target, state, at: tool.endedAt ?? tool.startedAt });
   }
   for (const match of calls.matchAll(CALL)) {
     const action = match[1] ?? match[2];
@@ -406,10 +408,20 @@ export function transcriptPullRequests(
     kind?: "pullRequest" | "issue",
   ) => {
     if (number <= 0) return;
-    if (!kind && how === "mentioned" && found.has(issueUrlOf(repo, number))) kind = "issue";
-    if (kind === "issue" && !found.get(urlOf(repo, number))?.kind) found.delete(urlOf(repo, number));
-    const url = kind === "issue" ? issueUrlOf(repo, number) : urlOf(repo, number);
-    const pr = found.get(url);
+    const prUrl = urlOf(repo, number),
+      issueUrl = issueUrlOf(repo, number);
+    // GitHub issues and PRs share a number space; /issues/N may redirect to a proven PR.
+    if ((!kind && how !== "mentioned") || found.get(prUrl)?.kind === "pullRequest") kind = "pullRequest";
+    if (!kind && how === "mentioned" && found.has(issueUrl)) kind = "issue";
+    const priorIssue = kind === "pullRequest" ? found.get(issueUrl) : undefined;
+    if (kind === "pullRequest") found.delete(issueUrl);
+    if (kind === "issue" && !found.get(prUrl)?.kind) found.delete(prUrl);
+    const url = kind === "issue" ? issueUrl : prUrl;
+    const pr = found.get(url) ?? priorIssue;
+    if (pr) {
+      pr.url = url;
+      found.set(url, pr);
+    }
     if (!pr) {
       found.set(url, {
         url,

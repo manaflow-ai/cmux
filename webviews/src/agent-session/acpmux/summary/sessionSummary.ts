@@ -154,11 +154,13 @@ function sources(
       if (reference) {
         const [, owner, repo, path, number] = reference;
         const canonical = `https://github.com/${owner}/${repo}/${path}/${number}`;
-        const known = knownPullRequests.get(canonical);
+        const known =
+          knownPullRequests.get(canonical) ??
+          knownPullRequests.get(`https://github.com/${owner}/${repo}/pull/${number}`);
         if (known?.changed || known?.opened) continue;
-        const pr = path === "pull";
+        const pr = path === "pull" || known?.kind === "pullRequest";
         add({
-          url: pr ? canonical : url,
+          url: pr ? (known?.url ?? canonical) : url,
           label: pr ? (known?.title ?? `${owner}/${repo} #${number}`) : label,
           kind: pr ? "pullRequest" : "issue",
         });
