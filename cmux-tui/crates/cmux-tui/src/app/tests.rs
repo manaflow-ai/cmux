@@ -722,6 +722,7 @@ fn test_app_with_events(session: Session) -> (App, Receiver<AppEvent>) {
         last_applied_refresh_sequence: 0,
         applied_destination_generation: 0,
         pending_session_completions: VecDeque::new(),
+        pending_completed_selection: None,
         mux_titles: Arc::new(MuxTitleIngress::default()),
         pty_failures,
         mux_recovery_generation: Arc::new(AtomicU64::new(0)),

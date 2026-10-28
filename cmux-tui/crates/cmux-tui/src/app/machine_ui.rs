@@ -428,6 +428,7 @@ impl App {
         self.last_applied_refresh_sequence = 0;
         self.applied_destination_generation = 0;
         self.pending_session_completions.clear();
+        self.pending_completed_selection = None;
         self.drag = None;
         self.active_pointer_buttons.clear();
         self.ignored_pty_mouse_buttons.clear();
