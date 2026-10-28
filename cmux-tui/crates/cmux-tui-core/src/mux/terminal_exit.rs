@@ -87,6 +87,17 @@ impl Mux {
         }
     }
 
+    /// [`Mux::surface_exited`] for `surface`'s own exit (its reader's end):
+    /// nothing while a respawn holds it, as the respawn has not put it in
+    /// the tree yet and commits the exit itself once it has.
+    #[track_caller]
+    pub(crate) fn surface_exited_from(self: &Arc<Self>, surface: &Arc<Surface>) {
+        if self.terminal_respawns.holds_exit(surface) {
+            return;
+        }
+        self.surface_exited(surface.id);
+    }
+
     /// Called by a surface's reader thread when its child exits. Hosted
     /// terminals preserve a durable exit receipt while all views detach;
     /// local surfaces are removed immediately.

@@ -100,6 +100,30 @@ pub(crate) struct TerminalRespawns {
     /// yet (Reopen Closed of an archived terminal, ARCHIVE-1). The launch
     /// takes it; the creator removes it when the creation fails.
     seeds: Mutex<HashMap<String, Vec<u8>>>,
+    /// Respawns whose new shell may end before the respawn commits it (the
+    /// holder starts it at once; a terminal host waits for the commit). Its
+    /// exit is then the respawn worker's to commit ([`Mux::surface_exited_from`]):
+    /// the slot is not in the tree yet, and the exit's usual path would take
+    /// it for a local terminal and close the tab.
+    exit_holds: Mutex<ExitHolds>,
+}
+
+/// [`TerminalRespawns::exit_holds`]: one entry per respawn from just before
+/// its shell starts until it commits; a respawn that does not commit keeps
+/// its entry until its surface is gone (its killed shell's exit is
+/// ignored, as the tab's fate is the respawn's).
+#[derive(Debug, Default)]
+struct ExitHolds {
+    next: u64,
+    entries: Vec<ExitHold>,
+}
+
+#[derive(Debug)]
+struct ExitHold {
+    token: u64,
+    slot: SurfaceId,
+    /// `None` while the shell starts: any surface of `slot` is held.
+    surface: Option<Weak<Surface>>,
 }
 
 /// At most this many command argvs are kept; the oldest goes first.
@@ -149,7 +173,52 @@ impl TerminalRespawns {
             guard: Mutex::new(RespawnGuard::from_env()),
             argv: Mutex::default(),
             seeds: Mutex::default(),
+            exit_holds: Mutex::default(),
         }
+    }
+
+    /// Hold the exit of the respawn of `slot` about to start its shell.
+    fn hold_exit(&self, slot: SurfaceId) -> u64 {
+        let mut holds = self.exit_holds.lock().unwrap_or_else(PoisonError::into_inner);
+        holds
+            .entries
+            .retain(|hold| hold.surface.as_ref().is_none_or(|weak| weak.strong_count() > 0));
+        holds.next += 1;
+        let token = holds.next;
+        holds.entries.push(ExitHold { token, slot, surface: None });
+        token
+    }
+
+    /// The respawn's shell started as `surface`, or did not start (`None`).
+    fn bind_exit_hold(&self, token: u64, surface: Option<&Arc<Surface>>) {
+        let mut holds = self.exit_holds.lock().unwrap_or_else(PoisonError::into_inner);
+        match surface {
+            Some(surface) => {
+                if let Some(hold) = holds.entries.iter_mut().find(|hold| hold.token == token) {
+                    hold.surface = Some(Arc::downgrade(surface));
+                }
+            }
+            None => holds.entries.retain(|hold| hold.token != token),
+        }
+    }
+
+    /// The respawn committed: the surface's exit takes its usual path from
+    /// now on. The caller then commits an exit that came before.
+    fn release_exit_hold(&self, token: u64) {
+        let mut holds = self.exit_holds.lock().unwrap_or_else(PoisonError::into_inner);
+        holds.entries.retain(|hold| hold.token != token);
+    }
+
+    /// Whether a respawn holds `surface`'s exit.
+    pub(crate) fn holds_exit(&self, surface: &Arc<Surface>) -> bool {
+        let holds = self.exit_holds.lock().unwrap_or_else(PoisonError::into_inner);
+        holds.entries.iter().any(|hold| {
+            hold.slot == surface.id
+                && hold
+                    .surface
+                    .as_ref()
+                    .is_none_or(|weak| std::ptr::eq(weak.as_ptr(), Arc::as_ptr(surface)))
+        })
     }
 
     /// Give the launch of reserved terminal `terminal_id` the seed `seed`.
@@ -537,7 +606,8 @@ impl Mux {
         };
         #[cfg(not(unix))]
         let respawn = Surface::respawn_hosted;
-        let surface = respawn(
+        let exit_hold = self.terminal_respawns.hold_exit(plan.slot);
+        let surface = match respawn(
             plan.slot,
             launch.options,
             Arc::downgrade(self),
@@ -545,7 +615,14 @@ impl Mux {
             plan.identity.clone(),
             launch.cell_pixels,
             &launch.seed,
-        )?;
+        ) {
+            Ok(surface) => surface,
+            Err(error) => {
+                self.terminal_respawns.bind_exit_hold(exit_hold, None);
+                return Err(error);
+            }
+        };
+        self.terminal_respawns.bind_exit_hold(exit_hold, Some(&surface));
         let _pending_host_release = PendingTerminalHostRelease(surface.clone());
         if let Some(delay) = self.terminal_respawns.install_delay {
             // wakeup-allow: debug a test hook on this respawn worker, read only
@@ -575,7 +652,15 @@ impl Mux {
                 // the journal: the new generation starts with a marked gap,
                 // before the new shell's first output can be captured.
                 surface.journal_respawn_gap(self);
-                surface.activate_hosted_launch_stream().map(drop)
+                let activated = surface.activate_hosted_launch_stream().map(drop);
+                // Committed: a shell that ended before this (its exit was
+                // held) ends its terminal now. The hold goes first, so an
+                // exit after it takes its usual path and finds the surface.
+                self.terminal_respawns.release_exit_hold(exit_hold);
+                if surface.is_dead() {
+                    self.commit_held_respawn_exit(&surface);
+                }
+                activated
             }
             Ok(false) => {
                 surface.kill();
@@ -608,6 +693,26 @@ impl Mux {
             crate::user_settings::resume_agents(),
         );
         Ok(Some((surface, prefill)))
+    }
+
+    /// Commit the exit of a respawned shell that ended before its respawn
+    /// committed, as [`Mux::surface_exited`] commits a hosted exit. A second
+    /// commit of the same exit (one that also took the usual path) is a
+    /// no-op: exit persistence is first-writer-wins.
+    #[cfg(any(unix, windows))]
+    fn commit_held_respawn_exit(self: &Arc<Self>, surface: &Arc<Surface>) {
+        let _creation_handoff =
+            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
+        let _creation_fence =
+            self.resource_creation_execution.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(identity) = self.resource_terminal_host_identity(surface) else { return };
+        if let Err(error) = self.mark_hosted_surface_exited(surface, "host-exited") {
+            self.emit(MuxEvent::Status(format!(
+                "could not persist terminal {} exit: {error}",
+                surface.id
+            )));
+            self.schedule_exited_terminal_detach(identity.terminal_id, surface, "host-exited");
+        }
     }
 
     /// Put the new runtime in the terminal's tabs and commit the new
