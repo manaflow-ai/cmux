@@ -6,6 +6,8 @@
 //! layers refuse rather than guessing their relationship to guarded host paths.
 //! A FUSE or network mount elsewhere exporting protected content at another
 //! path remains out of scope, matching Seatbelt's path-based limitation.
+//! A namespace file bind mount (nsfs: snapd's /run/snapd/ns/*.mnt, `ip netns`)
+//! has a `<type>:[<inode>]` root that names no host path, so it aliases nothing.
 use super::*;
 use std::collections::BTreeSet;
 
@@ -13,7 +15,8 @@ struct MountEntry {
     id: u64,
     parent: u64,
     device: String,
-    root: PathBuf,
+    /// None only for an nsfs root, which holds no host file data.
+    root: Option<PathBuf>,
     point: PathBuf,
     fs_type: String,
     super_options: String,
@@ -46,6 +49,20 @@ fn decode_mount_field(raw: &str) -> Result<String, String> {
     String::from_utf8(out).map_err(|_| "mountinfo path is not UTF-8".into())
 }
 
+/// nsfs prints its root as `<namespace type>:[<inode>]` (nsfs_show_path), for
+/// example `mnt:[4026533090]`. Other filesystems print a path, so this form is
+/// accepted only with fs type nsfs; anything else malformed still refuses.
+fn nsfs_root(fs_type: &str, root: &str) -> bool {
+    let Some((kind, inode)) = root.strip_suffix(']').and_then(|r| r.split_once(":[")) else {
+        return false;
+    };
+    fs_type == "nsfs"
+        && !kind.is_empty()
+        && kind.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+        && !inode.is_empty()
+        && inode.bytes().all(|b| b.is_ascii_digit())
+}
+
 fn parse_mountinfo(mountinfo: &str) -> Result<Vec<MountEntry>, String> {
     let mut mounts = Vec::new();
     for line in mountinfo.lines() {
@@ -60,9 +77,13 @@ fn parse_mountinfo(mountinfo: &str) -> Result<Vec<MountEntry>, String> {
         let [fs_type, _, super_options, ..] = right.as_slice() else {
             return Err("invalid mountinfo".into());
         };
-        let root = decode_mount_field(root).map(PathBuf::from)?;
         let point = decode_mount_field(point).map(PathBuf::from)?;
-        if path_arg(&root).is_err() || path_arg(&point).is_err() {
+        let root = if nsfs_root(fs_type, root) {
+            None
+        } else {
+            Some(decode_mount_field(root).map(PathBuf::from)?)
+        };
+        if root.as_deref().is_some_and(|r| path_arg(r).is_err()) || path_arg(&point).is_err() {
             return Err("invalid mountinfo path".into());
         }
         mounts.push(MountEntry {
@@ -294,8 +315,11 @@ fn check_trees(
             .find(|m| m.id == id)
             .ok_or_else(|| format!("mount ID {id} for {} missing from snapshot", tree.display()))?;
         let suffix = tree.strip_prefix(&containing.point).map_err(|_| "mount ID path mismatch")?;
-        let mut pieces =
-            vec![(containing, tree.to_path_buf(), join_path(&containing.root, suffix))];
+        let root = containing
+            .root
+            .as_ref()
+            .ok_or_else(|| format!("{} is a namespace file mount", tree.display()))?;
+        let mut pieces = vec![(containing, tree.to_path_buf(), Some(join_path(root, suffix)))];
         for mount in &mounts {
             if mount.id != id && mount.point.starts_with(tree) && visible_below(mount, id, &mounts)?
             {
@@ -331,12 +355,16 @@ fn check_trees(
                 }
             }
             for other in &mounts {
+                // An nsfs root holds a namespace handle, not host file data.
+                let (Some(underlying), Some(other_root)) = (&underlying, &other.root) else {
+                    continue;
+                };
                 if mount.id == other.id || mount.device != other.device {
                     continue;
                 }
-                let (source, alternate) = if let Ok(suffix) = underlying.strip_prefix(&other.root) {
+                let (source, alternate) = if let Ok(suffix) = underlying.strip_prefix(other_root) {
                     (view.clone(), join_path(&other.point, suffix))
-                } else if let Ok(suffix) = other.root.strip_prefix(&underlying) {
+                } else if let Ok(suffix) = other_root.strip_prefix(underlying) {
                     (join_path(&view, suffix), other.point.clone())
                 } else {
                     continue;
@@ -514,6 +542,64 @@ mod tests {
         let info = format!("{ROOT}2 1 0:42 / /home/u/victim/.git rw - autofs map rw\n");
         let reasons = guarded_aliases(&[(Path::new("/home/u/work"), 1, true)], &info);
         assert!(reasons.iter().any(|r| r.contains("autofs")), "{reasons:?}");
+    }
+
+    // Copied from big-red's /proc/self/mountinfo (Ubuntu with snapd).
+    const SNAPD_NS: &str = "34 1 0:29 / /run rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs rw,size=6349032k,mode=755,inode64
+1190 34 0:29 /snapd/ns /run/snapd/ns rw,nosuid,nodev - tmpfs tmpfs rw,size=6349028k,nr_inodes=819200,mode=755,inode64
+4043 1190 0:5 mnt:[4026533090] /run/snapd/ns/snapd-desktop-integration.mnt rw - nsfs nsfs rw
+6714 1190 0:5 mnt:[4026532813] /run/snapd/ns/firmware-updater.mnt rw - nsfs nsfs rw
+";
+
+    #[test]
+    fn regression_snapd_nsfs_mounts_are_accepted() {
+        let info = format!("{ROOT}{SNAPD_NS}");
+        assert_eq!(parse_mountinfo(&info).map(|m| m.len()), Ok(5));
+        assert!(guarded_aliases(&[], &info).is_empty());
+        let trees = [
+            (Path::new("/home/u/repo"), 1, true),
+            (Path::new("/home/u/.ssh"), 1, false),
+            (Path::new("/run/snapd/ns"), 1190, false),
+        ];
+        let reasons = guarded_aliases(&trees, &info);
+        assert!(reasons.is_empty(), "{reasons:?}");
+        // Same namespace bound twice: still no host path alias.
+        let twice = info.replace("mnt:[4026532813]", "mnt:[4026533090]");
+        assert!(guarded_aliases(&trees, &twice).is_empty());
+    }
+
+    #[test]
+    fn nsfs_mounts_keep_the_guards_that_apply() {
+        let info = format!("{ROOT}{SNAPD_NS}");
+        let reasons = guarded_aliases(&[(Path::new("/run/snapd/ns"), 1190, true)], &info);
+        assert!(reasons.iter().any(|r| r.contains("non-local filesystem nsfs")), "{reasons:?}");
+        let ns = Path::new("/run/snapd/ns/firmware-updater.mnt");
+        let reasons = guarded_aliases(&[(ns, 6714, false)], &info);
+        assert!(reasons.iter().any(|r| r.contains("namespace file mount")), "{reasons:?}");
+        let trees = [(Path::new("/run/snapd"), 34, false)];
+        assert!(guarded_aliases(&trees, &info).is_empty());
+        let leak = format!("{info}7 1 0:29 /snapd /mnt/leak rw - tmpfs tmpfs rw\n");
+        let reasons = guarded_aliases(&trees, &leak);
+        assert!(reasons.contains(&"/run/snapd is also visible at /mnt/leak".into()), "{reasons:?}");
+    }
+
+    #[test]
+    fn regression_non_path_roots_outside_nsfs_are_refused() {
+        for line in [
+            "2 1 0:42 mnt:[4026533090] /mnt/x rw - tmpfs tmpfs rw",
+            "2 1 8:1 relative/root /mnt/x rw - ext4 root rw",
+            "2 1 0:5 mnt:[4026533090] relative/point rw - nsfs nsfs rw",
+            "2 1 0:5 mnt:[] /mnt/x rw - nsfs nsfs rw",
+            "2 1 0:5 mnt:[12a] /mnt/x rw - nsfs nsfs rw",
+            "2 1 0:5 :[12] /mnt/x rw - nsfs nsfs rw",
+            "2 1 0:5 mnt:[12]x /mnt/x rw - nsfs nsfs rw",
+            "2 1 0:5 Mnt:[12] /mnt/x rw - nsfs nsfs rw",
+            "2 1 0:5 ../mnt:[12] /mnt/x rw - nsfs nsfs rw",
+            "2 1 0:5 /../x /mnt/x rw - nsfs nsfs rw",
+        ] {
+            let reasons = guarded_aliases(&[], &format!("{ROOT}{line}\n"));
+            assert_eq!(reasons, ["invalid mountinfo path"], "{line}");
+        }
     }
 
     #[test]

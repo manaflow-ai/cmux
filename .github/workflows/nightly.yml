@@ -1,10 +1,14 @@
 name: Nightly macOS build
 # A promotion request's title names its commit, so the promote guard can find
 # requests GitHub cancelled in its queue (REQUEST_TITLE in
-# scripts/ci/promote-nightly-next.mjs). Every other run keeps the default title.
+# scripts/ci/promote-nightly-next.mjs). An unsigned resume's title names the run
+# and attempt it resumes, so main's feed watch counts its resumes of each failed
+# run (scripts/ci/nightly_next_unsigned_resume.py on main dispatches nothing
+# until this title is here). Every other run keeps the default title.
 run-name: >-
   ${{ inputs.promote_nightly_next_sha && format('Promote nightly-next to {0}', inputs.promote_nightly_next_sha)
       || github.event_name == 'schedule' && format('Nightly macOS build · {0}', github.event.schedule)
+      || inputs.nightly_next_unsigned_run && format('Resume nightly-next run {0} attempt {1}', inputs.nightly_next_unsigned_run, inputs.nightly_next_unsigned_attempt)
       || '' }}
 
 # One workflow, two publish channels. A push to `main` publishes cmux NIGHTLY
@@ -5248,15 +5252,21 @@ jobs:
       # record its digest without launching bundle code. A build still in Apple's
       # queue has no final DMG yet: verify-recovered-nightly-next verifies it
       # when a later run continues it.
+      # A pool-signed build reads signer-dmg's one-DMG artifact: the variant artifact holds the
+      # same DMG twice (the release and the immutable name), and this Mac reads it over the
+      # office uplink (199 s for 481 MB in run 40728513403).
       - name: Download final DMG
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-nightly-variant-${{ matrix.variant }}
+          name: ${{ needs.signer-dmg.result == 'success' && format('cmux-nightly-next-signer-final-dmg-{0}', needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha) || format('cmux-nightly-variant-{0}', matrix.variant) }}
           path: final-dmg
 
       - name: Verify final DMG artifact
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
+        env:
+          POOL_SIGNED: ${{ needs.signer-dmg.result == 'success' }}
+          NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
         run: |
           set -euo pipefail
           mkdir -p tested
@@ -5267,6 +5277,13 @@ jobs:
           stapled_flag=(--require-stapled-app)
           if [ -n "${STAPLED_APP_FALLBACK_ID:-}" ]; then
             stapled_flag=(--stapled-app-fallback "$STAPLED_APP_FALLBACK_ID")
+          fi
+          # signer-dmg's one-DMG artifact carries no immutable copy, which signer-dmg.sh makes with
+          # cp: make it the same way. publish-nightly publishes that name only with these bytes.
+          if [ "$POOL_SIGNED" = true ]; then
+            immutable="final-dmg/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD:?}.dmg"
+            [ ! -e "$immutable" ] || { echo "the one-DMG artifact holds $(basename "$immutable")" >&2; exit 1; }
+            cp -c "$release" "$immutable" 2>/dev/null || cp "$release" "$immutable"
           fi
           ./scripts/ci/verify-dmg-artifact.sh "$release" "$SIGN_CHANNEL" "${stapled_flag[@]}" 3>"$RUNNER_TEMP/verified.line"
           tested="$(awk '$1 == "verified" {print $2}' "$RUNNER_TEMP/verified.line")"
@@ -5475,7 +5492,9 @@ jobs:
         with:
           name: cmux-nightly-next-signer-app-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-out/stapled-app.tar
-          compression-level: 0
+          # Deflated: the tar is 794 MB stored and 323 MB compressed, and signer-dmg-image reads it
+          # on an office Mac whose shared uplink moved 2.0-3.6 MB/s (222-396 s stored).
+          compression-level: 6
           if-no-files-found: error
           retention-days: 1
           overwrite: true
@@ -5519,10 +5538,12 @@ jobs:
           echo "$APP_SHA256  signer-app/stapled-app.tar" | shasum -a 256 -c -
           mkdir -p "$SIGNER_WORK" && tar -C "$SIGNER_WORK" -xf signer-app/stapled-app.tar
           bash .publish-tooling/scripts/ci/nightly-steps/signer-apple-checks.sh "$SIGNER_WORK/$CHANNEL_APP_NAME.app"
+      # signer-dmg makes verify-signed-nightly's handoff from the same stapled-app.tar on Linux,
+      # so this Mac uploads only the unsigned DMG over the office uplink.
       - name: The signed-app checks
         env:
           CHECK_MINOS: "true"
-          PACKAGE_HANDOFF: "true"
+          PACKAGE_HANDOFF: "false"
           PACKAGE_UNNOTARIZED_ZIP: "false"
         run: |
           set -euo pipefail
@@ -5535,14 +5556,6 @@ jobs:
         with:
           name: cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-out/${{ env.NIGHTLY_DMG_RELEASE }}
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 1
-          overwrite: true
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-nightly-next-signer-handoff-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
-          path: signed-app-handoff/*
           compression-level: 0
           if-no-files-found: error
           retention-days: 1
@@ -5581,6 +5594,12 @@ jobs:
           name: cmux-nightly-next-signer-unsigned-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
           path: signer-out
       - *signer-download-app
+      # verify-signed-nightly's handoff, gzipped from the stapled app here while the DMG waits on
+      # Apple, rather than on signer-dmg-image's Mac and sent back over the office uplink.
+      - name: Start packaging the stapled app for the verify job
+        env:
+          APP_SHA256: ${{ needs.signer-app.outputs.sha256 }}
+        run: bash .publish-tooling/scripts/ci/nightly-steps/signer-handoff.sh start
       - name: Sign, notarize and staple the DMG
         env:
           UNSIGNED_SHA256: ${{ needs.signer-dmg-image.outputs.sha256 }}
@@ -5601,14 +5620,12 @@ jobs:
         run: |
           echo "$APP_SHA256  signer-app/stapled-app.tar" | sha256sum -c -
           bash .publish-tooling/scripts/ci/nightly-steps/signer-appcast.sh
+      - name: Finish packaging the stapled app for the verify job
+        run: bash .publish-tooling/scripts/ci/nightly-steps/signer-handoff.sh finish
       # Hand it on under the names the macOS signer job uses: the verify jobs
       # check it on a Mac before publish reads it. Never overwrite: once the
       # macOS job has uploaded (a rerun after it covered a failed pool run),
       # its verified output stands and this upload fails.
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        with:
-          name: cmux-nightly-next-signer-handoff-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
-          path: signed-app-handoff
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-nightly-variant-arm64
@@ -5625,6 +5642,16 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           retention-days: 3
+      # verify-final-dmg-nightly's read: cmux-nightly-variant-arm64 without the DMG's second copy.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-next-signer-final-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: |
+            signer-out/${{ env.NIGHTLY_DMG_RELEASE }}
+            signer-out/appcast-arm64.xml
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
 
 
   # nightly-next continuation. A build whose notarization wait ran out left a
