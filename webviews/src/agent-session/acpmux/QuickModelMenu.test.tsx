@@ -209,13 +209,7 @@ test("inline effort picks a different model and its level together; model names 
   const container = installDom();
   const picks: { id: string; effort?: string }[] = [];
   const effortPicks: string[] = [];
-  function InlineHarness({
-    combined = true,
-    providerLook,
-  }: {
-    combined?: boolean;
-    providerLook?: "row" | "submenu" | "expanded";
-  }) {
+  function InlineHarness({ combined = true }: { combined?: boolean }) {
     const trigger = useRef<HTMLButtonElement | null>(null);
     const [open, setOpen] = useState(false);
     return (
@@ -239,7 +233,6 @@ test("inline effort picks a different model and its level together; model names 
             current: "high",
             onPick: (value) => effortPicks.push(value),
           },
-          ...(providerLook ? { providers: providerLook } : {}),
           families: {
             current: "claude",
             onPick: (row) => picks.push(row),
@@ -249,32 +242,7 @@ test("inline effort picks a different model and its level together; model names 
                 name: "Claude",
                 more: [],
                 models: [
-                  {
-                    id: "a",
-                    name: "Model A",
-                    family: "claude",
-                    efforts: ["low", "high"],
-                    ...(providerLook
-                      ? {
-                          offers: [
-                            {
-                              id: "a",
-                              name: "Model A",
-                              family: "claude",
-                              efforts: ["low", "high"],
-                              provider: "Anthropic",
-                            },
-                            {
-                              id: "a",
-                              name: "Model A",
-                              family: "claude",
-                              efforts: ["low", "high"],
-                              provider: "OpenAI",
-                            },
-                          ],
-                        }
-                      : {}),
-                  },
+                  { id: "a", name: "Model A", family: "claude", efforts: ["low", "high"] },
                   { id: "b", name: "Model B", family: "claude", efforts: ["low"] },
                   { id: "c", name: "Model C", family: "claude", efforts: [] },
                 ],
@@ -321,18 +289,74 @@ test("inline effort picks a different model and its level together; model names 
   await act(async () => (document.querySelector('[aria-label="Model A · Low"]') as HTMLElement).click());
   expect(effortPicks).toEqual(["ultracode", "low"]);
   expect(picks.at(-1)?.id).toBe("b");
-  expect(picks.at(-1)?.effort).toBe("low");
-  for (const providerMode of ["submenu", "expanded"] as const) {
-    await settle();
-    await act(async () => root!.render(<InlineHarness providerLook={providerMode} />));
-    await open();
-    expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(0);
-    expect(labels(list())).toContain("Effort");
-    await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
-  }
+  expect(picks).toHaveLength(2);
+  expect(picks.at(-1)?.effort).toBeUndefined();
   await settle();
   await act(async () => root!.render(<InlineHarness combined={false} />));
   await open();
   expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(0);
   expect(labels(list())).toContain("Effort");
+});
+
+test("provider submenu and expanded rows keep the current model's Effort fallback", async () => {
+  const model = {
+    id: "a",
+    name: "Model A",
+    family: "claude",
+    efforts: ["low", "high"],
+    offers: [
+      { id: "a", name: "Model A", family: "claude", efforts: ["low", "high"], provider: "Anthropic" },
+      { id: "a", name: "Model A", family: "claude", efforts: ["low", "high"], provider: "OpenAI" },
+    ],
+  };
+  for (const providerLook of ["submenu", "expanded"] as const) {
+    const container = installDom();
+    function ProviderHarness() {
+      const trigger = useRef<HTMLButtonElement | null>(null);
+      const [open, setOpen] = useState(false);
+      return (
+        <QuickModelMenu
+          open={open}
+          onOpenChange={setOpen}
+          trigger={trigger}
+          chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+          onMore={() => {}}
+          menu={{
+            inlineEffort: true,
+            providers: providerLook,
+            models: [],
+            current: "a",
+            onModel() {},
+            effort: {
+              levels: [
+                { id: "low", name: "Low" },
+                { id: "high", name: "High" },
+              ],
+              current: "high",
+              onPick() {},
+            },
+            families: {
+              current: "claude",
+              onPick() {},
+              list: [{ id: "claude", name: "Claude", more: [], models: [model] }],
+            },
+          }}
+        >
+          Model
+        </QuickModelMenu>
+      );
+    }
+    await act(async () => {
+      root = createRoot(container);
+      root.render(<ProviderHarness />);
+    });
+    await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+    await settle();
+    expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(0);
+    expect(labels(list())).toContain("Effort");
+    await act(async () => {
+      root!.unmount();
+      root = undefined;
+    });
+  }
 });
