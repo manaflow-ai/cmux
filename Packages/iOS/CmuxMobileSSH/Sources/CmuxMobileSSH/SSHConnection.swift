@@ -138,50 +138,24 @@ public actor SSHConnection {
         start: SSHSessionStart
     ) async throws -> SSHSessionChannel {
         let (stream, continuation) = AsyncStream<SSHSessionEvent>.makeStream(bufferingPolicy: .unbounded)
-        let sessionHandler = SSHSessionChannelHandler(continuation: continuation)
-        let child = try await createChannel(type: .session) { child in
-            child.pipeline.addHandler(sessionHandler)
+        // The handler is created and used only on the child's event loop; the
+        // loop-bound handle is the one thing that leaves it.
+        let (child, sessionHandler) = try await createChannel(type: .session) { child in
+            child.eventLoop.makeCompletedFuture { () throws -> NIOLoopBound<SSHSessionChannelHandler> in
+                let handler = SSHSessionChannelHandler(continuation: continuation)
+                try child.pipeline.syncOperations.addHandler(handler)
+                return NIOLoopBound(handler, eventLoop: child.eventLoop)
+            }
         }
-        let context = try await child.pipeline.context(handler: sessionHandler).get()
         try await child.eventLoop.flatSubmit { () -> EventLoopFuture<Void> in
-            var chain = child.eventLoop.makeSucceededVoidFuture()
-            for (name, value) in environment.sorted(by: { $0.key < $1.key }) {
-                // Servers commonly refuse env vars (AcceptEnv); treat as best effort.
-                chain = chain.flatMap {
-                    sessionHandler.sendRequest(
-                        SSHChannelRequestEvent.EnvironmentRequest(wantReply: true, name: name, value: value),
-                        label: "env",
-                        context: context
-                    ).recover { _ in }
-                }
+            let handler = sessionHandler.value
+            let context: ChannelHandlerContext
+            do {
+                context = try child.pipeline.syncOperations.context(handler: handler)
+            } catch {
+                return child.eventLoop.makeFailedFuture(error)
             }
-            if let pty {
-                chain = chain.flatMap {
-                    sessionHandler.sendRequest(
-                        SSHChannelRequestEvent.PseudoTerminalRequest(
-                            wantReply: true,
-                            term: pty.term,
-                            terminalCharacterWidth: pty.columns,
-                            terminalRowHeight: pty.rows,
-                            terminalPixelWidth: pty.pixelWidth,
-                            terminalPixelHeight: pty.pixelHeight,
-                            terminalModes: SSHTerminalModes([:])
-                        ),
-                        label: "pty-req",
-                        context: context
-                    )
-                }
-            }
-            return chain.flatMap {
-                switch start {
-                case .shell:
-                    sessionHandler.sendRequest(SSHChannelRequestEvent.ShellRequest(wantReply: true), label: "shell", context: context)
-                case .exec(let command):
-                    sessionHandler.sendRequest(SSHChannelRequestEvent.ExecRequest(command: command, wantReply: true), label: "exec", context: context)
-                case .subsystem(let name):
-                    sessionHandler.sendRequest(SSHChannelRequestEvent.SubsystemRequest(subsystem: name, wantReply: true), label: "subsystem", context: context)
-                }
-            }
+            return handler.start(pty: pty, environment: environment, start: start, context: context)
         }.get()
         return SSHSessionChannel(channel: child, events: stream)
     }
@@ -216,26 +190,45 @@ public actor SSHConnection {
         port: Int,
         initializer: @escaping @Sendable (any Channel) -> EventLoopFuture<Void>
     ) async throws -> any Channel {
+        try await openInstalledDirectTCPIP(host: host, port: port, initializer: initializer).channel
+    }
+
+    /// ``openDirectTCPIP(host:port:initializer:)`` that also returns what
+    /// `initializer` produced on the channel's event loop, the way NIO's typed
+    /// bootstraps hand back their channel initializer's output.
+    func openInstalledDirectTCPIP<Output: Sendable>(
+        host: String,
+        port: Int,
+        initializer: @escaping @Sendable (any Channel) -> EventLoopFuture<Output>
+    ) async throws -> (channel: any Channel, output: Output) {
         let originator = try SocketAddress(ipAddress: "127.0.0.1", port: 0)
         let type = SSHChannelType.DirectTCPIP(targetHost: host, targetPort: port, originatorAddress: originator)
         return try await createChannel(type: .directTCPIP(type), initializer: initializer)
     }
 
-    private func createChannel(
+    private func createChannel<Output: Sendable>(
         type: SSHChannelType,
-        initializer: @escaping @Sendable (any Channel) -> EventLoopFuture<Void>
-    ) async throws -> any Channel {
+        initializer: @escaping @Sendable (any Channel) -> EventLoopFuture<Output>
+    ) async throws -> (channel: any Channel, output: Output) {
         let sshHandler = sshHandler
         let channel = channel
-        return try await channel.eventLoop.flatSubmit { () -> EventLoopFuture<any Channel> in
+        return try await channel.eventLoop.flatSubmit { () -> EventLoopFuture<(channel: any Channel, output: Output)> in
             let promise = channel.eventLoop.makePromise(of: (any Channel).self)
+            // Completed by the initializer, or failed with the channel when the
+            // initializer never runs (open refused, connection closed).
+            let output = channel.eventLoop.makePromise(of: Output.self)
             sshHandler.createChannel(promise, channelType: type) { child, openedType in
                 guard openedType == type else {
-                    return child.eventLoop.makeFailedFuture(SSHConnectionError.channelOpenFailed("\(openedType)"))
+                    let error = SSHConnectionError.channelOpenFailed("\(openedType)")
+                    output.fail(error)
+                    return child.eventLoop.makeFailedFuture(error)
                 }
-                return initializer(child)
+                let installed = initializer(child)
+                installed.cascade(to: output)
+                return installed.map { _ in }
             }
-            return promise.futureResult
+            promise.futureResult.whenFailure { output.fail($0) }
+            return promise.futureResult.and(output.futureResult).map { opened in (channel: opened.0, output: opened.1) }
         }.get()
     }
 }
@@ -248,8 +241,9 @@ public enum SSHSessionStart: Sendable, Equatable {
 }
 
 /// Completes the handshake promise once user authentication succeeds, or
-/// fails it when the connection errors or closes first.
-private final class SSHHandshakeObserver: ChannelInboundHandler, @unchecked Sendable {
+/// fails it when the connection errors or closes first. Created and added on
+/// the channel's event loop (`syncOperations`), so it need not be `Sendable`.
+private final class SSHHandshakeObserver: ChannelInboundHandler {
     typealias InboundIn = Any
     private var promise: EventLoopPromise<Void>?
 
@@ -280,7 +274,8 @@ private final class SSHHandshakeObserver: ChannelInboundHandler, @unchecked Send
 
 /// Converts `SSHChannelData` to plain `ByteBuffer`s and back, so a
 /// direct-tcpip channel can act as a byte transport (jump hosts, forwards).
-final class SSHChannelDataUnwrapper: ChannelDuplexHandler, @unchecked Sendable {
+/// Stateless, so plainly `Sendable`.
+final class SSHChannelDataUnwrapper: ChannelDuplexHandler, Sendable {
     typealias InboundIn = SSHChannelData
     typealias InboundOut = ByteBuffer
     typealias OutboundIn = ByteBuffer
@@ -307,22 +302,30 @@ final class SSHChannelDataUnwrapper: ChannelDuplexHandler, @unchecked Sendable {
 /// Network phases (version exchange, key exchange, authentication) spend it.
 /// Host key verification may wait on the user, so it pauses the budget and
 /// the remainder is re-armed when verification ends. Pauses nest.
-final class SSHHandshakeDeadline: @unchecked Sendable {
+///
+/// Callable from any thread: every operation hops to `eventLoop`, and the
+/// budget lives in a `NIOLoopBoundBox`, which traps on an off-loop access.
+/// Timers are cancelled and the promise completed outside the box access, so
+/// a completion callback may call back into ``pause()`` or ``resume()``.
+final class SSHHandshakeDeadline: Sendable {
+    private struct Budget: Sendable {
+        var remaining: TimeAmount
+        var armedAt: NIODeadline?
+        var timer: Scheduled<Void>?
+        var pauses = 0
+        var finished = false
+    }
+
     private let eventLoop: any EventLoop
     private let timeout: TimeAmount
     private let promise: EventLoopPromise<Void>
-    // Event-loop confined.
-    private var remaining: TimeAmount
-    private var armedAt: NIODeadline?
-    private var timer: Scheduled<Void>?
-    private var pauses = 0
-    private var finished = false
+    private let budget: NIOLoopBoundBox<Budget>
 
     init(timeout: TimeAmount, eventLoop: any EventLoop) {
         self.eventLoop = eventLoop
         self.timeout = timeout
-        remaining = timeout
         promise = eventLoop.makePromise(of: Void.self)
+        budget = NIOLoopBoundBox.makeBoxSendingValue(Budget(remaining: timeout), as: Budget.self, eventLoop: eventLoop)
         onLoop { $0.arm() }
     }
 
@@ -338,40 +341,60 @@ final class SSHHandshakeDeadline: @unchecked Sendable {
     /// Stops the clock, keeping the unspent budget.
     func pause() {
         onLoop { deadline in
-            guard !deadline.finished else { return }
-            deadline.pauses += 1
-            guard deadline.pauses == 1 else { return }
-            deadline.timer?.cancel()
-            deadline.timer = nil
-            if let armedAt = deadline.armedAt {
-                deadline.remaining = max(.zero, deadline.remaining - (deadline.eventLoop.now - armedAt))
+            let now = deadline.eventLoop.now
+            let timer = deadline.budget.withValue { budget -> Scheduled<Void>? in
+                guard !budget.finished else { return nil }
+                budget.pauses += 1
+                guard budget.pauses == 1 else { return nil }
+                if let armedAt = budget.armedAt {
+                    budget.remaining = max(.zero, budget.remaining - (now - armedAt))
+                }
+                budget.armedAt = nil
+                let timer = budget.timer
+                budget.timer = nil
+                return timer
             }
-            deadline.armedAt = nil
+            timer?.cancel()
         }
     }
 
     /// Restarts the clock with the unspent budget once every pause ended.
     func resume() {
         onLoop { deadline in
-            guard !deadline.finished, deadline.pauses > 0 else { return }
-            deadline.pauses -= 1
-            if deadline.pauses == 0 { deadline.arm() }
+            let rearm = deadline.budget.withValue { budget -> Bool in
+                guard !budget.finished, budget.pauses > 0 else { return false }
+                budget.pauses -= 1
+                return budget.pauses == 0
+            }
+            if rearm { deadline.arm() }
         }
     }
 
     private func arm() {
-        guard !finished, pauses == 0 else { return }
-        armedAt = eventLoop.now
-        timer = eventLoop.scheduleTask(in: remaining) { [self] in
+        let now = eventLoop.now
+        let remaining = budget.withValue { budget -> TimeAmount? in
+            guard !budget.finished, budget.pauses == 0 else { return nil }
+            budget.armedAt = now
+            return budget.remaining
+        }
+        guard let remaining else { return }
+        let timeout = timeout
+        let timer = eventLoop.scheduleTask(in: remaining) { [self] in
             finish(.failure(ChannelError.connectTimeout(timeout)))
         }
+        budget.value.timer = timer
     }
 
     private func finish(_ result: Result<Void, any Error>) {
-        guard !finished else { return }
-        finished = true
+        let (first, timer) = budget.withValue { budget -> (Bool, Scheduled<Void>?) in
+            guard !budget.finished else { return (false, nil) }
+            budget.finished = true
+            let timer = budget.timer
+            budget.timer = nil
+            return (true, timer)
+        }
+        guard first else { return }
         timer?.cancel()
-        timer = nil
         promise.completeWith(result)
     }
 

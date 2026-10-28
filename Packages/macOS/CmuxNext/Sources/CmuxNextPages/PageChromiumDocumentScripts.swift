@@ -33,7 +33,7 @@ public nonisolated struct PageChromiumDocumentScripts: Sendable, Equatable {
     /// The scripts every page view installs with the same source (input readiness, the theme
     /// bootstrap, paint probe, console capture, links and drops). On renderer paths every
     /// `cmux-page:` main frame runs them at document start
-    /// (``ChromiumPageHostBridge/rendererScripts(handlers:documentScripts:world:channel:)``).
+    /// (``ChromiumPageHostBridge/rendererScript(handlers:documentScripts:channelEvent:)``).
     @MainActor public static let shared: [String] = [
         (source: PageInputReadiness.script, atDocumentEnd: false, mainFrameOnly: true),
         (source: WebTheme.bootstrapScript, atDocumentEnd: false, mainFrameOnly: true),

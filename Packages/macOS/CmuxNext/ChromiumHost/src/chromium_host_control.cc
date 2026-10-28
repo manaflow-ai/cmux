@@ -357,11 +357,18 @@ bool EncodeShared(const Message& message, const std::vector<size_t>& shared, std
     if (body.size() > kMaxBody) return false;
   }
   if (next_shared != shared.size()) return false;  // an index past the fields, or not ascending
-  const uint16_t flags = static_cast<uint16_t>((message.reply ? kFlagReply : 0) | fd_count);
+  const bool ordered = message.ctl_seq != 0;
+  if (!ordered && message.after_input != 0) return false;  // an input barrier needs a control seq
+  const uint16_t flags =
+      static_cast<uint16_t>((message.reply ? kFlagReply : 0) | (ordered ? kFlagOrdered : 0) | fd_count);
   Put32(out, static_cast<uint32_t>(body.size()));
   Put16(out, message.op);
   Put16(out, flags);
   Put32(out, message.token);
+  if (ordered) {
+    Put32(out, message.ctl_seq);
+    Put32(out, message.after_input);
+  }
   out->insert(out->end(), body.begin(), body.end());
   return true;
 }
@@ -372,13 +379,19 @@ Parse Decode(const uint8_t* data, size_t size, std::deque<int>* fds, Message* ou
   const uint16_t flags = static_cast<uint16_t>(GetLE(data + 6, 2));
   const size_t fd_count = flags & kFdCountMask;
   if (length > kMaxBody || (flags & ~kKnownFlags) != 0 || fd_count > kMaxFds) return Parse::kMalformed;
-  if (size < kHeaderSize + length) return Parse::kNeedMore;
+  const size_t start = kHeaderSize + ((flags & kFlagOrdered) != 0 ? kOrderSize : 0);
+  if (size < start + length) return Parse::kNeedMore;
   Message message;
   message.op = static_cast<uint16_t>(GetLE(data + 4, 2));
   message.reply = (flags & kFlagReply) != 0;
   message.token = static_cast<uint32_t>(GetLE(data + 8, 4));
-  size_t at = kHeaderSize;
-  const size_t end = kHeaderSize + length;
+  if ((flags & kFlagOrdered) != 0) {
+    message.ctl_seq = static_cast<uint32_t>(GetLE(data + kHeaderSize, 4));
+    message.after_input = static_cast<uint32_t>(GetLE(data + kHeaderSize + 4, 4));
+    if (message.ctl_seq == 0) return Parse::kMalformed;
+  }
+  size_t at = start;
+  const size_t end = start + length;
   std::vector<size_t> shared;  // indices of the shared fields
   uint64_t shared_total = 0;   // their byte counts together
   while (at < end) {
@@ -465,13 +478,13 @@ void Outbox::CloseFds(Entry* entry) {
 }
 
 bool Outbox::Push(std::vector<uint8_t> bytes, std::vector<int> fds, std::optional<uint64_t> key,
-                  size_t shared_bytes) {
+                  size_t shared_bytes, uint32_t boundary) {
   bool replaced = false;
   if (key) {
     auto found = keyed_.find(*key);
     if (found != keyed_.end()) {
       Entry& waiting = entries_[found->second - removed_];
-      if (waiting.offset == 0) {
+      if (waiting.offset == 0 && waiting.boundary == boundary) {
         Drop(&waiting);
         replaced = true;
       }
@@ -480,7 +493,7 @@ bool Outbox::Push(std::vector<uint8_t> bytes, std::vector<int> fds, std::optiona
   }
   bytes_ += bytes.size() + shared_bytes;
   ++messages_;
-  entries_.push_back(Entry{std::move(bytes), std::move(fds), 0, key, true, shared_bytes});
+  entries_.push_back(Entry{std::move(bytes), std::move(fds), 0, key, true, shared_bytes, boundary});
   if (key) keyed_[*key] = removed_ + entries_.size() - 1;
   if (dead_ > 64 && dead_ > messages_) Compact();
   return replaced;
@@ -973,7 +986,7 @@ Channel::~Channel() {
   if (core_->reader.joinable()) core_->reader.join();
 }
 
-bool Channel::Send(const Message& message, std::optional<uint64_t> state_key) {
+bool Channel::Send(const Message& message, std::optional<uint64_t> state_key, uint32_t boundary) {
   const std::vector<size_t> shared = SharedFields(message);
   std::vector<uint8_t> bytes;
   if (!EncodeShared(message, shared, &bytes)) return false;
@@ -1008,7 +1021,9 @@ bool Channel::Send(const Message& message, std::optional<uint64_t> state_key) {
   }
   fds.insert(fds.end(), regions.begin(), regions.end());  // the outbox owns them from here
   const bool was_empty = core.outbox.empty();
-  if (core.outbox.Push(std::move(bytes), std::move(fds), state_key, shared_bytes)) ++core.coalesced;
+  if (core.outbox.Push(std::move(bytes), std::move(fds), state_key, shared_bytes, boundary)) {
+    ++core.coalesced;
+  }
   if (was_empty) {
     if (!core.FlushLocked()) return false;
     if (!core.outbox.empty()) core.WakeLocked();  // the reader now watches for write
@@ -1043,6 +1058,151 @@ Stats Channel::stats() const {
 size_t Channel::PendingWithKey(uint64_t state_key) const {
   std::lock_guard<std::mutex> lock(core_->mutex);
   return core_->outbox.CountKey(state_key);
+}
+
+
+// MARK: OrderedStream
+
+namespace {
+
+// The later of two seqs, 0 being none.
+uint32_t LaterSeq(uint32_t a, uint32_t b) {
+  if (a == 0) return b;
+  if (b == 0) return a;
+  return SeqAtOrBefore(a, b) ? b : a;
+}
+
+// The seq before `seq` (not 0), across a wrap as NextSeq makes one.
+uint32_t SeqBefore(uint32_t seq) {
+  return seq == 1 ? UINT32_MAX : seq - 1;
+}
+
+}  // namespace
+
+OrderedStream::OrderedStream(ApplyControl apply, Limits limits) : apply_(std::move(apply)), limits_(limits) {}
+
+OrderedStream::OrderedStream(ApplyControl apply) : OrderedStream(std::move(apply), Limits()) {}
+
+void OrderedStream::AttachInput(DispatchInput dispatch) {
+  dispatch_ = std::move(dispatch);
+}
+
+OrderedStream::Result OrderedStream::AddControl(std::vector<Message> batch) {
+  for (Message& message : batch) {
+    if (malformed_) {
+      CloseEach(message.fds);
+      continue;
+    }
+    if (message.ctl_seq != 0) {
+      if (last_control_ != 0 && SeqAtOrBefore(message.ctl_seq, last_control_)) {
+        CloseEach(message.fds);
+        Malformed("a control seq not after the one before it");
+        continue;
+      }
+      last_control_ = message.ctl_seq;
+    }
+    controls_.push_back(std::move(message));
+  }
+  return malformed_ ? Result::kMalformed : Run();
+}
+
+OrderedStream::Result OrderedStream::AddInput(const Header& frame) {
+  if (malformed_) return Result::kMalformed;
+  if (!dispatch_ || inputs_.size() >= limits_.held_input) return Result::kFull;
+  if (IsOrderedInput(frame)) {
+    if (frame.seq == 0 || (last_input_ != 0 && SeqAtOrBefore(frame.seq, last_input_))) {
+      return Malformed("an input seq not after the one before it");
+    }
+    last_input_ = frame.seq;
+  }
+  inputs_.push_back(frame);
+  return Run();
+}
+
+OrderedStream::Result OrderedStream::OpenInput() {
+  if (malformed_) return Result::kMalformed;
+  input_open_ = true;
+  return Run();
+}
+
+// The first check: the control message the frame names is applied, or will
+// never come (a later ordered one is first in line).
+bool OrderedStream::InputReady(const Header& frame) const {
+  if (!IsOrderedInput(frame)) return true;  // its seq is a request id: only its place in the ring
+  const uint32_t needs = CtlSeqOf(frame);
+  if (needs == 0) return true;
+  uint32_t settled = applied_;
+  if (!controls_.empty() && controls_.front().ctl_seq != 0) {
+    settled = LaterSeq(settled, SeqBefore(controls_.front().ctl_seq));
+  }
+  return settled != 0 && SeqAtOrBefore(needs, settled);
+}
+
+// The second check: the input frame the message follows is dispatched, or
+// will never come (a later one is first in line).
+bool OrderedStream::ControlReady(const Message& message) const {
+  if (message.ctl_seq == 0 || message.after_input == 0) return true;
+  uint32_t settled = dispatched_;
+  // The first held ordered input; frames before it carry no input seq.
+  for (const Header& frame : inputs_) {
+    if (!IsOrderedInput(frame)) continue;
+    settled = LaterSeq(settled, SeqBefore(frame.seq));
+    break;
+  }
+  return settled != 0 && SeqAtOrBefore(message.after_input, settled);
+}
+
+OrderedStream::Result OrderedStream::Run() {
+  if (running_) return Result::kOk;  // called from a sink: the loop below takes what it added
+  running_ = true;
+  std::vector<Message> run;  // ready control messages, applied in one call before the next input
+  auto apply = [&] {
+    std::vector<Message> ready;
+    ready.swap(run);
+    apply_(std::move(ready));
+  };
+  while (!malformed_) {
+    if (!controls_.empty() && ControlReady(controls_.front())) {
+      Message message = std::move(controls_.front());
+      controls_.pop_front();
+      if (message.ctl_seq != 0) applied_ = message.ctl_seq;
+      if (message.op == kOpSeqMark && message.ctl_seq != 0) {
+        CloseEach(message.fds);  // only its place in the order
+      } else {
+        run.push_back(std::move(message));
+      }
+      continue;
+    }
+    if (input_open_ && !inputs_.empty() && InputReady(inputs_.front())) {
+      if (!run.empty()) apply();
+      if (malformed_) break;
+      const Header frame = inputs_.front();
+      inputs_.pop_front();
+      if (IsOrderedInput(frame)) dispatched_ = frame.seq;
+      dispatch_(frame);
+      continue;
+    }
+    if (run.empty()) break;
+    apply();  // a sink may have added more: look again
+  }
+  running_ = false;
+  if (malformed_) return Result::kMalformed;
+  if (input_open_ && !controls_.empty() && !inputs_.empty()) {
+    return Malformed("an input frame and a control message each wait for the other");
+  }
+  if (controls_.size() > limits_.held_control) {
+    return Malformed("control messages wait for input that never came");
+  }
+  return Result::kOk;
+}
+
+OrderedStream::Result OrderedStream::Malformed(const char* what) {
+  if (!malformed_) what_ = what;
+  malformed_ = true;
+  for (Message& message : controls_) CloseEach(message.fds);
+  controls_.clear();
+  inputs_.clear();
+  return Result::kMalformed;
 }
 
 }  // namespace cmux_host::control

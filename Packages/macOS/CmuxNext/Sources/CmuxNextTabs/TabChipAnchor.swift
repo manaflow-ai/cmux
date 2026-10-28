@@ -11,7 +11,7 @@ public struct TabChipAnchor {
     /// id, or a member of a collapsed group).
     public static func rect(of id: TabID, in strip: TabStripView) -> CGRect? {
         guard let cell = strip.cells[id], cell.frame.width > 0.5 else { return nil }
-        let chip = clamped(cell.frame, into: strip.tabsClip.bounds)
+        let chip = clamped(strip.scroller.shownFrame(cell.layer), into: strip.tabsClip.bounds)
         return strip.tabsClip.convert(chip, to: strip)
     }
 

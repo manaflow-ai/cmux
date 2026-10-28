@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -29,8 +30,7 @@ enum WorkingURL {
     /// An agent's cwd comes from its page: use it only as an absolute path
     /// to a directory on this Mac (a remote agent's folder is not one).
     static func isDirectory(_ path: String, fileManager: FileManager = .default) -> Bool {
-        var directory: ObjCBool = false
-        return path.hasPrefix("/") && fileManager.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
+        path.hasPrefix("/") && fileManager.directoryExists(atPath: path)
     }
 }
 
@@ -45,9 +45,11 @@ extension PaneController {
         let opener = opener ?? self
         switch currentContent {
         case .agent(let view):
-            services.registry.track(Task { [weak opener] in
-                let url = await view.workingContext()?.urls.first
-                opener?.newBrowserTab(url: url, engine: engine, then: then)
+            // The open, after the page's context read, is the rest of the person's action (`personAction`).
+            services.registry.track(services.mainWork.personAction(owner: "PaneController.newBrowserTabFromWork") {
+                await view.workingContext()?.urls.first
+            } then: { [weak opener] url -> ActionWorkFailure? in
+                _ = opener?.newBrowserTab(url: url, engine: engine, then: then)
                 return nil
             })
         case .terminal(let entry):

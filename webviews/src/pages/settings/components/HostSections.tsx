@@ -2,6 +2,7 @@
 // live lists (`cmux.settings.host.lists`, updated by `cmux.settings.host.changed`) and the browser
 // profile editor, whose every edit runs a `browserProfile.*` catalog action (the palette's path).
 import { useState, type ReactNode } from "react";
+import { MACHINE_COLORS_KEY } from "../cardRows";
 import { useRowState, useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
 import type { BrowserProfile, DevicesHostState, HostListRow, HostLists } from "../ops";
@@ -227,9 +228,6 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
     </section>
   );
 }
-
-/** `appearance.machineColors`: a machine's color, keyed by its color key. The card draws it, not a map row. */
-export const MACHINE_COLORS_KEY = "appearance.machineColors";
 
 function stringMap(value: unknown): Record<string, string> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};

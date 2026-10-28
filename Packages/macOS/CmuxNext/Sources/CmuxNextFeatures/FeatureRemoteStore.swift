@@ -1,4 +1,7 @@
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 public import CmuxNextWakeups
 public import Foundation
 import os
@@ -207,7 +210,8 @@ public nonisolated final class FeatureRemoteStore: Sendable {
         line: UInt = #line,
         _ body: @escaping @Sendable () -> T
     ) async -> T? {
-        await withCheckedContinuation { (continuation: CheckedContinuation<T?, Never>) in
+        // A continuation dropped without a resume answers nil, as an abandoned lane item does.
+        try? await withOnceContinuation { (continuation: OnceContinuation<T?, OnceContinuationError>) in
             work.post(
                 Self.lanePriority,
                 mayBlock: .files,

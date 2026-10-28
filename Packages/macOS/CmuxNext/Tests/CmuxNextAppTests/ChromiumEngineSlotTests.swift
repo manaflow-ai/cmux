@@ -5,6 +5,7 @@ import CmuxNextActions
 @testable import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextSignposts
 @testable import CmuxNextSettings
 import Foundation
 import CmuxNextWakeups
@@ -137,13 +138,15 @@ import Testing
     /// The App's hook holds the crash services themselves: it sets the run marker's signal handlers on an engine
     /// built with no `AppServices` alive (a reader that outlives it, a teardown at quit).
     @Test func theCrashHookNeedsNoAppServices() {
-        let crashRecovery = CrashRecoveryService(bundleID: nil, marksRun: false)
+        let crashRecovery = CrashRecoveryService(bundleID: nil, runMarker: nil, work: BackgroundWork(label: "test.crash-hook"),
+                                                 mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let reporter = AppCrashReporting(environment: AppEnvironment.current([:])).reporter
         var routed: [ObjectIdentifier] = []
+        let stability = RendererStability()
         let fixture = Self.engine()
         let slot = ChromiumEngineSlot(stores: fixture.stores, waitDeadlines: fixture.waitDeadlines, source: CEFRuntimeSource(layout: nil),
                                       make: { CEFEngine(source: $2, stores: $0, signInCallbacks: CEFSignInCallbacks(), waitDeadlines: $1, input: InputEventTap()) },
-                                      engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: reporter,
+                                      engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: reporter, stability: stability,
                                                                                       routes: { routed.append(ObjectIdentifier($0)) }),
                                       stop: { _ in })
         Self.clearRuntimeHandlers()
@@ -151,6 +154,7 @@ import Testing
         let engine = slot.engine
         #expect(CEFRuntime.shared.onStartFailed != nil, "keepSignalHandlers ran as the engine was built, before CefInitialize can run")
         #expect(CEFRuntime.shared.onReady != nil)
+        #expect(engine.rendererStability === stability, "Chromium's page hangs go to the app's stability events (p09-observability-108)")
         #expect(routed == [ObjectIdentifier(engine)], "then the window routes")
     }
 
@@ -181,9 +185,8 @@ import Testing
         _ = services.cache.browserTabs.cefUnavailable()
         _ = services.cache.chromiumNow.runs()
         CEFPasswordPolicy.set(offerToSave: true, generate: true)  // what an earlier engine in this process left
-        BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium)
-        BrowserOmnibarPreference.follow(settings, cache: services.cache)
-        for _ in 0..<50 { await Task.yield() }  // the followers' first values
+        let followers = BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium, on: services.mainWork)
+            + BrowserOmnibarPreference.follow(settings, cache: services.cache, on: services.mainWork)  // the first values apply now
         #expect(services.cache.chromium.built == nil, "the launch wiring builds no Chromium engine")
         #expect(CEFPasswordPolicy.offerToSave, "nothing reached Chromium's settings without an engine")
         await services.cache.chromium.shutdown()
@@ -197,5 +200,6 @@ import Testing
         #expect(engine.linkClicks == mapping, "browser.links.* reached the engine as it was built")
         #expect(!CEFPasswordPolicy.offerToSave, "browser.passwords.offerToSave reached Chromium as its engine was built")
         #expect(services.cache.chromium.built === engine)
+        withExtendedLifetime(followers) {}
     }
 }

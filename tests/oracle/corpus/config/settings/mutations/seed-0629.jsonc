@@ -1,0 +1,16 @@
+{
+  "appearance": {
+    "saturation": 1,
+    "borders": 1,
+    "metrics": {
+      "tabMaxWidth": 120
+    }
+  },
+  "sidebar": {
+    "workspaceRow": {
+      "browser": {
+        "tabCount": "true"
+      }
+    }
+  }
+}

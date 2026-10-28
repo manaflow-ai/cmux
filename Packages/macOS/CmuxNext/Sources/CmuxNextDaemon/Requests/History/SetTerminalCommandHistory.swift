@@ -30,6 +30,10 @@ public struct SetTerminalCommandHistoryRequest: DaemonRequest {
         self.enabled = enabled
         self.retentionDays = retentionDays
     }
+
+    enum CodingKeys: String, CodingKey {
+        case enabled, retentionDays = "retention_days"
+    }
 }
 
 extension DaemonConnection {

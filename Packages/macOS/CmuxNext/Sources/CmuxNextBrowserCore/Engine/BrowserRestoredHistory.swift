@@ -67,8 +67,7 @@ public nonisolated struct BrowserRestoredHistory: Hashable, Sendable {
     public mutating func goForward(_ steps: Int = 1, from shown: BrowserSavedEntry) -> BrowserSavedEntry? {
         guard steps > 0, steps <= forward.count else { return nil }
         let target = forward[steps - 1]
-        back.append(shown)
-        back.append(contentsOf: forward[..<(steps - 1)])
+        back += [shown] + forward[..<(steps - 1)]
         forward.removeFirst(steps)
         return target
     }

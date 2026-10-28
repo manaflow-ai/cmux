@@ -327,6 +327,23 @@ struct InputEventTapTests {
         #expect(tap.flags == [.findPillOpen])
     }
 
+    /// A flag several owners hold (a find pill per window) stays set until the last releases it; a
+    /// release with no hold changes nothing.
+    @Test func aHeldFlagClearsWhenTheLastHolderReleasesIt() {
+        let tap = InputEventTap()
+        tap.releaseFlag(.findPillOpen)
+        #expect(tap.flags.isEmpty)
+        tap.holdFlag(.findPillOpen)
+        tap.holdFlag(.findPillOpen)
+        tap.releaseFlag(.findPillOpen)
+        #expect(tap.flags == [.findPillOpen], "one holder is left")
+        tap.releaseFlag(.findPillOpen)
+        #expect(tap.flags.isEmpty)
+        tap.releaseFlag(.findPillOpen)
+        tap.holdFlag(.findPillOpen)
+        #expect(tap.flags == [.findPillOpen], "an extra release took a later hold")
+    }
+
     @Test func aReleasedGlobalObserverIsRemoved() throws {
         let tap = InputEventTap()
         var subscription: InputSubscription? = tap.globalObserve([.leftMouseDown]) { _ in }

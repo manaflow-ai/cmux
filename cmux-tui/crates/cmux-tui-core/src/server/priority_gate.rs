@@ -32,10 +32,10 @@
 //! one idle worker per task (`ThreadGroupImpl::EnsureEnoughWorkersLockRequired`),
 //! never all of them.
 
+use cmux_threads::sync::{Condvar, Mutex};
 use std::mem::ManuallyDrop;
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering, fence};
-use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::diagnostics::{LockClassStats, LockClassesSnapshot};
@@ -91,19 +91,13 @@ pub(crate) struct PriorityGate {
     wakeups: AtomicU64,
 }
 
-/// How a caller got the lock: its class, how long it waited and when it
-/// got the lock. [`Gated`] turns it into the hold record at release.
+/// How a caller got the lock: its class and when it got the lock (its wait
+/// is recorded at admission). [`Gated`] turns it into the hold record at
+/// release.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct HoldTicket {
     cause: EventCause,
-    waited: Duration,
     acquired_at: Instant,
-}
-
-impl HoldTicket {
-    pub(crate) fn waited(&self) -> Duration {
-        self.waited
-    }
 }
 
 impl Default for PriorityGate {
@@ -139,23 +133,9 @@ impl PriorityGate {
         self.stats.snapshot()
     }
 
-    /// Acquire for this thread's class. `try_acquire` takes the lock without
-    /// blocking (`None`: it is held); `block` queues on it.
-    pub(crate) fn acquire<G>(
-        &self,
-        try_acquire: impl Fn() -> Option<G>,
-        block: impl FnOnce() -> G,
-    ) -> (G, HoldTicket) {
-        let admission = self.admission();
-        match admission.try_admit(&try_acquire) {
-            Some(admitted) => admitted,
-            None => admission.admit(&try_acquire, block),
-        }
-    }
-
     /// One acquisition by this thread's class, split into the attempt and
     /// the wait for a wrapper that times contended waits
-    /// (`cmux_threads::LockHolder`). A frontend caller counts as waiting
+    /// (`cmux_threads::LockHolder`, `crate::diagnostics::timed_acquire`). A frontend caller counts as waiting
     /// from before its attempt until the admission drops, so no automation
     /// caller starts a hold between its failed attempt and its wait.
     pub(crate) fn admission(&self) -> Admission<'_> {
@@ -165,13 +145,13 @@ impl PriorityGate {
         Admission { gate: self, cause, _frontend: frontend }
     }
 
-    /// A ticket for a lock taken outside [`Self::acquire`] (a deadline wait,
+    /// A ticket for a lock taken outside [`Self::admission`] (a deadline wait,
     /// a test's `try_lock`), so its release still records the hold and
     /// wakes the gate's waiters.
     pub(crate) fn ticket(&self, waited: Duration) -> HoldTicket {
         let cause = EventCause::current();
         self.stats.waited(cause, waited);
-        HoldTicket { cause, waited, acquired_at: Instant::now() }
+        HoldTicket { cause, acquired_at: Instant::now() }
     }
 
     /// The acquisition's one clock read.
@@ -182,7 +162,7 @@ impl PriorityGate {
         if cause == EventCause::Automation {
             self.last_admission.fetch_max(self.nanos(acquired_at), Ordering::SeqCst);
         }
-        HoldTicket { cause, waited, acquired_at }
+        HoldTicket { cause, acquired_at }
     }
 
     /// An automation attempt. Without the reservation it is made only while
@@ -613,7 +593,7 @@ pub(crate) struct Gated<G: GateGuard, R: Deref<Target = PriorityGate>> {
     gate: R,
     /// `None` for a re-entry of a reentrant lock: it waited for nothing.
     ticket: Option<HoldTicket>,
-    /// The hold, once [`Gated::end_hold`] read it.
+    /// The hold, once the caller measured it ([`Gated::record_hold`]).
     held: Option<Duration>,
 }
 
@@ -639,12 +619,10 @@ impl<G: GateGuard, R: Deref<Target = PriorityGate>> Gated<G, R> {
         Self { guard: ManuallyDrop::new(guard), gate, ticket: None, held: None }
     }
 
-    /// The hold so far, read once for the release record too (a caller that
-    /// reports the hold before the unlock). `None` for a re-entry.
-    pub(crate) fn end_hold(&mut self) -> Option<Duration> {
-        let held = self.ticket?.acquired_at.elapsed();
+    /// The hold a caller already measured for its own release record, so
+    /// the gate's record reads no clock of its own.
+    pub(crate) fn record_hold(&mut self, held: Duration) {
         self.held = Some(held);
-        Some(held)
     }
 }
 

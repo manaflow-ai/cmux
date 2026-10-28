@@ -63,6 +63,7 @@ final class SidebarTabRowView: SidebarRowView {
         return true
     }
 
+    /// Layer colors only: `layerContentsRedrawPolicy` (.onSetNeedsDisplay, SidebarRowView) runs it on needsDisplay, never on a resize.
     override func updateLayer() {
         performWithTheme {
             title.setColor(Palette.textPrimary)

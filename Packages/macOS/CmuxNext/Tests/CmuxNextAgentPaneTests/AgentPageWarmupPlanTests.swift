@@ -91,16 +91,14 @@ import Testing
         warmup.settle()
     }
 
-    @MainActor @Test func thePostAndTheWarmupReadOneEngineDecision() {
+    @MainActor @Test func eachStartReadsTheEngineDecisionAgain() {
         let hosting = FakeChromiumHosting()
         let webUI = WebUIHost.agentPaneTestHost(chromium: hosting)
-        #expect(AgentPageWarmup(chromiumChat: { false }).agentPagesShowInWebKit(webUI: webUI),
-                "the injected seam, not a global, decides")
         let warmup = AgentPageWarmup(chromiumChat: { true })
-        #expect(!warmup.agentPagesShowInWebKit(webUI: webUI), "the post goes afterStartup")
+        #expect(warmup.start(webUI: webUI) == .agentPagesInChromium, "agent pages open in Chromium: no WebKit page")
         hosting.preference = .webkit
-        #expect(warmup.agentPagesShowInWebKit(webUI: webUI), "the person chose WebKit: the post goes afterFirstFrame")
-        #expect(warmup.start(webUI: webUI) == .made, "and the warm-up follows the same decision")
+        #expect(warmup.start(webUI: webUI) == .made, "the person chose WebKit since: a later start makes the page")
+        #expect(warmup.start(webUI: webUI) == .alreadyRan)
         warmup.settle()
     }
 

@@ -11,28 +11,107 @@ public extension WKPreferences {
     /// no such feature or SPI.
     @discardableResult
     func setWebKitFeature(_ key: String, enabled: Bool) -> Bool {
-        let selector = NSSelectorFromString("_setEnabled:forFeature:")
-        guard let feature = Self.webKitFeature(key), let method = class_getInstanceMethod(WKPreferences.self, selector) else { return false }
+        // SAFETY: `privateMethod` only looks the method up; its IMP is called below with the method's C type.
+        guard let feature = Self.webKitFeature(key), let spi = unsafe Self.privateMethod("_setEnabled:forFeature:") else { return false }
         typealias SetEnabled = @convention(c) (AnyObject, Selector, Bool, AnyObject) -> Void
-        unsafeBitCast(method_getImplementation(method), to: SetEnabled.self)(self, selector, enabled, feature)
+        // SAFETY: the IMP is WKPreferences' `-_setEnabled:(BOOL) forFeature:(id)`, called with that C type.
+        unsafe unsafeBitCast(spi.implementation, to: SetEnabled.self)(self, spi.selector, enabled, feature)
         return true
     }
 
     /// Whether the feature named `key` is on; nil when this WebKit has no
     /// such feature or SPI.
     func isWebKitFeatureEnabled(_ key: String) -> Bool? {
-        let selector = NSSelectorFromString("_isEnabledForFeature:")
-        guard let feature = Self.webKitFeature(key), let method = class_getInstanceMethod(WKPreferences.self, selector) else { return nil }
+        // SAFETY: `privateMethod` only looks the method up; its IMP is called below with the method's C type.
+        guard let feature = Self.webKitFeature(key), let spi = unsafe Self.privateMethod("_isEnabledForFeature:") else { return nil }
         typealias IsEnabled = @convention(c) (AnyObject, Selector, AnyObject) -> Bool
-        return unsafeBitCast(method_getImplementation(method), to: IsEnabled.self)(self, selector, feature)
+        // SAFETY: the IMP is WKPreferences' `-(BOOL)_isEnabledForFeature:(id)`, called with that C type.
+        return unsafe unsafeBitCast(spi.implementation, to: IsEnabled.self)(self, spi.selector, feature)
+    }
+
+    /// WebKit's hidden-page throttling of these preferences; nil when this WebKit lacks one of its
+    /// getters.
+    var hiddenPageThrottling: WebKitHiddenPageThrottling? {
+        guard let domTimers = privateFlag("_hiddenPageDOMTimerThrottlingEnabled"),
+              let autoIncrease = privateFlag("_hiddenPageDOMTimerThrottlingAutoIncreases"),
+              let suppression = privateFlag("_pageVisibilityBasedProcessSuppressionEnabled") else { return nil }
+        return WebKitHiddenPageThrottling(domTimers: domTimers, domTimersAutoIncrease: autoIncrease, processSuppression: suppression)
+    }
+
+    /// Sets each hidden-page throttling preference this WebKit has to `throttling`'s value; a WebKit
+    /// without one keeps its default. WebKit sends the page a preferences update only for a value
+    /// that changed, so setting the same values again costs no update.
+    ///
+    /// - Returns: How many of the three this WebKit has.
+    @discardableResult
+    func setHiddenPageThrottling(_ throttling: WebKitHiddenPageThrottling) -> Int {
+        let set = [
+            setPrivateFlag("_setHiddenPageDOMTimerThrottlingEnabled:", throttling.domTimers),
+            setPrivateFlag("_setHiddenPageDOMTimerThrottlingAutoIncreases:", throttling.domTimersAutoIncrease),
+            setPrivateFlag("_setPageVisibilityBasedProcessSuppressionEnabled:", throttling.processSuppression),
+        ]
+        return set.filter { $0 }.count
+    }
+
+    private func privateFlag(_ getter: String) -> Bool? {
+        // SAFETY: `privateMethod` only looks the method up; its IMP is called below with the method's C type.
+        guard let spi = unsafe Self.privateMethod(getter) else { return nil }
+        typealias GetFlag = @convention(c) (AnyObject, Selector) -> Bool
+        // SAFETY: the IMP is one of WKPreferences' `-(BOOL)` getters with no argument, called with that C type.
+        return unsafe unsafeBitCast(spi.implementation, to: GetFlag.self)(self, spi.selector)
+    }
+
+    private func setPrivateFlag(_ setter: String, _ value: Bool) -> Bool {
+        // SAFETY: `privateMethod` only looks the method up; its IMP is called below with the method's C type.
+        guard let spi = unsafe Self.privateMethod(setter) else { return false }
+        typealias SetFlag = @convention(c) (AnyObject, Selector, Bool) -> Void
+        // SAFETY: the IMP is one of WKPreferences' `-set...:(BOOL)` setters, called with that C type.
+        unsafe unsafeBitCast(spi.implementation, to: SetFlag.self)(self, spi.selector, value)
+        return true
+    }
+
+    /// The instance method `name` of this WebKit's WKPreferences: the one dispatch site of its
+    /// instance SPI. Nil when this WebKit has no such method.
+    private static func privateMethod(_ name: String) -> (selector: Selector, implementation: IMP)? {
+        // crash-allow: WebKit private selector, called only through the IMP class_getInstanceMethod found (no unknown-selector exception).
+        let selector = NSSelectorFromString(name)
+        // SAFETY: `method` is the runtime's method record for `selector`, which lives as long as the class.
+        guard let method = unsafe class_getInstanceMethod(WKPreferences.self, selector) else { return nil }
+        return unsafe (selector, method_getImplementation(method))
     }
 
     private static func webKitFeature(_ key: String) -> NSObject? {
         let selector = NSSelectorFromString("_features")
         let type: AnyObject = WKPreferences.self
-        guard type.responds(to: selector), let features = type.perform(selector)?.takeUnretainedValue() as? [NSObject] else { return nil }
+        // SAFETY: `+_features` returns an autoreleased array (a getter, not a +1 return), so the unretained value is
+        // the right ownership.
+        guard type.responds(to: selector), let features = unsafe type.perform(selector)?.takeUnretainedValue() as? [NSObject] else { return nil }
         return features.first { $0.value(forKey: "key") as? String == key }
     }
+}
+
+/// WebKit's hidden-page throttling preferences (`WKPreferencesPrivate.h`), each acting only while the
+/// page is hidden: its DOM timers are throttled, that throttle grows while it stays hidden, and its
+/// web process may be suppressed (App Nap) while it shows no page. A frozen page has all three on
+/// (``full``); its thaw gives the page back what it had (``WKPreferences/hiddenPageThrottling``).
+public struct WebKitHiddenPageThrottling: Hashable, Sendable {
+    /// `_hiddenPageDOMTimerThrottlingEnabled`.
+    public var domTimers: Bool
+    /// `_hiddenPageDOMTimerThrottlingAutoIncreases`.
+    public var domTimersAutoIncrease: Bool
+    /// `_pageVisibilityBasedProcessSuppressionEnabled`.
+    public var processSuppression: Bool
+
+    public init(domTimers: Bool, domTimersAutoIncrease: Bool, processSuppression: Bool) {
+        self.domTimers = domTimers
+        self.domTimersAutoIncrease = domTimersAutoIncrease
+        self.processSuppression = processSuppression
+    }
+
+    /// Every one on: a frozen page's.
+    public static let full = WebKitHiddenPageThrottling(domTimers: true, domTimersAutoIncrease: true, processSuppression: true)
+    /// Every one off.
+    public static let off = WebKitHiddenPageThrottling(domTimers: false, domTimersAutoIncrease: false, processSuppression: false)
 }
 
 /// WebKit's page render rate (one path for browser tabs, React pages and

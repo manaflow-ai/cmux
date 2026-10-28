@@ -478,10 +478,16 @@ export class HarnessSwitch {
 
   /// The user went elsewhere (another session, a fork, a default new chat): the switch ends and
   /// its queued prompts go back to the composer.
+  /// A switch a pick started behind the page, never shown because no prompt went: a chat only this
+  /// page knows (`pane.wakeState` reports it as `pendingChat`, and the host keeps the page).
+  get holdsDeferred(): boolean {
+    return this.intent !== undefined && !this.intent.shown;
+  }
+
   /// The New Tab page closed (cx-e2aa): a switch a pick started behind it, never shown because no
   /// prompt went, ends and its session is discarded. A shown switch is the chat's own.
   cancelDeferred(): void {
-    if (this.intent && !this.intent.shown) this.cancel();
+    if (this.holdsDeferred) this.cancel();
   }
 
   cancel(): void {

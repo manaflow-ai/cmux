@@ -31,8 +31,8 @@ final class BrowserDownloadsPopup {
     private weak var anchor: NSView?
     /// The toolbar the popup opened from, which draws its button pressed while it is open.
     private weak var buttons: BrowserToolbarButtonsView?
-    /// The automatic close of a popup that opened by itself.
-    private let autoClose = DemandTimer(owner: "Browser.downloadsPopup")
+    /// The automatic close of a popup that opened by itself (made on first use, on the app's deadline scheduler).
+    private var autoClose: MainDeadline?
     /// The shown popup's rows (``followRows(on:)``); a show replaces it and a close ends it.
     private var rowsWatch: FrameObservation<RowShape>?
 
@@ -47,11 +47,11 @@ final class BrowserDownloadsPopup {
     var shownFrame: CGRect? { popup.isShown ? popup.cardFrame : nil }
 
     /// The Downloads button: opens the popup, or closes it when it is open there.
-    func toggle(_ list: BrowserDownloadList, buttons: BrowserToolbarButtonsView, on work: MainWorkScheduler,
+    func toggle(_ list: BrowserDownloadList, buttons: BrowserToolbarButtonsView, on work: MainWorkScheduler, icons: WorkspaceQueries,
                 showFolder: @escaping () -> Void) {
         guard let anchor = buttons.popupAnchor(for: .downloads) else { return }
         if popup.isShown, self.anchor === anchor { return close() }
-        show(list, anchor: anchor, buttons: buttons, work: work, showFolder: showFolder, makeKey: true)
+        show(list, anchor: anchor, buttons: buttons, work: work, icons: icons, showFolder: showFolder, makeKey: true)
     }
 
     /// A download finished in a tab whose toolbar is on screen: opens the
@@ -61,16 +61,19 @@ final class BrowserDownloadsPopup {
     /// back to the notice over the tab.
     @discardableResult
     func showFinished(_ list: BrowserDownloadList, buttons: BrowserToolbarButtonsView, on work: MainWorkScheduler,
-                      showFolder: @escaping () -> Void) -> Bool {
+                      deadlines: MainDeadlineScheduler, icons: WorkspaceQueries, showFolder: @escaping () -> Void) -> Bool {
         // The Downloads button itself, or More when it is collapsed; never the bare toolbar.
         guard NSApp.isActive, let anchor = buttons.popupAnchor(for: .downloads), anchor !== buttons.superview,
-              let window = anchor.window, window.isKeyWindow || window.isMainWindow,
+              let window = anchor.window, window.isKeyWindow || window.isMainWindow, // visibility-walk-allow: the Downloads button's own AppKit state (collapsed into More, a hidden toolbar); visibility nodes hold tabs and panes, not toolbar buttons
               !anchor.isHiddenOrHasHiddenAncestor else { return false }
         // Already open (a click, or another download): it stays as it is and lists the new row.
         if popup.isShown { return true }
-        guard show(list, anchor: anchor, buttons: buttons, work: work, showFolder: showFolder, makeKey: false) else { return false }
+        guard show(list, anchor: anchor, buttons: buttons, work: work, icons: icons, showFolder: showFolder, makeKey: false) else { return false }
         model.entered = false
-        autoClose.schedule(after: Self.autoCloseDelay) { @MainActor [weak self] in
+        // Visible: the close shows on screen. Flexible (the default): 5 s may move by a few ms.
+        let autoClose = self.autoClose ?? MainDeadline(owner: "Browser.downloadsPopup", workClass: .visible, scheduler: deadlines)
+        self.autoClose = autoClose
+        autoClose.schedule(after: Self.autoCloseDelay) { [weak self] in
             guard let self, !self.model.entered else { return }
             self.close()
         }
@@ -84,13 +87,14 @@ final class BrowserDownloadsPopup {
 
     @discardableResult
     private func show(_ list: BrowserDownloadList, anchor: NSView, buttons: BrowserToolbarButtonsView, work: MainWorkScheduler,
-                      showFolder: @escaping () -> Void, makeKey: Bool) -> Bool {
+                      icons: WorkspaceQueries, showFolder: @escaping () -> Void, makeKey: Bool) -> Bool {
         guard let window = anchor.window else { return false }
         cancelAutoClose()
         if let old = self.anchor, old !== anchor { self.buttons?.setPopupOpen(false, anchor: old) }
         self.anchor = anchor
         self.buttons = buttons
         model.list = list
+        model.icons = icons
         if !popup.isShown { model.shows += 1 }
         model.colors = anchor.performWithTheme { BrowserDownloadsPopupColors.resolve() }
         model.onShowFolder = { [weak self] in
@@ -155,7 +159,9 @@ final class BrowserDownloadsPopup {
     private func resize() {
         guard popup.isShown, let content else { return }
         // The button left the screen (another tab, the tab closed): the popup goes with it.
+        // visibility-walk-allow: the Downloads button's own AppKit state, read once per row change while the popup shows
         guard let anchor, let window = anchor.window, !anchor.isHiddenOrHasHiddenAncestor else { return close() }
+        // sync-layout: the hosting view takes the new rows in its layout; its fitting size sizes the popup below.
         content.layoutSubtreeIfNeeded()
         let size = content.fittingSize
         let rect = window.convertToScreen(anchor.convert(CmuxPopoverAnchor.rect(in: anchor), to: nil))
@@ -163,7 +169,7 @@ final class BrowserDownloadsPopup {
                    preferred: .below, trailing: true, makeKey: popup.panel.isKeyWindow)
     }
 
-    private func cancelAutoClose() { autoClose.cancel() }
+    private func cancelAutoClose() { autoClose?.cancel() }
 
     private func closed() {
         cancelAutoClose()
@@ -186,6 +192,10 @@ final class BrowserDownloadsPopupModel {
     /// Bumped by every show: the rows are built again, so no row keeps the
     /// hover of the last show (the pointer left it while the popup was closed).
     var shows = 0
+    /// The app's Launch Services answers: the rows' type icons come from there (asked on the system lane).
+    @ObservationIgnored var icons: WorkspaceQueries?
+    /// Bumped when a row's icon lands, so the rows that showed a placeholder draw it.
+    private var iconArrivals = 0
     @ObservationIgnored var onEnter: () -> Void = {}
     @ObservationIgnored var onOpen: (URL) -> Void = { _ in }
     @ObservationIgnored var onShowFolder: () -> Void = {}
@@ -196,6 +206,18 @@ final class BrowserDownloadsPopupModel {
     var canClear: Bool { list?.items.contains { $0.status != .inProgress } ?? false }
 
     func clear() { list?.clearEnded() }
+
+    /// The system icon of `download`'s file type at `size` points: the kept one, else a placeholder while it is
+    /// asked on the system lane (the row draws it when it lands).
+    func icon(for download: BrowserDownload, size: CGFloat) -> NSImage {
+        _ = iconArrivals
+        let type = UTType(filenameExtension: (download.filename as NSString).pathExtension) ?? .data
+        let query = WorkspaceQuery<NSImage>.typeIcon(type, side: size)
+        if let kept = icons?.cached(query) { return kept }
+        // Not kept, so the answer comes on a later turn, never inside this view update.
+        icons?.value(query, priority: .userVisible) { [weak self] _ in self?.iconArrivals += 1 }
+        return NSImage(systemSymbolName: "doc", accessibilityDescription: nil) ?? NSImage()
+    }
 
     func menu(for download: BrowserDownload) -> NSMenu? {
         guard let list else { return nil }
@@ -296,7 +318,7 @@ private struct BrowserDownloadPopupRow: View {
     var body: some View {
         HStack(spacing: 6) {
             HStack(spacing: 10) {
-                Image(nsImage: BrowserDownloadsMenu.icon(for: download, size: 24))
+                Image(nsImage: model.icon(for: download, size: 24))
                     .frame(width: 24, height: 24)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
@@ -316,6 +338,7 @@ private struct BrowserDownloadPopupRow: View {
             .contentShape(Rectangle())
             .overlay(BrowserDownloadRowEvents(
                 file: { BrowserDownloadsMenu.draggableFile(download) },
+                icon: { model.icon(for: download, size: 32) },
                 menu: { model.menu(for: download) },
                 open: { file in model.onOpen(file) },
                 hover: { inside in
@@ -394,6 +417,8 @@ private struct BrowserDownloadsFooterRow: View {
 /// out as a file URL, a right-click shows the row's menu.
 private struct BrowserDownloadRowEvents: NSViewRepresentable {
     let file: () -> URL?
+    /// The drag image: the row's type icon.
+    let icon: () -> NSImage
     let menu: () -> NSMenu?
     let open: (URL) -> Void
     let hover: (Bool) -> Void
@@ -402,6 +427,7 @@ private struct BrowserDownloadRowEvents: NSViewRepresentable {
 
     func updateNSView(_ view: BrowserDownloadRowEventView, context: Context) {
         view.fileProvider = file
+        view.iconProvider = icon
         view.menuProvider = menu
         view.onOpen = open
         view.onHover = hover
@@ -410,22 +436,22 @@ private struct BrowserDownloadRowEvents: NSViewRepresentable {
 
 final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
     var fileProvider: () -> URL? = { nil }
+    var iconProvider: () -> NSImage = { NSImage() }
     var menuProvider: () -> NSMenu? = { nil }
     var onOpen: (URL) -> Void = { _ in }
     var onHover: (Bool) -> Void = { _ in }
     private var downEvent: NSEvent?
     private var dragged = false
-    private var tracking: NSTrackingArea?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect, .assumeInside], owner: self))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect, .assumeInside], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
 
     override func mouseEntered(with event: NSEvent) { onHover(true) }
     override func mouseExited(with event: NSEvent) { onHover(false) }
@@ -435,14 +461,14 @@ final class BrowserDownloadRowEventView: NSView, NSDraggingSource {
         dragged = false
     }
 
-    override func mouseDragged(with event: NSEvent) {
+    // local-monitor-allow: a 3 pt threshold test, then the drag session, which beginDraggingSession must start from this event; a drag is unbuffered until mouseUp (p06-scheduler.md section E)
+    override func mouseDragged(with event: NSEvent) { // input-coalesce: native (a slop test, then AppKit's dragging session tracks)
         guard !dragged, let down = downEvent else { return }
         let start = down.locationInWindow, now = event.locationInWindow
         guard hypot(now.x - start.x, now.y - start.y) >= 3, let file = fileProvider() else { return }
         dragged = true
         let item = NSDraggingItem(pasteboardWriter: file as NSURL)
-        let icon = NSWorkspace.shared.icon(forFile: file.path(percentEncoded: false))
-        icon.size = NSSize(width: 32, height: 32)
+        let icon = iconProvider()
         let point = convert(down.locationInWindow, from: nil)
         item.setDraggingFrame(NSRect(x: point.x - 16, y: point.y - 16, width: 32, height: 32), contents: icon)
         beginDraggingSession(with: [item], event: down, source: self)

@@ -189,15 +189,28 @@ extension SidebarBridge {
     /// front tab. The sidebar switches on press, so the switch's show is the commit that ends the dwell.
     func noteRowHover(_ row: SidebarRowKey?) {
         guard let prewarm = services.cache.hibernation?.intentPrewarm?.service else { return }
+        prewarm.pointerHovered(prewarmTarget(row))
+    }
+
+    /// A press on sidebar row `row`, the workspace row it switches to only on the release (nil: it switched
+    /// on the press or switches nothing): the press prewarm (`intentPrewarmPress`) wakes that row's front
+    /// tab while the button is down; every press ends the hover dwell.
+    func noteRowPress(_ row: SidebarRowKey?) {
+        guard let prewarm = services.cache.hibernation?.intentPrewarm?.service else { return }
+        prewarm.pointerPressed(on: prewarmTarget(row))
+    }
+
+    /// The page row `row` stands for: a tab row's tab, a workspace row's front tab; nil for any other row.
+    private func prewarmTarget(_ row: SidebarRowKey?) -> String? {
         switch row {
         case let .tab(_, tab)?:
-            prewarm.pointerHovered(tab.rawValue)
+            return tab.rawValue
         case let .workspace(id)?:
-            guard let workspace = services.workspace(id: id.rawValue) else { return prewarm.pointerHovered(nil) }
+            guard let workspace = services.workspace(id: id.rawValue) else { return nil }
             let selection = state?.selection
-            prewarm.pointerHovered(SidebarMapping.shared.frontTab(workspace) { pane in selection?.selection(in: pane.id) }?.id)
+            return SidebarMapping.shared.frontTab(workspace) { pane in selection?.selection(in: pane.id) }?.id
         default:
-            prewarm.pointerHovered(nil)
+            return nil
         }
     }
 

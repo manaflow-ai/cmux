@@ -2,6 +2,9 @@ internal import CMUXAuthCore
 import Foundation
 import OSLog
 import StackAuth
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 private let authLog = Logger(subsystem: "ai.manaflow.cmux", category: "auth")
 
@@ -96,9 +99,10 @@ extension AuthCoordinator {
         // Join overlapping runs so every foreground caller observes the same
         // completed auth verdict before starting dependent network work.
         if isRevalidatingSession {
-            await withCheckedContinuation { continuation in
+            // A dropped waiter returns as a resumed one does: the joined run's verdict is in the state.
+            _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
                 guard isRevalidatingSession else {
-                    continuation.resume()
+                    continuation.resume(returning: ())
                     return
                 }
                 sessionRevalidationWaiters.append(continuation)
@@ -227,7 +231,7 @@ extension AuthCoordinator {
         isRevalidatingSession = false
         let waiters = sessionRevalidationWaiters
         sessionRevalidationWaiters.removeAll(keepingCapacity: false)
-        for waiter in waiters { waiter.resume() }
+        for waiter in waiters { waiter.resume(returning: ()) }
     }
 
     /// Run the launch/dev auto-login, capturing the same staleness context as

@@ -1,4 +1,6 @@
 public import CmuxNextDaemon
+import CmuxNextIPC
+public import CmuxNextWakeups
 public import Foundation
 import os
 
@@ -34,20 +36,13 @@ public final class ChiefProfilePageRelay {
         "effort", "harness", "harnesses", "instructions", "locked", "model", "personality", "self_edit", "tools",
     ]
     /// The page id of the stream (page-router.json).
-    nonisolated static let page = "home-channels"
-
-    private static var relays: [ObjectIdentifier: ChiefProfilePageRelay] = [:]
-
-    /// The one relay of `owner`; its pages' calls share one page stream to the owner.
-    public static func shared(for owner: ChiefConversationOwner) -> ChiefProfilePageRelay {
-        let key = ObjectIdentifier(owner)
-        if let relay = relays[key] { return relay }
-        let relay = ChiefProfilePageRelay(owner: owner)
-        relays[key] = relay
-        return relay
-    }
+    public nonisolated static let page = "home-channels"
 
     private weak var owner: (any ChiefProfileRelayOwner)?
+    /// Ends the page stream ``PageRelayIdleClose/delay`` after the last call ends (p13-webui-066):
+    /// Home and Settings > Agents > Chiefs hold no page-relay client on the owner while nobody uses
+    /// the editor, closed or frozen. The editor has no listens; the next call opens a new stream.
+    private let idle: PageRelayIdleClose
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "chief-profile-relay")
     private let clock: any Clock<Duration>
     /// Every page call answers within this, also when a step below it never does: the page's
@@ -69,9 +64,21 @@ public final class ChiefProfilePageRelay {
     /// The event uptime of the last gesture a call spent.
     private var spentGesture: TimeInterval?
 
-    init(owner: any ChiefProfileRelayOwner, clock: any Clock<Duration> = ContinuousClock()) {
+    /// The relay of `owner`; the app's page host keeps one per owner, so its pages' calls share one
+    /// page stream to the owner.
+    ///
+    /// - Parameters:
+    ///   - owner: This build's Chief owner.
+    ///   - idle: The one-shot deadline of the stream's idle close (a background `MainDeadline`).
+    public convenience init(owner: ChiefConversationOwner, idle: any PageRelayIdleDeadline) {
+        self.init(owner: owner as any ChiefProfileRelayOwner, idle: idle)
+    }
+
+    init(owner: any ChiefProfileRelayOwner, clock: any Clock<Duration> = ContinuousClock(), idle: any PageRelayIdleDeadline) {
         self.owner = owner
         self.clock = clock
+        self.idle = PageRelayIdleClose(deadline: idle)
+        self.idle.onIdle = { [weak self] in self?.dropStream() }
     }
 
     /// Whether the owner takes `operation` with `params` from the page only on a gesture.
@@ -102,7 +109,11 @@ public final class ChiefProfilePageRelay {
                 self?.dropStream()
                 return DaemonError.timedOut("\(operation) (no answer from the Chief owner within \(Self.callDeadline))")
             }) { [self] in
-                try await call(operation: operation, params: params, idempotencyKey: idempotencyKey, gesture: gesture)
+                // The work, not the answer, uses the stream: a step the deadline gave up on still
+                // holds it until it ends.
+                idle.begin()
+                defer { idle.end() }
+                return try await call(operation: operation, params: params, idempotencyKey: idempotencyKey, gesture: gesture)
             }
             logger.info("\(operation, privacy: .public): answered in \(elapsed()) ms")
             return result
@@ -153,9 +164,12 @@ public final class ChiefProfilePageRelay {
     private func dropStream() {
         guard let stream else { return }
         self.stream = nil
-        // task-owner: one close of a stream no call uses any more
-        Task { await stream.close() }
+        // task-owner: one close of a stream no call uses any more (off main: the stream is its own)
+        closing = Task { @concurrent in await stream.close() }
     }
+
+    /// The last stream close (``dropStream()``); tests await it.
+    private(set) var closing: Task<Void, Never>?
 
     /// The `home-channels` stream to `attached`, the owner process the app's main connection is
     /// attached to now; a new one when that owner restarted or the stream ended.
@@ -166,8 +180,9 @@ public final class ChiefProfilePageRelay {
         // An open to the same owner in flight is shared; one to another owner is not.
         if let opening, opening.owner == attached { return try await opening.task.value }
         let relay = owner.pageRelay(socket: attached.socket)
-        // task-owner: one stream open; ends with its handshake (each line has the request deadline)
-        let task = Task { () async throws -> any PageRelayStream in
+        // task-owner: one stream open; ends with its handshake (each line has the request deadline). Off main: it
+        // touches only the relay and its stream; the caller checks the owner again in its resume.
+        let task = Task { @concurrent () async throws -> any PageRelayStream in
             let opened = try await relay.openStream(page: Self.page)
             // The socket may already serve another owner process than the one the app's main
             // connection is attached to (it restarted in between): that is not this owner.
@@ -193,17 +208,14 @@ public final class ChiefProfilePageRelay {
     }
 
     /// `origin.confirmation.issue` on the app's trusted main connection to the owner: a
-    /// single-use token for exactly this op, its params (canonical SHA-256 as sent) and `stream`.
+    /// single-use token for exactly this op, its params (canonical SHA-256 as sent) and `stream`'s
+    /// connection (its epoch's hello id).
     private func confirmationToken(owner: any ChiefProfileRelayOwner, stream: any PageRelayStream, operation: String,
                                    params: [String: JSONValue]) async throws -> String {
-        var request = stream.confirmationBinding
-        request["operation"] = .string(operation)
-        request["params_sha256"] = .string(try ResourceRelayClient.paramsDigest(params, operation: operation))
-        let issued = try await owner.issueConfirmation(request)
-        guard case .object(let members) = issued, case .string(let token)? = members["token"] else {
-            throw DaemonError.malformedResponse("origin.confirmation.issue")
-        }
-        return token
+        let request = V2OriginConfirmationIssueRequest(
+            operation: operation, paramsSha256: try ResourceRelayClient.paramsDigest(params, operation: operation),
+            relayConnectionID: stream.epoch.connectionID)
+        return try await owner.issueConfirmation(request).token
     }
 }
 
@@ -213,8 +225,8 @@ public final class ChiefProfilePageRelay {
 protocol ChiefProfileRelayOwner: AnyObject {
     /// The owner process the main connection is attached to now; nil while it is not.
     func attachedOwner() async -> ChiefProfilePageRelay.OwnerKey?
-    /// `origin.confirmation.issue` with `params` on the trusted main connection.
-    func issueConfirmation(_ params: [String: JSONValue]) async throws -> JSONValue
+    /// `origin.confirmation.issue` on the trusted main connection.
+    func issueConfirmation(_ request: V2OriginConfirmationIssueRequest) async throws -> V2OriginConfirmation
     /// The page-relay connection of the owner daemon at `socket`.
     func pageRelay(socket: String) -> any PageRelayStreamOpening
 }
@@ -225,10 +237,9 @@ extension ChiefConversationOwner: ChiefProfileRelayOwner {
         return ChiefProfilePageRelay.OwnerKey(socket: socket, pid: identity.pid, generation: identity.generation)
     }
 
-    func issueConfirmation(_ params: [String: JSONValue]) async throws -> JSONValue {
+    func issueConfirmation(_ request: V2OriginConfirmationIssueRequest) async throws -> V2OriginConfirmation {
         guard let connection else { throw DaemonError.notConnected }
-        return try await ResourceRelayClient(connection: connection).send(
-            operation: "origin.confirmation.issue", params: params, idempotencyKey: nil)
+        return try await ResourceOperationClient(connection: connection).read(request, as: V2OriginConfirmation.self)
     }
 
     func pageRelay(socket: String) -> any PageRelayStreamOpening {

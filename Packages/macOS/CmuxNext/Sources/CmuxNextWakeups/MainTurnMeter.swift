@@ -91,6 +91,12 @@ public final class MainTurnMeter {
     private var rendering = false
     private var renderStart: UInt64 = 0
     private var spansAtRenderStart: UInt64 = 0
+    /// Told when a nested run loop starts running (`true`: its entry, or a parked level's next entry)
+    /// and when it stops (`false`: its exit), at `now`. The budget (``MainFrameBudget``) takes that
+    /// time out of the task that ran the loop, as Chrome's `RunLevelTracker` suspends a task's work
+    /// item while a nested loop it started runs (base/task/sequence_manager/thread_controller.cc,
+    /// `OnRunLoopStarted` / `OnRunLoopEnded`). One budget's (it sets it).
+    var nestedLoopRunning: (@MainActor (_ running: Bool, _ now: UInt64) -> Void)?
 
     /// - Parameters:
     ///   - signposts: Whether a turn over ``stallNanos`` emits `stall.main_turn` (the app: true).
@@ -183,10 +189,13 @@ public final class MainTurnMeter {
             parkedLoops &= ~(1 << UInt64(level))
             visibleBase = spanDepth
             if !inTurn { beginTurn(at: now) }
+            nestedLoopRunning?(true, now)
         } else if loopDepth > 0 || spanDepth > 0 {
             endTurn(at: now)
             enterLevel(nested: true)
             beginTurn(at: now)
+            // Only a tracked level parks at its exit (loopExited), so only a tracked one is told.
+            if loopDepth <= Self.maxDepth { nestedLoopRunning?(true, now) }
         } else {
             enterLevel(nested: false)
             if !inTurn { beginTurn(at: now) }
@@ -241,6 +250,7 @@ public final class MainTurnMeter {
         let level = loopDepth - 1
         if level < Self.maxDepth, nestedLoops & (1 << UInt64(level)) != 0 {
             parkedLoops |= 1 << UInt64(level)
+            nestedLoopRunning?(false, now)
         } else {
             loopDepth -= 1
         }
@@ -253,6 +263,7 @@ public final class MainTurnMeter {
     public func unwindToTopLevel() {
         let now = uptimeNanos()
         endTurn(at: now)
+        for _ in 0..<(nestedLoops & ~parkedLoops).nonzeroBitCount { nestedLoopRunning?(false, now) }
         loopDepth = 0
         nestedLoops = 0
         parkedLoops = 0

@@ -9,7 +9,7 @@ public import Foundation
 ///
 /// | WorkPriority | MainWorkClass | GCD QoS | TaskPriority |
 /// |---|---|---|---|
-/// | ``userBlocking`` | input, frame | `.userInitiated` | `.high` |
+/// | ``userBlocking`` | input, frame, userBlocking | `.userInitiated` | `.high` |
 /// | ``userVisible`` | visible | `.userInitiated` | `.medium` |
 /// | ``bestEffort`` | automation, background | `.utility` | `.utility` |
 /// | ``idle`` | (none: opt-in only) | `.background` | `.background` |
@@ -52,7 +52,7 @@ public enum WorkPriority: Int, Sendable, Comparable, CaseIterable, CustomStringC
     /// The off-main priority of work that a main-thread task of `workClass` starts.
     public init(_ workClass: MainWorkClass) {
         switch workClass {
-        case .input, .frame: self = .userBlocking
+        case .input, .frame, .userBlocking: self = .userBlocking
         case .visible: self = .userVisible
         case .automation, .background, .idle: self = .bestEffort
         }

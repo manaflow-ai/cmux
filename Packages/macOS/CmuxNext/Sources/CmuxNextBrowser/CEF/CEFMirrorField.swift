@@ -14,6 +14,7 @@ nonisolated enum CEFMirrorField: String, CaseIterable, Sendable {
     case passwordReplaceAvailable = "host.password_replace_available"
     case passkeysAvailable = "host.passkeys_available"
     case passwordCoreAvailable = "host.password_core_available"
+    case extLoadLaterSupported = "host.ext_load_later_supported"
     case navigationEntries = "tab.navigation_entries[browser_id]"
     case navigationState = "tab.navigation_state[browser_id]"
     case windowID = "tab.window_id[browser_id]"
@@ -39,6 +40,7 @@ nonisolated enum CEFMirrorField: String, CaseIterable, Sendable {
         case .passwordReplaceAvailable: "cmux_shim_password_replace_available"
         case .passkeysAvailable: "cmux_shim_passkeys_available"
         case .passwordCoreAvailable: "cmux_shim_password_core_available"
+        case .extLoadLaterSupported: "cmux_shim_ext_load_later_supported"
         case .navigationEntries: "cmux_shim_tab_navigation_entries"
         case .navigationState: "cmux_shim_tab_navigation_state"
         case .windowID: "cmux_shim_tab_window_id"
@@ -63,7 +65,7 @@ nonisolated enum CEFMirrorField: String, CaseIterable, Sendable {
     var refreshEvents: Set<CEFMirrorTrigger> {
         switch self {
         case .forkAPIVersion, .placeholderSupported, .navigationRestoreSupported, .passwordImportAvailable,
-             .passwordReplaceAvailable, .passkeysAvailable, .passwordCoreAvailable:
+             .passwordReplaceAvailable, .passkeysAvailable, .passwordCoreAvailable, .extLoadLaterSupported:
             []
         case .foreignBrowserCount: [.tab(.foreignBrowserBlocked), .tab(.windowDestroyed)]
         case .liveBrowserCount: [.afterCreated, .beforeClose]

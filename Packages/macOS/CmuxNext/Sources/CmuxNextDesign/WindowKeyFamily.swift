@@ -43,13 +43,14 @@ final class WindowKeyFamily {
     /// It observes the key and activation notices (only while it has a view).
     var isObserving: Bool { !observers.isEmpty }
 
-    private static var key: UInt8 = 0
+    private static let families = ObjectAssociation<WindowKeyFamily>()
 
     /// The key and activation notices it observes. A notice's code in `switch.app_activation` is its
     /// position + 1 (``SignpostName/switchAppActivation``): a window did become key 1, resign key 2,
     /// become main 3, resign main 4; the app did become active 5, resign active 6.
-    private static let notices = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
-                                  NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification,
+    // raw-observer-allow: the names startObserving() subscribes through the app's AppEvents, listed once for their codes
+    private static let notices = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification, // raw-observer-allow: as above
+                                  NSWindow.didBecomeMainNotification, NSWindow.didResignMainNotification, // raw-observer-allow: as above
                                   NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification]
 
     /// Whether `code` is the app's become or resign active notice.
@@ -68,9 +69,9 @@ final class WindowKeyFamily {
     /// The tracker of `window`, made on first use with `environment` (a later call returns that
     /// tracker and ignores its argument).
     static func of(_ window: NSWindow, environment: WindowKeyEnvironment = .live) -> WindowKeyFamily {
-        if let existing = objc_getAssociatedObject(window, &key) as? WindowKeyFamily { return existing }
+        if let existing = families.value(on: window) { return existing }
         let family = WindowKeyFamily(window: window, environment: environment)
-        objc_setAssociatedObject(window, &key, family, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        families.set(family, on: window)
         return family
     }
 
@@ -115,8 +116,8 @@ final class WindowKeyFamily {
         }
     }
 
-    /// Reads where the keyboard is on the next main-actor turn: a resign posts before the next
-    /// window becomes key, so the key window in between (nil) would flash the wash. `code` is the
+    /// Reads where the keyboard is once the turn's notices are in, before its commit: a resign posts
+    /// before the next window becomes key, so the key window in between (nil) would flash the wash. `code` is the
     /// notice's code (``notices``), nil for the tracker's first read, which is not a key change.
     private func keyDidMove(_ code: UInt8?) { // perf-hot: 0.5ms cmd-tab (every key or activation change, once per window per turn)
         if let code {
@@ -125,7 +126,7 @@ final class WindowKeyFamily {
         }
         guard !checkPending else { return }
         checkPending = true
-        environment.nextTurn { [weak self] in self?.check() }
+        environment.beforeCommit { [weak self] in self?.check() }
     }
 
     /// Decides whether the window looks inactive now. A check that flips it is one `switch.app_activation`

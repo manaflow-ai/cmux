@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
+import CmuxNextWakeups
 import Foundation
 import Testing
 import WebKit
@@ -41,7 +42,11 @@ import WebKit
         _ = await page.find("around", direction: .forward, caseSensitive: false)
         page.clearFind()
         page.exitContentFullscreen()
-        _ = await WindowHintTargets.pageTargets(of: [page.webView], clip: CGRect(x: 0, y: 0, width: 800, height: 600))
+        let deadlines = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))
+        _ = await withCheckedContinuation { (answered: CheckedContinuation<[WindowHintTargets.Target], Never>) in
+            WindowHintTargets.pageTargets(of: [page.webView], clip: CGRect(x: 0, y: 0, width: 800, height: 600),
+                                          deadlines: deadlines) { answered.resume(returning: $0) }
+        }
         // The page asks for fullscreen by itself: the refusal runs the exit script.
         _ = try await Self.read("(document.documentElement.requestFullscreen?.(), true)", page)
         // The fire-and-forget scripts have run once a later script answers (one script queue per page).

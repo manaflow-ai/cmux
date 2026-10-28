@@ -8,17 +8,10 @@ use super::*;
 /// is never reused (`split-client-keys-v1`).
 #[track_caller]
 fn resource_public_id_known(registry: &WorkspaceRegistry, public_id: &str) -> anyhow::Result<bool> {
-    use rusqlite::OptionalExtension;
-    Ok(registry
-        .connection
-        .get()
-        .query_row(
-            "SELECT 1 FROM resource_identities WHERE public_id = ?1",
-            [public_id],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some())
+    crate::workspace_registry::resource_identity_queries::resource_public_id_known(
+        &registry.connection.get(),
+        public_id,
+    )
 }
 
 /// The caller-minted pane id of a pane creation, validated and unused.

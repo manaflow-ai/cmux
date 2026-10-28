@@ -39,23 +39,39 @@ public struct EnergyPolicy: Sendable, Equatable {
     public let ambientMaxFPS: Int?
     /// The highest frame rate of web pages the person does not interact with; nil while uncapped.
     public let webFrameRate: Int?
+    /// The longest random wait of a socket's reconnect after a wake, so the sockets of every Mac that
+    /// wakes at one moment (a lid opened, a scheduled wake) do not reach the servers together.
+    public static let reconnectJitter: Duration = .seconds(2)
+
     /// The factor background polls multiply their interval by (1, 4 under the saver).
     public let pollStretch: Int
-    /// The Mac is going to sleep or asleep: keepalives and polls stop.
+    /// The Mac is going to sleep or asleep (`NSWorkspace.willSleepNotification` until
+    /// `didWakeNotification`): keepalives and polls stop.
     public let suspended: Bool
-    /// The displays sleep: nothing can see ambient frames.
+    /// The displays sleep: nothing can see ambient frames, every window counts as hidden, and
+    /// keepalives stop as they do while ``suspended``.
     public let screensAsleep: Bool
+    /// The wakes after which the network path was satisfied again, counted from launch. Each new
+    /// count asks every socket to reconnect once, ``reconnectJitter`` apart at most (``KeepaliveGate``).
+    public let networkResumes: UInt64
     /// The Mac runs on battery (raw input, for consumers such as KeepAwake).
     public let onBattery: Bool
     /// macOS Low Power Mode is on while the `energySaver` feature is off. The page consumers that
     /// followed Low Power Mode before Energy Saver existed keep following it until the feature ships
     /// (``pageSaver``); nothing else reads it, so the schedulers, motion and the sidebar stay as they were.
     public let lowPowerFallback: Bool
+    /// "Turn Off Energy Saver for Now" holds (`EnergyPolicyResolver.isOffForSession`). The local daemon
+    /// is told it (`energy.set` `offForNow`) and keeps it after the app quits, until the Mac is plugged in.
+    public let isOffForNow: Bool
 
     /// Pages spend less: WebKit renders near 60 fps, no neighbor tab stays awake and hidden cmux pages
     /// freeze sooner. Energy Saver, or Low Power Mode while the `energySaver` feature is off
     /// (``lowPowerFallback``).
     public var pageSaver: Bool { isSaver || lowPowerFallback }
+
+    /// Keepalives and polls hold: the Mac sleeps or its displays do. Chrome's GCM heartbeat stops on
+    /// `OnSuspend` the same way (google_apis/gcm/engine/heartbeat_manager.cc, a `PowerSuspendObserver`).
+    public var pausesKeepalives: Bool { suspended || screensAsleep }
 
     /// The policy for the resolved saver state and raw inputs; every derived value follows from them.
     ///
@@ -63,10 +79,12 @@ public struct EnergyPolicy: Sendable, Equatable {
     ///   - saverReason: Why the saver is on, or nil when it is off.
     ///   - suspended: The Mac is going to sleep or asleep.
     ///   - screensAsleep: The displays sleep.
+    ///   - networkResumes: The wakes that found a satisfied network path so far.
     ///   - onBattery: The Mac runs on battery.
     ///   - lowPowerFallback: macOS Low Power Mode is on and the `energySaver` feature is off.
-    public init(saverReason: Reason? = nil, suspended: Bool = false, screensAsleep: Bool = false, onBattery: Bool = false,
-                lowPowerFallback: Bool = false) {
+    ///   - offForNow: "Turn Off Energy Saver for Now" holds.
+    public init(saverReason: Reason? = nil, suspended: Bool = false, screensAsleep: Bool = false, networkResumes: UInt64 = 0,
+                onBattery: Bool = false, lowPowerFallback: Bool = false, offForNow: Bool = false) {
         let isSaver = saverReason != nil
         self.isSaver = isSaver
         reason = saverReason
@@ -76,8 +94,10 @@ public struct EnergyPolicy: Sendable, Equatable {
         pollStretch = isSaver ? Self.saverPollStretch : 1
         self.suspended = suspended
         self.screensAsleep = screensAsleep
+        self.networkResumes = networkResumes
         self.onBattery = onBattery
         self.lowPowerFallback = lowPowerFallback
+        isOffForNow = offForNow
     }
 
     /// The saver off, awake, on AC power.

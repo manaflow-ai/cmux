@@ -2,6 +2,8 @@ import Darwin
 import Foundation
 import CmuxNextCompat
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// Why one sidecar request produced no reply.
 nonisolated enum DiffSidecarError: Error, Equatable, Sendable {
@@ -50,7 +52,7 @@ nonisolated enum DiffSidecarProcess {
         let invocation = Invocation(request: request, grace: limits.grace, clock: clock)
         do {
             return try await withTaskCancellationHandler {
-                try await withCheckedThrowingContinuation { continuation in
+                try await withOnceThrowingContinuation { (continuation: OnceContinuation<Data, any Error>) in
                     invocation.start(executable: executable, arguments: arguments, launcher: launcher, limits: limits,
                                      continuation: continuation)
                 }
@@ -83,7 +85,7 @@ private nonisolated final class Invocation: Sendable {
         var requestLimit: Duration?
         var replyClosed = false
         var exitStatus: Int32?
-        var continuation: CheckedContinuation<Data, any Error>?
+        var continuation: OnceContinuation<Data, any Error>?
         var outcome: Result<Data, DiffSidecarError>?
     }
 
@@ -99,12 +101,14 @@ private nonisolated final class Invocation: Sendable {
         self.request = request
         self.grace = grace
         self.clock = clock
+        // timer-class-allow: off-main: the child's startup and reply bounds live in this nonisolated Invocation and only end it under its lock (the clock is the suites' seam); they post no main-thread job
         startup = DemandTimer(owner: "DiffSidecar.startup", clock: clock)
+        // timer-class-allow: off-main: as the startup bound above
         reply = DemandTimer(owner: "DiffSidecar.reply", clock: clock)
     }
 
     func start(executable: URL, arguments: [String], launcher: ProcessLauncher, limits: DiffSidecarProcess.Limits,
-               continuation: CheckedContinuation<Data, any Error>) {
+               continuation: OnceContinuation<Data, any Error>) {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
@@ -166,7 +170,7 @@ private nonisolated final class Invocation: Sendable {
 
     /// Fails with `error` (unless already finished) and stops the child.
     func fail(_ error: DiffSidecarError) {
-        let (continuation, process, ready) = state.withLock { state -> (CheckedContinuation<Data, any Error>?, Process?, Bool) in
+        let (continuation, process, ready) = state.withLock { state -> (OnceContinuation<Data, any Error>?, Process?, Bool) in
             guard state.outcome == nil else { return (nil, nil, false) }
             state.outcome = .failure(error)
             try? state.stdin?.close()
@@ -246,7 +250,7 @@ private nonisolated final class Invocation: Sendable {
     }
 
     private func finishIfDone() {
-        let (finished, continuation) = state.withLock { state -> (Bool, CheckedContinuation<Data, any Error>?) in
+        let (finished, continuation) = state.withLock { state -> (Bool, OnceContinuation<Data, any Error>?) in
             guard state.outcome == nil, state.replyClosed, let status = state.exitStatus else { return (false, nil) }
             let valid = status == 0 && !state.reply.isEmpty && state.reply.count <= DiffSidecarProcess.maximumReply
             state.outcome = valid ? .success(state.reply) : .failure(.failed(status: status))
@@ -256,9 +260,9 @@ private nonisolated final class Invocation: Sendable {
         if let continuation { resumeIfFinished(continuation) }
     }
 
-    private func resumeIfFinished(_ continuation: CheckedContinuation<Data, any Error>) {
+    private func resumeIfFinished(_ continuation: OnceContinuation<Data, any Error>) {
         guard let outcome = state.withLock({ $0.outcome }) else { return }
-        continuation.resume(with: outcome)
+        continuation.resume(with: outcome.mapError { $0 })
     }
 
     /// SIGTERM to the child's group (or the child, before it made one), then
@@ -273,6 +277,7 @@ private nonisolated final class Invocation: Sendable {
         Task { [self] in
             // wakeup-allow: deadline of the SIGTERM grace before SIGKILL; not a DemandTimer: it must outlive
             // the request that stopped the child, and nothing replaces or cancels it
+            // timer-class-allow: off-main: this nonisolated Invocation's one grace before SIGKILL; it posts no main-thread job
             try? await clock.sleep(for: grace, tolerance: WakeLeeway.window(delay: grace).tolerance)
             guard state.withLock({ $0.exitStatus == nil }) else { return }
             kill(target, SIGKILL)

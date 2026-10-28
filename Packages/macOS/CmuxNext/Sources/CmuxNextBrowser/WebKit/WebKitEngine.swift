@@ -1,8 +1,12 @@
 import AppKit
+public import CmuxNextSignposts
 public import CmuxNextWakeups
 public import Foundation
 public import WebKit
 public import CmuxNextDesign
+#if DEBUG || CMUX_BENCH_HOOKS
+public import CmuxNextInput
+#endif
 
 /// The WebKit engine: one `WKWebView` per tab, one persistent
 /// `WKWebsiteDataStore` per profile.
@@ -48,12 +52,15 @@ public final class WebKitEngine: BrowserEngine {
     /// WebKit's; the clock times its steps (tests replace both).
     var rateReshowSnapshot: (() async -> NSImage?)?
     var rateReshowClock: any Clock<Duration> = ContinuousClock()
+    /// A tab the content lifecycle hides is hidden to WebKit (``WebKitPageVisibility``, feature `webkitHiddenTabs`).
+    /// Read when each tab is made; the App sets it once, before its first tab.
+    public var hidesHiddenTabs = false
     /// HTTP sign-ins the user chose to remember (Keychain; tests inject memory).
     var httpCredentials: any BrowserHTTPCredentialStoring = KeychainHTTPCredentialStore.standard
 
     /// The remembered-sign-in rules for a profile's tabs.
     func httpSignInMemory(for profile: BrowserProfileID) -> BrowserHTTPSignInMemory {
-        BrowserHTTPSignInMemory(store: httpCredentials, offTheRecord: profileStore.isOffTheRecord(profile))
+        BrowserHTTPSignInMemory(store: httpCredentials, index: stores.httpSignIns, offTheRecord: profileStore.isOffTheRecord(profile))
     }
 
     /// Per-profile site permissions, shared with the Chromium engine.
@@ -68,6 +75,13 @@ public final class WebKitEngine: BrowserEngine {
     /// The organization's URL blocklist and allowlist (Chrome's `URLBlocklist`
     /// and `URLAllowlist` policies); the App sets it from the managed policy.
     public var urlFilter: BrowserURLFilter = .none
+    /// Where its tabs' content-process ends go as stability events (p09-observability-108); the App sets its reporting one.
+    public var rendererStability = RendererStability()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// DEV and bench builds: reports when each new tab's page painted after an input, so its latency slot gets a
+    /// presented time (p04-input-099). The App sets it once, before the first tab.
+    public var pageInputTiming: WebPageInputTiming?
+    #endif
     /// Answers every tab's `<input type="file">` (the tab's `runOpenPanelWith`): the App's one
     /// made-ahead panel (`AppServices.openPanel`, passed through `TabContentCache`), which agent
     /// composer pages share, so a browser tab's file input gets the panel made ahead when one is,
@@ -76,6 +90,15 @@ public final class WebKitEngine: BrowserEngine {
     /// Where its pages' keyed waits (``BrowserPageWaiting``) put their timeouts: the main thread's one
     /// deadline queue.
     let waitDeadlines: AlignedWakeups
+    /// The app's main-thread scheduler: its tabs' and downloads' main-thread follow-ups are classed tasks on it.
+    let mainWork: MainWorkScheduler
+    /// Its tabs' main-thread deadlines (the title flush, the page-base hold), placed on `mainWork`'s wake-up queue.
+    let deadlines: MainDeadlineScheduler
+    /// App-wide notices for its tabs: one observer per name for every tab (each tab's Web Inspector watch).
+    let appEvents: AppEvents
+    /// Same-site tabs share a WebContent process above the renderer limit (``WebKitProcessReuse``); nil (the
+    /// `webKitSameSiteProcesses` feature off): every tab starts its own.
+    let processReuse: WebKitProcessReuse?
 
     /// An engine over the App's `stores`.
     ///
@@ -88,6 +111,10 @@ public final class WebKitEngine: BrowserEngine {
     ///     writer; the default, fixed off, is for tests and fixtures.
     ///   - waitDeadlines: The main thread's deadline queue (`MainWorkScheduler.wakeUps`, the one the Chromium engine
     ///     has) for the pages' waits; nil (tests, fixtures): a queue of the engine's own over `energy`.
+    ///   - deadlines: The app's one `MainDeadline` placer (`AppServices.mainDeadlines`); its `work` is the app's one
+    ///     main-thread scheduler, which the tabs' and downloads' main-thread follow-ups are posted on.
+    ///   - appEvents: The app's one ``AppEvents`` (`AppServices.appEvents`): its tabs' app-wide notices share its observers.
+    ///   - processReuse: Same-site process sharing above the renderer limit; nil: a process per tab.
     public init(
         fileInput: any WebFileInputAnswering,
         stores: BrowserSharedStores,
@@ -96,9 +123,16 @@ public final class WebKitEngine: BrowserEngine {
         downloadsDirectory: URL = DownloadDestination.defaultDirectory,
         applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15",
         energy: EnergyPolicySource = EnergyPolicySource(),
-        waitDeadlines: MainWakeUpQueue? = nil
+        waitDeadlines: MainWakeUpQueue? = nil,
+        deadlines: MainDeadlineScheduler,
+        appEvents: AppEvents,
+        processReuse: WebKitProcessReuse? = nil
     ) {
         self.fileInput = fileInput
+        self.processReuse = processReuse
+        mainWork = deadlines.work
+        self.deadlines = deadlines
+        self.appEvents = appEvents
         self.waitDeadlines = AlignedWakeups(queue: waitDeadlines ?? MainWakeUpQueue(energy: energy))
         self.stores = stores
         self.profileStore = profileStore ?? WebKitProfileStore(offTheRecord: stores.offTheRecord)
@@ -107,6 +141,27 @@ public final class WebKitEngine: BrowserEngine {
         self.applicationNameForUserAgent = applicationNameForUserAgent
         energySaver = energy.policy.pageSaver
         energyObservation = MainActorEnergyObservation(energy) { [weak self] policy in self?.energySaver = policy.pageSaver }
+    }
+
+    /// An engine on a main-thread scheduler and app notices of its own (tests and fixtures; internal, so the app,
+    /// which must pass its one ``MainDeadlineScheduler`` and ``AppEvents``, cannot reach it).
+    convenience init(
+        fileInput: any WebFileInputAnswering,
+        stores: BrowserSharedStores,
+        profileStore: WebKitProfileStore? = nil,
+        faviconLoader: any BrowserFaviconLoading = BrowserFaviconLoader.shared,
+        downloadsDirectory: URL = DownloadDestination.defaultDirectory,
+        applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15",
+        energy: EnergyPolicySource = EnergyPolicySource(),
+        waitDeadlines: MainWakeUpQueue? = nil,
+        mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+        appEvents: AppEvents = AppEvents(center: .default),
+        processReuse: WebKitProcessReuse? = nil
+    ) {
+        self.init(fileInput: fileInput, stores: stores, profileStore: profileStore, faviconLoader: faviconLoader,
+                  downloadsDirectory: downloadsDirectory, applicationNameForUserAgent: applicationNameForUserAgent, energy: energy,
+                  waitDeadlines: waitDeadlines, deadlines: MainDeadlineScheduler(work: mainWork), appEvents: appEvents,
+                  processReuse: processReuse)
     }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
@@ -127,15 +182,21 @@ public final class WebKitEngine: BrowserEngine {
     /// configuration that links the new page to its opener.
     public func makeWebKitTab(id: BrowserTabID = .random(), profile: BrowserProfileID = .default, initialURL: URL? = nil,
                               zoom: Double = 1, webViewConfiguration: WKWebViewConfiguration? = nil) -> WebKitTab {
-        makeTab(unproxied: BrowserTabConfiguration(id: id, profile: profile, initialURL: initialURL, zoom: zoom),
+        makeTab(unproxied: BrowserTabConfiguration(id: id, profile: profile, initialURL: initialURL, zoom: zoom, origin: .user),
                 webViewConfiguration: webViewConfiguration)
     }
 
     private func makeTab(unproxied configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration?) -> WebKitTab {
         let webConfiguration = webViewConfiguration ?? makeConfiguration(for: configuration.profile)
         prepare(webConfiguration)
+        // A page-opened tab is already related to its opener; any other may join a same-site process.
+        let site = processReuse?.site(of: configuration.initialURL)
+        let anchor = webViewConfiguration == nil
+            ? processReuse?.join(webConfiguration, site: site, profile: configuration.profile, among: openTabs.allObjects) : nil
         let tab = WebKitTab(configuration: configuration, webViewConfiguration: webConfiguration, engine: self,
                             openedByPage: webViewConfiguration != nil)
+        tab.processSite = site
+        tab.processAnchor = anchor
         openTabs.add(tab)
         if let url = configuration.initialURL {
             tab.load(url)
@@ -159,13 +220,15 @@ public final class WebKitEngine: BrowserEngine {
         // A WebKit without the feature has no rate to change.
         guard !tab.isClosed, let near60 = preferences.isWebKitFeatureEnabled(WebKitRenderRate.near60FPSFeature),
               near60 == fullRate, WebKitRenderRate.apply(fullRate: fullRate, to: preferences),
+              // visibility-walk-allow: WebKit reads the rate when this view becomes visible, so the re-show is for exactly what its own view tree draws now
               let window = webView.window, !webView.isHiddenOrHasHiddenAncestor else { return }
         // A display at 60 Hz or less renders the same either way: no re-show.
         let display = displayFramesPerSecond(window)
         guard WebKitRenderRate.framesPerSecond(energySaver: !fullRate, displayMaxFPS: display)
                 != WebKitRenderRate.framesPerSecond(energySaver: fullRate, displayMaxFPS: display) else { return }
         let snapshot = rateReshowSnapshot ?? { [weak webView] in try? await webView?.takeSnapshot(configuration: nil) }
-        tab.rateReshow = WebKitRenderRate.reshow(webView, replacing: tab.rateReshow, snapshot: snapshot, clock: rateReshowClock)
+        tab.rateReshow = WebKitRenderRate.reshow(webView, replacing: tab.rateReshow, snapshot: snapshot, clock: rateReshowClock,
+                                                 setHidden: { [weak tab] in tab?.setReshowing($0) })
     }
 
     private func makeConfiguration(for profile: BrowserProfileID) -> WKWebViewConfiguration {

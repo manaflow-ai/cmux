@@ -32,6 +32,9 @@
 //!
 //! std and libc only (cmux-trace is too): the holder (`cmux-holder`) links it.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+#![forbid(unsafe_code)]
+
 use std::ffi::OsStr;
 use std::path::Path;
 use std::sync::OnceLock;

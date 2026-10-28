@@ -10,6 +10,10 @@ import os
 /// the drag and replays it to the page with DevTools `Input.dispatchDragEvent`, which Chromium runs
 /// as the person's own drop (file access is granted for the dropped paths, as for a native drop).
 /// When the page window does take a drag itself, Chromium handles it and this relay sees nothing.
+///
+/// In host mode with feature `chromiumHostDragIn` (task 050) the drag goes to the pane's page view
+/// instead (``hostedPage``), whose destination sends Chromium's DragTarget calls with the drag's
+/// files, text and links and answers with the page's own operation: no DevTools hop and no script.
 @MainActor
 final class CEFFileDragRelay {
     /// The tab the pane shows; nil refuses the drag. Setting it registers `view` for file drags, so
@@ -18,6 +22,13 @@ final class CEFFileDragRelay {
         didSet { if target != nil { view?.registerForDraggedTypes([.fileURL]) } }
     }
     weak var view: NSView?
+    /// Host mode: the pane's page view, which takes every drag it has a browser for; nil keeps the
+    /// DevTools relay. Setting it registers `view` for the types a page takes.
+    var hostedPage: (() -> ChromiumHostPageView?)? {
+        didSet { if hostedPage != nil { view?.registerForDraggedTypes(ChromiumHostDropData.types) } }
+    }
+    /// The page view of the drag in progress (``hostedPage``), nil while the relay has it or none runs.
+    private weak var hosted: ChromiumHostPageView?
 
     /// The files of the current drag, read once when it enters (a pasteboard read per move lags).
     private var files: [URL] = []
@@ -34,6 +45,14 @@ final class CEFFileDragRelay {
     private static let operations = 1 | 2 | 16
 
     func entered(_ info: any NSDraggingInfo, at point: CGPoint) -> NSDragOperation {
+        if let page = hostedPage?() {
+            let operation = page.draggingEntered(info)
+            if page.dragDestination.browser != nil {
+                reset()
+                hosted = page
+                return operation
+            }
+        }
         let urls = (info.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
         guard !urls.isEmpty, let tab = target?(), tab.browserID != nil else {
             reset()
@@ -47,7 +66,8 @@ final class CEFFileDragRelay {
         return .copy
     }
 
-    func updated(at point: CGPoint) -> NSDragOperation {
+    func updated(_ info: any NSDraggingInfo, at point: CGPoint) -> NSDragOperation {
+        if let hosted { return hosted.draggingUpdated(info) }
         guard tab != nil else { return [] }
         guard point != lastPoint else { return .copy }
         lastPoint = point
@@ -58,6 +78,10 @@ final class CEFFileDragRelay {
 
     /// The drag left the page, or the session ended without a drop here.
     func exited() {
+        if let page = hosted {
+            hosted = nil
+            page.draggingExited(nil)
+        }
         guard let tab else { return }
         // DevTools has no dragLeave, and a move off the page fires none: the page's drop zones
         // hear one from a script (the element under the last point, bubbling), then the drag ends.
@@ -67,7 +91,11 @@ final class CEFFileDragRelay {
         reset()
     }
 
-    func dropped(at point: CGPoint) -> Bool {
+    func dropped(_ info: any NSDraggingInfo, at point: CGPoint) -> Bool {
+        if let page = hosted {
+            hosted = nil
+            return page.performDragOperation(info)
+        }
         guard tab != nil else { return false }
         send("drop", at: point)
         reset()
@@ -146,7 +174,7 @@ extension CEFHostView {
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        fileDrag.updated(at: pagePoint(sender))
+        fileDrag.updated(sender, at: pagePoint(sender))
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
@@ -154,7 +182,7 @@ extension CEFHostView {
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        fileDrag.dropped(at: pagePoint(sender))
+        fileDrag.dropped(sender, at: pagePoint(sender))
     }
 
     /// A session that ended with no exit or drop here (the view left its window mid-drag).
