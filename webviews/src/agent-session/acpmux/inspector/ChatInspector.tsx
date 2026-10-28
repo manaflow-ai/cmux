@@ -1178,27 +1178,30 @@ export function ChatInspector({
   // A workflow Background tasks lists (Labs) is not a Subagents row too.
   const workflowIds = new Set(workflows.map((workflow) => workflow.id));
   const listedAgents = workflowIds.size > 0 ? agents.filter((agent) => !workflowIds.has(agent.id)) : agents;
-  const subagentsSection = (listedAgents.length + sessions.length + subsessions.length > 0 || limitSet) && (
+  // A started chat also reported as a sub-session occupies one row and one running slot.
+  const subsessionIds = new Set(subsessions.map((row) => row.sessionId));
+  const children = sessions.filter((child) => !subsessionIds.has(child.sessionId));
+  const subagentsSection = (listedAgents.length + children.length + subsessions.length > 0 || limitSet) && (
     <InspectorSection
       id="subagents"
       title={t("summary.subagents")}
       open={state.subagents}
       onOpenChange={fold("subagents")}
-      meta={value(subagentCounts(t, listedAgents, waiting, sessions, subsessions))}
+      meta={value(subagentCounts(t, listedAgents, waiting, children, subsessions))}
     >
       <SubagentLimitStepper
         chatId={chatId}
         limits={limits}
-        sessions={sessions}
+        sessions={children}
         subsessions={subsessions}
         onSet={setRunningLimit}
       />
-      {listedAgents.length + sessions.length + subsessions.length > 0 && (
+      {listedAgents.length + children.length + subsessions.length > 0 && (
         <SubagentsSection
           agents={listedAgents}
           waiting={waiting}
           onOpen={onOpenSubagent}
-          sessions={sessions}
+          sessions={children}
           subsessions={subsessions}
           onOpenSession={onOpenSession}
         />
@@ -1206,16 +1209,16 @@ export function ChatInspector({
     </InspectorSection>
   );
   const agentSummary =
-    listedAgents.length + sessions.length + subsessions.length > 0 ||
+    listedAgents.length + children.length + subsessions.length > 0 ||
     workflows.some((workflow) => workflow.agents.length > 0) ? (
       <SubagentSummaryCard
         agents={listedAgents}
         waiting={waiting}
-        sessions={sessions}
+        sessions={children}
         subsessions={subsessions}
         workflows={workflows}
         onOpen={() =>
-          fold(listedAgents.length + sessions.length + subsessions.length > 0 ? "subagents" : "tasks")(true)
+          fold(listedAgents.length + children.length + subsessions.length > 0 ? "subagents" : "tasks")(true)
         }
       />
     ) : null;

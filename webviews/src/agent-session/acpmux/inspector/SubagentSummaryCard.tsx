@@ -18,7 +18,7 @@ export type SubagentSummaryCardProps = {
   agents: readonly Subagent[];
   /// IDs of ordinary subagents waiting for input.
   waiting: ReadonlySet<string>;
-  /// Existing started-chat records, distinct from acpmux start_session rows.
+  /// Existing started-chat records; omit any sessionId also present in subsessions.
   sessions: readonly StartedSession[];
   /// App.tsx chatSubsessions.rows, including nested rows.
   subsessions?: readonly SubsessionRow[];

@@ -602,6 +602,10 @@ export default componentEntry<Props>({
       note: "Segmented alternative with 5 agents.",
       props: { cardDemo: "segmented", cardCount: 5 },
     },
+    "summary-card-segmented-40": {
+      note: "Forty agents, bounded to four avatars.",
+      props: { cardDemo: "segmented", cardCount: 40 },
+    },
     "summary-card-chips-0": {
       note: "Chips alternative with 0 agents.",
       props: { cardDemo: "chips", cardCount: 0 },
@@ -613,6 +617,10 @@ export default componentEntry<Props>({
     "summary-card-chips-5": {
       note: "Chips alternative with 5 agents.",
       props: { cardDemo: "chips", cardCount: 5 },
+    },
+    "summary-card-chips-40": {
+      note: "Forty agents, bounded to four avatars.",
+      props: { cardDemo: "chips", cardCount: 40 },
     },
     "subagents-done": {
       note: "A busy chat with Environment, Context, Outputs and 31 completed subagents: four static harness avatars beside the count, opening the named list.",

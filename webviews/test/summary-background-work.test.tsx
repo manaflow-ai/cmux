@@ -46,7 +46,10 @@ function installDom(): HTMLElement {
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
     MutationObserver: dom.window.MutationObserver,
-    ResizeObserver: class { observe() {} disconnect() {} },
+    ResizeObserver: class {
+      observe() {}
+      disconnect() {}
+    },
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
     cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
@@ -310,21 +313,38 @@ test("the running turn's line counts the started chats that run", () => {
   expect(text(html)).toBe("Working for 26s · 3 subagents · 2 commands");
 });
 
-
 const visibleCard: SummaryCardControl = {
-  shown: true, column: true, reserve: false, collapsed: false,
-  toggle: () => undefined, show: () => undefined, close: () => undefined, fold: () => undefined,
+  shown: true,
+  column: true,
+  reserve: false,
+  collapsed: false,
+  toggle: () => undefined,
+  show: () => undefined,
+  close: () => undefined,
+  fold: () => undefined,
 };
 const noSubagents = { views: undefined, current: undefined, asks: new Set<string>(), onOpen: () => undefined };
 
 test("the default summary reveals its existing child list instead of an empty tab", async () => {
   const container = installDom();
   const scrolled: Element[] = [];
-  dom!.window.HTMLElement.prototype.scrollIntoView = function () { scrolled.push(this); };
+  dom!.window.HTMLElement.prototype.scrollIntoView = function () {
+    scrolled.push(this);
+  };
   const opened: string[] = [];
-  await render(container, <SummaryCard card={visibleCard} rows={[]} subagents={noSubagents}
-    sessions={{ list: [child("started", "Started child", "running", 0)], onOpen: (id) => opened.push(id) }}
-    subsessions={{ rows: [{ sessionId: "sub", name: "Sub-session", state: "working", depth: 0 }], onOpen: (id) => opened.push(id) }} />);
+  await render(
+    container,
+    <SummaryCard
+      card={visibleCard}
+      rows={[]}
+      subagents={noSubagents}
+      sessions={{ list: [child("started", "Started child", "running", 0)], onOpen: (id) => opened.push(id) }}
+      subsessions={{
+        rows: [{ sessionId: "sub", name: "Sub-session", state: "working", depth: 0 }],
+        onOpen: (id) => opened.push(id),
+      }}
+    />,
+  );
   const detail = container.querySelector<HTMLElement>(".acpmux-summary-agents")!;
   const before = [...detail.querySelectorAll("button")];
   const compact = container.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-agent-summary")!;
@@ -344,9 +364,13 @@ test("the default summary reveals its existing child list instead of an empty ta
 test("workflow-only compact summary opens the existing workflow with Inspector off", async () => {
   const container = installDom();
   const scrolled: Element[] = [];
-  dom!.window.HTMLElement.prototype.scrollIntoView = function () { scrolled.push(this); };
+  dom!.window.HTMLElement.prototype.scrollIntoView = function () {
+    scrolled.push(this);
+  };
   const workflow: WorkflowSummary = {
-    id: "workflow-only", title: "Workflow only", state: "running",
+    id: "workflow-only",
+    title: "Workflow only",
+    state: "running",
     phases: [{ id: "phase", name: "Implementation", state: "running", agentIds: ["worker"] }],
     agents: [{ id: "worker", name: "Worker", state: "running" }],
   };

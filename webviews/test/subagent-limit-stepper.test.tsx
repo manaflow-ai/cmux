@@ -270,7 +270,6 @@ test("Subagents shows a set limit before the agent starts a chat, and sets it fo
   expect(host.querySelector(".acpmux-subagent-limit")).toBeNull();
 });
 
-
 test("slot counts use only direct sub-sessions, keeping input in its occupied slot", async () => {
   const subsessions: SubsessionRow[] = [
     { sessionId: "working", name: "Working", state: "working", depth: 0 },
