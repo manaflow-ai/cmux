@@ -4,8 +4,9 @@ import Foundation
 /// decisions D5, KB2): hardware Ctrl, Alt (as Meta) and special keys go to the
 /// key encoder; plain printable hardware keys and the software keyboard go
 /// through the text system, so input methods keep working; marked text is
-/// only drawn; the key bar's sticky Ctrl and Alt apply to the next key from
-/// either keyboard. Adapted from CmuxiOSTerminal for cmux-next-ios. Pure: no UIKit, no Ghostty; the view runs the actions.
+/// only drawn; the key row's sticky ⌃ ⌥ ⌘ ⇧ apply to the next key from
+/// either keyboard (⌘ with classic cmux iOS's meanings: ⌘← / ⌘→ are line
+/// start / end, otherwise the key goes unmodified). Adapted from CmuxiOSTerminal for cmux-next-ios. Pure: no UIKit, no Ghostty; the view runs the actions.
 public struct TerminalInputRouter: Sendable {
     public var sticky = TerminalStickyModifiers()
     /// Option sends Meta (ESC prefix) instead of typing its symbol
@@ -78,11 +79,14 @@ public struct TerminalInputRouter: Sendable {
         markedText = nil
         if text == "\n" || text == "\r" { return press(usage: TerminalHIDUsage.enter, text: nil) }
         if text == "\t" { return press(usage: TerminalHIDUsage.tab, text: nil) }
-        let mods = stickyMods()
+        var mods = stickyMods()
+        mods.remove(.command)
+        if mods == .shift, text.count == 1 { return [.text(text.uppercased())] }
         if !mods.isEmpty, text.count == 1, let character = text.first {
             let usage = TerminalHIDUsage.usage(forASCII: character) ?? 0
+            let typed = mods.contains(.shift) ? text.uppercased() : text
             let event = TerminalKeyEvent(keyCode: TerminalHIDUsage.ghosttyKeyCode(usage), mods: mods,
-                                         text: text, unshiftedCodepoint: text.lowercased().unicodeScalars.first?.value ?? 0)
+                                         text: typed, unshiftedCodepoint: text.lowercased().unicodeScalars.first?.value ?? 0)
             return [.key(event), .key(event.released)]
         }
         return [.text(text)]
@@ -119,23 +123,45 @@ public struct TerminalInputRouter: Sendable {
 
     // MARK: Key bar
 
-    /// Arms or locks a sticky modifier (key bar `ctrl` / `alt`) at `time`.
+    /// Arms or locks a sticky modifier (the key row's ⌃ ⌥ ⌘ ⇧) at `time`.
     public mutating func tapSticky(_ modifier: TerminalStickyModifiers.Modifier, at time: TimeInterval) {
         sticky.tap(modifier, at: time)
     }
 
     /// Press and release of a physical key with the sticky modifiers plus `extra`.
+    /// A sticky ⌘ is the Mac terminal's line editing (classic cmux iOS):
+    /// ⌘← is ^A (line start), ⌘→ is ^E (line end); on any other key it is dropped.
     public mutating func key(usage: UInt16, extra: TerminalKeyMods = []) -> [TerminalInputAction] {
         var mods = stickyMods()
+        if mods.contains(.command) {
+            mods.remove(.command)
+            if usage == TerminalHIDUsage.left { return chord("a", mods: mods) }
+            if usage == TerminalHIDUsage.right { return chord("e", mods: mods) }
+        }
         mods.formUnion(extra)
         let event = TerminalKeyEvent(keyCode: TerminalHIDUsage.ghosttyKeyCode(usage), mods: mods)
         return [.key(event), .key(event.released)]
     }
 
+    /// Press and release of a key with no modifiers, sticky ones left as they
+    /// are: the composer's Return after its paste (an armed ⇧ must not turn
+    /// Send into Shift-Enter, which agents read as a new line).
+    public func plainKey(usage: UInt16) -> [TerminalInputAction] {
+        let event = TerminalKeyEvent(keyCode: TerminalHIDUsage.ghosttyKeyCode(usage))
+        return [.key(event), .key(event.released)]
+    }
+
     /// A control chord such as ^C: the letter's key with Control (sticky Alt still applies).
     public mutating func control(_ letter: Character) -> [TerminalInputAction] {
-        let usage = TerminalHIDUsage.usage(forASCII: letter) ?? 0
         var mods = stickyMods()
+        mods.remove(.command)
+        return chord(letter, mods: mods)
+    }
+
+    /// `letter` with Control plus `mods`.
+    private func chord(_ letter: Character, mods: TerminalKeyMods) -> [TerminalInputAction] {
+        let usage = TerminalHIDUsage.usage(forASCII: letter) ?? 0
+        var mods = mods
         mods.insert(.control)
         let text = String(letter).lowercased()
         let event = TerminalKeyEvent(keyCode: TerminalHIDUsage.ghosttyKeyCode(usage), mods: mods, text: text,
@@ -145,15 +171,13 @@ public struct TerminalInputRouter: Sendable {
 
     /// Press and release of one key with the sticky modifiers.
     private mutating func press(usage: UInt16, text: String?) -> [TerminalInputAction] {
-        let event = TerminalKeyEvent(keyCode: TerminalHIDUsage.ghosttyKeyCode(usage), mods: stickyMods(), text: text)
+        var mods = stickyMods()
+        mods.remove(.command)
+        let event = TerminalKeyEvent(keyCode: TerminalHIDUsage.ghosttyKeyCode(usage), mods: mods, text: text)
         return [.key(event), .key(event.released)]
     }
 
     private mutating func stickyMods() -> TerminalKeyMods {
-        let used = sticky.consume()
-        var mods: TerminalKeyMods = []
-        if used.control { mods.insert(.control) }
-        if used.alternate { mods.insert(.alternate) }
-        return mods
+        sticky.consume()
     }
 }

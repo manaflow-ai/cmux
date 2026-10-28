@@ -65,6 +65,7 @@ extension SettingsSchema {
         "tabs.cmdWClosesPinnedTabs",
         "tabs.terminalFirst",
         "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
+        "app.showMenuBarIcon", // the menu bar item; looks only, ends no work
         "tabs.overflow",
         "tabs.swapCmdTAndCmdN",
         "tabs.commandDigits",
@@ -253,6 +254,7 @@ extension SettingsSchema {
         "picker.pinned": .userOnly,
         // Whether workspaces leave the sidebar on their own: the person decides (auto-archive-DESIGN.md).
         "workspaces.autoArchive.style": .userOnly, "workspaces.autoArchive.idleDays": .userOnly,
+        "workspaces.hibernation.enabled": .userOnly, "workspaces.hibernation.idleMinutes": .userOnly,
         // Which of the person's folders the Screenshots page reads.
         "screenshots.findTools": .privacy, "screenshots.folders": .privacy,
         // A pin leads the empty palette and an alias wins its word: an agent could put Close Window
