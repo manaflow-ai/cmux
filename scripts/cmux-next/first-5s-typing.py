@@ -68,6 +68,9 @@ parser.add_argument("--gap", type=float, default=3.0, help="seconds between roun
 parser.add_argument("--hang-ms", type=int, default=8)
 parser.add_argument("--no-photon", action="store_true")
 parser.add_argument("--no-shell", action="store_true", help="the host's own shell config (no oh-my-zsh)")
+parser.add_argument("--slow-create-ms", type=int, default=0,
+                    help="cmux-next DEBUG/bench builds: every pane or terminal create's reply comes this much later "
+                         "(CMUX_NEXT_DEBUG_SLOW_CREATE_MS): keys typed meanwhile must still reach the PTY in order")
 parser.add_argument("--still", action="store_true", help="a JPEG of the window at the end of each round in the report")
 opts, _unknown = parser.parse_known_args()
 
@@ -77,7 +80,15 @@ SCENARIOS = [s for s in opts.scenarios.split(",") if s]
 # cmux-next: Ctrl-` is New Terminal Tab, Cmd-T the New Tab page, Cmd-D a split, Cmd-Shift-L a browser tab
 # (DebugInstantCreateBench's keys). Classic: Cmd-T is a new terminal tab.
 OPEN_KEYS = {"terminal": ("`", ["control"]), "newtab": ("t", ["command"]), "split": ("d", ["command"]),
-             "browser": ("l", ["command", "shift"])}
+             "browser": ("l", ["command", "shift"]),
+             # first-keys-proof.md item 2: every entrypoint that opens a terminal the person types into at once.
+             "splitdown": ("d", ["command", "shift"]), "column": ("d", ["control", "command"]),
+             "row": ("d", ["control", "shift", "command"]), "workspace": ("n", ["command"]),
+             "window": ("n", ["command", "shift"]),
+             # Ctrl-2 onto the pane's second tab, made just before by a script without focus (its surface is not built).
+             "coldtab": ("2", ["control"])}
+# How each scenario's round ends: what it opened goes (a workspace, a window), else the focused tab closes.
+CLOSE_ACTIONS = {"workspace": "closeWorkspace", "window": "closeWindow"}
 CLASSIC_OPEN_KEYS = {"terminal": ("t", ["command"]), "split": ("d", ["command"]), "browser": ("l", ["command", "shift"])}
 KEY_CODES = dict(hid_input.KEYCODES, **{"`": 50})
 MODIFIER_CODES = {"command": 55, "shift": 56, "control": 59, "option": 58}
@@ -264,6 +275,7 @@ class NextApp:
         self.app, self.out = app, out
         self.probe = os.path.join(out, "typing-probe.csv")
         env = {"CMUX_NEXT_TYPING_PROBE": self.probe, "CMUX_NEXT_HANG_THRESHOLD_MS": str(opts.hang_ms),
+               **({"CMUX_NEXT_DEBUG_SLOW_CREATE_MS": str(opts.slow_create_ms)} if opts.slow_create_ms else {}),
                **shipping_env(draw=False), **shell_env(zdot)}
         if self.enable_features:
             env["CMUX_ENABLE_FEATURES"] = self.enable_features
@@ -348,7 +360,13 @@ class NextApp:
         return sent, reply, open_ns
 
     def close(self, scenario):
-        self.control.action("closeTab")
+        self.control.action(CLOSE_ACTIONS.get(scenario, "closeTab"))
+
+    def prepare(self, scenario):
+        """Before the open key: the cold tab Ctrl-2 selects (a terminal tab a script made without focus)."""
+        if scenario == "coldtab":
+            self.control.action("newSurface", focus=False)
+            time.sleep(0.5)
 
     def clear_line(self):
         self.key("u", ["control"])
@@ -426,7 +444,8 @@ class NextApp:
                 for value in node:
                     walk(value)
         walk(self.control.rpc("debug.surfaces", {"text": True}, timeout=20))
-        lines = [l for l in (found[-1] if found else "").splitlines() if l.strip()]
+        self.last_text = found[-1] if found else ""
+        lines = [l for l in self.last_text.splitlines() if l.strip()]
         return lines[-1] if lines else ""
 
     def stop(self):
@@ -645,6 +664,8 @@ def run_round(app, scenario, index, sampled):
     if sampler:
         time.sleep(0.6)  # sample attaches before the open key
     typed = "".join(hid_input.LETTERS[i % 26] for i in range(nkeys))
+    if hasattr(app, "prepare"):
+        app.prepare(scenario)
     # The tracker's ring keeps 256 closed slots, fewer than a round's (each key's press, release and a held key's second
     # dispatch): read it mid-round too.
     mid_slots = []
@@ -724,8 +745,12 @@ def run_round(app, scenario, index, sampled):
     first_big = next(((ns - open_ns) / 1e6 for ns, _c, _x, _y, w, h in frames if ns > open_ns and w * h >= big), None)
     first_any = next(((ns - open_ns) / 1e6 for ns, *_ in frames if ns > open_ns), None)
     ok = line.rstrip().endswith(typed[-12:])
+    # Every key reached the terminal, in order, none lost or doubled: the whole typed run is in its text (soft wraps
+    # removed). Only for the terminal scenarios (a page field shows no surface text).
+    text = "".join(getattr(app, "last_text", "").split("\n"))
+    in_order = typed in text if scenario not in ("newtab", "browser") and text else None
     rec = {"scenario": scenario, "round": index, "sampled": sampled, "open_reply_ms": open_reply_ms,
-           "open_reply": json.dumps(open_reply)[:200], "line": line[-140:], "all_keys_on_screen": ok,
+           "open_reply": json.dumps(open_reply)[:200], "line": line[-140:], "all_keys_on_screen": ok, "typed_in_order": in_order,
            "shells_loaded": shells_loaded(app.zdot), "probe_rows": len(rows), "keys": keys, "hangs": hangs,
            "first_frame_ms": round(first_any, 1) if first_any is not None else None,
            "first_big_frame_ms": round(first_big, 1) if first_big is not None else None,
@@ -815,6 +840,9 @@ def split(rounds):
 
 
 def print_split(name, scenario, data):
+    rounds = [r for r in data["rounds"] if not r["sampled"]]
+    note(f"FIRST5S-ORDER {name} {scenario}: typed run whole and in order in {sum(r.get('typed_in_order') is True for r in rounds)}"
+         f" of {len(rounds)} rounds (not checked: {sum(r.get('typed_in_order') is None for r in rounds)})")
     note(f"FIRST5S-SPLIT {name} {scenario}: per bucket: dispatchStart>100ms / >50ms of tracked keys; late keys' OS->arrivedMain p50/max vs arrivedMain->dispatchStart p50/max; held_by; total p50")
     for row in data["split"]:
         note(f"   {row['from_ms']:5d} {row['over_100ms']:3d} / {row['over_50ms']:3d} of {row['tracked']:3d}  "
