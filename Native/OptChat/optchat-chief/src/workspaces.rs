@@ -904,6 +904,30 @@ pub fn resource_call(
     Err("the session daemon closed the connection".to_owned())
 }
 
+/// The user's home directory from the environment (`HOME`), empty when unset.
+fn home_dir() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_default()
+}
+
+/// The personal group index a group made for a new workspace takes, from the same
+/// `workspaces.newPlacement` the app reads (cmux-next.json, else cmux.json; see
+/// `agent_memory::settings`). `top`, the default, puts it first (index 0); `bottom` and
+/// `afterCurrent` keep the daemon's place, the end. None keeps the daemon default.
+pub fn new_group_index(home: &Path) -> Option<usize> {
+    let placement = crate::agent_memory::settings::document(home).and_then(|doc| {
+        doc.pointer("/workspaces/newPlacement")
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    });
+    match placement.as_deref() {
+        Some("bottom" | "afterCurrent") => None,
+        // No file, no key, or a value the app does not know: the app's default, `top`.
+        _ => Some(0),
+    }
+}
+
 /// Puts workspace `key` of the user's session (the app's daemon at `daemon`) in that
 /// session's personal sidebar group named `name` (any case), made when missing: the
 /// `workspace_group.list`, `workspace_group.create` and `workspace.place` operations `cmux
@@ -923,6 +947,12 @@ pub fn place_in_personal_group(daemon: &Path, key: &str, name: &str) -> Result<(
         None => {
             let mut params = here();
             params["name"] = json!(name);
+            // A group made for a new workspace follows `workspaces.newPlacement` like every
+            // other new workspace (Cmd-N, the sidebar's +): first under `top` (the default),
+            // else last. The workspace is placed in it below, so a last group put it last.
+            if let Some(index) = new_group_index(&home_dir()) {
+                params["index"] = json!(index);
+            }
             let made = resource_call(
                 daemon,
                 "workspace_group.create",
