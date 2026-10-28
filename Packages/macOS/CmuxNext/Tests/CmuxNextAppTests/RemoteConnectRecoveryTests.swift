@@ -9,6 +9,6 @@ import Testing
 
     @MainActor @Test func newGroupFocusRequestEnablesInteractiveFlowDuringCapture() {
         let invocation = ActionInvocation(arguments: ["focus": .bool(true)], origin: .cli)
-        #expect(RemoteGroupHandlers.shouldOfferInteractiveFlow(invocation, capturingRefusal: true))
+        #expect(RemoteGroupHandlers.shouldOfferInteractiveFlow(invocation))
     }
 }
