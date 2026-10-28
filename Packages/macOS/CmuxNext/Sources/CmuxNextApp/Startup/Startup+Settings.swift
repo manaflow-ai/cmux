@@ -17,7 +17,8 @@ extension AppDelegate {
         // entry can come from the bundle and later chunks from the update; the network check waits for startup complete.
         WebUpdates.shared.prepare(launch.snapshot.updates, launch: environment.webUpdates, inputs: WebUpdates.Inputs(
             files: services.work, energy: services.mainWork.energy, shown: services.features.isEnabled(.hiddenPollPause) ? services.appVisibility.shownWindows : nil,
-            deadlines: services.mainDeadlines, appEvents: services.appEvents, checkNode: services.appVisibility.node))
+            deadlines: services.mainDeadlines, appEvents: services.appEvents, checkNode: services.appVisibility.node),
+            pages: { [weak services] in services?.webUI })
         order.startup.post(.afterStartup, "WebUpdates.startChecks", on: .main) { WebUpdates.shared.startChecks() }
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch, mainWork: services.mainWork)

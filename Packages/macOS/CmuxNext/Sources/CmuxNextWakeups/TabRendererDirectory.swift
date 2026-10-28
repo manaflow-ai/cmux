@@ -9,6 +9,7 @@ import CmuxNextCompat
 public final class TabRendererDirectory: Sendable {
     private let tabs = Mutex<[String: ProcessUsage.TabRenderers]>([:])
 
+    /// An empty directory.
     public init() {}
 
     /// Records `tab`, replacing what its id had.

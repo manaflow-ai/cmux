@@ -21,7 +21,7 @@ extension AppDelegate {
         }, forceExit: { [weak self] in
             self?.forcedQuitExit.start()
         })
-        control.startWatchdog()
+        control.attachWatchdog()
         (NSApp as? CmuxApplication)?.inputQueueing = control.watchdog
     }
 

@@ -33,6 +33,8 @@
 //! last argument. `--version` prints `cmux-tui-host <build identity>`: a macOS
 //! daemon runs this sibling only when it is the daemon's own build.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 #[cfg(unix)]
 #[path = "cmux-tui-host/mcp_relay.rs"]
 mod mcp_relay;
@@ -61,6 +63,10 @@ fn main() -> std::process::ExitCode {
     // with the same panic log (holder-panics.jsonl).
     #[cfg(unix)]
     if args.first().map(String::as_str) == Some("__holder") {
+        // Its black box first (p09-observability-095), as cmux-holder's main.
+        if let Some(dir) = cmux_holder::blackbox_dir(&args[1..]) {
+            drop(cmux_trace::init_blackbox(dir, cmux_trace::Role::Holder));
+        }
         return match cmux_holder::serve_process(&args[1..]) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(error) => {
@@ -82,6 +88,12 @@ fn main() -> std::process::ExitCode {
 }
 
 fn run(args: &[String]) -> anyhow::Result<()> {
+    // Single-threaded until the host has left the daemon's session and
+    // closed every inherited descriptor.
     cmux_tui_core::terminal_host_runtime::enter_terminal_host_process()?;
+    // Then the black box (p09-observability-095), before any terminal work:
+    // the app's trace folder, which the daemon shares with its hosts.
+    #[cfg(unix)]
+    drop(cmux_trace::init_blackbox(cmux_trace::process_dir(), cmux_trace::Role::TerminalHost));
     cmux_tui_core::terminal_host_runtime::serve_terminal_host_process(args)
 }
