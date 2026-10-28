@@ -597,4 +597,21 @@ describe("self-hosted attachment bucket", () => {
       rmSync(parent, { recursive: true, force: true })
     }
   })
+  it("keeps an upload's custom metadata on the object it completes, as R2 does, so a caller can recognise its own completed upload", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      const upload = await bucket.createMultipartUpload("home/v1/tagged", { httpMetadata: { contentType: "video/mp4" }, customMetadata: { sha256: "ab".repeat(32) } })
+      await upload.complete([await upload.uploadPart(1, "tagged bytes")])
+      const head = await bucket.head("home/v1/tagged")
+      expect([head?.size, head?.httpMetadata.contentType, head?.customMetadata]).toEqual([12, "video/mp4", { sha256: "ab".repeat(32) }])
+      expect((await bucket.list({ prefix: "home/v1/" })).objects[0]?.customMetadata).toEqual({ sha256: "ab".repeat(32) })
+      // A put keeps its own custom metadata too; an object stored without any answers an empty map.
+      await bucket.put("home/v1/plain", "x", { customMetadata: { from: "put" } })
+      await bucket.put("home/v1/bare", "y")
+      expect([(await bucket.head("home/v1/plain"))?.customMetadata, (await bucket.head("home/v1/bare"))?.customMetadata]).toEqual([{ from: "put" }, {}])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })
