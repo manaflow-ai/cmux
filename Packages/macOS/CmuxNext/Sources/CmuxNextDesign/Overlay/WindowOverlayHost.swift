@@ -100,7 +100,10 @@ public final class WindowOverlayHost {
     /// The host of `window`, made on first use; it goes away with the window.
     public static func host(for window: NSWindow) -> WindowOverlayHost {
         let key = ObjectIdentifier(window)
-        if let host = hosts[key], host.window === window { return host }
+        // A closed window keeps its torn-down host (its panel closed), so a late caller makes no
+        // new panel for a window that is gone; a window shown again gets a fresh host.
+        if let host = hosts[key], host.window === window, !host.isTearingDown || !window.isVisible { return host }
+        hosts = hosts.filter { $0.value.window != nil }
         let host = WindowOverlayHost(window: window)
         hosts[key] = host
         host.observers.append(NotificationCenter.default.addObserver(
@@ -114,7 +117,7 @@ public final class WindowOverlayHost {
 
     /// The host of `window` if one exists (never makes one).
     public static func existingHost(for window: NSWindow) -> WindowOverlayHost? {
-        hosts[ObjectIdentifier(window)].flatMap { $0.window === window ? $0 : nil }
+        hosts[ObjectIdentifier(window)].flatMap { $0.window === window && !$0.isTearingDown ? $0 : nil }
     }
 
     /// The host for overlays with no window (its own small panel, centered on the main screen).
@@ -175,10 +178,7 @@ public final class WindowOverlayHost {
         keyObserver = nil
         stopObservingWindow()
         removeAgentCursor()
-        if let window {
-            if panel.parent === window { window.removeChildWindow(panel) }
-            Self.hosts[ObjectIdentifier(window)] = nil
-        }
+        if let window, panel.parent === window { window.removeChildWindow(panel) }
         // Closed, not only ordered out: the window is gone, and an ordered-out panel stays in the
         // app's window list for as long as anything still holds this host.
         panel.isReleasedWhenClosed = false
@@ -190,7 +190,8 @@ public final class WindowOverlayHost {
     /// Attaches the panel while something needs it, detaches it otherwise.
     func syncPanel() {
         if isAppHost { return syncAppPanel() }
-        guard let window else { return }
+        // Torn down (the window closed): the closed panel is never attached again.
+        guard let window, !isTearingDown else { return }
         let wanted = planesWantPanel || !handles.isEmpty || fadingOut > 0
         if wanted {
             if panel.frame != window.frame { panel.setFrame(window.frame, display: false) }
