@@ -104,6 +104,7 @@ export const validAttachmentName = (name: unknown): name is string =>
   name !== ".."
 
 const positiveInt = (v: unknown, max: number) => Number.isInteger(v) && (v as number) > 0 && (v as number) <= max
+const positiveByteCount = (v: unknown): v is number => Number.isSafeInteger(v) && v > 0
 const optional = (v: unknown, check: (v: unknown) => boolean) => v === undefined || v === null || check(v)
 
 export interface AttachmentMeta {
@@ -126,7 +127,7 @@ export const validateAttachmentMeta = (input: unknown): MetaResult => {
   if (typeof input !== "object" || input === null) return bad("body must be an object")
   const v = input as Record<string, unknown>
   if (!isSha256(v.sha256)) return bad("sha256 must be 64 lowercase hex characters")
-  if (!Number.isInteger(v.byte_count) || (v.byte_count as number) <= 0) return bad("byte_count must be a positive integer")
+  if (!positiveByteCount(v.byte_count)) return bad("byte_count must be a positive safe integer")
   if (typeof v.mime_type !== "string") return bad("mime_type is required")
   if (!validAttachmentName(v.name)) return bad("name must be 1 to 255 characters without control characters or path separators")
   if (!optional(v.width, (x) => positiveInt(x, ATTACHMENT_LIMITS.maxDimension)) || !optional(v.height, (x) => positiveInt(x, ATTACHMENT_LIMITS.maxDimension))) return bad("width and height must be positive integers")
@@ -159,7 +160,7 @@ export const validateDerivedMeta = (input: unknown, cls: AttachmentClass | undef
   const rule = DERIVED_VARIANTS[variant]
   if (cls !== rule.cls) return { ok: false, code: `attachment.${variant}_refused`, message: `only ${rule.cls === "video" ? "a video" : "an image"} takes a ${variant}` }
   const v = input as Record<string, unknown>
-  if (typeof input !== "object" || !isSha256(v.sha256) || !Number.isInteger(v.byte_count) || (v.byte_count as number) <= 0 || typeof v.mime_type !== "string") {
+  if (typeof input !== "object" || !isSha256(v.sha256) || !positiveByteCount(v.byte_count) || typeof v.mime_type !== "string") {
     return { ok: false, code: "validation.invalid", message: `${variant} needs sha256, byte_count and mime_type` }
   }
   const mime = v.mime_type.toLowerCase()

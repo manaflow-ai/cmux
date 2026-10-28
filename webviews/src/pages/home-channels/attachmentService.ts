@@ -9,6 +9,7 @@
 // whose policy has no `media-src` for that origin (the app's page scheme today) cannot play it.
 import type { PageClient } from "../shared/pageClient";
 import { HomeOps, type HomeAttachment, type HomeAttachmentSupport, type HomeDerivedImage } from "./types";
+import { imageSize, MAX_DECODE_PIXELS } from "../../agent-session/acpmux/composer/imageWork";
 
 export type AttachmentClass = "image" | "video" | "audio" | "file";
 
@@ -289,6 +290,9 @@ async function jpeg(source: CanvasImageSource, width: number, height: number, ed
 /** An image's size and small preview (none for a GIF, which would stop moving, or a type the
  * browser cannot decode). */
 async function imageFacts(file: File): Promise<Facts> {
+  const size = await imageSize(file).catch(() => undefined);
+  if (!size || size.width === undefined || size.height === undefined ||
+      size.height > 0 && size.width > MAX_DECODE_PIXELS / size.height) return {};
   const bitmap = await createImageBitmap(file).catch(() => undefined);
   if (!bitmap) return {};
   const facts = { width: bitmap.width, height: bitmap.height };

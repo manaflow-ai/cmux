@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   AttachmentService,
   GENERIC_FILE_TYPE,
@@ -13,6 +13,9 @@ import {
 const bytes = (text: string) => new TextEncoder().encode(text);
 
 describe("Channels attachments: any file", () => {
+  afterEach(() => {
+    delete (globalThis as { createImageBitmap?: unknown }).createImageBitmap;
+  });
   test("an HTML page, a dotfile and an extensionless file go as text", () => {
     for (const [name, type] of [
       ["index.html", "text/html"],
@@ -106,5 +109,29 @@ describe("Channels attachments: any file", () => {
     expect(chunks[1]!.offset).toBe(1024 * 1024);
     expect(atob(chunks[0]!.data).length).toBe(1024 * 1024);
     expect(progress.at(-1)).toBe(size);
+  });
+
+  test("skips image preview decoding for a decompression bomb", async () => {
+    let decodes = 0;
+    (globalThis as { createImageBitmap?: unknown }).createImageBitmap = async () => {
+      decodes += 1;
+      throw new Error("bomb must not be decoded");
+    };
+    const header = new Uint8Array(24);
+    header.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+    new DataView(header.buffer).setUint32(16, 0xffff_ffff);
+    new DataView(header.buffer).setUint32(20, 0xffff_ffff);
+    const file = new File([header], "bomb.png", { type: "image/png" });
+    const client = {
+      call: async (method: string, params: Record<string, unknown>) => {
+        if (method !== "cmux.home.attachmentUpload") throw new Error(`unexpected ${method}`);
+        if (params.op === "begin") return { upload: "u1", needs: ["original"] };
+        if (params.op === "chunk") return null;
+        if (params.op === "commit") return { stored: undefined };
+        throw new Error(`unexpected op ${String(params.op)}`);
+      },
+    };
+    await new AttachmentService(client as never).upload("conversation", file);
+    expect(decodes).toBe(0);
   });
 });

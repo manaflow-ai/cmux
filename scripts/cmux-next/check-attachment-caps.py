@@ -19,6 +19,26 @@ TRANSPORT_BOUNDS = {"MAX_CHUNK_BYTES", "MAX_RANGE_BYTES", "MAX_FRAME_BYTES", "MA
 FORBIDDEN = re.compile(r"\b(?:MAX_[A-Z0-9_]*BYTES|maximum\w*(?:File|Bytes|Stage)\w*)\b")
 EXCLUDED = {".git", ".build", "node_modules", "dist", "fixtures", "generated", "tests", "test", "__tests__", "vendor", "target", "build", "third_party"}
 SOURCE_SUFFIXES = {".swift", ".rs", ".ts", ".tsx", ".js", ".mjs"}
+# Scan only Home's admission paths. Other attachment/upload files intentionally contain
+# independent transport, preview, draft and mobile budgets; they are audited by their
+# own policy and must not make this admission guard report false positives.
+ADMISSION_PATHS = {
+    "backend/apps/api/src/home-attachment-gc.ts",
+    "backend/apps/api/src/home-attachment-quota.ts",
+    "backend/apps/api/src/home-attachments.ts",
+    "backend/packages/home-core/src/conversation/attachments.ts",
+    "webviews/src/pages/home-channels/attachmentService.ts",
+    "webviews/src/agent-session/acpmux/attachments.ts",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift",
+    "cmux-tui/crates/cmux-conversation/src/attachments.rs",
+    "cmux-tui/crates/cmux-tui/src/link/access_cli/uploads.rs",
+}
+# This cache budget is unrelated to chat-upload admission and is deliberately retained.
+RETAINED_BOUNDS = {
+    "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift": {
+        "maximumWarmBytes": "New Tab warm-cache budget, unrelated to chat.upload decoding.",
+    },
+}
 # chat.upload is decoded here despite the filename lacking upload/attachment.
 EXTRA_SOURCES = {"AgentPaneRequest+Decoding.swift"}
 TOKEN = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|[\w$]+|<=|>=|==|!=|=>|<<|>>|&&|\|\||[^\s]")
@@ -104,7 +124,7 @@ def files(root: Path) -> list[Path]:
             relative = path.relative_to(root)
             if path.suffix not in SOURCE_SUFFIXES or ".test." in name or ".spec." in name:
                 continue
-            if name in EXTRA_SOURCES or any("attachment" in part.lower() or "upload" in part.lower() for part in relative.parts):
+            if relative.as_posix() in ADMISSION_PATHS:
                 found.append(path)
     return sorted(found)
 
@@ -119,7 +139,8 @@ def violations(root: Path) -> list[str]:
         tokens = code_tokens(source)
         for index, token in enumerate(tokens):
             finding = None
-            if FORBIDDEN.fullmatch(token[0]) and token[0] not in TRANSPORT_BOUNDS:
+            if (FORBIDDEN.fullmatch(token[0]) and token[0] not in TRANSPORT_BOUNDS and
+                    token[0] not in RETAINED_BOUNDS.get(path.relative_to(root).as_posix(), {})):
                 finding = token[0]
             elif token[0] in COMPARISONS:
                 left = operand(tokens, index - 1, -1)

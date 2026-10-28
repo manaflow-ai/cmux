@@ -32,4 +32,11 @@ describe("attachments: any file", () => {
     expect(validateAttachmentMeta(meta("x.svg", "image/svg+xml")).ok).toBe(false)
     expect(validateAttachmentMeta(meta("index.html", "text/html")).ok).toBe(false)
   })
+
+  it("accepts the largest safe byte count but rejects unsafe counts", () => {
+    expect(validateAttachmentMeta({ ...meta("large.bin", "application/octet-stream"), byte_count: Number.MAX_SAFE_INTEGER }).ok).toBe(true)
+    for (const byte_count of [Number.MAX_SAFE_INTEGER + 1, 1e100, "1048576", [1048576]]) {
+      expect(validateAttachmentMeta({ ...meta("unsafe.bin", "application/octet-stream"), byte_count }).ok).toBe(false)
+    }
+  })
 })
