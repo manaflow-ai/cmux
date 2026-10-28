@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be.
+// cmux-tui mux protocol 12, IR 6c411d6bdd4ecf7ff0394081a5e55ff142d573370a7193e692cfde5e51fa96bd.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -784,6 +784,30 @@ pub struct CellPixelSurface {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientHelloFeaturePending {
+    pub app: bool,
+    pub daemon: bool,
+    pub name: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientHelloFeatureReport {
+    pub applied: Vec<String>,
+    pub hash: String,
+    pub pending: Vec<ClientHelloFeaturePending>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClientHelloFeatures {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub hash: Option<String>,
+    pub values: BTreeMap<String, bool>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClientHelloPageOperations {
     pub confirm: Vec<String>,
     pub gesture: Vec<String>,
@@ -794,6 +818,8 @@ pub struct ClientHelloPageOperations {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClientHelloResult {
     pub connection_id: String,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub features: Option<ClientHelloFeatureReport>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub install_id: Option<String>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -1620,6 +1646,8 @@ pub struct IdentifyResult {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub crate_version: Optional<String>,
     pub daemon_handoff: u64,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub framed_methods: Optional<Vec<u16>>,
     pub generation: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub ghostty_commit: Optional<String>,
@@ -1642,6 +1670,8 @@ pub struct IdentifyResult {
     pub pid: u32,
     pub protocol: u32,
     pub registry_id: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub sdk_schema_digest: Optional<String>,
     pub session: String,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
@@ -2402,6 +2432,21 @@ pub struct ServerStatsConnections {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsHangRecord {
+    pub duration_ms: u64,
+    pub sequence: u64,
+    pub span: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsHangs {
+    pub over_250ms: u64,
+    pub records: Vec<ServerStatsHangRecord>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsHistogram {
     pub count: u64,
     pub max: u64,
@@ -2653,6 +2698,8 @@ pub struct ServerStatsResult {
     pub connections: ServerStatsConnections,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub dispatch_queue_us: Option<ServerStatsHistogram>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub hangs: Option<ServerStatsHangs>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub ipc: Option<ServerStatsIpc>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]

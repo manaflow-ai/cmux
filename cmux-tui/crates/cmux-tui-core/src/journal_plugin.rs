@@ -5,17 +5,16 @@
 //! module. A plugin communicates through the local resource socket and writes
 //! normal journal events, so every frontend observes the same reducer state.
 
-use cmux_threads::checked::sync as waits;
 #[cfg(windows)]
 use std::mem::size_of;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use cmux_process::{Child, Command, ExitStatus, Stdio};
 
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
@@ -35,8 +34,8 @@ use windows_sys::Win32::System::Threading::{
     THREAD_SUSPEND_RESUME,
 };
 
-/// Child-exit re-check period where no exit waiter exists (Windows, or a
-/// unix child whose waiter thread could not start).
+/// Child-exit re-check period where nothing reports the exit (Windows, or a
+/// unix runtime with no reaper installed).
 const SUPERVISOR_WAIT: Duration = Duration::from_millis(500);
 const MAX_RESTART_DELAY: Duration = Duration::from_secs(30);
 const MAX_PLUGIN_COMMAND_ARGS: usize = 256;
@@ -311,8 +310,11 @@ struct SupervisorState {
     generation: u64,
     child_generation: Option<u64>,
     exit_handler: Option<JournalPluginExitHandler>,
-    /// The running child has no exit-waiter thread (it could not start), so
-    /// the supervisor falls back to a timed `try_wait` for that child.
+    /// The mux's child reaper: it wakes the supervisor when the child exits.
+    #[cfg(unix)]
+    reaper: Option<Arc<cmux_threads::reaper::Reaper>>,
+    /// Nothing wakes the supervisor at the running child's exit (no reaper),
+    /// so it falls back to a timed `try_wait` for that child.
     exit_waiter_missing: bool,
 }
 
@@ -321,7 +323,7 @@ struct SupervisorState {
 /// event schema.
 pub struct JournalPluginRuntime {
     state: Arc<(Mutex<SupervisorState>, Condvar)>,
-    thread: Mutex<Option<JoinHandle<()>>>,
+    thread: Mutex<Option<supervised::SupervisedThread<()>>>,
 }
 
 impl Default for JournalPluginRuntime {
@@ -334,6 +336,14 @@ impl Default for JournalPluginRuntime {
 }
 
 impl JournalPluginRuntime {
+    /// The running plugin process's pid, None while none runs. The daemon's
+    /// exit watchers do not count this process's own connection as a client
+    /// that needs the daemon (server/orphan_shutdown.rs).
+    pub(crate) fn child_pid(&self) -> Option<u32> {
+        let (lock, _) = &*self.state;
+        lock.lock().recover_poison().child.as_ref().map(|child| child.child.id())
+    }
+
     /// Replace the configured plugin. A running child is stopped before the
     /// new command is started, which prevents two plugins writing the same
     /// producer namespace during a config reload.
@@ -383,6 +393,13 @@ impl JournalPluginRuntime {
         lock.lock().unwrap_or_else(|error| error.into_inner()).exit_handler = handler;
     }
 
+    /// Install the reaper that wakes the supervisor at each child's exit.
+    #[cfg(unix)]
+    pub(crate) fn set_reaper(&self, reaper: Arc<cmux_threads::reaper::Reaper>) {
+        let (lock, _) = &*self.state;
+        lock.lock().unwrap_or_else(|error| error.into_inner()).reaper = Some(reaper);
+    }
+
     /// Starts supervision after the local socket has been bound. This ordering
     /// gives the plugin an authoritative socket path and avoids a startup race.
     pub fn start(&self, socket: PathBuf, session: String) {
@@ -416,9 +433,12 @@ impl JournalPluginRuntime {
             }
             state.started = true;
             let shared = Arc::clone(&self.state);
-            let handle = thread::Builder::new()
-                .name("cmux-journal-plugin".into())
-                .spawn(move || supervise(shared));
+            let handle = supervised::spawn(
+                "cmux-journal-plugin",
+                Fatal,
+                ShutdownBehavior::Continue,
+                move || supervise(shared),
+            );
             match handle {
                 Ok(handle) => {
                     *self.thread.lock().recover_poison() = Some(handle);
@@ -455,7 +475,7 @@ impl JournalPluginRuntime {
             handler(&plugin_id, generation);
         }
         if let Some(handle) = self.thread.lock().recover_poison().take()
-            && waits::join(handle).is_err()
+            && handle.join().is_err()
         {
             eprintln!("cmux-tui: journal plugin supervisor panicked during shutdown");
         }
@@ -468,40 +488,33 @@ impl Drop for JournalPluginRuntime {
     }
 }
 
-/// Blocks until the plugin process exits, without reaping it (WNOWAIT, so
-/// the supervisor's `try_wait` still gets the status), then wakes the
-/// supervisor. Replaces the supervisor's 500 ms `try_wait` poll.
-/// Returns false when the thread could not start.
+/// Wakes the supervisor when plugin process `pid` exits: the mux's reaper
+/// leaves it unreaped (WNOWAIT), so the supervisor's `try_wait` still gets
+/// the status. Replaces the supervisor's 500 ms `try_wait` poll. False when
+/// nothing waits for the exit (no reaper installed, or the reaper could not
+/// watch the child): the supervisor then polls.
 #[cfg(unix)]
-fn spawn_exit_waiter(shared: Arc<(Mutex<SupervisorState>, Condvar)>, pid: u32) -> bool {
-    let spawned = thread::Builder::new().name("cmux-journal-plugin-wait".into()).spawn(move || {
-        loop {
-            // SAFETY: `info` is a zeroed siginfo_t that waitid fills in.
-            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-            // SAFETY: `info` is a valid, exclusively borrowed siginfo_t for the
-            // whole call; WNOWAIT leaves the child for the supervisor to reap.
-            let result = unsafe {
-                libc::waitid(
-                    libc::P_PID,
-                    pid as libc::id_t,
-                    &mut info,
-                    libc::WEXITED | libc::WNOWAIT,
-                )
-            };
-            if result == 0
-                || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
-            {
-                break;
-            }
-        }
-        let (lock, changed) = &*shared;
-        let _state = lock.lock().unwrap_or_else(|error| error.into_inner());
-        changed.notify_all();
-    });
-    match spawned {
-        Ok(_) => true,
-        Err(error) => {
-            eprintln!("cmux-tui: journal plugin exit waiter did not start: {error}");
+fn watch_exit(
+    shared: &Arc<(Mutex<SupervisorState>, Condvar)>,
+    reaper: Option<&cmux_threads::reaper::Reaper>,
+    pid: u32,
+) -> bool {
+    let Some(reaper) = reaper else { return false };
+    let shared = Arc::clone(shared);
+    // The completion runs on a work item, never inline, so taking the
+    // supervisor lock there cannot deadlock with this caller.
+    let watched = reaper.watch_exited(
+        pid,
+        Box::new(move |_| {
+            let (lock, changed) = &*shared;
+            let _state = lock.lock().unwrap_or_else(|error| error.into_inner());
+            changed.notify_all();
+        }),
+    );
+    match watched {
+        Ok(()) => true,
+        Err(unwatched) => {
+            eprintln!("cmux-tui: journal plugin exit not watched ({unwatched}); polling");
             false
         }
     }
@@ -534,8 +547,8 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
                     continue;
                 }
                 Ok(None) => {
-                    // A waiter thread notifies `changed` when the child
-                    // exits (unix), so this wait needs no period.
+                    // The reaper notifies `changed` when the child exits
+                    // (unix), so this wait needs no period.
                     #[cfg(unix)]
                     if state.exit_waiter_missing {
                         let _ = changed.wait_timeout(state, SUPERVISOR_WAIT);
@@ -587,8 +600,8 @@ fn supervise(shared: Arc<(Mutex<SupervisorState>, Condvar)>) {
             Ok(child) => {
                 #[cfg(unix)]
                 {
-                    state.exit_waiter_missing =
-                        !spawn_exit_waiter(Arc::clone(&shared), child.child.id());
+                    let watched = watch_exit(&shared, state.reaper.as_deref(), child.child.id());
+                    state.exit_waiter_missing = !watched;
                 }
                 state.child = Some(child);
                 state.child_generation = Some(generation);

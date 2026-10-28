@@ -24,6 +24,9 @@ public final class DaemonLaunchSnapshot {
     var location = LaunchSnapshotLocation()
     /// How a read that ended off main reaches main (a test runs it by hand).
     var hop: StartupMainHop
+    /// Asked on the files lane before a read ``take(_:session:stateDirectory:work:)`` posts: false reads nothing and
+    /// shows no snapshot (the app's crash-streak safe launch, `LaunchSafeMode`; its `main` gates its own prefetch).
+    public var reads: @Sendable () -> Bool = { true }
     /// The steps waiting for a running read (``whenSettled(_:)``); nil while none runs.
     private var waiters: [() -> Void]?
     private let store: DaemonStore
@@ -45,7 +48,7 @@ public final class DaemonLaunchSnapshot {
         let read = prefetch?.session == session ? prefetch : nil
         if let found = read?.found { return apply(found) }
         waiters = waiters ?? []
-        let hop = self.hop, location = self.location
+        let hop = self.hop, location = self.location, reads = self.reads
         let applyOnMain: @MainActor @Sendable (LaunchSnapshot.Found) -> Void = { [weak self] found in self?.apply(found) }
         if let read {
             work.task(.userBlocking) {
@@ -55,9 +58,24 @@ public final class DaemonLaunchSnapshot {
             return
         }
         work.post(.userBlocking, mayBlock: .files, abandoned: { hop.later { applyOnMain(LaunchSnapshot.Found.missing) } }) {
-            let found = LaunchSnapshot.find(session: session, stateDirectory: stateDirectory, location: location)
+            let found = reads() ? LaunchSnapshot.find(session: session, stateDirectory: stateDirectory, location: location) : .missing
             hop.later { applyOnMain(found) }
         }
+    }
+
+    /// Holds ``whenSettled(_:)`` steps for a ``take(_:session:stateDirectory:work:)`` still to come: the app starts its
+    /// local daemon once its system-lane launch step lands (`AppServices.startLocalDaemon(after:)`), and the launch
+    /// window must not open before the snapshot that start applies. ``endExpectedTake()`` releases them when the
+    /// start made no take. Nothing once a take was made.
+    public func expectTake() {
+        guard session == nil, waiters == nil else { return }
+        waiters = []
+    }
+
+    /// Runs the steps ``expectTake()`` held when the start ended without a take (its launcher could not be made).
+    public func endExpectedTake() {
+        guard session == nil else { return }
+        settle()
     }
 
     /// Runs `step` once the snapshot is applied or known to be missing: at once when no read runs (it ended before

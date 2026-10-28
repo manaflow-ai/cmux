@@ -5,7 +5,8 @@
 //! not on a thread of its own: its descriptor's readiness queues a run, and
 //! a resize that drained the readiness kicks one. A holder or byte-backend
 //! terminal has no PTY descriptor in this process and keeps its blocking
-//! `surface-<id>-reader` thread.
+//! `surface-<id>-reader` thread, which follows the terminal's class
+//! (`surface/thread_qos.rs`); the shared read loop does not.
 
 use std::io::Read;
 #[cfg(unix)]
@@ -46,9 +47,11 @@ impl LocalReader {
         surface: Arc<Surface>,
         output: Arc<Mutex<LocalOutput>>,
         reader: Box<dyn Read + Send>,
+        reader_completion: Arc<ReaderCompletion>,
     ) -> Self {
-        let pty = surface.as_pty().expect("a local reader reads a PTY surface");
-        let completion = ReaderCompletionGuard(pty.reader_completion.clone());
+        // The caller hands over its runtime's completion, so the reader
+        // needs no `as_pty` lookup that could fail.
+        let completion = ReaderCompletionGuard(reader_completion);
         let parser = output.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let publisher = parser.publisher();
         #[cfg(unix)]
@@ -88,8 +91,16 @@ impl LocalReader {
             kick.kick();
             return Ok(TerminalReader::Looped);
         }
-        let thread =
-            crate::echo_thread::spawn(format!("surface-{id}-reader"), move || self.run_blocking())?;
+        // Its own thread follows the terminal's class (surface/thread_qos.rs).
+        let thread_qos = match self.surface.as_pty() {
+            Some(pty) => pty.thread_qos.clone(),
+            None => cmux_threads::DesiredQos::new(crate::echo_thread::ECHO_PATH_QOS),
+        };
+        let thread = crate::echo_thread::spawn_following(
+            format!("surface-{id}-reader"),
+            thread_qos,
+            move || self.run_blocking(),
+        )?;
         Ok(TerminalReader::Thread(thread))
     }
 
@@ -138,6 +149,8 @@ impl LocalReader {
         let mut would_block =
             crate::backoff::Backoff::new(Duration::from_millis(1), Duration::from_millis(50));
         loop {
+            // The class a view change asked for, applied after each wake.
+            cmux_threads::apply_pending_qos();
             match self.step() {
                 Step::Read => would_block.reset(),
                 // No parser or source lock is held across backoff.
@@ -162,7 +175,7 @@ impl LocalReader {
             pty.publish_final_frame();
             pty.local_pty_drained.store(true, Ordering::Release);
         }
-        publish_local_exit_if_ready(&self.surface);
+        post_local_exit_if_ready(&self.surface);
     }
 }
 

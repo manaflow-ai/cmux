@@ -64,7 +64,9 @@ import Darwin
 public final class MainFrameBudget {
     /// The board the stall watchdog reads.
     public let board: MainTaskBoard
+    /// Each class's share of a frame.
     public let budgets: Budgets
+    /// What the budget ran, held and measured since it was made (`debug.main_budget`, tests).
     public private(set) var stats = Stats()
     /// The main run loop's turns: each task this budget runs is a scheduled span in the turn
     /// (``MainTurnMeter``). The composition root makes it observe the main run loop.
@@ -116,6 +118,9 @@ public final class MainFrameBudget {
     /// When this window's scheduled work stops at the latest (``uptimeNanos`` time); nil: no
     /// deadline, the fixed limit alone.
     private var deadline: UInt64?
+    /// Counts the frame windows opened: a continuation posted in one runs only once a later one opened
+    /// (``MainWorkScheduler/postContinuation(_:owner:file:line:_:)``).
+    public private(set) var frameSerial: UInt64 = 0
     private var sequence: UInt32 = 0
     /// The tasks that started and have not returned, the innermost last.
     var open: [OpenTask] = []
@@ -249,6 +254,7 @@ public final class MainFrameBudget {
 
     private func roll(at now: UInt64, offTick: Bool = false) {
         stats.frames += 1
+        frameSerial &+= 1
         windowStart = now
         windowOpenedOffTick = offTick
         for index in spent.indices {
@@ -356,7 +362,7 @@ public final class MainFrameBudget {
     /// Whether the frame's scheduled work may go on at `now`: under the fixed limit (what the
     /// window already spent counts, a window a task opened before the tick included) and before the
     /// frame's deadline, when it has one.
-    private func underFrameLimit(_ now: UInt64) -> Bool {
+    func underFrameLimit(_ now: UInt64) -> Bool {
         if let deadline, now >= deadline { return false }
         return frameSpentNow(now) < scheduledLimitNanos
     }
@@ -450,11 +456,19 @@ public final class MainFrameBudget {
     /// - Returns: What `body` returns.
     @discardableResult
     public func run<T>(_ workClass: MainWorkClass, owner: MainTaskOwner, posted post: MainTaskPost? = nil, _ body: () throws -> T) rethrows -> T {
+        try runTask(workClass, owner: owner, posted: post, inline: false, body)
+    }
+
+    /// ``run(_:owner:posted:_:)``, and ``runInline(_:owner:posted:_:)`` with `inline` (work the scheduler did not pick).
+    func runTask<T>(_ workClass: MainWorkClass, owner: MainTaskOwner, posted post: MainTaskPost?, inline: Bool,
+                    _ body: () throws -> T) rethrows -> T {
         sequence &+= 1
         let index = Self.index(workClass)
-        let task = OpenTask(workClass: workClass, owner: owner, sequence: sequence, start: uptimeNanos(),
+        var task = OpenTask(workClass: workClass, owner: owner, sequence: sequence, start: uptimeNanos(),
                             budgetNanos: budgets.budget(workClass).map(Self.nanos) ?? 0, post: post)
-        if let index { ranThisFrame[index] = true }
+        task.isInline = inline
+        task.covers = board.spanCovered(outer: open.last)
+        if let index, !inline { ranThisFrame[index] = true }
         open.append(task)
         turns.beginSpan(.scheduled, at: task.start)
         board.begin(workClass, owner: owner.index, sequence: task.sequence, startNanos: task.start, budgetNanos: task.budgetNanos,
@@ -480,14 +494,14 @@ public final class MainFrameBudget {
         if task.parkedSince != nil { publish(task) }
         if !open.isEmpty {
             // A task run inside the outer task's nested loop is in that loop's time already.
-            if open[open.count - 1].parkedSince == nil { open[open.count - 1].childNanos &+= elapsed }
-            if open[open.count - 1].workClass == task.workClass { open[open.count - 1].isBatch = true }
+            if open[open.count - 1].parkedSince == nil { open[open.count - 1].addChild(elapsed, overSpan: task.covers != nil) }
+            if open[open.count - 1].workClass == task.workClass, !task.isInline { open[open.count - 1].isBatch = true }
         }
         turns.endTask(at: end, ownNanos: own)
         var over = false
         if let index {
-            // The typing burst's rate counts requests, not the batch that ran them (or ran none).
-            if !task.isBatch { response.noteTask(index, startedAt: task.start) }
+            // The typing burst's rate counts requests, not the batch that ran them (or ran none), nor inline work.
+            if !task.isBatch, !task.isInline { response.noteTask(index, startedAt: task.start) }
             spent[index] &+= own
             stats.tasks[index] += 1
             stats.maxTaskNanos[index] = max(stats.maxTaskNanos[index], own)
@@ -506,20 +520,8 @@ public final class MainFrameBudget {
         if !task.ranNothing {
             board.ledger.ended(task.workClass, owner: task.owner.index, post: task.post, startNanos: task.start, runNanos: own)
         }
-        // The outer task runs again: the watchdog names it (not while it waits in a nested loop).
-        if let outer = open.last, outer.parkedSince == nil { publish(outer) }
-    }
-
-    /// Names `task` on the board again, as the running task.
-    private func publish(_ task: OpenTask) {
-        board.begin(task.workClass, owner: task.owner.index, sequence: task.sequence, startNanos: task.start,
-                    budgetNanos: task.budgetNanos, hangAtNanos: task.hangAtNanos, notify: false)
-    }
-
-    /// Whether a task runs now: one is open and not waiting in a nested run loop it ran.
-    private var taskRuns: Bool {
-        guard let task = open.last else { return false }
-        return task.parkedSince == nil
+        // The work it ran over runs again: the watchdog names it.
+        publishCovered(by: task, elapsed: elapsed)
     }
 
     /// A nested run loop started or stopped running (``MainTurnMeter/nestedLoopRunning``). The task
@@ -550,7 +552,7 @@ public final class MainFrameBudget {
     }
 
     /// What `workClass` spent this frame, its open tasks' time so far included.
-    private func spentNow(_ index: Int, workClass: MainWorkClass, now: UInt64) -> UInt64 {
+    func spentNow(_ index: Int, workClass: MainWorkClass, now: UInt64) -> UInt64 {
         var total = spent[index]
         for task in open where task.workClass == workClass { total &+= task.ownNanos(at: now) }
         return total
@@ -571,7 +573,7 @@ public final class MainFrameBudget {
         starvation?.resetStats()
     }
 
-    private func inputPending(_ now: UInt64) -> Bool {
+    func inputPending(_ now: UInt64) -> Bool {
         if board.pendingInputCount > 0 { return true }
         if now &- inputAnswer.at < 250_000 { return inputAnswer.pending }
         let pending = input.hasPendingInput(uptime: TimeInterval(now) / 1_000_000_000)

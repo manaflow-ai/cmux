@@ -5,6 +5,7 @@ use crate::no_panic::JsonExt;
 use crate::no_panic::LockExt;
 use crate::rpc::{Message, RpcError, method};
 use anyhow::{Context, Result, anyhow};
+use futures::FutureExt;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::Path;
@@ -12,6 +13,33 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, Ordering};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, mpsc, oneshot};
+
+/// The calls waiting for their answer, by request id.
+type Pending = Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>>;
+
+/// Runs `read`, a connection's read loop, then closes the connection as its end of
+/// file does, after a panic in `read` too: the pending calls get their error
+/// instead of waiting forever, and the notification stream its goodbye.
+async fn read_then_close(
+    read: impl std::future::Future<Output = ()>,
+    closed: &std::sync::atomic::AtomicBool,
+    pending: &Pending,
+    notif_tx: &Mutex<mpsc::Sender<Message>>,
+) {
+    // AssertUnwindSafe: after a panic nothing of `read` is used again; the client
+    // only reads `closed` and drains `pending`.
+    let _ = std::panic::AssertUnwindSafe(read).catch_unwind().await;
+    closed.store(true, Ordering::SeqCst);
+    let mut p = pending.lock().await;
+    for (_, tx) in p.drain() {
+        let _ = tx.send(Err(RpcError::internal("daemon connection closed")));
+    }
+    drop(p);
+    // The stream never ends on its own (the client keeps a
+    // sender), so say goodbye explicitly.
+    let tx = notif_tx.lock().await.clone();
+    let _ = tx.send(Message::notification(method::MUX_DISCONNECTED, json!({}))).await;
+}
 
 pub struct Client {
     /// Build id the daemon reported at initialize, for mismatch hints.
@@ -21,14 +49,63 @@ pub struct Client {
     person_challenge: std::sync::Mutex<Option<(String, String)>>,
     out: mpsc::Sender<String>,
     next_id: AtomicI64,
-    pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>>,
+    pending: Pending,
     notifications: Mutex<Option<mpsc::Receiver<Message>>>,
     notif_tx: Arc<Mutex<mpsc::Sender<Message>>>,
     closed: Arc<std::sync::atomic::AtomicBool>,
+    /// The acpmux session this client runs inside (`ACPMUX_SESSION_ID`): a
+    /// `session/new` it sends is tagged as that session's sub-session.
+    parent_session: Option<String>,
+}
+
+/// Who a client speaks for: the acpmux session it runs inside and the caller
+/// token the daemon put in that session's env (`hub/person.rs` (a)), with the
+/// socket of the daemon that issued the token. A process that runs requests
+/// for several sessions (the `cmux mcp` catalog host) names the caller of
+/// each connection instead of its own environment.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ClientCaller {
+    pub session_id: Option<String>,
+    pub token: Option<String>,
+    pub issuer_socket: Option<String>,
+}
+
+impl ClientCaller {
+    /// The caller an environment names (`env` reads one variable).
+    pub fn from_env(env: impl Fn(&str) -> Option<String>) -> Self {
+        let set = |key: &str| env(key).filter(|value| !value.is_empty());
+        Self {
+            session_id: set("ACPMUX_SESSION_ID"),
+            token: set(crate::hub::person::CALLER_TOKEN_ENV),
+            issuer_socket: set(crate::hub::person::CALLER_SOCKET_ENV),
+        }
+    }
+
+    /// The caller of this process's own environment.
+    pub fn of_process() -> Self {
+        Self::from_env(|key| std::env::var(key).ok())
+    }
+
+    /// The `{sessionId, token}` hello field for the daemon at `path`: only
+    /// to the socket of the daemon that issued the token (never to another
+    /// daemon, or whatever listens on a path the agent pointed the CLI at).
+    fn hello_field(&self, path: &Path) -> Option<Value> {
+        let (Some(id), Some(token), Some(issuer)) =
+            (&self.session_id, &self.token, &self.issuer_socket)
+        else {
+            return None;
+        };
+        (Path::new(issuer) == path).then(|| json!({"sessionId": id, "token": token}))
+    }
 }
 
 impl Client {
     pub async fn connect(path: &Path) -> Result<Arc<Self>> {
+        Self::connect_as(path, ClientCaller::of_process()).await
+    }
+
+    /// [`Client::connect`] for `caller` instead of this process's own session.
+    pub async fn connect_as(path: &Path, caller: ClientCaller) -> Result<Arc<Self>> {
         let stream = crate::local_stream::connect(path)
             .await
             .with_context(|| format!("connect {}", path.display()))?;
@@ -37,9 +114,8 @@ impl Client {
         let (notif_tx, notif_rx) = mpsc::channel::<Message>(4096);
         let notif_tx = Arc::new(Mutex::new(notif_tx));
         let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let pending: Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
-        tokio::spawn(async move {
+        let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        crate::supervised::spawn_scoped(async move {
             while let Some(line) = out_rx.recv().await {
                 if wr.write_all(line.as_bytes()).await.is_err() {
                     break;
@@ -50,41 +126,37 @@ impl Client {
             let pending = pending.clone();
             let notif_tx = notif_tx.clone();
             let closed = closed.clone();
-            tokio::spawn(async move {
-                let mut lines = BufReader::new(rd).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    let Ok(msg) = Message::parse(&line) else { continue };
-                    match msg {
-                        Message::Response { id, result, error } => {
-                            if let Some(tx) = pending.lock().await.remove(&id.to_string()) {
-                                let _ = tx.send(match error {
-                                    Some(e) => Err(e),
-                                    None => Ok(result.unwrap_or(Value::Null)),
-                                });
+            crate::supervised::spawn_scoped(async move {
+                let read = async {
+                    let mut lines = BufReader::new(rd).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        let Ok(msg) = Message::parse(&line) else { continue };
+                        match msg {
+                            Message::Response { id, result, error } => {
+                                if let Some(tx) = pending.lock().await.remove(&id.to_string()) {
+                                    let _ = tx.send(match error {
+                                        Some(e) => Err(e),
+                                        None => Ok(result.unwrap_or(Value::Null)),
+                                    });
+                                }
                             }
-                        }
-                        other => {
-                            // Whoever holds the current receiver gets it; a
-                            // dropped receiver just loses notifications and
-                            // never kills the connection. A full queue drops
-                            // the notification rather than stall responses.
-                            let tx = notif_tx.lock().await.clone();
-                            if let Err(mpsc::error::TrySendError::Full(_)) = tx.try_send(other) {
-                                tracing::debug!("notification queue full; dropping a notification");
+                            other => {
+                                // Whoever holds the current receiver gets it; a
+                                // dropped receiver just loses notifications and
+                                // never kills the connection. A full queue drops
+                                // the notification rather than stall responses.
+                                let tx = notif_tx.lock().await.clone();
+                                if let Err(mpsc::error::TrySendError::Full(_)) = tx.try_send(other)
+                                {
+                                    tracing::debug!(
+                                        "notification queue full; dropping a notification"
+                                    );
+                                }
                             }
                         }
                     }
-                }
-                closed.store(true, Ordering::SeqCst);
-                let mut p = pending.lock().await;
-                for (_, tx) in p.drain() {
-                    let _ = tx.send(Err(RpcError::internal("daemon connection closed")));
-                }
-                drop(p);
-                // The stream never ends on its own (the client keeps a
-                // sender), so say goodbye explicitly.
-                let tx = notif_tx.lock().await.clone();
-                let _ = tx.send(Message::notification(method::MUX_DISCONNECTED, json!({}))).await;
+                };
+                read_then_close(read, &closed, &pending, &notif_tx).await;
             });
         }
         let client = Arc::new(Self {
@@ -96,24 +168,13 @@ impl Client {
             notifications: Mutex::new(Some(notif_rx)),
             notif_tx,
             closed,
+            parent_session: caller.session_id.clone(),
         });
         let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux-cli", "version": crate::hub::VERSION}});
-        // Inside an acpmux session: say which, with the caller token the
-        // daemon put in that session's env (`hub/person.rs` (a)), only to
-        // the socket of the daemon that issued it (never to another daemon,
-        // or whatever listens on a path the agent pointed the CLI at).
-        let caller = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
-        let issuer = caller(crate::hub::person::CALLER_SOCKET_ENV);
-        if let (Some(id), Some(token), true) = (
-            caller("ACPMUX_SESSION_ID"),
-            caller(crate::hub::person::CALLER_TOKEN_ENV),
-            issuer.is_some_and(|socket| Path::new(&socket) == path),
-        ) {
+        // Inside an acpmux session: say which, with its caller token.
+        if let Some(field) = caller.hello_field(path) {
             let mut meta = serde_json::Map::new();
-            meta.insert(
-                crate::hub::person::CALLER_FIELD.to_owned(),
-                json!({"sessionId": id, "token": token}),
-            );
+            meta.insert(crate::hub::person::CALLER_FIELD.to_owned(), field);
             hello.set("_meta", json!({"acpmux": meta}));
         }
         let init = client.request(method::INITIALIZE, hello).await?;
@@ -189,10 +250,7 @@ impl Client {
     /// lists fold it under its parent. The session exists either way; a failed tag only lists
     /// it on its own.
     async fn tag_spawned_by(&self, reply: &Value) {
-        let Some(parent) = std::env::var("ACPMUX_SESSION_ID").ok().filter(|id| !id.is_empty())
-        else {
-            return;
-        };
+        let Some(parent) = &self.parent_session else { return };
         let Some(id) = reply.get("sessionId").and_then(Value::as_str) else { return };
         let set = json!({ crate::hub::views::SPAWNED_BY_TAG: parent });
         let _ = self.send_request(method::MUX_TAG, json!({"sessionId": id, "set": set})).await;
@@ -291,3 +349,7 @@ pub fn closed_error(context: &str, daemon_build: Option<&str>) -> anyhow::Error 
         home.join("daemon.log").display()
     )
 }
+
+#[cfg(test)]
+#[path = "client_tests.rs"]
+mod tests;

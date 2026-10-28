@@ -807,6 +807,7 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     let reaper = move || reap_on_exit(&reaper_state, pid);
     #[cfg(not(unix))]
     let reaper = move || reap_on_tick(&reaper_state);
+    // supervise-allow: reaps one detached owner; it ends when the owner exits, and a panic leaves only that child to init.
     if let Err(_error) =
         std::thread::Builder::new().name("local-owner-reaper".to_string()).spawn(reaper)
     {
@@ -844,6 +845,8 @@ fn reap_on_exit(state: &OwnerProcessState, pid: u32) {
     loop {
         // SAFETY: waitid writes only into the zeroed siginfo it is given.
         let mut info = unsafe { std::mem::zeroed::<libc::siginfo_t>() };
+        // SAFETY: waitid writes one siginfo_t into `info`, a live local; WNOWAIT leaves the child
+        // unreaped.
         let result =
             unsafe { libc::waitid(libc::P_PID, pid, &mut info, libc::WEXITED | libc::WNOWAIT) };
         if result == 0 || io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {

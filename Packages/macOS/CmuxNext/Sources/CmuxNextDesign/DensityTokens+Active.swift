@@ -1,3 +1,6 @@
+public import CmuxNextAppearance
+public import CmuxNextDesignTokens
+
 /// The density chrome draws in now.
 nonisolated extension DensityTokens {
     /// A density that code inside `$scoped.withValue` draws in instead of the app's: a preview

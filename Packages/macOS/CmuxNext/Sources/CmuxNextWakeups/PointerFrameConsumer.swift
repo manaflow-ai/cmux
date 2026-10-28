@@ -21,6 +21,7 @@ public import CmuxNextInputCore
 /// ```
 @MainActor
 public final class PointerFrameConsumer {
+    /// Who consumes the pointer frames, in the wakeup ledger and the board.
     public let owner: String
     /// Every event is delivered at once, never merged (Chrome's `needs_low_latency_`).
     public let isLowLatency: Bool

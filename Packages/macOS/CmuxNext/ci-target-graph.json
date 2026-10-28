@@ -222,7 +222,8 @@
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
         "CmuxNextPages",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -449,6 +450,18 @@
         "scripts/cmux-next/web-bundle-key.py",
         "tests/fixtures/classic-to-next/",
         "webviews/test/fixtures/new-tab-intents.json"
+      ]
+    },
+    "CmuxNextAppearance": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAppearance",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextDesignTokens",
+        "CmuxNextWakeups"
+      ],
+      "packages": [
+        "CmuxTheme"
       ]
     },
     "CmuxNextApps": {
@@ -879,6 +892,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign",
       "targets": [
         "CCmuxAppFFI",
+        "CmuxNextAppearance",
         "CmuxNextCompat",
         "CmuxNextDesignTokens",
         "CmuxNextIcons",
@@ -1641,8 +1655,9 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextAppearance",
         "CmuxNextCompat",
-        "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -1652,7 +1667,9 @@
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextAppearance",
         "CmuxNextDesign",
+        "CmuxNextDesignTokens",
         "CmuxNextSettings"
       ],
       "packages": [],

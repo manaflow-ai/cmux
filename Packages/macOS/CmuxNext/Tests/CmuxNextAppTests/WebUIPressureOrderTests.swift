@@ -56,6 +56,7 @@ struct WebUIPressureOrderTests {
         func preload() {}
         func libraryLoadEnded() async {}
         func warmStart(reason: String) async {}
+        func initializeLoaded(reason: String) -> Bool { true }
         func prepareSpareWindow(pages: Bool) -> Bool { false }
         func dropPagesSpareWindow() {}
         func holdSpareWindows(_ held: Bool) { self.held = held }

@@ -11,6 +11,7 @@ public struct FrameSequenceReport: Sendable, Equatable {
     /// Frames the main thread committed in it, at most one per refresh.
     public var produced: UInt32
 
+    /// A report of `expected` refreshes and `produced` frames (an empty one by default).
     public init(expected: UInt32 = 0, produced: UInt32 = 0) {
         self.expected = expected
         self.produced = produced
@@ -204,7 +205,9 @@ public final class FrameSequenceTracker {
     }
 
     private func keepTicking(_ scheduler: FrameScheduler) {
-        let client = hold ?? FrameClient(owner: "FrameSequenceTracker", isAnimation: false, on: scheduler) { [weak self] _ in
+        // Motion rate: it counts every display frame.
+        // frame-client: ticks while a commit window is open, so the tracker counts main's frames (main state)
+        let client = hold ?? FrameClient(owner: "FrameSequenceTracker", isAnimation: false, rate: .motion, on: scheduler) { [weak self] _ in
             self?.isOpen ?? false
         }
         hold = client

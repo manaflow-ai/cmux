@@ -3,17 +3,20 @@
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
+import { openPageState } from "../shared/pageState";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import { FilesPage } from "./FilesPage";
 import { MockFilesProvider } from "./mockProvider";
-import { FilesStore } from "./store";
+import { FILES_PAGE, FilesStore } from "./store";
 import { FilesOps } from "./types";
 import "../shared/pageBase.css";
 import "./styles.css";
 
 export function mountFilesPage(root: HTMLElement, client: PageClient | null = defaultClient()): FilesStore {
+  const state = openPageState(client, FILES_PAGE);
   const store = new FilesStore(client, (text) => navigator.clipboard.writeText(text));
+  state.keep(() => store.pageInputs());
   const strings = createStrings(table);
   document.documentElement.lang = strings.language;
   document.title = strings.t("files.page.title");

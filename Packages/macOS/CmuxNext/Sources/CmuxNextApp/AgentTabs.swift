@@ -137,6 +137,8 @@ final class AgentTabStore {
     var takeSpare: (() -> AgentPaneView?)?
     /// Closed pages leave the view tree at once; the page host's one retirer ends them later (`AgentPaneView.retire(on:closed:)`).
     var retirer: PageRetirer { webUI.retirer }
+    /// The New Tab pages' open tabs and workspaces, kept current while any page is open (``NewTabPlacesFeed``).
+    var placesFeed: NewTabPlacesFeed?
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
     /// web content crash or a view rebuilt after the tab was released.
     var sessions: [String: String] = [:]
@@ -401,6 +403,8 @@ final class AgentTabStore {
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
         model.pendingWake = wakeStates.removeValue(forKey: key)
         model.chatOpen = ChatOpenStages(chat: createTabs?.interval(ofTab: key)) // its open, while it waits for its first paint
+        // A tab its connection found (relaunch) that no open of this run made: its page follows the launch order (p08-startup-041).
+        if seed == nil, store.restoredTabIDs.contains(key), createTabs?.interval(ofTab: key) == nil { model.pageOrigin = .launchRestore }
         relaunchWake.hand(key, to: model)
         wire(model, key: key)
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).

@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextWakeups
 import Observation
 
 /// The notifications panel (`showNotifications`, ⌘I): the daemon's
@@ -10,7 +12,8 @@ import Observation
 /// window. A row opens its tab; its menu and the keyboard run the
 /// `notification*` actions with the row's id, the same handlers the palette
 /// and the CLI run on the latest unread notification. It reloads on open and whenever a notification
-/// arrives or is read while it is shown.
+/// arrives or is read while it is shown. Its node is visible only while it shows: a closed panel
+/// reads no ledger and evaluates nothing (plans/cmux-next/chrome-parity/p06-scheduler.md, 205).
 final class NotificationsPanelController {
     /// The argument naming a ledger row (`list-notifications` id).
     static let argument = "notification"
@@ -18,19 +21,26 @@ final class NotificationsPanelController {
     private let context: AppActionContext
     private var panel: NotificationsPanel?
     private let motion = CornerPanelMotion()
-    private let card = NotificationsPanelView()
+    /// Visible while the panel shows, hidden from its close.
+    var node: VisibilityNode { ledger.node }
+    /// Follows the ledger while the panel shows (``NotificationsPanelLedgerWatch``).
+    let ledger: NotificationsPanelLedgerWatch
+    private let card: NotificationsPanelView
     private(set) var rows: [NotificationsPanelRow] = []
     /// Whether the open panel has its first ledger reply.
     private var loaded = false
     private var selection = NotificationsPanelSelection()
-    private var watch: Task<Void, Never>?
     /// Bumped per reload, so a slow reply never replaces a newer one.
     private var generation = 0
 
     init(context: AppActionContext) {
         self.context = context
+        let node = VisibilityNode(root: "notifications.panel", own: .hidden)
+        ledger = NotificationsPanelLedgerWatch(node: node, store: context.daemon.store, work: context.services.mainWork)
+        card = NotificationsPanelView(node: node)
         card.onMarkAllRead = { [weak self] in self?.perform("markAllNotificationsRead", nil) }
         card.onClearAll = { [weak self] in self?.perform("clearAllNotifications", nil) }
+        ledger.onChange = { [weak self] in self?.reload() }
     }
 
     var isShown: Bool { (panel?.isVisible ?? false) && !motion.isClosing }
@@ -53,6 +63,7 @@ final class NotificationsPanelController {
         guard let window = context.services.windows.active?.window else { return }
         let panel = panel ?? makePanel()
         self.panel = panel
+        node.set(.visible)
         selection = NotificationsPanelSelection()
         loaded = false
         render()
@@ -68,15 +79,13 @@ final class NotificationsPanelController {
         motion.open(panel)
         panel.makeKey()
         panel.makeFirstResponder(card)
-        reload()
-        startWatching()
+        ledger.open()
     }
 
     /// Closes the panel. Esc and the row verbs give the keys back to the
     /// window; losing them to another window does not.
     func close(restoringKey: Bool = true) {
-        watch?.cancel()
-        watch = nil
+        ledger.close()
         rows = []
         guard let panel, isShown else { return }
         panel.onResignKey = nil
@@ -107,23 +116,9 @@ final class NotificationsPanelController {
 
     // MARK: Rows
 
-    /// Re-reads the ledger while the panel is shown.
-    private func startWatching() {
-        watch?.cancel()
-        let store = context.daemon.store
-        // task-owner: NotificationsPanelController.watch, cancelled in close()
-        watch = Task { [weak self] in
-            var first = true
-            for await _ in ObservationStream({ (store.notifications.last?.notification.rawValue ?? 0, NotificationCenterService.unreadCount(store)) }) {
-                // The open itself already reloaded.
-                if first { first = false; continue }
-                self?.reload()
-            }
-        }
-    }
-
     func reload() {
         guard isShown else { return }
+        ledger.noteLoaded()
         guard context.daemon.connection != nil else {
             rows = []
             loaded = true
@@ -131,12 +126,13 @@ final class NotificationsPanelController {
         }
         generation += 1
         let generation = generation
+        let work = context.services.mainWork
         context.daemon.send("list-notifications") { [weak self] connection in
             do {
                 let entries = try await connection.notificationLedger()
-                await MainActor.run { self?.apply(entries, generation: generation) }
+                work.postFromAnyThread(.visible, owner: "notifications.panel.rows") { self?.apply(entries, generation: generation) }
             } catch {
-                await MainActor.run { self?.failed(generation: generation) }
+                work.postFromAnyThread(.visible, owner: "notifications.panel.rows") { self?.failed(generation: generation) }
                 throw error
             }
         }
@@ -164,7 +160,7 @@ final class NotificationsPanelController {
     private func render() {
         let now = Date()
         let views = rows.map { row in
-            NotificationRowView(row: row, now: now, callbacks: .init(
+            NotificationRowView(row: row, now: now, node: node, callbacks: .init(
                 open: { [weak self] in self?.perform("notificationOpen", row) },
                 dismiss: { [weak self] in self?.perform("notificationDismiss", row) },
                 menu: { [weak self] in self?.menu(for: row) ?? NSMenu() }

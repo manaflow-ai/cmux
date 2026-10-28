@@ -3,6 +3,7 @@
 
 use super::super::*;
 use crate::agent::Tap;
+use crate::supervised::{Fatal, ShutdownBehavior, Supervisor};
 use std::collections::VecDeque;
 
 /// Held log lines and inbound messages per entry, beyond which stderr is
@@ -45,10 +46,12 @@ pub(super) fn holding_tap() -> (Tap, Arc<StdMutex<TapSlot>>) {
 
 /// Inbound traffic of an entry: held until a session's channel arrives,
 /// then forwarded in order.
-pub(super) fn holding_inbound() -> (mpsc::Sender<Inbound>, oneshot::Sender<mpsc::Sender<Inbound>>) {
+pub(super) fn holding_inbound(
+    supervisor: &Supervisor,
+) -> (mpsc::Sender<Inbound>, oneshot::Sender<mpsc::Sender<Inbound>>) {
     let (tx, mut rx) = mpsc::channel::<Inbound>(1024);
     let (target_tx, mut target_rx) = oneshot::channel::<mpsc::Sender<Inbound>>();
-    tokio::spawn(async move {
+    let relay = async move {
         let mut held = VecDeque::new();
         let target = loop {
             tokio::select! {
@@ -76,6 +79,13 @@ pub(super) fn holding_inbound() -> (mpsc::Sender<Inbound>, oneshot::Sender<mpsc:
                 return;
             }
         }
-    });
+    };
+    crate::supervised::task(
+        supervisor,
+        "hub.pool-held-inbound",
+        Fatal,
+        ShutdownBehavior::Skip,
+        relay,
+    );
     (tx, target_tx)
 }

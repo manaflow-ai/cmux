@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextSignposts
 import CmuxNextWakeups
 import ObjectiveC
+import CmuxNextAppearance
 
 /// Whether one window looks inactive (the keyboard left its family), tracked once per window.
 ///
@@ -43,7 +44,7 @@ final class WindowKeyFamily {
     /// It observes the key and activation notices (only while it has a view).
     var isObserving: Bool { !observers.isEmpty }
 
-    private static var key: UInt8 = 0
+    private static let families = ObjectAssociation<WindowKeyFamily>()
 
     /// The key and activation notices it observes. A notice's code in `switch.app_activation` is its
     /// position + 1 (``SignpostName/switchAppActivation``): a window did become key 1, resign key 2,
@@ -69,9 +70,9 @@ final class WindowKeyFamily {
     /// The tracker of `window`, made on first use with `environment` (a later call returns that
     /// tracker and ignores its argument).
     static func of(_ window: NSWindow, environment: WindowKeyEnvironment = .live) -> WindowKeyFamily {
-        if let existing = objc_getAssociatedObject(window, &key) as? WindowKeyFamily { return existing }
+        if let existing = families.value(on: window) { return existing }
         let family = WindowKeyFamily(window: window, environment: environment)
-        objc_setAssociatedObject(window, &key, family, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        families.set(family, on: window)
         return family
     }
 

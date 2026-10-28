@@ -69,7 +69,9 @@ impl Hub {
         }
         if update {
             let hub = self.clone();
-            tokio::spawn(async move { hub.auto_update_harnesses().await });
+            self.supervise("hub.harness-auto-update", Fatal, ShutdownBehavior::Skip, async move {
+                hub.auto_update_harnesses().await;
+            });
         }
         Ok(json!({"harnesses": rows}))
     }
@@ -166,9 +168,9 @@ impl Hub {
     pub fn start_harness_checks(self: &Arc<Self>) {
         if !std::env::var("ACPMUX_REGISTRY_FETCH").is_ok_and(|v| v == "0") {
             let hub = self.clone();
-            tokio::spawn(async move {
+            self.supervise("hub.harness-checks", Fatal, ShutdownBehavior::Skip, async move {
                 let installed = || {
-                    tokio::task::spawn_blocking(|| {
+                    crate::daemon::spawn_blocking(|| {
                         crate::registry::installed(&crate::config::home())
                     })
                 };
