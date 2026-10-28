@@ -68,6 +68,24 @@
       "title" : "Chat Full Width",
       "type" : "boolean"
     },
+    "agentPane.display.inspector.order" : {
+      "default" : [
+        "environment",
+        "context",
+        "connectors",
+        "changes",
+        "sources",
+        "outputs",
+        "subagents",
+        "tasks"
+      ],
+      "description" : "The order of Session Info cards.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Session Info order",
+      "type" : "array"
+    },
     "agentPane.display.inspector.placement" : {
       "default" : "overlay",
       "description" : "Where the Session Info panel opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
@@ -338,6 +356,12 @@
       ],
       "title" : "When Quitting",
       "type" : "string"
+    },
+    "app.showMenuBarIcon" : {
+      "default" : true,
+      "description" : "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit.",
+      "title" : "Show Menu Bar Icon",
+      "type" : "boolean"
     },
     "app.startAgentGlobalHotKey" : {
       "default" : false,
