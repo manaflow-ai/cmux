@@ -150,6 +150,9 @@ public protocol HomeSource: Sendable {
 
     /// Asks the owner of `conversation` for its live run snapshot (`run.live`),
     /// which arrives as a `.live(.snapshot)` event: on open and after a missed frame.
+    /// Persisted agent messages, including finished runs; unsupported owners return none.
+    func agentRuns(of conversation: ConversationID, turns: [IdempotencyKey]) async -> [HomeAgentRun]
+
     func requestLive(of conversation: ConversationID) async
 
     /// The talk steps of a running run as its rows hold them (id, text), for reply
@@ -168,6 +171,8 @@ extension HomeSource {
 
     /// Default: an owner without live frames.
     public func requestLive(of conversation: ConversationID) async {}
+
+    public func agentRuns(of conversation: ConversationID, turns: [IdempotencyKey]) async -> [HomeAgentRun] { [] }
 
     /// Default: an owner without run reads.
     public func liveRunRows(of conversation: ConversationID, run: String, author: ParticipantID) async -> [HomeLiveRunSnapshot.Step]? {

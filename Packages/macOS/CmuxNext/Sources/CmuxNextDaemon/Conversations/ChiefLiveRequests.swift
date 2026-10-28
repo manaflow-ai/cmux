@@ -43,6 +43,8 @@ public struct ConversationRunRows: Decodable, Sendable, Hashable {
         public var id: String
         public var kind: String
         public var text: String?
+        public var tool: ConversationRunTool?
+        public var status: String?
         /// The row's text was cut (32 KiB): not the step's whole text.
         public var truncated: Bool?
         /// Local: the step's write revision; Cloud: its place.

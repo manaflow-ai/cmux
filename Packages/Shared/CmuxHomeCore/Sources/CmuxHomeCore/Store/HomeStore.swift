@@ -49,6 +49,8 @@ public final class HomeStore {
     /// `transcript(for:)` of each conversation at a `transcriptVersion` (a streamed chunk does
     /// not map the window again).
     @ObservationIgnored var transcriptCache: [ConversationID: (version: Int, me: ParticipantID, items: [TranscriptItem])] = [:]
+    @ObservationIgnored var agentMessages: [ConversationID: HomeAgentMessages] = [:]
+    @ObservationIgnored var agentMessageReads: [ConversationID: Task<Void, Never>] = [:]
     @ObservationIgnored var liveBook = HomeLiveBook()
     /// Conversations whose `run.live` request is out (one at a time).
     @ObservationIgnored var liveRequests: Set<ConversationID> = []
@@ -212,6 +214,8 @@ public final class HomeStore {
     public func stop() {
         viewCache.writeNow()
         stopped = true
+        for read in agentMessageReads.values { read.cancel() }
+        agentMessageReads.removeAll()
         eventTask?.cancel()
         eventTask = nil
         resendTask?.cancel()
@@ -258,6 +262,7 @@ public final class HomeStore {
         if let cached = transcriptCache[id], cached.version == version, cached.me == me { return cached.items }
         var items = (mirror.windows[id] ?? TranscriptWindow()).items(pending: log.sends(in: id), me: me)
         if !localFiles.isEmpty { items = items.map(decorated) }
+        items = agentMessages[id]?.inserting(into: items, summary: summary(id)) ?? items
         transcriptCache[id] = (version, me, items)
         return items
     }

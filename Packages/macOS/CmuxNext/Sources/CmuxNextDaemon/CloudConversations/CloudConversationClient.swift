@@ -16,6 +16,8 @@ public protocol CloudConversationCommands: Sendable {
     func requestLive(_ conversation: String) async throws
     /// `cloud-conversation-run`: the steps of a Cloud Chief's run (nil: no such read).
     func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows?
+    /// Persisted run summaries of one Chief, including finished runs.
+    func runs(_ conversation: String, agent: String) async throws -> [ConversationRunSummary]
     /// `cloud-requests-list`: the account's open message requests.
     func messageRequests() async throws -> [CloudMessageRequest]
     /// `cloud-conversation-typing`: the person's typing in a subscribed conversation.
@@ -157,6 +159,19 @@ public struct CloudConversationClient: CloudConversationCommands {
         return try await attachments.download(conversation: conversation, hash: hash, variant: variant, to: destination)
     }
 
+    public func runs(_ conversation: String, agent: String) async throws -> [ConversationRunSummary] {
+        guard await connection.identity?.supports(DaemonCapability.cloudConversationRuns.rawValue) == true else { return [] }
+        var result: [ConversationRunSummary] = []
+        var before: UInt64?
+        for _ in 0..<8 {
+            let page = try await network(CloudConversationRunsRequest(conversation: conversation, agent: agent, beforeStartedAt: before))
+            result += page.runs
+            guard page.hasMore == true, let oldest = page.runs.compactMap({ $0.startedAt }).min(), oldest > 0 else { break }
+            before = UInt64(oldest)
+        }
+        return result
+    }
+
     public func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows? {
         guard await connection.identity?.supports(DaemonCapability.cloudConversationRuns.rawValue) == true else { return nil }
         var all = try await network(CloudConversationRunRequest(conversation: conversation, agent: agent, run: run))
@@ -172,6 +187,7 @@ public struct CloudConversationClient: CloudConversationCommands {
 }
 
 extension CloudConversationCommands {
+    public func runs(_ conversation: String, agent: String) async throws -> [ConversationRunSummary] { [] }
     /// Fakes without message requests: none.
     public func messageRequests() async throws -> [CloudMessageRequest] { [] }
 

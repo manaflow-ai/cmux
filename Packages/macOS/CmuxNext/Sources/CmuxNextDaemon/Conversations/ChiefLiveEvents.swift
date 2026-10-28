@@ -100,9 +100,24 @@ public struct ConversationRunChanged: Decodable, Sendable, Hashable {
         public var author: String
         public var turn: String?
         public var status: String
+        public var answers: [String]?
+        public var threadRoot: String?
+        public var startedAt: Double?
+
+        public init(id: String, author: String, turn: String?, status: String, answers: [String]? = nil,
+                    threadRoot: String? = nil, startedAt: Double? = nil) {
+            self.id = id; self.author = author; self.turn = turn; self.status = status
+            self.answers = answers; self.threadRoot = threadRoot; self.startedAt = startedAt
+        }
     }
 
     public var conversation: String
     public var run: Run
+    public var steps: [ConversationRunRows.Step]?
     public var account: String?
+
+    public var summary: ConversationRunSummary {
+        ConversationRunSummary(id: run.id, author: run.author, turn: run.turn, status: run.status,
+                               answers: run.answers, threadRoot: run.threadRoot, startedAt: run.startedAt)
+    }
 }
