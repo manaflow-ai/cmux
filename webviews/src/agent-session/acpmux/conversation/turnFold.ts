@@ -157,10 +157,7 @@ export function startTurnFold(
     ms,
     start: now,
     until: now + ms + FOLD_SETTLE_MS,
-    startRows:
-      "geometry" in placed
-        ? placed
-        : { ...placed, tops: Float64Array.from(placed.tops as ArrayLike<number>) },
+    startRows: "geometry" in placed ? placed : { ...placed, tops: Float64Array.from(placed.tops as ArrayLike<number>) },
     startAt: at,
     moving,
     copies: new Map(),
