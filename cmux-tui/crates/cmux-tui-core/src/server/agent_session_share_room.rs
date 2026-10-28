@@ -214,7 +214,10 @@ enum Put {
     Unreachable,
 }
 
-/// One HTTP call to the room with `bearer`: its status and JSON body.
+// Only small control-plane replies (host token and URL) are expected; this is not a media limit.
+const MAX_ROOM_RESPONSE_BYTES: usize = 64 * 1024;
+
+/// One HTTP call to the room with `bearer`: its status and bounded JSON body.
 async fn call(
     method: reqwest::Method,
     url: &str,
@@ -232,9 +235,19 @@ async fn call(
     if let Some(body) = body {
         request = request.json(body);
     }
-    let reply = request.send().await.ok()?;
+    let mut reply = request.send().await.ok()?;
     let status = reply.status().as_u16();
-    Some((status, reply.json().await.unwrap_or(Value::Null)))
+    if reply.content_length().is_some_and(|length| length > MAX_ROOM_RESPONSE_BYTES as u64) {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = reply.chunk().await.ok()? {
+        if chunk.len() > MAX_ROOM_RESPONSE_BYTES.saturating_sub(bytes.len()) {
+            return None;
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Some((status, serde_json::from_slice(&bytes).unwrap_or(Value::Null)))
 }
 
 async fn put(room: &Room, share_id: &str, token: &str, body: &Value) -> Put {
