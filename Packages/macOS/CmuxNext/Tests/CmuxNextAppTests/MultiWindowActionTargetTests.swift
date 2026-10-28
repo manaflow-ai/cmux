@@ -353,7 +353,9 @@ import Testing
                                                     windowNumber: shell3.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
         let commandClick = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [.command], timestamp: 2,
                                                            windowNumber: shell3.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
-        for event in [right, commandClick] {
+        let controlClick = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [.control], timestamp: 3,
+                                                           windowNumber: shell3.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        for event in [right, commandClick, controlClick] {
             windows.dispatching(eventFrom: shell3, activates: WindowManager.activatesWindow(event)) {}
         }
         #expect(windows.registry.value.recency.first == world.w1.state.id, "a right-click or Command-click reordered the app's windows")

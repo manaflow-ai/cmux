@@ -24,7 +24,7 @@ extension WindowManager {
     /// `activates`: the event is one that activates its window for a person (a key-down, a plain left click):
     /// the window is the app's most recently active one from now, also when it never becomes key (the app in
     /// the background, a capture slot). A right-click or a Command-click on a background window brings
-    /// nothing forward on macOS, so it leaves the app's window order as it is.
+    /// nothing forward on macOS (nor a Control-click), so it leaves the app's window order as it is.
     func dispatching<T>(eventFrom window: NSWindow?, activates: Bool = false, _ body: () throws -> T) rethrows -> T {
         let previous = eventOrigin
         defer { eventOrigin = previous }
@@ -37,7 +37,8 @@ extension WindowManager {
 
     /// Whether `event` activates its window for a person (``dispatching(eventFrom:activates:_:)``).
     static func activatesWindow(_ event: NSEvent) -> Bool {
-        event.type == .keyDown || (event.type == .leftMouseDown && !event.modifierFlags.contains(.command))
+        // A Control-click is a right-click on macOS: like Command-click, it brings no background window forward.
+        event.type == .keyDown || (event.type == .leftMouseDown && event.modifierFlags.isDisjoint(with: [.command, .control]))
     }
 
     /// The window the event in dispatch came from; nil outside an event's dispatch.
