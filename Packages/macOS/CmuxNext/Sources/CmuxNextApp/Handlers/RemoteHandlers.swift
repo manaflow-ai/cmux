@@ -172,6 +172,7 @@ enum RemoteHandlers {
         let target = ActionTargetRef(kind: .machine, id: session.machineID)
         let recovery = SSHConnectRecovery(
             retry: {
+                session.connectRecoveryRetrying = true
                 session.connectRecoveryAttempt &+= 1
                 context.services.ssh.reconnect(session)
             },
@@ -196,7 +197,7 @@ enum RemoteHandlers {
                     return
                 }
                 if status == .offline { return }
-                if status.needsRecovery || failure != nil {
+                if !session.connectRecoveryRetrying && (status.needsRecovery || failure != nil) {
                     let detail = RemoteStrings.detail(session) ?? ""
                     let spec = SSHConnectRecovery.spec(title: RemoteStrings.connectFailedTitle(session.host.label),
                         detail: detail, cancel: CloudStrings.cancel, copy: RemoteStrings.copyError,

@@ -133,7 +133,13 @@ public struct SSHConnectionMachine: Hashable, Sendable {
             if status == .connected || status == .reconnecting { status = .connecting }
         case .wake(let wake):
             guard blocked, !onlyUserUnblocks || wake == .user else { return }
-            if Self.unblocks(status, wake) { blocked = false }
+            if Self.unblocks(status, wake) {
+                blocked = false
+                // A user retry starts a fresh attempt immediately. Clearing the
+                // old failure state prevents recovery UI from replaying it while
+                // the transport opens the new connection.
+                if status.needsRecovery { status = .connecting }
+            }
         case .installStarted:
             status = .installing
             blocked = true

@@ -49,6 +49,8 @@ final class SSHMachineSession {
     @ObservationIgnored var connectRecovery: SSHConnectRecovery?
     /// Changes on every explicit retry, even when the transport reports the same failure.
     var connectRecoveryAttempt = 0
+    /// Suppresses the old recovery state while a user retry is opening a new attempt.
+    var connectRecoveryRetrying = false
     @ObservationIgnored var connectPresentationTask: Task<Void, Never>?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
     @ObservationIgnored private var startupTask: Task<Void, Never>?
@@ -113,6 +115,7 @@ final class SSHMachineSession {
     private func linkStatusChanged(_ status: SSHConnectionMachine.Status) {
         guard linkStatus != status else { return }
         linkStatus = status
+        connectRecoveryRetrying = false
         switch status {
         case .connected:
             if !linkReached {
