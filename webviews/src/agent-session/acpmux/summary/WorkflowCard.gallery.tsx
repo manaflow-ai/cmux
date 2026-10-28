@@ -9,19 +9,17 @@ import { configureWorkflowCardOpen, WorkflowCard, type WorkflowCardPresentation 
 import { realWorkflowFixture } from "../realWorkflowFixture";
 import { workflowFixture, type WorkflowFixtureStage } from "./workflowFixture";
 
-type Props = { stage: WorkflowFixtureStage | "real-run" | "real-running"; presentation?: WorkflowCardPresentation };
+type Props = {
+  stage: WorkflowFixtureStage;
+  presentation: WorkflowCardPresentation;
+  replay?: ReturnType<typeof realWorkflowFixture>;
+};
 
 /// The gallery's cards open nothing, but draw as the chat's do: a button.
 configureWorkflowCardOpen(() => undefined);
 
-function GalleryWorkflowCard({ stage, presentation }: Props) {
-  const nodes = (
-    stage === "real-run"
-      ? realWorkflowFixture(GALLERY_NOW)
-      : stage === "real-running"
-        ? realWorkflowFixture(GALLERY_NOW, 8_760)
-        : workflowFixture(stage)
-  ).filter((node) => node.kind === "workflow");
+function GalleryWorkflowCard({ stage, presentation, replay }: Props) {
+  const nodes = (replay ?? workflowFixture(stage)).filter((node) => node.kind === "workflow");
   return (
     <div className="acpmux-shell" style={{ padding: "16px 20px" }}>
       {nodes.map((node) => (
@@ -62,12 +60,12 @@ export default componentEntry<Props>({
       props: { stage: "finished", presentation: "selected" },
     },
     "real-run": {
-      note: "Labs: a scrubbed card replayed from a real Claude Workflow stream. Workflow · 3 agents · 10s, with one dot per completed agent.",
-      props: { stage: "real-run" },
+      note: "Labs: a scrubbed card replayed from a real Claude Workflow stream. Completed, Report, 3/3 and 10s, with the recorded tokens and model.",
+      props: { stage: "finished", presentation: "selected", replay: realWorkflowFixture(GALLERY_NOW) },
     },
     "real-running": {
-      note: "Labs: the real Claude Workflow replay while it runs. Workflow · 3 agents · 8s, with the Report agent running.",
-      props: { stage: "real-running" },
+      note: "Labs: the real Claude Workflow replay while it runs. Report is running at 8s with 2/3 agents complete.",
+      props: { stage: "running", presentation: "selected", replay: realWorkflowFixture(GALLERY_NOW, 8_760) },
     },
   },
 });
