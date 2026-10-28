@@ -188,7 +188,7 @@ fn secure_origin(raw: &str) -> Result<String, String> {
 
 /// One minted session (the server's `value`).
 #[derive(Debug, serde::Deserialize)]
-struct Session {
+pub(super) struct Session {
     machine: String,
     vm_id: String,
     linux_user: String,
@@ -199,7 +199,7 @@ struct Session {
 }
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
-struct SshLine {
+pub(super) struct SshLine {
     host: String,
     user: String,
 }
@@ -326,16 +326,66 @@ async fn mint(
         // Only a code this command knows, printed from its own table: nothing the answer
         // carries (a credential a proxy or a broken server echoed) reaches the terminal.
         let code = body.get("error").and_then(|e| e.get("code")).and_then(Value::as_str);
-        return Err(format!(
-            "the cmux API refused the client session: {status} {}",
-            known_code(code)
-        ));
+        let code = known_code(code);
+        // A credential that happens to spell a known code is still never printed.
+        let code = if code == credential { "" } else { code };
+        return Err(format!("the cmux API refused the client session: {status} {code}"));
     }
     let session: Session =
         serde_json::from_value(body.get("value").cloned().unwrap_or_default())
             .map_err(|_| "the cmux API's answer is not a client session".to_owned())?;
-    // The token goes only where the server said, and only over TLS (or to this machine).
-    secure_origin(&session.api_base_url)?;
+    checked_session(session, &command.machine, credential)
+}
+
+/// The session when it is for `machine`, every field this command prints is plain (no secret can
+/// hide in it), and the token goes only to the provider's API: https on freestyle.sh, or this
+/// machine (a fake in development), with no user, query or fragment.
+pub(super) fn checked_session(
+    session: Session,
+    machine: &str,
+    credential: &str,
+) -> Result<Session, String> {
+    let bad = |what: &str| Err(format!("the cmux API's answer has an unusable {what}"));
+    if session.machine != machine {
+        return bad("machine");
+    }
+    let plain = |v: &str, extra: &[u8], max: usize| {
+        !v.is_empty()
+            && v.len() <= max
+            && v.bytes().all(|b| b.is_ascii_alphanumeric() || extra.contains(&b))
+            && !v.contains(session.token.as_str())
+            && !v.contains(credential)
+    };
+    if session.token.is_empty() || !plain(&session.vm_id, b"-_", 64) {
+        return bad("VM id");
+    }
+    let user_ok =
+        session.linux_user.bytes().next().is_some_and(|b| b.is_ascii_lowercase() || b == b'_')
+            && plain(&session.linux_user, b"-_", 32)
+            && session.linux_user.bytes().all(|b| !b.is_ascii_uppercase());
+    if !user_ok {
+        return bad("Linux user");
+    }
+    if let Some(ssh) = &session.ssh {
+        let host_ok =
+            plain(&ssh.host, b"-.", 253) && ssh.host.bytes().all(|b| !b.is_ascii_uppercase());
+        if !host_ok || ssh.user != format!("{}+{}", session.vm_id, session.linux_user) {
+            return bad("SSH line");
+        }
+    }
+    let url = reqwest::Url::parse(&session.api_base_url)
+        .map_err(|_| "the cmux API's answer has an unusable provider API".to_owned())?;
+    let local = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
+    let freestyle = url.scheme() == "https"
+        && url.host_str().is_some_and(|h| h == "freestyle.sh" || h.ends_with(".freestyle.sh"));
+    let bare = url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && matches!(url.path(), "" | "/");
+    if !bare || !(freestyle || (local && matches!(url.scheme(), "http" | "https"))) {
+        return bad("provider API");
+    }
     Ok(session)
 }
 

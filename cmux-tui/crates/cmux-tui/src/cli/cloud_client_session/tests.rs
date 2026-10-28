@@ -219,3 +219,87 @@ fn an_unreadable_exec_answer_is_an_error_not_a_timeout() {
     let error = run(&command, &origin, "cred", OutputMode::Human, &mut Vec::new(), &mut Vec::new());
     assert_eq!(error, Err("the machine's answer is not readable".into()));
 }
+
+fn session(api_base_url: &str) -> Session {
+    serde_json::from_value(json!({ "machine": VM, "vm_id": "fsvm-1", "linux_user": "cmux", "token": TOKEN, "expires_at": 1_u64, "api_base_url": api_base_url, "ssh": { "host": "beta-ssh.freestyle.sh", "user": "fsvm-1+cmux" } })).unwrap()
+}
+
+#[test]
+fn the_token_goes_only_to_the_providers_api_for_the_asked_machine() {
+    for ok in [
+        "https://api.freestyle.sh",
+        "https://api.freestyle.sh/",
+        "http://127.0.0.1:9",
+        "https://localhost",
+    ] {
+        assert!(checked_session(session(ok), VM, "cred").is_ok(), "{ok}");
+    }
+    for bad in [
+        "https://evil.example",
+        "http://api.freestyle.sh",
+        "https://freestyle.sh.evil.example",
+        "https://user:pw@api.freestyle.sh",
+        "https://api.freestyle.sh/?x=1",
+        "https://api.freestyle.sh/#f",
+        "https://api.freestyle.sh/v5",
+        "http://10.0.0.1",
+    ] {
+        assert!(checked_session(session(bad), VM, "cred").is_err(), "{bad}");
+    }
+    // Another machine's session is refused.
+    assert!(
+        checked_session(session("https://api.freestyle.sh"), "vm_zzzzzzzzzzzzzzzzzzzz", "cred")
+            .is_err()
+    );
+}
+
+#[test]
+fn printed_fields_are_plain_and_never_carry_a_secret() {
+    let with = |key: &str, value: Value| {
+        let mut v = serde_json::to_value(json!({ "machine": VM, "vm_id": "fsvm-1", "linux_user": "cmux", "token": TOKEN, "expires_at": 1_u64, "api_base_url": "https://api.freestyle.sh", "ssh": { "host": "beta-ssh.freestyle.sh", "user": "fsvm-1+cmux" } })).unwrap();
+        v[key] = value;
+        serde_json::from_value::<Session>(v).unwrap()
+    };
+    assert!(checked_session(with("vm_id", json!(TOKEN)), VM, "cred").is_err());
+    assert!(checked_session(with("vm_id", json!("a b")), VM, "cred").is_err());
+    assert!(checked_session(with("vm_id", json!("credential-x")), VM, "credential-x").is_err());
+    assert!(checked_session(with("linux_user", json!("Root")), VM, "cred").is_err());
+    assert!(
+        checked_session(with("ssh", json!({ "host": TOKEN, "user": "fsvm-1+cmux" })), VM, "cred")
+            .is_err()
+    );
+    assert!(
+        checked_session(
+            with("ssh", json!({ "host": "beta-ssh.freestyle.sh", "user": TOKEN })),
+            VM,
+            "cred"
+        )
+        .is_err()
+    );
+    assert!(checked_session(with("ssh", Value::Null), VM, "cred").is_ok());
+    assert!(checked_session(with("token", json!("")), VM, "cred").is_err());
+}
+
+#[test]
+fn a_credential_that_spells_a_known_code_is_not_printed() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut chunk = [0_u8; 4096];
+        let _ = stream.read(&mut chunk);
+        let body = json!({ "ok": false, "error": { "code": "auth.forbidden" } }).to_string();
+        let _ = stream.write_all(format!("HTTP/1.1 403 Forbidden\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes());
+    });
+    let command = parse(&strings(&["exec", "--target", VM, "--", "true"])).unwrap();
+    let error = run(
+        &command,
+        &origin,
+        "auth.forbidden",
+        OutputMode::Human,
+        &mut Vec::new(),
+        &mut Vec::new(),
+    )
+    .unwrap_err();
+    assert!(!error.contains("auth.forbidden"), "{error}");
+}
