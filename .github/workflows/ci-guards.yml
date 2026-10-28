@@ -158,6 +158,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_receipt.py
 
+      - name: Validate fast checks install every locked Bun workspace
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_bun_workspaces.py
+
       - name: Validate guard failure attribution
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_guard_attribution.py
