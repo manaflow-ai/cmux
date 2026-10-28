@@ -231,7 +231,7 @@ final class KeyRouter: BrowserKeyRouting {
             return typesIntoFocusedView(event, in: window)
         }
         if newTabInputCoordinator.capture(event, in: window) { return held(event, by: .newTab) }
-        if creationInputCoordinator.capture(event, in: window) { return held(event, by: .creation) }
+        if creationInputCoordinator.capture(event, in: window) { return creationInputCoordinator.droppedLastKey || held(event, by: .creation) }
         if modes.contains(.launchPicture), launchPictureKeys.holdsUndecided(event, in: window, router: self) { return held(event, by: .launchPicture) }
         // Set again only when this key runs an action (debug.key reports it).
         lastInterception = nil

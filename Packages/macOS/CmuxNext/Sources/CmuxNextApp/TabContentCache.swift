@@ -188,6 +188,8 @@ final class TabContentCache {
     var onPageFocusRequest: ((String) -> Void)?
     /// A provisional split's terminal tab got its daemon surface on a daemon (``awaitConfirm(_:of:daemon:)``).
     var onTerminalConfirmed: ((TabModel, DaemonService) -> Void)?
+    /// A Ctrl-` stand-in's terminal became its daemon tab's (stand-in id, daemon tab id): the key holds follow it.
+    var onStandInAdopted: ((String, String) -> Void)?
     /// Every new page's chrome gets this (the page info bubble's registry router).
     var onBrowserEntryCreated: ((BrowserEntry) -> Void)?
     /// The Extensions (puzzle) menu handler of Chromium tab `key` (the App's action registry, `ExtensionMenuRouter`).
@@ -277,7 +279,7 @@ final class TabContentCache {
         let session = makeSession(io: io, tab: tab, daemon: daemon); session.traceCreate(create, surface: tab.surface.rawValue)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate, mainWork: mainWork)
-        if gate != nil { entry.standInTerminalID = tab.terminalID?.rawValue }
+        if gate != nil, let terminal = tab.terminalID { entry.standIn = .init(terminal: terminal, daemon: daemon) }
         terminals[tab.id] = entry
         // The delegate builds a machine-aware link filter. Install it only
         // after this session can be resolved back to its owning tab.

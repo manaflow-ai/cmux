@@ -234,14 +234,16 @@ final class CreationInputCoordinator {
         // A Chromium page window is a child of the shell, whose number keys the buffer.
         let shell = controller?.window ?? window
         guard let buffer = buffers[shell.windowNumber] else {
-            return kind == .content && keepsFromWindow(event, in: shell)
+            droppedLastKey = kind == .content && keepsFromWindow(event, in: shell)
+            return droppedLastKey
         }
+        droppedLastKey = false
         // A close key (Cmd-W) acts now on what it closes; held, it ran later with the other keys.
         let closes = controller.map { Self.closes(event, in: shell, controller: $0, router: router) } ?? false
         // A close of a pending creation of this hold (the focus it asked for is still on its way):
         // the keys typed for it go with it, the others keep waiting in order, and the close runs now
         // (TabLifecycle cancels the creation). Nothing is run into whatever has the focus first.
-        if closes, let controller, case .tab(let tab)? = controller.focus.state.expectation?.key, buffer.isCreating(tab: tab) {
+        if closes, let controller, let tab = Self.creatingTab(of: controller, in: buffer) {
             _ = buffer.cancel(tab: tab)
             scheduleFlush(in: shell)
             return false
@@ -265,6 +267,24 @@ final class CreationInputCoordinator {
         buffer.capture(event)
         return true
     }
+
+    /// The pending creation of `buffer` that `controller`'s focus asks for (its expectation) or already names (focus
+    /// landed on it before the reply): a close key then closes it, and the keys typed for it go with it.
+    private static func creatingTab(of controller: WindowController, in buffer: CreationInputBuffer) -> String? {
+        let focus = controller.focus.state
+        if case .tab(let tab)? = focus.expectation?.key, buffer.isCreating(tab: tab) { return tab }
+        if case .terminal(_, let tab) = focus.resolved, buffer.isCreating(tab: tab) { return tab }
+        return nil
+    }
+
+    /// Ctrl-` stand-in tab `key` became the daemon's tab `real` (`TabContentCache.adoptStandIn`): the holds that wait
+    /// for it follow it, so its view still takes the keys early and a close of it still drops them.
+    func standInAdopted(_ key: String, as real: String) {
+        for buffer in buffers.values { buffer.rekey(tab: key, to: real) }
+    }
+
+    /// The last key ``capture(_:in:)`` took was dropped (a keyboard claim kept it from the window), not held.
+    private(set) var droppedLastKey = false
 
     /// Whether a pending creation's early view (its terminal, which sends keys to the daemon by the terminal id the
     /// create chose, cx-wb5.78) is the focused terminal and has the keyboard: keys go to it now, not after the reply.

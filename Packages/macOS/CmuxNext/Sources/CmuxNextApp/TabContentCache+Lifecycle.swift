@@ -35,6 +35,7 @@ extension TabContentCache {
 
     /// `presenter` stopped showing `key`. Ignored when another presenter took it meanwhile (the tab moved there).
     func withdraw(_ key: String, by presenter: any SurfacePresenter) {
+        if adoptsWithdrawnStandIn(key) { return } // a Ctrl-` stand-in whose daemon tab exists: that tab's now
         apply(ledger.withdraw(key, by: ObjectIdentifier(presenter)))
     }
 
