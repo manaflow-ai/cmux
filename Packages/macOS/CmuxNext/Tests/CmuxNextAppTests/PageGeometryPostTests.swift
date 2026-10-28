@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextTestSupport
 import Testing
 
 /// Lawrence (2026-10-23): "making splits in general has laggy animation, even more laggy if there
@@ -10,7 +11,7 @@ import Testing
 /// mask and moved the page window of every page, the static ones too. A page posts only when what
 /// the fork reads (its screen rect, visible rect, clip inputs, occlusion holes) changed since the
 /// fork last read it.
-@MainActor @Suite struct PageGeometryPostTests {
+@MainActor @Suite(.closesItsWindows) struct PageGeometryPostTests {
     /// The app's window with two pages side by side, as the layout places them.
     struct TwoPages {
         /// A plain window: `ShellWindow.setFrame` keeps frames on the test screen, which can undo a move.
@@ -32,6 +33,9 @@ import Testing
             stage.addSubview(left)
             stage.addSubview(right)
         }
+
+        /// The window closes, and its overlay host's panel with it.
+        func close() { window.close() }
 
         /// What the fork's tracker does on a geometry update: it reads both.
         func forkReads() {
@@ -56,6 +60,7 @@ import Testing
 
     @Test func aPageUpdateWithNothingChangedPostsNothing() {
         let pages = TwoPages()
+        defer { pages.close() }
         pages.forkReads()
         let posted = pages.posts { pages.requestPageUpdate() }
         #expect(posted == 0, "nothing moved since the fork read the pages: \(posted) posts")
@@ -63,6 +68,7 @@ import Testing
 
     @Test func aPageUpdatePostsOnlyForThePageThatMoved() {
         let pages = TwoPages()
+        defer { pages.close() }
         pages.forkReads()
         // A motion frame: the left page's pane narrows, the right page stays.
         pages.left.frame = CGRect(x: 0, y: 0, width: 360, height: 500)
@@ -76,6 +82,7 @@ import Testing
     /// server's on a host with a display, and the screen rect is what changes either way.
     @Test func aMoveOfBothPagesReachesEveryPage() {
         let pages = TwoPages()
+        defer { pages.close() }
         pages.forkReads()
         pages.stage.setFrameOrigin(CGPoint(x: 40, y: 0))
         let posted = pages.posts { pages.requestPageUpdate() }
@@ -84,6 +91,7 @@ import Testing
 
     @Test func aHiddenPagePostsOnceNotOnEveryRequest() {
         let pages = TwoPages()
+        defer { pages.close() }
         pages.forkReads()
         // The fork hides the page window and reads nothing from a hidden host.
         pages.left.isHidden = true

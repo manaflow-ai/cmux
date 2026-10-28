@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextDesign
 @testable import CmuxNextPalette
 @testable import CmuxNextSettings
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ import Testing
 /// it once the write lands, and goes back when the write fails (cx-9ce.20). The row read the
 /// loaded settings, the write landed later, and nothing reloaded the page: the row kept its old
 /// value until something else reloaded it.
-@MainActor @Suite(.serialized) struct PaletteSettingWriteTests {
+@MainActor @Suite(.serialized, .closesItsWindows) struct PaletteSettingWriteTests {
     struct Harness {
         let settings: SettingsController
         let palette: PaletteController
@@ -25,7 +26,10 @@ import Testing
         var storedIsOn: Bool { descriptor.effectiveValue(in: settings.snapshot.root)?.boolValue ?? false }
 
         func tearDown() {
+            // The palette keeps its panel for the next open; this palette has none, so it closes.
+            let panel = palette.visiblePanel
             palette.hide()
+            panel?.close()
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
     }
