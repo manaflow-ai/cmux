@@ -2097,7 +2097,7 @@ fn codex_session_hook_settings_with_context(
     // trusted hash for every installed hook.  Preserve a hash only when it
     // still matches the current hooks.json identity: a user edit must keep
     // prompting for review instead of inheriting trust for the old command.
-    let expected_trust = codex_expected_trust_entries(&key_path, &root)?;
+    let expected_trust = codex_present_expected_trust_entries(&key_path, &root)?;
     let persisted_trust = codex_persisted_trust_hashes(
         &path.parent().context("codex hooks path has no parent")?.join(CODEX_CONFIG_FILE),
         &expected_trust,
@@ -2327,11 +2327,29 @@ fn codex_expected_trust_entries(
     key_hooks_path: &Path,
     root: &Map<String, Value>,
 ) -> anyhow::Result<BTreeMap<String, String>> {
+    let entries = codex_present_expected_trust_entries(key_hooks_path, root)?;
+    for event in CODEX_EVENTS {
+        if codex_owned_hook_entry(root, event).is_none() {
+            anyhow::bail!("installed codex hook for {event} is missing");
+        }
+    }
+    Ok(entries)
+}
+
+/// Trust entries for the cmux-owned hooks that are actually present in
+/// `root`. Session overrides can run while an install is partially complete,
+/// so unlike the strict verifier this intentionally skips missing events.
+fn codex_present_expected_trust_entries(
+    key_hooks_path: &Path,
+    root: &Map<String, Value>,
+) -> anyhow::Result<BTreeMap<String, String>> {
     let mut entries = BTreeMap::new();
     for event in CODEX_EVENTS {
         let label = codex_event_state_label(event)?;
-        let (group_index, handler_index, group, handler) = codex_owned_hook_entry(root, event)
-            .with_context(|| format!("installed codex hook for {event} is missing"))?;
+        let Some((group_index, handler_index, group, handler)) = codex_owned_hook_entry(root, event)
+        else {
+            continue;
+        };
         let key = format!("{}:{label}:{group_index}:{handler_index}", key_hooks_path.display());
         let command = if cfg!(windows) {
             handler
@@ -3272,6 +3290,37 @@ mod tests {
         let entry = parsed["hooks"]["state"][changed_key].as_table().unwrap();
         assert_eq!(entry.get("enabled").and_then(toml::Value::as_bool), Some(false));
         assert!(entry.get("trusted_hash").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_session_flags_still_inject_when_install_is_partial() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let plan = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&plan, &context).failed);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let mut hooks = read_json_object(&hooks_path).unwrap();
+        hooks
+            .get_mut("hooks")
+            .and_then(Value::as_object_mut)
+            .unwrap()
+            .remove("Stop");
+        atomic_write(
+            &hooks_path,
+            serde_json::to_vec(&Value::Object(hooks)).unwrap().as_slice(),
+            Some(0o600),
+        )
+        .unwrap();
+        let settings = codex_session_hook_settings_with_context(
+            Path::new("/tmp/cmux-tui.sock"),
+            "term_test",
+            Path::new("/tmp/cmux-tui"),
+            &context,
+        )
+        .unwrap();
+        assert!(settings.iter().any(|line| line.starts_with("hooks.Stop=")));
+        assert!(settings.iter().any(|line| line.starts_with("hooks.state=")));
     }
 
     #[test]
