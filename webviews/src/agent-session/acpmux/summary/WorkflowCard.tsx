@@ -14,10 +14,11 @@ import { tally, workflowOf } from "./foldWorkflows";
 import "./WorkflowCard.css";
 import "./workflowDots.css";
 
-let opener: ((id: string) => void) | undefined;
-let sideTabOpener: ((id: string) => void) | undefined;
+type WorkflowCardOpener = (id: string, opener?: HTMLElement) => void;
+let opener: WorkflowCardOpener | undefined;
+let sideTabOpener: WorkflowCardOpener | undefined;
 const listeners = new Set<() => void>();
-export function configureWorkflowCardOpen(open: ((id: string) => void) | undefined): void {
+export function configureWorkflowCardOpen(open: WorkflowCardOpener | undefined): void {
   if (open === opener) return;
   opener = open;
   for (const listener of listeners) listener();
@@ -29,7 +30,7 @@ const subscribe = (listener: () => void) => {
 const current = () => opener;
 
 /// Opens the same workflow in the chat's full-height side tab; absent when the Labs surface is off.
-export function configureWorkflowCardSideTab(open: ((id: string) => void) | undefined): void {
+export function configureWorkflowCardSideTab(open: WorkflowCardOpener | undefined): void {
   if (open === sideTabOpener) return;
   sideTabOpener = open;
   for (const listener of listeners) listener();
@@ -108,7 +109,7 @@ export function WorkflowCard({
         data-state={workflow.state}
         data-presentation={presentation}
         disabled={!open}
-        onClick={() => open?.(node.id)}
+        onClick={(event) => open?.(node.id, event.currentTarget)}
       >
         <span className="acpmux-workflow-card__head">
           <span className="acpmux-workflow-card__name">{workflow.title}</span>
@@ -172,7 +173,7 @@ export function WorkflowCard({
           className="acpmux-workflow-card__side-tab"
           aria-label={t("workflow.openInSideTab")}
           title={t("workflow.openInSideTab")}
-          onClick={() => openSideTab(node.id)}
+          onClick={(event) => openSideTab(node.id, event.currentTarget)}
         >
           <Icon name="tunable.sidebar" size={12} />
         </button>

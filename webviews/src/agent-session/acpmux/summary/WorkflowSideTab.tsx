@@ -128,8 +128,8 @@ function Table({ workflow, now }: { workflow: WorkflowSummary; now: number }) {
       <thead>
         <tr className="acpmux-workflow-side-tab__table-head">
           <th scope="col">{t("workflow.phases")}</th>
-          <th scope="col">{t("summary.subagents.active", { n: workflow.agents.length })}</th>
-          <th scope="col">State</th>
+          <th scope="col">{t("subagents.pill", { n: workflow.agents.length })}</th>
+          <th scope="col">{t("workflow.state")}</th>
         </tr>
       </thead>
       <tbody>
@@ -167,8 +167,8 @@ export function WorkflowSideTab({ workflow, onClose, onStop, layout = "timeline"
         <button
           type="button"
           className="acpmux-workflow-side-tab__close"
-          aria-label={t("chatInspector.close")}
-          title={t("chatInspector.close")}
+          aria-label={t("workflow.closeSideTab")}
+          title={t("workflow.closeSideTab")}
           onClick={onClose}
         >
           <Icon name="action.close" size={12} />

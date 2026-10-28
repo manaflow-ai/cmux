@@ -5279,15 +5279,32 @@ function AcpmuxPane() {
     [workflowLabsEnabled, workflowAdapter, freshAgents, shownSessionId],
   );
   const [workflowSideTabId, setWorkflowSideTabId] = useState<string>();
+  const workflowSideTabOpener = useRef<HTMLElement | undefined>(undefined);
+  const workflowSideTabFocusOnClose = useRef(false);
   const workflowSideTab = useMemo(
     () => (workflowLabsEnabled ? workflows.find((workflow) => workflow.id === workflowSideTabId) : undefined),
     [workflowLabsEnabled, workflows, workflowSideTabId],
   );
-  const openWorkflowSideTab = useCallback((id: string) => setWorkflowSideTabId(id), []);
-  const clearWorkflowSideTab = useCallback(() => setWorkflowSideTabId(undefined), []);
-  useEffect(() => {
+  const clearWorkflowSideTab = useCallback(() => {
+    workflowSideTabFocusOnClose.current = false;
+    workflowSideTabOpener.current = undefined;
     setWorkflowSideTabId(undefined);
-  }, [shownSessionId, workflowLabsEnabled]);
+  }, []);
+  const closeWorkflowSideTab = useCallback(() => {
+    workflowSideTabFocusOnClose.current = true;
+    setWorkflowSideTabId(undefined);
+  }, []);
+  useLayoutEffect(() => {
+    if (workflowSideTabId !== undefined) return;
+    if (!workflowSideTabFocusOnClose.current) return;
+    workflowSideTabFocusOnClose.current = false;
+    const opener = workflowSideTabOpener.current;
+    workflowSideTabOpener.current = undefined;
+    if (opener && document.contains(opener)) opener.focus();
+  }, [workflowSideTabId]);
+  useEffect(() => {
+    clearWorkflowSideTab();
+  }, [shownSessionId, workflowLabsEnabled, clearWorkflowSideTab]);
   const summaryHasContent = useMemo(
     () => chatHasSummaryContent(snapshot.rows) || chatSubsessions.rows.length > 0 || workflows.length > 0,
     [snapshot.rows, chatSubsessions, workflows],
@@ -6218,6 +6235,21 @@ function AcpmuxPane() {
     closeInspector();
     if (artifactCovers) setArtifact(undefined);
   }, [closeDiff, closeInspector, artifactCovers]);
+  const openWorkflowSideTab = useCallback(
+    (id: string, opener?: HTMLElement) => {
+      workflowSideTabOpener.current =
+        opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
+      closeInspector();
+      setDiffView(undefined);
+      setArtifact(undefined);
+      setImageView(undefined);
+      setHarnessesOpen(false);
+      setReplaying(undefined);
+      setNewTab(undefined);
+      setWorkflowSideTabId(id);
+    },
+    [closeInspector],
+  );
   // Labs: the chat's workflows head the Inspector's Background tasks (inspector/WorkflowTasks.tsx).
   const inspectorWorkflows = useMemo(
     () => (workflows.length > 0 ? { list: workflows, onStop: stopSubagent } : undefined),
@@ -6256,7 +6288,7 @@ function AcpmuxPane() {
     // A turn's diff in place, the event Inspector and, in a narrow pane, the side panel take the pane
     // in the chat's place, its header and the toggle with it: the panel steps aside while they show,
     // and opening it closes them.
-    covered: environmentCovered,
+    covered: environmentCovered || workflowSideTab !== undefined,
     onUncover: uncoverChat,
     onBeforeOpen: clearWorkflowSideTab,
     beside: artifact?.opened,
@@ -6272,7 +6304,7 @@ function AcpmuxPane() {
   useEffect(() => {
     const openCard = revealInspector
       ? () => {
-          setWorkflowSideTabId(undefined);
+          clearWorkflowSideTab();
           revealInspector("tasks");
         }
       : workflowLabsEnabled
@@ -6280,7 +6312,7 @@ function AcpmuxPane() {
         : undefined;
     configureWorkflowCardOpen(openCard);
     return () => configureWorkflowCardOpen(undefined);
-  }, [openWorkflowSideTab, revealInspector, workflowLabsEnabled]);
+  }, [clearWorkflowSideTab, openWorkflowSideTab, revealInspector, workflowLabsEnabled]);
   useEffect(() => {
     configureWorkflowCardSideTab(workflowLabsEnabled ? openWorkflowSideTab : undefined);
     return () => configureWorkflowCardSideTab(undefined);
@@ -8554,6 +8586,11 @@ function AcpmuxPane() {
     (sessionSelection?.state === "pending" || !snapshot.sessionId) &&
     snapshot.rows.length === 0 &&
     (handshaken || hostError === undefined);
+  useEffect(() => {
+    if (inspectorOpen || diffView || artifact || imageView || harnessesOpen || showNewTab || replaying) {
+      clearWorkflowSideTab();
+    }
+  }, [artifact, diffView, harnessesOpen, imageView, inspectorOpen, replaying, showNewTab, clearWorkflowSideTab]);
   const commandSession = showNewTab ? switchView.intent?.sessionId : undefined;
   const commandRevision = clientSnapshot.sessions.find((session) => session.sessionId === commandSession);
   const readSessionCommands = useCallback(
@@ -10369,15 +10406,18 @@ function AcpmuxPane() {
             onClose={() => setImageView(undefined)}
           />
         )}
-        {workflowSideTab && (
-          <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-            <WorkflowSideTab
-              workflow={workflowSideTab}
-              onClose={() => setWorkflowSideTabId(undefined)}
-              onStop={stopSubagent}
-            />
-          </SubagentClockContext.Provider>
-        )}
+        {workflowSideTab &&
+          !harnessesOpen &&
+          !showNewTab &&
+          !replaying &&
+          !inspectorOpen &&
+          !diffView &&
+          !artifact &&
+          !imageView && (
+            <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+              <WorkflowSideTab workflow={workflowSideTab} onClose={closeWorkflowSideTab} onStop={stopSubagent} />
+            </SubagentClockContext.Provider>
+          )}
       </section>
     </ShortcutsContext.Provider>
   );

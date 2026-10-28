@@ -18,6 +18,7 @@
 @media (prefers-reduced-transparency: reduce) {
   .acpmux-workflow-side-tab { background: var(--cmux-surface-solid, var(--agent-page-bg)); -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
+:root[data-reduce-transparency] .acpmux-workflow-side-tab { background: var(--cmux-surface-solid, var(--agent-page-bg)); -webkit-backdrop-filter: none; backdrop-filter: none; }
 .acpmux-workflow-side-tab__head { flex: none; display: flex; align-items: center; gap: var(--ds-space-2); height: calc(var(--ds-control-primary) + var(--ds-space-1)); padding: 0 var(--ds-space-2) 0 calc(var(--ds-space-3) + 2px); border-bottom: var(--cmux-hairline, .5px) solid var(--agent-border); }
 .acpmux-workflow-side-tab__title { min-width: 0; display: flex; align-items: center; gap: calc(var(--ds-space-1) + 2px); color: var(--agent-muted); font-size: var(--text-detail); }
 .acpmux-workflow-side-tab__title strong { min-width: 0; overflow: hidden; color: var(--agent-text); font-size: var(--text-control); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
