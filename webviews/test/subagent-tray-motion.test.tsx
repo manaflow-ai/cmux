@@ -334,6 +334,25 @@ describe("subagent tray motion edges", () => {
     await act(async () => root.unmount());
   });
 
+  test("a tray leaving mid-fold keeps the fold's drawn height and fade on its copy", async () => {
+    motion(true);
+    const shown = { current: "chat-a" as string | undefined };
+    const { root } = mount();
+    await draw(root, shown, [item("A"), item("B")], false);
+    const fold = card()!.querySelector<HTMLElement>(".acpmux-running-tray__fold")!;
+    // Midway through a collapse: useFold clips the fold, and its drawn box is 37px at 40% opacity.
+    fold.style.overflow = "hidden";
+    fold.style.opacity = "0.4";
+    Object.defineProperty(fold, "offsetHeight", { configurable: true, get: () => 37 });
+    await draw(root, shown, [], false);
+    const copy = host.querySelector<HTMLElement>(`.${TRAY_GHOST} .acpmux-running-tray__fold`)!;
+    expect(copy.style.height).toBe("37px");
+    expect(copy.style.overflow).toBe("hidden");
+    expect(copy.style.opacity).toBe("0.4");
+    ended(host.querySelector(`.${TRAY_GHOST}`)!);
+    await act(async () => root.unmount());
+  });
+
   test("animationcancel settles the entrance, the copy and a tick, with their listeners", async () => {
     motion(true);
     const shown = { current: "chat-a" as string | undefined };

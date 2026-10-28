@@ -84,6 +84,17 @@ export function playTrayExit(card: HTMLElement): void {
     copy.style.opacity = style.opacity;
     if (style.translate && style.translate !== "none") copy.style.translate = style.translate;
   });
+  // A fold still opening or closing (useFold clips it while it plays) leaves at its drawn height and
+  // fade: the fold's own animation is cancelled as the card goes, and the copy would show it whole.
+  const FOLD = ".acpmux-running-tray__fold";
+  const fold = card.querySelector<HTMLElement>(FOLD);
+  const foldCopy = ghost.querySelector<HTMLElement>(FOLD);
+  if (fold && foldCopy && fold.style.overflow === "hidden") {
+    foldCopy.style.height = `${fold.offsetHeight}px`;
+    foldCopy.style.overflow = "hidden";
+    const faded = view?.getComputedStyle(fold).opacity;
+    if (faded) foldCopy.style.opacity = faded;
+  }
   ghost.classList.add(TRAY_GHOST);
   ghost.setAttribute("aria-hidden", "true");
   ghost.setAttribute("inert", "");
