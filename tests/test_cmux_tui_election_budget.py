@@ -11,7 +11,8 @@ not promote it.
 
 This runs the inspect step on a scratch directory with a fake curl, git, claim
 script and tree key script, and checks that a slow or hanging election stops at
-its budget, keeps the lowest owner it found, and otherwise lets this run build.
+its deadline (ELECTION_DEADLINE_SECONDS into the step), keeps the lowest owner
+it found, and otherwise lets this run build.
 """
 
 import os
@@ -62,7 +63,9 @@ done
 exit 0
 """
 
-FAKE_TREE_KEY = r"""import os, sys
+FAKE_TREE_KEY = r"""import os, sys, time
+if sys.argv[3] != os.environ["SHA"]:
+    time.sleep(float(os.environ.get("FAKE_KEY_SECONDS") or 0))
 print(os.environ["FAKE_KEY"] if sys.argv[2] == "v2" else os.environ["FAKE_LEGACY_KEY"])
 """
 
@@ -95,7 +98,7 @@ def write(path, body, executable=True):
         os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR)
 
 
-def elect(runs, fetch_seconds, budget, limit=40):
+def elect(runs, fetch_seconds, deadline, key_seconds=0, limit=40):
     """Runs the inspect step; returns (returncode or None on a hang, outputs, stdout, fetches, seconds)."""
     with tempfile.TemporaryDirectory() as tmp:
         bin_dir = os.path.join(tmp, "bin")
@@ -113,8 +116,9 @@ def elect(runs, fetch_seconds, budget, limit=40):
                    GITHUB_RUN_ID=RUN_ID, GH_TOKEN="x", STALE="false", DAEMON_POOL="blacksmith-32vcpu-ubuntu-2404",
                    GITHUB_OUTPUT=output, RUNNER_TEMP=tmp, FAKE_LOG=log, FAKE_KEY=KEY, FAKE_LEGACY_KEY=LEGACY_KEY,
                    FAKE_RUNS=",".join(f"{run_id}:{sha}" for run_id, sha in runs),
-                   FAKE_FETCH_SECONDS=str(fetch_seconds))
-        env["ELECTION_BUDGET_SECONDS"] = str(budget if budget is not None else inspect_step()["env"]["ELECTION_BUDGET_SECONDS"])
+                   FAKE_FETCH_SECONDS=str(fetch_seconds), FAKE_KEY_SECONDS=str(key_seconds))
+        env["ELECTION_DEADLINE_SECONDS"] = str(deadline if deadline is not None
+                                               else inspect_step()["env"].get("ELECTION_DEADLINE_SECONDS", 200))
         start = time.monotonic()
         proc = subprocess.Popen(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", inspect_step()["run"]],
                                 cwd=tmp, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -135,44 +139,51 @@ def elect(runs, fetch_seconds, budget, limit=40):
 def main():
     job = preflight_job()
     step = inspect_step()
-    budget = step.get("env", {}).get("ELECTION_BUDGET_SECONDS")
-    _check(budget is not None and str(budget).isdigit(),
-           f"the inspect step sets the election's time budget (ELECTION_BUDGET_SECONDS={budget!r})")
-    if budget is not None and str(budget).isdigit():
-        # The claim authority alone may take about 50 s, and the steps before
-        # and after the election need the rest.
-        _check(int(budget) + 50 + 120 <= int(job["timeout-minutes"]) * 60,
-               f"the election budget ({budget} s) leaves the 6 minute job time for the claim and the other steps")
+    deadline = step.get("env", {}).get("ELECTION_DEADLINE_SECONDS")
+    _check(deadline is not None and str(deadline).isdigit(),
+           f"the inspect step sets the election's deadline (ELECTION_DEADLINE_SECONDS={deadline!r})")
+    if deadline is not None and str(deadline).isdigit():
+        # The steps before inspect (checkout, the read token's mint, bounded at
+        # a minute, and the superseded check) and the same-SHA lookup after the
+        # election (15 s) need the rest of the job time.
+        _check(int(deadline) <= int(job["timeout-minutes"]) * 60 - 150,
+               f"the election deadline ({deadline} s into the step) leaves 150 s of the job time for the rest")
 
     # Fast fetches: the lowest active run of the key owns it, as before.
     runs = [(480, "a" * 40), (420, "b" * 40), (450, "c" * 40)]
-    code, out, stdout, fetches, _ = elect(runs, fetch_seconds=0, budget=None)
-    _check(code == 0 and out.get("owner_run_id") == "420" and "stopped at its" not in stdout,
+    code, out, stdout, fetches, _ = elect(runs, fetch_seconds=0, deadline=None)
+    _check(code == 0 and out.get("owner_run_id") == "420" and "stopped at its deadline" not in stdout and len(fetches) == 3,
            f"a quick election elects the lowest active run of the key ({code}, {out.get('owner_run_id')!r}, {stdout[-400:]!r})")
 
-    # Slow fetches: the election stops at its budget and keeps the owner it found.
+    # Slow fetches: the election stops at its deadline and keeps the owner it found.
     runs = [(417 - i, f"{i:x}" * 40) for i in range(10)]
-    code, out, stdout, fetches, seconds = elect(runs, fetch_seconds=1, budget=3)
-    _check(code == 0 and "::warning::the owner election stopped at its 3 s budget" in stdout,
-           f"a slow election stops at its budget and says so ({code}, {seconds:.1f} s, {stdout[-400:]!r})")
+    code, out, stdout, fetches, seconds = elect(runs, fetch_seconds=1, deadline=3)
+    _check(code == 0 and seconds < 5.5 and "::warning::the owner election stopped at its deadline, 3 s into this step" in stdout,
+           f"a slow election stops at its deadline and says so ({code}, {seconds:.1f} s, {stdout[-400:]!r})")
     fetched = [str(run_id) for run_id, sha in runs if f"fetch {sha}" in fetches]
     _check(0 < len(fetches) < len(runs) and out.get("owner_run_id") in fetched
            and int(out.get("owner_run_id") or 0) <= int(fetched[0]),
            f"it keeps an owner among the runs it examined ({out.get('owner_run_id')!r}, fetched {fetched})")
 
-    # A fetch that hangs: the per-fetch bound ends it at the budget, and with no
-    # owner found this run owns the key and builds (a duplicate build is fine).
-    code, out, stdout, fetches, seconds = elect([(410, "d" * 40), (405, "e" * 40)], fetch_seconds=600, budget=3)
-    _check(code == 0 and seconds < 20,
-           f"a hanging fetch ends inside the budget instead of the job timeout ({code}, {seconds:.1f} s)")
-    _check(code == 0 and out.get("owner_run_id") == "" and out.get("run_macos") == "true"
-           and "::warning::the owner election stopped at its 3 s budget" in stdout,
-           f"with no owner found in the budget this run builds the key ({out.get('owner_run_id')!r}, {out.get('run_macos')!r}, {stdout[-400:]!r})")
+    # A fetch or a key read that hangs ends at the deadline, and with no owner
+    # found this run owns the key and builds (a duplicate build is fine).
+    for name, slow in (("fetch", {"fetch_seconds": 600}), ("tree key read", {"fetch_seconds": 0, "key_seconds": 600})):
+        code, out, stdout, fetches, seconds = elect([(410, "d" * 40), (405, "e" * 40)], deadline=3, **slow)
+        _check(code == 0 and seconds < 5.5,
+               f"a hanging {name} ends at the deadline instead of the job timeout ({code}, {seconds:.1f} s)")
+        _check(code == 0 and out.get("owner_run_id") == "" and out.get("run_macos") == "true"
+               and "::warning::the owner election stopped at its deadline" in stdout and "no owner found" in stdout,
+               f"with no owner found by the deadline after a hanging {name}, this run builds the key ({out.get('owner_run_id')!r}, {out.get('run_macos')!r}, {stdout[-400:]!r})")
+
+    # A step that reaches the election past its deadline examines no candidate.
+    code, out, stdout, fetches, seconds = elect([(410, "d" * 40)], fetch_seconds=0, deadline=0)
+    _check(code == 0 and not fetches and out.get("owner_run_id") == "" and "after 0 candidate runs" in stdout,
+           f"an election that starts past its deadline fetches nothing and this run builds ({fetches}, {stdout[-300:]!r})")
 
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")
         return 1
-    print("PASS: the fallback owner election ends inside its budget, with this run building")
+    print("PASS: the fallback owner election ends at its deadline, with this run building")
     return 0
 
 
