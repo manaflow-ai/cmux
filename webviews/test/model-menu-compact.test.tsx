@@ -783,11 +783,11 @@ test.each([{ turnCount: 0 }, { turnCount: 2 }, { folderProfile: true, currentFol
     await open();
     expect(menu()!.textContent).not.toMatch(/Model\s*·\s*this session/i);
     expect(menu()!.querySelector(".ui-menu-group-label")).toBeNull();
-    await act(async () => {
-      dom.window.dispatchEvent(
-        new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
-      );
-    });
+    const more = [...menu()!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+      item.textContent?.startsWith("More models"),
+    );
+    expect(more).toBeDefined();
+    await act(async () => more!.click());
     await settle();
     // Cmd-Ctrl-M deliberately keeps the same compact menu mounted as a pointer click.
     expect(menu()).not.toBeNull();

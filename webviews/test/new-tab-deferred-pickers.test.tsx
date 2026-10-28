@@ -261,10 +261,15 @@ async function mountNewTab({
     );
   });
   const pickCombo = async (query: string, label: string) => {
-    // Cmd-Ctrl-M opens the full picker; typing a query chooses the model, effort and speed together.
+    // The button and Cmd-Ctrl-M share the compact picker; More models opens the searchable picker.
     await act(async () => {
       dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true }));
     });
+    const compactMore = [...host.querySelectorAll<HTMLElement>('.acpmux-quick-menu [role="menuitem"]')].find((item) =>
+      item.textContent?.startsWith("More models"),
+    );
+    expect(compactMore).not.toBeUndefined();
+    await act(async () => compactMore!.click());
     const search = host.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]');
     expect(search).not.toBeNull();
     const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
