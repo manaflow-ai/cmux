@@ -312,8 +312,7 @@ impl Controller {
         {
             Ok(node) => node,
             Err(error) => {
-                self.clear_node("error");
-                self.update(|snapshot| snapshot.error = Some(error.clone()));
+                self.start_failed(generation, &error);
                 return Err(error);
             }
         };
@@ -343,6 +342,17 @@ impl Controller {
         // A watch that already ended has cleared the node: this may be the last handle.
         release_node(node);
         Ok(self.snapshot())
+    }
+
+    fn start_failed(&self, generation: u64, error: &str) {
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if inner.generation != generation || self.stopping.load(Ordering::Acquire) {
+            return;
+        }
+        inner.starting = false;
+        inner.snapshot =
+            Snapshot { state: "error", error: Some(error.to_owned()), ..Snapshot::default() };
+        self.publish_locked(&inner.snapshot);
     }
 
     async fn login_detached(self: Arc<Self>) -> Result<Snapshot, String> {
@@ -533,6 +543,18 @@ fn clear_opt_in(path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tailnet_late_start_failure_cannot_replace_shutdown_state() {
+        let temporary = tempfile::tempdir().unwrap();
+        let controller = Controller::new(temporary.path(), "test");
+        let generation = controller.inner.lock().unwrap().generation;
+        controller.start_failed(generation, "start failed");
+        assert_eq!(controller.snapshot().state, "error");
+        controller.begin_shutdown();
+        controller.start_failed(generation, "late start failed");
+        assert_eq!(controller.snapshot().state, "stopped");
+    }
 
     #[tokio::test]
     async fn tailnet_shutdown_fences_a_queued_start_before_node_creation() {
