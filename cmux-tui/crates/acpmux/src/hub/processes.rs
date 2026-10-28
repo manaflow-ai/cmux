@@ -99,6 +99,9 @@ pub(super) struct ProcessTable {
     processes: Vec<Process>,
     /// Processes a person asked to stop: their end is the person's.
     stopping: std::collections::HashSet<String>,
+    /// The rows are cold in memory. A session-specific read or a global list
+    /// reads them back from the event store before returning them.
+    evicted: bool,
 }
 
 impl ProcessTable {
@@ -250,6 +253,14 @@ impl ProcessTable {
         }
         lost
     }
+
+    /// Drops the in-memory rows while retaining the fact that this table has
+    /// been loaded. The event log remains the source of truth.
+    fn evict(&mut self) {
+        self.processes.clear();
+        self.stopping.clear();
+        self.evicted = true;
+    }
 }
 
 /// Takes the output file a shell's session update names
@@ -312,10 +323,30 @@ impl Hub {
     /// The session's table, read from its whole log the first time.
     fn process_table<'a>(&self, session: &'a Session) -> std::sync::MutexGuard<'a, ProcessTable> {
         let mut table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
-        if !table.loaded {
+        if !table.loaded || table.evicted {
             *table = self.read_processes(session);
         }
         table
+    }
+
+    /// A closed session no longer needs its completed process rows resident.
+    /// The child and attachment checks keep an in-flight harness or a client
+    /// from racing the cold eviction; late records rehydrate the table.
+    pub(super) fn evict_processes_if_cold(&self, session: &Session) {
+        if session.status() != SessionStatus::Closed
+            || session.attached.load(std::sync::atomic::Ordering::SeqCst) != 0
+            || session.child.try_lock().map_or(true, |child| child.is_some())
+        {
+            return;
+        }
+        let mut table = session.processes.lock().unwrap_or_else(|e| e.into_inner());
+        if !table.loaded
+            || table.evicted
+            || table.processes.iter().any(|p| p.state == ProcessState::Running)
+        {
+            return;
+        }
+        table.evict();
     }
 
     /// The session's processes as its log says: each shell's updates, then
@@ -401,6 +432,7 @@ impl Hub {
         if let Some(process) = changed {
             self.append(session, "mux", "process_update", json!({"process": process}));
         }
+        self.evict_processes_if_cold(session);
     }
 
     /// The harness is gone: every process still running is `lost`.
@@ -409,6 +441,7 @@ impl Hub {
         for process in lost {
             self.append(session, "mux", "process_update", json!({"process": process}));
         }
+        self.evict_processes_if_cold(session);
     }
 
     /// A process still runs in the background: the chat is not idle
@@ -436,7 +469,14 @@ impl Hub {
                 .iter()
                 .flat_map(|s| {
                     let table = s.processes.lock().unwrap_or_else(|e| e.into_inner());
-                    if table.loaded { table.values() } else { Vec::new() }
+                    if !table.loaded {
+                        return Vec::new();
+                    }
+                    if table.evicted {
+                        drop(table);
+                        return self.read_processes(s).values();
+                    }
+                    table.values()
                 })
                 .collect(),
         };

@@ -1405,6 +1405,7 @@ impl Hub {
             // A sub-session that starts or ends a turn, or closes, changes its parent's work.
             self.refresh_parent_work_below(session);
             if status == SessionStatus::Closed {
+                self.evict_processes_if_cold(session);
                 self.retention_wake();
             }
         }
