@@ -118,11 +118,18 @@ extension ChiefService {
     /// - Throws: ``ChiefControlFailure/unavailable(_:)`` when the Chief home could not be opened.
     func controlOwner() async throws -> ChiefConversationOwner {
         let load = controlOwnerLoad()
+        let generation = startGeneration
+        let owner: ChiefConversationOwner
         do {
-            return try await load.task.value
+            owner = try await load.task.value
         } catch {
             throw ChiefControlFailure.unavailable(startFailure ?? load.failure)
         }
+        // Chief was turned off while the load ran: that owner is shutting down.
+        guard startGeneration == generation, ChiefSettings.isEnabled else {
+            throw ChiefControlFailure.unavailable(ChiefStrings.unavailable)
+        }
+        return owner
     }
 
     /// Starts the Chief and returns its owner's load, for a caller off the

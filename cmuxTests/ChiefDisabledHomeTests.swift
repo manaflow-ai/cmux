@@ -1,4 +1,5 @@
 import AppKit
+import CmuxHomeCore
 import CmuxSettings
 import Foundation
 import Testing
@@ -129,5 +130,56 @@ struct ChiefDisabledHomeTests {
         #expect(home.panels[homePane.id] == nil)
         #expect(home.panels[terminal.id] != nil)
         #expect(!home.holdsChiefHomePane)
+    }
+
+    @Test func removeHomeKeepsAHomeWorkspaceWithDockPanels() throws {
+        let setting = ChiefEnabledOverride(true)
+        defer { setting.restore() }
+        let manager = TabManager()
+        let home = try #require(ChiefHomeNavigation.ensureHome(in: manager))
+        let dock = try #require(home.dockSplit)
+        let dockPane = try #require(dock.bonsplitController.allPaneIds.first)
+        let dockPanelID = try #require(dock.newSurface(kind: .terminal, inPane: dockPane, focus: false))
+
+        ChiefSettings.setEnabled(false)
+        ChiefHomeNavigation.removeHome(in: manager)
+        #expect(manager.tabs.contains { $0.id == home.id })
+        #expect(!home.holdsChiefHomePane)
+        #expect(home._dockSplit?.panels[dockPanelID] != nil)
+    }
+
+    @Test func removeHomeDoesNotHideConversations() throws {
+        let setting = ChiefEnabledOverride(true)
+        defer { setting.restore() }
+        let key = ChiefHomeNavigation.hiddenConversationsKey
+        let originalHidden = UserDefaults.standard.object(forKey: key)
+        defer { UserDefaults.standard.set(originalHidden, forKey: key) }
+        UserDefaults.standard.removeObject(forKey: key)
+        let manager = TabManager()
+        let home = try #require(ChiefHomeNavigation.ensureHome(in: manager))
+        let paneId = try #require(home.bonsplitController.focusedPaneId)
+        _ = try #require(home.newChiefSurface(inPane: paneId, conversationID: ConversationID("conv_keep"), focus: false))
+
+        ChiefSettings.setEnabled(false)
+        ChiefHomeNavigation.removeHome(in: manager)
+        #expect(!manager.tabs.contains { $0.id == home.id })
+        #expect(UserDefaults.standard.stringArray(forKey: key) == nil)
+    }
+
+    @Test func removeHomeLeavesALaterUserPinAlone() throws {
+        let setting = ChiefEnabledOverride(true)
+        defer { setting.restore() }
+        let manager = TabManager()
+        let home = try #require(ChiefHomeNavigation.ensureHome(in: manager))
+        let groupId = try #require(home.groupId)
+        let member = try #require(manager.tabs.first { !$0.holdsChiefHomePane })
+        manager.addWorkspaceToGroup(workspaceId: member.id, groupId: groupId)
+
+        ChiefSettings.setEnabled(false)
+        ChiefHomeNavigation.removeHome(in: manager)
+        #expect(manager.workspaceGroups.first { $0.id == groupId }?.isPinned == false)
+        #expect(manager.setWorkspaceGroupPinned(groupId: groupId, isPinned: true))
+        ChiefHomeNavigation.removeHome(in: manager)
+        #expect(manager.workspaceGroups.first { $0.id == groupId }?.isPinned == true)
     }
 }

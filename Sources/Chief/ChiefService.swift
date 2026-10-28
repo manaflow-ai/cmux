@@ -51,7 +51,7 @@ final class ChiefService {
     @ObservationIgnored private var started = false
     /// Bumped by each ``start()`` and ``stopBecauseDisabled()``; an owner load
     /// that finishes after a stop sees a newer value and shuts itself down.
-    @ObservationIgnored private var startGeneration = 0
+    @ObservationIgnored private(set) var startGeneration = 0
     /// The list's preview lines by conversation (ChiefService+Previews.swift), with the row state
     /// each was read at.
     @ObservationIgnored var previewLines: [ConversationID: ChiefPreviewEntry] = [:]

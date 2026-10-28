@@ -98,27 +98,44 @@ struct ChiefHomeNavigation {
         return home
     }
 
-    /// With `chief.enabled` off, removes Chief Home and unpins the Home group,
-    /// so a disabled Chief leaves nothing pinned in the sidebar. A Home
-    /// workspace holding only Chief panes closes (a window whose only
+    /// With `chief.enabled` off, removes Chief Home and unpins its group, so
+    /// a disabled Chief leaves nothing pinned in the sidebar. A Home workspace
+    /// holding only Chief panes and an empty Dock closes (a window whose only
     /// workspace it is gets a fresh workspace first); one the user added other
-    /// panes to keeps them and loses only its Home pane.
+    /// panes or Dock panels to keeps them and loses only its Home pane. The
+    /// group is unpinned only alongside a removal, so a later pin by the user
+    /// stays. Automatic removal never hides conversations from the Home list.
     static func removeHome(in manager: TabManager) {
         guard !ChiefSettings.isEnabled, !manager.isFinalizedForWindowClose else { return }
+        guard manager.tabs.contains(where: \.holdsChiefHomePane) else { return }
+        let hiddenBefore = UserDefaults.standard.object(forKey: hiddenConversationsKey)
+        defer { UserDefaults.standard.set(hiddenBefore, forKey: hiddenConversationsKey) }
+        var removedGroupIDs: Set<UUID> = []
         for home in manager.tabs where home.holdsChiefHomePane {
-            if home.panels.values.allSatisfy({ $0 is ChiefPanel }) {
+            let groupID = home.groupId
+            let holdsOnlyChief = home.panels.values.allSatisfy { $0 is ChiefPanel }
+                && home._dockSplit?.panels.isEmpty != false
+            if holdsOnlyChief {
                 if manager.tabs.count == 1 {
                     guard manager.addWorkspaceIfActive(select: true) != nil else { continue }
                 }
                 manager.closeWorkspace(home, recordHistory: false)
             } else {
                 let homePanes = home.panels.values.compactMap { $0 as? ChiefPanel }.filter(\.isHome)
+                // Only the Dock holds user work: keep the main area non-empty so
+                // removing Home closes neither the workspace nor its Dock.
+                if home.panels.values.allSatisfy({ $0 is ChiefPanel }),
+                   let pane = home.bonsplitController.focusedPaneId {
+                    _ = home.newTerminalSurface(inPane: pane, focus: false)
+                }
                 home.withClosedPanelHistorySuppressed {
                     for pane in homePanes { _ = home.closePanel(pane.id, force: true) }
                 }
             }
+            if let groupID { removedGroupIDs.insert(groupID) }
         }
-        for group in manager.workspaceGroups where group.externalID == homeGroupExternalID && group.isPinned {
+        for group in manager.workspaceGroups
+        where removedGroupIDs.contains(group.id) && group.externalID == homeGroupExternalID && group.isPinned {
             manager.setWorkspaceGroupPinned(groupId: group.id, isPinned: false)
         }
     }
