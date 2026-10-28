@@ -73,7 +73,7 @@ pub enum Kind {
 #[serde(rename_all = "camelCase")]
 pub struct InMessage {
     pub message_id: String,
-    #[serde(default)]
+    /// Required: a message without one is malformed, never taken for a prompt.
     pub kind: Kind,
     /// A control message's request: `start`, `resume` or `stop`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -153,9 +153,12 @@ pub trait MeshHub: Send + Sync {
     fn ack<'a>(&'a self, message_id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>>;
 }
 
-/// What runs a control message (start, resume or stop a session). The daemon applies its own
-/// rules for that origin, exactly as for a peer's request; the hub grants nothing. None leaves
-/// the message unacked (its lease ends and it comes back).
+/// What runs a control message (start, resume or stop a session). The hub grants nothing: a hook
+/// acts only through requests on a connection of `Origin::Peer` (`server::mesh_relay::
+/// relay_connection`, proven as `ConnAuth::PeerToken`), so the daemon holds a relayed control to
+/// exactly a peer daemon's rules, and never calls a `Hub` method that skips them. The message has
+/// already been checked to be for this daemon (`Hub::mesh_for_here`). None leaves the message
+/// unacked (its lease ends and it comes back).
 pub trait ControlHook: Send + Sync {
     fn control<'a>(
         &'a self,
@@ -188,16 +191,16 @@ pub struct Backoff {
 
 impl Backoff {
     pub fn new(first: Duration, cap: Duration) -> Self {
-        Self { first, cap, next: first }
+        Self { first, cap, next: first.min(cap) }
     }
 
     pub fn reset(&mut self) {
-        self.next = self.first;
+        self.next = self.first.min(self.cap);
     }
 
     pub fn next_wait(&mut self) -> Duration {
-        let wait = self.next;
-        self.next = (self.next * 2).min(self.cap);
+        let wait = self.next.min(self.cap);
+        self.next = wait.checked_mul(2).unwrap_or(self.cap).min(self.cap);
         let fifth = wait.as_millis() as u64 / 5;
         let jitter = if fifth == 0 { 0 } else { uuid::Uuid::now_v7().as_u128() as u64 % fifth };
         wait.saturating_sub(Duration::from_millis(jitter))
@@ -223,6 +226,8 @@ mod tests {
         assert_eq!((message.kind, message.mode), (Kind::Prompt, Mode::Now));
         assert_eq!(message.to.name.as_deref(), Some("dep-land"));
         assert_eq!(message.from.session_id, None);
+        let kindless = json!({"messageId": "m", "body": "hi"});
+        assert!(serde_json::from_value::<InMessage>(kindless).is_err(), "no kind is no prompt");
         let kind = |k: &str| serde_json::from_value::<Kind>(json!(k)).unwrap();
         assert_eq!((kind("control"), kind("later")), (Kind::Control, Kind::Unknown));
         let ack = serde_json::to_value(Ack::delivered("m-1", None)).unwrap();
@@ -244,5 +249,11 @@ mod tests {
         }
         b.reset();
         assert!(b.next_wait() <= Duration::from_secs(1));
+        // The cap bounds the first wait too, and a huge one never overflows.
+        let mut b = Backoff::new(Duration::from_secs(10), Duration::from_secs(1));
+        assert!(b.next_wait() <= Duration::from_secs(1));
+        let mut b = Backoff::new(Duration::MAX, Duration::MAX);
+        b.next_wait();
+        assert!(b.next_wait() <= Duration::MAX);
     }
 }
