@@ -386,7 +386,10 @@ const driverResult = (config: CloudConfig, state: CloudState, params: unknown, c
   const machine = machineRow(ctx.rows, l.machine)
   const pending = withoutPending(state, r.key)
   const retainedCapture = l.transport === "vm-api" && !r.ok && (l.op === "snapshot_delete" || (l.op === "snapshot" && r.snapshot_outcome === undefined))
-  if (retainedCapture) {
+  // Disabling a platform resume must retain the compensation beyond MAX_ATTEMPTS: an unknown
+  // start outcome can still be running. Only a confirmed pause (or gone VM) settles its ledger.
+  const retainedPlatformPause = !r.ok && l.op === "start" && r.error?.code === "cloud.platform.pause_pending" && machine?.row.platform === true && l.key.startsWith(ledgerKey(`${PLATFORM_IDENTITY_PREFIX}${machine.row.creator}`, ""))
+  if (retainedCapture || retainedPlatformPause) {
     const attempts = l.attempts + 1
     const error = { code: r.error?.code ?? "cloud.provider.unavailable", message: r.error?.message ?? "snapshot capture is still being confirmed" }
     return { ok: true, state: next(state, { pending: { ...state.pending, [r.key]: { machine: l.machine, due_at: ctx.now + retryDelayMs(attempts) } } }),

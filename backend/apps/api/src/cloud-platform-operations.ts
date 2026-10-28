@@ -120,12 +120,20 @@ export class PlatformOperations {
    * Captures retain their journal until the ordinary capture ledger settles; no restore follows. */
   async stopAllocations(host: PlatformHost, now: number): Promise<void> {
     if (!this.exists()) return
-    const pending = this.sql.exec<{ data: string }>("SELECT data FROM cloud_platform_operations WHERE due IS NOT NULL").map(({ data }) => JSON.parse(data) as Operation)
-    for (const o of pending) {
+    const candidates = this.sql.exec<{ data: string }>("SELECT data FROM cloud_platform_operations WHERE due IS NOT NULL").map(({ data }) => JSON.parse(data) as Operation)
+    const pending: Operation[] = []
+    for (const candidate of candidates) {
+      const member = await host.mayUse(candidate.user).catch(() => false)
+      // A concurrent continuation can finish while membership is read; completed machines are
+      // retained. Only unfinished work is revoked or expired, before the provider retries it.
+      const o = this.read(candidate.key)
+      if (!o || terminal(o)) continue
+      if (!o.error && member && host.providerInfo().available && host.now < o.deadline) continue
+      pending.push(o)
       const identity = platformPrincipal(host.team, o.user).identity
       o.child ??= host.ledger(ledgerKey(identity, this.stepKey(o, "create")))?.machine
       o.snapshot ??= host.ledger(ledgerKey(identity, this.stepKey(o, "capture")))?.snapshot
-      o.error ??= "the provider was disabled before provisioning completed"
+      o.error ??= "provisioning expired, the provider was disabled, or the creator lost access"
       o.phase = "cleanup"
       o.due = now
       this.put(o)
@@ -202,12 +210,19 @@ export class PlatformOperations {
       return r.frames.find(f => f.t === "reject") as { t: "reject"; code: string; message: string; retryable?: boolean } | undefined
     }
     const fail = (message: string) => { o.error = message; o.phase = "cleanup"; this.put(o) }
+    const authorized = async () => {
+      const member = await host.mayUse(o.user).catch(() => false)
+      if (!member || host.now >= o.deadline || !host.providerInfo().available) fail("machine provisioning expired, the provider changed, or the creator lost team access")
+      // Merge cancellation that may have arrived while membership was awaited.
+      this.put(o)
+      return !o.error
+    }
     // Recover IDs BEFORE membership/deadline cleanup: submit can have committed while its answer
     // was lost. Skipping this recovery would forget the very resources cleanup must remove.
     o.child ??= ledger("create")?.machine
     o.snapshot ??= ledger("capture")?.snapshot
     this.put(o)
-    if (o.phase !== "cleanup" && (now >= o.deadline || !host.providerInfo().available || !(await host.mayUse(o.user).catch(() => false)))) fail("machine provisioning expired, the provider changed, or the creator lost team access")
+    if (o.phase !== "cleanup") await authorized()
     if (o.phase === "capture") {
       const existing = ledger("capture")
       if (!existing) {
@@ -221,6 +236,7 @@ export class PlatformOperations {
       if (l && l.state !== "pending" && l.state !== "done") fail(l.error?.message ?? "snapshot capture failed")
       if (o.phase === "capture" && snap?.status === "ready") { o.phase = "create"; this.put(o) }
     }
+    if (o.phase === "create") await authorized()
     if (o.phase === "create") {
       if (!ledger("create")) {
         const image = o.snapshot ?? o.image
@@ -245,7 +261,7 @@ export class PlatformOperations {
         o.confirmedShape = actual
         this.put(o)
         // A destroy may have arrived while the resource lookup was awaited.
-        if (o.phase === "size") {
+        if (o.phase === "size" && await authorized()) {
           if (larger(actual, o.target)) fail("the image is larger than the requested shape; Freestyle only supports growing")
           else if (sameShape(actual, o.target)) { o.phase = "cleanup"; this.put(o) }
           else if (m.status === "running" && !resize) {
@@ -283,6 +299,7 @@ export class PlatformOperations {
         if (host.snapshot(o.snapshot)) return
       }
     }
+    if (!o.error && !(await authorized())) return
     o.phase = o.error ? "failed" : "done"
     this.put(o)
   }
