@@ -150,8 +150,8 @@ function parseEvidence(value: unknown, expectedHead: string | undefined, errors:
   if (source?.mode !== "production") errors.push("results must be production mode evidence");
   if (source?.dirty !== false) errors.push("results source.dirty must be false");
   if (source?.runner?.platform !== "linux") errors.push("results runner.platform must be linux");
-  if (!source?.browsers?.some((browser) => browser.engine === "chromium"))
-    errors.push("results must include Chromium browser evidence");
+  if (!source?.browsers?.length || source.browsers.some((browser) => browser.engine !== "chromium"))
+    errors.push("results must contain only Chromium browser evidence");
   if (!Array.isArray(evidence.expectedCases) || evidence.expectedCases.length === 0)
     errors.push("expectedCases is empty or missing");
   if (Array.isArray(evidence.expectedCases) && new Set(evidence.expectedCases).size !== evidence.expectedCases.length)
