@@ -45,8 +45,11 @@
 //! and Windows, where a console has no foreground process group.
 //!
 //! The check reads the process table (`/proc`, proc_pidinfo), so the output
-//! thread never runs it: a mark asks for it, and the terminal's publication
+//! thread's parse never runs it: a mark asks for it, and the terminal's publication
 //! on the work lane runs it before it publishes ([`ShellActivity::foreground_check_due`]).
+//! Every later publication while it says idle checks again
+//! ([`ShellActivity::foreground_check_epoch`]), so a published idle fact is
+//! one checked at that publication.
 //! Input clears the fact in the input's own turn, before the bytes are
 //! written, and asks for the publication after them.
 //!
@@ -234,6 +237,16 @@ impl ShellActivity {
             && !self.input_after_prompt
             && self.shell_foreground.is_none())
         .then_some(self.epoch)
+    }
+
+    /// The epoch of the foreground check a publication runs before it
+    /// publishes: one is due ([`Self::foreground_check_due`]), or the facts
+    /// say idle, which each publication checks again, so a published idle
+    /// fact is always one checked at its publication (a job that took the
+    /// terminal with no mark or input the daemon saw fails it). `None`: no
+    /// check would change the facts.
+    pub(crate) fn foreground_check_epoch(&self) -> Option<u64> {
+        self.foreground_check_due().or_else(|| self.idle_since().map(|_| self.epoch))
     }
 
     /// Records a foreground check started at `epoch`
@@ -508,6 +521,20 @@ mod tests {
         activity.note_input();
         activity.record_foreground(stale, true);
         assert_eq!(activity.idle_since(), None, "a check from before the input");
+    }
+
+    #[test]
+    fn shell_idle_each_publication_checks_a_published_idle_again() {
+        let mut activity = idle_at(1_000);
+        assert!(activity.take_change());
+        assert_eq!(activity.foreground_check_due(), None, "the mark's check ran");
+        // A later publication (output, a directory change) checks again: a
+        // job took the terminal with no mark or input the daemon saw.
+        let epoch = activity.foreground_check_epoch().expect("an idle fact is checked again");
+        activity.record_foreground(epoch, false);
+        assert_eq!(activity.idle_since(), None);
+        assert!(activity.take_change(), "the publication drops the idle fact");
+        assert_eq!(activity.foreground_check_epoch(), None, "nothing to check while not idle");
     }
 
     #[test]

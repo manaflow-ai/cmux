@@ -62,14 +62,17 @@ impl Surface {
             .idle_since()
     }
 
-    /// Runs the foreground check a prompt mark asked for
-    /// (`ShellActivity::foreground_check_due`): whether the terminal's own
-    /// process holds the PTY's foreground and still runs the program the
-    /// daemon spawned. It reads the process table, so it runs here, on the
-    /// publication's lane, outside the metadata lock, never on the output
-    /// thread. A mark or input that came meanwhile drops its answer.
+    /// Runs the foreground check a prompt mark asked for, or checks a
+    /// published idle fact again (`ShellActivity::foreground_check_epoch`):
+    /// whether the terminal's own process holds the PTY's foreground and
+    /// still runs the program the daemon spawned. It reads the process
+    /// table, so it runs here, in the publication (the work lane or the
+    /// terminal work pool), outside the metadata lock, never in the output
+    /// thread's parse; a local reader runs the publication itself only when
+    /// that pool is full, as it does the registry commit beside it. A mark or
+    /// input that came meanwhile drops its answer.
     fn check_shell_foreground(&self, pty: &PtySurface) {
-        let due = pty.terminal_metadata.lock().recover_poison().activity.foreground_check_due();
+        let due = pty.terminal_metadata.lock().recover_poison().activity.foreground_check_epoch();
         let Some(epoch) = due else { return };
         let holds = !self.is_dead() && own_program_holds_foreground(pty.pid, &pty.command);
         pty.terminal_metadata.lock().recover_poison().activity.record_foreground(epoch, holds);
