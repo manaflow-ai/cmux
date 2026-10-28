@@ -13,12 +13,13 @@ fn cmux_setup_harness_auth_required_has_typed_profile_recovery() {
         world.json(&["setup", "harness", id, "--dry-run"]),
         world.json(&["setup", "status"])["checks"][2].clone(),
     ] {
-        let row = &report["harnesses"][0];
+        let rows = report["harnesses"].as_array().unwrap();
+        let row = rows.iter().find(|row| row["id"] == id).unwrap();
         assert_eq!(row["auth_status"], "signed_out", "{row}");
         assert_eq!(row["signed_in"], false);
         assert_eq!(row["state"], "needs_user");
         assert_eq!(row["recovery"], row["user_action"]);
-        assert_eq!(report["user_action"], row["recovery"]);
+        assert_eq!(report["user_action"], rows[0]["recovery"]);
         let command = row["recovery"]["command"].as_str().unwrap();
         // Execute only the argument parser with a fake cmux function: no login.
         let parsed = Command::new("/bin/sh")
