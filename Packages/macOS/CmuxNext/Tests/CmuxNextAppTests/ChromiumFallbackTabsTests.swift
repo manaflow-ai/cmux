@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextBrowser
 @testable import CmuxNextDaemon
 import CmuxNextInput
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -36,6 +37,27 @@ import Testing
         #expect(moved.tab.engineKind == .cef, "the tab did not move to Chromium")
         #expect(f.made.urls == [Self.first], "the Chromium page did not keep the tab's address")
         #expect(moved.chrome.noticeText != nil, "the moved tab does not say its cookies differ")
+    }
+
+    /// A stand-in a pane selects when Chromium becomes ready stays under the person (they may be typing in it):
+    /// its notice offers the move, and the pane's next ask keeps the WebKit page.
+    @Test func aSelectedStandInOffersTheMoveInsteadOfMovingUnderThePerson() async throws {
+        let f = FallbackFixture()
+        let a = f.tab(surface: 4_201, url: Self.first)
+        defer { f.cache.release(a.id) }
+        let page = try #require(f.cache.browser(for: a))
+        let pane = VisibilityNode(root: "pane", own: .visible)
+        let node = f.cache.node(for: a.id)
+        try node.attach(to: pane)
+        node.set(.visible)
+
+        f.reason.value = nil
+        f.cache.browserTabs.fallbacks.chromiumBecameReady(in: f.cache)
+
+        #expect(f.cache.browser(for: a) === page, "the selected stand-in moved under the person")
+        #expect(page.chrome.noticeText == BrowserEngineStrings.chromiumReady, "the selected stand-in does not offer the move")
+        #expect(f.made.urls.isEmpty)
+        withExtendedLifetime((pane, node)) {}
     }
 }
 

@@ -6,7 +6,7 @@ public nonisolated struct BrowserEngineChoice: Equatable, Sendable {
     /// The engine the tab opens in.
     public var engine: CmuxNextDaemon.BrowserEngine
     /// Set when the default engine (Chromium) could not be used and the tab
-    /// opens in WebKit instead. Reported once (`ChromiumFallbackLog`).
+    /// opens in WebKit instead. Its page says so (`ChromiumFallbackLog`).
     public var fallback: CEFUnavailableReason?
     /// The engine came from an existing record or page (reopen, duplicate,
     /// popup), not from the default.

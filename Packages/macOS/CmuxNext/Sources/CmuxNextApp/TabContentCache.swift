@@ -318,8 +318,8 @@ final class TabContentCache {
     /// written back to the record (url, title, favicon) while it lives.
     /// CEF starts lazily and creates tabs asynchronously (nil until ready); a New Tab page while it runs is made now.
     /// A Chromium record opens in WebKit when CEF is missing or fails to
-    /// start (`ChromiumFallbackLog`: typed reason, one notice per process);
-    /// the record keeps naming Chromium, so a build with CEF restores it.
+    /// start (`ChromiumFallbackLog`: typed reason, a notice on each such page);
+    /// the record keeps naming Chromium, so the tab moves to Chromium when it can.
     func browser(for tab: TabModel) -> BrowserEntry? {
         let key = tab.id
         claimAgentDriven(surface: tab.surface, key: key)

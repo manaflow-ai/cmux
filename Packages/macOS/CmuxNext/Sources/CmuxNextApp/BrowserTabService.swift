@@ -81,7 +81,7 @@ final class BrowserTabService {
     var cefUnavailable: @MainActor () -> CEFUnavailableReason?
     /// `browser.defaultEngine`, live.
     let preference = BrowserEnginePreference()
-    /// Chromium-to-WebKit fallbacks and the one-time notice.
+    /// Chromium-to-WebKit fallbacks, each page's notice and the WebKit stand-ins' move to Chromium.
     let fallbacks = ChromiumFallbackLog()
     /// The current model of the tab with durable id `id` (a moved tab gets
     /// a new TabModel in its destination pane), nil when it closed.

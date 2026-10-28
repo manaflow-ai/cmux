@@ -1,5 +1,6 @@
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// Every time a tab that should have been Chromium opened in WebKit
@@ -33,8 +34,8 @@ final class ChromiumFallbackLog {
     /// Tabs whose record names Chromium and whose page runs in WebKit now, by
     /// tab id, with why: each moves to Chromium once Chromium can open tabs.
     private(set) var webKitPages: [String: CEFUnavailableReason] = [:]
-    /// Stand-ins shown when Chromium became ready: their page offers the move with a button
-    /// instead of moving under the person (they may be typing in it).
+    /// Stand-ins a pane selected when Chromium became ready (``chromiumBecameReady(in:)``): their page
+    /// offers the move with a button instead of moving under the person, who may be typing in it.
     private var offered: Set<String> = []
 
     private struct Candidate: Hashable {
@@ -119,27 +120,25 @@ extension ChromiumFallbackLog {
         return cache.tracked(entry, tab)
     }
 
-    /// Tab `key`'s page is a WebKit stand-in and Chromium can open tabs now. A hidden stand-in moves: it closes and a
-    /// Chromium page is made at the address it showed, as Chrome reloads a discarded tab when it is selected; the caller
-    /// gets no page until the Chromium one is installed (`onBrowserReady`). A shown one stays under the person, and its
-    /// page offers the move with a button. False when the page stays.
+    /// Tab `key`'s page is a WebKit stand-in and Chromium can open tabs now. A stand-in no pane selected when
+    /// Chromium became ready moves at its next request (a pane selecting it): it closes and a Chromium page is made at
+    /// the address it showed, as Chrome loads a discarded tab when it is selected; the caller gets no page until the
+    /// Chromium one is installed (`onBrowserReady`). One a pane selected then keeps its page (``chromiumBecameReady(in:)``
+    /// offered the move). False when the page stays.
     func movesToChromium(_ key: String, tab: TabModel, in cache: TabContentCache) -> Bool {
-        guard isWebKitPage(key), cache.browserTabs.cefUnavailable() == nil, let entry = cache.browsers[key],
-              entry.tab.engineKind == .webkit else { return false }
-        guard !cache.node(for: key).isVisible else {
-            if offered.insert(key).inserted {
-                let move = { [weak self, weak cache] in if let self, let cache { _ = self.move(key, tab: tab, in: cache) } }
-                entry.chrome.showNotice(BrowserEngineStrings.chromiumReady, action: (title: BrowserEngineStrings.moveToChromium, run: move))
-            }
-            return false
-        }
+        guard !offered.contains(key), cache.browserTabs.cefUnavailable() == nil else { return false }
         return move(key, tab: tab, in: cache)
+    }
+
+    /// The stand-in page of tab `key`: a live WebKit page (not a hibernated or remote-machine page in its place).
+    private func standIn(_ key: String, in cache: TabContentCache) -> BrowserEntry? {
+        guard isWebKitPage(key), let entry = cache.browsers[key], entry.tab is WebKitTab else { return nil }
+        return entry
     }
 
     /// Closes tab `key`'s WebKit stand-in and makes its Chromium page at the address it showed.
     private func move(_ key: String, tab: TabModel, in cache: TabContentCache) -> Bool {
-        guard isWebKitPage(key), let entry = cache.browsers[key], entry.tab.engineKind == .webkit,
-              cache.pendingBrowsers.insert(key).inserted else { return false }
+        guard let entry = standIn(key, in: cache), cache.pendingBrowsers.insert(key).inserted else { return false }
         let url = entry.tab.state.url ?? cache.recordURL(tab)
         forgetWebKitPage(key)
         cache.browserTabs.untrack(key)
@@ -169,10 +168,19 @@ extension ChromiumFallbackLog {
         cache.onBrowserReady?(key)
     }
 
-    /// Chromium's runtime was installed (`ChromiumRuntimeService.onInstalled`): each pane that shows a stand-in shows
-    /// its tab again, whose page then offers the move; a hidden stand-in moves when it is next asked for.
+    /// Chromium's runtime was installed (`ChromiumRuntimeService.onInstalled`): a stand-in a pane selects now (its
+    /// node's own state, whatever covers the window) keeps its page under the person, and its notice offers the move
+    /// with a button and the cookie note; every other stand-in moves when a pane next asks for it.
     func chromiumBecameReady(in cache: TabContentCache) {
-        for key in webKitPages.keys { cache.onBrowserReady?(key) }
+        for key in webKitPages.keys where cache.node(for: key).own == .visible {
+            guard let entry = standIn(key, in: cache), offered.insert(key).inserted else { continue }
+            let move = { [weak self, weak cache] in
+                guard let self, let cache, let tab = cache.tabModel(key) else { return }
+                offered.remove(key)
+                _ = self.move(key, tab: tab, in: cache)
+            }
+            entry.chrome.showNotice(BrowserEngineStrings.chromiumReady, action: (title: BrowserEngineStrings.moveToChromium, run: move))
+        }
     }
 }
 
