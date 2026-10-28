@@ -11,30 +11,30 @@ const call = async (method: string, path: string, headers: Record<string, string
   return { status: r.status, body: (await r.json()) as any }
 }
 const as = (t: string) => ({ authorization: `Bearer ${t}` })
-const handOff = (t: string, key: string = crypto.randomUUID(), body: unknown = { sessionId: "acp_session_1", machine: "vm_aaaaaaaaaaaaaaaaaaaa", size: { vcpus: 4, memoryGb: 16, pick: "4 vCPU · 16 GB", reason: "picked from 3 earlier runs" } }) =>
-  call("POST", "/v1/handoffs", { ...as(t), "idempotency-key": key }, body)
+const handOff = (t: string, body: unknown = { sessionId: "acp_session_1", machine: "vm_aaaaaaaaaaaaaaaaaaaa", size: { vcpus: 4, memoryGb: 16, pick: "4 vCPU · 16 GB", reason: "picked from 3 earlier runs" } }) =>
+  call("POST", "/v1/handoffs", as(t), body)
 const report = (id: string, cred: Record<string, string>, status: string, summary?: string, turn = 1) => call("POST", `/v1/handoffs/${id}/report`, cred, { turn, status, ...(summary === undefined ? {} : { summary }) })
 const begin = (id: string, t: string, after: number) => call("POST", `/v1/handoffs/${id}/turns`, as(t), { after })
 
 describe("hand-offs", { timeout: 60_000 }, () => {
-  it("create answers the hand-off (starting, size and pick kept) and its machine token; a retry answers the same one; another request under the key conflicts", async () => {
+  it("create answers the hand-off (starting, size and pick kept) and its machine token; one hand-off per session: a retry answers the same one, another machine for the session conflicts", async () => {
     const t = await sessionToken("handoff-create")
-    const key = crypto.randomUUID()
-    const first = await handOff(t, key)
+    const first = await handOff(t)
     expect(first.status).toBe(201)
     expect(first.body.handoff).toMatchObject({ sessionId: "acp_session_1", machine: "vm_aaaaaaaaaaaaaaaaaaaa", turn: 1, state: "open", status: "starting", summary: null, version: 1, startedAt: null, finishedAt: null, size: { vcpus: 4, memoryGb: 16, pick: "4 vCPU · 16 GB", reason: "picked from 3 earlier runs" } })
     expect(first.body.handoff.id).toMatch(/^ho_[0-9a-f]{20}$/)
     expect(first.body.machineToken).toMatch(/^[0-9a-f]{64}$/)
-    const again = await handOff(t, key)
+    const again = await handOff(t)
     expect(again.body).toEqual(first.body)
-    expect((await handOff(t, key, { sessionId: "other", machine: "vm_aaaaaaaaaaaaaaaaaaaa" })).body.error.code).toBe("handoff.conflict")
-    expect((await handOff(t, "")).status).toBe(400)
-    expect((await handOff(t, undefined, { sessionId: "s", machine: "bad machine!" })).status).toBe(400)
-    expect((await handOff(t, undefined, { sessionId: "s", machine: "m", size: { vcpus: -1 } })).status).toBe(400)
+    expect((await handOff(t, { sessionId: "acp_session_1", machine: "vm_bbbbbbbbbbbbbbbbbbbb" })).body.error.code).toBe("handoff.conflict")
+    const other = await handOff(t, { sessionId: "other", machine: "vm_aaaaaaaaaaaaaaaaaaaa" })
+    expect([other.status, other.body.handoff.id === first.body.handoff.id]).toEqual([201, false])
+    expect((await handOff(t, { sessionId: "s", machine: "bad machine!" })).status).toBe(400)
+    expect((await handOff(t, { sessionId: "s", machine: "m", size: { vcpus: -1 } })).status).toBe(400)
     // The token is the machine's only: a read never serves it.
     const got = await call("GET", `/v1/handoffs/${first.body.handoff.id}`, as(t))
     expect(JSON.stringify(got.body)).not.toContain(first.body.machineToken)
-    expect((await handOff(t, undefined, { sessionId: "s", machine: "m" })).body.handoff.size).toEqual({ vcpus: null, memoryGb: null, pick: null, reason: null })
+    expect((await handOff(t, { sessionId: "s", machine: "m" })).body.handoff.size).toEqual({ vcpus: null, memoryGb: null, pick: null, reason: null })
   })
 
   it("the machine reports running, needs-you, then done with a summary; the owner's list follows; an ended turn refuses more but a retry of its last report passes", async () => {
@@ -110,7 +110,7 @@ describe("hand-offs", { timeout: 60_000 }, () => {
     const t = await sessionToken("handoff-list")
     const ids: Array<string> = []
     for (let i = 0; i < 3; i++) {
-      ids.unshift((await handOff(t, undefined, { sessionId: `s${i}`, machine: "m" })).body.handoff.id)
+      ids.unshift((await handOff(t, { sessionId: `s${i}`, machine: "m" })).body.handoff.id)
       await new Promise((r) => setTimeout(r, 3))
     }
     const one = await call("GET", "/v1/handoffs?limit=2", as(t))
@@ -180,7 +180,7 @@ describe("hand-offs", { timeout: 60_000 }, () => {
   it("a cancel or close racing a same-turn report: one wins whole, the other sees it, and the turn is never both", async () => {
     const t = await sessionToken("handoff-race")
     for (const end of ["cancel", "close"] as const) {
-      const { body } = await handOff(t)
+      const { body } = await handOff(t, { sessionId: `acp_race_${end}`, machine: "vm_aaaaaaaaaaaaaaaaaaaa" })
       const id = body.handoff.id as string
       const machine = { "x-cmux-handoff-token": body.machineToken as string }
       await report(id, machine, "running")
@@ -215,20 +215,31 @@ describe("hand-offs", { timeout: 60_000 }, () => {
     // The wait ran to its deadline: no version moved, so the app has nothing new to notify about.
     expect(woke.body.handoff.version).toBe(done.body.handoff.version)
     expect(Date.now() - started).toBeGreaterThanOrEqual(1_000)
+    // A final report with no summary clears the one an earlier report left, so its retry is an exact repeat too.
+    await begin(id, t, 1)
+    await report(id, machine, "needs-you", "which branch?", 2)
+    const ended = await report(id, machine, "failed", undefined, 2)
+    expect(ended.body.handoff).toMatchObject({ turn: 2, status: "failed", summary: null })
+    const again = await report(id, machine, "failed", undefined, 2)
+    expect([again.status, again.body.handoff.version]).toEqual([200, ended.body.handoff.version])
   })
 
-  it("close is the one end: it cancels a turn still going, refuses turns and reports after, and ends a wait at once", async () => {
+  it("close is the one end: it cancels a turn still going, refuses turns (a retried one too) and reports after, and ends a wait at once", async () => {
     const t = await sessionToken("handoff-close")
     const { body } = await handOff(t)
     const id = body.handoff.id as string
     const machine = { "x-cmux-handoff-token": body.machineToken as string }
-    await report(id, machine, "running")
+    await report(id, machine, "done", "turn one")
+    await begin(id, t, 1)
+    await report(id, machine, "running", undefined, 2)
     const closed = await call("POST", `/v1/handoffs/${id}/close`, as(t))
-    expect(closed.body.handoff).toMatchObject({ state: "closed", status: "cancelled", turn: 1 })
+    expect(closed.body.handoff).toMatchObject({ state: "closed", status: "cancelled", turn: 2 })
     expect(closed.body.handoff.finishedAt).not.toBeNull()
     expect((await call("POST", `/v1/handoffs/${id}/close`, as(t))).body.handoff).toEqual(closed.body.handoff)
+    // A retry of the call that opened turn 2 learns the hand-off is closed, not that its turn opened.
     expect((await begin(id, t, 1)).body.error.code).toBe("handoff.closed")
-    const told = await report(id, machine, "done", "after close")
+    expect((await begin(id, t, 2)).body.error.code).toBe("handoff.closed")
+    const told = await report(id, machine, "done", "after close", 2)
     expect([told.status, told.body.error.code, told.body.handoff.state]).toEqual([409, "handoff.closed", "closed"])
     const started = Date.now()
     expect((await call("GET", `/v1/handoffs/${id}/wait?after=${closed.body.handoff.version}&timeoutMs=20000`, as(t))).body.handoff.state).toBe("closed")
@@ -251,8 +262,8 @@ describe("hand-offs", { timeout: 60_000 }, () => {
     const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, key.pair.privateKey, new TextEncoder().encode(`${ch.body.message_prefix}${ch.body.nonce}`))
     const b64u = (b: ArrayBuffer) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
     const vmToken = (await post("/v1/auth/token", undefined, { user: install.user, install: install.id, nonce: ch.body.nonce, signature: b64u(sig) })).body.access_token as string
-    const mine = (await handOff(a.session, undefined, { sessionId: "acp_vm", machine })).body.handoff.id as string
-    const other = (await handOff(a.session, undefined, { sessionId: "acp_other", machine: "vm_bbbbbbbbbbbbbbbbbbbb" })).body.handoff.id as string
+    const mine = (await handOff(a.session, { sessionId: "acp_vm", machine })).body.handoff.id as string
+    const other = (await handOff(a.session, { sessionId: "acp_other", machine: "vm_bbbbbbbbbbbbbbbbbbbb" })).body.handoff.id as string
     expect((await report(mine, as(vmToken), "running")).body.handoff.status).toBe("running")
     expect((await report(other, as(vmToken), "running")).status).toBe(404)
     // A person's install is not a machine.

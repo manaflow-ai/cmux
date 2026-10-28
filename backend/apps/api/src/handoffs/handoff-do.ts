@@ -181,20 +181,21 @@ export class HandoffDO extends DurableObject<Env> {
     if (this.row()) await this.changed()
   }
 
-  private set(now: number, status: HandoffStatus | null, summary: string | null) {
+  /** A report that ends the turn sets the summary to its own (none clears it), so a retry of it is an exact repeat; otherwise a missing summary keeps the last one. */
+  private set(now: number, status: HandoffStatus | null, summary: string | null, replaceSummary = false) {
     const r = this.row()!
     const moved = status !== null && status !== r.status
     this.ctx.storage.sql.exec(
-      `UPDATE handoff SET status = ?, summary = coalesce(?, summary), status_at = ?, started_at = CASE WHEN ? = 'running' THEN coalesce(started_at, ?) ELSE started_at END, finished_at = CASE WHEN ? THEN ? ELSE finished_at END, updated_at = ?, version = version + 1 WHERE k = 1`,
-      status ?? r.status, summary, moved ? now : r.status_at, status ?? "", now, status !== null && FINISHED.has(status) ? 1 : 0, now, now
+      `UPDATE handoff SET status = ?, summary = CASE WHEN ? THEN ? ELSE coalesce(?, summary) END, status_at = ?, started_at = CASE WHEN ? = 'running' THEN coalesce(started_at, ?) ELSE started_at END, finished_at = CASE WHEN ? THEN ? ELSE finished_at END, updated_at = ?, version = version + 1 WHERE k = 1`,
+      status ?? r.status, replaceSummary ? 1 : 0, summary, summary, moved ? now : r.status_at, status ?? "", now, status !== null && FINISHED.has(status) ? 1 : 0, now, now
     )
   }
 
-  /** Creates the hand-off; the same request again answers it, another request under its id conflicts. */
+  /** Creates the session's hand-off; the same request again answers it, another request for the session conflicts. */
   async init(input: HandoffInit): Promise<HandoffResult<HandoffCreated>> {
     const existing = this.row()
     if (existing) {
-      if (existing.owner !== input.owner || existing.request_digest !== input.requestDigest) return { ok: false, code: "handoff.conflict", message: "the idempotency key was already used with a different request" }
+      if (existing.owner !== input.owner || existing.request_digest !== input.requestDigest) return { ok: false, code: "handoff.conflict", message: "the session was already handed off with a different machine or size" }
       return ok({ handoff: view(existing), machineToken: existing.machine_token })
     }
     const now = Date.now()
@@ -253,8 +254,8 @@ export class HandoffDO extends DurableObject<Env> {
   async beginTurn(owner: string, after: number): Promise<HandoffResult<HandoffView>> {
     if (!this.owned(owner)) return notFound
     return this.commit((r) => {
-      if (r.turn === after + 1) return ok(view(r))
       if (r.state === "closed") return refuse("handoff.closed", "the hand-off is closed", r)
+      if (r.turn === after + 1) return ok(view(r))
       if (r.turn !== after) return refuse("handoff.turn_conflict", `the current turn is ${r.turn}, not ${after}`, r)
       if (!FINISHED.has(r.status)) return refuse("handoff.turn_running", `turn ${r.turn} is still ${r.status}; send to it instead`, r)
       const now = Date.now()
@@ -309,7 +310,7 @@ export class HandoffDO extends DurableObject<Env> {
         return status === r.status && text === r.summary ? ok(view(r)) : refuse("handoff.turn_finished", `turn ${r.turn} is already ${r.status}`, r)
       }
       if (status === r.status && (text === null || text === r.summary)) return ok(view(r))
-      this.set(Date.now(), status as HandoffStatus, text)
+      this.set(Date.now(), status as HandoffStatus, text, FINISHED.has(status))
       return null
     }, this.current)
   }

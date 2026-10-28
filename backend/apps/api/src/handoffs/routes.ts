@@ -8,8 +8,9 @@ import type { HandoffListCursor } from "./index-do.ts"
  * Cloud work mode's hand-off routes (handoff-do.ts). Errors are `{error: {code, message}}`.
  *
  * Owner (a signed-in session or a person's install; callerOf):
- *   POST /v1/handoffs + Idempotency-Key  {sessionId, machine, size?: {vcpus?, memoryGb?, pick?, reason?}}
- *                                        -> 201 {handoff, machineToken}; the same request again answers the same hand-off
+ *   POST /v1/handoffs                    {sessionId, machine, size?: {vcpus?, memoryGb?, pick?, reason?}}
+ *                                        -> 201 {handoff, machineToken}; one hand-off per session: the same request again answers it,
+ *                                        409 handoff.conflict for a different machine or size
  *   GET  /v1/handoffs?limit=&cursor=     -> {handoffs: [{id, sessionId, turn, state, status, summary, createdAt, updatedAt}], nextCursor}
  *   GET  /v1/handoffs/:id                -> {handoff}
  *   GET  /v1/handoffs/:id/wait?after=<version>&timeoutMs=  -> {handoff} once its version passes `after`, once closed, or at the deadline (at most 25 s)
@@ -69,11 +70,9 @@ const create = async (request: Request, env: Env, owner: string): Promise<Respon
   if (typeof b.machine !== "string" || !MACHINE.test(b.machine)) return fail(400, "validation.invalid", "machine: the cloud machine id (letters, digits, _ -, at most 64)")
   const size = parseSize(b.size)
   if (!size) return fail(400, "validation.invalid", "size: {vcpus?, memoryGb?} positive numbers, {pick?, reason?} short text")
-  const key = (request.headers.get("idempotency-key") ?? "").trim()
-  if (!key || key.length > 128) return fail(400, "validation.invalid", "an Idempotency-Key header is required (at most 128 characters)")
   if (env.CLOUD_MUTATION_LIMIT && !(await env.CLOUD_MUTATION_LIMIT.limit({ key: `handoff:${owner}` })).success) return fail(429, "rate_limited", "too many hand-offs just now; retry in a minute")
-  // The id is the owner's key's: a retry after a lost response reaches the same hand-off.
-  const id = `ho_${(await hex(`${owner}\u0000${key}`)).slice(0, 20)}`
+  // The id is the session's: one hand-off per session, and a retry after a lost response reaches it.
+  const id = `ho_${(await hex(`${owner}\u0000${b.sessionId}`)).slice(0, 20)}`
   const digest = await hex(JSON.stringify([b.sessionId, b.machine, size]))
   return answer(await stub(env, id).init({ id, owner, requestDigest: digest, sessionId: b.sessionId, machine: b.machine, size }), (v) => v, 201)
 }
