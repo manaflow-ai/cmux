@@ -16,6 +16,13 @@ public enum DraftStateMigration {
     /// missing keys only; other existing artifacts and all source roots remain intact.
     public static func adopt(from roots: [URL], to destination: URL,
                              fileManager: CheckedFileManager = FileManager.checked) {
+        adopt(from: roots, to: destination, fileManager: fileManager) { source, target in
+            try fileManager.copyItem(at: source, to: target)
+        }
+    }
+
+    static func adopt(from roots: [URL], to destination: URL, fileManager: CheckedFileManager = FileManager.checked,
+                      copyItem: (URL, URL) throws -> Void) {
         try? fileManager.createDirectory(at: destination, withIntermediateDirectories: true,
                                          attributes: [.posixPermissions: 0o700])
         let marker = destination.appending(path: ".adopted-v1")
@@ -44,7 +51,7 @@ public enum DraftStateMigration {
                     if artifact == "agent-unsent-drafts.json" || artifact == "agent-composer-drafts.json" {
                         try mergeDrafts(from: source, to: target, unsent: artifact == "agent-unsent-drafts.json", fileManager: fileManager)
                     } else if artifact != "quick-composer-draft.json" || !fileManager.fileExists(atPath: target.path) {
-                        try copyMissing(from: source, to: target, fileManager: fileManager)
+                        try copyMissing(from: source, to: target, fileManager: fileManager, copyItem: copyItem)
                     }
                 }
                 try settle(settled, fileManager: fileManager)
@@ -144,21 +151,23 @@ public enum DraftStateMigration {
         return drafts
     }
 
-    private static func copyMissing(from source: URL, to target: URL, fileManager: CheckedFileManager) throws {
+    private static func copyMissing(from source: URL, to target: URL, fileManager: CheckedFileManager,
+                                    copyItem: (URL, URL) throws -> Void) throws {
         let sourceIsDirectory = (try? source.blockingResourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
         if sourceIsDirectory {
             try fileManager.createDirectory(at: target, withIntermediateDirectories: true,
                                             attributes: [.posixPermissions: 0o700])
-            for child in try fileManager.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey]) {
+            for child in try fileManager.contentsOfDirectory(at: source, includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey])
+                .sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
                 let destination = target.appending(path: child.lastPathComponent)
                 if !isNonEmpty(destination, fileManager: fileManager) {
-                    try copyMissing(from: child, to: destination, fileManager: fileManager)
+                    try copyMissing(from: child, to: destination, fileManager: fileManager, copyItem: copyItem)
                 }
             }
             return
         }
         guard !isNonEmpty(target, fileManager: fileManager) else { return }
-        try fileManager.copyItem(at: source, to: target)
+        try copyItem(source, target)
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
     }
 

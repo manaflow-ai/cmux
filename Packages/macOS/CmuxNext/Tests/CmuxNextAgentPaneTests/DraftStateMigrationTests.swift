@@ -152,6 +152,28 @@ nonisolated struct DraftStateMigrationTests {
         #expect(!FileManager.default.fileExists(atPath: fixture.url("destination/agent-pane-wake-states.json").path))
     }
 
+    @Test(arguments: ["chat-a/2", "chat-b/1"])
+    func failedArtifactCopyPublishesNoPartialDataAndRetriesEveryLeaf(failing: String) throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        for path in ["chat-a/1", "chat-a/2", "chat-b/1"] {
+            try fixture.write("source/agent-draft-attachments/\(path)", path)
+        }
+        try fixture.write("destination/agent-draft-attachments/current/1", "B current")
+        DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination")) { source, target in
+            if source.path.hasSuffix(failing) { throw CopyFailure.injected }
+            try FileManager.default.copyItem(at: source, to: target)
+        }
+        #expect(!FileManager.default.fileExists(atPath: fixture.url("destination/agent-draft-attachments/chat-a").path))
+        #expect(try fixture.text("destination/agent-draft-attachments/current/1") == "B current")
+        DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"))
+        for path in ["chat-a/1", "chat-a/2", "chat-b/1"] {
+            #expect(try fixture.text("destination/agent-draft-attachments/\(path)") == path)
+        }
+    }
+
+    private enum CopyFailure: Error { case injected }
+
     @Test func malformedDestinationIsKeptAndAdoptionCanRetry() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
