@@ -85,6 +85,9 @@ enum FilePageHandlers {
                 return nil
             })
         })
+        ActionTargetTitles.setState("toggleFileEditorWordWrap", in: registry) { invocation in
+            (try? page(.editor, context, invocation)).map { _ in services.viewers.editorPages.look.wrapsWords }
+        }
     }
 
     /// The focused (or targeted) tab's page of `kind`.

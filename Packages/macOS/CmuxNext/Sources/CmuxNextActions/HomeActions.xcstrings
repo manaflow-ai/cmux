@@ -7788,127 +7788,258 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تثبيت/إلغاء تثبيت المحادثة"
+            "value": "تثبيت المحادثة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prikači/otkači razgovor"
+            "value": "Prikači razgovor"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fastgør/frigør samtale"
+            "value": "Fastgør samtale"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Unterhaltung anheften/loslösen"
+            "value": "Unterhaltung anheften"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pin/Unpin Conversation"
+            "value": "Pin Conversation"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fijar/no fijar conversación"
+            "value": "Fijar conversación"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Épingler/détacher la conversation"
+            "value": "Épingler la conversation"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fissa/sblocca conversazione"
+            "value": "Fissa conversazione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "会話のピン留め/解除"
+            "value": "会話をピン留め"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ខ្ទាស់/ឈប់ខ្ទាស់ការសន្ទនា"
+            "value": "ខ្ទាស់ការសន្ទនា"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "대화 고정/해제"
+            "value": "대화 고정"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fest/løsne samtale"
+            "value": "Fest samtale"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przypnij/odepnij rozmowę"
+            "value": "Przypnij rozmowę"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Fixar/desafixar conversa"
+            "value": "Fixar conversa"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Закрепить/открепить беседу"
+            "value": "Закрепить беседу"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ปักหมุด/เลิกปักหมุดการสนทนา"
+            "value": "ปักหมุดการสนทนา"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sohbeti sabitle/kaldır"
+            "value": "Sohbeti sabitle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Закріпити/відкріпити розмову"
+            "value": "Закріпити розмову"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ghim/bỏ ghim cuộc trò chuyện"
+            "value": "Ghim cuộc trò chuyện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "固定/取消固定对话"
+            "value": "固定对话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "固定/取消固定對話"
+            "value": "固定對話"
+          }
+        }
+      }
+    },
+    "action.home.togglePin.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إلغاء تثبيت المحادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otkači razgovor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Frigør samtale"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Unterhaltung loslösen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unpin Conversation"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No fijar conversación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Détacher la conversation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sblocca conversazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話のピン留めを解除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ឈប់ខ្ទាស់ការសន្ទនា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대화 고정 해제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Løsne samtale"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odepnij rozmowę"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desafixar conversa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открепить беседу"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลิกปักหมุดการสนทนา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbetin sabitlemesini kaldır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкріпити розмову"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bỏ ghim cuộc trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "取消固定对话"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "取消固定對話"
           }
         }
       }

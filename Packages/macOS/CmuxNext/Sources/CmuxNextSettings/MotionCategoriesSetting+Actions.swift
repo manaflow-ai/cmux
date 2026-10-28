@@ -16,6 +16,8 @@ extension MotionCategoriesSetting {
             }
             design.animationsEnabled = on
         })
+        // The rows name the change they make: Turn Off … while the switch is on.
+        ActionTargetTitles.setState(ActionID(rawValue: masterActionID), in: registry) { _ in design.animationsEnabled }
         for category in MotionCategory.allCases {
             registry.bind(ActionID(rawValue: actionID(category)), invoke: { [weak registry] _ in
                 let on = design.disabledAnimationCategories.contains(category)
@@ -25,6 +27,9 @@ extension MotionCategoriesSetting {
                 }
                 if on { design.disabledAnimationCategories.remove(category) } else { design.disabledAnimationCategories.insert(category) }
             })
+            ActionTargetTitles.setState(ActionID(rawValue: actionID(category)), in: registry) { _ in
+                !design.disabledAnimationCategories.contains(category)
+            }
         }
     }
 

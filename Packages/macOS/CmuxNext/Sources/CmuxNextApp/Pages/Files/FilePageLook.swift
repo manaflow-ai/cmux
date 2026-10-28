@@ -65,6 +65,10 @@ final class FilePageLook {
         return .object(look)
     }
 
+    /// The `wordWrap` setting of the look's section is on (Turn Off Word Wrap's state); reads it
+    /// without building the whole look.
+    var wrapsWords: Bool { section()["wordWrap"]?.stringValue ?? "off" != "off" }
+
     func listen(_ onLook: @escaping @MainActor (JSONValue) -> Void) -> () -> Void {
         start()
         let id = UUID()

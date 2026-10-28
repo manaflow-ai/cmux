@@ -11,6 +11,11 @@ import CmuxNextSettingsWindow
 /// `AppActions`: settings, show/hide, About, Keep Mac Awake, palette
 /// navigation.
 enum WindowHandlers {
+    /// cmux is active, not hidden, and shows a window: Show/Hide All Windows hides them.
+    private static func windowsShown(_ context: AppActionContext) -> Bool {
+        NSApp.isActive && !NSApp.isHidden && context.services.windows.controllers.contains { $0.window?.isVisible == true }
+    }
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         // Settings and Debug Settings open as internal page tabs.
         context.services.pages.register(context.services.settingsWindow)
@@ -26,6 +31,7 @@ enum WindowHandlers {
             context.services.actionLatencyHUD.toggle(over: context.services.windows.active?.window)
             return .done
         })
+        ActionTargetTitles.setState("debug.actionLatencyHUD", in: registry) { _ in context.services.actionLatencyHUD.isShown }
         // DEV and NIGHTLY (`isDebugOnly`): Debug menu > Main-Thread Blocking (N) > Reset Counts. Enabled only
         // in a build that has the detector (Debug, `CMUX_BLOCKING_CHECKS`): elsewhere reset does nothing.
         let blocking = context.services.blocking
@@ -40,13 +46,15 @@ enum WindowHandlers {
         })
         registry.bind("showMainWindow", run: { _ in showMainWindow(context) })
         registry.bind("showHideAllWindows", run: { _ in
-            if NSApp.isActive, !NSApp.isHidden, context.services.windows.controllers.contains(where: { $0.window?.isVisible == true }) {
+            if windowsShown(context) {
                 NSApp.hide(nil)
             } else {
                 NSApp.unhide(nil)
                 showMainWindow(context)
             }
         })
+        // Hide All Windows while cmux is in front with a window shown (what the run hides), else Show.
+        ActionTargetTitles.setState("showHideAllWindows", in: registry) { _ in windowsShown(context) }
         registry.bind("minimizeWindow", run: { _ in
             // Show Main Window (showMainWindow) restores it.
             context.activeWindow?.window?.miniaturize(nil)

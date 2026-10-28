@@ -377,6 +377,14 @@ public final class AgentPaneView: NSView {
         dictation.toggle(from: event)
     }
 
+    /// Whether this pane's dictation is running (its Toggle Dictation stops it).
+    public var isDictating: Bool { !dictation.phase.isStartable }
+
+    /// Whether any agent pane is dictating (``stopDictation()`` would stop it).
+    public static var isAnyPaneDictating: Bool {
+        DictationMicrophone.shared.listening.map { !$0.phase.isStartable } ?? false
+    }
+
     /// Stops whichever agent pane is dictating, keeping its words, so the
     /// shortcut ends a session started in a tab that is no longer in front.
     /// False when none is.

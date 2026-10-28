@@ -25,7 +25,7 @@ nonisolated enum AgentChatMenuActionCatalog: ActionCatalogGroup {
 
     static func descriptors() -> [ActionDescriptor] {
         [
-            chat("agentPane.toggleDisplaySettings", "action.agentPane.toggleDisplaySettings", "Toggle Text & Width",
+            chat("agentPane.toggleDisplaySettings", "action.agentPane.toggleDisplaySettings", "Show or Hide Text & Width",
                  ["agent", "chat", "display", "text", "width", "appearance", "font", "layout"],
                  "textformat.size", cli: "agent toggle-display-settings"),
             chat("agentPane.replayConversation", "action.agentPane.replayConversation", "Replay Conversation",
@@ -43,7 +43,7 @@ nonisolated enum AgentChatMenuActionCatalog: ActionCatalogGroup {
             chat("agentPane.moveToFloatingChat", "action.agentPane.moveToFloatingChat", "Move Chat to Floating Chat",
                  ["agent", "chat", "floating", "float", "detach", "panel", "window"],
                  "rectangle.inset.filled.and.person.filled" , cli: "agent move-to-floating-chat"),
-            chat("agentPane.toggleMinimap", "action.agentPane.toggleMinimap", "Toggle Thread Minimap",
+            chat("agentPane.toggleMinimap", "action.agentPane.toggleMinimap", "Show or Hide Thread Minimap",
                  ["agent", "chat", "thread", "minimap", "rail", "prompts", "navigation", "map"],
                  "sidebar.left", cli: "agent toggle-minimap"),
             chat("agentPane.revealCwdInFinder", "action.agentPane.revealCwdInFinder", "Reveal Chat Folder in Finder",

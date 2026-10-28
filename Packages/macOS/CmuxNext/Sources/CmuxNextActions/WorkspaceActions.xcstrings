@@ -2889,127 +2889,258 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add Workspace to Top/Remove from Top"
+            "value": "Add Workspace to Top"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إضافة مساحة العمل إلى الأعلى/إزالتها من الأعلى"
+            "value": "إضافة مساحة العمل إلى الأعلى"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dodaj radni prostor na vrh/Ukloni s vrha"
+            "value": "Dodaj radni prostor na vrh"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Føj arbejdsområde til toppen/Fjern fra toppen"
+            "value": "Føj arbejdsområde til toppen"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Arbeitsbereich oben hinzufügen/Von oben entfernen"
+            "value": "Arbeitsbereich oben hinzufügen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añadir espacio de trabajo arriba/Quitar de arriba"
+            "value": "Añadir espacio de trabajo arriba"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajouter l’espace de travail en haut/Retirer du haut"
+            "value": "Ajouter l’espace de travail en haut"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aggiungi area di lavoro in alto/Rimuovi dall’alto"
+            "value": "Aggiungi area di lavoro in alto"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ワークスペースを上部に追加/上部から削除"
+            "value": "ワークスペースを最上部に追加"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បន្ថែមកន្លែងធ្វើការទៅខាងលើ/ដកចេញពីខាងលើ"
+            "value": "បន្ថែមកន្លែងធ្វើការទៅខាងលើ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "워크스페이스를 상단에 추가/상단에서 제거"
+            "value": "작업 공간을 맨 위에 추가"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Legg til arbeidsområde øverst/Fjern fra toppen"
+            "value": "Legg til arbeidsområde øverst"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dodaj obszar roboczy na górę/Usuń z góry"
+            "value": "Dodaj obszar roboczy na górę"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adicionar Espaço de Trabalho ao Topo/Remover do Topo"
+            "value": "Adicionar espaço de trabalho ao topo"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Добавить рабочее пространство наверх/Убрать сверху"
+            "value": "Добавить рабочую область наверх"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เพิ่มพื้นที่ทำงานไว้ด้านบน/นำออกจากด้านบน"
+            "value": "เพิ่มพื้นที่ทำงานไว้ด้านบน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Çalışma Alanını Üste Ekle/Üstten Kaldır"
+            "value": "Çalışma Alanını En Üste Ekle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Додати робочий простір угору/Прибрати згори"
+            "value": "Додати робочий простір угору"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Thêm không gian làm việc lên đầu/Gỡ khỏi đầu"
+            "value": "Thêm không gian làm việc lên đầu"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将工作区添加到顶部/从顶部移除"
+            "value": "将工作区添加到顶部"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將工作區加入頂部/從頂部移除"
+            "value": "將工作區加入頂部"
+          }
+        }
+      }
+    },
+    "action.workspace.toggleTop.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove Workspace from Top"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إزالة مساحة العمل من الأعلى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukloni radni prostor s vrha"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fjern arbejdsområde fra toppen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arbeitsbereich oben entfernen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitar espacio de trabajo de arriba"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retirer l’espace de travail du haut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovi area di lavoro dall’alto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワークスペースを最上部から削除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដកកន្លែងធ្វើការចេញពីខាងលើ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "맨 위에서 작업 공간 제거"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fjern arbeidsområde fra toppen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usuń obszar roboczy z góry"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remover espaço de trabalho do topo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Убрать рабочую область сверху"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำพื้นที่ทำงานออกจากด้านบน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Çalışma Alanını En Üstten Kaldır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Прибрати робочий простір згори"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Xóa không gian làm việc khỏi đầu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从顶部移除工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從頂部移除工作區"
           }
         }
       }

@@ -90,11 +90,12 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "toggleFullScreen",
-                title: String(localized: "action.toggleFullScreen", defaultValue: "Toggle Full Screen", bundle: .module),
+                title: String(localized: "action.toggleFullScreen", defaultValue: "Enter Full Screen", bundle: .module),
                 keywords: ["fullscreen", "maximize"], defaultShortcut: Shortcut("f", modifiers: [.control, .command]),
                 category: .window, symbol: "arrow.up.left.and.arrow.down.right", surfaces: [.palette, .keyboard, .menu],
                 cliName: "app toggle-full-screen", mainMenu: .window
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.toggleFullScreen.on", defaultValue: "Exit Full Screen", bundle: .module)),
             // Quit and the local terminals (user decision 2026-09-30): the
             // terminals run in cmux-tui and outlive the app. Quit asks while
             // local terminals exist (setting `app.quitBehavior`); a scripted
@@ -138,11 +139,12 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
             {
                 var showHide = ActionDescriptor(
                     id: "showHideAllWindows",
-                    title: String(localized: "action.showHideAllWindows", defaultValue: "Show/Hide All Windows", bundle: .module),
+                    title: String(localized: "action.showHideAllWindows", defaultValue: "Show All Windows", bundle: .module),
                     keywords: ["global", "hotkey", "summon"],
                     defaultShortcut: Shortcut(".", modifiers: [.control, .option, .command]), category: .window,
                     symbol: "macwindow.on.rectangle", surfaces: [.keyboard], cliName: "app show-hide-all-windows"
                 )
+                .toggling(whenOn: String(localized: "action.showHideAllWindows.on", defaultValue: "Hide All Windows", bundle: .module))
                 // Summons cmux from any app, so the key works while cmux is in the background.
                 showHide.isGlobalHotKey = true
                 return showHide

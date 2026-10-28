@@ -40,10 +40,11 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                              surfacePlan: plan(cli: .exempt(.focusMove), exemption: .focusMove, palette: .exempt(.focusMove))),
             // Pins or unpins a session tree history chat (target: sidebar-item:<chat key>), as its row's
             // right-click menu does (`SidebarChatHistory`); the row retitles it Pin or Unpin.
-            ActionDescriptor(id: "sidebar.chat.togglePin", title: t("action.sidebar.chat.togglePin", "Pin/Unpin Chat"),
+            ActionDescriptor(id: "sidebar.chat.togglePin", title: t("action.sidebar.chat.togglePin", "Pin Chat"),
                              keywords: ["sidebar", "chat", "history", "earlier", "pin", "unpin"], category: .sidebar, symbol: "pin",
                              surfaces: [.keyboard], targets: [.sidebarItem],
-                             surfacePlan: plan(cli: .exempt(.guiOnly), exemption: .liveInput, palette: .exempt(.liveInput))),
+                             surfacePlan: plan(cli: .exempt(.guiOnly), exemption: .liveInput, palette: .exempt(.liveInput)))
+                             .toggling(whenOn: t("action.sidebar.chat.togglePin.on", "Unpin Chat"), symbolWhenOff: "pin", symbolWhenOn: "pin.slash"),
             ActionDescriptor(
                 id: "sidebar.item.add", title: t("action.sidebar.item.add", "Add to Sidebar…"),
                 keywords: ["sidebar", "section", "pin", "settings", "account", "history", "bookmarks", "notifications"],
@@ -75,17 +76,17 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
             ),
             // A link, tab or app row: Archive keeps it in its group (or section), last and dimmed (archiving-DESIGN.md).
             ActionDescriptor(
-                id: "sidebar.item.toggleArchive", title: t("action.sidebar.item.toggleArchive", "Archive/Unarchive Item"),
+                id: "sidebar.item.toggleArchive", title: t("action.sidebar.item.toggleArchive", "Archive Item"),
                 keywords: ["sidebar", "item", "link", "tab", "archive", "unarchive", "dim"], category: .sidebar, symbol: "archivebox",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.sidebarItem], cliName: "sidebar toggle-item-archive",
                 surfacePlan: plan(menus: [p(.sidebarItem, .identity, 110)])
-            ),
+            ).toggling(whenOn: t("action.sidebar.item.toggleArchive.on", "Unarchive Item")),
             ActionDescriptor(
-                id: "sidebar.item.toggleLabel", title: t("action.sidebar.item.toggleLabel", "Show/Hide Label"),
+                id: "sidebar.item.toggleLabel", title: t("action.sidebar.item.toggleLabel", "Show Label"),
                 keywords: ["sidebar", "item", "label", "icon", "title"], category: .sidebar, symbol: "textformat",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.sidebarItem], cliName: "sidebar toggle-item-label",
-                surfacePlan: plan(menus: [p(.sidebarItem, .identity, 100, label: ObjectMenuLabels.toggleItemLabel)])
-            ),
+                surfacePlan: plan(menus: [p(.sidebarItem, .identity, 100)])
+            ).toggling(whenOn: t("action.sidebar.item.toggleLabel.on", "Hide Label")),
         ]
     }
 
@@ -168,11 +169,11 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 cliName: "sidebar set-section-columns", surfacePlan: plan(menus: [p(.sidebarSection, .identity, 280, folder: .appearance)])
             ),
             ActionDescriptor(
-                id: "sidebar.section.toggleTitle", title: t("action.sidebar.section.toggleTitle", "Show/Hide Section Title"),
+                id: "sidebar.section.toggleTitle", title: t("action.sidebar.section.toggleTitle", "Show Section Title"),
                 keywords: ["sidebar", "section", "title", "label", "header", "hide", "show"], category: .sidebar, symbol: "textformat",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar toggle-section-title",
-                surfacePlan: plan(menus: [p(.sidebarSection, .identity, 220, folder: .appearance, label: ObjectMenuLabels.toggleSectionTitle)])
-            ),
+                surfacePlan: plan(menus: [p(.sidebarSection, .identity, 220, folder: .appearance)])
+            ).toggling(whenOn: t("action.sidebar.section.toggleTitle.on", "Hide Section Title")),
             ActionDescriptor(
                 id: "sidebar.section.toggleSpaceScope", title: t("action.sidebar.section.toggleSpaceScope", "Show Only in This Space"),
                 keywords: ["sidebar", "section", "room", "scope", "all rooms"], category: .sidebar, symbol: "circle.grid.2x2",
@@ -186,12 +187,12 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 cliName: "sidebar set-section-height", surfacePlan: plan(menus: [p(.sidebarSection, .identity, 310, folder: .options)])
             ),
             ActionDescriptor(
-                id: "sidebar.section.toggleCollapsed", title: t("action.sidebar.section.toggleCollapsed", "Collapse/Expand Section"),
+                id: "sidebar.section.toggleCollapsed", title: t("action.sidebar.section.toggleCollapsed", "Collapse Section"),
                 keywords: ["sidebar", "section", "collapse", "expand", "fold"], category: .sidebar, symbol: "chevron.down",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: section,
                 // Collapse is per-window view state; scripts reach it by id.
-                surfacePlan: plan(cli: .exempt(.focusMove), menus: [p(.sidebarSection, .organize, 100, label: ObjectMenuLabels.toggleSectionCollapsed)])
-            ),
+                surfacePlan: plan(cli: .exempt(.focusMove), menus: [p(.sidebarSection, .organize, 100)])
+            ).toggling(whenOn: t("action.sidebar.section.toggleCollapsed.on", "Expand Section")),
             ActionDescriptor(
                 id: "sidebar.section.remove", title: t("action.sidebar.section.remove", "Remove Section"),
                 keywords: ["sidebar", "section", "remove", "delete"], category: .sidebar, symbol: "trash",

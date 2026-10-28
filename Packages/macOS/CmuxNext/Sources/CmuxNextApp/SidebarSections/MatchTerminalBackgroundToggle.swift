@@ -26,5 +26,8 @@ enum MatchTerminalBackgroundToggle {
                 }
             }
         })
+        ActionTargetTitles.setState("palette.toggleMatchTerminalBackground", in: registry) { _ in
+            context.services.settings.map { SidebarSurfaceSetting.effective(in: $0.snapshot) == .same }
+        }
     }
 }

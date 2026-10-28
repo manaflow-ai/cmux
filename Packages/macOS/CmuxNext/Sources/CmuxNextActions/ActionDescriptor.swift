@@ -113,6 +113,10 @@ public nonisolated struct ActionDescriptor: Identifiable, Sendable {
     /// `action.run` with `wait` (the default) then allows that retry budget
     /// instead of failing at the control-plane deadline while the tab opens.
     public var waitsForKeyedCreate: Bool = false
+    /// The action is a toggle with a title for each state (Pin Workspace, Unpin Workspace); every
+    /// surface shows the one for the target's state (``ActionRegistry/displayTitle(for:invocation:)``).
+    /// Set with ``ActionDescriptor/toggling(_:)``, which also makes ``title`` the off title.
+    public var toggleTitles: ActionToggleTitles?
 
     public init(
         id: ActionID,

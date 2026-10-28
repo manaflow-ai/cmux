@@ -34,11 +34,12 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "toggleUnread",
-                title: String(localized: "action.toggleUnread", defaultValue: "Mark Tab Read/Unread", bundle: .module),
+                title: String(localized: "action.toggleUnread", defaultValue: "Mark Tab Unread", bundle: .module),
                 keywords: ["notifications", "read"], defaultShortcut: Shortcut("u", modifiers: [.option, .command]),
                 category: .notifications, symbol: "envelope.badge", surfaces: [.palette, .keyboard, .menu],
                 cliName: "notification toggle-unread", mainMenu: .window
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.toggleUnread.on", defaultValue: "Mark Tab Read", bundle: .module)),
             ActionDescriptor(
                 id: "markOldestUnreadAndJumpNext",
                 title: String(localized: "action.markOldestUnreadAndJumpNext", defaultValue: "Mark Oldest Unread and Jump Next", bundle: .module),
@@ -72,10 +73,11 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "notificationToggleRead",
-                title: String(localized: "action.notificationToggleRead", defaultValue: "Mark Notification Read/Unread", bundle: .module),
+                title: String(localized: "action.notificationToggleRead", defaultValue: "Mark Notification Unread", bundle: .module),
                 keywords: ["notifications"], category: .notifications, symbol: "envelope", surfaces: [.contextMenu],
                 cliName: "notification mark-read-unread"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.notificationToggleRead.on", defaultValue: "Mark Notification Read", bundle: .module)),
             ActionDescriptor(
                 id: "notificationDismiss",
                 title: String(localized: "action.notificationDismiss", defaultValue: "Dismiss Notification", bundle: .module),
@@ -84,10 +86,11 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "notifications.toggleWorkspaceMute",
-                title: String(localized: "action.notifications.toggleWorkspaceMute", defaultValue: "Mute/Unmute Workspace Notifications", bundle: .module),
+                title: String(localized: "action.notifications.toggleWorkspaceMute", defaultValue: "Mute Workspace Notifications", bundle: .module),
                 keywords: ["mute", "silence", "quiet", "notifications", "workspace"], category: .notifications, symbol: "bell.slash.circle",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "notification toggle-workspace-mute"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.notifications.toggleWorkspaceMute.on", defaultValue: "Unmute Workspace Notifications", bundle: .module), symbolWhenOff: "bell.slash", symbolWhenOn: "bell"),
             ActionDescriptor(
                 id: "notifications.dismissHighlight",
                 title: String(localized: "action.notifications.dismissHighlight", defaultValue: "Dismiss Highlight", bundle: .module),
@@ -96,10 +99,11 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "notifications.toggleBanners",
-                title: String(localized: "action.notifications.toggleBanners", defaultValue: "Toggle Notification Banners", bundle: .module),
+                title: String(localized: "action.notifications.toggleBanners", defaultValue: "Turn On Notification Banners", bundle: .module),
                 keywords: ["banner", "desktop", "system", "macos", "notifications"], category: .notifications, symbol: "rectangle.stack.badge.minus",
                 surfaces: [.palette, .keyboard], cliName: "notification toggle-banners"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.notifications.toggleBanners.on", defaultValue: "Turn Off Notification Banners", bundle: .module)),
             ActionDescriptor(
                 id: "notifications.dismissal.keystroke",
                 title: String(localized: "action.notifications.dismissal.keystroke", defaultValue: "Clear Notifications When Typing", bundle: .module),

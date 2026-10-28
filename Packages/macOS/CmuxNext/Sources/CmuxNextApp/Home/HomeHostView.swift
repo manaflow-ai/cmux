@@ -28,6 +28,8 @@ final class HomeHostView: NSView {
     /// toggles it (Chief conversation only).
     private let settings: HomeChiefSettingsPopover
     private var settingsView: HomeChiefSettingsView { settings.content }
+    /// Whether the Chief's settings popover is open (Hide Chief Settings would close it).
+    var showsChiefSettings: Bool { settings.isShown }
     /// The Chief pet's rows in the popover's Appearance section.
     private let petRows: ChiefPetSettingsRows
     private(set) var isChief = false { didSet { if isChief != oldValue { watchHeaderPanels() } } }

@@ -143,6 +143,14 @@ enum AgentHandlers {
             }
             view.toggleDictation()
         })
+        // Start Dictation or Stop Dictation: the focused chat's mic, else whichever pane still listens.
+        ActionTargetTitles.setState("palette.toggleDictation", in: registry) { invocation in
+            let scope = context.scope(invocation)
+            guard let key = scope.pane?.currentTabKey, let view = context.services.agentTabs.existingView(key) else {
+                return AgentPaneView.isAnyPaneDictating
+            }
+            return view.isDictating
+        }
         // Search Agent Chats (decision K1): the command palette's chats page, from anywhere.
         context.services.palette.sources.actionPages["agentPane.searchChats"] = { [weak services = context.services] in
             services.map { AgentChatsPalettePage(services: $0).page() }

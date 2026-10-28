@@ -56,6 +56,10 @@ enum NotificationHandlers {
             }
             try TabUnreadMark.toggle(tab, pane: pane.pane, context: context)
         })
+        // Mark Tab Read while the tab shows unread (what the toggle then does), else Mark Tab Unread.
+        ActionTargetTitles.setState("toggleUnread", in: registry) { invocation in
+            context.scope(invocation).tab.flatMap { $0.pane.tab($0.id) }.map(\.showsUnread)
+        }
         registry.bind("notificationOpen", run: { invocation in
             guard let row = try panel.row(invocation) else { return try open(latestUnread(context), context) }
             guard let surface = row.surface, let located = context.services.notifications.locate(surface: surface, in: context.daemon.store) else {
@@ -77,6 +81,10 @@ enum NotificationHandlers {
             guard let latest = unread(context).last else { throw ActionFailure(message: MiscHandlerStrings.noUnread) }
             try acknowledge([latest.tab.surface], context)
         })
+        // A panel row reads Mark Notification Read while unread; without a row the action only reads (the latest).
+        ActionTargetTitles.setState("notificationToggleRead", in: registry) { invocation in
+            (try? panel.row(invocation))?.map(\.unread) ?? true
+        }
         registry.bind("notificationDismiss", requires: ack, daemon: context.daemon, run: { invocation in
             guard let row = try panel.row(invocation) else { return try acknowledge([latestUnread(context).tab.surface], context) }
             try dismiss(row, panel: panel, context)

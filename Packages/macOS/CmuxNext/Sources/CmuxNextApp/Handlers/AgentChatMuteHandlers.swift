@@ -28,10 +28,7 @@ enum AgentChatMuteHandlers {
                 }
             })
         })
-        ActionTargetTitles.set(action, in: registry) { invocation in
-            guard let (_, _, muted) = chat(invocation) else { return nil }
-            return muted ? AgentChatMuteStrings.unmute : AgentChatMuteStrings.mute
-        }
+        ActionTargetTitles.setState(action, in: registry) { invocation in chat(invocation)?.muted }
         ActionTargetVisibility.hide(action, in: registry) { invocation in
             invocation.target?.kind == .tab && chat(invocation) == nil
         }
@@ -40,12 +37,6 @@ enum AgentChatMuteHandlers {
 
 /// Handlers.xcstrings.
 enum AgentChatMuteStrings {
-    static var mute: String {
-        String(localized: "agentChat.muteNotifications", defaultValue: "Mute Chat Notifications", table: "Handlers", bundle: .module)
-    }
-    static var unmute: String {
-        String(localized: "agentChat.unmuteNotifications", defaultValue: "Unmute Chat Notifications", table: "Handlers", bundle: .module)
-    }
     static var notAChat: String {
         String(localized: "agentChat.mute.notAChat", defaultValue: "Only an agent chat on this Mac can be muted.",
                table: "Handlers", bundle: .module)

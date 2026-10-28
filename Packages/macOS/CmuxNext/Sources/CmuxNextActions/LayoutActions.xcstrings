@@ -9210,127 +9210,258 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Column Scroll Bar"
+            "value": "Show Column Scroll Bar"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تبديل شريط تمرير الأعمدة"
+            "value": "إظهار شريط تمرير الأعمدة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Uključi/isključi traku za pomicanje kolona"
+            "value": "Prikaži traku za pomicanje kolona"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå rullebjælke for kolonner til/fra"
+            "value": "Vis kolonnerullepanel"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Scrollleiste der Spalten umschalten"
+            "value": "Spalten-Scrollleiste einblenden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar barra de desplazamiento de columnas"
+            "value": "Mostrar barra de desplazamiento de columnas"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Basculer la barre de défilement des colonnes"
+            "value": "Afficher la barre de défilement des colonnes"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Attiva/disattiva barra di scorrimento delle colonne"
+            "value": "Mostra barra di scorrimento delle colonne"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "カラムのスクロールバーを切り替え"
+            "value": "列のスクロールバーを表示"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បិទ/បើករបាររំកិលជួរឈរ"
+            "value": "បង្ហាញរបាររំកិលជួរឈរ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "열 스크롤 막대 전환"
+            "value": "열 스크롤 막대 표시"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Slå rullefelt for kolonner av/på"
+            "value": "Vis kolonnerullefelt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Przełącz pasek przewijania kolumn"
+            "value": "Pokaż pasek przewijania kolumn"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Alternar barra de rolagem das colunas"
+            "value": "Mostrar barra de rolagem das colunas"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Переключить полосу прокрутки колонок"
+            "value": "Показать полосу прокрутки столбцов"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "สลับแถบเลื่อนคอลัมน์"
+            "value": "แสดงแถบเลื่อนคอลัมน์"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sütun kaydırma çubuğunu aç/kapat"
+            "value": "Sütun Kaydırma Çubuğunu Göster"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Перемкнути смугу прокручування колонок"
+            "value": "Показати смугу прокручування стовпців"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bật/tắt thanh cuộn cột"
+            "value": "Hiện thanh cuộn cột"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切换分栏滚动条"
+            "value": "显示列滚动条"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "切換分欄捲軸"
+            "value": "顯示欄捲軸"
+          }
+        }
+      }
+    },
+    "action.layout.toggleStripScrollbar.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide Column Scroll Bar"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إخفاء شريط تمرير الأعمدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sakrij traku za pomicanje kolona"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjul kolonnerullepanel"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Spalten-Scrollleiste ausblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ocultar barra de desplazamiento de columnas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Masquer la barre de défilement des colonnes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nascondi barra di scorrimento delle colonne"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "列のスクロールバーを非表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លាក់របាររំកិលជួរឈរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "열 스크롤 막대 숨기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjul kolonnerullefelt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukryj pasek przewijania kolumn"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ocultar barra de rolagem das colunas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скрыть полосу прокрутки столбцов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ซ่อนแถบเลื่อนคอลัมน์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sütun Kaydırma Çubuğunu Gizle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сховати смугу прокручування стовпців"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ẩn thanh cuộn cột"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隐藏列滚动条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隱藏欄捲軸"
           }
         }
       }

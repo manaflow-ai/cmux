@@ -184,12 +184,13 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "toggleChecklistItemComplete",
-                title: String(localized: "action.toggleChecklistItemComplete", defaultValue: "Toggle Checklist Item Complete", bundle: .module),
+                title: String(localized: "action.toggleChecklistItemComplete", defaultValue: "Mark Checklist Item Complete", bundle: .module),
                 keywords: ["todo", "task"], defaultShortcut: Shortcut(Shortcut.returnKey, modifiers: [.command]),
                 category: .workspace, symbol: "checkmark.square", surfaces: [.keyboard], arguments: [CatalogArgument.checklistItem],
                 targets: [.workspace],
                 cliName: "workspace toggle-checklist-item-complete"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.toggleChecklistItemComplete.on", defaultValue: "Mark Checklist Item Incomplete", bundle: .module)),
             ActionDescriptor(
                 id: "palette.openWorkspaceTodoPane",
                 title: String(localized: "action.palette.openWorkspaceTodoPane", defaultValue: "Open Todo Pane", bundle: .module),
@@ -243,19 +244,21 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.toggleWorkspacePin",
-                title: String(localized: "action.palette.toggleWorkspacePin", defaultValue: "Pin/Unpin Workspace", bundle: .module),
+                title: String(localized: "action.palette.toggleWorkspacePin", defaultValue: "Pin Workspace", bundle: .module),
                 keywords: ["pin", "unpin", "favorite"], category: .workspace, symbol: "pin",
                 surfaces: [.palette, .menu, .contextMenu, .keyboard], targets: [.workspace], cliName: "workspace pin-unpin",
                 mainMenu: .file
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.palette.toggleWorkspacePin.on", defaultValue: "Unpin Workspace", bundle: .module), symbolWhenOff: "pin", symbolWhenOn: "pin.slash"),
             // Archive keeps the workspace in its group (or its section), last and dimmed; Unarchive puts
             // it back (plans/cmux-next/archiving-DESIGN.md). The menu reads Archive or Unarchive.
             ActionDescriptor(
                 id: "workspace.toggleArchive",
-                title: String(localized: "action.workspace.toggleArchive", defaultValue: "Archive/Unarchive Workspace", bundle: .module),
+                title: String(localized: "action.workspace.toggleArchive", defaultValue: "Archive Workspace", bundle: .module),
                 keywords: ["archive", "unarchive", "dim", "done", "end", "bottom"], category: .workspace, symbol: "archivebox",
                 surfaces: [.palette, .contextMenu, .keyboard], targets: [.workspace], cliName: "workspace archive-unarchive"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.workspace.toggleArchive.on", defaultValue: "Unarchive Workspace", bundle: .module)),
             ActionDescriptor(
                 id: "palette.markWorkspaceRead",
                 title: String(localized: "action.palette.markWorkspaceRead", defaultValue: "Mark Workspace as Read", bundle: .module),
@@ -272,10 +275,11 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "workspace.toggleAudioMute",
-                title: String(localized: "action.workspace.toggleAudioMute", defaultValue: "Mute/Unmute Workspace Tabs", bundle: .module),
+                title: String(localized: "action.workspace.toggleAudioMute", defaultValue: "Mute Workspace Tabs", bundle: .module),
                 keywords: ["workspace", "audio", "sound", "mute", "unmute"], category: .workspace, symbol: "speaker.slash",
                 surfaces: [.palette, .contextMenu], targets: [.workspace], cliName: "workspace mute-unmute"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.workspace.toggleAudioMute.on", defaultValue: "Unmute Workspace Tabs", bundle: .module), symbolWhenOff: "speaker.slash", symbolWhenOn: "speaker.wave.2"),
             ActionDescriptor(
                 id: "palette.workspaceColor",
                 title: String(localized: "action.palette.workspaceColor", defaultValue: "Set Workspace Color…", bundle: .module),
@@ -364,16 +368,18 @@ nonisolated enum WorkspaceActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "workspaceGroup.togglePin",
-                title: String(localized: "action.workspaceGroup.togglePin", defaultValue: "Pin/Unpin Group", bundle: .module),
+                title: String(localized: "action.workspaceGroup.togglePin", defaultValue: "Pin Group", bundle: .module),
                 keywords: ["group"], category: .workspace, symbol: "pin.circle", surfaces: [.palette, .contextMenu],
                 arguments: [CatalogArgument.pinnedBool], targets: [.workspaceGroup], cliName: "workspace-group toggle-pin"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.workspaceGroup.togglePin.on", defaultValue: "Unpin Group", bundle: .module), symbolWhenOff: "pin", symbolWhenOn: "pin.slash"),
             ActionDescriptor(
                 id: "workspaceGroup.toggleArchive",
-                title: String(localized: "action.workspaceGroup.toggleArchive", defaultValue: "Archive/Unarchive Group", bundle: .module),
+                title: String(localized: "action.workspaceGroup.toggleArchive", defaultValue: "Archive Group", bundle: .module),
                 keywords: ["group", "archive", "unarchive", "dim", "done"], category: .workspace, symbol: "archivebox.circle",
                 surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group toggle-archive"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.workspaceGroup.toggleArchive.on", defaultValue: "Unarchive Group", bundle: .module)),
             ActionDescriptor(
                 id: "workspaceGroup.markRead",
                 title: String(localized: "action.workspaceGroup.markRead", defaultValue: "Mark Group as Read", bundle: .module),

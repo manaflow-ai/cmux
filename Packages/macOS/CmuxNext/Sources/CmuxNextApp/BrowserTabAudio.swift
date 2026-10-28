@@ -87,12 +87,11 @@ enum BrowserTabAudio {
         workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap { page($0.id, in: cache) }
     }
 
-    /// The tab menu's row reads as the change it makes ("Mute Tab" or
-    /// "Unmute Tab", Chrome's Mute site / Unmute site), titled from the
-    /// direct actions.
-    static func targetTitle(_ registry: ActionRegistry, _ cache: TabContentCache, _ invocation: ActionInvocation) -> String? {
-        guard let target = invocation.target, target.kind == .tab, let page = page(target.id, in: cache) else { return nil }
-        return registry.descriptor(for: page.state.isAudioMuted ? "tab.unmuteAudio" : "tab.muteAudio")?.title
+    /// Whether the target tab's page (the focused tab without a target) is muted, for the toggle's
+    /// title (Mute Tab or Unmute Tab, Chrome's Mute site / Unmute site); nil for a tab with no page.
+    static func isMuted(_ ctx: AppActionContext, _ invocation: ActionInvocation) -> Bool? {
+        guard let (tab, _) = ctx.daemonTab(invocation) else { return nil }
+        return page(tab.id, in: ctx.services.cache)?.state.isAudioMuted
     }
 
     private static func targetPage(_ ctx: AppActionContext, _ invocation: ActionInvocation) -> Page? {

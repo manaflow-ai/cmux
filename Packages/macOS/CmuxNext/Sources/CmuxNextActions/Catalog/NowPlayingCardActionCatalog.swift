@@ -8,13 +8,14 @@ nonisolated enum NowPlayingCardActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         [
             ActionDescriptor(
-                id: "nowPlaying.playPause", title: t("action.nowPlaying.playPause", "Play/Pause Media"),
+                id: "nowPlaying.playPause", title: t("action.nowPlaying.playPause", "Play Media"),
                 keywords: ["media", "music", "now playing", "play", "pause", "resume", "song"], category: .window,
                 symbol: "playpause", surfaces: [.palette], cliName: "media play-pause",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
-                    ContextMenuPlacement(.nowPlayingCard, .navigate, 0, label: t("menu.nowPlaying.playPause", "Play/Pause")),
+                    ContextMenuPlacement(.nowPlayingCard, .navigate, 0),
                 ])
-            ),
+            )
+            .toggling(whenOn: t("action.nowPlaying.playPause.on", "Pause Media"), symbolWhenOff: "play.fill", symbolWhenOn: "pause.fill"),
             ActionDescriptor(
                 id: "tab.pictureInPicture", title: t("action.tab.pictureInPicture", "Picture in Picture"),
                 keywords: ["pip", "picture in picture", "video", "float", "floating", "pop out", "always on top", "media", "tab"],

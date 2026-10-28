@@ -75,6 +75,7 @@ enum ScreenGroupHandlers {
                 ScreenGroupCommands.setCollapsed(ref, next(ref.group.collapsed))
             })
         }
+        ActionTargetTitles.setState("screenGroup.toggleCollapsed", in: registry) { invocation in group(invocation, ctx)?.group.collapsed }
         registry.bind("screenGroup.ungroup", invoke: { invocation in
             guard let ref = group(invocation, ctx) else { return }
             ScreenGroupCommands.ungroup(ref.group.id, daemon: ref.daemon)

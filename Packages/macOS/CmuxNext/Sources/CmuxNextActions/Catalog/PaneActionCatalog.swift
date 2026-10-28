@@ -54,12 +54,13 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "toggleSplitZoom",
-                title: String(localized: "action.toggleSplitZoom", defaultValue: "Toggle Pane Zoom", bundle: .module),
+                title: String(localized: "action.toggleSplitZoom", defaultValue: "Zoom Pane", bundle: .module),
                 keywords: ["maximize", "zoom"],
                 defaultShortcut: Shortcut(Shortcut.returnKey, modifiers: [.command, .shift]), category: .pane,
                 symbol: "arrow.up.left.and.down.right.magnifyingglass", surfaces: [.palette, .keyboard, .contextMenu],
                 targets: [.pane], cliName: "pane toggle-zoom"
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.toggleSplitZoom.on", defaultValue: "Exit Pane Zoom", bundle: .module)),
             // Show Tab Bar (cx-soza): the pane's own choice; the palette and menu read Hide Tab Bar while shown.
             ActionDescriptor(
                 id: "pane.toggleTabBar",
@@ -196,11 +197,12 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "toggleCanvasLayout",
-                title: String(localized: "action.toggleCanvasLayout", defaultValue: "Toggle Canvas Layout", bundle: .module),
+                title: String(localized: "action.toggleCanvasLayout", defaultValue: "Turn On Canvas Layout", bundle: .module),
                 keywords: ["canvas", "freeform"], defaultShortcut: Shortcut("c", modifiers: [.control, .command]),
                 category: .pane, symbol: "rectangle.3.group", surfaces: [.palette, .keyboard, .menu], targets: [.pane],
                 cliName: "pane toggle-canvas-layout", mainMenu: .view
-            ),
+            )
+            .toggling(whenOn: String(localized: "action.toggleCanvasLayout.on", defaultValue: "Turn Off Canvas Layout", bundle: .module)),
             ActionDescriptor(
                 id: "canvasOverview",
                 title: String(localized: "action.canvasOverview", defaultValue: "Canvas Overview", bundle: .module),

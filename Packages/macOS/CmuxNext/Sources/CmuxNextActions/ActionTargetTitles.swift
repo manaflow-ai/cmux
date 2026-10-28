@@ -15,8 +15,9 @@ public enum ActionTargetTitles {
         registry.register(action)
     }
 
-    /// Sets whether a bound toggle is on for each target; its context menu
-    /// row shows a checkmark while it is.
+    /// Sets whether a bound toggle is on for each target (nil target: the focused object).
+    /// A toggle with ``ActionToggleTitles`` then shows the title for its state on every
+    /// surface; any other toggle's context menu row shows a checkmark while it is on.
     public static func setState(_ id: ActionID, in registry: ActionRegistry, _ state: @escaping @MainActor (ActionInvocation) -> Bool?) {
         guard var action = registry.action(for: id) else { return }
         action.targetState = state
@@ -51,8 +52,9 @@ public enum ActionTargetTitles {
     /// disabled reason (Chromium in a build without CEF) to a context menu item.
     static func decorate(_ item: NSMenuItem, id: ActionID, invocation: ActionInvocation, in registry: ActionRegistry) {
         let action = registry.action(for: id)
-        if let title = action?.targetTitle?(invocation) { item.title = title }
-        if let on = action?.targetState?(invocation) { item.state = on ? .on : .off }
+        if registry.hasDisplayTitle(id), let title = registry.displayTitle(for: id, invocation: invocation) { item.title = title }
+        // A toggle whose title names the change (Unpin Tab) needs no check mark as well.
+        if !registry.namesToggleState(id), let on = action?.targetState?(invocation) { item.state = on ? .on : .off }
         if let reason = ActionTargetReasons.reason(for: id, invocation: invocation, in: registry) {
             if #available(macOS 14.4, *) { item.subtitle = reason }
             item.toolTip = reason

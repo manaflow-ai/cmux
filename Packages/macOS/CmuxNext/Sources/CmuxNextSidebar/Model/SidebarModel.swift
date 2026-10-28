@@ -606,6 +606,10 @@ public final class SidebarModel {
         return true
     }
 
+    /// Whether the full sidebar shows, so Toggle Sidebar hides it (a closed rail counts as hidden:
+    /// the toggle opens it).
+    public var isFullyShown: Bool { presentation == .shown && (style != .rail || isRailOpen) }
+
     /// Toggle Sidebar: fully shown at `width`, or fully hidden.
     public func toggle() {
         // The rail (`sidebar.style` = rail): the toggle opens the full sidebar over the content and

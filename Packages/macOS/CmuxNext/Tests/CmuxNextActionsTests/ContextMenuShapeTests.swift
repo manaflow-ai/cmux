@@ -73,14 +73,16 @@ struct ContextMenuShapeTests {
         }
     }
 
-    /// Toggles read "Pin/Unpin", never "Pin or Unpin" or "Toggle Group Collapse"; menus drop the
+    /// Toggles read as the change they make on the clicked object ("Unpin Tab"), never "Pin/Unpin",
+    /// "Pin or Unpin" or "Toggle Group Collapse" (Lawrence 2026-10-27); menus drop the
     /// palette's prefixes ("Agent Chat: Zoom In", "Column Width: Half", "Tab Group Color: Grey").
     @Test func menuTitlesUseOneToggleStyleAndNoPalettePrefixes() {
         for context in ActionMenuContext.allCases {
             for (path, row) in flatten(rows(context)) where !row.isSeparator {
                 let place = "\(context) \((path + [row.title]).joined(separator: " › "))"
-                #expect(!row.title.contains(" or "), "\(place): a toggle reads X/Y")
-                #expect(!row.title.hasPrefix("Toggle Group"), "\(place): a toggle reads X/Y")
+                let stateless = row.id.map { ActionToggleTitleLintTests.statelessToggles.contains($0) } ?? false
+                #expect(stateless || !row.title.contains(" or "), "\(place): a toggle names the change it makes")
+                #expect(!ActionToggleTitleLintTests.isAmbiguousToggle(row.title), "\(place): a toggle names the change it makes")
                 #expect(!row.title.contains(": "), "\(place): a palette prefix")
             }
         }

@@ -65,6 +65,10 @@ public final class SidebarChatHistoryFeed {
             guard let history, let target = invocation.target, target.kind == .sidebarItem else { return }
             history.setPinned(target.id, !history.isPinned(target.id))
         })
+        ActionTargetTitles.setState(togglePinAction, in: registry) { [weak history] invocation in
+            guard let history, let target = invocation.target, target.kind == .sidebarItem else { return nil }
+            return history.isPinned(target.id)
+        }
         history.makeMenu = { [weak registry] key in
             registry?.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: key),
                                       entries: [.action(togglePinAction)])

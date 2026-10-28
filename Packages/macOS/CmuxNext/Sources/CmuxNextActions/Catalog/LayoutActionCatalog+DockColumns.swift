@@ -27,8 +27,9 @@ nonisolated extension LayoutActionCatalog {
             row("tab.moveToNewDockColumn", String(localized: "action.tab.moveToNewDockColumn", defaultValue: "Move Tab to New Dock Column", table: "LayoutActions", bundle: .module),
                 .tab, "pin", cli: "tab move-to-new-dock-column", keywords: ["tab", "column", "pin", "dock", "top", "bottom"],
                 targets: [.tab], arguments: [CatalogArgument.edgeChoice.optional, CatalogArgument.dockModeChoice.optional]),
-            row("layout.toggleStripScrollbar", String(localized: "action.layout.toggleStripScrollbar", defaultValue: "Toggle Column Scroll Bar", table: "LayoutActions", bundle: .module),
-                .settings, "scroll", cli: "settings toggle-column-scrollbar", keywords: ["scrollbar", "column", "strip", "minimap"], targets: []),
+            row("layout.toggleStripScrollbar", String(localized: "action.layout.toggleStripScrollbar", defaultValue: "Show Column Scroll Bar", table: "LayoutActions", bundle: .module),
+                .settings, "scroll", cli: "settings toggle-column-scrollbar", keywords: ["scrollbar", "column", "strip", "minimap"], targets: [])
+                .toggling(whenOn: String(localized: "action.layout.toggleStripScrollbar.on", defaultValue: "Hide Column Scroll Bar", table: "LayoutActions", bundle: .module)),
         ]
     }
 }

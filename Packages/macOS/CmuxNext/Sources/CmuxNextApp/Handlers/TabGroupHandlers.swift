@@ -21,6 +21,10 @@ enum TabGroupHandlers {
         bindMembership(bind, ctx)
         ActionTargetVisibility.hide("tabGroup.removeTab", in: registry) { $0.target.flatMap { $0.kind == .tab ? ctx.services.locateTab($0.id) : nil }.map { $0.0.tabGroup == nil } ?? false }
         bindAppearance(bind, ctx)
+        // Collapse Tab Group or Expand Tab Group for the target (the focused tab's group without one).
+        ActionTargetTitles.setState("tabGroup.toggleCollapsed", in: registry) { invocation in
+            group(invocation, ctx).map { found in found.pane.tabGroups.first { $0.id == found.id }?.collapsed ?? false }
+        }
         bindLifecycle(bind, ctx)
         TabGroupHandlers.bindMoves(bind, ctx)
     }
