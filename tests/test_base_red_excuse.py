@@ -346,11 +346,13 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
 
     FLEET = "cmux-next fleet Release compile"
     STEP = "Wait for the fleet Release compile and publish cmux-next/compile"
+    RELEASE = "cmux-next Release compile (Xcode 26)"
 
     class GitHub(FakeGitHub):
         def __init__(self):
             super().__init__()
             self.check_runs: list[dict] = []
+            self.actions_jobs: dict[int, dict] = {}
             self.statuses: list[dict] = []
 
         def json(self, route, *, paginate=False):
@@ -358,6 +360,8 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
                 return [{"check_runs": copy.deepcopy(self.check_runs)}]
             if route.endswith(f"/commits/{HEAD}/status"):
                 return {"statuses": copy.deepcopy(self.statuses)}
+            if "/actions/jobs/" in route:
+                return copy.deepcopy(self.actions_jobs[int(route.rsplit("/", 1)[1])])
             return super().json(route, paginate=paginate)
 
     def setUp(self):
@@ -372,6 +376,16 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         return log(job, step, f"##[warning]no result for {sha} from the controller (attempt 1)",
                    f"##[error]cmux-next/compile is not a pass for {sha} (no result)",
                    "##[error]Process completed with exit code 1.")
+
+    def release_run(self, check_id, conclusion="success", *, steps=None, sha=HEAD, check_sha=HEAD):
+        """A `cmux-next Release compile (Xcode 26)` check run and its job. steps: the Mac compile's by default."""
+        steps = steps if steps is not None else [("Checkout", "success"), ("Release compile", conclusion)]
+        self.gh.check_runs.append({"id": check_id, "name": self.RELEASE, "status": "completed",
+                                   "conclusion": conclusion, "head_sha": check_sha,
+                                   "app": {"slug": "github-actions"}})
+        self.gh.actions_jobs[check_id] = {"id": check_id, "name": self.RELEASE, "head_sha": sha,
+                                          "status": "completed", "conclusion": conclusion,
+                                          "steps": [{"name": name, "conclusion": state} for name, state in steps]}
 
     def judge(self):
         return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
@@ -392,35 +406,32 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
             self.judge()
 
     def test_no_verdict_is_ignored_when_the_mac_release_compile_passed_at_the_head(self):
-        self.gh.check_runs = [
-            {"id": 5, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "skipped", "head_sha": HEAD,
-             "app": {"slug": "github-actions"}},
-            {"id": 6, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "success", "head_sha": HEAD,
-             "app": {"slug": "github-actions"}}]
+        self.release_run(6)
         text = "\n".join(self.judge())
         self.assertIn(f"ignored '{self.FLEET}'", text)
-        self.assertIn("cmux-next Release compile (Xcode 26)", text)
+        self.assertIn(self.RELEASE, text)
 
-    def test_a_real_fleet_red_whose_log_echoes_the_script_is_not_set_aside(self):
-        """The log echoes the step's script, no-verdict words included; only the job's own ::error decides."""
-        app = "cmux-next app compile (build fleet)"
-        step = "Compile-check the app at the pull request's head on the build fleet"
-        self.gh.jobs = {1: failed_job(1, 10, HEAD, app, step), 2: failed_job(2, 20, BASE_SHA, app, step)}
-        script = '    local summary="No build-fleet verdict for \\`$REF\\` ($1), so nothing has compiled this head here."'
-        self.gh.logs[1] = log(app, step, script, "##[error]The cmux-next app did not compile on the build fleet at "
-                              f"`{HEAD}`; the errors are in this job's log above.")
-        self.gh.logs[2] = log(app, step, script, "##[error]something else broke")
-        self.gh.check_runs = [{"id": 6, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "success",
-                               "head_sha": HEAD, "app": {"slug": "github-actions"}}]
-        with self.assertRaisesRegex(excuse.Refused, "did not compile"):
+    def test_a_reused_pass_for_the_same_inputs_counts(self):
+        self.release_run(6, steps=[("Reuse that pass", "success"), ("Release compile", "skipped")])
+        self.assertIn(f"ignored '{self.FLEET}'", "\n".join(self.judge()))
+
+    def test_the_admission_job_of_the_same_name_is_not_a_compile(self):
+        self.release_run(6, steps=[("Record the Release compile admission", "success")])
+        with self.assertRaisesRegex(excuse.Refused, "never a base red"):
             self.judge()
 
-    def test_a_skipped_or_foreign_release_compile_is_not_a_pass(self):
-        self.gh.check_runs = [
-            {"id": 5, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "skipped", "head_sha": HEAD,
-             "app": {"slug": "github-actions"}},
-            {"id": 6, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "success", "head_sha": HEAD,
-             "app": {"slug": "someone-else"}}]
+    def test_an_older_pass_does_not_count_when_a_newer_attempt_failed(self):
+        self.release_run(6)
+        self.release_run(9, "failure")
+        with self.assertRaisesRegex(excuse.Refused, "never a base red"):
+            self.judge()
+
+    def test_a_skipped_foreign_or_unknown_sha_release_compile_is_not_a_pass(self):
+        self.release_run(5, "skipped", steps=[])
+        self.release_run(6, check_sha=None)
+        self.release_run(7, sha=BASE_SHA)
+        self.gh.check_runs.append({"id": 8, "name": self.RELEASE, "status": "completed", "conclusion": "success",
+                                   "head_sha": HEAD, "app": {"slug": "someone-else"}})
         with self.assertRaises(excuse.Refused):
             self.judge()
 
@@ -432,6 +443,19 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         self.gh.statuses = [{"context": "cmux-next/compile", "state": "failure"},
                             {"context": "cmux-next/compile", "state": "success"}]
         with self.assertRaises(excuse.Refused):
+            self.judge()
+
+    def test_a_real_fleet_red_whose_log_echoes_the_script_is_not_set_aside(self):
+        """The log echoes the step's script, no-verdict words included; only the job's own ::error decides."""
+        app = "cmux-next app compile (build fleet)"
+        step = "Compile-check the app at the pull request's head on the build fleet"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, app, step), 2: failed_job(2, 20, BASE_SHA, app, step)}
+        script = '    local summary="No build-fleet verdict for \\`$REF\\` ($1), so nothing has compiled this head here."'
+        self.gh.logs[1] = log(app, step, script, "##[error]The cmux-next app did not compile on the build fleet at "
+                              f"`{HEAD}`; the errors are in this job's log above.")
+        self.gh.logs[2] = log(app, step, script, "##[error]something else broke")
+        self.release_run(6)
+        with self.assertRaisesRegex(excuse.Refused, "did not compile"):
             self.judge()
 
     def test_a_real_red_differing_only_by_its_embedded_sha_is_excused(self):
@@ -450,8 +474,17 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "not published"):
             self.judge()
 
-    def test_words_and_numbers_are_not_taken_for_shas(self):
-        self.assertEqual(excuse.SHA.sub("<sha>", "defaced 1234567 accede deadbeef1"), "defaced 1234567 accede <sha>")
+    def test_other_hex_ids_are_compared_as_they_are(self):
+        scheme = "cmux app scheme compile (Debug)"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, scheme, "Build"), 2: failed_job(2, 20, BASE_SHA, scheme, "Build")}
+        self.gh.logs[1] = log(scheme, "Build", "error: artifact deadbeef1 missing")
+        self.gh.logs[2] = log(scheme, "Build", "error: artifact abcdef12 missing")
+        with self.assertRaisesRegex(excuse.Refused, "artifact"):
+            self.judge()
+
+    def test_only_commit_shas_are_masked(self):
+        self.assertEqual(excuse.mask_shas(f"defaced 1234567 accede deadbeef1 {HEAD} at 8f0c2e1 tree `5948da7`"),
+                         "defaced 1234567 accede deadbeef1 <sha> at <sha> tree `<sha>`")
 
 
 class Script(unittest.TestCase):

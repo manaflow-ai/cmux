@@ -73,9 +73,11 @@ STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ?")
 CRASH = re.compile(r"exited with unexpected signal code (\d+)|the test helper died on signal (\d+)")
 CRASH_LINE = re.compile(r"exited with unexpected signal code|the test helper died on signal|"
                         r"no \"Test run with\" summary line")
-# A commit sha inside an error line (7 to 40 hex digits with a digit and a letter, so a plain word or
-# number is not one): the same red on the head and the base names each run's own commit.
-SHA = re.compile(r"\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
+# A commit sha inside an error line: a full 40-hex sha, or 7 to 39 hex digits (a digit and a letter among
+# them) right after a word that names a commit. The same red on the head and the base names each run's
+# own commit; any other hex id (an artifact, a hash) is compared as it is.
+SHA = re.compile(r"\b[0-9a-f]{40}\b|\b((?:commit|sha|tree|head|base|revision|ref|at|for) `?)"
+                 r"(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,39}\b")
 # A compile check that gave no verdict (the build-fleet controller unreachable, timed out, or a result
 # for another head): nothing compiled the head, so it is never a base red, whatever the base shows
 # (2026-10-28: the fleet Release compile's "no result" was red on PRs and on the base alike while the
@@ -88,6 +90,12 @@ NO_VERDICT = re.compile(r"^##\[error\](?:cmux-next/compile is not a pass for [0-
 # commit status.
 COMPILE_PASS_CHECKS = ("cmux-next Release compile (Xcode 26)",)
 COMPILE_PASS_STATUS = "cmux-next/compile"
+# The Mac Release compile's steps that compile (or reuse a pass for the same inputs).
+COMPILE_STEPS = frozenset({"Release compile", "Reuse that pass"})
+
+
+def mask_shas(text: str) -> str:
+    return SHA.sub(lambda match: (match.group(1) or "") + "<sha>", text)
 
 
 def lines_of(log: str) -> list[str]:
@@ -110,7 +118,7 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
             if match := pattern.search(text):
                 tests.add(match.group(1))
         if ERROR.search(text) and not GENERIC.search(text) and not WARNING.search(text) and not CRASH_LINE.search(text):
-            errors.add(re.sub(r"\d+", "#", SHA.sub("<sha>", text.replace("##[error]", "").strip())))
+            errors.add(re.sub(r"\d+", "#", mask_shas(text.replace("##[error]", "").strip())))
     return steps, tests, errors
 
 
@@ -120,12 +128,27 @@ def no_verdict(log: str) -> str | None:
 
 
 def compile_pass_at(repo: str, sha: str, github) -> str | None:
-    """What compiled SHA itself and passed: a green Mac Release compile or a cmux-next/compile success."""
+    """What compiled SHA itself and passed: the newest Mac Release compile job at SHA that ran (its
+    `Release compile` or `Reuse that pass` step succeeded), or a cmux-next/compile success."""
+    candidates = []
     for page in github.json(f"repos/{repo}/commits/{sha}/check-runs?per_page=100", paginate=True):
         for check in page.get("check_runs") or []:
-            if (check.get("name") in COMPILE_PASS_CHECKS and check.get("conclusion") == "success"
-                    and check.get("head_sha") in (None, sha) and check.get("app", {}).get("slug") == "github-actions"):
-                return f"'{check['name']}' (check run {check.get('id')})"
+            if (check.get("name") in COMPILE_PASS_CHECKS and check.get("head_sha") == sha
+                    and check.get("app", {}).get("slug") == "github-actions" and check.get("status") == "completed"
+                    and check.get("conclusion") != "skipped"):
+                candidates.append(check)
+    # Newest first; the same name is also release-compile-fast-admission's (a Linux wrapper that compiles
+    # nothing), so only a job with the Mac compile's own steps counts, and the newest such attempt decides.
+    for check in sorted(candidates, key=lambda found: found.get("id", -1), reverse=True):
+        job = github.json(f"repos/{repo}/actions/jobs/{check['id']}")
+        if job.get("head_sha") != sha or job.get("name") != check.get("name"):
+            continue
+        steps = {step.get("name"): step.get("conclusion") for step in job.get("steps") or []}
+        if not COMPILE_STEPS & steps.keys():
+            continue
+        if job.get("conclusion") == "success" and any(steps.get(name) == "success" for name in COMPILE_STEPS):
+            return f"'{check['name']}' (job {check['id']})"
+        break
     status = github.json(f"repos/{repo}/commits/{sha}/status")
     for found in status.get("statuses") or []:
         if found.get("context") == COMPILE_PASS_STATUS:
