@@ -73,7 +73,7 @@ enum BrowsingDataClear {
         guard cookies || cache else { return }
         let since = range.start(now: Date())
         let webKit = services.cache.webKit.profileStore
-        let cef = services.cache.cef
+        let cef = services.cache.cef, work = services.work
         let liveTabs = services.cache.browsers.values.compactMap { $0.tab as? CEFTab }.filter { $0.profileID == profile }
         let logger = Self.logger
         // task-owner: one clear of one profile's stores; ends when both engines answer. R-hop: a nonisolated task at
@@ -81,7 +81,7 @@ enum BrowsingDataClear {
         services.work.task(.userBlocking) {
             await webKit.clearBrowsingData(for: profile, siteData: cookies, cache: cache, since: since)
             do {
-                try await cef.clearBrowsingData(profile, cookies: cookies, cache: cache, since: since, liveTabs: liveTabs)
+                try await cef.clearBrowsingData(profile, cookies: cookies, cache: cache, since: since, liveTabs: liveTabs, work: work)
             } catch {
                 logger.error("Chromium clear browsing data failed: \(String(describing: error), privacy: .public)")
             }

@@ -12,7 +12,7 @@ import Observation
 /// the model against a temp folder or fakes:
 ///
 /// ```swift
-/// let model = FileBrowserModel(folder: tempFolder, work: mainWork)
+/// let model = FileBrowserModel(folder: tempFolder, work: mainWork, lanes: lanes)
 /// await model.reload()
 /// model.select(model.entries[0].url)
 /// try await model.trashSelection()
@@ -83,6 +83,8 @@ public final class FileBrowserModel {
     @ObservationIgnored let lister: any DirectoryListing
     @ObservationIgnored let watcher: any FolderWatching
     @ObservationIgnored let files: any FileOperating
+    /// Get Info's reads and the status line's free space, on the same lanes as ``files``.
+    @ObservationIgnored public let info: FileInfoReader
     @ObservationIgnored private let now: @Sendable () -> Date
     @ObservationIgnored private let resolver: GoToFolderResolver
     @ObservationIgnored private let memory: FolderViewMemory?
@@ -98,13 +100,15 @@ public final class FileBrowserModel {
     ///   - showHidden: Show hidden items. Defaults to false.
     ///   - lister: Reads folders. Defaults to ``DirectoryLister``.
     ///   - watcher: Reports changes. Defaults to ``FolderWatcher``.
-    ///   - files: Makes changes. Defaults to ``FileOperator``.
+    ///   - lanes: The app's blocking-work lanes (`AppServices.work`): the default ``FileOperator`` and ``info`` run
+    ///     their file calls there.
+    ///   - files: Makes changes. Nil makes a ``FileOperator`` on `lanes`.
     ///   - resolver: Resolves Go to Folder text. Defaults to the real file system.
     ///   - now: The clock type-select reads (a seam for tests).
     ///   - memory: Each folder's remembered view and order; nil keeps one for all.
     public init(folder: URL, work: MainWorkScheduler, viewMode: FileViewMode = .list, sortOrder: FileSortOrder = FileSortOrder(),
                 showHidden: Bool = false, lister: any DirectoryListing = DirectoryLister(),
-                watcher: any FolderWatching = FolderWatcher(), files: any FileOperating = FileOperator(),
+                watcher: any FolderWatching = FolderWatcher(), lanes: BackgroundWork, files: (any FileOperating)? = nil,
                 resolver: GoToFolderResolver = GoToFolderResolver(), now: @escaping @Sendable () -> Date = { Date() },
                 memory: FolderViewMemory? = nil) {
         self.folder = folder.standardizedFileURL
@@ -114,7 +118,8 @@ public final class FileBrowserModel {
         self.showHidden = showHidden
         self.lister = lister
         self.watcher = watcher
-        self.files = files
+        self.files = files ?? FileOperator(work: lanes)
+        self.info = FileInfoReader(work: lanes)
         self.resolver = resolver
         self.now = now
         self.memory = memory

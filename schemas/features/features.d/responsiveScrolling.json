@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "responsiveScrolling",
+  "owner": "Performance Lead",
+  "description": "The sidebar list and the palette results scroll on AppKit's scrolling thread, so a main-thread stall does not stop a scroll or its momentum; the sidebar decides a trackpad gesture's axis before AppKit takes it.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["sidebar", "palette-open"],
+  "sticky": false,
+  "runtimeMutable": false
+}

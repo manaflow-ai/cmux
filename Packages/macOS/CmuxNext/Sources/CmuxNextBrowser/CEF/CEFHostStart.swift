@@ -69,6 +69,9 @@ final class CEFHostStart {
     private(set) var acksWheels = false
     /// The attached host ended (``hostEnded()``) and no new one is attached yet.
     private(set) var hostGone = false
+    /// The attached host's pid (``CEFAttachedHost/hostPID``), whose children are the Chromium helpers; nil while
+    /// none is attached (task p01-process-225).
+    private(set) var hostPID: pid_t?
     /// The host's UI-thread watch: the busy banner and its hang reports (feature `chromiumHostHangBanner`,
     /// `CEFRuntime.watchHostHangs(reports:)`, task p01-process-084); nil without it. One for every host:
     /// each attached host that acks its input dispatch reports to it.
@@ -130,7 +133,7 @@ final class CEFHostStart {
         self.task = task
         let outcome = await task.value
         guard case .success(let host) = outcome else { return outcome }
-        (remote, mapsClientIDs, acksWheels, hostGone, pagesAwaitEnd) = (host.remote, host.mapsClientIDs, host.acksWheels, false, false)
+        (remote, mapsClientIDs, acksWheels, hostGone, pagesAwaitEnd, hostPID) = (host.remote, host.mapsClientIDs, host.acksWheels, false, false, host.hostPID)
         startInputRoute(host)
         // A host that acks its dispatch counts waiting input for the busy banner; one that does not never shows it.
         if let hangMonitor, host.watchesHangs { watchesHangs = host.remote.watchHost(hangMonitor) }
@@ -173,7 +176,7 @@ final class CEFHostStart {
     func hostEnded() {
         endInputRoute()
         remote?.detach()
-        (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes) = (nil, nil, false, false, true, nil)
+        (task, remote, mapsClientIDs, acksWheels, hostGone, pageResizes, hostPID) = (nil, nil, false, false, true, nil, nil)
         watchesHangs = false
         generation += 1
     }
@@ -251,7 +254,8 @@ final class CEFHostStart {
                                        locale: locale, loadDuration: elapsed.now - started,
                                        mapsClientIDs: hostExports.contains(CEFAttachedHost.clientIDsHelloName),
                                        acksWheels: hostExports.contains(CEFAttachedHost.wheelAcksHelloName),
-                                       watchesHangs: hostExports.contains(CEFAttachedHost.hangWatchHelloName))
+                                       watchesHangs: hostExports.contains(CEFAttachedHost.hangWatchHelloName),
+                                       hostPID: attachment.hostPID())
             host.inputRingFD = attachment.inputRingFD
             #if DEBUG || CMUX_BENCH_HOOKS
             if routesInput, attachment.inputRingFD >= 0, let name = attachment.inputDoorbellName {
@@ -289,6 +293,8 @@ nonisolated struct CEFAttachedHost: Sendable {
     /// The host acks the input its UI thread dispatched and reports its UI hangs (its HELLO lists
     /// ``hangWatchHelloName``; HOST/src/host_hang_watcher.h): the busy banner counts on it.
     var watchesHangs = false
+    /// The host's pid, read after its hello (``ChromiumHostAttachment/hostPID()``): the parent of its helpers.
+    var hostPID: pid_t?
     /// The host's input ring (``ChromiumHostAttachment/inputRingFD``), -1 while it passed none.
     var inputRingFD: Int32 = -1
     #if DEBUG || CMUX_BENCH_HOOKS

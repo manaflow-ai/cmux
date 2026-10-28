@@ -39,6 +39,9 @@
 #                   Event.ScrollJank.*, per scroll target with real trackpad gestures at the display rate; DC4); the
 #                   other options go to it (--sessions=light,stress, --stall=none,50ms/100ms, --targets=sidebar,strip).
 #                   Real input needs the Accessibility grant as above.
+#   --suite=responsive-scroll  run scripts/cmux-next/responsive-scroll-live.py (p03-rendering-110: a 50 ms main stall
+#                   during momentum still scrolls the sidebar and the palette results, feature responsiveScrolling on
+#                   and off); it exits 1 when the check fails. Real input needs the Accessibility grant as above.
 # On exit, TERM, INT or HUP (a cancelled step) the script stops the bench, ends the tag's app and daemons
 # (scripts/cmux-next/tag_teardown.py, exact PIDs of the app bundle) and the virtual display.
 set -euo pipefail
@@ -59,6 +62,7 @@ for arg in "$@"; do
     --config=*) reload_config=(--config "${arg#--config=}") ;;
     --suite=input-latency) bench_script=scripts/cmux-next/input-latency-bench.py ;;
     --suite=scroll-jank) bench_script=scripts/cmux-next/scroll-jank-bench.py ;;
+    --suite=responsive-scroll) bench_script=scripts/cmux-next/responsive-scroll-live.py ;;
     *) args+=("$arg") ;;
   esac
 done
