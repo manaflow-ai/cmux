@@ -1719,10 +1719,13 @@ export class AcpmuxDirectClient {
       const groupedPermissionsSupported = supportsPermissionGroups(initialized);
       if (!groupedPermissionsSupported) this.groupedPermissions.clear();
       this.permissions.configure(groupedPermissionsSupported);
+      // Only from this machine's own acpmux (a `local` connection): a host's peer states are its
+      // own, never taken from another daemon (a page connected as a peer or remote reads none).
       const features = initialized?._meta?.acpmux?.features;
       this.peerStateEvents =
-        (Array.isArray(features) && features.includes(PEER_STATE_EVENTS)) ||
-        this.capabilities?.has(PEER_STATE_CAPABILITY) === true;
+        this.origin === "local" &&
+        ((Array.isArray(features) && features.includes(PEER_STATE_EVENTS)) ||
+          this.capabilities?.has(PEER_STATE_CAPABILITY) === true);
       // The peers as they are now, at every connect (a reconnect included); the pushes apply on top.
       this.readPeers(await this.request("_acpmux/status", {}).catch(() => undefined));
       const first = await this.sessionPages.first();
@@ -6578,7 +6581,10 @@ export class AcpmuxDirectClient {
   /// repeat (a lagged watcher gets every peer's last note again) changes nothing; a removed peer
   /// (`offline` with `error: "removed"`) leaves the list; one not listed yet is read with the rest
   /// (its transport comes with the list).
+  /// Read only on a `local` connection that asked for them (`peerStateEvents`): one from any other
+  /// connection is ignored.
   private peerStateChanged(params: any): void {
+    if (!this.peerStateEvents) return;
     const peer = params?.peer;
     const state = params?.state;
     if (typeof peer !== "string" || !peer || typeof state !== "string" || !PEER_LINK_STATES.has(state)) return;

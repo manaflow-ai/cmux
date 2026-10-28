@@ -78,7 +78,11 @@ test("the App's push sets the pane's machine and clears it for a chat on this Ma
 /// `gone`: the reconnect finds the peer removed (acpmux lists it no more). `cut`: the next
 /// `session/new` or `session/prompt` goes out and the link drops before the answer
 /// (`peer_disconnected`). `events`: it pushes peer link states (`peerStateEvents`).
-function daemon(state: string, { dropped = false, chat = false, gone = false, cut = false, events = false } = {}) {
+/// `origin`: what acpmux says this connection is (`local`, `peer`, `remote`).
+function daemon(
+  state: string,
+  { dropped = false, chat = false, gone = false, cut = false, events = false, origin = "local" } = {},
+) {
   let cutNext = cut;
   const asked: { method: string; params: Record<string, unknown> }[] = [];
   let peerState = state;
@@ -94,7 +98,7 @@ function daemon(state: string, { dropped = false, chat = false, gone = false, cu
       case "initialize":
         return {
           protocolVersion: 1,
-          _meta: { acpmux: { origin: "local", extensions: [], operations: [], features: events ? ["peerStateEvents"] : [] } },
+          _meta: { acpmux: { origin, extensions: [], operations: [], features: events ? ["peerStateEvents"] : [] } },
         };
       case "_acpmux/status":
         return peers();
@@ -288,4 +292,13 @@ test("an older daemon with no pushes is read again as the list opens", async () 
   const read = reads();
   await pane.refreshPeersOnOpen();
   expect(reads()).toBe(read + 1);
+});
+
+test("a peer state push on a connection that is not this machine's own acpmux is ignored", async () => {
+  const { client: pane, states, notify } = await client("connected", { events: true, origin: "peer" });
+  const emitted = states.length;
+  notify("_acpmux/peer_state_changed", { peer: "gpu-box", state: "offline", lastSeen: 1, error: null, at: 2 });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(states.length).toBe(emitted);
+  expect(states.at(-1)?.["gpu-box"]).toBe("connected");
 });
