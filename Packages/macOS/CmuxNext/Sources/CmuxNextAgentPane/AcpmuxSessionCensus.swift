@@ -79,6 +79,22 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
 /// ending its agents for Quit Everything.
 public nonisolated struct AcpmuxQuit {
     public nonisolated init() {}
+    /// The statuses that can still have an agent process. Filtering before
+    /// paging avoids every closed chat and keeps peer rows out of the quit
+    /// census; local summaries have no `peer` field.
+    private static let activeStatuses = ["ready", "running", "waiting"]
+
+    @concurrent private static func activeSessions(socketPath: String, deadline: Duration) async throws -> [[String: Any]] {
+        var rows: [[String: Any]] = []
+        for status in activeStatuses {
+            let page = try await AcpmuxStatusClient.sessionPages(socketPath: socketPath, params: ["status": status], deadline: deadline)
+            rows += page.filter { ($0["peer"] as? String)?.isEmpty != false && $0["status"] as? String == status }
+        }
+        return rows
+    }
+
+    private static func result(_ rows: [[String: Any]]) -> [String: Any] { ["sessions": rows] }
+
     /// Nil when acpmux did not answer within `deadline`, or when it is
     /// shutting down (no usable socket, daemon.lock held): unknown, not
     /// zero. With no daemon, the agent hosts that still hold their lock.
@@ -89,7 +105,7 @@ public nonisolated struct AcpmuxQuit {
         AcpmuxQuitProof.recordCensus(home: environment.home, socketPresent: socketPresent)
         guard socketPresent else { return await censusWithoutSocket(environment.home) }
         do {
-            let sessions = try await AcpmuxStatusClient.sessions(socketPath: socket, deadline: deadline).value
+            let sessions = result(try await activeSessions(socketPath: socket, deadline: deadline))
             AcpmuxQuitProof.remember(chief: Set(AcpmuxSessionCensus.chiefSessionIDs(sessions)), home: environment.home)
             return AcpmuxSessionCensus.parse(sessions)
         } catch AcpmuxStatusClient.Failure.unreachable {
@@ -142,7 +158,9 @@ public nonisolated struct AcpmuxQuit {
         let chief: [String]
         do {
             status = try await AcpmuxStatusClient.status(socketPath: socket)
-            chief = keptSessions(try await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(2)).value, keep: keep)
+            chief = keep == .chief
+                ? keptSessions(result(try await activeSessions(socketPath: socket, deadline: .seconds(2))), keep: keep)
+                : []
             if keep == .chief { AcpmuxQuitProof.remember(chief: Set(chief), home: environment.home) }
             try await AcpmuxStatusClient.shutdown(socketPath: socket, home: environment.home, endAgents: true, keepSessions: chief)
         } catch AcpmuxStatusClient.Failure.unreachable {

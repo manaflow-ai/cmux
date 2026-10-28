@@ -97,6 +97,9 @@ import Testing
         let question = try #require(ask["questions"]?.arrayValue?.first)
         #expect(question["prompt"]?.stringValue == "Which database?")
         #expect(question["options"]?.arrayValue?.compactMap { $0["label"]?.stringValue } == ["Postgres", "SQLite"])
+        let list = try #require(line.sent.first { $0.method == "_acpmux/sessions" })
+        #expect(list.params["status"] as? String == "waiting")
+        #expect(list.params["limit"] as? Int == 64)
     }
 
     @Test func listWithNoAcpmuxIsEmpty() async throws {

@@ -60,9 +60,40 @@ nonisolated enum AcpmuxStatusClient {
         _ = try await call(socketPath: socketPath, method: "_acpmux/shutdown", params: params, deadline: deadline)
     }
 
-    /// `_acpmux/sessions`: every session's summary.
-    @concurrent static func sessions(socketPath: String, deadline: Duration) async throws -> ResultBox {
-        ResultBox(try await call(socketPath: socketPath, method: "_acpmux/sessions", deadline: deadline))
+    /// `_acpmux/sessions`: a page of session summaries. Callers that need the
+    /// complete set use ``sessionPages`` so a large peer mirror never crosses
+    /// the single-reply limit.
+    @concurrent static func sessions(socketPath: String, deadline: Duration,
+                                     params: [String: any Sendable] = [:]) async throws -> ResultBox {
+        ResultBox(try await call(socketPath: socketPath, method: "_acpmux/sessions", params: params, deadline: deadline))
+    }
+
+    /// Pages `_acpmux/sessions` with the daemon's keyset cursor. The page size
+    /// is deliberately small enough that a summary with tools stays below the
+    /// transport reply limit; callers receive no all-sessions size failure.
+    @concurrent static func sessionPages(socketPath: String, params: [String: any Sendable] = [:],
+                                         pageSize: Int = 64, deadline: Duration = .seconds(2)) async throws -> [[String: Any]] {
+        var pageParams = params
+        pageParams["limit"] = pageSize
+        var cursor: String?
+        var seen: Set<String> = []
+        var rows: [[String: Any]] = []
+        while true {
+            if let cursor { pageParams["cursor"] = cursor } else { pageParams.removeValue(forKey: "cursor") }
+            let result = try await sessions(socketPath: socketPath, deadline: deadline, params: pageParams).value
+            rows += (result["sessions"] as? [[String: Any]]) ?? []
+            guard let next = (result["nextCursor"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { return rows }
+            guard seen.insert(next).inserted else { return rows }
+            cursor = next
+        }
+    }
+
+    /// `_acpmux/info` for exactly one session. `waitLogs: false` keeps this
+    /// read to the summary and pending fields needed by native callers.
+    @concurrent static func sessionInfo(socketPath: String, sessionId: String,
+                                       deadline: Duration = .seconds(2)) async throws -> [String: Any] {
+        try await call(socketPath: socketPath, method: "_acpmux/info",
+                       params: ["sessionId": sessionId, "waitLogs": false], deadline: deadline)
     }
 
     /// `_acpmux/tag {sessionId, set, remove}`: sets and removes a session's tags.
@@ -127,9 +158,8 @@ nonisolated enum AcpmuxStatusClient {
     /// folder the page names.
     @concurrent static func sessionFolder(socketPath: String, sessionId: String,
                                           deadline: Duration = .seconds(5)) async throws -> AgentPaneSessionFolder? {
-        let result = try await call(socketPath: socketPath, method: "_acpmux/watch", params: ["enabled": true],
-                                    deadline: deadline, limit: 16 << 20)
-        return AgentPaneSessionFolder(sessionId: sessionId, in: result["sessions"])
+        let result = try await sessionInfo(socketPath: socketPath, sessionId: sessionId, deadline: deadline)
+        return AgentPaneSessionFolder(sessionId: sessionId, info: result)
     }
 
     /// `initialize`, then `method`; feature-dependent operations wait for

@@ -20,6 +20,18 @@ public nonisolated struct AgentPaneSessionFolder: Equatable, Sendable {
         guard let entries = sessions as? [[String: Any]],
               let entry = entries.first(where: { $0["sessionId"] as? String == sessionId }),
               let cwd = entry["cwd"] as? String, !cwd.isEmpty else { return nil }
+        self.init(entry: entry, cwd: cwd)
+    }
+
+    /// The same folder decision for `_acpmux/info`, whose result is one
+    /// session detail rather than a `sessions` array.
+    init?(sessionId: String, info: [String: Any]) {
+        guard info["sessionId"] as? String == sessionId,
+              let cwd = info["cwd"] as? String, !cwd.isEmpty else { return nil }
+        self.init(entry: info, cwd: cwd)
+    }
+
+    private init(entry: [String: Any], cwd: String) {
         let hostKind = entry["hostKind"] as? String
         let named = { (key: String) in entry[key].map { !($0 is NSNull) && ($0 as? Bool) != false && ($0 as? String) != "" } ?? false }
         // The page's rule (sessionList.ts): local when marked local, or when

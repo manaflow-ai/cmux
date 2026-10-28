@@ -65,7 +65,20 @@ final class AgentDialogDesk {
     }
 
     private func pending(on line: any AgentDialogLine) async -> [Pending] {
-        let sessions = (await line.call("_acpmux/sessions", [:]))?["sessions"] as? [[String: Any]] ?? []
+        // Pending permissions are waiting sessions. Page that narrow status
+        // instead of asking for every local and peer chat (which can exceed
+        // the native reply cap on a long-lived daemon).
+        var sessions: [[String: Any]] = []
+        var cursor: String?
+        var seen: Set<String> = []
+        while true {
+            var params: [String: Any] = ["status": "waiting", "limit": 64]
+            if let cursor { params["cursor"] = cursor }
+            guard let page = await line.call("_acpmux/sessions", params) else { break }
+            sessions += page["sessions"] as? [[String: Any]] ?? []
+            guard let next = (page["nextCursor"] as? String).flatMap({ $0.isEmpty ? nil : $0 }), seen.insert(next).inserted else { break }
+            cursor = next
+        }
         var out: [Pending] = []
         for summary in sessions where (summary["pendingPermissions"] as? NSNumber)?.intValue ?? 0 > 0 {
             guard let session = summary["sessionId"] as? String else { continue }
