@@ -63,7 +63,7 @@ extension MainPaneGutterSuites {
                 layout = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
                 let sidebarModel = SidebarModel()
                 if sidebarHidden { sidebarModel.presentation = .hidden }
-                root = WindowRootView(sidebar: SidebarContainerView(model: sidebarModel, mainWork: MainWorkScheduler(budget: MainFrameBudget())))
+                root = WindowRootView(sidebar: SidebarContainerView(model: sidebarModel, mainWork: MainWorkScheduler(budget: MainFrameBudget())), videos: BackdropVideoPlayers())
                 window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
                                   styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                   backing: .buffered, defer: false)

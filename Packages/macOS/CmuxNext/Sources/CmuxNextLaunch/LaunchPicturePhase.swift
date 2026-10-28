@@ -26,7 +26,7 @@ public import CmuxNextWakeups
 /// let phase = LaunchPicturePhase(deadlines: deadlines) { DebugTimings.markLaunch($0) }
 /// phase.start({ _ = await pictures.frontFinished() }, on: work, mainWork: mainWork) { _ in
 ///     guard let front = pictures.takeFront(), matches(front) else { return phase.skip(); makeController() }
-///     phase.show(front.image, in: window, scope: scope, present: { window.orderFront(nil) }, startup: startup) {
+///     phase.show(front.image, in: window, scope: scope, videos: services.backdropVideos, present: { window.orderFront(nil) }, startup: startup) {
 ///         let regions = phase.adopt(root: makeController(in: window).root, reveal: reveal)
 ///         build(behind: regions) { phase.buildFinished() }
 ///     }
@@ -93,11 +93,12 @@ public final class LaunchPicturePhase {
     /// and the picture over it, ordered in by `present`. When that frame is committed: the launch's first frame
     /// (`first_window_frame_committed`, `startup`'s first-frame ref), and `build` posted as afterFirstFrame work
     /// (run at once with no scheduler, tests).
-    public func show(_ image: CGImage, in window: NSWindow, scope: ThemeScope, present: () -> Void, startup: StartupScheduler?,
+    public func show(_ image: CGImage, in window: NSWindow, scope: ThemeScope, videos: BackdropVideoPlayers, present: () -> Void,
+                     startup: StartupScheduler?,
                      build: @escaping @MainActor @Sendable () -> Void) {
         guard picture == nil, !isBuilt else { return }
         let picture = LaunchPictureView(image: image, scale: window.backingScaleFactor)
-        window.install(kind: .main, content: WindowSurfaceView(content: picture), scope: scope)
+        window.install(kind: .main, content: WindowSurfaceView(content: picture, videos: videos), scope: scope, videos: videos)
         (self.window, self.picture) = (window, picture)
         present()
         mark("launch_picture_shown")

@@ -22,10 +22,13 @@ extension NSWindow {
     /// above the titlebar and hides the close button, so the order is
     /// fixed here and nowhere else.
     ///
+    /// `videos` are the owner's video wallpaper players (the App's one table), which the backdrop's video
+    /// view plays through.
+    ///
     /// ```swift
-    /// window.install(kind: .settings, content: hostingView, scope: scope)
+    /// window.install(kind: .settings, content: hostingView, scope: scope, videos: services.backdropVideos)
     /// ```
-    public func install(kind: WindowKind, content: NSView, scope: ThemeScope) {
+    public func install(kind: WindowKind, content: NSView, scope: ThemeScope, videos: BackdropVideoPlayers) {
         WindowKindRegistry.setKind(kind, of: self)
         let traits = kind.traits
         styleMask.formUnion([.titled, .closable])
@@ -35,7 +38,7 @@ extension NSWindow {
             standardWindowButton(.zoomButton)?.isHidden = true
         }
         scope.adopt(self)
-        let root: NSView = traits.surface == .backdrop ? WindowSurfaceView(content: content) : content
+        let root: NSView = traits.surface == .backdrop ? WindowSurfaceView(content: content, videos: videos) : content
         (root as? any WindowSurfacePainting)?.paintWindowSurface(of: self)
         contentView = root
     }

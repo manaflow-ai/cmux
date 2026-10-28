@@ -12,13 +12,18 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
     /// The owner's content (`NSWindow.installedContent`).
     public let content: NSView
     /// The window's one material and tint.
-    public let backdropView = WindowMaterialView(frame: .zero)
+    public let backdropView: WindowMaterialView
     private let reduceTransparency: @MainActor () -> Bool
     private var displayOptionsWatch: AppearanceSignals.Subscription?
 
-    public init(content: NSView,
+    /// - Parameters:
+    ///   - content: The owner's content.
+    ///   - videos: The owner's video wallpaper players (the App's one table).
+    ///   - reduceTransparency: Whether Reduce Transparency is on (tests pin it).
+    public init(content: NSView, videos: BackdropVideoPlayers,
                 reduceTransparency: @escaping @MainActor () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency }) {
         self.content = content
+        backdropView = WindowMaterialView(frame: .zero, videos: videos)
         self.reduceTransparency = reduceTransparency
         super.init(frame: content.frame.size == .zero ? NSRect(x: 0, y: 0, width: 480, height: 320) : NSRect(origin: .zero, size: content.frame.size))
         wantsLayer = true

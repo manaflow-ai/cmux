@@ -25,7 +25,7 @@ import Testing
                               backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         defer { window.close() }
-        window.install(kind: .main, content: NSView(), scope: ThemeScope(level: .room))
+        window.install(kind: .main, content: NSView(), scope: ThemeScope(level: .room), videos: BackdropVideoPlayers())
         #expect(window.styleMask.contains(.titled))
         #expect(!window.isRestorable)
     }

@@ -82,20 +82,13 @@ public final class WindowMaterialView: NSView {
     /// The blur on the art now (``WindowBackdrop/artBlurRadius``).
     private(set) var artBlurRadius = 0
 
-    /// Creates an opaque backdrop (no material view, no tint).
-    ///
-    /// - Parameter frameRect: The initial frame.
-    override public convenience init(frame frameRect: NSRect) {
-        self.init(frame: frameRect, images: .shared)
-    }
-
     /// Creates an opaque backdrop whose art comes from `images`.
     ///
     /// - Parameter frameRect: The initial frame.
     /// - Parameter images: Where decoded backdrop images are shared.
-    /// - Parameter videos: Where video wallpapers' players are shared.
+    /// - Parameter videos: Where video wallpapers' players are shared: the owner's (the App passes its one table).
     /// - Parameter liveResize: Whether a view is in a live window resize (`NSView.inLiveResize`).
-    public init(frame frameRect: NSRect, images: BackdropImageStore, videos: BackdropVideoPlayers = .shared,
+    public init(frame frameRect: NSRect, images: BackdropImageStore = .shared, videos: BackdropVideoPlayers,
                 liveResize: @escaping @MainActor (NSView) -> Bool = { $0.inLiveResize }) {
         self.images = images
         self.liveResize = liveResize

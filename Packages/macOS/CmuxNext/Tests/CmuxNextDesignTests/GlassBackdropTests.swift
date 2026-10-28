@@ -113,9 +113,9 @@ import CmuxNextWakeups
 
     @Test func aWebViewSitsOverTheNearestShownBackdropBelowIt() {
         let content = NSView(frame: CGRect(x: 0, y: 0, width: 800, height: 600))
-        let window = WindowMaterialView(frame: content.bounds)
+        let window = WindowMaterialView(frame: content.bounds, videos: BackdropVideoPlayers())
         let pane = NSView(frame: content.bounds)
-        let paneArt = WindowMaterialView(frame: pane.bounds)
+        let paneArt = WindowMaterialView(frame: pane.bounds, videos: BackdropVideoPlayers())
         let host = NSView(frame: pane.bounds)
         content.addSubview(window)
         content.addSubview(pane)
@@ -127,7 +127,7 @@ import CmuxNextWakeups
         paneArt.isHidden = true
         #expect(WindowMaterialView.glassBackdrop(behind: page) === window)
         // A backdrop above the page's branch draws over it, not behind it.
-        let over = WindowMaterialView(frame: content.bounds)
+        let over = WindowMaterialView(frame: content.bounds, videos: BackdropVideoPlayers())
         content.addSubview(over)
         #expect(WindowMaterialView.glassBackdrop(behind: page) === window)
     }

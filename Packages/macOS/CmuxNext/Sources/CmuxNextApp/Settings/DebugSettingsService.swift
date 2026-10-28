@@ -174,7 +174,7 @@ final class DebugSettingsService: InternalPageProvider {
         if controller == nil {
             let page = webPage(model: model, services: services)
             windowPage = page
-            let controller = DebugSettingsWindowController(model: model, content: page,
+            let controller = DebugSettingsWindowController(model: model, videos: services.backdropVideos, content: page,
                                                            onFind: page.map { page in { _ = page.send(command: "focusSearch") } })
             controller.onClose = { [weak self] in
                 guard let self else { return }

@@ -18,7 +18,7 @@ extension MainPaneGutterSuites {
         func openRoot() -> (NSWindow, WindowRootView) {
             _ = NSApplication.shared
             let work = linklessMainWork()
-            let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: work))
+            let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: work), videos: BackdropVideoPlayers())
             root.follow(on: shownNode(), work: work) // the root follows the settings while its window shows
             let window = NSWindow(contentRect: root.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                   backing: .buffered, defer: false)

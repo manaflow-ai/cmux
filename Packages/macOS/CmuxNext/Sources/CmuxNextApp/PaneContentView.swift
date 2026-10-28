@@ -20,6 +20,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// The strip's colors: its pane's scope, subtler while another pane
     /// has focus (`setChromeEmphasis`).
     private let stripScope = ThemeScope(level: .terminal)
+    /// The app's video wallpaper players, for the pane's own art view (`makeArtView`).
+    let backdropVideos: BackdropVideoPlayers
     /// The pane's own scope, under its workspace's: it pins nothing unless the pane has its own
     /// background (`PaneContentView+Backdrop`), so its strip and content inherit as before.
     let paneScope = ThemeScope(level: .workspace)
@@ -108,7 +110,10 @@ final class PaneContentView: NSView, PaneContentChrome {
     /// - Parameter node: The pane's visibility node.
     /// - Parameter deadlines: The app's one main-thread deadline scheduler (`AppServices.mainDeadlines`); its
     ///   work scheduler runs the view's observations.
-    init(stripModel: TabStripModel, reveal: LaunchReveal, input: InputEventTap, node: VisibilityNode, deadlines: MainDeadlineScheduler) {
+    /// - Parameter videos: The app's video wallpaper players (`AppServices.backdropVideos`), for the pane's own art view.
+    init(stripModel: TabStripModel, reveal: LaunchReveal, input: InputEventTap, node: VisibilityNode, deadlines: MainDeadlineScheduler,
+         videos: BackdropVideoPlayers) {
+        backdropVideos = videos
         stripView = TabStripView(model: stripModel, input: input, deadlines: deadlines, visibilityNode: node)
         self.node = node
         // The pane's limit for a page that never paints under its launch image: `visible` work.

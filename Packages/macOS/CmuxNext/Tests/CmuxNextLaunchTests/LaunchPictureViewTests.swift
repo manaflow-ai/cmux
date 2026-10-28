@@ -141,7 +141,7 @@ struct LaunchPictureViewTests {
         let window = Self.window()
         defer { window.close() }
         var presented = 0
-        phase.show(try Self.image(width: 2200, height: 1440), in: window, scope: ThemeScope(level: .room), present: { presented += 1 },
+        phase.show(try Self.image(width: 2200, height: 1440), in: window, scope: ThemeScope(level: .room), videos: BackdropVideoPlayers(), present: { presented += 1 },
                    startup: nil) {}
         let surface = try #require(window.contentView as? WindowSurfaceView)
         #expect(surface.subviews.count == 2)
@@ -170,7 +170,7 @@ struct LaunchPictureViewTests {
         let phase = Self.phase(marks)
         let window = Self.window()
         defer { window.close() }
-        phase.show(try Self.image(), in: window, scope: ThemeScope(level: .room), present: {}, startup: nil) {}
+        phase.show(try Self.image(), in: window, scope: ThemeScope(level: .room), videos: BackdropVideoPlayers(), present: {}, startup: nil) {}
         let root = NSView(frame: NSRect(x: 0, y: 0, width: 1100, height: 720))
         root.addSubview(NSView())
         var restored = false

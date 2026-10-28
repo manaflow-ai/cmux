@@ -95,7 +95,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
             _ = registry?.perform("energy.saver.turnOffForNow", invocation: ActionInvocation(origin: .user))
         }
         root = WindowRootView(sidebar: sidebar.container, revealDeadlines: services.mainDeadlines, signals: services.appearance, slideHoldsContent: WindowRootView.slideHoldsContent(in: services.features),
-                              rendersMotionOnServer: { LayoutTunables.motionRenderServer.value })
+                              rendersMotionOnServer: { LayoutTunables.motionRenderServer.value }, videos: services.backdropVideos)
         root.contentHost.hiddenDetach = services.makeHiddenWorkspaceDetach()
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
@@ -121,7 +121,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         WindowMaterialView.observeKeyFamily(of: window, through: services.appEvents)
         // Kind, scope and backdrop before the content view (the root paints
         // the backdrop: `WindowSurfacePainting`).
-        window.install(kind: .main, content: root, scope: themeScope)
+        window.install(kind: .main, content: root, scope: themeScope, videos: services.backdropVideos)
         // contentRect grows by the titlebar; restore the saved frame exactly.
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
         window.delegate = self

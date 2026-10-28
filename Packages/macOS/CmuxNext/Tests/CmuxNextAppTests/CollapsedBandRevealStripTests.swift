@@ -24,7 +24,7 @@ import Testing
         let model = SidebarModel()
         model.presentation = .hidden
         let root = WindowRootView(sidebar: SidebarContainerView(model: model, mainWork: MainWorkScheduler(budget: MainFrameBudget())),
-                                  revealDeadlines: rig.deadlines, bandRendersOnServer: { true })
+                                  revealDeadlines: rig.deadlines, bandRendersOnServer: { true }, videos: BackdropVideoPlayers())
         let window = AccessoryWindow(contentRect: root.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                      backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

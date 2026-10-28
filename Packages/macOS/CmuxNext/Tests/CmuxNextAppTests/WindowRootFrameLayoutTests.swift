@@ -88,7 +88,7 @@ import Testing
 
     @Test func theRootFramesItsChildrenFromTheLayoutFunction() {
         _ = NSApplication.shared
-        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())))
+        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())), videos: BackdropVideoPlayers())
         let window = NSWindow(contentRect: Self.bounds, styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

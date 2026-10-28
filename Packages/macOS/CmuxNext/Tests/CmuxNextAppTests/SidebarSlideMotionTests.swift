@@ -60,7 +60,7 @@ struct SidebarSlideMotionTests {
         init(renderServer: Bool) {
             _ = NSApplication.shared
             root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())),
-                                  slideHoldsContent: { true }, rendersMotionOnServer: { renderServer })
+                                  slideHoldsContent: { true }, rendersMotionOnServer: { renderServer }, videos: BackdropVideoPlayers())
             window.isReleasedWhenClosed = false
             window.titlebarAppearsTransparent = true
             window.contentView = root

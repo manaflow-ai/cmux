@@ -60,7 +60,7 @@ struct LaunchPictureClickTests {
             let input = LaunchPictureInput(window: "w1", shell: shell, keys: keys, reveal: reveal, mainWork: rig.work,
                                            resend: { record.sent.append($0.type) }, now: { record.start + record.elapsed }) { record.stamp }
             let phase = LaunchPicturePhase(deadlines: rig.deadlines) { _ in }
-            phase.show(try LaunchWindowBuildTests.Rig.image(), in: shell, scope: ThemeScope(level: .room), present: {}, startup: nil) {}
+            phase.show(try LaunchWindowBuildTests.Rig.image(), in: shell, scope: ThemeScope(level: .room), videos: BackdropVideoPlayers(), present: {}, startup: nil) {}
             phase.whenRemoved { input.finish() }
             // The controller's root takes the window, as `WindowController` installs it; the picture goes over it.
             let root = NSView(frame: NSRect(origin: .zero, size: Self.size))

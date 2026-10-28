@@ -16,7 +16,7 @@ public final class DebugSettingsWindowController: NSWindowController, NSWindowDe
     /// `content` replaces the SwiftUI view (the React page, `debugSettings.surface`); `onFind`
     /// then takes Cmd-F instead of the SwiftUI search field. A web view under a transparent title
     /// bar takes the title bar's drags, so that window keeps a standard title bar.
-    public init(model: DebugSettingsModel, content: NSView? = nil, onFind: (() -> Void)? = nil) {
+    public init(model: DebugSettingsModel, videos: BackdropVideoPlayers, content: NSView? = nil, onFind: (() -> Void)? = nil) {
         self.model = model
         let window = DebugSettingsWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
@@ -37,7 +37,7 @@ public final class DebugSettingsWindowController: NSWindowController, NSWindowDe
         window.delegate = self
         SettingsTheme.shared.follow(SettingsTheme.shared.scope)
         window.install(kind: .debugSettings, content: content ?? NSHostingView(rootView: DebugSettingsRootView(model: model)),
-                       scope: SettingsTheme.shared.scope)
+                       scope: SettingsTheme.shared.scope, videos: videos)
     }
 
     @available(*, unavailable)

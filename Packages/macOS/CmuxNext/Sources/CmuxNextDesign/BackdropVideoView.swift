@@ -54,7 +54,7 @@ public final class BackdropVideoView: NSView {
     /// The window list a coverage sample waits for: at most one at a time, cancelled when sampling stops.
     var coverageSample: Task<Void, Never>?
 
-    public init(frame frameRect: NSRect, players: BackdropVideoPlayers = .shared) {
+    public init(frame frameRect: NSRect, players: BackdropVideoPlayers) {
         self.players = players
         super.init(frame: frameRect)
         wantsLayer = true

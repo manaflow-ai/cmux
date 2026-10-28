@@ -32,7 +32,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
 
     private let mainWork: MainWorkScheduler
 
-    private init(tab: any BrowserTab, report: URL?, activate: Bool, mainWork: MainWorkScheduler) {
+    private init(tab: any BrowserTab, report: URL?, activate: Bool, mainWork: MainWorkScheduler, videos: BackdropVideoPlayers) {
         tabs = [tab]
         reportURL = report
         self.mainWork = mainWork
@@ -47,7 +47,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
         window.title = "cmux-next browser (\(tab.engineKind.rawValue))"
         window.isReleasedWhenClosed = false
         window.isRestorable = false  // AppKit state restoration is off for every cmux window (p08-startup-087)
-        window.install(kind: .browserDebug, content: chrome, scope: .app)
+        window.install(kind: .browserDebug, content: chrome, scope: .app, videos: videos)
         tab.delegate = self
         if !activate { WindowPlacement.noActivate = true }
         WindowPlacement.present(window)

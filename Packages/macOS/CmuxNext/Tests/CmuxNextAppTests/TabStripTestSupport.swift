@@ -20,6 +20,6 @@ extension PaneContentView {
                                    node: VisibilityNode = VisibilityNode(root: "pane:test", own: .visible),
                                    work: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) -> PaneContentView {
         PaneContentView(stripModel: stripModel, reveal: reveal, input: InputEventTap(), node: node,
-                        deadlines: MainDeadlineScheduler(work: work))
+                        deadlines: MainDeadlineScheduler(work: work), videos: BackdropVideoPlayers())
     }
 }

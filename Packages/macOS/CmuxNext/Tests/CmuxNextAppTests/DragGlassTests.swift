@@ -165,13 +165,13 @@ import Testing
         try translucent {
             @MainActor func open() -> (NSWindow, WindowRootView, ThemeScope) {
                 let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())),
-                                          reduceTransparency: { false }, applyWindowBlur: { _, _ in })
+                                          reduceTransparency: { false }, applyWindowBlur: { _, _ in }, videos: BackdropVideoPlayers())
                 let window = NSWindow(contentRect: root.frame,
                                       styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                       backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false
                 let room = ThemeScope(level: .room)
-                window.install(kind: .main, content: root, scope: room)
+                window.install(kind: .main, content: root, scope: room, videos: BackdropVideoPlayers())
                 return (window, root, room)
             }
             let (main, mainRoot, _) = open()

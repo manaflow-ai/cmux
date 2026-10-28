@@ -16,8 +16,6 @@ public import CmuxNextWakeups
 /// one subscription each, not one observer per view.
 @MainActor
 public final class BackdropVideoPlayers {
-    public static let shared = BackdropVideoPlayers()
-
     private struct Entry {
         let player: AVQueuePlayer
         /// Nil while released.

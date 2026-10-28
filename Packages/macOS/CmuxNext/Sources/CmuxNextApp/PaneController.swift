@@ -100,7 +100,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let parent: VisibilityNode? = workspace.flatMap { $0.visibilityNode }
         visibilityNode = parent.map { VisibilityNode("pane:\(pane.id)", own: own, parent: $0) }
             ?? VisibilityNode(root: "pane:\(pane.id)", own: own, workCounts: services.visibilityWorkCounts)
-        view = PaneContentView(stripModel: stripModel, reveal: services.launchReveal, input: services.inputTap, node: visibilityNode, deadlines: services.mainDeadlines)
+        view = PaneContentView(stripModel: stripModel, reveal: services.launchReveal, input: services.inputTap, node: visibilityNode, deadlines: services.mainDeadlines,
+                               videos: services.backdropVideos)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
         view.stripView.hoverFrameInput = services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)

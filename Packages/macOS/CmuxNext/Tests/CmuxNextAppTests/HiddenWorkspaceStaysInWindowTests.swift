@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHibernation
 import CmuxNextSidebar
@@ -50,7 +51,7 @@ import Testing
 
     private func makeRoot() -> (NSWindow, WindowRootView) {
         _ = NSApplication.shared
-        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())))
+        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())), videos: BackdropVideoPlayers())
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
                               styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

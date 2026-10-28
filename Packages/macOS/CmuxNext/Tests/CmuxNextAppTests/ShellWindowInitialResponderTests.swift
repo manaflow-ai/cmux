@@ -19,7 +19,7 @@ struct ShellWindowInitialResponderTests {
     /// The app's window and root with its sidebar shown, not on screen yet, as a restore makes it.
     func hiddenWindow() -> (ShellWindow, WindowRootView) {
         _ = NSApplication.shared
-        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())))
+        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())), videos: BackdropVideoPlayers())
         let window = ShellWindow(contentRect: NSRect(x: 40, y: 40, width: 900, height: 600),
                                  styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                  backing: .buffered, defer: false)

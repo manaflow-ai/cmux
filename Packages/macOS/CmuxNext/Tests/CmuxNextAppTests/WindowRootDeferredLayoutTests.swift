@@ -19,7 +19,7 @@ import Testing
         init() {
             _ = NSApplication.shared
             root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(),
-                                                                mainWork: MainWorkScheduler(budget: MainFrameBudget())))
+                                                                mainWork: MainWorkScheduler(budget: MainFrameBudget())), videos: BackdropVideoPlayers())
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1000, height: 640),
                               styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)

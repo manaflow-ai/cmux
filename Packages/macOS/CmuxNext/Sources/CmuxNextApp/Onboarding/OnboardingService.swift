@@ -65,7 +65,7 @@ final class OnboardingService {
 
     init(services: AppServices) {
         self.services = services
-        presenter = OnboardingWindowPresenter(mainWork: services.mainWork)
+        presenter = OnboardingWindowPresenter(mainWork: services.mainWork, videos: services.backdropVideos)
         let environment = ProcessInfo.processInfo.environment
         // Test launches never change the Mac's real default browser.
         defaultApps = environment[RecordingDefaultApps.environmentKey] == "1" ? RecordingDefaultApps() : SystemDefaultApps(runner: services.work)

@@ -192,10 +192,9 @@ public struct CmuxNextApp {
         // securityd on the system lane, so a main-thread resolve reads it from memory (p02-threads-122).
         work.post(.userVisible, mayBlock: .system) { SigningTeamInstall.process.load() }
         DebugTimings.markLaunch("main.launch_reads")
-        // Tab favicons resolve their hosts on work's host-resolution slots (system lane), never on the pool;
-        // video wallpapers list the windows above theirs on its system lane, never on main.
+        // Tab favicons resolve their hosts on work's host-resolution slots (system lane), never on the pool.
+        // (Video wallpapers list the windows above theirs on the same lanes: AppServices gives its players `work`.)
         BrowserFaviconLoader.shared.useResolver(SystemRemoteResolver(runner: work))
-        BackdropVideoPlayers.shared.lanes = work
         // The launch's feature values, once, before the first feature read (the daemon connect's).
         watchdog.startupStep("main.daemon_prestart")
         let features = AppServices.launchFeatures(environment)

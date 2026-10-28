@@ -26,7 +26,7 @@ import CmuxNextWakeups
 final class WindowRootView: NSView, WindowSurfacePainting {
     let titlebar = TitlebarView()
     /// The window's one material and tint (`WindowBackdrop`).
-    let backdropView = WindowMaterialView(frame: .zero)
+    let backdropView: WindowMaterialView
     /// Whether Reduce Transparency is on (tests pin it; the host setting differs between machines).
     /// Internal, not private: the painting itself is in `WindowRootView+Surface`.
     let reduceTransparency: @MainActor () -> Bool
@@ -133,8 +133,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
          revealDeadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
          signals: AppearanceSignals = DesignSettings.shared.signals, slideHoldsContent: @escaping @MainActor () -> Bool = { true },
          rendersMotionOnServer: @escaping () -> Bool = { false },
-         bandRendersOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value }) {
+         bandRendersOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value },
+         videos: BackdropVideoPlayers) {
         self.sidebar = sidebar
+        backdropView = WindowMaterialView(frame: .zero, videos: videos)
         sidebar.rendersMotionOnServer = rendersMotionOnServer
         collapsedBand = CollapsedBandReveal(deadlines: revealDeadlines, fullWidth: { TitlebarToolbarBand.width }, rendersOnServer: bandRendersOnServer)
         paintHold = PanePaintHold(owner: "window.paint-hold", deadlines: revealDeadlines)

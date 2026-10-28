@@ -68,7 +68,7 @@ extension PaneContentView {
     }
 
     private func makeArtView() -> WindowMaterialView {
-        let view = WindowMaterialView(frame: bounds)
+        let view = WindowMaterialView(frame: bounds, videos: backdropVideos)
         view.autoresizingMask = [.width, .height]
         addSubview(view, positioned: .below, relativeTo: subviews.first)
         backdropState.artView = view

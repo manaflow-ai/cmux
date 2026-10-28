@@ -109,7 +109,7 @@ import Testing
             shell.isReleasedWhenClosed = false
             if onScreen { shell.orderFrontRegardless() }
             let phase = LaunchPicturePhase(deadlines: rig.deadlines) { _ in }
-            phase.show(try Self.image(), in: shell, scope: ThemeScope(level: .room), present: {}, startup: nil) {}
+            phase.show(try Self.image(), in: shell, scope: ThemeScope(level: .room), videos: BackdropVideoPlayers(), present: {}, startup: nil) {}
             // The controller's root takes the window, as `WindowController` installs it; the picture goes over it.
             let root = NSView(frame: NSRect(origin: .zero, size: Self.size))
             shell.contentView = root

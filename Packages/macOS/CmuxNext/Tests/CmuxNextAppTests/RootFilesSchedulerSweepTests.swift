@@ -136,7 +136,7 @@ extension MainPaneGutterSuites {
             defer { store.set(curved.key, nil) }
             let work = linklessMainWork()
             let node = VisibilityNode(root: "test.window", own: .visible)
-            let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: work))
+            let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: work), videos: BackdropVideoPlayers())
             root.follow(on: node, work: work)
             let counts = { work.observations.snapshot(matching: "WindowRootView.mainPane").first }
             let before = counts()

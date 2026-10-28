@@ -10,7 +10,7 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
     /// Called once when the window has closed.
     public var onClose: (() -> Void)?
     /// `mainWork` is the app's one main-thread scheduler: the window's screen draws at its frames.
-    public init(model: OnboardingModel, mainWork: MainWorkScheduler) {
+    public init(model: OnboardingModel, mainWork: MainWorkScheduler, videos: BackdropVideoPlayers) {
         self.model = model
         let window = OnboardingWindow(
             contentRect: NSRect(origin: .zero, size: OnboardingMetrics.windowSize),
@@ -35,7 +35,7 @@ public final class OnboardingWindowController: NSWindowController, NSWindowDeleg
         // Kind `.onboarding`: a clear window with only a close button; each
         // variant's surface draws its own glass or opaque background
         // (`OnboardingSurfaceView`).
-        window.install(kind: .onboarding, content: OnboardingHostView(model: model, mainWork: mainWork), scope: .app)
+        window.install(kind: .onboarding, content: OnboardingHostView(model: model, mainWork: mainWork), scope: .app, videos: videos)
         window.onKey = { [weak model] key in
             switch key {
             case .next: model?.next()

@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesign
 public import CmuxNextWakeups
 
 /// Owns the one tool window (Import from Browser or Computer Use setup):
@@ -17,12 +18,14 @@ public final class OnboardingWindowPresenter {
     public var makeModel: MakeModel?
     private let presentWindow: @MainActor (OnboardingWindowController) -> Void
     private let mainWork: MainWorkScheduler
+    private let videos: BackdropVideoPlayers
 
-    /// `mainWork` is the app's one main-thread scheduler; `present` shows a window (tests pass one
-    /// that does not put it on screen).
-    public init(mainWork: MainWorkScheduler, makeModel: MakeModel? = nil,
+    /// `mainWork` is the app's one main-thread scheduler; `videos` the app's video wallpaper players; `present` shows a
+    /// window (tests pass one that does not put it on screen).
+    public init(mainWork: MainWorkScheduler, videos: BackdropVideoPlayers, makeModel: MakeModel? = nil,
                 present: @escaping @MainActor (OnboardingWindowController) -> Void = { $0.present() }) {
         self.mainWork = mainWork
+        self.videos = videos
         self.makeModel = makeModel
         presentWindow = present
     }
@@ -42,7 +45,7 @@ public final class OnboardingWindowPresenter {
         }
         guard let model = makeModel?(step) else { return }
         prepare?(model, false)
-        let controller = OnboardingWindowController(model: model, mainWork: mainWork)
+        let controller = OnboardingWindowController(model: model, mainWork: mainWork, videos: videos)
         controller.onClose = { [weak self, weak controller] in self?.windowDidClose(controller) }
         self.controller = controller
         presentWindow(controller)

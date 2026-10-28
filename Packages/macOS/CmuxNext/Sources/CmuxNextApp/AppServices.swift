@@ -712,6 +712,9 @@ final class AppServices {
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
     /// never on the cooperative pool (PATTERNS P14). Built once here and passed to each consumer's init.
     let work: BackgroundWork
+    /// The app's one table of video wallpaper players: every window's backdrop plays through it, so windows that show
+    /// one file share one decoder. Its views list the windows above them on ``work``'s lanes.
+    let backdropVideos: BackdropVideoPlayers
     /// The built-in uBlock Origin's pinned folder, read on the files lane from init (``preloadBuiltInAdBlockerFolder(on:)``).
     let builtInAdBlockerFolder: PreloadedValue<String?>
     /// The app process's black box: its heap ring from init, its file steps on `.files` (task p09-observability-005).
@@ -773,6 +776,8 @@ final class AppServices {
         ThemeScope.app.store.repaint(following: appearance)
         let work = work ?? BackgroundWork(hangs: hangWatch, inputTurns: mainWork.budget.board)
         self.work = work
+        backdropVideos = BackdropVideoPlayers()
+        backdropVideos.lanes = work
         linkHints = LinkHintController(work: work)
         builtInAdBlockerFolder = AppServices.preloadBuiltInAdBlockerFolder(on: work)
         self.energyMonitor = energyMonitor ?? EnergyMonitor(mainWork: mainWork)
@@ -1002,7 +1007,8 @@ final class AppServices {
     /// motion gates (ambient loops hold still). WebKit's render rate reads `mainWork.energy` itself; the local daemon
     /// follows its edges (`energy.set`). Only
     /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).
-    func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared, design: DesignSettings = .shared) {
+    func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers? = nil, design: DesignSettings = .shared) {
+        let videos = videos ?? backdropVideos
         energy.start(inputs: energyMonitor, suspend: features.isEnabled(.sleepWakeKeepalives) ? SuspendWatch(events: workspaceEvents, path: .system(on: mainWork)) : nil)
         // The session's `energySaver`: the daemon's value when it kept another one (p12-perf-process-150).
         environment.daemonFeatureHello?.whenSessionValueKnown(of: Feature.energySaver.name,
