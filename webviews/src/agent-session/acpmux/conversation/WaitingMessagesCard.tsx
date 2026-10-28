@@ -49,7 +49,10 @@ export function WaitingMessagesCard({
   const bodyId = useId();
   const waiting = row.waiting;
   const reveal = useContext(FindReveal);
-  const holdsMatch = Boolean(reveal && waiting?.rows.some((message) => message.id === reveal.rowId));
+  // Find names the card's row for a match in one of its messages (chatFind.ts `findRowIndex`).
+  const holdsMatch = Boolean(
+    reveal && (reveal.rowId === row.id || waiting?.rows.some((message) => message.id === reveal.rowId)),
+  );
   useLayoutEffect(() => {
     if (!holdsMatch || open) return;
     show(true);
@@ -65,7 +68,8 @@ export function WaitingMessagesCard({
       : t("message.waitingFrom", { n, sessions: senders.length });
   return (
     <div className="cv-waiting" data-open={open || undefined} data-delivery={waiting.delivery}>
-      <div className="cv-waiting__line">
+      {/* Find counts the messages' text, not the head's names (App.tsx `drawnOccurrence`). */}
+      <div className="cv-waiting__line" data-find-skip="">
         <button
           type="button"
           className="cv-waiting__toggle"

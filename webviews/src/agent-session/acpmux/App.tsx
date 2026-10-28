@@ -52,7 +52,7 @@ import {
   type QueuedMessageActionsValue,
 } from "./conversation/QueuedMessageCard";
 import { WaitingMessagesCard } from "./conversation/WaitingMessagesCard";
-import { groupWaitingMessages, type WaitingGroups } from "./conversation/waitingMessages";
+import { groupWaitingSteps, groupWaitingTurn, type WaitingSteps } from "./conversation/waitingMessages";
 import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
@@ -2037,7 +2037,7 @@ export function VirtualTranscript({
   dock,
   queueWithdrawn,
   queueIds,
-  queuedTail: queuedTailIn,
+  queuedTail,
   waitingSteers,
   focusComposer,
   openAt,
@@ -2080,8 +2080,8 @@ export function VirtualTranscript({
   /// The waiting agent messages at the rows' end (conversation/queuedMessages.ts), one array while
   /// the queue holds them.
   queuedTail?: readonly AcpmuxRow[];
-  /// The rows of the steers the agent has not read yet (snapshot `waitingSteers`): with the queued
-  /// tail, where other sessions' waiting messages draw as one card (conversation/waitingMessages.ts).
+  /// The rows of the steers the agent has not read yet (snapshot `waitingSteers`): where other
+  /// sessions' messages among them draw as one card (conversation/waitingMessages.ts).
   waitingSteers?: readonly string[];
   /// Where a keyboard Jump to latest leaves focus, since the button hides (inert) once there.
   focusComposer?: () => void;
@@ -2126,11 +2126,12 @@ export function VirtualTranscript({
   showMinimap?: boolean;
 }) {
   const t = useT();
-  // Other sessions' waiting messages, two or more in a run, as one card each run: the rows as drawn.
-  const waitingGroups = useRef<WaitingGroups | undefined>(undefined);
-  const { rows, tail: queuedTail } = useMemo(
-    () => (waitingGroups.current = groupWaitingMessages(rowsIn, queuedTailIn, waitingSteers, waitingGroups.current)),
-    [rowsIn, queuedTailIn, waitingSteers],
+  // Other sessions' messages steered in and not read, two or more in a run, as one card each run:
+  // the rows as drawn.
+  const waitingSteps = useRef<WaitingSteps | undefined>(undefined);
+  const { rows } = useMemo(
+    () => (waitingSteps.current = groupWaitingSteps(rowsIn, waitingSteers, queuedTail?.length, waitingSteps.current)),
+    [rowsIn, queuedTail, waitingSteers],
   );
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -3385,6 +3386,18 @@ export function VirtualTranscript({
   const findIndex = findTargetRowId !== undefined ? findRowIndex(rows, findTargetRowId) : -1;
   const drawnId = rows[findIndex]?.id;
   const drawnCard = Boolean(rows[findIndex]?.ended);
+  // A card of waiting messages draws its messages in one row (conversation/WaitingMessagesCard.tsx):
+  // the match's place there counts the matches of the messages above it.
+  const findInCard = rows[findIndex]?.kind === WAITING_MESSAGES ? rows[findIndex]!.joined : undefined;
+  const drawnOccurrence = useMemo(() => {
+    if (findTargetOccurrence === undefined || !findInCard || !find) return findTargetOccurrence;
+    let above = 0;
+    for (let index = 0; index < find.active; index += 1) {
+      const match = find.matches[index]!;
+      if (match.rowId !== findTargetRowId && findInCard.includes(match.rowId)) above += 1;
+    }
+    return findTargetOccurrence + above;
+  }, [find, findInCard, findTargetRowId, findTargetOccurrence]);
   const revealing = useRef<string | undefined>(undefined);
   const targetKey =
     findTargetRowId !== undefined && findTargetOccurrence !== undefined && findQuery && drawnId !== undefined
@@ -3477,7 +3490,7 @@ export function VirtualTranscript({
       node,
       findQuery,
       findTargetRowId !== undefined && findTargetOccurrence !== undefined && drawnId !== undefined
-        ? { rowId: drawnId, card: drawnCard, occurrence: findTargetOccurrence }
+        ? { rowId: drawnId, card: drawnCard, occurrence: drawnOccurrence! }
         : undefined,
     );
     if (!current || revealing.current !== targetKey) return;
@@ -3526,6 +3539,7 @@ export function VirtualTranscript({
   }, [
     drawnCard,
     drawnId,
+    drawnOccurrence,
     findQuery,
     findTargetOccurrence,
     findMoved,
@@ -5115,13 +5129,16 @@ function AcpmuxPane() {
     workflowLabsEnabled,
   ]);
   // Another agent's messages waiting in the queue: their received cards after the running turn, in
-  // the queue's order (conversation/queuedMessages.ts), never composer-queue rows. A chat with none
-  // keeps its rows as they are; one with some copies the row list once per change.
+  // the queue's order (conversation/queuedMessages.ts), never composer-queue rows; two or more, one
+  // card that holds them (conversation/waitingMessages.ts). A chat with none keeps its rows as they
+  // are; one with some copies the row list once per change.
   const lastQueuedRows = useRef<readonly AcpmuxRow[] | undefined>(undefined);
-  const queuedRows = useMemo(
-    () => (childRows ? NO_ROWS : (lastQueuedRows.current = queuedMessageRows(snapshot.queue, lastQueuedRows.current))),
-    [childRows, snapshot.queue],
-  );
+  const lastQueuedTail = useRef<readonly AcpmuxRow[] | undefined>(undefined);
+  const queuedRows = useMemo(() => {
+    if (childRows) return NO_ROWS;
+    lastQueuedRows.current = queuedMessageRows(snapshot.queue, lastQueuedRows.current);
+    return (lastQueuedTail.current = groupWaitingTurn(lastQueuedRows.current, lastQueuedTail.current));
+  }, [childRows, snapshot.queue]);
   const transcriptRows = useMemo(
     () => (queuedRows.length ? [...turnRowsShown, ...queuedRows] : turnRowsShown),
     [turnRowsShown, queuedRows],

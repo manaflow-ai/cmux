@@ -1341,12 +1341,13 @@ function measuredRowHeight(
   // the row's message gap.
   // Its images' 120px row with 2px above and 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT); no steer line.
   // Several waiting messages as one card (conversation/WaitingMessagesCard.tsx): its 26px head in
-  // `.cv-waiting`'s 2px margins and the message gap; opened, each message under it as its own row.
+  // `.cv-waiting`'s 2px margins and the message gap; opened, each message under it as its own row
+  // draws it, less the gap the row frame gives a row (`.acpmux-row`), which the card has once.
   if (row.kind === WAITING_MESSAGES && row.waiting) {
     const head = finish(2 + 26 + 2 + MESSAGE_GAP);
     if (!messageOpened(sessionId, row.id)) return head;
     return row.waiting.rows.reduce(
-      (height, member) => height + measuredRowHeight(member, width, cache, false, false, sessionId),
+      (height, member) => height + measuredRowHeight(member, width, cache, false, false, sessionId) - MESSAGE_GAP,
       head,
     );
   }

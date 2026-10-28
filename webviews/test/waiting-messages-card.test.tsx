@@ -176,8 +176,9 @@ const queuedAgent = (index: number) => {
 };
 
 test("messages queued behind the turn are one card that opens to their queued cards", async () => {
+  const { groupWaitingTurn } = await import(waitingModule);
   const snapshot = await connect([["mux", "user_message", { promptId: "p-turn", text: "Add retries" }]]);
-  const tail = queuedMessageRows([1, 2, 3, 4].map(queuedAgent) as never, undefined);
+  const tail = groupWaitingTurn(queuedMessageRows([1, 2, 3, 4].map(queuedAgent) as never, undefined));
   await draw({ rows: [...snapshot.rows, ...tail], queuedTail: tail });
   const cards = [...doc.querySelectorAll<HTMLElement>(".cv-waiting")];
   expect(cards).toHaveLength(1);
@@ -194,8 +195,36 @@ test("messages queued behind the turn are one card that opens to their queued ca
   expect(cards[0]!.querySelectorAll('[data-menu="queued-message"]')).toHaveLength(4);
 });
 
+test("Find opens a closed card when the match is in one of its messages", async () => {
+  const { groupWaitingTurn } = await import(waitingModule);
+  const { WaitingMessagesCard } = await import("../src/agent-session/acpmux/conversation/WaitingMessagesCard");
+  const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
+  const [card] = groupWaitingTurn(queuedMessageRows([5, 6].map(queuedAgent) as never, undefined));
+  let repainted = 0;
+  const reveal = (rowId: string) => ({ rowId, card: false, needle: "lane 6", repaint: () => (repainted += 1) });
+  const show = (rowId?: string) =>
+    act(async () =>
+      root.render(
+        <FindReveal.Provider value={rowId ? reveal(rowId) : undefined}>
+          <WaitingMessagesCard row={card} renderMessage={(message) => <p className="member">{message.text}</p>} />
+        </FindReveal.Provider>,
+      ),
+    );
+  await show();
+  expect(doc.querySelectorAll(".member")).toHaveLength(0);
+  // The transcript names the card's row for a match in it (chatFind.ts findRowIndex).
+  await show(card.id);
+  expect([...doc.querySelectorAll(".member")].map((member) => member.textContent)).toEqual([
+    expect.stringContaining("Lane 5"),
+    expect.stringContaining("Lane 6"),
+  ]);
+  expect(repainted).toBe(1);
+  // The head's names are not Find's text.
+  expect(doc.querySelector(".cv-waiting__line")?.hasAttribute("data-find-skip")).toBe(true);
+});
+
 test("grouping: runs of two or more of one kind, never mixed, and nothing changes without one", async () => {
-  const { groupWaitingMessages } = await import(waitingModule);
+  const { groupWaitingSteps, groupWaitingTurn } = await import(waitingModule);
   const row = (id: string, fields: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
     id,
     version: 1,
@@ -220,46 +249,57 @@ test("grouping: runs of two or more of one kind, never mixed, and nothing change
     message("m4", "c"),
     message("m5", "c"),
   ];
-  // Fewer than two steers waiting and no queued tail: the same rows.
-  const none = groupWaitingMessages(rows, undefined, ["m1"]);
-  expect(none.rows).toBe(rows);
+  // Fewer than two steers waiting: the same rows.
+  expect(groupWaitingSteps(rows, ["m1"]).rows).toBe(rows);
+  expect(groupWaitingSteps(rows, undefined).rows).toBe(rows);
   const steers = ["m1", "m2", "own", "m3", "m4", "m5"];
-  const grouped = groupWaitingMessages(rows, undefined, steers);
-  expect(grouped.rows.map((r: AcpmuxRow) => r.id)).toEqual([
-    "summary",
-    "turn",
-    "waiting-step-m1",
-    "own",
-    "waiting-step-m3",
-  ]);
-  expect(grouped.rows[2].waiting.rows.map((r: AcpmuxRow) => r.id)).toEqual(["m1", "m2"]);
-  expect(grouped.rows[4].waiting.rows.map((r: AcpmuxRow) => r.id)).toEqual(["m3", "m4", "m5"]);
+  const grouped = groupWaitingSteps(rows, steers);
+  const ids = (list: readonly AcpmuxRow[]) => list.map((r) => r.id);
+  expect(ids(grouped.rows)).toEqual(["summary", "turn", "waiting-step-m1", "own", "waiting-step-m3"]);
+  expect(ids(grouped.rows[2].waiting.rows)).toEqual(["m1", "m2"]);
+  expect(ids(grouped.rows[4].waiting.rows)).toEqual(["m3", "m4", "m5"]);
   expect(grouped.rows[4].joined).toEqual(["m3", "m4", "m5"]);
-  // The same rows again keep the same card rows.
-  const again = groupWaitingMessages([...rows], undefined, steers, grouped);
+
+  // A streamed snapshot: more rows after the steers. Each steer is found where it was, with no
+  // scan (a scan would stop at this turn's footer and find none), and the cards stay the same rows.
+  const streamed = [...rows, row("reply", { kind: "assistant" })];
+  const again = groupWaitingSteps(streamed, steers, 0, grouped);
   expect(again.rows[2]).toBe(grouped.rows[2]);
   expect(again.rows[4]).toBe(grouped.rows[4]);
-  // A steer before the running turn's start is not looked for.
-  const old = [message("o1", "a"), message("o2", "b"), row("summary", { kind: "turnSummary" }), row("turn")];
-  expect(groupWaitingMessages(old, undefined, ["o1", "o2"]).rows).toBe(old);
-
-  // The queued tail: one card, after the steers' card, never one card of both.
-  const tail = queuedMessageRows([1, 2].map(queuedAgent) as never, undefined);
-  const both = groupWaitingMessages([...rows, ...tail], tail, steers);
-  expect(both.rows.map((r: AcpmuxRow) => r.id)).toEqual([
+  expect(ids(again.rows).at(-1)).toBe("reply");
+  const footerAfter = [...rows, row("footer", { kind: "turnSummary" })];
+  expect(ids(groupWaitingSteps(footerAfter, steers, 0, grouped).rows)).toContain("waiting-step-m3");
+  // Rows that moved (an older page above them): looked for again, found in their new places.
+  const paged = [row("older"), ...rows];
+  expect(ids(groupWaitingSteps(paged, steers, 0, grouped).rows)).toEqual([
+    "older",
     "summary",
     "turn",
     "waiting-step-m1",
     "own",
     "waiting-step-m3",
-    "waiting-turn",
   ]);
-  expect(both.tail.map((r: AcpmuxRow) => r.id)).toEqual(["waiting-turn"]);
-  expect(both.tail[0].waiting).toEqual({ delivery: "turn", rows: tail });
+  // A steer before the running turn's start is not looked for, nor again while the list holds.
+  const old = [message("o1", "a"), message("o2", "b"), row("summary", { kind: "turnSummary" }), row("turn")];
+  const oldSteers = ["o1", "o2"];
+  const missed = groupWaitingSteps(old, oldSteers);
+  expect(missed.rows).toBe(old);
+  expect([...missed.unseen]).toEqual(["o1", "o2"]);
+  expect(groupWaitingSteps([...old], oldSteers, 0, missed).unseen).toEqual(missed.unseen);
+  // The queued tail at the end is not looked in.
+  const tailRows = [row("summary", { kind: "turnSummary" }), message("q1", "a"), message("q2", "b")];
+  expect(groupWaitingSteps(tailRows, ["q1", "q2"], 2).rows).toBe(tailRows);
+
+  // The queued tail: one card, named by its first message, so a later batch never takes its open
+  // state; the same rows give the same card back.
+  const tail = queuedMessageRows([1, 2].map(queuedAgent) as never, undefined);
+  const turn = groupWaitingTurn(tail);
+  expect(ids(turn)).toEqual([`waiting-turn-${tail[0]!.id}`]);
+  expect(turn[0].waiting).toEqual({ delivery: "turn", rows: tail });
+  expect(groupWaitingTurn(tail, turn)).toBe(turn);
+  const later = queuedMessageRows([3, 4].map(queuedAgent) as never, undefined);
+  expect(groupWaitingTurn(later, turn)[0].id).not.toBe(turn[0].id);
   // One queued message alone stays as it is.
   const one = queuedMessageRows([queuedAgent(1)] as never, undefined);
-  const single = [...rows.slice(0, 2), ...one];
-  const alone = groupWaitingMessages(single, one, undefined);
-  expect(alone.rows).toBe(single);
-  expect(alone.tail).toBe(one);
+  expect(groupWaitingTurn(one)).toBe(one);
 });
