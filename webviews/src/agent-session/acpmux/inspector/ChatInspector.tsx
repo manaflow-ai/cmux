@@ -734,6 +734,7 @@ function InspectorPresence({
         transcriptTasks={transcriptTasks}
         // The chats the chat's agent started are the chat's.
         sessions={scope ? undefined : sessions?.list}
+        subsessions={scope ? undefined : subsessions}
         workflows={scope ? undefined : workflows?.list}
         onStopWorkflow={workflows?.onStop}
         onOpenSession={sessions?.onOpen}
