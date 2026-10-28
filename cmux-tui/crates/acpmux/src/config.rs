@@ -900,8 +900,9 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stalled_turn_end_ms: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
-    /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
-    /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
+    /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt, so its
+    /// length is how many attempts run, a chain of daemon restarts included. Default
+    /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 12
     /// entries of 1 s to 1 h; anything else falls back to the default with a warning.
     #[serde(
         default,

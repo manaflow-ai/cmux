@@ -13,6 +13,14 @@ import { DriverError, type GuestExecResult } from "../contract.ts"
  * (#13742 D16 update 4), never in a log, an error or storage.
  */
 
+/**
+ * Whether retrying a non-200 answer cannot help. A 404 is a deleted VM. A conflict (409), rate
+ * limit (429) or server error (5xx) is temporary, so CloudDO retries it. Any other 4xx refuses the
+ * request itself. A 2xx other than 200 (a 202 background answer) or a 3xx (never followed) fails
+ * the same way on every try.
+ */
+export const execStatusFinal = (status: number): boolean => status !== 409 && status !== 429 && status < 500
+
 const b64 = (bytes: Uint8Array): string => {
   let s = ""
   for (let i = 0; i < bytes.byteLength; i++) s += String.fromCharCode(bytes[i]!)
@@ -43,7 +51,7 @@ export const freestyleExecStdin = async (
   }
   if (res.status !== 200) {
     await res.body?.cancel().catch(() => undefined)
-    throw new DriverError(res.status === 404 ? "cloud.provider.vm_missing" : "cloud.provider.unavailable", `guest exec: ${res.status}`, true)
+    throw new DriverError(res.status === 404 ? "cloud.provider.vm_missing" : "cloud.provider.unavailable", `guest exec: ${res.status}`, execStatusFinal(res.status))
   }
   let r: { stdout?: unknown; stderr?: unknown; statusCode?: unknown }
   try {
