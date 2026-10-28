@@ -790,6 +790,45 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertTrue(text.endswith("\n>>>>>>> theirs\n"))
         self.git("merge", "--abort")
 
+    def test_keyed_json_merge_always_writes_the_canonical_format(self):
+        """A fixer that wrote design-result.json with a final newline, or chromium-host-ops.json
+        compact, still merges, but the result is the file's canonical format (the one on the tip:
+        json.dumps for the design file, indent=2 plus a newline for the ops file), so the file
+        never flips format with whichever side was ours."""
+        shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        self.assertEqual(self.install().returncode, 0)
+        design = self.repo / "plans/cmux-next/chrome-parity/design-result.json"
+        ops = self.repo / "plans/cmux-next/chromium-host-ops.json"
+        design.parent.mkdir(parents=True, exist_ok=True)
+
+        def plan(a_size="S", b_size="S"):
+            return {"programs": {"p01": {"tasks": [{"id": "p01-001", "size": a_size},
+                                                   {"id": "p01-002", "size": b_size}]}}}
+
+        def table(names):
+            return {"exports": [{"name": name, "returns": "void"} for name in names]}
+
+        design.write_text(json.dumps(plan()), encoding="utf-8")
+        ops.write_text(json.dumps(table(["cmux_a"]), indent=2) + "\n", encoding="utf-8")
+        self.commit_all("base")
+        self.git("checkout", "--quiet", "-b", "lane")
+        design.write_text(json.dumps(plan(a_size="M")) + "\n", encoding="utf-8")  # a fixer's final newline
+        ops.write_text(json.dumps(table(["cmux_a", "cmux_b"])), encoding="utf-8")  # a fixer's compact dump
+        self.commit_all("lane, written in another format")
+        self.git("checkout", "--quiet", "main")
+        design.write_text(json.dumps(plan(b_size="L")), encoding="utf-8")
+        ops.write_text(json.dumps(table(["cmux_a", "cmux_c"]), indent=2) + "\n", encoding="utf-8")
+        self.commit_all("main")
+        self.git("checkout", "--quiet", "lane")
+
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(design.read_text(encoding="utf-8"), json.dumps(plan(a_size="M", b_size="L")))
+        self.assertEqual(ops.read_text(encoding="utf-8"),
+                         json.dumps(table(["cmux_a", "cmux_b", "cmux_c"]), indent=2) + "\n")
+
     def test_repo_relative_python_is_rejected_without_execution(self):
         tools = self.repo / "tools"
         tools.mkdir()
