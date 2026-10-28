@@ -161,6 +161,63 @@ import Testing
         #expect(store.isReplayed("t0"))
     }
 
+    /// A reattach whose missed records span more than one page (a phone suspended while
+    /// a long turn streamed): the attach reply is the first page with `hasMore`, and the
+    /// chat reads on with `_acpmux/events` `afterSeq` until the log's end. It used to stop
+    /// after the first page: the next live record moved `lastSeq` past the rest, and the
+    /// answer lost everything in between (1405 of 3000 chunks on a live rig).
+    @Test func reattachPagesForwardThroughTheWholeGap() async throws {
+        let missedTurns = 3
+        let firstMissed = Self.turns + 1
+        let link = MockMacLink { _, data in
+            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let method = object["method"] as? String else { return [] }
+            let id = object["id"].map { "\($0)" } ?? "null"
+            let params = object["params"] as? [String: Any]
+            func reply(_ result: String) -> Data { Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8) }
+            // One missed turn (5 records) per page, oldest first: the turn after the one
+            // holding seq `after` (turn n holds seqs 5n+1...5n+5).
+            func page(after: Int) -> (String, Bool) {
+                let turn = max((after - 1) / 5 + 1, firstMissed)
+                let last = firstMissed + missedTurns - 1
+                return (turnRecords(turn).joined(separator: ","), turn < last)
+            }
+            switch method {
+            case "initialize": return [reply(#"{"protocolVersion":1}"#)]
+            case "_acpmux/watch": return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"codex","cwd":"/tmp/w","status":"idle"}]}"#)]
+            case "_acpmux/attach":
+                let after = (params?["afterSeq"] as? NSNumber)?.intValue ?? 0
+                if after > 0 {
+                    let (records, more) = page(after: after)
+                    return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":\#(more),"events":[\#(records)]}"#)]
+                }
+                let history = (0..<Self.turns).flatMap(turnRecords).joined(separator: ",")
+                return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"hasMore":false,"events":[\#(history)]}"#)]
+            case "_acpmux/events":
+                let after = (params?["afterSeq"] as? NSNumber)?.intValue ?? 0
+                let (records, more) = page(after: after)
+                return [reply(#"{"hasMore":\#(more),"events":[\#(records)]}"#)]
+            default:
+                return [reply("{}")]
+            }
+        }
+        let hub = AcpmuxHub()
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        let source = hub.source(sessionID: "s1", summary: Self.summary)
+        let store = AgentChatStore(source: source)
+        for _ in 0..<2000 where store.turns.count < Self.turns { await Task.yield() }
+        #expect(store.turns.count == Self.turns)
+
+        await hub.bind(nil)
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        let last = "t\(firstMissed + missedTurns - 1)"
+        for _ in 0..<4000 where store.turns.last?.id != last { await Task.yield() }
+
+        let missed = (firstMissed..<(firstMissed + missedTurns)).map { "t\($0)" }
+        #expect(Array(store.turns.map(\.id).suffix(missedTurns)) == missed)
+        #expect(store.turns.count == Self.turns + missedTurns)
+    }
+
     /// A new turn's ask that arrives while the attach is in flight (held), and that the
     /// reply also lists as pending, lands once, on that turn, after its turn exists.
     @Test func askHeldDuringAttachLandsOnItsOwnTurn() async throws {
