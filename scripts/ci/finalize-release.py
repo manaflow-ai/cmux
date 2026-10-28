@@ -172,9 +172,13 @@ def adopt(client, args) -> None:
             f"Release {', '.join(map(str, complete))} for {args.tag} already holds every asset of draft "
             f"{args.release_id}; nothing to adopt. Delete the draft instead.")
     empty = sorted(held)
-    # Without a notes flag the draft keeps the deleted release's notes.
+    # Without a notes flag the draft keeps the deleted release's notes. A body
+    # file is read now, so a bad path fails before anything is deleted.
     carried = {}
-    if args.body_file is None and not args.generate_notes:
+    if args.body_file is not None:
+        carried["body"] = args.body_file.read_text()
+        args = argparse.Namespace(**{**vars(args), "body_file": None, "generate_notes": False})
+    elif not args.generate_notes:
         bodies = [entry.get("body") for entry in sorted(others, key=lambda entry: int(entry["id"]))
                   if entry.get("body")]
         if bodies:

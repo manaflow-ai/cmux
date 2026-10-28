@@ -790,6 +790,30 @@ class AdoptTests(unittest.TestCase):
         self.adopt(client)
         self.assertEqual(client.table[1]["body"], "notes")
 
+    def test_a_missing_body_file_fails_before_any_write(self):
+        client = self.client()
+        args = finalize.argparse.Namespace(
+            tag="v1.2.3", release_id=1, expect_asset=list(self.NAMES), expect_count=2,
+            name=None, target_commitish=None, body_file=Path("/nonexistent/notes.md"), generate_notes=False,
+            prerelease="false", make_latest="true", dry_run=False)
+        with self.assertRaises(OSError):
+            finalize.adopt(client, args)
+        self.assertEqual(sorted(client.table), [1, 2])
+        self.assertEqual([call for call in client.calls if call[0] != "GET"], [])
+
+    def test_a_body_file_is_published_once(self):
+        client = self.client()
+        with tempfile.TemporaryDirectory() as directory:
+            notes = Path(directory) / "notes.md"
+            notes.write_text("Hand notes")
+            args = finalize.argparse.Namespace(
+                tag="v1.2.3", release_id=1, expect_asset=list(self.NAMES), expect_count=2,
+                name=None, target_commitish=None, body_file=notes, generate_notes=True,
+                prerelease="false", make_latest="true", dry_run=False)
+            finalize.adopt(client, args)
+        self.assertEqual(client.table[1]["body"], "Hand notes")
+        self.assertNotIn(("POST", "/generate-notes"), [(m, p) for m, p, _ in client.calls])
+
     def test_carried_notes_are_written_before_the_delete(self):
         client = self.client()
         client.table[2]["body"] = "Full Changelog"
