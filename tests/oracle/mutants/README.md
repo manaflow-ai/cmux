@@ -87,7 +87,7 @@ change to the mutant: task 115 files each miss as a corpus gap.
 | daemon/focus-direction-left-right-swapped | none: `pane-focus-direction-ok` has one pane | no: needs two panes side by side |
 | daemon/zoom-ignores-enabled | none: `pane-zoom-ok` omits `enabled`, and a toggle of an unzoomed pane zooms it | no: needs `enabled: true` on a zoomed pane or `enabled: false` on an unzoomed one |
 
-App mutants: no case exercises `closePane`, `equalizeSplits`, `focusPaneLeft`/`Right`, `resizePane*`,
+App mutants: no case exercises `closePane`, `equalizeSplits`, `focusLeft`/`Right`, `resizePane*`,
 `selectSurfaceByNumber`, `splitLeft`/`Up`/`Right`/`Down` or `swapPaneLeft`/`Right` yet. They are the actions
 cases of tasks 077 (layout, split, resize, swap) and 080 (focus, pane).
 

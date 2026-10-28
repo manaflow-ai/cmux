@@ -5,8 +5,9 @@ import Darwin
 import Foundation
 import Testing
 
-/// The launch's best-effort fence (plans/cmux-next/chrome-parity/p02-threads.md, task 114): raised once at the root,
-/// lowered once at startup complete or by its 3 s cap, lifted by shutdown, with no timer while it is down. Chrome:
+/// The launch's best-effort fence (plans/cmux-next/chrome-parity/p02-threads.md, task 114; p06-scheduler.md, task 204):
+/// raised once at the root, lowered once (the app's at the reveal, with no cap) or by its cap when it has one, lifted by
+/// shutdown, with no timer while it is down. Chrome:
 /// `ThreadPoolInstance::BeginBestEffortFence` / `EndBestEffortFence` (base/task/thread_pool/thread_pool_instance.h)
 /// around startup (chrome/browser/after_startup_task_utils.cc).
 @Suite(.timeLimit(.minutes(1))) struct BestEffortFenceTests {
@@ -123,6 +124,20 @@ import Testing
         #expect(!fence.capArmed, "shutdown cancelled the cap")
     }
 
+    /// A fence raised with no cap (the app's launch fence, lowered at the reveal) arms no timer: only ``lower()``
+    /// releases its held items.
+    @Test func aFenceRaisedWithNoCapArmsNoTimer() async {
+        let queued = Signal<WorkPriority>(), ran = Signal<WorkPriority>()
+        let work = BackgroundWork(label: "test.fence.no-cap", onQueued: { _, priority in queued.send(priority) })
+        let fence = work.raiseLaunchFence(cap: nil)
+        work.post(.bestEffort, mayBlock: .files) { ran.send(.bestEffort) }
+        #expect(await queued.next() == .bestEffort)
+        #expect(fence.isUp && !fence.capArmed)
+        #expect(work.state.withLock { $0.launchCaps.isEmpty })
+        #expect(fence.lower())
+        #expect(await ran.next() == .bestEffort)
+    }
+
     /// A fence raised after shutdown started arms no timer.
     @Test func aFenceRaisedAfterShutdownStartedArmsNoCap() {
         let work = BackgroundWork(label: "test.fence.late")
@@ -135,7 +150,7 @@ import Testing
     /// One begin site and one end site (task 114's acceptance): outside CmuxNextWakeups, `main()` is the only
     /// `LaunchOrder.BestEffortFence(raisingOn:)` call, the order's file the only `raiseLaunchFence` and the only
     /// `lower()` of a `LaunchFence`, and nothing calls the raw pair. Fences nest, so a second begin would hold
-    /// best-effort and idle work up to the cap after startup completed.
+    /// best-effort and idle work after the reveal.
     @Test func theAppRaisesAndLowersTheFenceAtOneSiteEach() throws {
         let sources = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appending(path: "Sources")
@@ -154,7 +169,7 @@ import Testing
         }
         #expect(begins == ["CmuxNextApp/CmuxNextApp.swift"], "one begin site: main()")
         #expect(raises == ["CmuxNextLaunch/LaunchOrder.swift"])
-        #expect(lowers == ["CmuxNextLaunch/LaunchOrder.swift"], "one end site: the startup completion")
+        #expect(lowers == ["CmuxNextLaunch/LaunchOrder.swift"], "one end site: the launch order's reveal")
         #expect(raw.isEmpty)
     }
 }

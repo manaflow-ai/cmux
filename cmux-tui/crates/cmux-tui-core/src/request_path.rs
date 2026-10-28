@@ -38,7 +38,8 @@ use serde::Serialize;
 #[cfg(test)]
 pub(crate) use cmux_tui_platform::request_path::in_scope;
 pub(crate) use cmux_tui_platform::request_path::{
-    BlockingKind, Noted, RequestPathMode, RequestPathScope, RequestPathStats, note, note_at, sleep,
+    BlockingKind, BlockingObserver, Noted, RequestPathMode, RequestPathScope, RequestPathStats,
+    note, note_at, set_blocking_observer, sleep, will_block,
 };
 
 /// The daemon setting: unset or empty counts only; `record` keeps the site

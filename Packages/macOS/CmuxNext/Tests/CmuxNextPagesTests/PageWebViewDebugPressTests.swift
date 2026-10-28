@@ -23,10 +23,10 @@ struct PageWebViewDebugPressTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let hosting = FakeChromiumHosting()
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
-        #expect(await view.debugPress(x: 308, y: 18))
+        #expect(await view.debugPress(x: 308, y: 18) == .devtools)
         let presses = page.calls.filter { $0.method == "Input.dispatchMouseEvent" }
         #expect(presses.map { $0.params["type"] as? String } == ["mousePressed", "mouseReleased"])
         for press in presses {
@@ -42,7 +42,7 @@ struct PageWebViewDebugPressTests {
     @Test func aWebKitPageIsNotPressed() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/", chromium: nil))
-        #expect(await view.debugPress(x: 1, y: 1) == false)
+        #expect(await view.debugPress(x: 1, y: 1) == nil)
         view.close()
     }
 }

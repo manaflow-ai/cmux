@@ -298,7 +298,7 @@ class DiffTests(unittest.TestCase):
                    "fingerprint": "f", "host": {"name": "h", "os": "Linux", "osVersion": "1", "arch": "x86_64"},
                    "selection": {"count": len(selection), "digest": oracle.digest(selection)}, "shards": [0],
                    "seeds": {"0": None}, "order": selection, "cases": cases,
-                   **oracle.run_summary(cases, hits={}, config={}, dry_run=False, infra_errors=[])}
+                   **oracle.run_summary(cases, hits={}, readback={}, config={}, dry_run=False, infra_errors=[])}
         path.mkdir()
         oracle.write_json(path / "receipt.json", receipt)
         oracle.write_jsonl(path / "checkpoints.jsonl", [
