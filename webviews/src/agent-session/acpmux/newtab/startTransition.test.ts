@@ -49,3 +49,42 @@ test("does not block a prompt queued beside a deferred start", async () => {
   await expect(started).resolves.toBe("session-1");
   expect(order).toEqual(["send", "start-resolved", "leave"]);
 });
+
+test("a late start cannot leave a newly adopted New Tab", async () => {
+  let resolve!: (value: string) => void;
+  let generation = 1;
+  let page = "original";
+  const started = startNewTabTransition(
+    () => new Promise<string>((done) => (resolve = done)),
+    () => {
+      page = "chat";
+    },
+    () => generation === 1,
+  );
+  generation += 1;
+  page = "adopted";
+  resolve("old-session");
+  expect(await started).toBeUndefined();
+  expect(page).toBe("adopted");
+});
+
+test("a late refusal cannot restore the old prompt after the page changes", async () => {
+  let reject!: (error: Error) => void;
+  let generation = 1;
+  let left = false;
+  let restored = false;
+  const started = startNewTabTransition(
+    () => new Promise<string>((_, fail) => (reject = fail)),
+    () => {
+      left = true;
+    },
+    () => generation === 1,
+  ).catch(() => {
+    restored = true;
+  });
+  generation += 1;
+  reject(new Error("old start refused"));
+  expect(await started).toBeUndefined();
+  expect(left).toBe(false);
+  expect(restored).toBe(false);
+});
