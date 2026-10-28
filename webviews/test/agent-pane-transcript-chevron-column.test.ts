@@ -37,15 +37,17 @@ await requireBrowserLane("agent-pane-transcript-chevron-column.test.ts", async (
     test(`pins chevrons at the same x edge at ${width}px`, async () => {
       const port = (vite!.httpServer!.address() as { port: number }).port;
       const page = await browser!.newPage({ viewport: { width, height: 300 } });
-      await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript-chevron-column", { variant: "shipped" })}`);
+      await page.goto(
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.transcript-chevron-column", { variant: "shipped" })}`,
+      );
       await page.locator("[data-chevron-column]").waitFor({ state: "attached" });
-      const before = await page.locator("[data-chevron-column] .cv-tool__chevron").evaluateAll((nodes) =>
-        nodes.map((node) => Math.round(node.getBoundingClientRect().right * 10) / 10),
-      );
+      const before = await page
+        .locator("[data-chevron-column] .cv-tool__chevron")
+        .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().right * 10) / 10));
       await page.locator('[data-label="copy"]').hover();
-      const after = await page.locator("[data-chevron-column] .cv-tool__chevron").evaluateAll((nodes) =>
-        nodes.map((node) => Math.round(node.getBoundingClientRect().right * 10) / 10),
-      );
+      const after = await page
+        .locator("[data-chevron-column] .cv-tool__chevron")
+        .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().right * 10) / 10));
       expect(new Set(before).size).toBe(1);
       expect(after).toEqual(before);
       await page.close();
