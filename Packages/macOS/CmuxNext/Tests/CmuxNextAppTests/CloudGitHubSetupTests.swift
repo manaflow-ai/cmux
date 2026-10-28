@@ -157,7 +157,8 @@ struct CloudGitHubSetupTests {
         let stop = try #require(app.range(of: CloudGitHubSetup.stopPreviousCommand))
         #expect(stop.upperBound <= helper.lowerBound)
         #expect(app.contains("then gh auth setup-git --hostname github.com >/dev/null 2>&1 || { echo 'cmux-gh: failed'; exit 0; }; echo 'cmux-gh: logged_in'"))
-        #expect(CloudGitHubSetup.command(identity).contains("then echo 'cmux-gh: logged_in'"))
+        // Also without the App (a team that disconnected after an App setup): gh goes back as the helper.
+        #expect(CloudGitHubSetup.command(identity).contains("then gh auth setup-git --hostname github.com >/dev/null 2>&1 || { echo 'cmux-gh: failed'; exit 0; }; echo 'cmux-gh: logged_in'"))
         #expect(CloudGitHubSetup.appCommand.contains("/run/cmux-vm-agent/agent.sock"))
     }
 

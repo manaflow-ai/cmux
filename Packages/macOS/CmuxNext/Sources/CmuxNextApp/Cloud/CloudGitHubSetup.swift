@@ -157,9 +157,9 @@ nonisolated enum CloudGitHubSetup {
             stopPreviousCommand,
         ]
         if app { lines.append(appCommand) }
-        // After the App was tried, a machine already signed in makes gh git's helper again: the App's
-        // helper may have replaced it before, and it would fail without the App.
-        let signedIn = app ? "gh auth setup-git --hostname github.com >/dev/null 2>&1 || { echo 'cmux-gh: failed'; exit 0; }; " : ""
+        // A machine already signed in makes gh git's helper again, on every run that does not use the App:
+        // an earlier run may have put the App's helper in, and it fails once the App is gone.
+        let signedIn = "gh auth setup-git --hostname github.com >/dev/null 2>&1 || { echo 'cmux-gh: failed'; exit 0; }; "
         lines += [
             "if ! command -v gh >/dev/null 2>&1; then echo 'cmux-gh: missing'; exit 0; fi",
             "if gh auth status --hostname github.com >/dev/null 2>&1; then \(signedIn)echo 'cmux-gh: logged_in'; exit 0; fi",
