@@ -632,8 +632,9 @@ export function recordingAttachment(
 /// the WAV it wrote, from its own disk, to that chat's machine (`dictation.recording.upload`, which
 /// takes only a recording the host itself gave this page), and the chip links the copy there, so
 /// the chat's agent opens it. The page never reads the bytes. Undefined when the host could not send
-/// it (an older host, an upload that failed): the composer's pending chip for it (Composer.tsx
-/// `attachLater`) then fails with Retry, and a prompt sent meanwhile gets the transcript.
+/// it (an older host, an upload that failed or a stager that refused it): the composer's pending
+/// chip for it (Composer.tsx `attachLater`) then fails with Retry, and a prompt sent meanwhile keeps
+/// waiting for it until Retry makes it or its × takes the recording out.
 export async function remoteRecordingAttachment(
   audio: DictationRecording,
   name: string,

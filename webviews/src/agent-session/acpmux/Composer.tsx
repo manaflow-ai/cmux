@@ -178,7 +178,8 @@ export type ComposerHandle = {
   attach(attachment: ComposerAttachment): void;
   /// Adds a chip the host is still making (a long dictation recording it sends to the chat's
   /// machine): a pending tile a send waits for, which becomes the chip `make` answers, or fails with
-  /// `failure` and Retry (composer/attachmentIntake.tsx attachLater).
+  /// `failure` and Retry; the send keeps waiting until Retry makes it or its × takes it out
+  /// (composer/attachmentIntake.tsx attachLater).
   attachLater(name: string, make: () => Promise<ComposerAttachment | undefined>, failure: string): void;
   /// Takes out the chips with these ids, leaving the prompt as typed (a design mode highlight removed on the page).
   detach(ids: readonly string[]): void;

@@ -133,6 +133,10 @@ export type PendingAttachment = {
   /// Streaming to the session's machine (a file of any size): a send goes without waiting for it,
   /// and it stays for the next prompt (Leo, 2026-10-25: "...prevent new things from happening").
   uploading?: boolean;
+  /// A chip the host makes (attachLater, a long dictation recording): a send waits for it even
+  /// once it failed, until its Retry makes it or its × takes it out, so a prompt never goes
+  /// without the recording it was sent with.
+  holdsSend?: boolean;
 };
 
 /// What Retry needs of a pending chip: its file and how it came in.
@@ -336,11 +340,18 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// chat's machine): its tile shows at once, drawn before this returns so a send made in the same
   /// task (dictation's auto-send) waits for it, as for a file still being read. `make` answers the
   /// chip, or undefined (or throws) and the tile fails with `failure` and Retry, which runs `make`
-  /// again. Its × drops whatever `make` answers later.
+  /// again. A send keeps waiting through a failure (`holdsSend`): it goes with the chip once Retry
+  /// makes it, or without it once its × drops it (and whatever `make` answers later).
   const [attachLater] = useState(
     () => (name: string, make: () => Promise<ComposerAttachment | undefined>, failure: string) => {
       const batch = { scope: live.current.options.scope };
-      const chip: PendingAttachment = { id: crypto.randomUUID(), name, image: false, scope: batch.scope };
+      const chip: PendingAttachment = {
+        id: crypto.randomUUID(),
+        name,
+        image: false,
+        scope: batch.scope,
+        holdsSend: true,
+      };
       sources.current.set(chip.id, { make, name, failure });
       batches.current.add(batch);
       flushSync(() => setPending((chips) => [...chips, chip]));
@@ -418,10 +429,11 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   }, [attach, showDrop]);
   const shown = pending.filter((chip) => chip.scope === scope);
   /// The chips still loading that a send waits for: a failed one waits for its Retry or x, and one
-  /// streaming to the session's machine stays for the next prompt, neither holds the send.
-  const loading = shown.filter((chip) => !chip.failed && !chip.uploading).length;
+  /// streaming to the session's machine stays for the next prompt, neither holds the send. A chip
+  /// the host makes (`holdsSend`) holds it even once failed, until its Retry or x.
+  const loading = shown.filter((chip) => chip.holdsSend || (!chip.failed && !chip.uploading)).length;
   /// The chips not yet a chip or a failure, uploads included (useSendWhenAttached's `unsettled`).
-  const unsettled = shown.filter((chip) => !chip.failed).length;
+  const unsettled = shown.filter((chip) => chip.holdsSend || !chip.failed).length;
   /// The video chips whose poster and frames the host still reads, for a chat on this Mac: a send
   /// waits for them a few seconds at most (composer/videoAttachments.ts).
   const videoReading = useVideoInfo(
