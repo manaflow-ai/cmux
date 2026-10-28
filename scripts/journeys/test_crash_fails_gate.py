@@ -36,6 +36,18 @@ class CrashFailsGateTests(unittest.TestCase):
             self.assertEqual(got[journey]["crashes"], [CRASH])
         self.assertIn("frame", got["ctrl-c"]["reason"], "the journey's own reason stays")
 
+    def test_a_deliberate_debug_crash_does_not_fail_the_lease(self):
+        """app-life-crash-recovers ends the app with debug.crash.app on purpose (DebugCrashes.crashApp): that report
+        is the journey's own step, not a crash of the build."""
+        deliberate = {"file": "cmux-2026-10-28-040150.ips", "signal": "SIGSEGV", "exception": "EXC_CRASH",
+                      "frames": ["__pthread_kill", "pthread_kill", "raise", "specialized static DebugCrashes.crashApp(_:_:)"]}
+        results = {"app-life-crash-recovers": {"status": "pass", "reason": ""}}
+        self.assertEqual(R.crashed_results(results, [deliberate]), results)
+        got = R.crashed_results(results, [deliberate, CRASH])
+        self.assertEqual(got["app-life-crash-recovers"]["status"], "fail")
+        self.assertIn("OnSnapshotFromSurfaceReceived", got["app-life-crash-recovers"]["reason"])
+        self.assertEqual(got["app-life-crash-recovers"]["crashes"], [CRASH])
+
     def test_no_crash_changes_nothing(self):
         results = {"type": {"status": "pass", "reason": ""}}
         self.assertEqual(R.crashed_results(results, []), results)
