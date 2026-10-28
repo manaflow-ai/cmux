@@ -38,20 +38,20 @@
       "args": {
         "method": "sidebar_view.ensure",
         "params": {
-          "cols": -1,
+          "cols": 80,
           "rows": 24
         },
         "idempotencyKey": "sidebar-view-ensure-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed"
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "cols breaks its catalog type (value must be an unsigned 16-bit integer); the daemon's catalog check refuses it"
+      "note": "the case daemon has no sidebar plugin configured, so there is no view to start"
     }
   ],
   "invariants": [

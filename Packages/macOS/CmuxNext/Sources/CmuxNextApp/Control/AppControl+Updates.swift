@@ -1,6 +1,7 @@
 import CmuxNextControl
 import CmuxNextSettings
 import CmuxNextUpdater
+import CmuxNextWakeups
 import CmuxNextWebUpdates
 import Foundation
 #if DEBUG || CMUX_BENCH_HOOKS
@@ -47,8 +48,8 @@ extension AppControl {
                     }
                 }
             },
-            .mainActor("updates.check") { call in
-                let probe = updater.probe()
+            .mainActor("updates.check") { [work = mainWork] call in
+                let probe = updater.probe(.automation)
                 // Answer inside the 2 s control deadline. A slower feed leaves
                 // the probe running: `pending: true`, then read `updates.status`.
                 let answerBy = call.deadline - .milliseconds(150)
@@ -59,7 +60,8 @@ extension AppControl {
                     } catch {
                         outcome = (false, nil)
                     }
-                    return await MainActor.run {
+                    // The CLI's reply: automation work.
+                    return await work.apply(.automation, owner: "updates.check") { () -> JSONValue in
                         guard case .object(var fields) = Self.json(updater.status, log: []) else { return .null }
                         fields["pending"] = .bool(!outcome.done)
                         fields["ok"] = outcome.done ? .bool(outcome.failure == nil) : .null

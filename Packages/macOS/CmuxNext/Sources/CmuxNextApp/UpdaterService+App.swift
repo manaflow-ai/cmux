@@ -6,6 +6,7 @@ import CmuxNextPages
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextUpdater
+import CmuxNextWakeups
 import CmuxNextWebUpdates
 import Observation
 
@@ -20,7 +21,7 @@ extension UpdaterService {
     func wire(sheet: UpdateSheetController, services: AppServices, simulating: @escaping @MainActor @Sendable () -> Bool) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
-        relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services))] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
+        relaunchBlockers = { [weak self, weak services, activity = UpdateAgentActivity(environment: QuitAgents.environment(services), mainWork: services.mainWork)] in services.map { activity.applying(to: $0.machines.local.currentRelaunchBlockers(quietInput: self?.idleInstallQuiet)) } ?? .daemonUnavailable }
         // The click: the windows leave the screen at once (S1); a failed
         // install brings them back.
         let handoff = UpdateWindowHandoff(unsaved: services.quitUnsaved)
@@ -51,16 +52,16 @@ extension UpdaterService {
         wireTips(registry: services.registry)
         UpdateSimulation(updater: self).follow(simulating)
         #if DEBUG || CMUX_BENCH_HOOKS
-        UpdateHarnessProbe.install(updater: self)
+        UpdateHarnessProbe.install(updater: self, mainWork: services.mainWork, appEvents: services.appEvents)
         #endif
     }
 
     /// The work behind the wired cards, after startup (the `Updater.attachedWork` launch post, p08-startup-031):
     /// the Updated card's change list when its record has none (2026-10-20; a network read), and the
     /// tip's re-pick when cmux becomes active again.
-    func startAttachedWork() {
+    func startAttachedWork(appEvents: AppEvents) {
         loadCurrentBuildNotesIfNeeded()
-        refreshTipOnActivation()
+        refreshTipOnActivation(on: appEvents)
     }
 
     /// The tips card (BOTTOM-LEFT-CARDS K1): "Try It" runs the catalog

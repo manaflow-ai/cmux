@@ -88,7 +88,7 @@ extension WebKitTab: PageInfoProviding {
     /// has none (`SitePermissionRequest`).
     func decidePermission(_ kind: BrowserPermissionKind, origin: String, granted: @escaping @MainActor (Bool) -> Void) {
         pageInfoActivity.recordRequest(kind.siteKinds)
-        SitePermissionRequest(kind: kind, origin: origin, store: sitePermissions).decide(ask: enqueuePrompt) { granted($0 == .grant) }
+        SitePermissionRequest(kind: kind, origin: origin, store: sitePermissions).decide(ask: enqueuePrompt, confirm: { $0 }) { granted($0 == .grant) }
     }
 
     /// JavaScript on or off for the document a navigation loads.
@@ -200,7 +200,9 @@ nonisolated struct ServerTrustFailure {
     /// nil when the system trusts it.
     static func evaluate(_ trust: SecTrust) -> ServerTrustFailure? {
         var error: CFError?
-        guard !blockingSecTrustEvaluate(trust, &error) else { return nil }
+        // SAFETY: SecTrustEvaluateWithError stores at most one +1 CFError in the local `error`,
+        // live for the call; the Swift import takes ownership of it.
+        guard unsafe !blockingSecTrustEvaluate(trust, &error) else { return nil }
         return ServerTrustFailure(trust: trust, error: error)
     }
 }

@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextInput
+public import CmuxNextWakeups
 
 /// The one native host for the popups that open from the omnibar and the toolbar (Lawrence
 /// 2026-10-14: "omnibar stuff should be macos specific so it feels more native"; hq
@@ -29,12 +30,21 @@ public final class NativePopupHost {
     public private(set) var isClosing = false
     /// Bumped by every show and hide: a close whose fade ends after a new show keeps the panel.
     private var generation = 0
-    private var observers: [NSObjectProtocol] = []
+    /// While the popup shows: the notices that close it (the app going inactive; its window moving,
+    /// resizing, closing or minimizing), through the app's ``AppEvents`` and the window's ``WindowEvents``.
+    private var dismissals: [EventSubscription] = []
+    /// Where the app's going inactive arrives (an owner may set the app's one): by default a keyed panel's own
+    /// (``ActiveAppKeyPanel/appEvents``), else one on the default center.
+    public lazy var appEvents: AppEvents = (panel as? ActiveAppKeyPanel)?.appEvents ?? AppEvents(center: .default)
+    /// A window's notices: the window's one ``WindowEvents`` (tests set their own center's).
+    var windowEvents: @MainActor (NSWindow) -> WindowEvents = { WindowEvents.of($0) }
     /// While the popup shows: the tap observer of clicks (one outside the popup closes it) and the
     /// Escape intercept (``InputEventTap/InterceptOrder/popup``, after a modal overlay's).
     private var subscriptions: [InputSubscription] = []
     /// The tap this popup subscribes to while it shows.
     var inputTap: InputEventTap?
+    /// The last press the click observer saw (``clickEvent(_:)``).
+    private var lastPress: NSEvent?
 
     /// A host for `panel` that subscribes to `input` (nil: the overlay hosts' tap,
     /// ``WindowOverlayHost/appInputTap``).
@@ -46,7 +56,7 @@ public final class NativePopupHost {
                 guard let self, let keyed else { return }
                 // A press on the control that toggles the popup makes its window key first; the
                 // control closes the popup itself, so that key loss is not a dismiss.
-                let press = NSApp.currentEvent.flatMap { [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains($0.type) ? $0 : nil }
+                let press = dispatchedPress()
                 if let press, press.window !== keyed, keepsOpen(press) { return }
                 // Shown without the keys, a window of the app took them without a press (Cmd-Tab
                 // into the app, a focus request): the popup takes them over, as a popup shown with
@@ -132,18 +142,18 @@ public final class NativePopupHost {
     }
 
     private func watch(_ window: NSWindow) {
-        if observers.isEmpty {
-            let center = NotificationCenter.default
-            let names: [(NSNotification.Name, AnyObject?)] = [
-                (NSApplication.didResignActiveNotification, nil), (NSWindow.willMoveNotification, window),
-                (NSWindow.didResizeNotification, window), (NSWindow.willCloseNotification, window),
-                (NSWindow.didMiniaturizeNotification, window),
+        if dismissals.isEmpty {
+            // The popup closes in the notice's own turn, as Chromium's bubble closes when its widget deactivates
+            // (BubbleDialogDelegate's close_on_deactivate, ui/views/bubble/bubble_dialog_delegate_view.cc).
+            let close: @MainActor () -> Void = { [weak self] in self?.dismiss() }
+            let events = windowEvents(window)
+            dismissals = [
+                appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "NativePopupHost", close),
+                events.subscribe(NSWindow.willMoveNotification, owner: "NativePopupHost", close),
+                events.subscribe(NSWindow.didResizeNotification, owner: "NativePopupHost", close),
+                events.subscribe(NSWindow.willCloseNotification, owner: "NativePopupHost", close),
+                events.subscribe(NSWindow.didMiniaturizeNotification, owner: "NativePopupHost", close),
             ]
-            observers = names.map { name, object in
-                center.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
-                    Task { @MainActor in self?.dismiss() }
-                }
-            }
         }
         guard subscriptions.isEmpty, let tap = requiredInputTap(inputTap, owner: "NativePopupHost") else { return }
         let shows: @MainActor () -> Bool = { [weak self] in self?.isShown == true }
@@ -160,11 +170,19 @@ public final class NativePopupHost {
     func clickEvent(_ event: NSEvent) {
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            lastPress = event
             guard event.window !== panel, !keepsOpen(event) else { return }
             dismiss()
         default:
             break
         }
+    }
+
+    /// The press being dispatched now, which moves the keys: the click observer's last press while
+    /// it is still the tap's last dispatched event; nil for a key loss no press of the app made.
+    func dispatchedPress() -> NSEvent? {
+        guard let press = lastPress, inputTap?.isLastDispatched(press) == true else { return nil }
+        return press
     }
 
     /// A key event of the Escape intercept: Escape in the popup closes it, and nothing else gets it
@@ -176,9 +194,10 @@ public final class NativePopupHost {
     }
 
     private func unwatch() {
-        observers.forEach(NotificationCenter.default.removeObserver)
-        observers = []
+        dismissals.forEach { $0.cancel() }
+        dismissals = []
         subscriptions = []
+        lastPress = nil
     }
 }
 

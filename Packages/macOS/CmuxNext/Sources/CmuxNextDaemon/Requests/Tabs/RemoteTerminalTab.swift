@@ -30,6 +30,10 @@ public struct NewRemoteTerminalTabRequest: DaemonRequest {
         cols = size?.cols
         rows = size?.rows
     }
+
+    enum CodingKeys: String, CodingKey {
+        case pane, sessionID = "session_id", terminalID = "terminal_id", sessionName = "session_name", title, cols, rows
+    }
 }
 
 /// `update-remote-terminal-tab`: the last title, session name and bounded
@@ -56,7 +60,7 @@ public struct UpdateRemoteTerminalTabRequest: DaemonRequest {
         self.snapshot = snapshot
     }
 
-    enum CodingKeys: String, CodingKey { case surface, title, sessionName, snapshot }
+    enum CodingKeys: String, CodingKey { case surface, title, sessionName = "session_name", snapshot }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(surface, forKey: .surface)

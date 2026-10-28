@@ -33,7 +33,10 @@ nonisolated enum CEFPopupWindows {
 /// window to its view (`cmux_popup_window_attach`). The window id then stays
 /// valid until the panel closes; `chrome.windows.update` bounds resize the
 /// panel (`.resizePopup`) and `chrome.windows.remove` closes the tab, which
-/// closes the panel.
+/// closes the panel. Like Chrome's popup browser window, which keeps its page's
+/// view in its own window (`Browser::TYPE_POPUP`, chrome/browser/ui/browser.h),
+/// the attached window's page attaches or hosts in the panel's view where the
+/// fork does it for popup windows (``CEFLayerHosting/Widget/popupWindow``).
 extension CEFPaneHost {
     /// A popup host for window `window` holding its tab `browser`, announced
     /// by `opener` (a pane's visible tab) as `.openPopup`.
@@ -43,6 +46,7 @@ extension CEFPaneHost {
                                   profile: key.profile, machineKey: key.machineKey, offTheRecord: key.offTheRecord)
         let host = runtime.host(for: popupKey, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         host.popupWindow = window
+        host.hostView.layerHosting.widget = .popupWindow
         let tab = CEFTab(id: id, profile: key.profile, host: host, runtime: runtime)
         tab.machineStore = opener.machineStore
         tab.navigationGuard = opener.navigationGuard
@@ -51,7 +55,7 @@ extension CEFPaneHost {
         runtime.register(tab, browser: browser)
         // The page may have loaded before this adoption (its address and
         // title events reached no tab): start from its current entry.
-        if let shim = runtime.shim, let json = shim.takeString(shim.tabNavigationEntries(browser)),
+        if let shim = runtime.shim, let json = shim.tabNavigationEntries(browser),
            let entry = CEFNavigationEntries(json: json)?.current {
             tab.handle(.address(browser: browser, url: entry.url))
             if !entry.title.isEmpty { tab.handle(.title(browser: browser, title: entry.title)) }
@@ -84,6 +88,15 @@ extension CEFPaneHost {
         window = .live(window: popupWindow)
         lastActivated = browser
         _ = shim.tabActivate(browser)
+        if isHostMode {
+            // The window's pixels are its widget context, shown filling this host's view.
+            runtime.widgetHost?.place(.popupWindow, owner: browser, in: hostView)
+        } else {
+            // The attached window is this view's page window from now on: attached or hosted in the panel's
+            // view as a pane's page is, where the fork does it for popup windows (`CEFLayerHosting.Widget.popupWindow`).
+            hostView.layerHosting.switchCommit.hiddenFrames = runtime.hiddenFrames
+            hostView.layerHosting.pageWindowCreated(browser: browser, fork: CEFLayerHosting.Fork(runtime: runtime))
+        }
         hostView.postGeometryChange()
         lifecycleTrace.record(tab.id, "popup-window-attached")
         runtime.notePopupWindow("window=\(popupWindow) attached")
@@ -141,9 +154,9 @@ extension CEFRuntime {
     /// features are.
     private func popupWindowBounds(_ window: Int32) -> CGRect? {
         guard let shim else { return nil }
-        var x: Int32 = 0, y: Int32 = 0, width: Int32 = 0, height: Int32 = 0
-        guard shim.popupWindowBounds(window, &x, &y, &width, &height) == 1 else { return nil }
-        return CGRect(x: CGFloat(x), y: CGFloat(y), width: CGFloat(width), height: CGFloat(height))
+        let read = shim.popupWindowBounds(window)
+        guard read.result == 1 else { return nil }
+        return CGRect(x: CGFloat(read.x), y: CGFloat(read.y), width: CGFloat(read.width), height: CGFloat(read.height))
     }
 }
 

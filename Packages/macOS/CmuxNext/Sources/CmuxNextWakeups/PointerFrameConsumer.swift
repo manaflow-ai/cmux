@@ -25,7 +25,8 @@ public final class PointerFrameConsumer {
     /// Every event is delivered at once, never merged (Chrome's `needs_low_latency_`).
     public let isLowLatency: Bool
     private weak var coalescer: FrameInputCoalescer?
-    private let body: @MainActor (PointerCoalescedInput) -> Void
+    /// Gets each delivery and the frame it is drawn in (``FrameInputCoalescer/frameTime(for:)``).
+    private let body: @MainActor (PointerCoalescedInput, PointerFrameTime) -> Void
     /// What waits for the frame; `spare` is the emptied queue a delivery swaps in, so input posted by
     /// a delivery's body goes to the live queue and no buffer is made per frame.
     private var queue = PointerCoalescingQueue()
@@ -45,7 +46,7 @@ public final class PointerFrameConsumer {
     var isInInterval = false
 
     init(owner: String, lowLatency: Bool, coalescer: FrameInputCoalescer,
-         deliver: @escaping @MainActor (PointerCoalescedInput) -> Void) {
+         deliver: @escaping @MainActor (PointerCoalescedInput, PointerFrameTime) -> Void) {
         self.owner = owner
         isLowLatency = lowLatency
         self.coalescer = coalescer
@@ -115,6 +116,7 @@ public final class PointerFrameConsumer {
             deliveriesInInterval += 1
             maxDeliveriesPerFrame = max(maxDeliveriesPerFrame, deliveriesInInterval)
         }
-        body(input)
+        body(input, coalescer?.frameTime(for: input)
+            ?? PointerFrameTime(time: input.latest.timestamp, interval: FrameTick.defaultRefreshInterval))
     }
 }

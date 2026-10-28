@@ -39,7 +39,7 @@
       "args": {
         "method": "pairing_request.resolve",
         "params": {
-          "decision": "accept"
+          "decision": "reject"
         },
         "idempotencyKey": "pairing-request-resolve-ok.call"
       },
@@ -51,7 +51,32 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "rejects the waiting pairing; any local connection may reject"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "pairing_request": "pairing_00000000000000000000000000000000"
+      },
+      "args": {
+        "method": "pairing_request.resolve",
+        "params": {
+          "decision": "reject"
+        },
+        "idempotencyKey": "pairing-request-resolve-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [
@@ -62,6 +87,7 @@
     "verify the socket and state root are gone"
   ],
   "untested": [
-    "target.pairing_request is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it"
+    "target.pairing_request is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it",
+    "a pairing request exists only while a WebSocket peer waits on the daemon's pairing listener, and no case step opens one (the hermetic case daemon is offline); p15-oracle-238 adds a pairing.open step that opens a WebSocket pairing on the loopback listener, then this case rejects it"
   ]
 }

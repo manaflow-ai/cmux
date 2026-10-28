@@ -38,9 +38,17 @@
       "args": {
         "method": "sidebar.item.add",
         "params": {
-          "item": {},
-          "to": {},
-          "oracle_unknown": true
+          "item": {
+            "id": "itm_oracle_url",
+            "body": {
+              "type": "url",
+              "url": "http://127.0.0.1:9/",
+              "title": "oracle"
+            }
+          },
+          "to": {
+            "section": "sec_oracle_missing"
+          }
         },
         "idempotencyKey": "sidebar-item-add-error.call"
       },
@@ -52,7 +60,7 @@
         "before",
         "settled"
       ],
-      "note": "oracle_unknown breaks its catalog type (request contains unknown parameters); the daemon's catalog check refuses it"
+      "note": "the sidebar reducer refuses it (unknown_section) and writes nothing: the target section does not exist"
     }
   ],
   "invariants": [

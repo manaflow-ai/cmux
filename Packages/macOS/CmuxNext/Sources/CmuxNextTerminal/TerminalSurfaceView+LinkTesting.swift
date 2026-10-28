@@ -8,8 +8,8 @@ extension TerminalSurfaceView {
     /// A mouse event over viewport cell (`column`, `row`) in this view's window.
     func linkTestEvent(_ type: NSEvent.EventType, column: Int, row: Int, flags: NSEvent.ModifierFlags) -> NSEvent? {
         guard let window, let surface else { return nil }
-        var metrics = ghostty_surface_grid_metrics_s()
-        guard ghostty_surface_grid_metrics(surface, &metrics) else { return nil }
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface).
+        guard let metrics = unsafe GhosttyTextRead.gridMetrics(surface) else { return nil }
         let x = metrics.padding_left + (Double(column) + 0.5) * metrics.cell_width
         let top = metrics.padding_top + (Double(row) + 0.5) * metrics.cell_height
         let point = NSPoint(x: x, y: bounds.height - top)

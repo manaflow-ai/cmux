@@ -1,16 +1,18 @@
 import AppKit
 @testable import CmuxNextTabs
+import CmuxNextTestSupport
 import QuartzCore
 import Testing
 
 /// tab-switch-rewrite: the strip's part of a tab switch, step by step, over 2, 10, 30 and 60 tabs in a
 /// 1400 pt strip (from about 30 tabs it scrolls). Prints `TAB-STRIP-SELECT n=<count> <step>=<µs>`: the
 /// whole `syncFromModel` and, apart, each step it runs (selection flags, separators, occlusion, the
-/// reveal scroll with and without its spring, the hover card). Timing is printed, not gated.
+/// reveal scroll with and without its spring, the hover card). Timing is printed, not gated. With
+/// CMUX_PERF_RESULT_DIR every step's time per switch is result-v1 (lab story swift-tab-strip-select).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)))
 struct TabStripSelectionBench {
     @Test(arguments: [2, 10, 30, 60])
-    func selectionSteps(_ count: Int) {
+    func selectionSteps(_ count: Int) throws {
         let items = (0..<count).map { TabItem(id: TabID("t\($0)"), title: "Tab number \($0)") }
         let model = TabStripModel(tabs: items, selectedID: items.first?.id)
         let strip = TabStripView.testing(model: model)
@@ -25,11 +27,14 @@ struct TabStripSelectionBench {
         strip.syncFromModel()
         func finish() { CATransaction.flush(); _ = CFRunLoopRunInMode(.defaultMode, 0, true) }
         var totals: [String: Double] = [:]
+        var samples: [String: [Double]] = [:]
         var runs = 0
         func time(_ name: String, _ body: () -> Void) {
             let start = CACurrentMediaTime()
             body()
-            totals[name, default: 0] += (CACurrentMediaTime() - start) * 1e6
+            let micros = (CACurrentMediaTime() - start) * 1e6
+            totals[name, default: 0] += micros
+            samples[name, default: []].append(micros)
         }
         let rounds = max(3, 120 / count)
         for _ in 0..<rounds {
@@ -44,6 +49,11 @@ struct TabStripSelectionBench {
                 time("hover") { strip.refreshHoverCard() }
                 time("finish") { finish() }
                 runs += 1
+            }
+        }
+        if let results = try PerfResultWriter() {
+            for (step, values) in samples.sorted(by: { $0.key < $1.key }) {
+                try results.record("swift.tab_strip_select.\(step).\(count)", unit: .us, samples: values)
             }
         }
         let line = totals.sorted { $0.value > $1.value }.map { String(format: "%@=%.1fus", $0.key, $0.value / Double(runs)) }

@@ -187,12 +187,15 @@ nonisolated struct CanvasZoomTransform: RenderSpringValue, Hashable {
         reach = 0
     }
 
-    var layerValue: Any {
+    /// The value as a `sublayerTransform`.
+    var transform: CATransform3D {
         var transform = CATransform3DMakeScale(scale, scale, 1)
         transform.m41 = (1 - scale) * pivot.x
         transform.m42 = (1 - scale) * pivot.y
-        return NSValue(caTransform3D: transform)
+        return transform
     }
+
+    var layerValue: Any { NSValue(caTransform3D: transform) }
 
     static var springZero: CanvasZoomTransform { CanvasZoomTransform(scale: 1, pivot: .zero, reach: 0) }
 
@@ -204,4 +207,12 @@ nonisolated struct CanvasZoomTransform: RenderSpringValue, Hashable {
     var springExtent: CGFloat { abs(scale - 1) * reach }
 
     var springScalar: CGFloat? { nil }
+}
+
+extension RenderSpringKey where Value == CanvasZoomTransform {
+    /// A layer's `sublayerTransform` as a canvas zoom (nil when it holds any other transform).
+    static var canvasZoom: Self {
+        Self("sublayerTransform", read: { CanvasZoomTransform(layerValue: NSValue(caTransform3D: $0.sublayerTransform)) },
+             write: { $0.sublayerTransform = $1.transform })
+    }
 }

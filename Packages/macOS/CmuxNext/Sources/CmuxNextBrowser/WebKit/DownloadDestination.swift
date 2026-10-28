@@ -65,7 +65,9 @@ public nonisolated enum DownloadDestination {
     /// any error but "no such file" counts as taken).
     public static func entryExists(_ url: URL) -> Bool {
         var info = stat()
-        return lstat(url.path(percentEncoded: false), &info) == 0 || errno != ENOENT
+        // SAFETY: the path is a NUL-terminated copy Swift keeps alive for the call; lstat writes
+        // one `stat` into the local `info`, which outlives it.
+        return unsafe lstat(url.path(percentEncoded: false), &info) == 0 || errno != ENOENT
     }
 
     /// The last path component, without control or format characters

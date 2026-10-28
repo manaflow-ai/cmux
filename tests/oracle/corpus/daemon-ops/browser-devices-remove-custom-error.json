@@ -29,6 +29,44 @@
   ],
   "steps": [
     {
+      "id": "add-device",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "browser.devices.add_custom",
+        "params": {
+          "device": {
+            "title": "oracle",
+            "type": "phone",
+            "screen": {
+              "device-pixel-ratio": 3,
+              "vertical": {
+                "width": 390,
+                "height": 844
+              },
+              "horizontal": {
+                "width": 844,
+                "height": 390
+              }
+            },
+            "capabilities": [
+              "touch",
+              "mobile"
+            ],
+            "user-agent": "Mozilla/5.0 (Linux; Android 14; Oracle Phone) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/%s Mobile Safari/537.36"
+          }
+        },
+        "idempotencyKey": "browser-devices-remove-custom-error.add-device"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {

@@ -725,7 +725,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         return d.messages.count == msgs.count && d.me == st.me && d.atNewest == st.atNewest && d.typing == st.ui.typing
             && d.notice == st.ui.notice && d.day == Format.dayInterval(store.date(at: clock()))
             && d.strings == ObjectIdentifier(MessagesLabLocalization.bundle)
-            && d.messages.withUnsafeBufferPointer({ $0.baseAddress }) == msgs.withUnsafeBufferPointer({ $0.baseAddress })
+            && d.messages.sharesStorage(with: msgs)
     }
 
     private func widthRows(_ st: AppState, now: Date, near: Range<Int>?) -> [RowSpec] {
@@ -733,7 +733,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let day = Format.dayInterval(now), strings = ObjectIdentifier(MessagesLabLocalization.bundle)
         if let d = widthDerived, d.messages.count == msgs.count, d.me == st.me, d.atNewest == st.atNewest,
            d.typing == st.ui.typing, d.notice == st.ui.notice, d.streams == st.ui.streams, d.day == day, d.strings == strings,
-           d.messages.withUnsafeBufferPointer({ $0.baseAddress }) == msgs.withUnsafeBufferPointer({ $0.baseAddress }),
+           d.messages.sharesStorage(with: msgs),
            // A streaming bubble's rows (ask 11) name its message after the loaded ones.
            let rows = RowBuilder.rewidth(d.rows, messages: st.ui.streams.isEmpty ? msgs : msgs + st.ui.streams.map(\.message),
                                          width: bounds.width, exact: near, scale: renderScale) {
@@ -745,7 +745,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // width pass of a drag long, so the next width change waited a frame (see layoutSubviews).
         if let d = widthDerived, d.streams != st.ui.streams, let last = msgs.last, d.messages.count == msgs.count, d.me == st.me,
            d.atNewest == st.atNewest, d.typing == st.ui.typing, d.notice == st.ui.notice, d.day == day, d.strings == strings,
-           d.messages.withUnsafeBufferPointer({ $0.baseAddress }) == msgs.withUnsafeBufferPointer({ $0.baseAddress }) {
+           d.messages.sharesStorage(with: msgs) {
             let lastID = Substring(last.id)
             var drop = 0
             for row in d.rows.reversed() {
@@ -953,12 +953,14 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private static let decorateSteps = ["configure", "connector", "ledger"]
     private static var decorateStepAllocs = [0, 0, 0], decorateStepMs = [0.0, 0.0, 0.0]
     /// Per step, for the bench report (empty when profiling is off); assigning resets.
+    /// cmux: the step names are distinct literals; no trapping init (p10-stability-096).
     static var decorateAllocs: [String: Int] {
-        get { profileDecorate ? Dictionary(uniqueKeysWithValues: zip(decorateSteps, decorateStepAllocs)) : [:] }
+        get { profileDecorate ? Dictionary(zip(decorateSteps, decorateStepAllocs), uniquingKeysWith: { first, _ in first }) : [:] }
         set { decorateStepAllocs = [0, 0, 0] }
     }
+    /// cmux: built like `decorateAllocs` (p10-stability-096).
     static var decorateMs: [String: Double] {
-        get { profileDecorate ? Dictionary(uniqueKeysWithValues: zip(decorateSteps, decorateStepMs)) : [:] }
+        get { profileDecorate ? Dictionary(zip(decorateSteps, decorateStepMs), uniquingKeysWith: { first, _ in first }) : [:] }
         set { decorateStepMs = [0, 0, 0] }
     }
     static var decorateCalls = 0
@@ -2649,7 +2651,7 @@ final class ThreadBackdrop {
     private let blur: CALayer?
     private let tint = CALayer()
     /// CAFilter inputRadius 10 gives sigma 9.5 pt (refit live on cmux-lawrence-2 against swipe-full).
-    static var radius: CGFloat = {
+    static let radius: CGFloat = { // cmux: let (no shared mutable state)
         let a = ProcessInfo.processInfo.arguments
         return a.firstIndex(of: "--thread-blur-r").flatMap { a.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } ?? 10.0 // no index math
     }()
@@ -2678,7 +2680,9 @@ final class ThreadBackdrop {
         guard let cls = NSClassFromString("CABackdropLayer") as? CALayer.Type,
               let fc = NSClassFromString("CAFilter") as? NSObject.Type else { return nil }
         let sel = NSSelectorFromString("filterWithType:")
-        guard fc.responds(to: sel), let f = fc.perform(sel, with: "gaussianBlur")?.takeUnretainedValue() as? NSObject else { return nil }
+        // SAFETY: +[CAFilter filterWithType:] returns an autoreleased (+0) object, so the unretained read takes
+        // the one reference `perform` gives and balances nothing.
+        guard fc.responds(to: sel), let f = unsafe fc.perform(sel, with: "gaussianBlur")?.takeUnretainedValue() as? NSObject else { return nil }
         f.setValue("gaussianBlur", forKey: "name")
         f.setValue(0, forKey: "inputRadius")
         f.setValue(true, forKey: "inputNormalizeEdges")
@@ -3009,7 +3013,7 @@ enum ThreadHeaderDraw {
         let ink = open ? UIColor(red: 0.30, green: 0.85, blue: 0.45, alpha: 1) : Fixture.secondaryText
         let r = min(l.chip.width, l.chip.height) / 2 * 0.999
         ctx.saveGState()
-        ctx.addPath(CGPath(roundedRect: l.chip, cornerWidth: r, cornerHeight: r, transform: nil))
+        ctx.addPath(CGPath.roundedRect(l.chip, cornerWidth: r, cornerHeight: r))
         ctx.setFillColor((Fixture.lightAppearance && !open ? UIColor(white: 0, alpha: 0.08) : fill).cgColor)
         ctx.fillPath()
         ctx.restoreGState()

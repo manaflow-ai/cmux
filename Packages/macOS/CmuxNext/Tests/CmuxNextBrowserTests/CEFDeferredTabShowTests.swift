@@ -267,7 +267,7 @@ import Testing
     private static func runtime() throws -> (CEFRuntime, URL) {
         TabSpyShim.reset()
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-deferred-\(UUID().uuidString)", directoryHint: .isDirectory)
-        let runtime = CEFRuntime(shim: try TabSpyShim.library(), storage: CEFProfileStorage(root: root))
+        let runtime = CEFRuntime.spy(shim: try TabSpyShim.library(), storage: CEFProfileStorage(root: root))
         _ = Unmanaged.passRetained(runtime)
         TabSpyShim.runtime = runtime
         return (runtime, root)

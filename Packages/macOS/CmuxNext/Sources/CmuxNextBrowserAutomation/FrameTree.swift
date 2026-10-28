@@ -1,5 +1,8 @@
 import Foundation
 public import WebKit
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// One frame of a tab, as `frames.list` reports it.
 public struct FrameRecord {
@@ -26,11 +29,12 @@ enum FrameTree {
         guard webView.responds(to: selector) else { return [] }
         let imp = unsafeBitCast(webView.method(for: selector), to: FramesIMP.self)
         // WebKit calls back on the main thread with the tree it owns: the node stays on the main actor.
+        // A callback WebKit drops uncalled (abandoned) is an unknown tree: no frames.
         let reply = FrameTreeReply()
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             imp(webView, selector) { node in
                 reply.root = node
-                continuation.resume()
+                continuation.resume(returning: ())
             }
         }
         var out: [FrameRecord] = []

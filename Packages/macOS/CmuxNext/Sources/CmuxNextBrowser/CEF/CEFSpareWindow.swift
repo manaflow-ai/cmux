@@ -31,20 +31,35 @@ import Foundation
 /// incognito window gets a window of its own as before. At most one untaken
 /// spare per kind, made only while no other Chromium window is being built;
 /// each take, and any window that comes up while a wanted kind has none,
-/// reports `onNeeded`, so the warmup makes the next spare at the next idle
-/// moment (`ChromiumWarmup`).
+/// reports `onNeeded`. The report only posts the refill: the warmup builds the
+/// next spare in an idle task of the main-thread scheduler with a 500 ms
+/// `maxDelay` (`ChromiumWarmup`, `MainWorkScheduler.postIdle`), never in the
+/// key's turn or its input response and only after 750 ms with no input, and
+/// past the delay as background work, so the next Cmd-T still finds one in a
+/// busy app (p06-scheduler-050). Chrome
+/// also refills its spare renderer after the take, off the navigation's path
+/// (`SpareRenderProcessHostManagerImpl::PrepareForFutureRequests`).
 ///
-/// Under memory pressure no spare is kept (Chrome's
-/// `content/browser/renderer_host/spare_render_process_host_manager_impl.cc`): the warmup's memory
-/// consumer holds the spares at warning and critical (`holdSpareWindows`), which closes the untaken
-/// ones (a tab parked in one moves to a shown pane), and until it lets go at normal none is made,
-/// given back or asked for.
+/// Under memory pressure no new spare is made (Chrome's
+/// `content/browser/renderer_host/spare_render_process_host_manager_impl.cc`, which keeps an existing
+/// spare): the warmup's memory consumer holds the spares at warning and critical (`holdSpareWindows`),
+/// and until it lets go at normal none is made, given back or asked for. Critical also closes the
+/// untaken ones (`closeUntakenSpareWindows`; a tab parked in one moves to a shown pane).
+///
+/// Chrome keeps one spare renderer; with `chromiumOneSpareRenderer` cmux keeps one too (``placeholderIsTheSpare``).
 ///
 /// A spare is no window request's target (`CEFWindowRequests`): a page
 /// or extension that asks for a tab with no window of its own still opens a
 /// cmux tab. A tab Chromium puts into a spare's window anyway (an
 /// extension's `chrome.tabs.create` targets its last window) waits there
 /// (`park`) and is adopted by the first tab that takes that spare.
+///
+/// With the Chromium Host the spare stays (`ChromiumWarmup.Placement.host`, p01-process-086): content
+/// makes its spare RenderProcessHost only after a navigation took a process
+/// (`SpareRenderProcessHostManagerImpl::PrepareForFutureRequests`; `IsSpareProcessKeptAtAllTimes`
+/// only refills a taken one), so after a warm start only the spare's window, and its placeholder's
+/// renderer without `rendererlessSpareWindow`, are warm for the first tab.
+/// The bench-only `chromiumHostNoSpareWindow` drops it, the arm that measures the host without it.
 ///
 /// The runtime owns the one instance (`CEFRuntime.spareWindow`).
 final class CEFSpareWindow {
@@ -75,11 +90,21 @@ final class CEFSpareWindow {
     /// `rendererlessSpareWindow` feature, `CEFEngine.setRendererlessSpareWindows`); off, every spare
     /// holds the frozen about:blank page. Read when a spare's window is built.
     var rendererlessPlaceholders = false
+    /// The default-off feature `chromiumOneSpareRenderer` (`CEFEngine.setOneSpareRenderer`): at most one
+    /// Chromium spare renderer (``placeholderIsTheSpare``). Set before Chromium starts.
+    var oneSpareRenderer = false
+    /// Whether a spare's placeholder holds a renderer in the running Chromium: true until a start
+    /// finds renderer-less placeholders on and the fork able to make them (``chromiumStarting(placeholderSupported:)``).
+    private(set) var placeholdersHoldRenderers = true
     /// Memory pressure above normal (`setHeld`): no spare is made, given back or asked for.
     private(set) var isHeld = false
-    /// No spare of a wanted kind is ready (a pane took it, or a window came up first): the next
-    /// idle moment may make one (`ChromiumWarmup`).
+    /// No spare of a wanted kind is ready (a pane took it, or a window came up first): the warmup
+    /// posts the refill as an idle task (`ChromiumWarmup`). Called in the take's turn, so it must
+    /// only post, never build a window.
     var onNeeded: (@MainActor () -> Void)?
+    // memory: fixed: 2 keys (`Kind`), each a list of (browser id, disposition, bounds) values of a few
+    // bytes, emptied when its spare is taken (`takeParked`) or dropped (`drop`); the spare windows
+    // themselves follow memory pressure through ChromiumWarmup's SpareMemoryConsumer.
     /// Tabs Chromium created in a spare's window before a tab took it, by the spare's kind.
     private var parked: [Kind: [(browser: Int32, disposition: BrowserNewTabDisposition, bounds: CGRect?)]] = [:]
     /// Windows built for a key a spare serves because no spare of its kind was ready
@@ -117,10 +142,37 @@ final class CEFSpareWindow {
         return key.profile == .default ? .browser : nil
     }
 
-    /// The kinds the warmup keeps a spare of: `browser` always, `pages` while `wantsPages` and
-    /// the pages profile exists.
+    /// The kinds the warmup keeps a spare of: `browser` always, `pages` while `wantsPages`, the
+    /// pages profile exists and its placeholder would not be a second spare renderer (``placeholderIsTheSpare``).
     var wantedKinds: [Kind] {
-        Kind.allCases.filter { $0 == .browser || (wantsPages && pagesProfile != nil) }
+        Kind.allCases.filter { $0 == .browser || (wantsPages && pagesProfile != nil && !placeholderIsTheSpare) }
+    }
+
+    /// The one Chromium spare renderer is a spare window's placeholder (`chromiumOneSpareRenderer` on
+    /// while placeholders hold a renderer): Chromium's own spare is off and only the `browser` kind is
+    /// kept. Chrome keeps one spare renderer, never one per profile
+    /// (`content/browser/renderer_host/spare_render_process_host_manager_impl.h`). Off, Chromium's
+    /// spare is the one and the placeholders hold none, or the feature is off.
+    var placeholderIsTheSpare: Bool { oneSpareRenderer && placeholdersHoldRenderers }
+
+    /// Chromium starts (`CEFRuntime.initialize`): whether a spare's placeholder will hold a renderer
+    /// in it, which says whether Chromium keeps its own spare renderer.
+    ///
+    /// - Parameter placeholderSupported: The fork makes renderer-less placeholders (`cmux_shim_placeholder_supported`).
+    /// - Returns: Whether Chromium keeps its own spare renderer (false: `CEFSwitches.chromiumSpareOff`).
+    func chromiumStarting(placeholderSupported: Bool) -> Bool {
+        placeholdersHoldRenderers = !(rendererlessPlaceholders && placeholderSupported)
+        return !placeholderIsTheSpare
+    }
+
+    /// The untaken spares, `browser` first, each with the renderer client ids of its placeholder
+    /// (empty while the placeholder has none: renderer-less, or not made yet).
+    var untakenSpares: [(kind: Kind, rendererClients: [Int32])] {
+        Kind.allCases.compactMap { kind in
+            guard let host = hosts[kind] else { return nil }
+            guard case .chromiumRendererClients(let clients)? = host.placeholder?.contentProcesses else { return (kind, []) }
+            return (kind, clients)
+        }
     }
 
     /// The first wanted kind with no untaken spare, nil when every wanted kind has one.
@@ -139,21 +191,22 @@ final class CEFSpareWindow {
         return prepare(kind, runtime: runtime)
     }
 
-    /// Holds the spares while memory pressure is above normal: holding closes the untaken ones,
-    /// and until `held` is false again none is made, given back or asked for. Letting go asks for
-    /// nothing itself: the warmup makes the next spare at its next idle moment.
-    func setHeld(_ held: Bool, runtime: CEFRuntime) {
+    /// Holds the spares while memory pressure is above normal: until `held` is false again none is
+    /// made, given back or asked for; the untaken ones stay until critical pressure closes them
+    /// (`drop`). Letting go asks for nothing itself: the warmup makes the next spare at its next idle
+    /// moment.
+    func setHeld(_ held: Bool) {
         isHeld = held
-        if held { drop(runtime: runtime) }
     }
 
     /// Starts the spare window of `kind`: true when it started. Chromium must
     /// run, no spare may be held for memory pressure, no untaken spare of `kind` may exist, and no
     /// other Chromium window may be on its way (a window built beside another one raced it,
-    /// os-smoke 2026-10-18).
+    /// os-smoke 2026-10-18). While ``placeholderIsTheSpare``, only a `browser` spare is made.
     @discardableResult
     func prepare(_ kind: Kind, runtime: CEFRuntime) -> Bool {
-        guard !isHeld, hosts[kind] == nil, let key = spareKey(kind), runtime.state == .ready, runtime.acceptsNewBrowsers,
+        guard !isHeld, kind == .browser || !placeholderIsTheSpare, hosts[kind] == nil, let key = spareKey(kind),
+              runtime.state == .ready, runtime.acceptsNewBrowsers,
               !runtime.hosts.values.contains(where: \.isCreatingWindow) else { return false }
         made.insert(kind)
         let spare = runtime.host(for: key)
@@ -167,6 +220,7 @@ final class CEFSpareWindow {
             return false
         }
         hosts[kind] = spare
+        if spare.isLive { runtime.launchMarks.send(.spareWindowReady) }
         return true
     }
 
@@ -230,6 +284,13 @@ final class CEFSpareWindow {
         }
     }
 
+    /// The Chromium Host ended (`CEFRuntime.hostEnded`): every spare's window and the tabs parked there
+    /// went with it, so nothing is rehomed (no browser id of the dead host reaches the next one) and the spares close.
+    func hostEnded(runtime: CEFRuntime) {
+        parked = [:]
+        drop(runtime: runtime)
+    }
+
     /// `ensureCreated` asked Chromium for a window of `key`: one a spare would have served counts
     /// in `windowsBuiltOnKeyTurn`. A spare's own window never counts.
     func noteWindowBuilt(for key: CEFPaneKey) {
@@ -240,7 +301,9 @@ final class CEFSpareWindow {
     /// A Chromium window came up (`CEFPaneHost.windowCreated`): with a wanted kind that has no
     /// spare, ask for one, so a Chromium a tab started, not the warm start, gets spares too, and
     /// the next kind's spare follows the one that just came up.
+    /// A spare's own window marks `cef.spare_window_ready` (once per process, ``CEFLaunchMarks``).
     func windowCameUp(_ live: CEFPaneHost) {
+        if isSpare(live) { live.runtime.launchMarks.send(.spareWindowReady) }
         if !isHeld, missingKind != nil, !live.isPopupHost { onNeeded?() }
     }
 
@@ -268,9 +331,16 @@ final class CEFSpareWindow {
 
 extension CEFEngine {
     /// Memory pressure above normal holds Chromium's spare windows (`ChromiumWarmup`'s memory
-    /// consumer): the untaken ones close now, and none is made or given back until `false`.
+    /// consumer): none is made or given back until `false`; the untaken ones stay.
     public func holdSpareWindows(_ held: Bool) {
-        CEFRuntime.shared.spareWindow.setHeld(held, runtime: .shared)
+        CEFRuntime.shared.spareWindow.setHeld(held)
+    }
+
+    /// Critical memory pressure closes Chromium's untaken spare windows (`ChromiumWarmup`'s memory
+    /// consumer), and so does `debug.cef drop_spare` (what the spares cost); a tab parked in one moves
+    /// to a shown pane.
+    public func closeUntakenSpareWindows() {
+        CEFRuntime.shared.spareWindow.drop(runtime: .shared)
     }
 
     /// How many untaken spare Chromium windows are up or being built (the warmup's memory report).

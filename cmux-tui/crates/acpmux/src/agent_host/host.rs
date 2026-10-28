@@ -54,7 +54,11 @@ async fn run() -> Result<()> {
 
 /// Point stdin and stdout at /dev/null so the bootstrap pipes close.
 fn detach_stdio() {
-    if let Ok(null) = std::fs::OpenOptions::new().read(true).write(true).open("/dev/null") {
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let opened = scoped_blocking_call("fs::open_with", BlockingKind::Fs, || {
+        std::fs::OpenOptions::new().read(true).write(true).open("/dev/null")
+    });
+    if let Ok(null) = opened {
         // SAFETY: dup2 onto the standard descriptors of this process.
         unsafe {
             libc::dup2(null.as_raw_fd(), 0);
@@ -96,22 +100,26 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         .process_group(0)
         .kill_on_drop(false);
     // Bind before the harness starts, so a failure leaves nothing running.
-    let _ = std::fs::remove_file(&spec.socket);
+    let _ = tokio::fs::remove_file(&spec.socket).await;
     let listener = UnixListener::bind(&spec.socket)
         .with_context(|| format!("bind {}", spec.socket.display()))?;
     cleanup.paths.push(spec.socket.clone());
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&spec.socket, std::fs::Permissions::from_mode(0o600))?;
+        tokio::fs::set_permissions(&spec.socket, std::fs::Permissions::from_mode(0o600)).await?;
     }
-    let mut child = cmd.spawn().map_err(|e| {
-        // Both a missing folder and a missing program fail as ENOENT: say which.
-        if e.kind() == std::io::ErrorKind::NotFound && !spec.cwd.exists() {
-            anyhow!("the folder {} does not exist", spec.cwd.display())
-        } else {
-            anyhow!(e).context(format!("spawn harness process {}", spec.program))
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            // Both a missing folder and a missing program fail as ENOENT: say which.
+            if e.kind() == std::io::ErrorKind::NotFound
+                && !tokio::fs::try_exists(&spec.cwd).await.unwrap_or(false)
+            {
+                bail!("the folder {} does not exist", spec.cwd.display());
+            }
+            return Err(anyhow!(e).context(format!("spawn harness process {}", spec.program)));
         }
-    })?;
+    };
     let record = HostRecord {
         record_version: RECORD_VERSION,
         session_id: spec.session_id.clone(),
@@ -146,23 +154,21 @@ struct StartCleanup {
 impl Drop for StartCleanup {
     fn drop(&mut self) {
         for path in &self.paths {
-            let _ = std::fs::remove_file(path);
+            let _ = cmux_blocking::fs::remove_file(path);
         }
     }
 }
 
 fn lock_live_file(path: &Path) -> Result<std::fs::File> {
     use std::os::unix::fs::OpenOptionsExt;
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)
-        .with_context(|| format!("create {}", path.display()))?;
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let file = scoped_blocking_call("fs::open_with", BlockingKind::Fs, || {
+        std::fs::OpenOptions::new().read(true).write(true).create_new(true).mode(0o600).open(path)
+    })
+    .with_context(|| format!("create {}", path.display()))?;
     // SAFETY: flock on a descriptor this function owns.
     if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
-        let _ = std::fs::remove_file(path);
+        let _ = cmux_blocking::fs::remove_file(path);
         bail!("lock {}", path.display());
     }
     Ok(file)
@@ -280,11 +286,11 @@ pub(super) const HELLO_STALL_DIR_ENV: &str = "ACPMUX_TEST_HOST_HELLO_STALL_DIR";
 fn claim_hello_stall() -> bool {
     #[cfg(debug_assertions)]
     if let Some(dir) = std::env::var_os(HELLO_STALL_DIR_ENV)
-        && let Ok(entries) = std::fs::read_dir(dir)
+        && let Ok(entries) = cmux_blocking::fs::read_dir(dir)
     {
         return entries.flatten().any(|e| {
             e.file_name().to_string_lossy().starts_with("stall-")
-                && std::fs::remove_file(e.path()).is_ok()
+                && cmux_blocking::fs::remove_file(e.path()).is_ok()
         });
     }
     false
@@ -990,7 +996,8 @@ fn wait_exit_unreaped(pid: i32) -> bool {
 /// there (not promoted into the hosts directory).
 fn still_pooled(spec: &SpawnSpec) -> bool {
     spec.hosts_dir.file_name().and_then(|n| n.to_str()) == Some(POOL_DIR_NAME)
-        && record_path(&spec.hosts_dir, &spec.session_id).exists()
+        && cmux_blocking::fs::exists(record_path(&spec.hosts_dir, &spec.session_id))
+            .unwrap_or(false)
 }
 
 /// Whether a daemon can still find this host: its record (this incarnation's,

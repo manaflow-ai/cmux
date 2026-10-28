@@ -8,8 +8,9 @@ import CmuxNextCompat
 public enum FrameObservationDelivery {
     /// Screen updates: one apply in the `visible` class at the next frame of the
     /// ``MainWorkScheduler`` (within the class budget, after a person's pending input). Pass the
-    /// window's node, or a narrower one: while it is hidden the observation tracks nothing, and
-    /// when it shows it reads once and applies a changed value. nil is node-free (it applies
+    /// window's node, or a narrower one: while it does not render (hidden, and no capture vote holds
+    /// it: ``VisibilityNode/wantsFrames``) the observation tracks nothing, and when it renders again
+    /// it reads once and applies a changed value. nil is node-free (it applies
     /// hidden too) and needs a `// node-free: <why>` comment at the call site.
     case visible(VisibilityNode?)
     /// Work an agent, the CLI or another process waits for: one apply in the `automation` class.
@@ -44,7 +45,7 @@ public enum FrameObservationDelivery {
 /// ```
 ///
 /// Behavior:
-/// 1. `init` reads `track` in the caller's turn (tracking it unless its node is hidden) and keeps
+/// 1. `init` reads `track` in the caller's turn (tracking it unless its node does not render) and keeps
 ///    the result in ``value``; it does not call `onChange`.
 /// 2. The first change of anything `track` read marks the observation dirty with the scheduler's
 ///    ``ObservationCauses/currentCause`` and schedules one apply for its delivery; a person cause
@@ -114,11 +115,11 @@ public final class FrameObservation<Value> {
         isEqual = ObservationTracker<Value>.equality()
         let tracker = ObservationTracker(counts: work.observationOwner(owner), causes: work.causes, read: track)
         self.tracker = tracker
-        let tracks = visibleNode?.isVisible ?? true
+        let tracks = visibleNode?.wantsFrames ?? true
         value = tracks ? tracker.track() : tracker.readUntracked()
         tracker.client = self
-        visibility = visibleNode?.subscribe(owner: owner) { [weak self] state in
-            if state.isVisible { self?.show() } else { self?.hide() }
+        visibility = visibleNode?.subscribeRendering(owner: owner) { [weak self] rendering in
+            if rendering { self?.show() } else { self?.hide() }
         }
     }
 
@@ -157,7 +158,7 @@ public final class FrameObservation<Value> {
     private var mayApplyNow: Bool {
         guard !cancelled else { return false }
         guard let node else { return true }
-        return node.isVisible && !node.isFrozen
+        return node.wantsFrames && !node.isFrozen
     }
 
     // MARK: Visibility

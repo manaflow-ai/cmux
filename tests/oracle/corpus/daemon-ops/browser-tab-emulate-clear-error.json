@@ -49,7 +49,26 @@
       }
     },
     {
-      "id": "fx-browser",
+      "id": "fx-browser-profile",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "browser.profile.create",
+        "params": {
+          "name": "oracle"
+        },
+        "idempotencyKey": "browser-tab-emulate-clear-error.fx-browser-profile"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "fx-app-browser",
       "op": "resource.call",
       "target": {
         "machine": "current",
@@ -59,11 +78,32 @@
         "pane": "$step:fx-workspace#/value/pane_id"
       },
       "args": {
-        "method": "tab.create_browser",
+        "method": "browser.profile.open",
         "params": {
-          "url": "about:blank"
+          "url": "http://127.0.0.1:9/",
+          "profile": "$step:fx-browser-profile#/value/browser_profile/id"
         },
-        "idempotencyKey": "browser-tab-emulate-clear-error.fx-browser"
+        "idempotencyKey": "browser-tab-emulate-clear-error.fx-app-browser"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
+      "id": "emulate",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "tab": "$step:fx-app-browser#/value/tab_id"
+      },
+      "args": {
+        "method": "browser.tab.emulate",
+        "params": {
+          "device": "iPhone SE"
+        },
+        "idempotencyKey": "browser-tab-emulate-clear-error.emulate"
       },
       "expect": {
         "outcome": "ok",
@@ -76,24 +116,22 @@
       "target": {
         "machine": "current",
         "session": "current",
-        "tab": "$step:fx-browser#/value/tab_id"
+        "tab": "tab_00000000000000000000000000000000"
       },
       "args": {
         "method": "browser.tab.emulate.clear",
-        "params": {
-          "expected_revision": -1
-        },
+        "params": {},
         "idempotencyKey": "browser-tab-emulate-clear-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "selector.not_found"
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "expected_revision breaks its catalog type (value must be an unsigned decimal string); the daemon's catalog check refuses it"
+      "note": "a well-formed tab id that names no tab; the fixture tab keeps its emulation"
     }
   ],
   "invariants": [

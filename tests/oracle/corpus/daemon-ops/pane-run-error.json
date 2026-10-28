@@ -60,23 +60,37 @@
         "method": "pane.run",
         "params": {
           "argv": [
-            "/bin/sh",
-            "-c",
-            "exit 0"
+            "/bin/cat"
           ],
-          "correlation_key": ""
+          "shell": "/bin/sh"
         },
         "idempotencyKey": "pane-run-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "validation.invalid",
+        "errorDetails": {
+          "reason": "request must match exactly one parameter alternative"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "correlation_key breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "argv and shell together match two parameter alternatives: validation.invalid, no tab"
+    },
+    {
+      "id": "one-tab",
+      "op": "settle",
+      "waitFor": {
+        "pointer": "/daemon/session/screens/0/layout/root/tab_ids",
+        "predicate": {
+          "op": "lengthEquals",
+          "value": 1
+        },
+        "maxMs": 5000
+      },
+      "settleMaxMs": 5000
     }
   ],
   "invariants": [

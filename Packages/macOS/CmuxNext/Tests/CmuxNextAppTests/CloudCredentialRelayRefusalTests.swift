@@ -1,4 +1,5 @@
 @testable import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -55,7 +56,8 @@ struct CloudCredentialRelayRefusalTests {
 
     /// Sends one provider line through the app's provider; returns its answer.
     static func answer(_ line: Data, relay: CloudCredentialRelay) async throws -> AppsProviderResultRequest {
-        let provider = CloudCredentialProvider(relay: relay)
+        let provider = CloudCredentialProvider(work: BackgroundWork(label: "test.credential-provider"),
+                                               mainWork: MainWorkScheduler(budget: MainFrameBudget()), relay: relay)
         let (results, sink) = AsyncStream.makeStream(of: AppsProviderResultRequest.self)
         provider.handle(DaemonEvent.decode(name: AppsProviderCall.eventName, line: line)) { result in
             sink.yield(result)

@@ -120,6 +120,24 @@ import Testing
         #expect(!blank.isRendererlessPlaceholder)
     }
 
+    /// p08-startup-044: the spare's window coming up marks `cef.spare_window_ready`, once per process: not
+    /// while it is being built, and not again when it comes back to the spare or a later spare comes up.
+    @Test func theSparesWindowMarksSpareWindowReadyOnce() throws {
+        let (runtime, root) = try Self.spyRuntime(forkAPI: 29)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let log = CEFLaunchMarkLog()
+        runtime.launchMarks.receiver = log.receive
+        #expect(runtime.spareWindow.prepare(.browser, runtime: runtime))
+        #expect(log.names.isEmpty, "marked before the window came up")
+        try Self.comeUp(runtime, browser: 10)
+        #expect(log.names == ["cef.spare_window_ready"])
+
+        runtime.spareWindow.drop(.browser, runtime: runtime)
+        #expect(runtime.spareWindow.prepare(.browser, runtime: runtime))
+        try Self.comeUp(runtime, browser: 11)
+        #expect(log.names == ["cef.spare_window_ready"])
+    }
+
     /// Chromium finished the one window being built: its OnAfterCreated, as `browser`.
     private static func comeUp(_ runtime: CEFRuntime, browser: Int32) throws {
         #expect(runtime.pendingWindows.count == 1)
@@ -133,7 +151,7 @@ import Testing
     private static func spyRuntime(forkAPI: Int32, supported: Bool = true, feature: Bool = true) throws -> (CEFRuntime, URL) {
         RendererlessSpy.reset(forkAPI: forkAPI, supported: supported)
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-spare-rendererless-\(UUID().uuidString)", directoryHint: .isDirectory)
-        let runtime = CEFRuntime(shim: try RendererlessSpy.library(), storage: CEFProfileStorage(root: root))
+        let runtime = CEFRuntime.spy(shim: try RendererlessSpy.library(), storage: CEFProfileStorage(root: root))
         runtime.spareWindow.rendererlessPlaceholders = feature
         _ = Unmanaged.passRetained(runtime)
         return (runtime, root)

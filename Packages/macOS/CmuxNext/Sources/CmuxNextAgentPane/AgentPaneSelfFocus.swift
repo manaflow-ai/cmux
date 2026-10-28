@@ -15,14 +15,16 @@ extension AgentPaneView {
     /// after them (a link's tab whose focus was still queued lost to the page it was clicked in).
     public static func refusesSelfFocus(_ responder: NSResponder?, inInputEvent: Bool, focusModelApplies: Bool,
                                         focusedPane: () -> String?, pane: (NSView) -> String?) -> Bool {
-        guard !inInputEvent, !focusModelApplies, let webView = responder as? WKWebView, showsPage(webView) else {
+        // Only WebKit asks the window this way; a Chromium page takes the keyboard in its own child window.
+        guard !inInputEvent, !focusModelApplies, let asking = responder as? WKWebView, showsPage(asking) else {
             return false
         }
         // A page that does not show never takes the keyboard by itself: a tab parked hidden behind the
         // focused pane's shown tab counts as that pane's content, so the focus model saw no change and
         // typing went into the hidden page (its composer mounting as a New Tab ask turned into the chat).
-        if webView.isHiddenOrHasHiddenAncestor { return true }
-        guard let focusedPane = focusedPane(), let shown = pane(webView) else { return false }
+        // visibility-walk-allow: the responder change AppKit is asked for here reads AppKit's own view state, as a hit test does; once per page focus ask
+        if asking.isHiddenOrHasHiddenAncestor { return true }
+        guard let focusedPane = focusedPane(), let shown = pane(asking) else { return false }
         return shown != focusedPane
     }
 

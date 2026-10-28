@@ -1,0 +1,17 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "intentPrewarmHover",
+  "owner": "PL-switch",
+  "description": "Resting the pointer on a sidebar row or tab whose browser page is frozen or hibernated wakes that page in the background after a short dwell, at most two at once, never in Low Power Mode on battery or under memory pressure.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [
+    { "name": "dwell", "type": "duration", "default": 0.2, "min": 0.05, "max": 1,
+      "description": "How long the pointer rests on a target before its prewarm starts." }
+  ],
+  "stories": ["tab-switch", "sidebar"],
+  "sticky": false,
+  "runtimeMutable": false
+}

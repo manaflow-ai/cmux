@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextDesign
 
 /// The overlay plane: pane rings and dims follow their hosts' displayed
@@ -22,16 +23,14 @@ extension LayoutRootView {
         overlayIsStale = true
         guard !overlayFlushScheduled else { return }
         overlayFlushScheduled = true
-        // Blocks run before the run loop waits, so before Core Animation
-        // commits this turn's frame.
-        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue) { [weak self] in
-            MainActor.assumeIsolated { // main-proof: a CFRunLoopGetMain() block runs on the main thread
-                guard let self else { return }
-                self.overlayFlushScheduled = false
-                self.flushOverlaySync()
-            }
+        // Blocks run before the run loop waits, so before Core Animation commits this turn's frame:
+        // the overlay lands in the frame that moved its hosts, as Blink runs its paint before the
+        // commit (AfterFrameCommit would show it one frame late).
+        MainRunLoopBlock.perform { [weak self] in
+            guard let self else { return }
+            self.overlayFlushScheduled = false
+            self.flushOverlaySync()
         }
-        CFRunLoopWakeUp(CFRunLoopGetMain())
     }
 
     /// Syncs the overlay when it is stale.
@@ -73,6 +72,16 @@ extension LayoutRootView {
         var shown: Set<ObjectIdentifier> = []
         var stripPlanes: Set<ObjectIdentifier> = []
         var moved: Set<PaneID> = []
+        // The rings no shown host has left, in a strip's plane and in its rows' and areas' planes.
+        func pruneChrome(in stripPlane: NSView) {
+            for view in stripPlane.subviews {
+                if view is StripChromePlane {
+                    pruneChrome(in: view)
+                } else if !shown.contains(ObjectIdentifier(view)) {
+                    view.removeFromSuperview()
+                }
+            }
+        }
         let inMotion = isInLayoutMotion
         for screen in screenViews.values where !screen.isHidden {
             let screenAlpha = screen.alphaValue
@@ -84,7 +93,8 @@ extension LayoutRootView {
                 let chrome = host.chrome
                 shown.insert(ObjectIdentifier(chrome))
                 var parent: NSView = plane
-                if let stripPlane, host.superview === screen.stripContainer { parent = stripPlane }
+                // The strip's plane, or the plane of the row's or scroll area's container the host sits in.
+                if stripPlane != nil, let hostPlane = screen.chromePlane(for: host) { parent = hostPlane }
                 // A ring never draws over a docked column (strip panes) or a pane in front of it.
                 let covers = screen.ringCovers(of: host, docks: docks, above: above)
                 let alpha = host.alphaValue * screenAlpha
@@ -98,9 +108,9 @@ extension LayoutRootView {
                 }
                 let rect = convert(host.bounds, from: host)
                 if chrome.frame != rect { chrome.frame = rect }
-                // Covers are where they show; the strip plane shows its rings moved by the translation.
-                let shift = parent === plane ? 0 : screen.stripContainer.translation
-                chrome.setExcluded(covers.map { convert($0, from: screen).offsetBy(dx: -rect.minX - shift, dy: -rect.minY) })
+                // Covers are where they show; the strip's planes show their rings moved by the translations.
+                let shift = parent === plane ? CGVector.zero : screen.panTranslation(of: host)
+                chrome.setExcluded(covers.map { convert($0, from: screen).offsetBy(dx: -rect.minX - shift.dx, dy: -rect.minY - shift.dy) })
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
                 if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }
                 host.noteWindowFrame(inMotion: inMotion)
@@ -115,7 +125,7 @@ extension LayoutRootView {
                     view.removeFromSuperview()
                     continue
                 }
-                for chrome in view.subviews where !shown.contains(ObjectIdentifier(chrome)) { chrome.removeFromSuperview() }
+                pruneChrome(in: view)
             }
         }
         panesMovedInLastOverlaySync = moved
@@ -128,6 +138,7 @@ extension LayoutRootView {
         let stripPlane = screen.stripChrome
         if stripPlane.superview !== plane { plane.addSubview(stripPlane, positioned: .below, relativeTo: nil) }
         if stripPlane.frame != plane.bounds { stripPlane.frame = plane.bounds }
+        screen.placeScrollerChromePlanes()
         return stripPlane
     }
 
@@ -144,9 +155,10 @@ extension LayoutRootView {
     }
 
     /// Divider and column edge hit areas of the active screen, in this
-    /// view's coordinates. Over a Chromium page the App covers them with a
-    /// click-catching panel that forwards the mouse to this window, so the
-    /// page keeps drawing edge to edge under them.
+    /// view's coordinates. While a Chromium page window takes the mouse the
+    /// App covers them with a click-catching panel that forwards the mouse
+    /// to this window, so the page keeps drawing edge to edge under them;
+    /// over a page attached as a view the divider views take it here.
     public var dividerMouseAreas: [LayoutMouseArea] {
         guard let active = model.activeScreenID, let screen = screenViews[active], !screen.isHidden else { return [] }
         return screen.dividerMouseAreas.map { area in

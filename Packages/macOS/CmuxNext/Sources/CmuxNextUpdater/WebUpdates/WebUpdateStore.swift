@@ -54,7 +54,8 @@ nonisolated public struct WebUpdateStore: Sendable {
     }
 
     /// Checks `archive` (downloaded for `pointer`) against the pointer's size and SHA-256, unpacks
-    /// it, checks the tree's digest and abi, and keeps it as `trees/<key>`. Returns the folder.
+    /// it, checks the tree's digest and abi and that it holds every shared file its bundles name
+    /// (``WebUpdateTree/missingSharedFiles()``), and keeps it as `trees/<key>`. Returns the folder.
     @concurrent public func install(archive: URL, pointer: WebUpdatePointer) async throws(WebUpdateRefusal) -> URL {
         let (size, digest) = try Self.sizeAndDigest(of: archive)
         guard size == pointer.size, digest == pointer.sha256 else { throw .integrity("archive digest") }
@@ -69,6 +70,8 @@ nonisolated public struct WebUpdateStore: Sendable {
         let unpacked = WebUpdateTree(root: staging)
         guard try unpacked.outputDigest() == pointer.outputs else { throw .integrity("tree digest") }
         guard unpacked.abi == pointer.abi else { throw .integrity("tree abi") }
+        // A page of the update imports React from the update's own pages/_shared (cmux-page://cmux.shared/).
+        if let missing = try unpacked.missingSharedFiles().first { throw .integrity("shared \(missing)") }
         let destination = tree(for: pointer.key).root
         do {
             try FileManager.default.createDirectory(at: trees, withIntermediateDirectories: true)
