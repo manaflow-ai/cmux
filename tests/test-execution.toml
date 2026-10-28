@@ -2162,3 +2162,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_zig_fetch_all.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_swift_linux_packages.py"
+lane = "linux-guard"

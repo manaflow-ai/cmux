@@ -679,7 +679,7 @@ ensure_cmux_tui_tree() {
 
 # On Linux a suite runs only for a package scripts/ci/swift-linux-packages.txt lists, with that row's
 # ENV and only filters that name one of its test targets; it selects no Xcode and no macOS SDK.
-# CMUX_PACKAGE_LANE_TEST_OS stands in for `uname -s` in tests/test_swift_linux_packages.py.
+# CMUX_PACKAGE_LANE_TEST_OS stands in for `uname -s` in the lane's tests (Linux or Darwin, on any host).
 linux_list=scripts/ci/swift-linux-packages.txt
 lane_os="${CMUX_PACKAGE_LANE_TEST_OS:-$(uname -s)}"
 linux_suite_setup() {
