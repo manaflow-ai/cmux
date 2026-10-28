@@ -738,8 +738,8 @@ run_suite() {
   # skipped because this tree's cmux-tui is missing ("needs the same-tree
   # cmux-tui", the live-daemon suites' trait) is no result too: either fails the
   # step, never "passed" or a green "skipped". The line says "required tests did
-  # not run", which scripts/ci/test_reds.py reads as a run that is not whole, so
-  # base_red_excuse.py never excuses it.
+  # not run", which the per-test classifier (test_reds) reads as a run that is not whole, so
+  # the base-red excuse never excuses it.
   local log filter status started result failed=0 first_failure_status=0 rows=()
   local ran skipped reason daemon_skips
   for filter in "${suite_filters[@]}"; do
