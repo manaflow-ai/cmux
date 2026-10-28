@@ -192,25 +192,26 @@ import Testing
         }
     }
 
-    /// The click reaches Add Machine… at its laid-out place (hitTest takes the superview's coordinates),
-    /// and only over its icon and text, not the empty width after them.
+    /// The click reaches Add Machine… as AppKit dispatches it: a view's hitTest takes a point in its
+    /// superview's coordinates, and each view hands its subviews the point in its own. The section sits
+    /// at a nonzero origin in a flipped host, so a double or missing conversion would miss. Only the
+    /// icon and the text take the click, not the empty width after them.
     @Test func addMachineTakesTheClickOnlyOverItsIconAndText() {
         let view = Self.section()
         view.update(Self.rows, style: .compact)
+        let host = FlippedHost(frame: NSRect(x: 0, y: 0, width: 280, height: 500))
+        view.frame.origin = NSPoint(x: 0, y: 37)
+        host.addSubview(view)
         view.layoutSubtreeIfNeeded()
         let add = view.addRow
         add.layoutSubtreeIfNeeded()
         #expect(add.frame.minY > 0)
-        let overText = NSPoint(x: add.frame.minX + add.label.frame.midX, y: add.frame.midY)
-        #expect(add.hitTest(overText) === add)
-        // Through the section, as a click arrives: hitTest takes the superview's coordinates, so the
-        // section sits in a host of its own (with none, AppKit converts from window coordinates).
-        let host = FlippedHost(frame: view.frame)
-        host.addSubview(view)
-        // The host has no superview, so its hitTest takes window (base, unflipped) coordinates.
-        #expect(host.hitTest(host.convert(overText, to: nil)) === add)
-        #expect(add.hitTest(NSPoint(x: add.frame.maxX - 2, y: add.frame.midY)) == nil)
-        #expect(add.hitTest(NSPoint(x: overText.x, y: add.frame.minY - 4)) == nil)
+        let text = NSPoint(x: add.label.frame.midX, y: add.label.frame.midY)
+        #expect(view.hitTest(host.convert(text, from: add)) === add)
+        #expect(add.hitTest(view.convert(text, from: add)) === add)
+        let past = NSPoint(x: add.bounds.maxX - 2, y: add.bounds.midY)
+        #expect(view.hitTest(host.convert(past, from: add)) !== add)
+        #expect(add.hitTest(view.convert(past, from: add)) == nil)
     }
 
     @Test func theSectionAndItsHostImportNoSwiftUI() throws {
