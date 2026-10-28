@@ -51,7 +51,7 @@ struct RenderMotionSpikeTests {
             // AppKit may keep the layer when the view has a layer-backed ancestor: then the event is no layer
             // replacement, and `layerReassigned` is the case that tests one.
             guard effect.layerReplaced else {
-                withKnownIssue("AppKit kept the layer: \(event) does not replace it under a layer-backed ancestor") {
+                withKnownIssue("AppKit kept the layer: \(event) does not replace it under a layer-backed ancestor (owner lawrencecchen, since 2026-10-26)") {
                     Issue.record("\(event): layerReplaced=false, not a replacement case")
                 }
                 Self.report(layer, event: event.rawValue, errors: nil, effect: effect)
@@ -101,7 +101,7 @@ struct RenderMotionSpikeTests {
             if rig.window.styleMask.contains(.fullScreen) {
                 _ = await rig.toggleFullScreen(entering: false, deadline: CACurrentMediaTime() + 5)
             }
-            withKnownIssue("not covered: the window did not enter full screen before the 25 % mark") {
+            withKnownIssue("not covered: the window did not enter full screen before the 25 % mark (owner lawrencecchen, since 2026-10-26)") {
                 Issue.record("full screen not entered in this test process")
             }
             Self.report(layer, event: "fullScreen", errors: nil, effect: nil)

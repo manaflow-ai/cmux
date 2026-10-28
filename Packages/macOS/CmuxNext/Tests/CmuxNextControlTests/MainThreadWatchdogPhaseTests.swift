@@ -33,7 +33,7 @@ import Testing
     @MainActor
     @Test func aStallWithOnlyThePumpKeyIsTaggedCEF() throws {
         let trace = TraceRuntime(role: .app) // 078 attaches its `CrashKeyPage` here once it is on the base
-        withKnownIssue("078 crash-key page: a runtime with no page keeps no key") {
+        withKnownIssue("no crash-key page yet: a runtime with no page keeps no key (owner lawrencecchen, since 2026-10-27)") {
             let seen = watchStall(crashKeys: nil, trace: trace) { inPump in trace.setCrashKey(.inCEFPump, inPump ? 1 : 0) }
             #expect(seen.hangPhases == ["cef_pump"], "the hang the sink got")
             #expect(seen.hangCEF == [true], "the hang is tagged cef")

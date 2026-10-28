@@ -386,7 +386,7 @@ struct DaemonHandshakeLiveTests {
             // The acceptance needs the three ops on frames. The daemon binds no `ipc-frames-v2` transport yet
             // (capabilities.rs `IpcTransports::BOUND` is empty), so it offers none and every op above went as a
             // line. The day it binds one this known issue is not recorded, the test fails, and the wrapper goes.
-            withKnownIssue("cmux-tui offers no ipc-frames-v2 yet: IpcTransports::BOUND is empty") {
+            withKnownIssue("cmux-tui offers no ipc-frames-v2 yet: IpcTransports::BOUND is empty (owner lawrencecchen, since 2026-10-27)") {
                 try #require(h.identity.supports(WireNegotiation.framesCapability))
                 #expect(grants.frames)
                 #expect(framed >= 3)

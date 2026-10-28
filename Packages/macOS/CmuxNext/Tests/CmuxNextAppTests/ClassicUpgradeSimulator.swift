@@ -380,7 +380,7 @@ final class ClassicUpgradeSimulator {
                             sourceLocation: sourceLocation)
                 }
                 if orderIsKnownIssue {
-                    withKnownIssue("a resumed run makes its workspaces last in the sidebar", isIntermittent: true, sourceLocation: sourceLocation, check)
+                    withKnownIssue("a resumed run makes its workspaces last in the sidebar (owner lawrencecchen, since 2026-10-20)", isIntermittent: true, sourceLocation: sourceLocation, check)
                 } else {
                     check()
                 }
