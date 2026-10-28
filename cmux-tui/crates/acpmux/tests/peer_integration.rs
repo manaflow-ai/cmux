@@ -264,7 +264,11 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
 #[tokio::test]
 async fn a_person_proven_local_policy_raise_reaches_the_owned_peer() {
     let b = hub(config(PermissionPolicy::Ask)).await;
-    let mut cb = client_with_key(b.clone(), PERSON_KEY).await;
+    let mut cb = client_with_key(
+        b.clone(),
+        "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    )
+    .await;
     let created = cb
         .call(
             method::SESSION_NEW,

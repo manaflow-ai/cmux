@@ -91,7 +91,7 @@ use peer_folder::{
 
 /// Metadata carried only on a policy change forwarded by a local connection
 /// that already proved the person. The peer token authenticates the daemon
-/// hop; the existing person key signs the marker, binding it to the exact
+/// hop; a per-link random value signs the marker, binding it to the exact
 /// target session, policy, and source host so a peer cannot mint it.
 const OWNER_POLICY_GRANT: &str = "ownerPolicyGrant";
 const OWNER_POLICY_HOST: &str = "ownerPolicyHost";
@@ -152,16 +152,21 @@ pub(super) fn owner_policy_context(
         && nonce.len() == 64
         && nonce.bytes().all(|b| b.is_ascii_hexdigit())
         && !hub.owner_policy_nonces.lock().unwrap_or_else(|e| e.into_inner()).contains(nonce)
-        && hub.person.owner_policy_proof_matches(proof, session, policy, host, nonce))
+        && conn.owner_policy_link().is_some_and(|secret| {
+            let expected = crate::hub::person::owner_policy_proof_for_secret(
+                secret, session, policy, host, nonce,
+            );
+            cmux_local_auth::tokens_match(proof, &expected)
+        }))
     .then(|| OwnerPolicyGrant { host: host.to_owned(), nonce: nonce.to_owned() })
 }
 
 /// Mark a policy request forwarded from a local person connection. Any
 /// caller-supplied grant is removed first, so a remote client cannot smuggle
-/// the marker through the forwarding daemon. The existing person key signs
-/// the exact session, policy, and source host that the peer will receive.
+/// the marker through the forwarding daemon. The per-link value signs the
+/// exact session, policy, and source host that the peer will receive.
 pub(super) fn mark_policy_forwarded(
-    hub: &crate::hub::Hub,
+    peer: &crate::peer::Peer,
     origin: super::Origin,
     auth: super::ConnAuth,
     person: bool,
@@ -181,9 +186,13 @@ pub(super) fn mark_policy_forwarded(
         let host = crate::hub::host_label();
         let nonce = crate::hub::person::new_nonce();
         if let (Some(session), Some(policy)) = (session, policy) {
-            let Some(proof) = hub.person.owner_policy_proof(session, policy, host, &nonce) else {
-                return;
-            };
+            let proof = crate::hub::person::owner_policy_proof_for_secret(
+                peer.owner_link_secret(),
+                session,
+                policy,
+                host,
+                &nonce,
+            );
             crate::hub::merge_mux_meta(
                 forwarded,
                 serde_json::json!({

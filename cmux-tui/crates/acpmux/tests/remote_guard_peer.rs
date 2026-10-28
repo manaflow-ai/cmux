@@ -142,7 +142,7 @@ async fn a_proven_peer_starts_an_approve_all_session_and_the_web_still_cannot() 
     .await;
     assert!(err(&r).contains(WEB_ONLY), "{r}");
 
-    // A peer token alone cannot choose the HMAC key used by the owner marker.
+    // A peer token alone cannot choose the per-link HMAC key used by the owner marker.
     let nonce = "22".repeat(32);
     let (_init, r) = call_auth_pair(
         &hub,

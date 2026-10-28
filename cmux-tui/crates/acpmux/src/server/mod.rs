@@ -86,6 +86,8 @@ pub struct Conn {
     pub(super) nonce: String,
     /// It proved the person key for its challenge.
     person: AtomicBool,
+    /// Per-peer-link grant key sent only in the daemon handshake.
+    owner_policy_link: std::sync::OnceLock<String>,
     /// `_acpmux/person_holds` calls on this connection (`hub/person.rs`).
     pub(super) holds_calls: std::sync::atomic::AtomicU32,
     /// The acpmux session it runs in, proven at its first `initialize` (`hub/person.rs` (a)).
@@ -212,6 +214,26 @@ impl Conn {
     /// The acpmux session this connection proved it runs in (`hub/person.rs` (a)).
     pub(super) fn caller(&self) -> Option<&str> {
         self.caller.get().map(String::as_str)
+    }
+
+    pub(super) fn owner_policy_link(&self) -> Option<&str> {
+        self.owner_policy_link.get().map(String::as_str)
+    }
+
+    pub(super) fn capture_owner_policy_link(&self, m: &str, params: &Value) {
+        if m != crate::rpc::method::INITIALIZE
+            || self.origin != Origin::Peer
+            || self.auth != ConnAuth::PeerToken
+        {
+            return;
+        }
+        let Some(secret) = params.pointer("/_meta/acpmux/ownerPolicyLink").and_then(Value::as_str)
+        else {
+            return;
+        };
+        if secret.len() == 64 && secret.bytes().all(|b| b.is_ascii_hexdigit()) {
+            let _ = self.owner_policy_link.set(secret.to_owned());
+        }
     }
 
     /// Whether this connection gets the person challenge: the unix socket or the proven local app.
@@ -1213,6 +1235,7 @@ async fn serve_connection_from(
         challenged: AtomicBool::new(false),
         nonce: crate::hub::person::new_nonce(),
         person: AtomicBool::new(false),
+        owner_policy_link: std::sync::OnceLock::new(),
         holds_calls: std::sync::atomic::AtomicU32::new(0),
         caller: std::sync::OnceLock::new(),
         unproven_caller: std::sync::OnceLock::new(),

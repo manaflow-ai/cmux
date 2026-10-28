@@ -75,6 +75,8 @@ pub struct Peer {
     token: Option<String>,
     /// The peer's peer token (`server/peer_auth.rs`), sent with `token`.
     peer_token: Option<String>,
+    /// A per-link random value shared only through the daemon handshake.
+    owner_link_secret: String,
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
     /// Outbound frames, each tagged with the link epoch it was admitted on:
@@ -179,6 +181,7 @@ impl Peer {
             url: url.to_owned(),
             token,
             peer_token,
+            owner_link_secret: crate::hub::person::new_nonce(),
             tunnel: Mutex::new(None),
             out,
             out_rx: Mutex::new(Some(out_rx)),
@@ -219,6 +222,10 @@ impl Peer {
             health_asking: AtomicBool::new(false),
             watch_key: StdMutex::new(None),
         })
+    }
+
+    pub(crate) fn owner_link_secret(&self) -> &str {
+        &self.owner_link_secret
     }
 
     pub fn link(&self) -> Link {
@@ -858,7 +865,7 @@ impl Peer {
             let init = me
                 .link_request_on(
                     method::INITIALIZE,
-                    json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}}),
+                    json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}, "_meta": {"acpmux": {"ownerPolicyLink": me.owner_link_secret}}}),
                     Some(link),
                 )
                 .await?;
