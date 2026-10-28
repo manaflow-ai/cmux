@@ -186,7 +186,12 @@ public final class ConversationTextEffectLayer: CALayer {
         }
     }
 
-    nonisolated(unsafe) private static let renderings: NSCache<RenderingKey, Rendering> = {
+    /// Shared by the main thread (`update`, `cachedRendering`) and the
+    /// detached prefetch and render-ahead tasks (`prepare`). `NSCache` is
+    /// thread-safe and the SDK declares it `Sendable`, so the compiler checks
+    /// this constant; its keys never change after init and `Rendering`
+    /// guards its own mutable state.
+    private static let renderings: NSCache<RenderingKey, Rendering> = {
         let cache = NSCache<RenderingKey, Rendering>()
         cache.countLimit = 64
         return cache
