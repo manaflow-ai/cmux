@@ -117,6 +117,7 @@ impl Mux {
             if left.is_zero() {
                 break;
             }
+            // wakeup-allow: deadline the attach's one bound; the respawn's end wakes it first
             waits = cmux_threads::checked::sync::wait_timeout(&launches.ended, waits, left)
                 .unwrap_or_else(PoisonError::into_inner)
                 .0;
