@@ -197,4 +197,8 @@ fn a_restarted_shell_that_exits_at_once_ends_its_terminal() {
         );
         std::thread::sleep(Duration::from_millis(25));
     }
+    // A shell that died before its respawn committed was not respawned:
+    // the loss log names no respawn of it.
+    let respawned = respawn_lines(&harness, &terminal_id);
+    assert!(respawned.is_empty(), "a dead shell was logged as respawned: {respawned:?}");
 }

@@ -814,6 +814,21 @@ fn wait_for_old_hosts(root: &Path, terminal_id: &str) {
 mod tests {
     use super::*;
 
+    /// A respawn whose shell start panics (between holding the slot's exit
+    /// and binding the hold to a surface) must not leave a hold that
+    /// swallows every later exit of that slot.
+    #[test]
+    fn a_respawn_that_panics_before_its_shell_starts_holds_no_exit() {
+        let respawns = TerminalRespawns::from_env();
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _hold = respawns.hold_exit(7);
+            panic!("the shell start panicked");
+        }));
+        assert!(panicked.is_err());
+        let holds = respawns.exit_holds.lock().unwrap_or_else(PoisonError::into_inner);
+        assert!(holds.entries.is_empty(), "a hold outlived its respawn's panic: {holds:?}");
+    }
+
     #[test]
     fn a_closed_terminals_argv_is_forgotten_and_the_memory_is_bounded() {
         let respawns = TerminalRespawns::from_env();
