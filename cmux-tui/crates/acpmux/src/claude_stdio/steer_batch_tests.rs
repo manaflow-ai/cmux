@@ -4,6 +4,7 @@
 //! queue: a user line written during the step waits there, and `cancel_async_message` drops one
 //! that still waits, as Claude Code does.
 
+use super::steer_batch::BATCH_MAX_BYTES;
 use super::*;
 
 /// Claude Code's command queue during one long step.
