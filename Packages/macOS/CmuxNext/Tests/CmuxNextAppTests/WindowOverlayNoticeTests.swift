@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextBrowser
 import CmuxNextBrowserCore
 import CmuxNextCompat
 @testable import CmuxNextDesign
@@ -178,9 +179,12 @@ import Testing
         let rig = Rig()
         defer { rig.close() }
         rig.showPage()
-        // The layer asks the window's pages on the default center (`CEFHostView` listens there).
+        // The layer asks the window's pages through its page registry (`CEFHostView` registers there).
         let posts = Count()
-        let watch = MainActorObservation(Notification.Name("CmuxBrowserChildWindowPagesNeedUpdate"), object: rig.window) { posts.value += 1 }
+        let watch = ChildPageGeometryRegistry.of(rig.window).register { _ in
+            posts.value += 1
+            return false
+        }
 
         rig.center.post(name: NSWindow.didMoveNotification, object: rig.window)
         #expect(posts.value == 1, "the pages follow the move at once")
@@ -197,6 +201,6 @@ import Testing
         rig.layer.windowWillLayout()
         rig.layer.windowDidLayout()
         #expect(posts.value == 3, "the pass the resize scheduled did not update the pages again")
-        watch.cancel()
+        withExtendedLifetime(watch) {}
     }
 }

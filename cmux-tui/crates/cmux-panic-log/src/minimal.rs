@@ -169,7 +169,7 @@ pub fn line(
 
 /// Append one [`line`], unless the log is full. Never panics.
 pub fn append(path: &Path, line: &str) {
-    crate::append_line(&|| crate::open_append(path), line.as_bytes());
+    crate::append_line(&|| crate::open_log(path), line.as_bytes());
 }
 
 /// [`crate::trace_context`]'s keys: `role` and `uptime_ms` when the process

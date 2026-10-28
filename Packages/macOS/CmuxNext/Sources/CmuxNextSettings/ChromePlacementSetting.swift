@@ -1,4 +1,5 @@
-public import CmuxNextDesign
+public import CmuxNextAppearance
+public import CmuxNextDesignTokens
 
 /// Where the window chrome sits (R109): `sidebar.side` and
 /// `sidebar.spacesPosition` (and `sidebar.spacesVisibility`, cx-5k3r), the

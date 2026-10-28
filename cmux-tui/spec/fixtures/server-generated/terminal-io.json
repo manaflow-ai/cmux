@@ -97,7 +97,10 @@
     {"id": 94, "cmd": "snapshot-request", "surface": 1, "stream": 7},
     {"id": 95, "cmd": "cancel-stream", "stream": 7},
     {"id": 96, "cmd": "cancel-stream"},
-    {"id": 97, "cmd": "cancel-stream", "stream": -1}
+    {"id": 97, "cmd": "cancel-stream", "stream": -1},
+    {"id": 98, "cmd": "set-stream-priority", "stream": 7, "priority": "hidden"},
+    {"id": 99, "cmd": "set-stream-priority", "stream": 7},
+    {"id": 100, "cmd": "set-stream-priority", "stream": 7, "priority": 3}
   ],
   "lines": [
     "{\"id\":200,\"cmd\":\"send\",\"surface\":1,\"surface\":2}",

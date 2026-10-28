@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 
 /// The pane host of a tab whose record names this Mac: a session the Chief host started in its
@@ -18,26 +19,31 @@ public nonisolated struct AcpmuxChiefSessionRouter: AgentPaneHostProviding {
     }
 
     /// Asks the Chief home's acpmux (`environment`) whether it runs `session` for `parentTag`.
-    /// When that daemon does not answer (stopped, starting, or slower than the deadline), a
-    /// session it keeps on disk under `sessionsHome` (`<ACPMUX_HOME>/sessions/<id>`) is still
-    /// its own: the tab attaches there, never to a daemon that lacks the chat (which says
-    /// "This chat isn't available").
+    /// When that daemon does not answer (no socket, stopped, starting, or slower than the
+    /// deadline), a session it keeps on disk under `sessionsHome` (`<ACPMUX_HOME>/sessions/<id>`)
+    /// is still its own: the tab attaches there, never to a daemon that lacks the chat (which says
+    /// "This chat isn't available"). That disk check runs on `work`'s files lane at userBlocking (a
+    /// tab is opening), never on the caller's thread, which can be the main thread.
     ///
-    /// - Parameter sessionsHome: the Chief home's `ACPMUX_HOME`; defaults to `environment`'s.
+    /// - Parameters:
+    ///   - sessionsHome: the Chief home's `ACPMUX_HOME`; defaults to `environment`'s.
+    ///   - work: the app's blocking-work lanes (`AppServices.work`).
     public init(local: any AgentPaneHostProviding, chief: any AgentPaneHostProviding,
-                chiefEnvironment environment: AcpmuxEnvironment?, sessionsHome: URL? = nil, parentTag: String) {
+                chiefEnvironment environment: AcpmuxEnvironment?, sessionsHome: URL? = nil, parentTag: String,
+                work: any MayBlockRunner) {
         let socket = environment?.socketPath
         let kept = sessionsHome ?? environment?.home
         self.init(local: local, chief: chief) { session in
-            if let socket, FileManager.default.fileExists(atPath: socket),
-               let listing = try? await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(2)) {
+            // A missing socket fails the connect at once (`unreachable`): no file check before it.
+            if let socket, let listing = try? await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(2)) {
                 return Self.owns(listing.value, session: session, parentTag: parentTag)
             }
-            return Self.keeps(session: session, home: kept)
+            return (try? await work.runFiles(.userBlocking) { Self.keeps(session: session, home: kept) }) ?? false
         }
     }
 
-    /// Whether acpmux home `home` keeps session `session` on disk (`sessions/<id>`).
+    /// Whether acpmux home `home` keeps session `session` on disk (`sessions/<id>`). It reads the
+    /// disk: call it on a files lane.
     public static func keeps(session: String, home: URL?) -> Bool {
         guard let home, !session.isEmpty, session != ".", session != "..", !session.contains("/") else { return false }
         let path = home.appendingPathComponent("sessions", isDirectory: true).appendingPathComponent(session).path

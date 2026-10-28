@@ -208,12 +208,14 @@ impl Live {
                 .ok_or_else(|| {
                     Failure::Retry("the machine daemon did not answer identify".into())
                 })?;
-        let home = identity["cli_path"]
-            .as_str()
+        let home = identity
+            .get("cli_path")
+            .and_then(Value::as_str)
             .and_then(home_from_cli_path)
             .ok_or_else(|| Failure::Stop("the machine daemon runs from an unknown place".into()))?
             .to_owned();
-        let name = peer_name(identity["machine_name"].as_str().unwrap_or_default());
+        let name =
+            peer_name(identity.get("machine_name").and_then(Value::as_str).unwrap_or_default());
         let workspace_client = WorkspaceClient::connect(multiplexer.clone())
             .await
             .map_err(|e| Failure::Retry(format!("workspace rpc: {}", e.message)))?;
@@ -302,9 +304,9 @@ impl Live {
                 .await
                 .map_err(|_| format!("_acpmux/peers: no answer in {}s", CALL_BUDGET.as_secs()))?
                 .map_err(|e| format!("_acpmux/peers: {e:#}"))?;
-        let ours = peers["peers"]
-            .as_array()
-            .and_then(|all| all.iter().find(|p| p["name"] == self.name.as_str()));
+        let ours = peers.get("peers").and_then(Value::as_array).and_then(|all| {
+            all.iter().find(|p| p.get("name").and_then(Value::as_str) == Some(self.name.as_str()))
+        });
         let Some(ours) = ours else {
             return Err("the peer is gone".into());
         };
@@ -498,13 +500,17 @@ async fn probe_status(url: &str, tokens: &Tokens) -> Result<Value, String> {
         while let Some(frame) = ws.next().await {
             let Frame::Text(text) = frame.map_err(|e| e.to_string())? else { continue };
             let Ok(reply) = serde_json::from_str::<Value>(&text) else { continue };
-            if reply["id"] != 2 {
+            if reply.get("id").and_then(Value::as_i64) != Some(2) {
                 continue;
             }
             let _ = ws.close(None).await;
             return match reply.get("result") {
                 Some(result) => Ok(result.clone()),
-                None => Err(reply["error"]["message"].as_str().unwrap_or("refused").to_owned()),
+                None => Err(reply
+                    .pointer("/error/message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("refused")
+                    .to_owned()),
             };
         }
         Err("the connection closed".to_owned())

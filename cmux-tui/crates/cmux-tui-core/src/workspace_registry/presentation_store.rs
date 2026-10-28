@@ -350,8 +350,9 @@ pub const TAB_GROUP_COLORS: [&str; 9] =
 /// stored as given (cx-wqn5).
 pub fn validate_tab_group_color(value: &str) -> anyhow::Result<()> {
     let hex = value.len() == 7
-        && value.starts_with('#')
-        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit());
+        && value
+            .strip_prefix('#')
+            .is_some_and(|digits| digits.bytes().all(|byte| byte.is_ascii_hexdigit()));
     anyhow::ensure!(
         hex || TAB_GROUP_COLORS.contains(&value),
         "bad request: tab group color must be one of {} or #RRGGBB",
@@ -615,8 +616,9 @@ fn browser_subject(browser_id: &str) -> JournalSubject {
 fn validate_browser_public_id(browser_id: &str) -> anyhow::Result<()> {
     anyhow::ensure!(
         browser_id.len() == 40
-            && browser_id.starts_with("browser_")
-            && browser_id[8..].bytes().all(|byte| byte.is_ascii_hexdigit()),
+            && browser_id
+                .strip_prefix("browser_")
+                .is_some_and(|digits| digits.bytes().all(|byte| byte.is_ascii_hexdigit())),
         "bad request: invalid browser id {browser_id}"
     );
     Ok(())
@@ -723,9 +725,8 @@ pub fn validate_presentation_color(value: &str) -> anyhow::Result<()> {
     let hex = value.strip_prefix('#').is_some_and(|digits| {
         matches!(digits.len(), 6 | 8) && digits.bytes().all(|byte| byte.is_ascii_hexdigit())
     });
-    let token = !value.is_empty()
-        && value.len() <= 32
-        && value.as_bytes()[0].is_ascii_lowercase()
+    let token = value.len() <= 32
+        && value.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
         && value
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
