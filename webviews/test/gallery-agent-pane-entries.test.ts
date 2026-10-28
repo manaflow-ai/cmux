@@ -1,5 +1,8 @@
+// cmux-web-test-timeout: 300
 // Agent-pane gallery entries that had stopped showing the product (gallery sweep, 2026-10-20).
 // Each must reach its state with real content: no play error, no stage that is blank or alone.
+// Over 40 gallery stages, each about 1.5-2.5 s on a runner: the default 120 s ended the file
+// mid-run (run 40693609653) with every case it reached green.
 //
 // Before, the product had moved on and the entries had not:
 // - controls renamed or moved: the sidebar's search field is "Search chats" (#19895), the start
