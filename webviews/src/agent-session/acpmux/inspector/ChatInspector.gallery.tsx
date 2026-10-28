@@ -316,6 +316,7 @@ const full: Props = {
     { url: "https://cmux.com/docs/inspector", label: "cmux.com/docs/inspector" },
     { url: "https://claude.ai/artifact/inspector-plan", label: "claude.ai/artifact/inspector-plan" },
   ],
+  layout: "glance",
   artifacts: 4,
   agents,
   statuses,

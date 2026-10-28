@@ -200,11 +200,15 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
         page.evaluate(() => {
           const panel = document.querySelector("aside.acpmux-chat-inspector")!;
           const body = panel.querySelector(".acpmux-chat-inspector__body")!;
+          const cards = body.querySelector<HTMLElement>(":scope > .acpmux-chat-inspector-cards");
           const sections = [...panel.querySelectorAll("[data-section]")];
           const last = sections[sections.length - 1]!.getBoundingClientRect();
           const box = panel.getBoundingClientRect();
+          const padding =
+            parseFloat(getComputedStyle(body).paddingBottom) +
+            (cards ? parseFloat(getComputedStyle(cards).paddingBottom) : 0);
           return {
-            empty: Math.round(box.bottom - last.bottom),
+            empty: Math.round(box.bottom - last.bottom - padding),
             bottom: box.bottom,
             pane: window.innerHeight,
             scrolls: body.scrollHeight > body.clientHeight + 1,
@@ -276,12 +280,19 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
     panel.evaluate((node) => {
       const box = node.getBoundingClientRect();
       const body = node.querySelector(".acpmux-chat-inspector__body")!;
-      const sections = [...body.querySelectorAll(":scope > .acpmux-chat-inspector-group")];
+      const cards = body.querySelector<HTMLElement>(":scope > .acpmux-chat-inspector-cards");
+      const sections = cards
+        ? [...cards.querySelectorAll<HTMLElement>(":scope > [data-section-card]")]
+        : [...body.querySelectorAll<HTMLElement>(":scope > .acpmux-chat-inspector-group")];
+      if (sections.length === 0) throw new Error("Inspector has no visible sections to measure");
       const last = sections[sections.length - 1]!.getBoundingClientRect();
+      const padding =
+        parseFloat(getComputedStyle(body).paddingBottom) +
+        (cards ? parseFloat(getComputedStyle(cards).paddingBottom) : 0);
       return {
         top: box.top,
         card: box.height,
-        endsAtContent: Math.abs(box.bottom - last.bottom - parseFloat(getComputedStyle(body).paddingBottom)) < 0.5,
+        endsAtContent: Math.abs(box.bottom - last.bottom - padding) < 0.5,
         scrolls: body.scrollHeight > body.clientHeight + 1,
       };
     });
@@ -366,10 +377,12 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
       try {
         const { panel, toggle } = await openInspector(page, 0);
         const { buttons, band } = await panel.evaluate((node) => {
-          const first = node.querySelector(".acpmux-chat-inspector__body [data-section]")!;
+          const cards = node.querySelector<HTMLElement>(".acpmux-chat-inspector-cards");
+          const firstCard = cards?.querySelector<HTMLElement>("[data-section-card]");
+          const first = (firstCard ?? node).querySelector<HTMLElement>("[data-section]")!;
           return {
             buttons: node.querySelectorAll(".acpmux-chat-inspector__close").length,
-            band: first.getBoundingClientRect().top - node.getBoundingClientRect().top > 12,
+            band: first.getBoundingClientRect().top - (firstCard ?? node).getBoundingClientRect().top > 12,
           };
         });
         await page.locator("textarea, [contenteditable=true]").first().focus();

@@ -889,11 +889,13 @@ export function InspectorPanel({
 }
 
 /// How the panel lays out its sections. Leo, 2026-10-22: "and this session rail is tmi and too many
-/// boxes?". It drew eight hairline cards: two of them one line each (Context, Connectors), two of them
-/// the same kind of thing (Servers and Background tasks, both background commands). No section is a
-/// card now, and Servers' rows head Background tasks. The three ways the gallery shows
+/// boxes?”. It drew eight hairline cards: two of them one line each (Context, Connectors), two of them
+/// the same kind of thing (Servers and Background tasks, both background commands). Cards are now the
+/// shipped separated layout; the original grouped layouts remain in the gallery. The three ways it shows
 /// (`agent-pane.chat-inspector` `layout-*`):
-/// - `glance`, shipped: three blocks with a hairline between them and no box. Where it runs: the
+/// - `cards`, shipped: each section is a separated reorderable card. Where it runs: the
+///   Environment's rows, then Context and Connectors, each one row until opened.
+/// - `glance`: three blocks with a hairline between them and no box. Where it runs: the
 ///   Environment's rows with no title over them, then Context and Connectors as one row each, which
 ///   open in place. What it made: Changes, Outputs. What it runs: Subagents, Background tasks.
 /// - `rules`: every section keeps its title, Environment's too, with a hairline between each.
