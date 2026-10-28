@@ -11,38 +11,27 @@ import Testing
 /// can never preempt another identity's capacity.
 @Suite
 struct CmxIrohEndpointServerCapacityReleaseTests {
-    private enum ReplacementOutcome: Sendable {
-        case predecessorClosed(code: UInt64, reason: String)
-        case redialClosed(code: UInt64, reason: String)
-    }
-
     /// Waits for the one deterministic signal that distinguishes the fixed
     /// behavior (the dead predecessor is superseded) from the defect (the
     /// redial itself is refused and closed).
     private static func firstReplacementOutcome(
         predecessor: TestIrohConnection,
         redial: TestIrohConnection
-    ) async -> ReplacementOutcome {
-        await withTaskGroup(of: ReplacementOutcome.self) { group in
+    ) async -> (predecessorClosed: Bool, reason: String) {
+        await withTaskGroup(of: (predecessorClosed: Bool, reason: String).self) { group in
             group.addTask {
                 var closes = await predecessor.closeEvents().makeAsyncIterator()
                 let close = await closes.next()
-                return .predecessorClosed(
-                    code: close?.code ?? 0,
-                    reason: close?.reason ?? "stream_ended"
-                )
+                return (true, close?.reason ?? "stream_ended")
             }
             group.addTask {
                 var closes = await redial.closeEvents().makeAsyncIterator()
                 let close = await closes.next()
-                return .redialClosed(
-                    code: close?.code ?? 0,
-                    reason: close?.reason ?? "stream_ended"
-                )
+                return (false, close?.reason ?? "stream_ended")
             }
             let first = await group.next()
             group.cancelAll()
-            return first ?? .redialClosed(code: 0, reason: "no_outcome")
+            return first ?? (false, "no_outcome")
         }
     }
 
@@ -115,11 +104,12 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
             redial: redial
         )
         let replacementAdmitted: Bool
-        switch outcome {
-        case let .predecessorClosed(_, reason):
+        if outcome.predecessorClosed {
+            let reason = outcome.reason
             #expect(reason == "superseded_connection")
             replacementAdmitted = true
-        case let .redialClosed(_, reason):
+        } else {
+            let reason = outcome.reason
             Issue.record(
                 "same-identity redial was refused (\(reason)) instead of replacing its dead predecessor"
             )
@@ -198,11 +188,12 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
             redial: redial
         )
         let replacementAdmitted: Bool
-        switch outcome {
-        case let .predecessorClosed(_, reason):
+        if outcome.predecessorClosed {
+            let reason = outcome.reason
             #expect(reason == "superseded_connection")
             replacementAdmitted = true
-        case let .redialClosed(_, reason):
+        } else {
+            let reason = outcome.reason
             Issue.record(
                 "same-identity redial was refused (\(reason)) while its own dead predecessor held the global slot"
             )
@@ -340,34 +331,33 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
         let newcomerCloseStream = await newcomer.closeEvents()
         await endpoint.enqueue(newcomer)
 
-        enum NewcomerOutcome: Sendable {
-            case admitted(CmxIrohPeerIdentity)
-            case rejected(String)
-        }
-        let outcome = await withTaskGroup(of: NewcomerOutcome.self) { group in
+        let outcome = await withTaskGroup(
+            of: (admitted: Bool, identity: CmxIrohPeerIdentity?, reason: String?).self
+        ) { group in
             group.addTask {
                 for await identity in newcomerAdmissions.stream {
-                    return .admitted(identity)
+                    return (true, identity, nil)
                 }
-                return .rejected("admission stream ended")
+                return (false, nil, "admission stream ended")
             }
             group.addTask {
                 for await close in newcomerCloseStream {
-                    return .rejected(close.reason)
+                    return (false, nil, close.reason)
                 }
-                return .rejected("close stream ended")
+                return (false, nil, "close stream ended")
             }
-            let first = await group.next() ?? .rejected("no admission outcome")
+            let first = await group.next() ?? (false, nil, "no admission outcome")
             group.cancelAll()
             return first
         }
-        switch outcome {
-        case let .admitted(identity):
-            #expect(identity == newcomerIdentity)
+        if outcome.admitted {
+            #expect(outcome.identity == newcomerIdentity)
             #expect(await newcomer.observedCloseCallCount() == 0)
             #expect(await recorder.recordedCount() == 2)
-        case let .rejected(reason):
-            Issue.record("newcomer was rejected after transport close: \(reason)")
+        } else {
+            Issue.record(
+                "newcomer was rejected after transport close: \(outcome.reason ?? "unknown")"
+            )
         }
 
         await blocker.releaseAll()
