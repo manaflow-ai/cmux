@@ -137,7 +137,8 @@ public final class CloudAuth {
             anchor: anchor,
             config: config,
             launch: AuthLaunchOptions(clearAuthRequested: false, mockDataEnabled: false, environment: launchEnvironment,
-                                      includesDevAuth: devAuth, replaceStoredSessionWithAutoLogin: replaceSession)
+                                      includesDevAuth: devAuth, replaceStoredSessionWithAutoLogin: replaceSession),
+            isOnline: { !useCaptureFixture }
         )
         activeTeam = ActiveTeam(source: coordinator)
         callbackRouter = AuthCallbackRouter(extraAllowedScheme: configuration.callbackScheme)
@@ -155,7 +156,7 @@ public final class CloudAuth {
         }
         #else
         let sessionFactory: any HostBrowserAuthSessionFactory = ASWebBrowserAuthSessionFactory(anchor: anchor)
-        let openExternalURL: @MainActor (URL) -> Bool = { url in
+        let openExternalURL: @MainActor @Sendable (URL) -> Bool = { url in
             guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { return false }
             NSWorkspace.shared.openInBackground(url)
             return true
