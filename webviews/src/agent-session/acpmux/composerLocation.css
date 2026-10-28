@@ -209,6 +209,10 @@
    them. A location menu keeps the side it chose when it opened (locationPopover.ts
    useLocationPopover), so the list fits the room the positioner reports there, less Choose folder…
    and the menu's padding. */
+.acpmux-location-menu .ui-combobox-viewport {
+  max-height: max(0px, min(260px, 45vh, calc(100vh - 60px), calc(var(--available-height, 100vh) - 60px)));
+  overflow: auto;
+}
 .acpmux-location-folders {
   /* Keep the menu inside the available viewport; a short pane scrolls rows instead of pushing
      the popup below the frame or leaving an orphan section header visible. */
