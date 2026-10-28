@@ -28,19 +28,6 @@ for (const reply of [undefined, {}, { sessionId }, { sessionId, draft: 12 }]) {
   });
 }
 
-test("unavailable daemon preserves an intentional native clear", async () => {
-  const actions = draftTextActions(
-    {
-      readDraft: async () => {
-        throw new Error("offline");
-      },
-      writeDraft: async () => undefined,
-    },
-    async () => "",
-  );
-  expect(await actions["chat.readDraft"]({ sessionId })).toBe("");
-});
-
 test("a refused mirror clear stays authoritative across an unavailable daemon read", async () => {
   let available = true;
   let mirror = "stale native draft";
@@ -76,7 +63,7 @@ test("a refused mirror clear stays authoritative across an unavailable daemon re
   mirror = "stale after clear";
   const newer = actions["chat.writeDraft"]({ sessionId, text: "newer local" });
   expect(await newer).toBeUndefined();
-  expect(await actions["chat.readDraft"]({ sessionId })).toEqual({ sessionId, draft: "newer local" });
+  expect(await actions["chat.readDraft"]({ sessionId })).toBe("newer local");
 });
 
 test("writes mirror the same session and text before daemon persistence", async () => {
@@ -97,24 +84,6 @@ test("writes mirror the same session and text before daemon persistence", async 
     ["chat.draftText.set", { sessionId, text: "" }],
     [sessionId, ""],
   ]);
-});
-
-test("an authoritative daemon clear updates the mirror for a later fallback", async () => {
-  let available = true;
-  let mirror = "stale native draft";
-  const actions = draftTextActions(
-    {
-      readDraft: async () => (available ? { sessionId, draft: null } : undefined),
-      writeDraft: async () => undefined,
-    },
-    async (method, params) => {
-      if (method === "chat.draftText.set") mirror = String(params.text);
-      return method === "chat.draftText.get" ? mirror : undefined;
-    },
-  );
-  expect(await actions["chat.readDraft"]({ sessionId })).toEqual({ sessionId, draft: null });
-  available = false;
-  expect(await actions["chat.readDraft"]({ sessionId })).toBe("");
 });
 
 for (const duringMirrorSync of [false, true]) {

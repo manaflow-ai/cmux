@@ -8,6 +8,7 @@ type Native = (method: string, params: Record<string, unknown>) => Promise<unkno
 export function draftTextActions(client: DraftClient, native: Native) {
   const tails = new Map<string, Promise<unknown>>();
   const edits = new Map<string, { version: number; text: string }>();
+  const known = new Map<string, { version: number; text: string }>();
   const ordered = (id: string, operation: () => Promise<unknown>) => {
     const next = (tails.get(id) ?? Promise.resolve()).catch(() => undefined).then(operation);
     tails.set(id, next);
@@ -34,17 +35,23 @@ export function draftTextActions(client: DraftClient, native: Native) {
               ? durable
               : undefined;
         if (typeof value === "string" || value === null) {
-          await native("chat.draftText.set", { sessionId: id, text: value ?? "" }).catch(() => undefined);
+          const text = value ?? "";
+          known.set(id, { version, text });
+          await native("chat.draftText.set", { sessionId: id, text }).catch(() => undefined);
           return newer() ?? durable;
         }
+        const retained = known.get(id);
+        if (retained && retained.version >= version) return retained.text;
         const mirrored = await native("chat.draftText.get", { sessionId: id }).catch(() => undefined);
         return newer() ?? (typeof mirrored === "string" ? mirrored : durable);
       });
     },
     "chat.writeDraft": ({ sessionId, text }: Record<string, unknown>) => {
       const id = String(sessionId),
-        value = String(text ?? "");
-      edits.set(id, { version: (edits.get(id)?.version ?? 0) + 1, text: value });
+        value = String(text ?? ""),
+        version = (edits.get(id)?.version ?? 0) + 1;
+      edits.set(id, { version, text: value });
+      known.set(id, { version, text: value });
       return ordered(id, async () => {
         await native("chat.draftText.set", { sessionId: id, text: value }).catch(() => undefined);
       }).then(() => client.writeDraft(id, value));
