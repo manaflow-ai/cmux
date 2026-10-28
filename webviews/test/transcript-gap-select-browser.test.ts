@@ -147,6 +147,11 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           '<button>Attach file</button><a href="#fixture">Harbour link</a><span role="button" tabindex="0">Sender chip</span><input aria-label="Fixture field"><span draggable="true">Drag file</span>';
         row.append(wrap);
         wrap.addEventListener("pointerdown", (event) => (wrap.dataset.prevented = String(event.defaultPrevented)));
+        const hidden = document.createElement("span");
+        hidden.className = "cv-code-handoff__real";
+        hidden.textContent = "Invisible duplicate that must never become a selection anchor";
+        hidden.style.cssText = "opacity:0;pointer-events:none;position:absolute";
+        row.append(hidden);
       });
       const end = (await geometry(page)).after;
       for (const selector of ["button", "a", '[role="button"]', "input", '[draggable="true"]']) {
@@ -167,6 +172,7 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
       await drag(page, { x: prompt.x + 30, y: prompt.y + 8 }, end);
       expect(await page.locator("body").getAttribute("data-text-prevented")).toBe("false");
       expect((await selected(page)).length).toBeGreaterThan(0);
+      expect(await selected(page)).not.toContain("Invisible duplicate");
       await page.close();
     });
   }
