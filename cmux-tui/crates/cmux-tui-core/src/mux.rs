@@ -955,25 +955,47 @@ impl Mux {
     }
 
     /// Live terminals by process model (`server-stats` `terminal_models`,
-    /// H12). Red-commit stub: counts nothing yet.
+    /// H12): each terminal runtime once (a projected terminal has several
+    /// placements but one runtime), placed or detached in the catalog.
     pub(crate) fn terminal_models(&self) -> crate::diagnostics::TerminalModelsSnapshot {
-        let (holder_start_failures, last_holder_start_failure) = {
-            #[cfg(unix)]
-            {
-                crate::holder_runtime::start_failures()
-            }
-            #[cfg(not(unix))]
-            {
-                (0, None)
-            }
+        let runtimes: Vec<Arc<Surface>> = {
+            let state = self.state.lock().recover_poison();
+            state.surfaces.values().chain(state.terminal_catalog.values()).cloned().collect()
         };
-        crate::diagnostics::TerminalModelsSnapshot {
-            model: "unknown",
-            model_reason: "unknown",
-            holder_start_failures,
-            last_holder_start_failure,
-            ..Default::default()
+        let mut seen = HashSet::new();
+        let mut counts = crate::diagnostics::TerminalModelsSnapshot::default();
+        for surface in runtimes {
+            let Some((runtime, origin)) = surface.runtime_key_and_origin() else { continue };
+            if !seen.insert(runtime) {
+                continue;
+            }
+            match surface.pty_home() {
+                Some(crate::surface::PtyHome::Holder { .. }) => counts.holder += 1,
+                Some(crate::surface::PtyHome::Daemon) => counts.daemon += 1,
+                Some(crate::surface::PtyHome::Exited) => counts.exited += 1,
+                Some(crate::surface::PtyHome::Host) => match origin {
+                    crate::surface::HostOrigin::Adopted => counts.host_adopted += 1,
+                    crate::surface::HostOrigin::Launched
+                    | crate::surface::HostOrigin::NotHosted => {
+                        counts.host_launched += 1;
+                    }
+                },
+                None => {}
+            }
         }
+        #[cfg(unix)]
+        {
+            counts.model = if crate::holder_runtime::enabled() { "holder" } else { "hosts" };
+            counts.model_reason = crate::holder_runtime::model_reason();
+            (counts.holder_start_failures, counts.last_holder_start_failure) =
+                crate::holder_runtime::start_failures();
+        }
+        #[cfg(not(unix))]
+        {
+            counts.model = "hosts";
+            counts.model_reason = "default";
+        }
+        counts
     }
 
     pub fn surface(&self, id: SurfaceId) -> Option<Arc<Surface>> {

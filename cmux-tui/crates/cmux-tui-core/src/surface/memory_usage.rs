@@ -53,6 +53,28 @@ pub(crate) struct SurfaceMemory {
 }
 
 impl Surface {
+    /// Where this terminal's PTY lives, `None` for a browser surface. Reads
+    /// only the runtime (no terminal lock, no ring measure).
+    pub(crate) fn pty_home(&self) -> Option<PtyHome> {
+        let pty = self.as_pty()?;
+        Some(match &*pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner) {
+            #[cfg(unix)]
+            PtyRuntime::Local { holder: Some(_), .. } => PtyHome::Holder { ring_bytes: None },
+            PtyRuntime::Local { .. } => PtyHome::Daemon,
+            #[cfg(any(unix, windows))]
+            PtyRuntime::Hosted(_) => PtyHome::Host,
+            #[cfg(any(unix, windows))]
+            PtyRuntime::ExitedHosted => PtyHome::Exited,
+        })
+    }
+
+    /// This terminal's runtime identity (one per terminal, shared by its
+    /// placements) and its host's origin, `None` for a browser surface.
+    pub(crate) fn runtime_key_and_origin(&self) -> Option<(usize, HostOrigin)> {
+        let pty = self.as_pty()?;
+        Some((Arc::as_ptr(&pty.terminal) as usize, pty.host_origin))
+    }
+
     /// This surface's memory, `None` for a browser surface. The runtime lock
     /// is released before the terminal lock is taken, and the holder's ring
     /// is measured after both. A cold terminal stays cold.

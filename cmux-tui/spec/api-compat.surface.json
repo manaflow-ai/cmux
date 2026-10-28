@@ -24832,6 +24832,44 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/terminal_models": {
+        "ty": "object"
+      },
+      "/data/terminal_models/daemon": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/terminal_models/exited": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/terminal_models/holder": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/terminal_models/holder_start_failures": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/terminal_models/host_adopted": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/terminal_models/host_launched": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/terminal_models/last_holder_start_failure": {
+        "ty": "string"
+      },
+      "/data/terminal_models/model": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/terminal_models/model_reason": {
+        "ty": "string",
+        "required": true
+      },
       "/data/uptime_ms": {
         "ty": "uint64",
         "required": true

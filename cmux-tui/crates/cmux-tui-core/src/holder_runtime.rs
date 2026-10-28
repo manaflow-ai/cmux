@@ -43,26 +43,49 @@ pub(crate) const MODEL_ENV: &str = "CMUX_TUI_TERMINAL_HOST_MODEL";
 /// changes models after start (the feature is not `runtimeMutable`).
 static ENABLED: OnceLock<bool> = OnceLock::new();
 
-/// Why this process runs the model it runs (`server-stats` `terminal_models`, H12).
+/// Why this process runs the model it runs, fixed with [`ENABLED`]
+/// (`server-stats` `terminal_models`, H12): `default`, `env-alias`
+/// ([`MODEL_ENV`]), `feature-list` (the enable/disable list or a client
+/// hello) or `policy` (managed policy or the signed document's
+/// `DisabledFeatures`).
+static REASON: OnceLock<&'static str> = OnceLock::new();
+
+/// Why this process runs the model it runs (see [`REASON`]).
 pub(crate) fn model_reason() -> &'static str {
-    "unknown"
+    let _ = enabled();
+    REASON.get().copied().unwrap_or("default")
 }
+
+/// New terminals whose holder start failed since this process started, and
+/// the newest failure.
+static START_FAILURES: std::sync::Mutex<(u64, Option<String>)> = std::sync::Mutex::new((0, None));
 
 /// New terminals whose holder start failed since this process started, and
 /// the newest failure (`server-stats` `terminal_models`, H12).
 pub(crate) fn start_failures() -> (u64, Option<String>) {
-    (0, None)
+    START_FAILURES.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
 }
 
-/// A new terminal's holder start failed: counted and logged.
-pub(crate) fn note_start_failure(_error: &anyhow::Error) {}
+/// A new terminal's holder start failed: counted, kept as the newest
+/// failure and logged. The create fails; no host is started instead.
+pub(crate) fn note_start_failure(error: &anyhow::Error) {
+    let message = format!("{error:#}");
+    eprintln!("cmux-tui: a new terminal's holder start failed: {message}");
+    let mut failures = START_FAILURES.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    failures.0 += 1;
+    failures.1 = Some(message);
+}
 
 /// Fixes the holder model from the daemon's resolved `features` and returns
 /// the model in effect. The daemon calls it once at start, before any
 /// terminal exists; a read that came first has already fixed the model, and
 /// that model stays.
 pub fn install(features: &Snapshot) -> bool {
-    *ENABLED.get_or_init(|| resolve(features, std::env::var(MODEL_ENV).ok().as_deref()))
+    *ENABLED.get_or_init(|| {
+        let alias = std::env::var(MODEL_ENV).ok();
+        let _ = REASON.set(reason(features, alias.as_deref()));
+        resolve(features, alias.as_deref())
+    })
 }
 
 /// New session-owned terminals run on the holder: the default (holder item
@@ -78,6 +101,7 @@ pub(crate) fn enabled() -> bool {
         let disable = env(cmux_features::DISABLE_ENV);
         let features = Snapshot::from_env(channel, enable.as_deref(), disable.as_deref());
         let alias = env(MODEL_ENV);
+        let _ = REASON.set(reason(&features, alias.as_deref()));
         if cfg!(test) {
             // The daemon library's own unit tests start no holder binary:
             // they keep the hosts unless they name the holder.
@@ -94,6 +118,19 @@ pub(crate) fn enabled() -> bool {
 /// feature name. A disable wins over an enable, and `DisabledFeatures` wins
 /// over both, as in Chromium's `base/feature_list.cc` (a feature on both
 /// lists is off).
+/// Which input decided [`resolve`]'s model, in its order: a policy disable,
+/// then the alias, then the feature lists or a hello, then the default.
+fn reason(features: &Snapshot, alias: Option<&str>) -> &'static str {
+    let enabled = features.is_enabled(TERMINAL_HOLDER);
+    match (features.source(TERMINAL_HOLDER), alias.map(str::trim)) {
+        (Source::Disabled, _) if !enabled => "policy",
+        (Source::Override, _) if !enabled => "feature-list",
+        (_, Some("holder" | "hosts")) => "env-alias",
+        (Source::Default, _) => "default",
+        (Source::Override | Source::Hello | Source::Disabled, _) => "feature-list",
+    }
+}
+
 fn resolve(features: &Snapshot, alias: Option<&str>) -> bool {
     let enabled = features.is_enabled(TERMINAL_HOLDER);
     match (features.source(TERMINAL_HOLDER), alias.map(str::trim)) {

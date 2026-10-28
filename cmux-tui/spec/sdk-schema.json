@@ -6754,6 +6754,14 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "terminal_models": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsTerminalModels"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -13474,6 +13482,88 @@
     }
    },
    "additional_properties": false
+  },
+  "ServerStatsTerminalModels": {
+   "kind": "object",
+   "fields": {
+    "model": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "model_reason": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "holder": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "daemon": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "host_launched": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "host_adopted": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "exited": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "holder_start_failures": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "last_holder_start_failure": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Present only when include names terminal_models.",
+    "Each live terminal counted once by its process model; host_adopted are hosted terminals an earlier daemon started (they stay hosted until their shell ends); holder_start_failures counts new terminals whose holder start failed (such a create fails, no host is started instead)."
+   ]
   }
  },
  "commands": {

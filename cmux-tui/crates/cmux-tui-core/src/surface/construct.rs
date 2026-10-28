@@ -205,6 +205,8 @@ impl Surface {
             && crate::holder_runtime::enabled()
             && let Some(host_root) = opts.terminal_host_root.clone()
         {
+            // A failed holder start fails the create (no host instead), and is
+            // counted and kept for `server-stats` `terminal_models` (H12).
             return Self::spawn_on_holder(HolderSpawn {
                 id,
                 opts,
@@ -217,7 +219,8 @@ impl Surface {
                 kitty_reservation,
                 initial_kitty_limits,
                 cell_pixels,
-            });
+            })
+            .inspect_err(crate::holder_runtime::note_start_failure);
         }
         #[cfg(any(unix, windows))]
         if lifetime == PtyLifetime::SessionOwned
