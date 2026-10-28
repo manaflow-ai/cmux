@@ -49,6 +49,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     private let options: AcpmuxPermissionOptions
     private let sessions: AcpmuxPaneSessions
     private let decisions: AcpmuxDecisionContexts
+    private let pendingQuestions: AcpmuxPendingQuestions
     private let replacements: AcpmuxPaneReplacements
     /// The transport's id for this socket's connection (``AcpmuxPaneReplacements``).
     private let connection: Int
@@ -78,6 +79,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     init(request: URLRequest, wire: (any AcpmuxPaneWire)? = nil, limits: AgentPaneTransport.Limits,
          options: AcpmuxPermissionOptions, sessions: AcpmuxPaneSessions, decisions: AcpmuxDecisionContexts = AcpmuxDecisionContexts(),
+         pendingQuestions: AcpmuxPendingQuestions = AcpmuxPendingQuestions(),
          replacements: AcpmuxPaneReplacements = AcpmuxPaneReplacements(), connection: Int = 0, ids: AcpmuxRequestIds, agentReplies: AgentPaneAgentReply.Send? = nil, signal: @escaping @Sendable () -> Void) {
         self.request = request
         self.wire = wire
@@ -85,6 +87,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         self.options = options
         self.sessions = sessions
         self.decisions = decisions
+        self.pendingQuestions = pendingQuestions
         self.replacements = replacements
         self.connection = connection
         self.ids = ids
@@ -193,6 +196,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
                     sessions.observeFolder(object, replyTo: method)
                     if wire != nil { sessions.observeTabSession(object, replyTo: method) }
                     decisions.observe(object, replyTo: method)
+                    pendingQuestions.observe(object, replyTo: method, connection: connection)
                     replacements.observe(object, replyTo: method, connection: connection)
                     if Self.pageWaits(on: object) { awaited += 1 }
                     page.append(fresh)
@@ -378,6 +382,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
 
     /// Closes the socket (the host's decision): queued inbound frames are dropped on an error.
     func close(code: Int, reason: String, error: AgentPaneTransportError?) {
+        pendingQuestions.end(connection: connection)
         let (task, session, wake, first) = state.withLock { state -> (URLSessionWebSocketTask?, URLSession?, Bool, Bool) in
             guard state.closed == nil else { return (nil, nil, false, false) }
             state.closed = AgentPaneTransportClose(code: code, reason: reason, error: error)
@@ -401,10 +406,12 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
     /// inbound queue, after every frame that arrived before it, so the page gets the daemon's last
     /// frames first. (A host close with an error, ``close(code:reason:error:)``, still drops them.)
     private func daemonClosed(code: Int, reason: String) {
+        pendingQuestions.end(connection: connection)
         inbound.async { [self] in finish(code: code, reason: reason, error: nil) }
     }
 
     private func finish(code: Int, reason: String, error: AgentPaneTransportError?) {
+        pendingQuestions.end(connection: connection)
         let (opening, session, wake) = state.withLock { state -> (CheckedContinuation<Void, any Error>?, URLSession?, Bool) in
             let opening = state.opening
             state.opening = nil

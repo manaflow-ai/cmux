@@ -67,6 +67,8 @@ import CmuxNextCompat
     public let sessions = AcpmuxPaneSessions()
     /// Each shown prompt's decision nonce and daemon run, for a relayed allow's proof (cx-0q7o).
     public let decisions = AcpmuxDecisionContexts()
+    /// Current daemon-owned question membership; history never grants keyboard answer authority.
+    public let pendingQuestions = AcpmuxPendingQuestions()
     /// The keyed restart the chat's machine offers, when it runs on another machine.
     private(set) var remoteApprovals: AgentPaneRemoteApprovals?
     /// The current connection is a chat on another machine (``RemoteAcpmuxWire``): its folders are
@@ -214,6 +216,7 @@ import CmuxNextCompat
         gestures.clearTickets()
         current += 1
         let id = current
+        pendingQuestions.reset(connection: id)
         localAppToken = connection.localAppToken
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
@@ -233,7 +236,7 @@ import CmuxNextCompat
         let ids = AcpmuxRequestIds(promptAccepted: promptRelay?.forget)
         requestIds = ids
         let socket = AcpmuxPaneSocket(request: connection.request, wire: wire, limits: limits,
-                                      options: permissionOptions, sessions: sessions, decisions: decisions,
+                                      options: permissionOptions, sessions: sessions, decisions: decisions, pendingQuestions: pendingQuestions,
                                       replacements: replacements, connection: id, ids: ids,
                                       agentReplies: connection.remote == nil ? currentAgentReply : nil) { [weak self] in
             // task-owner: one wake for the pacer; arrived(_:) ignores a stale connection
