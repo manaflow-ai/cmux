@@ -553,11 +553,13 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     expect(await list.evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
     const last = list.locator("[role=option]").last();
     expect(await last.isVisible()).toBe(true);
-    expect(await last.evaluate((node) => {
-      const list = node.closest(".acpmux-location-folders")!.getBoundingClientRect();
-      const row = node.getBoundingClientRect();
-      return row.bottom <= list.bottom && row.top >= list.top;
-    })).toBe(true);
+    expect(
+      await last.evaluate((node) => {
+        const list = node.closest(".acpmux-location-folders")!.getBoundingClientRect();
+        const row = node.getBoundingClientRect();
+        return row.bottom <= list.bottom && row.top >= list.top;
+      }),
+    ).toBe(true);
     await page.close();
   });
 
@@ -594,5 +596,4 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     expect(await popup.locator(".ui-combobox-viewport").evaluate((node) => node.scrollTop)).toBeGreaterThan(0);
     await page.close();
   });
-
 });

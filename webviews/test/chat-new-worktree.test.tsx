@@ -74,9 +74,9 @@ const openFolderMenu = async () => {
 
 const menuItem = (name: string) =>
   // Project actions are pinned under search, before the scrolling folders.
-  [...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitem], [role=option], .ui-combobox-pinned button")].find((item) =>
-    item.textContent?.includes(name),
-  );
+  [
+    ...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitem], [role=option], .ui-combobox-pinned button"),
+  ].find((item) => item.textContent?.includes(name));
 
 test("a new chat's folder menu offers New Worktree for its folder", async () => {
   const asked: string[] = [];

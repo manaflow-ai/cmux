@@ -84,7 +84,7 @@ export function ProjectChooser({
     const listed: Row[] = shown.map((project) => ({ key: rowKey(project), project }));
     if (onNoProject) listed.unshift({ key: NO_PROJECT_KEY });
     return listed;
-  }, [shown, onNoProject, query]);
+  }, [shown, onNoProject]);
   const rowsByKey = useMemo(() => new Map(rows.map((row) => [row.key, row])), [rows]);
   const isCurrent = (key: string) =>
     rowsByKey.has(key) && (key === currentKey || (noProject && key === NO_PROJECT_KEY));
