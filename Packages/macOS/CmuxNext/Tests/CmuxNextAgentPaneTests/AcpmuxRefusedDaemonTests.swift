@@ -16,11 +16,11 @@ struct AcpmuxRefusedDaemonTests {
         #expect(AcpmuxServerPeer.holderName(executablePath: "/usr/local/bin/acpmux") == "/usr/local/bin/acpmux")
     }
 
-    @Test func theMessageNamesTheBuildAndTheSocket() {
+    /// The copy #24795 settled on names the build that holds acpmux, not the socket path.
+    @Test func theMessageNamesTheBuild() {
         let message = AgentPaneHostError.userMessage(
             for: AgentPaneHostError.daemonRefused(holder: "cmux DEV nxdog98-v1", socketPath: "/h/acpmux.sock", reason: "r"))
         #expect(message.contains("cmux DEV nxdog98-v1"))
-        #expect(message.contains("/h/acpmux.sock"))
         #expect(!message.contains("did not start"))
     }
 
@@ -35,8 +35,13 @@ struct AcpmuxRefusedDaemonTests {
         let message = AgentPaneHostError.userMessage(for: error)
         #expect(!message.contains("Run this in a terminal"))
         #expect(!message.contains("ACPMUX_SOCKET="))
-        #expect(message.contains("try again"))
-        if let holder { #expect(message.contains("Quit \(holder)")) }
+        #expect(!message.contains("daemon shutdown"))
+        #expect(!message.contains("did not start"))
+        if let holder {
+            #expect(message.contains(holder))
+            #expect(message.contains("Quit"))
+            #expect(message.contains("try again"))
+        }
     }
 
     @Test func aMissingSocketIsTransientDuringAHandOff() {
