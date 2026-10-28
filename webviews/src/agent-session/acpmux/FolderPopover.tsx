@@ -261,9 +261,14 @@ export function FolderPopover({
       </button>
       <Popover
         open={open}
-        onOpenChange={(next) => {
-          setOpen(next);
-          if (!next) setQuery("");
+        onOpenChange={(next, details) => {
+          if (!next && details?.escape) {
+            escaped.current = true;
+            close();
+          } else {
+            setOpen(next);
+            if (!next) setQuery("");
+          }
         }}
         anchor={open ? anchor : null}
         label={label}
