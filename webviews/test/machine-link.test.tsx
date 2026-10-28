@@ -195,8 +195,9 @@ function daemon(
     reconnectWaits = false;
     for (const settle of waitingReconnects.splice(0)) settle();
   };
-  const failNext = (statusReads: number) => {
-    reconnectFails = true;
+  /// The next `statusReads` status reads fail, and `_acpmux/peer_reconnect` too unless `reconnect` is false.
+  const failNext = (statusReads: number, reconnect = true) => {
+    reconnectFails = reconnect;
     statusFailures = statusReads;
   };
   return { asked, open, notify, hold, release, add, waitReconnects, settleReconnect, failNext };
@@ -400,6 +401,32 @@ test("a reconnect whose every read fails puts the mark back, never a spinner tha
   const reads = asked.filter((message) => message.method === "_acpmux/status").length;
   await pane.refreshPeersOnOpen();
   expect(asked.filter((message) => message.method === "_acpmux/status")).toHaveLength(reads + 1);
+});
+
+test("a push during a reconnect whose reads fail is kept, and a reconnect's answer stands when the read after it fails", async () => {
+  const pushed = await client("offline", { events: true });
+  pushed.failNext(1);
+  pushed.waitReconnects();
+  const reconnect = pushed.client.reconnectPeer("gpu-box", true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  pushed.notify("_acpmux/peer_state_changed", { peer: "gpu-box", state: "connecting", lastSeen: null, error: null, at: 9 });
+  pushed.settleReconnect();
+  await reconnect;
+  expect(pushed.states.at(-1)?.["gpu-box"]).toBe("connecting");
+
+  // A read during the wait says offline and wins; the reconnect answers connected; the read after it fails.
+  const raced = await client("offline");
+  raced.hold();
+  raced.waitReconnects();
+  const again = raced.client.reconnectPeer("gpu-box", true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const open = raced.client.refreshPeersOnOpen();
+  raced.release();
+  await open;
+  raced.failNext(1, false);
+  raced.settleReconnect();
+  await again;
+  expect(raced.states.at(-1)?.["gpu-box"]).toBe("connected");
 });
 
 test("a lagging watcher's older note never replaces a newer one", async () => {

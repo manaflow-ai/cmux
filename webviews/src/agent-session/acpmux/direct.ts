@@ -1474,6 +1474,8 @@ export class AcpmuxDirectClient {
   /// newer one is dropped (its list may lack a peer the newer one has).
   private peerReadsStarted = 0;
   private peerReadApplied = 0;
+  /// Pushes taken on this connection (any peer): a reconnect leaves what one said alone.
+  private peerPushesTaken = 0;
   /// The peer list was read on this connection: until it is (a failed read), opening the list reads it.
   private peersRead = false;
   /// Each peer's last push taken (its `at`): a lagging watcher's repeat of an older note is not news.
@@ -6610,6 +6612,7 @@ export class AcpmuxDirectClient {
       this.peerNoteAt.set(peer, at);
     }
     if (typeof peer === "string" && peer && this.peerReads > 0) this.pushedDuringReads.set(peer, params);
+    this.peerPushesTaken += 1;
     if (this.applyPeerState(params, false) && !this.snapshotHold) this.emit();
   }
   /// Applies one pushed peer state; true when it changed what the pane shows. `replayed`: applied
@@ -6679,6 +6682,7 @@ export class AcpmuxDirectClient {
   private async reconnectPeerNow(name: string, wait: boolean, dropped: boolean): Promise<void> {
     const shown = this.peerStates;
     const applied = this.peerReadApplied;
+    const pushes = this.peerPushesTaken;
     if (dropped || this.peerDown(name)) {
       this.peerStates = { ...this.peerStates, [name]: "connecting" };
       if (!this.snapshotHold) this.emit();
@@ -6690,10 +6694,24 @@ export class AcpmuxDirectClient {
     // may say the machine as it was before, and answer before or after this reply. This read
     // starts last, so it wins whichever order they answer in (`snapshotPeers` drops an older one).
     if (reply !== undefined && !this.snapshotHold) this.emit();
+    const pushesAtReply = this.peerPushesTaken;
+    const beforeFollowUp = this.peerReadApplied;
     await this.refreshPeers();
-    // Neither acpmux nor a push said anything since (both reads failed): the spinner goes back to
+    // The follow-up read failed: the reconnect's own answer stands (a read during the wait may have
+    // replaced it with the machine as it was before), unless a push said something newer since.
+    if (reply !== undefined && this.peerReadApplied === beforeFollowUp && this.peerPushesTaken === pushesAtReply) {
+      this.readPeers(reply);
+      if (!this.snapshotHold) this.emit();
+      return;
+    }
+    // Neither acpmux nor a push said anything since (every read failed): the spinner goes back to
     // what was shown before, and the next open reads the list again.
-    if (this.peerReadApplied === applied && this.peerStates[name] === "connecting" && shown[name] !== "connecting") {
+    if (
+      this.peerReadApplied === applied &&
+      this.peerPushesTaken === pushes &&
+      this.peerStates[name] === "connecting" &&
+      shown[name] !== "connecting"
+    ) {
       const { [name]: _connecting, ...rest } = this.peerStates;
       this.peerStates = shown[name] !== undefined ? { ...rest, [name]: shown[name] } : rest;
       this.peersRead = false;
