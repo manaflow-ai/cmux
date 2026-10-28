@@ -95,6 +95,16 @@ struct ColdCmdNRowSlotTests {
             )]
             let settledFrame = PendingWorkspaceRows.adding([probe], to: settledSections, home: nil)
             #expect(settledFrame.flatMap(\.workspaces).map(\.id.rawValue) == [current.id, "cold-probe"])
+            #expect(!probeRule.awaitsCurrentAnchor(section: .machine(MachineID(machine)), in: staleSections, home: current.id),
+                    "Home/current rows intentionally omitted from the sidebar must use the normal fallback")
+            let bottomRule = NewWorkspaceDefaultSlot(placement: .bottom, current: nil)
+            let bottom = PendingWorkspaceRows.Row(
+                id: "bottom-probe", window: window, machine: MachineID(machine),
+                face: SidebarMapping.shared.creatingRow(id: "bottom-probe", machine: MachineID(machine), name: "bottom-probe", opensPage: true),
+                slot: nil, byDefault: bottomRule)
+            let bottomFrame = PendingWorkspaceRows.adding([bottom], to: staleSections, home: nil)
+            #expect(bottomFrame.flatMap(\.workspaces).map(\.id.rawValue) == ["bottom-probe"],
+                    "bottom placement keeps its immediate loose-row stand-in")
 
             // An updater can leave the first cold layout one projection behind while AppKit has no
             // realized row geometry yet. Keep that state across the first Cmd-N so it cannot expose

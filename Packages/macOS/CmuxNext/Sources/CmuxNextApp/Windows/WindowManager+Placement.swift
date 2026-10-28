@@ -31,9 +31,10 @@ extension WindowManager {
                   let daemon = services.machines.daemon(forWorkspace: id) else { continue }
             let sections = SidebarRowSection.withoutPlaceholders(bridge.model.sections)
             let section = SectionID.machine(MachineID(daemon.machineID))
-            if pending.byDefault?.awaitsCurrentAnchor(section: section, in: sections) == true { continue }
-            pendingPlacements[id] = nil
             let home = NewWorkspacePlacements.home(services.machines)
+            if pending.byDefault?.awaitsCurrentAnchor(section: section, in: sections, home: home) == true,
+               pending.byDefault?.current.flatMap({ services.machines.workspace(id: $0) }) != nil { continue }
+            pendingPlacements[id] = nil
             // This Mac's daemon placed the workspace by the setting in its create: no second write for that
             // slot. Another machine's create writes no row in this Mac's order, so the app places it.
             let slot = pending.slot ?? (daemon.isLocal ? pending.byDefault?.move(for: id, section: section, in: sections, home: home)

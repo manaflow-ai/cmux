@@ -39,8 +39,9 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
     /// The current row is expected in this machine section but is not in the
     /// stale layout yet. Returning true keeps Cmd-N pending until the row is
     /// realized, instead of resolving the slot against an empty layout.
-    func awaitsCurrentAnchor(section: SectionID, in sections: [SidebarRowSection]) -> Bool {
+    func awaitsCurrentAnchor(section: SectionID, in sections: [SidebarRowSection], home: String? = nil) -> Bool {
         guard placement == .afterCurrent, let current, let currentMachine,
+              current != home,
               case let .machine(machine) = section, machine.rawValue == currentMachine,
               !sections.flatMap(\.workspaces).contains(where: { $0.id.rawValue == current }) else { return false }
         return true
@@ -57,7 +58,7 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
             }
             return nil
         case .afterCurrent:
-            if awaitsCurrentAnchor(section: section, in: sections) { return nil }
+            if awaitsCurrentAnchor(section: section, in: sections, home: home) { return nil }
             if let current, current != id, current != home,
                WorkspaceSlot.below(current).position(moving: [id], section: section, in: sections) != nil {
                 return .below(current)
