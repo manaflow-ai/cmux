@@ -1601,3 +1601,37 @@ test("a select's attach that went out before the reconnect's leaves the chat to 
   expect(shown).toContain("late 7.");
   expect(shown).not.toContain("early 5.");
 });
+
+test("a select while a reconnect reads the Mac's copy keeps its attach, though the reconnect's never goes out", async () => {
+  const daemon = new Daemon();
+  daemon.down = false;
+  daemon.log = turn(1, 3, "first");
+  const tab = open(daemon);
+  const client = await tab.client;
+  live.push(client);
+  await flush();
+  // A reconnect with no rows of the chat left, so it reads the Mac's copy before its attach.
+  Object.assign(client as unknown as { events: unknown[]; lastSeq: number }, { events: [], lastSeq: 0 });
+  resetKeptTailsForTests();
+  const next = new Daemon();
+  next.down = false;
+  next.log = turn(1, 5, "read");
+  next.hold.add("_acpmux/peer_snapshot");
+  const reconnect = reconnectTo(client, next);
+  await flush();
+  // The chat is selected again while that read is out: the select reads the copy too, then attaches.
+  const selected = client.select(SESSION);
+  await flush();
+  next.releaseLast("_acpmux/peer_snapshot");
+  await flush();
+  expect(next.asked.filter((m) => m.method === "_acpmux/attach").length).toBe(1);
+  // The reconnect's read answers after the select's attach went out: the select owns the chat.
+  next.releaseFirst("_acpmux/peer_snapshot");
+  await flush();
+  next.release("_acpmux/attach");
+  await reconnect.done;
+  await selected;
+  await flush();
+  expect(next.asked.filter((m) => m.method === "_acpmux/attach").length).toBe(1);
+  expect(text(tab.last())).toContain("read 5.");
+});

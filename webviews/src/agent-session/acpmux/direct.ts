@@ -1754,8 +1754,10 @@ export class AcpmuxDirectClient {
         }
         let page: EventRecord[] = [];
         // The attach that goes out last decides the chat: a select's that went out before this one
-        // (while the socket connected or the chats were listed) leaves the chat to it.
-        mine = ++this.copyAttaches;
+        // (while the socket connected or the chats were listed) leaves the chat to it. Only when this
+        // attach goes out: one a select took over while the tail or copy was read sends nothing, and
+        // must not take the chat from the select's attach.
+        if (generation === this.selectionGeneration && this.selectedSessionId === sessionId) mine = ++this.copyAttaches;
         try {
           page = await this.attach(sessionId, generation, keptThrough);
         } catch (error) {
