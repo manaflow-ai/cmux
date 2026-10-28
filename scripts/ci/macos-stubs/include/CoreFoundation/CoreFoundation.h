@@ -8,10 +8,14 @@
 typedef signed long CFIndex;
 typedef uint32_t CFStringEncoding;
 typedef unsigned char Boolean;
-typedef const void *CFTypeRef;
-typedef const struct __CFAllocator *CFAllocatorRef;
-typedef const struct __CFString *CFStringRef;
-typedef struct __CFDictionary *CFMutableDictionaryRef;
+// Keep opaque handles on one named pointer type.  cgo must permit the
+// conversions used by the pinned certstore bridge (for example CFStringRef
+// values in a CFTypeRef dictionary); distinct incomplete struct names turn
+// those ABI-compatible conversions into compile errors in cgo.
+typedef struct __CFType *CFTypeRef;
+typedef struct __CFType *CFAllocatorRef;
+typedef struct __CFType *CFStringRef;
+typedef struct __CFType *CFMutableDictionaryRef;
 extern const CFAllocatorRef kCFAllocatorDefault;
 #define kCFStringEncodingUTF8 ((CFStringEncoding)0x08000100)
 #define CFSTR(value) ((CFStringRef)__builtin___CFStringMakeConstantString(value))
@@ -21,11 +25,11 @@ extern Boolean CFStringGetCString(CFStringRef, char *, CFIndex, CFStringEncoding
 extern void CFRelease(CFTypeRef);
 // Additional public ABI consumed by tailscale/certstore's pinned Darwin bridge.
 typedef uint8_t UInt8;
-typedef const struct __CFArray *CFArrayRef;
-typedef const struct __CFData *CFDataRef;
-typedef const struct __CFDictionary *CFDictionaryRef;
-typedef struct __CFError *CFErrorRef;
-typedef const struct __CFBoolean *CFBooleanRef;
+typedef struct __CFType *CFArrayRef;
+typedef struct __CFType *CFDataRef;
+typedef struct __CFType *CFDictionaryRef;
+typedef struct __CFType *CFErrorRef;
+typedef struct __CFType *CFBooleanRef;
 typedef struct { CFIndex location; CFIndex length; } CFRange;
 typedef struct CFArrayCallBacks CFArrayCallBacks;
 typedef struct CFDictionaryKeyCallBacks CFDictionaryKeyCallBacks;

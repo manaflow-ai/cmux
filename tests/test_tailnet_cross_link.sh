@@ -45,7 +45,7 @@ int main(void) {
 C
 for arch in arm64 x86_64; do
   "$llvm/clang" --target="$arch-apple-macos14.0" -isysroot "$sysroot" -fuse-ld=lld \
-    -framework CoreFoundation -framework IOKit -framework SystemConfiguration -lresolv \
+    -framework CoreFoundation -framework IOKit -framework SystemConfiguration -framework Security -lresolv \
     "$work/probe.c" -o "$work/probe-$arch"
   "$llvm/llvm-objdump" --macho --dylibs-used "$work/probe-$arch"
 done
