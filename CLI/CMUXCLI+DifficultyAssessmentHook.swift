@@ -56,19 +56,18 @@ extension CMUXCLI {
             return
         }
 
-        guard let decision = try? sessionStore.beginDifficultyAssessment(
-            sessionId: sessionId,
-            workspaceId: workspaceId,
-            surfaceId: surfaceId,
-            now: Date()
-        ), decision == .proceed else {
+        // Not the hook session store: `SessionEnd` removes that record on every
+        // Claude restart, including the one a rating causes.
+        let assessments = ClaudeDifficultyAssessmentStore(processEnv: env)
+        guard let start = try? assessments.begin(sessionId: sessionId, now: Date()),
+              start.decision == .proceed else {
             telemetry.breadcrumb("claude-hook.difficulty.throttled")
             return
         }
 
-        var applied: ClaudeSessionDifficulty?
+        var verdict: ClaudeSessionDifficulty?
         defer {
-            try? sessionStore.finishDifficultyAssessment(sessionId: sessionId, result: applied, now: Date())
+            try? assessments.finish(sessionId: sessionId, verdict: verdict, now: Date())
         }
 
         let prompt = DifficultyAssessmentEngine.buildPrompt(
@@ -91,6 +90,7 @@ extension CMUXCLI {
             telemetry.breadcrumb("claude-hook.difficulty.unparsed")
             return
         }
+        verdict = difficulty
         guard (try? client.sendV2(
             method: "session_priority.set",
             params: ["workspace_id": workspaceId, "difficulty": difficulty.rawValue, "source": "auto"]
@@ -98,7 +98,6 @@ extension CMUXCLI {
             telemetry.breadcrumb("claude-hook.difficulty.send-failed")
             return
         }
-        applied = difficulty
         telemetry.breadcrumb("claude-hook.difficulty.applied")
     }
 }

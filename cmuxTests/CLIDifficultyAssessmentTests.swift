@@ -3,8 +3,9 @@ import Foundation
 import Testing
 
 // DifficultyAssessmentEngine is compiled directly into this test target (like
-// AutoNamingEngine); the hook store delegates its throttle to the pure
-// `throttleDecision` exercised here, so the store tests need no CLI process.
+// AutoNamingEngine). ClaudeDifficultyAssessmentStore delegates its throttle to
+// the pure `throttleDecision` exercised here; CLIDifficultyAssessmentStoreTests
+// covers the store itself.
 
 @Suite struct CLIDifficultyAssessmentTests {
     private typealias Engine = DifficultyAssessmentEngine
@@ -73,7 +74,7 @@ import Testing
         #expect(Engine.excerpt(from: Array(messages.prefix(1))) == nil)
     }
 
-    @Test func storeThrottlesWithinMinInterval() {
+    @Test func throttleWaitsTheMinInterval() {
         let min = DifficultyAssessmentConfig.minInterval
         let stamp = t0.timeIntervalSince1970
         #expect(Engine.throttleDecision(inFlightAt: nil, lastAssessedAt: nil, now: t0) == .proceed)
@@ -81,7 +82,7 @@ import Testing
         #expect(Engine.throttleDecision(inFlightAt: nil, lastAssessedAt: stamp, now: t0.addingTimeInterval(min)) == .proceed)
     }
 
-    @Test func storeSkipsWhileInFlightUntilExpiry() {
+    @Test func throttleSkipsWhileInFlightUntilExpiry() {
         let expiry = DifficultyAssessmentConfig.inFlightExpiry
         let stamp = t0.timeIntervalSince1970
         #expect(Engine.throttleDecision(inFlightAt: stamp, lastAssessedAt: nil, now: t0.addingTimeInterval(expiry - 1)) == .skipInFlight)

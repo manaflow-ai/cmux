@@ -12,6 +12,8 @@ struct DifficultyAssessmentConfig {
     static let excerptLimit = 1_500
     /// Seconds to wait for the `claude -p` classification call.
     static let llmTimeout: TimeInterval = 60
+    /// Store entries untouched for this long are dropped on the next write.
+    static let storeRetention: TimeInterval = 24 * 60 * 60
 }
 
 /// Outcome of the per-session difficulty throttle.

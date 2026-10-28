@@ -722,6 +722,8 @@
 		A5D41232A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */; };
 		C13519000000000000000007 /* ClaudeConfigDirectoryPathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */; };
 		2C483F9C4DD9E531BFB70041 /* ClaudeConfigDirectorySaveCaptureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 116A20BE2E7DF60266E43B58 /* ClaudeConfigDirectorySaveCaptureTests.swift */; };
+		D1FF1C0A00000000000000B4 /* ClaudeDifficultyAssessmentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF1C0A00000000000000A4 /* ClaudeDifficultyAssessmentStore.swift */; };
+		D1FF1C0A00000000000000B5 /* ClaudeDifficultyAssessmentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF1C0A00000000000000A4 /* ClaudeDifficultyAssessmentStore.swift */; };
 		E9236F25EE4125B75E841254 /* ClaudeDroppedLaunchCaptureAccountTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4287F92FA9BEFC300BBCD4F /* ClaudeDroppedLaunchCaptureAccountTests.swift */; };
 		C7A534000000000000000002 /* ClaudeHookFeedTelemetrySwiftTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A534000000000000000001 /* ClaudeHookFeedTelemetrySwiftTests.swift */; };
 		A12123000000000000000009 /* ClaudeHookHibernationGenerationHistoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12123000000000000000010 /* ClaudeHookHibernationGenerationHistoryTests.swift */; };
@@ -5671,6 +5673,7 @@
 		A5D41233A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeBackgroundWorkNotifyTests.swift; sourceTree = "<group>"; };
 		C13519000000000000000008 /* ClaudeConfigDirectoryPathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeConfigDirectoryPathTests.swift; sourceTree = "<group>"; };
 		116A20BE2E7DF60266E43B58 /* ClaudeConfigDirectorySaveCaptureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeConfigDirectorySaveCaptureTests.swift"; sourceTree = "<group>"; };
+		D1FF1C0A00000000000000A4 /* ClaudeDifficultyAssessmentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeDifficultyAssessmentStore.swift; sourceTree = "<group>"; };
 		E4287F92FA9BEFC300BBCD4F /* ClaudeDroppedLaunchCaptureAccountTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ClaudeDroppedLaunchCaptureAccountTests.swift"; sourceTree = "<group>"; };
 		C7A534000000000000000001 /* ClaudeHookFeedTelemetrySwiftTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookFeedTelemetrySwiftTests.swift; sourceTree = "<group>"; };
 		A12123000000000000000010 /* ClaudeHookHibernationGenerationHistoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClaudeHookHibernationGenerationHistoryTests.swift; sourceTree = "<group>"; };
@@ -13067,6 +13070,7 @@
 				5257257034CA4729B1211166 /* CMUXCLI+AutoNaming.swift */,
 				D1FF1C0A00000000000000A2 /* CMUXCLI+DifficultyAssessment.swift */,
 				D1FF1C0A00000000000000A3 /* CMUXCLI+DifficultyAssessmentHook.swift */,
+				D1FF1C0A00000000000000A4 /* ClaudeDifficultyAssessmentStore.swift */,
 				5257257034CA4729B121116A /* CMUXCLI+AutoNamingDispatch.swift */,
 				5257257034CA4729B1211167 /* CMUXCLI+AutoNamingGenericHooks.swift */,
 				5257257034CA4729B1211168 /* CMUXCLI+AutoNamingHooks.swift */,
@@ -18280,6 +18284,7 @@
 				805500000000000000000004 /* BrowserValueTextFormatter.swift in Sources */,
 				B5EDBC73F930461BB073BBEB /* ChiefDispatchPlan.swift in Sources */,
 				A41CE856DED1347FAEBEE999 /* ClaudeAccountCommands.swift in Sources */,
+				D1FF1C0A00000000000000B4 /* ClaudeDifficultyAssessmentStore.swift in Sources */,
 				D3AD00000000000000000002 /* ClaudeHookSessionStore+CodexTurnAdmission.swift in Sources */,
 				89930005AABBCCDDEEFF0001 /* ClaudeHookSessionStore+SupersededCleanup.swift in Sources */,
 				89930004AABBCCDDEEFF0001 /* ClaudeHookSessionStoreFile.swift in Sources */,
@@ -18850,6 +18855,7 @@
 				A5D41232A1B2C3D4E5F60718 /* ClaudeBackgroundWorkNotifyTests.swift in Sources */,
 				C13519000000000000000007 /* ClaudeConfigDirectoryPathTests.swift in Sources */,
 				2C483F9C4DD9E531BFB70041 /* ClaudeConfigDirectorySaveCaptureTests.swift in Sources */,
+				D1FF1C0A00000000000000B5 /* ClaudeDifficultyAssessmentStore.swift in Sources */,
 				E9236F25EE4125B75E841254 /* ClaudeDroppedLaunchCaptureAccountTests.swift in Sources */,
 				C7A534000000000000000002 /* ClaudeHookFeedTelemetrySwiftTests.swift in Sources */,
 				A12123000000000000000009 /* ClaudeHookHibernationGenerationHistoryTests.swift in Sources */,
