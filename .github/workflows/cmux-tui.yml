@@ -856,7 +856,7 @@ jobs:
           name: optchat-chief-lock-${{ inputs.commit }}
           path: Native/OptChat/optchat-chief/Cargo.lock
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
 
       - name: Require committed Chief lockfile
         run: git diff --exit-code -- Native/OptChat/optchat-chief/Cargo.lock
