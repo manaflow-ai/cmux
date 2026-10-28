@@ -14,6 +14,8 @@ Steps (`do`):
                                            made through the daemon (`cmux workspace create`), each printing
                                            one line; the current terminal's workspace is shown again after
   close_seeded      {prefix}               clean-up: closes the workspaces seed_workspaces made
+  restore_diagnose  {}                     evidence (a `finally` step): debug.surfaces/input/timings/windows,
+                                           a window snapshot and a 3 s sample of the app, as diag-* files
   restore_relaunch  {how?, mark?}          the driver's `relaunch` (Cmd-Q, reopen through LaunchServices), with
                                            the visible panes sampled from the new process's first socket answer
                                            (`debug.surfaces`, about every 25 ms) until every visible terminal
@@ -205,6 +207,32 @@ def step_close_seeded(journey, step):
     return {"closed": closed}
 
 
+def step_restore_diagnose(journey, step):
+    """Evidence of what the window draws now, whatever the journey's result (a `finally` step): the full
+    `debug.surfaces` (each pane's frame hold, surface, drawing, layers and render counters), `debug.input`, a
+    window snapshot, the launch marks, and a 3 s `sample` of the app process. For the case seen once on the
+    nightly (2026-10-28, run 1): the app's text and link were live but the window showed all 3 panes empty."""
+    out = journey.out
+    saved = {}
+    for name, method, params in (("surfaces", "debug.surfaces", {"text": True}), ("input", "debug.input", {}),
+                                 ("timings", "debug.timings", {}), ("windows", "debug.windows", {})):
+        try:
+            value = journey.app.rpc(method, params, timeout=30)
+        except (D.StepError, OSError, ValueError) as error:
+            value = {"error": str(error)[-300:]}
+        (out / f"diag-{name}.json").write_text(json.dumps(value, indent=1, default=str) + "\n")
+        saved[name] = True
+    try:
+        journey.app.snapshot(out / "diag-window.png")
+        saved["window"] = True
+    except (D.StepError, OSError, ValueError) as error:
+        saved["window"] = str(error)[-200:]
+    done = D.subprocess.run(["/usr/bin/sample", str(journey.app.pid), "3", "-mayDie", "-file", str(out / "diag-app-sample.txt")],
+                            capture_output=True, text=True, timeout=60)
+    saved["sample"] = done.returncode == 0
+    return saved
+
+
 def _restore(journey):
     record = getattr(journey, "restore", None)
     if record is None:
@@ -242,6 +270,6 @@ def cond_restore_hidden_lazy(journey, want, cache):
 
 
 STEPS = {"seed_workspaces": step_seed_workspaces, "restore_relaunch": step_restore_relaunch,
-         "close_seeded": step_close_seeded}
+         "close_seeded": step_close_seeded, "restore_diagnose": step_restore_diagnose}
 CONDITIONS = {"restore_no_blank": ("app", cond_restore_no_blank), "restore_live": ("app", cond_restore_live),
               "restore_hidden_lazy": ("app", cond_restore_hidden_lazy)}

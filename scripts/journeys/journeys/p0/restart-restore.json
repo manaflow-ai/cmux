@@ -63,6 +63,7 @@
      ]}
   ],
   "finally": [
+    {"do": "restore_diagnose"},
     {"do": "close_seeded", "prefix": "jr-bg-${nonce}"}
   ]
 }
