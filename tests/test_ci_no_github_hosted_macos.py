@@ -155,13 +155,17 @@ class NoGitHubHostedMacos(unittest.TestCase):
         self.assertEqual(fleet_hits(ROOT), [])
 
     def test_the_train_runner_variable_cannot_hold_a_hosted_mac(self):
-        # A repository variable routes around the literal check above; the train
-        # compile ignores a hosted macos-* value and takes Blacksmith instead.
+        # A repository variable routes around the literal check above. The train
+        # compile's runs-on no longer reads vars.NIGHTLY_NEXT_TRAIN_RUNNER: the
+        # variable only reaches pick-train-runner's OWNED_LABELS, and the picker
+        # (nightly_build_runner.owned_label) offers only an owned glaeda-* label,
+        # so a hosted macos-* value is never picked.
         text = (WORKFLOWS / "nightly-next-train.yml").read_text(encoding="utf-8")
-        runs_on = re.search(r"^    runs-on: (.*vars\.NIGHTLY_NEXT_TRAIN_RUNNER.*)$", text, re.M)
-        self.assertIsNotNone(runs_on)
-        self.assertIn("!startsWith(vars.NIGHTLY_NEXT_TRAIN_RUNNER, 'macos-') && vars.NIGHTLY_NEXT_TRAIN_RUNNER || "
-                      "'blacksmith-6vcpu-macos-26'", runs_on.group(1))
+        reads = [line for line in text.splitlines() if "vars.NIGHTLY_NEXT_TRAIN_RUNNER" in strip_comment(line)]
+        self.assertTrue(reads)
+        for line in reads:
+            with self.subTest(line=line):
+                self.assertRegex(line, r"^\s+OWNED_LABELS: ")
 
     def test_no_runner_variable_may_hold_a_hosted_mac(self):
         # vars.MACOS_RUNNER_15 and friends reach runs-on in many workflows; the

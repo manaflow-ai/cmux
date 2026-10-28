@@ -38,7 +38,10 @@ def env(**overrides: str) -> dict[str, str]:
 
 
 def runner_block(workflow: str) -> list[str]:
+    """The CMUX_CI_RUNNER_VARIABLES lines (ci-repo-variables.yml also passes runs_on_values.py its own block)."""
     text = (WORKFLOWS / workflow).read_text(encoding="utf-8")
+    text = text[text.index("CMUX_CI_RUNNER_VARIABLES: |"):]
+    text = text[:text.index("run:")]
     return re.findall(r"^\s+([A-Z0-9_]+=\$\{\{ vars\.[^\n]*)$", text, re.M)
 
 
