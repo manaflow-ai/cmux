@@ -31,6 +31,18 @@ impl Hub {
         }
         let own = if names_hosts { crate::pairing::machine_name() } else { "local".into() };
         let shown = names_hosts.then_some(own.as_str());
+        // A mux id is already an exact key. Read only the local row or the
+        // cached peer row instead of rebuilding the full list; this is the
+        // native app's single-session path and also works while a peer is
+        // offline.
+        if !bead_only {
+            let exact = self.session_summaries_of(&[query.to_owned()]);
+            if let Some(summary) = exact.get(query) {
+                let shown = names_hosts.then_some(own.as_str());
+                let session = card(summary, shown);
+                return Ok(json!({"session": session.clone(), "matches": [session], "link": null}));
+            }
+        }
         let summaries = self.all_session_summaries();
         if bead_only {
             if !crate::beads::is_bead_id(query) {

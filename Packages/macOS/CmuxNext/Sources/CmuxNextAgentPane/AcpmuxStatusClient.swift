@@ -76,16 +76,45 @@ nonisolated enum AcpmuxStatusClient {
         var pageParams = params
         pageParams["limit"] = pageSize
         var cursor: String?
-        var seen: Set<String> = []
+        var seenCursors: Set<String> = []
+        var seenRows: Set<String> = []
         var rows: [[String: Any]] = []
-        while true {
+        let end = ContinuousClock.now + deadline
+        while true { // wakeup-allow: each pass awaits one bounded socket reply; EOF, error, cursor completion, or deadline ends it
             if let cursor { pageParams["cursor"] = cursor } else { pageParams.removeValue(forKey: "cursor") }
-            let result = try await sessions(socketPath: socketPath, deadline: deadline, params: pageParams).value
-            rows += (result["sessions"] as? [[String: Any]]) ?? []
+            let remaining = end - ContinuousClock.now
+            guard remaining > .zero else { throw Failure.rpc("_acpmux/sessions deadline exceeded") }
+            let result = try await sessions(socketPath: socketPath, deadline: remaining, params: pageParams).value
+            guard let page = result["sessions"] as? [[String: Any]] else {
+                throw Failure.rpc("_acpmux/sessions returned no sessions page")
+            }
+            for row in page {
+                guard let id = row["sessionId"] as? String, !id.isEmpty else {
+                    throw Failure.rpc("_acpmux/sessions returned a row without sessionId")
+                }
+                let key = "\(row["peer"] as? String ?? "")/\(row["qualifiedSessionId"] as? String ?? id)"
+                if seenRows.insert(key).inserted { rows.append(row) }
+            }
             guard let next = (result["nextCursor"] as? String).flatMap({ $0.isEmpty ? nil : $0 }) else { return rows }
-            guard seen.insert(next).inserted else { return rows }
+            guard seenCursors.insert(next).inserted else {
+                throw Failure.rpc("_acpmux/sessions returned a repeated cursor")
+            }
             cursor = next
         }
+    }
+
+    /// `_acpmux/resolve` for one exact mux session id. Resolve reads the local
+    /// daemon's cached peer rows, so a closed chat remains addressable while its
+    /// peer is offline; unlike `_acpmux/info`, it never forwards to that peer.
+    @concurrent static func sessionSummary(socketPath: String, sessionId: String,
+                                           deadline: Duration = .seconds(2)) async throws -> [String: Any] {
+        let result = try await call(socketPath: socketPath, method: "_acpmux/resolve",
+                                    params: ["query": sessionId], deadline: deadline)
+        guard let summary = result["session"] as? [String: Any],
+              summary["sessionId"] as? String == sessionId else {
+            throw Failure.rpc("acpmux session not found: \(sessionId)")
+        }
+        return summary
     }
 
     /// `_acpmux/info` for exactly one session. `waitLogs: false` keeps this
@@ -158,7 +187,7 @@ nonisolated enum AcpmuxStatusClient {
     /// folder the page names.
     @concurrent static func sessionFolder(socketPath: String, sessionId: String,
                                           deadline: Duration = .seconds(5)) async throws -> AgentPaneSessionFolder? {
-        let result = try await sessionInfo(socketPath: socketPath, sessionId: sessionId, deadline: deadline)
+        let result = try await sessionSummary(socketPath: socketPath, sessionId: sessionId, deadline: deadline)
         return AgentPaneSessionFolder(sessionId: sessionId, info: result)
     }
 

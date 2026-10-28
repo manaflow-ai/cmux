@@ -34,8 +34,8 @@ public nonisolated struct AgentPaneSessionFolder: Equatable, Sendable {
     private init(entry: [String: Any], cwd: String) {
         let hostKind = entry["hostKind"] as? String
         let named = { (key: String) in entry[key].map { !($0 is NSNull) && ($0 as? Bool) != false && ($0 as? String) != "" } ?? false }
-        // The page's rule (sessionList.ts): local when marked local, or when
-        // unmarked and naming no host and no peer.
-        self.init(cwd: cwd, isLocal: hostKind == "local" || (hostKind == nil && !named("host") && !named("peer")))
+        // Resolve cards include the local machine's host name, so a missing
+        // peer remains authoritative for a local row.
+        self.init(cwd: cwd, isLocal: hostKind == "local" || (hostKind == nil && !named("peer") && (!named("host") || entry["peer"] as? String == nil)))
     }
 }

@@ -79,18 +79,14 @@ public nonisolated struct AcpmuxSessionCensus: Sendable, Equatable {
 /// ending its agents for Quit Everything.
 public nonisolated struct AcpmuxQuit {
     public nonisolated init() {}
-    /// The statuses that can still have an agent process. Filtering before
-    /// paging avoids every closed chat and keeps peer rows out of the quit
-    /// census; local summaries have no `peer` field.
-    private static let activeStatuses = ["ready", "running", "waiting"]
-
     @concurrent private static func activeSessions(socketPath: String, deadline: Duration) async throws -> [[String: Any]] {
-        var rows: [[String: Any]] = []
-        for status in activeStatuses {
-            let page = try await AcpmuxStatusClient.sessionPages(socketPath: socketPath, params: ["status": status], deadline: deadline)
-            rows += page.filter { ($0["peer"] as? String)?.isEmpty != false && $0["status"] as? String == status }
+        // Read one cursor-consistent snapshot, then discard peer and closed
+        // rows. Querying each live status separately can miss a session that
+        // changes status between requests and drops idle Chief hosts.
+        let rows = try await AcpmuxStatusClient.sessionPages(socketPath: socketPath, deadline: deadline)
+        return rows.filter {
+            ($0["peer"] as? String)?.isEmpty != false && ($0["status"] as? String) != "closed"
         }
-        return rows
     }
 
     private static func result(_ rows: [[String: Any]]) -> [String: Any] { ["sessions": rows] }

@@ -2963,6 +2963,12 @@ async fn an_agent_link_resolves_to_its_session_here_or_on_a_peer() {
     assert_eq!(hosts, [&Value::Null, &json!("b")], "{r}");
     assert_eq!(far_agent, near_agent, "the stand-in's ids changed; this test assumes they repeat");
 
+    // An exact mux id uses the narrow cached-row path, including for a peer
+    // row that remains available while the peer is not serving an info call.
+    let r = ca.call("_acpmux/resolve", json!({"query": far})).await.unwrap();
+    assert_eq!(r["session"]["sessionId"], far, "{r}");
+    assert_eq!(r["session"]["peer"], "b", "{r}");
+
     // A peer's session, from the native link the app opens: the host it names ranks first.
     let native = format!("cmux://agent/{family}/{far_agent}?host=b");
     let r = ca.call("_acpmux/resolve", json!({"query": native})).await.unwrap();
