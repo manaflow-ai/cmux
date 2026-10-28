@@ -176,6 +176,11 @@ test("switching chats with the Inspector open replays none of the next chat's ta
   });
   const rows = () => entering(container, "li.acpmux-chat-inspector-task--command");
   expect(rows()).toEqual(["tsc:-"]);
+  // The next chat was left with its Inspector open: a chat with none saved shows it closed (#26692).
+  localStorage.setItem(
+    "cmux.agentPane.inspector.pane.other-session",
+    JSON.stringify({ open: true, width: 320, at: Date.now(), v: 2 }),
+  );
   await act(async () => show(second, [process("other-session/b", "pytest -x")]));
   expect(rows()).toEqual(["pytest:-"]);
 });

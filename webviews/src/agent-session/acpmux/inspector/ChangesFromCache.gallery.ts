@@ -73,6 +73,8 @@ const chipHost: ChipHostFixture = {
 const native = { "pane.tabState": { inspector: true } };
 
 const settled: Play = async (ctx) => {
+  // Session Info opens only on the viewer's click (#26692).
+  await ctx.click({ role: "button", name: "Session Info" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-inspector[data-presence=shown]"), { capMs: 3000 });
   await ctx.waitFor(() => ctx.document.querySelectorAll("li.acpmux-chat-inspector-pr").length >= 3, { capMs: 3000 });
 };

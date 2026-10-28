@@ -89,6 +89,8 @@ await requireBrowserLane("chat-inspector-per-pane.test.ts", async () => {
         const right = await pane!.open();
         for (const page of [left, right]) {
           await offer(page);
+          // Session Info opens only on the viewer's click (#26692).
+          await toggle(page).click();
           await shown(page).waitFor({ timeout: 10_000 });
         }
         await toggle(left).click();

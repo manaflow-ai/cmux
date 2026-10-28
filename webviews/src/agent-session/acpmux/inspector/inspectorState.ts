@@ -3,10 +3,11 @@
 // other side too when you do one... they should all be individual per pane"): a toggle, a drag or a
 // fold in one pane never reaches another. Every chat pane is its own page, so the page's copy is the
 // pane's; it is kept in localStorage under the chat's session (``bindInspectorPane``) so the pane
-// shows it again after a relaunch, and no page listens for another's writes. The last choice made in
-// any pane is the default for a pane with none of its own yet (a new chat), so the Inspector still
-// opens for a first chat and stays off for new chats once closed (Leo, 2026-10-20). With no storage
-// (a private window, a test) the page's own copy holds them.
+// shows it again after a relaunch, and no page listens for another's writes. The last width and
+// folds chosen in any pane are the defaults for a pane with none of its own yet (a new chat), but a
+// new chat starts closed: the Inspector opens only when the viewer opens it (its toggle, the
+// palette, a running line's count), never by itself over a new chat's composer (cmux #26692). With
+// no storage (a private window, a test) the page's own copy holds them.
 import { useSyncExternalStore } from "react";
 
 export type InspectorSectionId =
@@ -36,12 +37,13 @@ export const DEFAULT_SECTIONS: InspectorSections = {
   outputs: true,
 };
 
-/// The last choice made in any pane: the defaults for a pane with no state of its own. These were
-/// the one shared state before 2026-10-25, so an old install's choice is the default too.
+/// The last width and folds chosen in any pane: the defaults for a pane with no state of its own.
+/// These were the one shared state before 2026-10-25, so an old install's choice is the default too.
+/// The open key records the last open choice but is no longer a default: a new chat starts closed.
 const OPEN_KEY = "cmux.agentPane.inspector.open";
 const WIDTH_KEY = "cmux.agentPane.inspector.width";
 const SECTIONS_KEY = "cmux.agentPane.inspector.sections";
-/// Each chat's own state, one key per chat (`{ open, width, sections, at }`): a pane writes only its
+/// Each chat's own state, one key per chat (`{ open, width, sections, at, v }`): a pane writes only its
 /// chat's key, so two panes saving at once never undo each other's change.
 export const INSPECTOR_PANE_PREFIX = "cmux.agentPane.inspector.pane.";
 /// The chats that have a key, newest first: `[sessionId, savedAt]` pairs, at most ``PANES_KEPT``.
@@ -53,7 +55,10 @@ const PANE_DAYS = 30;
 
 export type InspectorState = { readonly open: boolean; readonly width: number; readonly sections: InspectorSections };
 type State = InspectorState;
-type Stored = { open?: unknown; width?: unknown; sections?: unknown; at?: unknown };
+type Stored = { open?: unknown; width?: unknown; sections?: unknown; at?: unknown; v?: unknown };
+/// The saved state's version. Before 2 a new chat saved the Inspector open without the viewer
+/// opening it (the old default), so an open from then is not the viewer's: it reads closed.
+const STORED_VERSION = 2;
 
 const clampWidth = (width: number) => Math.round(Math.min(INSPECTOR_WIDTH.max, Math.max(INSPECTOR_WIDTH.min, width)));
 const widthOf = (value: unknown) =>
@@ -80,7 +85,11 @@ function parse(raw: string | null): unknown {
 function storedState(raw: string | null): State | undefined {
   const stored = parse(raw) as Stored | undefined;
   if (!stored || typeof stored !== "object" || typeof stored.open !== "boolean") return undefined;
-  return { open: stored.open, width: widthOf(stored.width), sections: sectionsOf(stored.sections) };
+  return {
+    open: stored.open && stored.v === STORED_VERSION,
+    width: widthOf(stored.width),
+    sections: sectionsOf(stored.sections),
+  };
 }
 
 /// One pane's Inspector state: what it shows, and the chat it is saved under while that chat has a
@@ -115,9 +124,9 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
       return [];
     }
   };
-  /// Open unless the viewer closed it: a first chat shows it.
+  /// Closed until the viewer opens it, with the last width and folds.
   const defaults = (): State => ({
-    open: read(OPEN_KEY) !== "0",
+    open: false,
     width: widthOf(Number(read(WIDTH_KEY))),
     sections: sectionsOf(parse(read(SECTIONS_KEY))),
   });
@@ -153,7 +162,7 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
   /// chat's state.
   const save = (sessionId: string, next: State) => {
     const now = Date.now();
-    write(INSPECTOR_PANE_PREFIX + sessionId, JSON.stringify({ ...next, at: now }));
+    write(INSPECTOR_PANE_PREFIX + sessionId, JSON.stringify({ ...next, at: now, v: STORED_VERSION }));
     const others = adoptStrays(indexOf())
       .filter(([id]) => id !== sessionId)
       .sort((a, b) => b[1] - a[1]);
@@ -184,6 +193,15 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
   let peeked: { key: string; raw: string | null; state: State | undefined } | undefined;
   const listeners = new Set<() => void>();
   const current = (): State => (state ??= defaults());
+  /// What the pane shows, closed: a new chat's state when the pane leaves another chat. The same
+  /// object while the pane's state is, so a snapshot read twice is equal.
+  let closedOf: { from: State; to: State } | undefined;
+  const closed = (): State => {
+    const from = current();
+    if (!from.open) return from;
+    if (closedOf?.from !== from) closedOf = { from, to: { ...from, open: false } };
+    return closedOf.to;
+  };
   const update = (next: State, persist: boolean) => {
     if (persist && pane) save(pane, next);
     const changed = next !== state;
@@ -194,29 +212,33 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
     current,
     /// What the pane shows for chat `sessionId`, read before the pane is bound to it, so a pane
     /// switched to another chat draws that chat's state from its first frame: the chat's saved
-    /// state, else what the pane shows now (a new chat inherits it).
+    /// state, else, for a chat with none, what the pane shows now closed (a new chat never opens
+    /// the Inspector by itself). A pane with no chat yet getting its first session is the same chat:
+    /// it keeps what it shows (the viewer may have opened it before the first prompt).
     shownFor(sessionId: string | undefined): State {
-      if (!sessionId || sessionId === pane) return current();
+      if (!sessionId) return pane ? closed() : current();
+      if (sessionId === pane) return current();
       const key = INSPECTOR_PANE_PREFIX + sessionId;
       const raw = read(key);
       if (peeked?.key !== key || peeked.raw !== raw) peeked = { key, raw, state: storedState(raw) };
-      return peeked.state ?? current();
+      return peeked.state ?? (pane ? closed() : current());
     },
     subscribe(listener: () => void) {
       listeners.add(listener);
       return () => void listeners.delete(listener);
     },
     /// The pane shows chat `sessionId` (a relaunch, a new chat's first session, another chat in the
-    /// pane): it shows that chat's saved state, or keeps what it shows and saves it as the chat's.
-    /// No session (a new chat not started yet, a harness switch): nothing is saved until one comes,
-    /// and the pane keeps what it shows.
+    /// pane): it shows that chat's saved state, or saves what it shows as the chat's, closed when the
+    /// pane left another chat for it. No session (a new chat not started yet, a harness switch):
+    /// nothing is saved until one comes, and a pane that left a chat shows the new one closed.
     bind(sessionId: string | undefined) {
       if (sessionId === pane) return;
+      const left = pane !== undefined;
       pane = sessionId || undefined;
-      if (!pane) return;
-      const saved = storedState(read(INSPECTOR_PANE_PREFIX + pane));
-      if (saved) update(saved, false);
-      else save(pane, current());
+      const saved = pane ? storedState(read(INSPECTOR_PANE_PREFIX + pane)) : undefined;
+      if (saved) return update(saved, false);
+      if (left) update(closed(), false);
+      if (pane) save(pane, current());
     },
     setOpen(open: boolean) {
       write(OPEN_KEY, open ? "1" : "0");
@@ -241,6 +263,7 @@ export function createInspectorStore(storage: () => Storage | undefined = () => 
       pane = undefined;
       state = undefined;
       peeked = undefined;
+      closedOf = undefined;
       update(defaults(), false);
     },
   };

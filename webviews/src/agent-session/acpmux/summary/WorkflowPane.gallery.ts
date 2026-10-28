@@ -28,10 +28,12 @@ const paneSnapshot = (stage: WorkflowFixtureStage) => {
     { isWorking: stage === "running", title: "Dynamic workflows" },
   );
 };
-/// The app offers Session Info (Debug Settings `agent.inspector`, on by default): it opens shown.
+/// The app offers Session Info (Debug Settings `agent.inspector`, on by default); it opens on the
+/// viewer's click (#26692).
 const native = { "pane.tabState": { inspector: true } };
 const shown: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-card"), { capMs: 3000 });
+  if (!ctx.document.querySelector(".acpmux-chat-inspector")) await ctx.click({ role: "button", name: "Session Info" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-workflow-task"), { capMs: 3000 });
 };
 

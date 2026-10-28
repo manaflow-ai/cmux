@@ -288,7 +288,7 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
 
   type Page = Awaited<ReturnType<typeof recordingPage>>;
   /// Where the chat lists its background tasks: the Inspector's section (the App pushes Debug
-  /// Settings `agent.inspector` with the header state; the Inspector opens by default), or, with it
+  /// Settings `agent.inspector` with the header state; the viewer opens it from its toggle), or, with it
   /// off, the summary card's under the header's Chat summary.
   const surfaces = {
     inspector: {
@@ -298,6 +298,10 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
             window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } }
           ).cmuxAcpmuxBridge.applyHeaderState({ inspector: true, version: 2 }),
         );
+        // It opens only on the viewer's click (#26692).
+        const toggle = page.locator("button.acpmux-chat-inspector-toggle");
+        await toggle.waitFor({ timeout: 5_000 });
+        if ((await page.locator("aside.acpmux-chat-inspector").count()) === 0) await toggle.click();
         const section = page.locator('aside.acpmux-chat-inspector section[data-section="tasks"]');
         await section.waitFor({ timeout: 5_000 });
         return section;
