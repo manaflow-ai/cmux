@@ -210,6 +210,7 @@
    useLocationPopover), so the list fits the room the positioner reports there, less Choose folder…
    and the menu's padding. */
 .acpmux-location-menu .ui-combobox-viewport {
+  height: min(260px, 45vh, calc(100vh - 60px), calc(var(--available-height, 100vh) - 60px));
   max-height: max(0px, min(260px, 45vh, calc(100vh - 60px), calc(var(--available-height, 100vh) - 60px)));
   overflow: auto;
 }
