@@ -11,6 +11,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -24,11 +25,17 @@ const keys = [
   "Node",
   "MouseEvent",
   "KeyboardEvent",
+  "InputEvent",
+  "FocusEvent",
   "PointerEvent",
   "Event",
   "CustomEvent",
   "MutationObserver",
   "ResizeObserver",
+  "getSelection",
+  "addEventListener",
+  "removeEventListener",
+  "dispatchEvent",
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
@@ -44,6 +51,7 @@ let refreshes = 0;
 beforeAll(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
   Object.assign(scope, {
+    ...proseMirrorGlobals(dom.window as unknown as Window & typeof globalThis),
     window: dom.window,
     document: dom.window.document,
     navigator: dom.window.navigator,
@@ -54,6 +62,8 @@ beforeAll(() => {
     Node: dom.window.Node,
     MouseEvent: dom.window.MouseEvent,
     KeyboardEvent: dom.window.KeyboardEvent,
+    InputEvent: dom.window.InputEvent,
+    FocusEvent: dom.window.FocusEvent,
     PointerEvent: dom.window.MouseEvent,
     Event: dom.window.Event,
     CustomEvent: dom.window.CustomEvent,
@@ -67,6 +77,12 @@ beforeAll(() => {
     requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
     cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
     localStorage: dom.window.localStorage,
+    // The New Tab field is the composer's Markdown field (ProseMirror): it reads the selection and
+    // its editor (Milkdown) signals its own steps with this window's CustomEvent on the global
+    // event target, so that target is this window too.
+    addEventListener: dom.window.addEventListener.bind(dom.window),
+    removeEventListener: dom.window.removeEventListener.bind(dom.window),
+    dispatchEvent: dom.window.dispatchEvent.bind(dom.window),
   });
   host = dom.window.document.getElementById("root")!;
 });

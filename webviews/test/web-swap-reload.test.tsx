@@ -11,7 +11,7 @@ import { act, createRef, useState } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
-import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
+import { inlineTokenIds, withoutInlineTokens, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import { useWebSwapHold } from "../src/pages/shared/useWebSwapHold";
 import { KEPT_ATTACHMENTS_SETTLE_MS, type KeptAttachments } from "../src/agent-session/acpmux/composer/keptAttachments";
 import {
@@ -198,6 +198,17 @@ async function settle() {
 }
 
 const prompt = () => host.querySelector('[role="combobox"]')?.textContent ?? "";
+/// The prompt's own words: its text without the attachments placed in it (their chips draw names).
+const words = () => {
+  const copy = host.querySelector('[role="combobox"]')?.cloneNode(true) as HTMLElement | undefined;
+  for (const node of copy?.querySelectorAll("[data-inline-attachment]") ?? []) node.remove();
+  return copy?.textContent ?? "";
+};
+/// The attachments placed in the prompt, by id, in its order.
+const placed = () =>
+  [...host.querySelectorAll<HTMLElement>('[role="combobox"] [data-inline-attachment]')].map(
+    (node) => node.dataset.inlineAttachment,
+  );
 const chips = (handle: React.RefObject<ComposerHandle | null>) => handle.current?.wakeState().attachments ?? [];
 
 test("a swap's reload keeps the composer's draft and its chips", async () => {
@@ -214,12 +225,19 @@ test("a swap's reload keeps the composer's draft and its chips", async () => {
   await settle();
   // Kept with the chat (acpmux has the text, the host the chips): the page may reload.
   expect(hold()).toBeNull();
-  expect(drafts.get("chat-a")).toBe("compare these cars");
+  // The draft keeps each attachment's place in the text (the attachments went in after the words).
+  const draft = drafts.get("chat-a") ?? "";
+  expect(withoutInlineTokens(draft)).toBe("compare these cars");
+  expect(inlineTokenIds(draft)).toEqual(["shot-1", "shot-2", "link-notes"]);
 
   closePage();
   const reloaded = await openPage("chat-a", store);
-  expect(prompt()).toBe("compare these cars");
+  expect(words()).toBe("compare these cars");
   expect(chips(reloaded).map((chip) => chip.id)).toEqual(["shot-1", "shot-2", "link-notes"]);
+  // Each is back at its place in the text, drawn there, not as its token's characters.
+  await settle();
+  expect(placed()).toEqual(["shot-1", "shot-2", "link-notes"]);
+  expect(prompt()).not.toContain("\uFFFC");
   expect(
     chips(reloaded)
       .slice(0, 2)

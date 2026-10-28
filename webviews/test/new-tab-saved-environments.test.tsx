@@ -9,6 +9,8 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -28,6 +30,10 @@ const keys = [
   "CustomEvent",
   "MutationObserver",
   "ResizeObserver",
+  "getSelection",
+  "addEventListener",
+  "removeEventListener",
+  "dispatchEvent",
   "getComputedStyle",
   "requestAnimationFrame",
   "cancelAnimationFrame",
@@ -52,13 +58,11 @@ beforeAll(() => {
     HTMLInputElement: dom.window.HTMLInputElement,
     HTMLTextAreaElement: dom.window.HTMLTextAreaElement,
     Element: dom.window.Element,
-    Node: dom.window.Node,
     MouseEvent: dom.window.MouseEvent,
     KeyboardEvent: dom.window.KeyboardEvent,
     PointerEvent: dom.window.MouseEvent,
     Event: dom.window.Event,
     CustomEvent: dom.window.CustomEvent,
-    MutationObserver: dom.window.MutationObserver,
     ResizeObserver: class {
       observe() {}
       unobserve() {}
@@ -68,6 +72,12 @@ beforeAll(() => {
     requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
     cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
     localStorage: dom.window.localStorage,
+    ...proseMirrorGlobals(dom.window as unknown as Window & typeof globalThis),
+    // Milkdown (the field's editor) times its setup with global CustomEvents on the global
+    // target: they are jsdom's here, so the target is jsdom's window too.
+    addEventListener: dom.window.addEventListener.bind(dom.window),
+    removeEventListener: dom.window.removeEventListener.bind(dom.window),
+    dispatchEvent: dom.window.dispatchEvent.bind(dom.window),
   });
   host = dom.window.document.getElementById("root")!;
 });
@@ -208,11 +218,27 @@ const folderButton = () =>
   host.querySelector<HTMLButtonElement>(`.acpmux-composer-context button[aria-label="${t("composer.folder")}"]`);
 const rows = () => $$(".acpmux-env-popover .acpmux-menu-item");
 const row = (text: string) => rows().find((item) => item.querySelector(".acpmux-menu-label")?.textContent === text);
-const ask = async (text: string) => {
-  const field = host.querySelector<HTMLTextAreaElement>(".nt-field");
-  await type(field, text);
+/// The New Tab prompt (the composer's Markdown field), once its editor is made.
+const prompt = async () => {
+  const field = host.querySelector<MarkdownFieldElement>(".nt-field");
+  expect(field).toBeTruthy();
+  for (let turn = 0; turn < 200 && !(field!.acpmuxMarkdownField && field!.querySelector("[contenteditable]")); turn++)
+    await settle();
+  return field!;
+};
+const typePrompt = async (text: string) => {
+  const field = await prompt();
   await act(async () => {
-    field!.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    field.acpmuxMarkdownField!.focus();
+    field.acpmuxMarkdownField!.type(text);
+  });
+  await settle();
+  return field.querySelector<HTMLElement>("[contenteditable]")!;
+};
+const ask = async (text: string) => {
+  const editor = await typePrompt(text);
+  await act(async () => {
+    editor.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
   });
   await settle();
 };
@@ -292,7 +318,7 @@ test("a refused worktree shows the host's reason, starts nothing and keeps the p
   await ask("fix the build");
   expect(host.querySelector('[role="alert"]')?.textContent).toContain("not a git repository");
   expect(calls.some((call) => call.method === "chat.new")).toBe(false);
-  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")?.value).toBe("fix the build");
+  expect(host.querySelector<MarkdownFieldElement>(".nt-field")?.acpmuxMarkdownField?.value()).toBe("fix the build");
 });
 
 test("picking a machine instead clears the saved environment", async () => {
@@ -314,7 +340,7 @@ test("picking another machine acpmux lists starts the chat there", async () => {
   await click(row("devbox"));
   expect(environmentButton()?.getAttribute("aria-label")).toBe(`${t("composer.environment")}: devbox`);
   // The prompt takes the keyboard back, as after a folder pick.
-  expect(doc().activeElement).toBe(host.querySelector(".nt-field"));
+  expect(doc().activeElement).toBe(host.querySelector(".nt-field [contenteditable]"));
   await ask("tail the logs");
   const asked = calls.find((call) => call.method === "chat.new")!.params!;
   expect(asked).toMatchObject({ harness: "claude", peer: "devbox" });
@@ -426,7 +452,7 @@ test("New chat after a refused worktree leaves the page's create buttons working
   const calls = await mount({ worktree: "refused" });
   await click(environmentButton());
   await click(row("API worktree"));
-  await type(host.querySelector<HTMLTextAreaElement>(".nt-field"), "fix the build");
+  await typePrompt("fix the build");
   await click(host.querySelector('[data-create="chat"]'));
   expect(host.querySelector('[role="alert"]')?.textContent).toContain("not a git repository");
   await click(host.querySelector('[data-create="terminal"]'));

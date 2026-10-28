@@ -22,7 +22,7 @@ import { Close, FileDoc, ImageIcon, Spinner } from "../conversation/icons";
 import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { pasteLines, pasteName } from "../conversation/promptCollapse";
-import { keptThumb } from "./imagePool";
+import { keptThumb, keepThumb } from "./imagePool";
 import { useStripReorder } from "./stripReorder";
 import { intakeFiles, type IntakeError } from "./intakeFiles";
 import { type DropOverlayState, HIDDEN_DROP, landDropOverlay, stepDropOverlay } from "./dropOverlayState";
@@ -59,6 +59,7 @@ function intakeErrorText(error: IntakeError, t: Translate): string {
 }
 
 export type AttachmentIntakeOptions = {
+  place?(chips: readonly PendingAttachment[]): void;
   /// The agent takes images (`promptCapabilities.image`); false refuses an image with a note.
   allowImages: boolean;
   /// Whether a paste on `target` is this composer's: undefined is not; `uploads` false keeps its
@@ -151,6 +152,9 @@ export function chipRemoved(state: {
   return !state.strip.some((attachment) => attachment.id === state.chip);
 }
 
+/// Reads `given` into chips (useAttachmentIntake's `attach`); `again`, a failed chip's Retry.
+type Intake = (given: (File | MadeFile)[], uploads?: boolean, kind?: DroppedKind, again?: string) => Promise<void>;
+
 /// `file`: a promise while its bytes are still being made (MadeFile).
 type PendingSource = { file: File | Promise<File>; uploads: boolean };
 
@@ -213,15 +217,17 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// `uploads`: the person dropped, pasted or chose these, so the chat's host may save what the
   /// composer can't attach (a moved chat's machine, or this Mac for a local chat) and its chip sends
   /// the saved path (composer/intakeFiles.ts); never a capture. `kind`: the person's own drop or
-  /// paste, whose files the host of a chat on this Mac knows the paths of (`localPaths`).
-  const [attach] = useState(() => async (given: (File | MadeFile)[], uploads = false, kind?: DroppedKind) => {
+  /// paste, whose files the host of a chat on this Mac knows the paths of (`localPaths`). `again`:
+  /// the failed chip whose file `given` is, read again under its id (Retry): it keeps its place in
+  /// the strip and in the text, and its node there draws what the read makes.
+  const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again) => {
     if (given.length === 0) return;
-    const files = given;
+    const files = again === undefined ? given : given.slice(0, 1);
     const { options: current } = live.current;
     const batch = { scope: current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
     const shown: PendingAttachment[] = files.map((file) => ({
-      id: crypto.randomUUID(),
+      id: again ?? crypto.randomUUID(),
       name: file.name,
       image: isImageFile(file),
       scope: batch.scope,
@@ -231,8 +237,18 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       sources.current.set(chip.id, { file: isMadeFile(file) ? file.file : file, uploads });
     });
     const gesture = (gestures.current += 1);
+    // Paste order: a chip read again keeps the place its paste gave it.
+    shown.forEach((chip, index) => {
+      if (!places.current.has(chip.id)) places.current.set(chip.id, gesture * 100_000 + index);
+    });
     batches.current.add(batch);
-    setPending((chips) => [...chips, ...shown]);
+    // A chip read again is the same chip loading again, in one render: never gone for a frame, so
+    // the text's node of it stays (inlineAttachments.tsx).
+    if (again !== undefined) setPending((chips) => chips.map((chip) => (chip.id === again ? shown[0]! : chip)));
+    else {
+      setPending((chips) => [...chips, ...shown]);
+      current.place?.(shown);
+    }
     const paths = current.localPaths;
     /// The chip each file became, by index, for its original's path arriving later.
     const made: (string | undefined)[] = [];
@@ -248,6 +264,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     };
     const ready = (index: number, attachment: ComposerAttachment) => {
       if (!settle(index)) return;
+      const thumb = keptThumb(attachment.id);
+      if (thumb) keepThumb(shown[index]!.id, thumb);
+      attachment = { ...attachment, id: shown[index]!.id };
       made[index] = attachment.id;
       // The composer moved to another chat meanwhile: the chip is the chat's it was pasted in.
       const now = live.current.options;
@@ -256,8 +275,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
         return;
       }
       // In paste order, whichever file was ready first: before the first staged chip pasted after it.
-      const place = gesture * 100_000 + index;
-      places.current.set(attachment.id, place);
+      const place = places.current.get(attachment.id)!;
       staged.add(attachment.id);
       setAttachments((staged) => {
         const at = staged.findIndex((chip) => (places.current.get(chip.id) ?? -1) > place);
@@ -328,20 +346,25 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       });
     }
   });
+  const [attach] = useState(
+    () =>
+      (given: (File | MadeFile)[], uploads = false, kind?: DroppedKind) =>
+        intake(given, uploads, kind),
+  );
   /// A pending chip's ×: it goes, and whatever its read makes later is dropped.
   const [cancel] = useState(() => (id: string) => {
     sources.current.delete(id);
     setPending((chips) => chips.filter((chip) => chip.id !== id));
   });
-  /// A failed chip's Retry: its file is read again (and uploaded again when it was).
+  /// A failed chip's Retry: its file is read again (and uploaded again when it was) as the same chip,
+  /// where it was: a retry read as a new paste went in at the caret, or nowhere (review of #26545).
   const [retry] = useState(() => (id: string) => {
     const source = sources.current.get(id);
     const file = source?.file;
     // A file whose bytes were never made (making them failed) has nothing to retry.
     if (!source || !file || "then" in file) return;
-    cancel(id);
     // Without the paste's kind: the host's record of where its files are was for that gesture only.
-    void attach([file], source.uploads);
+    void intake([file], source.uploads, undefined, id);
   });
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
@@ -460,7 +483,14 @@ function pasteTextInto(event: ClipboardEvent, text: string) {
 /// image goes without reaching for its ×. A held key's repeat does not: holding Backspace to
 /// clear the prompt stops at its start.
 export function backspacedAttachment(
-  event: { key: string; repeat: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean },
+  event: {
+    key: string;
+    repeat: boolean;
+    shiftKey: boolean;
+    altKey: boolean;
+    metaKey: boolean;
+    ctrlKey: boolean;
+  },
   atStart: boolean,
   attachments: readonly ComposerAttachment[],
 ): ComposerAttachment | undefined {
@@ -511,7 +541,13 @@ export function AttachmentStrip({
     const chip = chips.find((attachment) => attachment.id === id);
     reorderTo.current?.(id, index);
     if (chip)
-      setAnnounced(translate(ATTACHMENT_LABELS.moved, { name: chip.name, position: index + 1, count: chips.length }));
+      setAnnounced(
+        translate(ATTACHMENT_LABELS.moved, {
+          name: chip.name,
+          position: index + 1,
+          count: chips.length,
+        }),
+      );
   });
   const reorderTo = useRef(onReorder);
   reorderTo.current = onReorder;

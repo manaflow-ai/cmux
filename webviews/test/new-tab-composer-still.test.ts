@@ -239,14 +239,16 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
       transfer.items.add(new File([blob], "Screenshot.png", { type: "image/png" }));
       return transfer;
     });
+    // The field is the composer's Markdown prompt: the paste goes to its editable element, where it
+    // went to the textarea, and the image is a chip at the caret in the text (the default inline view).
     await page
-      .locator(".nt-field")
+      .locator(".nt-field .ProseMirror")
       .evaluate(
         (node, data) =>
           node.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true })),
         data,
       );
-    await page.locator(".nt-box .acpmux-attachments .acpmux-attachment-image").waitFor({ timeout: 10_000 });
+    await page.locator(".nt-box .nt-field [data-inline-attachment] img").waitFor({ timeout: 10_000 });
     await settled(page);
     await step(page, "now playing");
     await page.evaluate(() =>

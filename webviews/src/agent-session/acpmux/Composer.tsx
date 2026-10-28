@@ -6,7 +6,15 @@ import type { ConnectKind, OffloadKind } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
+import {
+  bindMarks,
+  placeInline,
+  withoutInlineTokens,
+  type AttachmentError,
+  type ComposerAttachment,
+  type DroppedKind,
+  type LinkItem,
+} from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { opensProcessTerminal } from "./processTerminal";
@@ -204,7 +212,11 @@ export type ComposerHandle = {
   wake(state: ComposerWake): void;
 };
 
-export type ComposerWake = { attachments?: ComposerAttachment[]; shell?: boolean; shellText?: string };
+export type ComposerWake = {
+  attachments?: ComposerAttachment[];
+  shell?: boolean;
+  shellText?: string;
+};
 
 type Props = {
   snapshot: AcpmuxSnapshot;
@@ -212,7 +224,10 @@ type Props = {
   /// (`projectDraft`) moves `snapshot`'s cwd but not the tab's until the chat starts, so the
   /// header's PR belongs to another folder then.
   headerCwd?: string;
-  chips: React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>;
+  chips: React.ComponentType<{
+    snapshot: AcpmuxSnapshot;
+    permissionAccess?: ComposerPermissionAccess;
+  }>;
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
   /// resolves and stays (for the user to send again) when it rejects, so a refusal loses nothing.
@@ -558,6 +573,9 @@ export function Composer({
     dropLanded,
     attach,
   } = useAttachmentIntake({
+    place: (chips) => {
+      if (!shell) box.current?.place(chips);
+    },
     allowImages,
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
     // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
@@ -587,6 +605,16 @@ export function Composer({
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
+  const pendingRef = useRef(pending);
+  pendingRef.current = pending;
+  /// A new chat's text as the host keeps it (`onUnsentDraft`): the person's words only. The host keeps
+  /// no attachment with it, so each attachment's token goes, a placeholder still being read included.
+  const unsentText = (value: string) =>
+    withoutInlineTokens(
+      value,
+      (id) =>
+        attachmentsRef.current.some((chip) => chip.id === id) || pendingRef.current.some((chip) => chip.id === id),
+    );
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
   const holdForAttachments = useSendWhenAttached(loading + videoReading, sessionId, unsettled + videoReading);
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
@@ -627,6 +655,11 @@ export function Composer({
     handle,
     () => ({
       restore(restoredText, restoredAttachments) {
+        const restored = bindMarks(restoredText, restoredAttachments);
+        restoredText = restored.text;
+        restoredAttachments = restored.attachments;
+        // The editor parses tokens synchronously; make their payload IDs known before replacing its document.
+        attachmentsRef.current = appendAttachments(attachmentsRef.current, restoredAttachments);
         // Put back, not typed: the Enter that sent it says nothing about this change.
         notTyped();
         // What comes back goes first; what was typed or attached since stays after it.
@@ -688,7 +721,7 @@ export function Composer({
           writePersistedDraft(session, typed);
         }
         const unsent = unsentDraft.current;
-        if (unsent) unsent.push(typed);
+        if (unsent) unsent.push(unsentText(typed));
         await Promise.all([unsent?.settle(), settlePendingDraftWrites()]);
       },
       wake(state) {
@@ -818,7 +851,10 @@ export function Composer({
   const unsentDraft = useRef<UnsentDraftThrottle | undefined>(undefined);
   useEffect(() => {
     if (sessionId || !onUnsentDraft) return;
-    const throttle = createUnsentDraftThrottle({ send: onUnsentDraft, intervalMs: UNSENT_DRAFT_INTERVAL_MS });
+    const throttle = createUnsentDraftThrottle({
+      send: onUnsentDraft,
+      intervalMs: UNSENT_DRAFT_INTERVAL_MS,
+    });
     unsentDraft.current = throttle;
     const flush = () => throttle.flush();
     const hidden = () => {
@@ -835,7 +871,7 @@ export function Composer({
     };
   }, [sessionId, onUnsentDraft]);
   useEffect(() => {
-    unsentDraft.current?.push(text);
+    unsentDraft.current?.push(unsentText(text));
   }, [text, sessionId, onUnsentDraft]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
@@ -881,7 +917,12 @@ export function Composer({
     () =>
       mentionWord === undefined
         ? []
-        : mentionItems({ query: mentionWord, files: mentionFiles, sessions: snapshot.sessions, chatId }),
+        : mentionItems({
+            query: mentionWord,
+            files: mentionFiles,
+            sessions: snapshot.sessions,
+            chatId,
+          }),
     [mentionWord, mentionFiles, snapshot.sessions, chatId],
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
@@ -967,8 +1008,11 @@ export function Composer({
     if (holdForAttachments(() => submitNow.current(force, steer))) return false;
     // The field holds markdown with its typed text escaped; the agent gets the text as typed.
     const draftText = unwrapped();
-    const prompt = (field.current?.agentText(draftText) ?? draftText).trim();
-    if (!prompt && attachments.length === 0) {
+    const placed = placeInline((field.current?.agentText(draftText) ?? draftText).trim(), attachments, {
+      dropped: (id) => pending.some((chip) => chip.id === id),
+    });
+    const prompt = placed.text;
+    if (!prompt.trim() && placed.attachments.length === 0) {
       plusDraft.current = undefined;
       return false;
     }
@@ -1019,6 +1063,7 @@ export function Composer({
       }
       // By id: a chip patched after it went (its original's path arriving) is still the one sent.
       const went = new Set(attachments.map((attachment) => attachment.id));
+      box.current?.sent(went);
       setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
       setAttachError(undefined);
       plusDraft.current = undefined;
@@ -1030,12 +1075,13 @@ export function Composer({
     // The key that sent it is spent: what the composer writes back after the send is not typing.
     notTyped();
     unsentDraft.current?.flush();
-    const sent = attachments;
-    const taken = onSend(prompt, sent, steer);
+    const sent = placed.attachments;
+    const taken = onSend(placed.text, sent, steer);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
       const went = new Set(sent.map((attachment) => attachment.id));
+      box.current?.sent(went);
       setAttachments((current) => current.filter((attachment) => !went.has(attachment.id)));
       setAttachError(undefined);
       plusDraft.current = undefined;
@@ -1554,8 +1600,18 @@ export function Composer({
     onEdit?.(command);
   };
   const fieldMenu: ContextMenuItem[] = [
-    { id: "undo", label: t(COMPOSER_LABELS.undo), disabled: !fieldHistory.undo, onSelect: () => runField("undo") },
-    { id: "redo", label: t(COMPOSER_LABELS.redo), disabled: !fieldHistory.redo, onSelect: () => runField("redo") },
+    {
+      id: "undo",
+      label: t(COMPOSER_LABELS.undo),
+      disabled: !fieldHistory.undo,
+      onSelect: () => runField("undo"),
+    },
+    {
+      id: "redo",
+      label: t(COMPOSER_LABELS.redo),
+      disabled: !fieldHistory.redo,
+      onSelect: () => runField("redo"),
+    },
     {
       id: "cut",
       label: t(COMPOSER_LABELS.cut),
@@ -1569,7 +1625,12 @@ export function Composer({
       disabled: !onEdit || !fieldSelected,
       onSelect: () => runEdit("copy"),
     },
-    { id: "paste", label: t(COMPOSER_LABELS.paste), disabled: !onEdit, onSelect: () => runEdit("paste") },
+    {
+      id: "paste",
+      label: t(COMPOSER_LABELS.paste),
+      disabled: !onEdit,
+      onSelect: () => runEdit("paste"),
+    },
     {
       id: "pasteAsPlainText",
       label: t(COMPOSER_LABELS.pasteAsPlainText),
