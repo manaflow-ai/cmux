@@ -6,8 +6,10 @@
 //! most `max_in_flight` at a time; a message already being delivered is not started again. After
 //! a failed call it waits, doubling from `backoff_first` to `backoff_cap`, and logs only the
 //! first failure of a run of them and the recovery. It stops when [`MeshRelay`] is stopped or
-//! dropped, or the hub is gone; deliveries in flight then end unacked, and their leases bring
-//! them back.
+//! dropped, when the hub is gone (checked before each call), or when the hub refuses the call
+//! itself (a bad credential, a request it will never take: retrying cannot help, so it logs that
+//! once and the relay stays off until the daemon starts again); deliveries in flight then end
+//! unacked, and their leases bring them back.
 //!
 //! A message is delivered as a send here is (`outbox.rs` `attempt_once`), on a connection of
 //! `Origin::Peer`, so a relayed message is held to exactly a peer daemon's rules: it reads no
@@ -68,6 +70,11 @@ impl MeshRelay {
         Self { stop, tasks }
     }
 
+    /// Whether its loop has ended: stopped, its hub gone, or refused by the mesh hub.
+    pub fn is_finished(&self) -> bool {
+        self.tasks.iter().all(tokio::task::JoinHandle::is_finished)
+    }
+
     /// Stop it and wait for its loop to end.
     pub async fn stop(mut self) {
         let _ = self.stop.send(true);
@@ -111,6 +118,9 @@ async fn inbox(
                 () = stopped(&mut stop) => break,
             }
         }
+        if hub.strong_count() == 0 {
+            break;
+        }
         let started = Instant::now();
         // Only as many as it can deliver now: a leased message waits for its ack.
         let room = options.max_in_flight.max(1) - deliveries.len();
@@ -142,6 +152,12 @@ async fn inbox(
                     });
                 }
                 options.min_poll_gap.saturating_sub(started.elapsed())
+            }
+            Err(e) if e.refused => {
+                tracing::error!(
+                    "mesh relay: the hub refused this daemon's inbox ({e}); the relay is off until the daemon restarts"
+                );
+                break;
             }
             Err(e) => {
                 if !std::mem::replace(&mut failing, true) {

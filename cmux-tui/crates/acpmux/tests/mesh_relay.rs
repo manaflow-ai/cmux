@@ -1,7 +1,9 @@
 //! The mesh relay against a fake hub (`mesh.rs`, `server/mesh_relay.rs`): a message for a session
 //! here is delivered once and acked with its prompt id, even when the hub leases it again; a
 //! relayed message runs as a peer's and reads none of this host's peers; control messages go to
-//! the hook; and the inbox never calls a failing or impatient hub in a busy loop.
+//! the hook; a message for another host or daemon never runs here; the inbox never calls a
+//! failing or impatient hub in a busy loop, and ends when its hub is gone or the mesh hub refuses
+//! it.
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -89,6 +91,8 @@ struct FakeHub {
     down: bool,
     /// The inbox answers at once, never long-polling.
     impatient: bool,
+    /// Every inbox call is refused for good (a bad credential).
+    refusing: bool,
 }
 
 impl FakeHub {
@@ -123,6 +127,9 @@ impl MeshHub for FakeHub {
             self.with(|s| s.inbox_calls += 1);
             if self.down {
                 return Err(HubError::unavailable("the hub is down"));
+            }
+            if self.refusing {
+                return Err(HubError::refused("401 mesh.unauthorized"));
             }
             let deadline = tokio::time::Instant::now() + wait;
             loop {
@@ -234,6 +241,93 @@ async fn a_relayed_message_reads_no_peer_here_and_is_never_forwarded_to_one() {
     assert_eq!(ack.state, AckState::Refused);
     assert!(ack.detail.as_deref().is_some_and(|d| d.contains("no session")), "{ack:?}");
     assert!(!format!("{ack:?}").contains("127.0.0.1"), "a peer's address leaked: {ack:?}");
+    relay.stop().await;
+}
+
+#[tokio::test]
+async fn a_message_for_another_host_or_a_daemon_is_never_given_to_a_session_here_of_its_name() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    let to = |target: Target| InMessage { to: target, ..message("", "", Kind::Prompt) };
+    let named = |host: Option<&str>, daemon: Option<&str>| Target {
+        name: Some("dep-land".into()),
+        host: host.map(str::to_owned),
+        daemon_id: daemon.map(str::to_owned),
+        ..Target::default()
+    };
+    let refused = [
+        ("other-host", named(Some("other-host"), None)),
+        ("other-daemon", named(None, Some("inst_other"))),
+        ("other-prefix", Target { name: Some("other-host/dep-land".into()), ..Target::default() }),
+    ];
+    for (id, target) in refused {
+        fake.lease(InMessage { message_id: id.into(), ..to(target) });
+        fake.until(id, |s| !s.acked(id).is_empty()).await;
+        assert_eq!(fake.with(|s| s.acked(id)[0].state), AckState::Refused, "{id}");
+    }
+    let own = acpmux::pairing::machine_name();
+    let mut ran = 0;
+    if own != "host" {
+        // Its own host, as a field and as a prefix, is this one: those run.
+        let mine = [
+            ("own-host", named(Some(&own.to_uppercase()), None)),
+            ("own-prefix", Target { name: Some(format!("{own}/dep-land")), ..Target::default() }),
+        ];
+        for (id, target) in mine {
+            fake.lease(InMessage { message_id: id.into(), ..to(target) });
+            fake.until(id, |s| !s.acked(id).is_empty()).await;
+            assert_eq!(fake.with(|s| s.acked(id)[0].clone()), Ack::delivered(id, None), "{id}");
+            ran += 1;
+        }
+    }
+    let mut info = Value::Null;
+    for _ in 0..600 {
+        info = local.call("_acpmux/info", json!({"sessionId": session})).await;
+        let idle = info.pointer("/result/turn").is_none_or(Value::is_null);
+        if idle && info.pointer("/result/turnCount").and_then(Value::as_u64) >= Some(ran) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let count = info.pointer("/result/turnCount").and_then(Value::as_u64).unwrap_or(0);
+    assert_eq!(count, ran, "a message for elsewhere ran here: {info}");
+    relay.stop().await;
+}
+
+/// Waits up to 5 s for the relay's loop to end on its own.
+async fn ends(relay: &MeshRelay, what: &str) {
+    for _ in 0..100 {
+        if relay.is_finished() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the relay still runs after {what}");
+}
+
+#[tokio::test]
+async fn the_relay_ends_when_its_hub_is_gone_or_the_mesh_hub_refuses_it() {
+    // The hub is dropped while the inbox is empty: the loop ends instead of polling on.
+    let gone = hub();
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&gone, fake.clone(), Arc::new(RefuseControl), quick());
+    fake.until("the first inbox call", |s| s.inbox_calls > 0).await;
+    drop(gone);
+    ends(&relay, "its hub is gone").await;
+    let calls = fake.with(|s| s.inbox_calls);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(fake.with(|s| s.inbox_calls), calls);
+
+    // A refusal (a bad credential) is not retried: one call, then the relay is off.
+    let hub = hub();
+    let fake = Arc::new(FakeHub { refusing: true, ..FakeHub::default() });
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    ends(&relay, "a refusal").await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(fake.with(|s| s.inbox_calls), 1);
     relay.stop().await;
 }
 
