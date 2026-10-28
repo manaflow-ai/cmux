@@ -436,6 +436,21 @@ class NextApp:
     def hangs_clear(self):
         self.control.rpc("debug.hangs", {"clear": True}, timeout=20)
 
+    def pump_stats(self):
+        """The in-process Chromium pump's counters (debug.cef engine.pump): passes, re-entrant fires (a pass that ran
+        a nested run loop), long passes, total work ms and the p99 pass."""
+        reply = self.control.rpc("debug.cef", {}, timeout=30) or {}
+        def find(node):
+            if isinstance(node, dict):
+                if "reentrant_fires" in node and "work_runs" in node:
+                    return node
+                for v in node.values():
+                    hit = find(v)
+                    if hit is not None:
+                        return hit
+            return None
+        return find(reply)
+
     def journal_mark(self, marker):
         self.control.rpc("debug.journal", {"marker": marker, "last": 1}, timeout=20)
 
@@ -650,6 +665,9 @@ class ClassicApp:
     def hangs_clear(self):
         pass
 
+    def pump_stats(self):
+        return None
+
     def journal_mark(self, marker):
         pass
 
@@ -720,6 +738,10 @@ def run_round(app, scenario, index, sampled):
     rows_before = app.probe_rows()
     base = max([int(r["index"]) for r in rows_before if (r.get("index") or "").isdigit()], default=-1)
     app.hangs_clear()
+    try:
+        pump_before = app.pump_stats()
+    except Exception:
+        pump_before = None
     marker = f"first5s-{scenario}-{index}-{time.time_ns()}"
     try:
         app.journal_mark(marker)
@@ -752,6 +774,15 @@ def run_round(app, scenario, index, sampled):
     end_ns = NOW_NS()
     line = app.line()
     hangs = app.hangs(open_ns, end_ns)
+    try:
+        pump_after = app.pump_stats()
+    except Exception:
+        pump_after = None
+    pump_delta = None
+    if isinstance(pump_before, dict) and isinstance(pump_after, dict):
+        pump_delta = {k: round(pump_after[k] - pump_before.get(k, 0), 2) for k in ("work_runs", "reentrant_fires", "long_work_runs", "work_ms")
+                      if isinstance(pump_after.get(k), (int, float))}
+        pump_delta["pass_ms_p99"] = pump_after.get("pass_ms_p99")
     late_rows = app.input_rows("late_keys", open_ns, end_ns) if app.family == "next" else []
     round_holds = hold_delta(holds_before, app.holds() if hasattr(app, "holds") else {})
     new_tab_log = app.new_tab_log() if scenario in ("newtab", "newtabcold", "workspace", "window") and hasattr(app, "new_tab_log") else []
@@ -823,7 +854,7 @@ def run_round(app, scenario, index, sampled):
            "shells_loaded": shells_loaded(app.zdot), "probe_rows": len(rows), "keys": keys, "hangs": hangs,
            "first_frame_ms": round(first_any, 1) if first_any is not None else None,
            "first_big_frame_ms": round(first_big, 1) if first_big is not None else None,
-           "frames": frames, "journal": journal, "late_keys": late_rows, "holds": round_holds, "new_tab_log": new_tab_log[-40:],
+           "frames": frames, "journal": journal, "pump": pump_delta, "late_keys": late_rows, "holds": round_holds, "new_tab_log": new_tab_log[-40:],
            "slot_errors": [r for r in slot_rows if "error" in r][:3]}
     if sampled:
         rec["sample"] = main_thread_tree(os.path.join(app.out, f"sample-{scenario}-{index}.txt"), min_share=0.01, limit=400)
@@ -833,6 +864,12 @@ def run_round(app, scenario, index, sampled):
             note(f"      S {line}")
     probe = [k["probe_ms"] for k in keys if k["probe_ms"] is not None]
     photon = [k["photon_ms"] for k in keys if k["photon_ms"] is not None]
+    note(f"      PUMP {scenario} {index}: {json.dumps(pump_delta)}")
+    for h in ((hangs or {}).get("window") or []) if isinstance(hangs, dict) else []:
+        if h.get("all_frames"):
+            note(f"      LONG {scenario} {index}: +{h['at_ms']} ms {h['ms']} ms cpu {h['cpu_ms']} [{h['list']}]")
+            for f in h["all_frames"]:
+                note(f"        F {f[:200]}")
     note(f"  {scenario} {index}{' (sampled)' if sampled else ''}: open reply {open_reply_ms} ms, probe rows {len(rows)}, "
          f"{'ok' if ok else 'LINE ' + repr(line[-50:])}; probe max {max(probe) if probe else None} photon max "
          f"{max(photon) if photon else None}; first frame {rec['first_frame_ms']} big {rec['first_big_frame_ms']}; "
