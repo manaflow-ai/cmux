@@ -30,9 +30,10 @@
 //! A turn that failed on an error acpmux retries by itself (`hub/auto_resume.rs`:
 //! a connection cut, no capacity) is not reported failed yet: its continuation
 //! (`<prompt id>~resume-<n>`, naming the same turn) goes on with it. It is
-//! reported failed once no continuation comes (`auto_resume_settled`,
-//! `_exhausted` or `_skipped`), another prompt begins, the session closes, or
-//! [`RETRY_WAIT_MAX`] passed.
+//! reported failed once no continuation comes: `auto_resume_settled`,
+//! `_exhausted` or `_skipped`, another prompt begins, the session closes, no
+//! continuation was scheduled within [`DECIDE_WAIT`], or [`RETRY_WAIT_MAX`]
+//! passed since the last one was. The worker wakes for those deadlines itself.
 //!
 //! The hub's events are only read and queued here; one worker sends the
 //! reports in order, one at a time, and reads a finished turn's reply (only
@@ -78,9 +79,12 @@ const RETRY_AFTER: [Duration; 2] = [Duration::from_secs(2), Duration::from_secs(
 /// An agent that took the line and never answered (one from before hand-off reports reads the
 /// line and says nothing) is not asked again for this long: its sessions' steps are skipped.
 const SILENT_FOR: Duration = Duration::from_secs(15 * 60);
-/// A failed turn that acpmux retries by itself is reported failed after this long without
-/// another step of its own (the longest wait `autoResumeDelaysMs` takes is an hour).
-const RETRY_WAIT_MAX: Duration = Duration::from_secs(65 * 60);
+/// A failed turn acpmux may continue is reported failed when no continuation was scheduled
+/// (`auto_resume_scheduled`) this long after it failed: the hub decides at once.
+pub(super) const DECIDE_WAIT: Duration = Duration::from_secs(120);
+/// ... or this long after its continuation was scheduled (the longest wait `autoResumeDelaysMs`
+/// takes is an hour).
+pub(super) const RETRY_WAIT_MAX: Duration = Duration::from_secs(65 * 60);
 /// A finished turn's summary: the start of its last reply.
 const DONE_CHARS: usize = 600;
 /// A failed turn's summary, and what a permission or question asks.
@@ -103,6 +107,8 @@ pub(super) enum Step {
     /// A failed turn's automatic continuation will not come (`auto_resume_settled`,
     /// `auto_resume_exhausted`, `auto_resume_skipped`).
     NoRetry,
+    /// A failed turn's automatic continuation is scheduled (`auto_resume_scheduled`).
+    RetryScheduled,
     /// The session was closed.
     Closed,
     /// A closed session was opened again.
@@ -136,6 +142,7 @@ pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
         "auto_resume_settled" | "auto_resume_exhausted" | "auto_resume_skipped" => {
             Some(Step::NoRetry)
         }
+        "auto_resume_scheduled" => Some(Step::RetryScheduled),
         "permission_request" => Some(Step::Asks(ask_text(&msg["request"]))),
         "reopened" => Some(Step::Reopened),
         "status" => match msg["status"].as_str()? {
@@ -149,8 +156,12 @@ pub(super) fn step_of(kind: &str, msg: &Value) -> Option<Step> {
                 Some("completed") => End::Completed(None),
                 Some("cancelled") => End::Cancelled,
                 _ => {
-                    let why = msg["errorText"].as_str().or(msg["error"].as_str()).unwrap_or("");
-                    let retried = crate::hub::turn_errors::resume_cause(why, why).is_some();
+                    let raw = msg["error"].as_str().unwrap_or("");
+                    let why = msg["errorText"].as_str().unwrap_or(raw);
+                    // The hub decides on the agent's own error or the recorded one
+                    // (`turn_errors::continuation_error`): either may be the cause.
+                    let cause = crate::hub::turn_errors::resume_cause;
+                    let retried = cause(raw, raw).is_some() || cause(why, why).is_some();
                     End::Failed { why: cut(why, NOTE_CHARS), retried }
                 }
             };
@@ -293,8 +304,8 @@ enum Now {
     /// (`None`: its begin was not answered).
     Reporting { turn: u64, last: Option<&'static str> },
     /// Turn `turn` failed and acpmux may continue it: `why` is reported once no continuation
-    /// comes. `since`: when it failed.
-    Retrying { turn: u64, why: String, since: tokio::time::Instant },
+    /// comes, at `until` at the latest.
+    Retrying { turn: u64, why: String, until: tokio::time::Instant },
 }
 
 /// The worker's state: each session's track. Steps come in order, one at a time.
@@ -354,9 +365,9 @@ impl<I: Io> Reporter<I> {
             return;
         }
         let mut now = track.now.clone();
-        // A continuation that never came (a daemon restart dropped its wait).
-        if let Now::Retrying { turn, since, .. } = &now
-            && since.elapsed() >= RETRY_WAIT_MAX
+        // A continuation that did not come in time.
+        if let Now::Retrying { turn, until, .. } = &now
+            && *until <= tokio::time::Instant::now()
         {
             let turn = *turn;
             self.give_up_retry(session, turn).await;
@@ -373,6 +384,10 @@ impl<I: Io> Reporter<I> {
                 self.begin(session, named).await;
             }
             (Step::NoRetry, Now::Retrying { turn, .. }) => self.give_up_retry(session, turn).await,
+            (Step::RetryScheduled, Now::Retrying { turn, why, .. }) => {
+                let until = tokio::time::Instant::now() + RETRY_WAIT_MAX;
+                self.set_now(session, Now::Retrying { turn, why, until });
+            }
             (Step::Asks(what), Now::Reporting { turn, last })
                 if last != Some("needs-you") || what.is_some() =>
             {
@@ -403,8 +418,8 @@ impl<I: Io> Reporter<I> {
         let (status, note) = match end {
             End::Completed(reply) => ("done", reply.filter(|r| !r.is_empty())),
             End::Failed { why, retried: true } => {
-                let since = tokio::time::Instant::now();
-                return self.set_now(session, Now::Retrying { turn, why, since });
+                let until = tokio::time::Instant::now() + DECIDE_WAIT;
+                return self.set_now(session, Now::Retrying { turn, why, until });
             }
             End::Failed { why, retried: false } => ("failed", Some(why).filter(|w| !w.is_empty())),
             End::Cancelled => ("failed", Some("Stopped before it finished.".to_owned())),
@@ -421,6 +436,33 @@ impl<I: Io> Reporter<I> {
         };
         self.report(session, turn, "failed", Some(why).filter(|w| !w.is_empty())).await;
         self.set_now(session, Now::Quiet);
+    }
+
+    /// When the next failed turn waiting for its continuation is to be reported failed.
+    pub(super) fn next_deadline(&self) -> Option<tokio::time::Instant> {
+        self.tracks
+            .values()
+            .filter_map(|t| match t.now {
+                Now::Retrying { until, .. } => Some(until),
+                _ => None,
+            })
+            .min()
+    }
+
+    /// Reports failed every turn whose continuation did not come in time.
+    pub(super) async fn expire(&mut self) {
+        let now = tokio::time::Instant::now();
+        let due: Vec<(String, u64)> = self
+            .tracks
+            .iter()
+            .filter_map(|(id, t)| match t.now {
+                Now::Retrying { turn, until, .. } if until <= now => Some((id.clone(), turn)),
+                _ => None,
+            })
+            .collect();
+        for (session, turn) in due {
+            self.give_up_retry(&session, turn).await;
+        }
     }
 
     fn set_now(&mut self, session: &str, now: Now) {
@@ -607,7 +649,16 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
     let (lost, reader) = (losses.clone(), hub.clone());
     tokio::spawn(async move {
         let mut seen = 0;
-        while let Some(mut queued) = rx.recv().await {
+        loop {
+            let deadline = reporter.next_deadline();
+            let next = tokio::select! {
+                queued = rx.recv() => queued,
+                () = sleep_until(deadline), if deadline.is_some() => {
+                    reporter.expire().await;
+                    continue;
+                }
+            };
+            let Some(mut queued) = next else { break };
             let now = lost.load(Ordering::SeqCst);
             if now != seen {
                 reporter.forget_turns();
@@ -681,6 +732,12 @@ pub(super) async fn handoff_loop(hub: Arc<Hub>) {
             }
             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => break,
         }
+    }
+}
+
+async fn sleep_until(deadline: Option<tokio::time::Instant>) {
+    if let Some(deadline) = deadline {
+        tokio::time::sleep_until(deadline).await;
     }
 }
 

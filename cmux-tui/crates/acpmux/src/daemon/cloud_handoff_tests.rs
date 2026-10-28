@@ -530,9 +530,44 @@ async fn a_cut_turn_with_no_continuation_ends_failed() {
     fake.answer([ok(1, "running"), ok(1, "failed")]);
     r.step(S, began(1)).await;
     r.step(S, cut_off(1)).await;
-    tokio::time::advance(RETRY_WAIT_MAX).await;
+    tokio::time::advance(DECIDE_WAIT).await;
     r.step(S, Step::Asks(None)).await;
     assert_eq!(fake.take(), [s(1, "running", None), failed_1()]);
+}
+
+/// With no further event at all, the worker's own deadline reports the turn: within DECIDE_WAIT
+/// when no continuation was scheduled, within RETRY_WAIT_MAX of the last one that was.
+#[tokio::test(start_paused = true)]
+async fn a_cut_turn_is_ended_by_its_deadline_without_another_event() {
+    let (mut r, fake) = reporter();
+    fake.answer([ok(1, "running"), ok(1, "failed")]);
+    r.step(S, began(1)).await;
+    let failed_at = tokio::time::Instant::now();
+    r.step(S, cut_off(1)).await;
+    assert_eq!(r.next_deadline(), Some(failed_at + DECIDE_WAIT));
+    r.step(S, Step::RetryScheduled).await;
+    let scheduled = r.next_deadline().unwrap();
+    assert_eq!(scheduled, tokio::time::Instant::now() + RETRY_WAIT_MAX);
+    r.expire().await;
+    assert_eq!(fake.take(), [s(1, "running", None)], "not due yet");
+    tokio::time::advance(RETRY_WAIT_MAX).await;
+    r.expire().await;
+    assert_eq!(fake.take(), [s(1, "failed", Some("stream disconnected"))]);
+    assert_eq!(r.next_deadline(), None);
+}
+
+/// The hub decides on the agent's own error or the recorded one: a cause in either holds the
+/// turn for its continuation.
+#[test]
+fn a_cause_in_the_raw_error_holds_the_turn() {
+    let msg = json!({"status": "failed", "error": "stream disconnected before completion",
+        "errorText": "The turn failed.", "promptId": "handoff-1-a"});
+    let Some(Step::Ended(End::Failed { why, retried }, Some(1))) = step_of("turn_result", &msg)
+    else {
+        panic!()
+    };
+    assert!(retried);
+    assert_eq!(why, "The turn failed.");
 }
 
 #[tokio::test]
