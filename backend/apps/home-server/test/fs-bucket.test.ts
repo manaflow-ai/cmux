@@ -1,8 +1,26 @@
 import { describe, expect, it } from "bun:test"
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { FsBucket, FsBucketError } from "../src/fs-bucket.ts"
+
+/** Every file under `dir` with its contents, to show an operation left a directory exactly as it was. */
+const snapshot = (dir: string): Record<string, string> =>
+  Object.fromEntries(
+    readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter((entry) => entry.isFile())
+      .map((entry) => [join(entry.parentPath, entry.name), readFileSync(join(entry.parentPath, entry.name), "utf8")])
+  )
+
+/** `dir` becomes a link to `target`; `restore` puts the real directory back. */
+const swapForLink = (dir: string, target: string) => {
+  renameSync(dir, `${dir}.real`)
+  symlinkSync(target, dir)
+}
+const restore = (dir: string) => {
+  rmSync(dir)
+  renameSync(`${dir}.real`, dir)
+}
 
 describe("self-hosted attachment bucket", () => {
   it("streams resumable multipart objects and keeps listing cursors valid across deletes", async () => {
@@ -417,6 +435,158 @@ describe("self-hosted attachment bucket", () => {
       expect((await bucket.list()).objects).toHaveLength(2)
     } finally {
       rmSync(root, { recursive: true, force: true })
+    }
+  })
+  it("refuses any key whose first segment folds to .multipart, so a case-insensitive disk can't reach an upload record", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      const victim = await bucket.createMultipartUpload("home/v1/victim")
+      const part = await victim.uploadPart(1, "victim bytes")
+      const recordPath = join(root, ".multipart", `${victim.uploadId}.json`)
+      const original = readFileSync(recordPath, "utf8")
+      const id = victim.uploadId
+      // Case (APFS, HFS+ and NTFS ignore it), compatibility forms (fullwidth), ignorable code points
+      // (HFS+ drops some) and the trailing dots and spaces Windows strips all name the same directory.
+      const folded = [
+        `.MULTIPART/${id}.json`,
+        `.Multipart/${id}.json`,
+        ".Multipart/x",
+        ".MULTIPART",
+        `\uFF0E\uFF4D\uFF55\uFF4C\uFF54\uFF49\uFF50\uFF41\uFF52\uFF54/${id}.json`,
+        `.multi\u200Dpart/${id}.json`,
+        `.MULTI\u00ADPART/${id}.json`,
+        `.multipart./${id}.json`,
+        `.multipart /${id}.json`
+      ]
+      for (const key of folded) {
+        await expect(bucket.put(key, "{}"), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.get(key), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.head(key), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.delete(key), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.createMultipartUpload(key), key).rejects.toThrow(/invalid object key/)
+        expect(() => bucket.resumeMultipartUpload(key, id), key).toThrow(/invalid object key/)
+      }
+      expect(readFileSync(recordPath, "utf8")).toBe(original)
+
+      // The attack through an upper-case key: rewrite the record to name another object, then finish it as that object.
+      await expect(bucket.put(`.MULTIPART/${id}.json`, JSON.stringify({ key: "home/v1/target" }))).rejects.toThrow(/invalid object key/)
+      await expect(bucket.resumeMultipartUpload("home/v1/target", id).complete([part])).rejects.toThrow(/NoSuchUpload/)
+      expect(await bucket.head("home/v1/target")).toBeNull()
+      expect(readFileSync(recordPath, "utf8")).toBe(original)
+      await bucket.resumeMultipartUpload("home/v1/victim", id).complete([part])
+      expect(await new Response((await bucket.get("home/v1/victim"))!.body!).text()).toBe("victim bytes")
+
+      // Only the first segment is reserved, and only when it folds to exactly .multipart.
+      for (const key of ["home/v1/.MULTIPART/b", "home/.Multipart", ".multipart-notes/x", "multipart/x", ".multiparts/x"]) {
+        await bucket.put(key, key)
+        expect(await new Response((await bucket.get(key))!.body!).text()).toBe(key)
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+  it("refuses an operation when a checked directory is swapped for a link before it is used, at every point between check and use", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const outside = join(parent, "outside")
+      mkdirSync(outside)
+      writeFileSync(join(outside, "secret"), "secret")
+      writeFileSync(join(outside, "secret.meta.json"), JSON.stringify({ etag: "e", size: 6, uploaded: 0 }))
+      const root = join(parent, "bucket")
+      // The test seam runs after the bucket has checked a path's directories and before it uses them.
+      let calls = 0
+      let swapAt = 0
+      let swap: () => void = () => undefined
+      const bucket = new FsBucket(root, {
+        afterPathCheck: () => {
+          calls += 1
+          if (calls === swapAt) swap()
+        }
+      })
+      /** Runs `op` once to count its checkpoints, then once per checkpoint with the swap there. */
+      const atEveryCheckpoint = async (name: string, setup: () => Promise<() => Promise<unknown>>, swapNow: () => void, undo: () => void) => {
+        const dry = await setup()
+        calls = 0
+        swapAt = 0
+        await dry()
+        const checkpoints = calls
+        expect(checkpoints, `${name}: the check seam ran`).toBeGreaterThan(0)
+        for (let at = 1; at <= checkpoints; at++) {
+          const op = await setup()
+          const before = snapshot(parent)
+          let swapped = false
+          swap = () => {
+            swapped = true
+            swapNow()
+          }
+          calls = 0
+          swapAt = at
+          await expect(op(), `${name} @${at}`).rejects.toThrow(/symbolic link/)
+          expect(swapped, `${name} @${at}`).toBe(true)
+          swapAt = 0
+          undo()
+          // Nothing outside the bucket was read into it, written, created or removed.
+          expect(Object.fromEntries(Object.entries(snapshot(parent)).filter(([path]) => !path.startsWith(`${root}/`))), `${name} @${at}`).toEqual(
+            Object.fromEntries(Object.entries(before).filter(([path]) => !path.startsWith(`${root}/`)))
+          )
+        }
+      }
+      const a = join(root, "a")
+      const linkA = () => swapForLink(a, outside)
+      const unlinkA = () => restore(a)
+      await atEveryCheckpoint("get", async () => {
+        await bucket.put("a/secret", "inside")
+        return () => bucket.get("a/secret")
+      }, linkA, unlinkA)
+      await atEveryCheckpoint("head", async () => {
+        await bucket.put("a/secret", "inside")
+        return () => bucket.head("a/secret")
+      }, linkA, unlinkA)
+      await atEveryCheckpoint("delete", async () => {
+        await bucket.put("a/secret", "inside")
+        return () => bucket.delete("a/secret")
+      }, linkA, unlinkA)
+      await atEveryCheckpoint("put", async () => () => bucket.put("a/secret", "overwrite"), linkA, unlinkA)
+      await atEveryCheckpoint("put creating directories", async () => {
+        await bucket.put("a/secret", "inside")
+        rmSync(join(a, "b"), { recursive: true, force: true })
+        return () => bucket.put("a/b/c/new", "new")
+      }, linkA, unlinkA)
+      await atEveryCheckpoint("complete", async () => {
+        await bucket.put("a/secret", "inside")
+        const upload = await bucket.createMultipartUpload("a/up")
+        const part = await upload.uploadPart(1, "up")
+        return () => upload.complete([part])
+      }, linkA, unlinkA)
+
+      // The upload directory itself, swapped for a link to a copy outside the root: its record and parts are not trusted.
+      const multipart = join(root, ".multipart")
+      const copy = join(parent, "multipart-copy")
+      const linkMultipart = () => {
+        rmSync(copy, { recursive: true, force: true })
+        cpSync(multipart, copy, { recursive: true })
+        swapForLink(multipart, copy)
+      }
+      const unlinkMultipart = () => {
+        restore(multipart)
+        rmSync(copy, { recursive: true, force: true })
+      }
+      await atEveryCheckpoint("upload part", async () => {
+        const upload = await bucket.createMultipartUpload("home/v1/parts")
+        await upload.uploadPart(1, "one")
+        return () => upload.uploadPart(2, "two")
+      }, linkMultipart, unlinkMultipart)
+      await atEveryCheckpoint("complete from .multipart", async () => {
+        const upload = await bucket.createMultipartUpload("home/v1/assembled")
+        const part = await upload.uploadPart(1, "one")
+        return () => upload.complete([part])
+      }, linkMultipart, unlinkMultipart)
+
+      expect(await new Response((await bucket.get("a/secret"))!.body!).text()).toBe("inside")
+      expect(readFileSync(join(outside, "secret"), "utf8")).toBe("secret")
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
     }
   })
 })
