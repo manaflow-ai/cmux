@@ -140,3 +140,21 @@ test("the chat changing while the ask is out hands the prompt back: nothing is s
   expect(prompts).toEqual([]);
   expect((chat as unknown as { rows: Map<string, unknown> }).rows.has("local-p-9")).toBe(false);
 });
+
+test("an ask from before the chat was shown again is not waited on: the new send asks again", async () => {
+  const prompts: Record<string, unknown>[] = [];
+  const chat = await client(prompts);
+  const answers: ((turn: number) => void)[] = [];
+  chat.handoffTurn = () => new Promise<number>((resolve) => answers.push(resolve));
+  const first = chat.send("first", [], "p-10", () => undefined);
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  (chat as unknown as { selectionGeneration: number }).selectionGeneration += 1;
+  const second = chat.send("second", [], "p-11");
+  for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(answers).toHaveLength(2);
+  answers[0]?.(7);
+  answers[1]?.(7);
+  await expect(first).rejects.toThrow();
+  await second;
+  expect(prompts.map(promptIdOf)).toEqual(["handoff-7-p-11"]);
+});

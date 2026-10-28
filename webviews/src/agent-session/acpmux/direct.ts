@@ -4788,8 +4788,8 @@ export class AcpmuxDirectClient {
   /// Opens a chat's Cloud hand-off turn before a prompt that starts one (cloudHandoffTurn.ts); set
   /// by the page only for a chat on a Cloud machine whose app opens them.
   handoffTurn?: (sessionId: string) => Promise<number | undefined>;
-  /// The hand-off turn each chat asks the app for now (sendNow).
-  private handoffAsks = new Map<string, Promise<number | undefined>>();
+  /// The hand-off turn each chat asks the app for now (sendNow), with the selection it was asked in.
+  private handoffAsks = new Map<string, { generation: number; ask: Promise<number | undefined> }>();
   async ensureSession(): Promise<string | undefined> {
     // This send belongs to the requested chat. A refused or empty start must not send it to
     // the previous chat, or start the default harness instead of the one the person picked.
@@ -4914,19 +4914,20 @@ export class AcpmuxDirectClient {
     // One ask per chat at a time: a send while an ask is out goes behind that prompt (it starts no
     // turn of its own) and under its own id, once the ask ends. Either await lets the selection move:
     // a prompt whose chat is no longer the one shown goes back to its sender, never drawn in the
-    // other chat.
+    // other chat. An ask from before the chat was shown again belongs to such a prompt: a send now
+    // asks again, and the app names the turn that ask opened (a turn not run yet is named again).
     if (this.handoffTurn && !steer && !namesHandoffTurn(promptId)) {
       const generation = this.selectionGeneration;
       const asking = this.handoffAsks.get(sessionId);
-      if (asking) await asking;
+      if (asking?.generation === generation) await asking.ask;
       else if (!(shown === sessionId && (this.turnOpen || this.queue.length > 0))) {
-        const ask = this.handoffTurn(sessionId);
-        this.handoffAsks.set(sessionId, ask);
+        const entry = { generation, ask: this.handoffTurn(sessionId) };
+        this.handoffAsks.set(sessionId, entry);
         let turn: number | undefined;
         try {
-          turn = await ask;
+          turn = await entry.ask;
         } finally {
-          if (this.handoffAsks.get(sessionId) === ask) this.handoffAsks.delete(sessionId);
+          if (this.handoffAsks.get(sessionId) === entry) this.handoffAsks.delete(sessionId);
         }
         if (turn !== undefined) promptId = handoffPromptId(turn, promptId);
       }
