@@ -261,6 +261,11 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     // A page that is not a stage (the gallery shell) may ask for time to settle its own frames.
     if (typeof params.settleMs === "number" && params.settleMs > 0) await page.waitForTimeout(Math.min(params.settleMs, 15_000));
     await page.evaluate((p) => { document.documentElement.dataset.galleryParams = JSON.stringify(p); }, params);
+    if (typeof params.auditHover === "string") await page.locator(params.auditHover).first().hover();
+    const geometryEnvironment = await page.evaluate(() => {
+      for (const animation of document.getAnimations()) animation.pause();
+      return { deviceScaleFactor: window.devicePixelRatio, viewport: { width: window.innerWidth, height: window.innerHeight } };
+    });
     await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), fullPage: true });
     const geometry = await page.evaluate(() => {
       const properties = ["fontSize", "fontWeight", "lineHeight", "color", "backgroundColor", "paddingLeft", "paddingRight", "paddingTop", "paddingBottom", "marginLeft", "marginRight", "marginTop", "marginBottom", "gap", "columnGap", "rowGap", "borderRadius", "opacity", "display", "alignItems"] as const;
@@ -269,10 +274,10 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
         const s = getComputedStyle(el);
         if (!r.width || !r.height || s.visibility === "hidden" || s.display === "none") return [];
         const directText = Array.from(el.childNodes).filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent ?? "").join("").trim().slice(0, 100);
-        return [{index, tag: el.tagName, classes: el.getAttribute("class"), role: el.getAttribute("role"), label: el.getAttribute("aria-label"), text: directText, rect: { x: r.x, y: r.y, width: r.width, height: r.height }, style: Object.fromEntries(properties.map(p => [p, s[p]]))}];
+        return [{index, tag: el.tagName, classes: el.getAttribute("class"), section: el.closest("[data-section]")?.getAttribute("data-section"), parentClasses: el.parentElement?.getAttribute("class"), role: el.getAttribute("role"), label: el.getAttribute("aria-label"), text: directText, rect: { x: r.x, y: r.y, width: r.width, height: r.height }, style: Object.fromEntries(properties.map(p => [p, s[p]]))}];
       });
     });
-    await writeFile(join(outputDir, `${safeFilePart(item.id)}-${engine}-geometry.json`), JSON.stringify({schemaVersion: 1, revision, params, screenshot: `${safeFilePart(item.id)}-${engine}.png`, units: "css-px", deviceScaleFactor: 2, elements: geometry}, null, 2));
+    await writeFile(join(outputDir, `${safeFilePart(item.id)}-${engine}-geometry.json`), JSON.stringify({schemaVersion: 1, revision, params, screenshot: `${safeFilePart(item.id)}-${engine}.png`, units: "css-px", ...geometryEnvironment, elements: geometry}, null, 2));
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
     const screenshotPath = join(outputDir, screenshotName);
     const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, revision, play, ...(experiment ? { experiment } : {}) };
