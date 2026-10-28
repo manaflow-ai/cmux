@@ -11,7 +11,7 @@ import { queuedRowsState } from "./queuedRowsState";
 import type { QueueEdit } from "./model";
 import { queueingOn, setQueueing } from "./queueing";
 import { webSwapHold, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
-import { settleQueuedEditWrites } from "./queuedEditDrafts";
+import { newQueuedEdit, settleQueuedEditWrites } from "./queuedEditDrafts";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -77,8 +77,8 @@ const queue = [
 ];
 
 async function render(
-  onChange: (id: string, edit: QueueEdit) => Promise<boolean>,
-  onRemove: (id: string) => Promise<boolean>,
+  onChange: (id: string, edit: QueueEdit) => Promise<boolean> = async () => true,
+  onRemove: (id: string) => Promise<boolean> = async () => true,
 ) {
   const container = installDom();
   await act(async () => {
@@ -886,10 +886,7 @@ test("a queued edit typed before quit restores across build origins with its ima
 });
 
 test("a refused native save retries once per swap or quit and keeps the newest edit", async () => {
-  const container = await render(
-    async () => true,
-    async () => true,
-  );
+  const container = await render();
   const kept = draftHost(undefined, 2, "retry the newest text");
   await startEdit(container, "p-1");
   await typeQueueEdit(container, "retry the newest text");
@@ -907,10 +904,7 @@ test("a refused native save retries once per swap or quit and keeps the newest e
 });
 
 test("Escape after a refused newer save cannot revive the older durable edit", async () => {
-  const container = await render(
-    async () => true,
-    async () => true,
-  );
+  const container = await render();
   const kept = draftHost(undefined, 1, "discard the unsaved revision");
   await startEdit(container, "p-1");
   const field = await typeQueueEdit(container, "discard the unsaved revision");
@@ -925,10 +919,7 @@ test("Escape after a refused newer save cannot revive the older durable edit", a
 });
 
 test("Escape behind an in-flight older save clears the discarded revision before remount", async () => {
-  const container = await render(
-    async () => true,
-    async () => true,
-  );
+  const container = await render();
   const kept = draftHost();
   const handler = dom!.window.webkit!.messageHandlers!.agentSession!;
   const post = handler.postMessage.bind(handler);
@@ -971,10 +962,7 @@ test("a saved edit remains recoverable until queue_edit acknowledges it; that ac
 });
 
 test("a removed, steered or newer daemon prompt never revives or resends a saved edit", async () => {
-  const container = await render(
-    async () => true,
-    async () => true,
-  );
+  const container = await render();
   const kept = draftHost();
   await startEdit(container, "p-1");
   await typeQueueEdit(container, "stale correction");
@@ -996,10 +984,7 @@ test("a removed, steered or newer daemon prompt never revives or resends a saved
 });
 
 test("Escape explicitly discards the persisted queue edit", async () => {
-  const container = await render(
-    async () => true,
-    async () => true,
-  );
+  const container = await render();
   const kept = draftHost();
   await startEdit(container, "p-1");
   const field = await typeQueueEdit(container, "discard me");
@@ -1012,7 +997,7 @@ test("Escape explicitly discards the persisted queue edit", async () => {
   expect(container.querySelector("textarea")).toBeNull();
 });
 
-test("an older queue_edit acknowledgement cannot erase a newer edit", async () => {
+test.each(["typing", "discard"])("an older queue_edit acknowledgement cannot erase newer %s", async (mode) => {
   let acknowledge: (ok: boolean) => void = () => {};
   const container = await render(
     () =>
@@ -1026,19 +1011,51 @@ test("an older queue_edit acknowledgement cannot erase a newer edit", async () =
   const first = await typeQueueEdit(container, "first save");
   await act(async () => first.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
   await startEdit(container, "p-1");
-  await typeQueueEdit(container, "newer unfinished edit");
+  const newer = await typeQueueEdit(container, "newer unfinished edit");
+  if (mode === "discard") {
+    const host = dom!.window.webkit!.messageHandlers!.agentSession!,
+      post = host.postMessage.bind(host);
+    let refuse = true;
+    host.postMessage = (message: any) => {
+      if (message.method === "chat.queuedEditDrafts.clear" && refuse) {
+        refuse = false;
+        throw Error("refused clear");
+      }
+      return post(message);
+    };
+    await act(async () =>
+      newer.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+    );
+  }
   await act(async () => acknowledge(true));
-  expect(kept.size).toBe(1);
-  expect([...kept.values()][0]?.text).toBe("newer unfinished edit");
+  await settleQueuedEditWrites();
+  expect(kept.size).toBe(mode === "discard" ? 0 : 1);
   await relaunchQueue(container, queue);
-  expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("newer unfinished edit");
+  expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(
+    mode === "discard" ? undefined : "newer unfinished edit",
+  );
+});
+
+test.each(["removed", "steered"])("an inactive recovered edit clears when its row is %s", async (mode) => {
+  const container = installDom(),
+    kept = draftHost();
+  for (const entry of queue) kept.set(`c/${entry.id}`, newQueuedEdit(entry, `edit ${entry.id}`));
+  const draw = (rows: Parameters<typeof ComposerQueue>[0]["queue"]) =>
+    root!.render(<ComposerQueue queue={rows} chat="c" ready t={t} onChange={async () => true} />);
+  await act(async () => {
+    root = createRoot(container);
+    draw(queue);
+  });
+  expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("edit p-1");
+  await act(async () => draw(mode === "removed" ? [queue[0]!] : [queue[0]!, { ...queue[1]!, next: true }]));
+  expect(kept.has("c/p-2")).toBe(false);
+  await act(async () => draw(queue));
+  await startEdit(container, "p-2");
+  expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe("second");
 });
 
 test("a provisional empty queue cannot discard a saved edit before the daemon attaches", async () => {
-  const container = await render(
-    async () => true,
-    async () => true,
-  );
+  const container = await render();
   const kept = draftHost();
   await startEdit(container, "p-1");
   await typeQueueEdit(container, "survive attach");
