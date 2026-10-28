@@ -166,11 +166,40 @@ public nonisolated struct BuildIdentity: Sendable, Equatable {
         ownsRoots ? root.appendingPathComponent("builds/\(key)", isDirectory: true) : root
     }
 
+    /// Candidate daemon homes for draft-only recovery. This never adopts sessions or
+    /// daemon configuration; callers read only composer_draft from session metadata.
+    public func legacyAcpmuxDraftHomes(userHome: URL) -> [URL] {
+        let root = userHome.appendingPathComponent(".acpmux", isDirectory: true)
+        var homes = [acpmuxHome(root: root)]
+        if draftIdentityKey == "channel-cmux-next" {
+            homes.append(root.appendingPathComponent("tags/cmux-next", isDirectory: true))
+        }
+        let builds = root.appendingPathComponent("builds", isDirectory: true)
+        if let entries = try? FileManager.default.contentsOfDirectory(at: builds, includingPropertiesForKeys: [.isDirectoryKey]) {
+            homes.append(contentsOf: entries.filter { $0.lastPathComponent.hasPrefix(key) })
+        }
+        var seen = Set<String>()
+        return homes.filter { seen.insert($0.standardizedFileURL.path).inserted }
+    }
+
     /// This build's directory under `~/Library/Application Support/cmux`
     /// (`appSupport` is that `cmux` directory): the directory itself for
     /// NIGHTLY and outside any bundle, else `builds/<key>` below it.
     public func appSupport(_ appSupport: URL) -> URL {
         ownsRoots ? appSupport.appendingPathComponent("builds/\(key)", isDirectory: true) : appSupport
+    }
+
+    /// Stable logical app identity for unsent composer state. Build versions and shipped
+    /// tags must not fork drafts, while unrelated channels and development tags stay isolated.
+    public var draftIdentityKey: String {
+        if let sessionTag = kept?.sessionTag { return "channel-\(sessionTag)" }
+        if kind == .release { return "release" }
+        return "build-\(key)"
+    }
+
+    /// App-owned draft state is outside per-build folders so updates retain it.
+    public func draftDirectory(appSupport: URL) -> URL {
+        appSupport.appendingPathComponent("drafts-v1/\(draftIdentityKey)", isDirectory: true)
     }
 
     /// A path component: runs outside `[A-Za-z0-9._]` become one `-`; no

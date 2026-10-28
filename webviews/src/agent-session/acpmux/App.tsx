@@ -7586,8 +7586,19 @@ function AcpmuxPane() {
           "chat.findPrevious": async () => findRef.current?.previous(),
           "chat.hideFind": async () => findRef.current?.hide(),
           // Composer drafts belong to the daemon session so every host can restore them.
-          "chat.readDraft": ({ sessionId }) => client.readDraft(String(sessionId)),
-          "chat.writeDraft": ({ sessionId, text }) => client.writeDraft(String(sessionId), String(text ?? "")),
+          "chat.readDraft": async ({ sessionId }) => {
+            const id = String(sessionId);
+            const durable = await client.readDraft(id).catch(() => undefined);
+            if (typeof durable === "string" && durable.length) return durable;
+            const mirrored = await callNative<unknown>("chat.draftText.get", { sessionId: id }).catch(() => undefined);
+            return typeof mirrored === "string" && mirrored.length ? mirrored : durable;
+          },
+          "chat.writeDraft": async ({ sessionId, text }) => {
+            const id = String(sessionId);
+            const value = String(text ?? "");
+            await callNative("chat.draftText.set", { sessionId: id, text: value }).catch(() => undefined);
+            return client.writeDraft(id, value);
+          },
           "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
           "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
           "file.search": ({ path, query, limit }) =>
@@ -9758,6 +9769,9 @@ function AcpmuxPane() {
               environments={preview}
               // The tab's run, found by a read, takes the chat view: the page's draft goes to its composer.
               onLeaveDraft={(text, attachments) => {
+                // Persist the New Tab's pre-session text through the tab-owned unsent store
+                // before the page is replaced. Attachments are handed to the wake store below.
+                void callNative("chat.unsentDraft", { text }).catch(() => undefined);
                 // A Sandboxed send from the page already took its prompt (or held it back).
                 const handed = newTabSandboxSent.current;
                 newTabSandboxSent.current = false;

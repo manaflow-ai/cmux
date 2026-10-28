@@ -727,7 +727,10 @@ export function Composer({
     // draft before the editor has initialized.
     // A chat's own saved draft wins: carried text only fills a session that has none, which a
     // switch's new session always is, so moving to another chat mid-switch keeps that chat's draft.
-    const initial = restored || carried || draft || "";
+    // draft belongs to the handshake that mounted this composer. It can remain
+    // unchanged while sessionId switches; never seed a newly selected session with
+    // the previous session draft.
+    const initial = restored || carried || "";
     setText(initial);
     setCaret(initial.length);
     pendingCaret.current = initial.length;

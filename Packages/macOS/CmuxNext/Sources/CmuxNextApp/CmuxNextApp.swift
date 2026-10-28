@@ -56,14 +56,22 @@ public struct CmuxNextApp {
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
         environment.homeCachesDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
+        // Draft state is app-owned, so a shipped update cannot fork it by build root. Adopt
+        // older per-build files into the stable root without deleting the source.
+        let draftState = SidebarSnapshotFile.draftDirectory(launch: environment.launch)
+        DraftStateMigration.adopt(from: SidebarSnapshotFile.legacyDraftDirectories(launch: environment.launch), to: draftState)
+        DraftStateMigration.adoptComposerDrafts(
+            from: environment.launch.build.legacyAcpmuxDraftHomes(userHome: FileManager.default.homeDirectoryForCurrentUser),
+            to: draftState)
         // Where each agent chat rests, beside the snapshot, so a relaunch reopens it there (cx-6bgzj).
         AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
-        // Each chat's unsent chips, beside it, so reopening or restoring a chat brings them back.
-        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
+        // Each chat's unsent chips, beside the stable draft root, so updates retain them.
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: draftState)
+        AgentPaneDraftTexts.shared = AgentPaneDraftTexts(directory: draftState)
         // The last quit's agent pages, terminal frames and chat composers are read and decoded off the main thread
         // from here, while AppKit starts, so each pane's first frame can use them without waiting.
         let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), work = BackgroundWork()
-        let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
+        let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: draftState)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
         relaunchWake.begin(on: work)
