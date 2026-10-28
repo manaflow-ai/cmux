@@ -139,6 +139,28 @@ import Testing
         #expect(added == 1)
     }
 
+    /// A name or header that fits is drawn whole (a label's frame is its text plus padding), and every
+    /// name, and Add Machine…, starts on one text column after the icon column.
+    @Test func namesThatFitAreWholeAndShareOneColumn() {
+        for style in MachineSectionStyle.allCases {
+            let view = Self.section()
+            view.update(Self.rows, style: style)
+            view.layoutSubtreeIfNeeded()
+            var starts: Set<CGFloat> = []
+            for row in view.rowViews.values {
+                row.layoutSubtreeIfNeeded()
+                #expect(row.nameLabel.frame.width >= row.nameLabel.naturalSize.width - 0.5, "\(style) \(row.row.name)")
+                if !row.stateLabel.isHidden {
+                    #expect(row.stateLabel.frame.width >= row.stateLabel.naturalSize.width - 0.5, "\(style) \(row.row.name)")
+                }
+                starts.insert(row.nameLabel.frame.minX)
+            }
+            view.addRow.layoutSubtreeIfNeeded()
+            starts.insert(view.addRow.label.frame.minX)
+            #expect(starts.count == 1, "\(style): \(starts)")
+        }
+    }
+
     /// The click reaches Add Machine… at its laid-out place (hitTest takes the superview's coordinates),
     /// and only over its icon and text, not the empty width after them.
     @Test func addMachineTakesTheClickOnlyOverItsIconAndText() {

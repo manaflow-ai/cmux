@@ -131,13 +131,13 @@ final class MachineSectionHeaderView: NSView {
     nonisolated override var isFlipped: Bool { true }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: NSView.noIntrinsicMetric, height: label.intrinsicContentSize.height)
+        NSSize(width: NSView.noIntrinsicMetric, height: label.naturalSize.height)
     }
 
     override func layout() {
         super.layout()
-        let inset = MachineSectionMetrics.inset, size = label.intrinsicContentSize
-        label.frame = NSRect(x: inset, y: 0, width: min(size.width, max(0, bounds.width - 2 * inset)), height: size.height)
+        let inset = MachineSectionMetrics.inset
+        label.place(textX: inset, y: 0, maxTextWidth: bounds.width - 2 * inset)
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -231,8 +231,8 @@ final class MachineSectionRowView: NSView {
 
     override var intrinsicContentSize: NSSize {
         let text = showsStateLine
-            ? nameLabel.intrinsicContentSize.height + Metrics.space1 / 2 + stateLabel.intrinsicContentSize.height
-            : nameLabel.intrinsicContentSize.height
+            ? nameLabel.naturalSize.height + Metrics.space1 / 2 + stateLabel.naturalSize.height
+            : nameLabel.naturalSize.height
         return NSSize(width: NSView.noIntrinsicMetric, height: max(MachineSectionMetrics.rowHeight, ceil(text + 2 * Metrics.space2)))
     }
 
@@ -254,23 +254,21 @@ final class MachineSectionRowView: NSView {
             trailing = spinner.frame.minX - Metrics.space2
         }
         let textX = icon.frame.maxX + MachineSectionMetrics.iconGap
-        let name = nameLabel.intrinsicContentSize
-        let state = stateLabel.intrinsicContentSize
+        let nameHeight = nameLabel.naturalSize.height, stateHeight = stateLabel.naturalSize.height
         if !showsStateLine, !stateLabel.isHidden {
-            let width = min(state.width, max(0, trailing - textX))
-            stateLabel.frame = NSRect(x: trailing - width, y: mid - state.height / 2, width: width, height: state.height)
-            trailing = stateLabel.frame.minX - Metrics.space2
+            let width = min(stateLabel.textWidth, max(0, trailing - textX))
+            stateLabel.place(textX: trailing - width, y: mid - stateHeight / 2, maxTextWidth: width)
+            trailing -= width + Metrics.space2
         }
         let mark = health.health == nil ? 0 : MachineHealthMarkView.side + Metrics.space2
-        let nameWidth = min(name.width, max(0, trailing - textX - mark))
-        let textHeight = showsStateLine ? name.height + Metrics.space1 / 2 + state.height : name.height
+        let textHeight = showsStateLine ? nameHeight + Metrics.space1 / 2 + stateHeight : nameHeight
         let top = mid - textHeight / 2
-        nameLabel.frame = NSRect(x: textX, y: top, width: nameWidth, height: name.height)
-        health.frame = NSRect(x: nameLabel.frame.maxX + Metrics.space2, y: nameLabel.frame.midY - MachineHealthMarkView.side / 2,
+        let nameWidth = min(nameLabel.textWidth, max(0, trailing - textX - mark))
+        nameLabel.place(textX: textX, y: top, maxTextWidth: nameWidth)
+        health.frame = NSRect(x: textX + nameWidth + Metrics.space2, y: top + nameHeight / 2 - MachineHealthMarkView.side / 2,
                               width: MachineHealthMarkView.side, height: MachineHealthMarkView.side)
         if showsStateLine {
-            stateLabel.frame = NSRect(x: textX, y: nameLabel.frame.maxY + Metrics.space1 / 2,
-                                      width: min(state.width, max(0, trailing - textX)), height: state.height)
+            stateLabel.place(textX: textX, y: top + nameHeight + Metrics.space1 / 2, maxTextWidth: trailing - textX)
         }
     }
 
@@ -459,8 +457,7 @@ final class MachineSectionAddRow: NSView {
         }
         icon.frame = NSRect(x: inset, y: bounds.midY - side / 2, width: side, height: side)
         let x = icon.frame.maxX + MachineSectionMetrics.iconGap
-        let size = label.intrinsicContentSize
-        label.frame = NSRect(x: x, y: bounds.midY - size.height / 2, width: min(size.width, max(0, bounds.maxX - inset - x)), height: size.height)
+        label.place(textX: x, y: bounds.midY - label.naturalSize.height / 2, maxTextWidth: bounds.maxX - inset - x)
     }
 
     /// Only the icon and the text take the click and the hover, never the empty width after them.
@@ -565,5 +562,20 @@ final class MachineHealthMarkView: NSView {
             (health == .warning ? Palette.attention : Palette.danger).setFill()
             NSBezierPath(ovalIn: NSRect(x: bounds.midX - dot / 2, y: bounds.midY - dot / 2, width: dot, height: dot)).fill()
         }
+    }
+}
+
+private extension ChromeLabel {
+    /// The text's own width on one line (no padding).
+    var textWidth: CGFloat { intrinsicContentSize.width }
+
+    /// Places the label so its text starts at `x` and is at most `maxTextWidth` wide. A label's frame
+    /// is its text plus a padding on each side (``ChromeLabel/naturalSize``), so the frame starts that
+    /// padding before `x`: the text lines up with the column, and a text that fits is never truncated.
+    func place(textX x: CGFloat, y: CGFloat, maxTextWidth: CGFloat) {
+        let natural = naturalSize
+        let padding = max(0, (natural.width - textWidth) / 2)
+        let width = min(textWidth, max(0, maxTextWidth))
+        frame = NSRect(x: x - padding, y: y, width: width + 2 * padding, height: natural.height)
     }
 }
