@@ -5,11 +5,16 @@
 use super::*;
 
 #[cfg(unix)]
+mod bound_owner;
+#[cfg(unix)]
 mod dev_orphan_exit;
 
+/// `exit_with_pid` (`--exit-with-pid`) binds this owner to a process: once
+/// it dies the owner ends its terminals and leaves (bound_owner.rs).
 pub(crate) fn run_headless<F>(
     mux: &Arc<Mux>,
     socket_path: &Path,
+    exit_with_pid: Option<u32>,
     remote_runtime_finished: F,
 ) -> anyhow::Result<()>
 where
@@ -63,6 +68,10 @@ where
     // running (dev_orphan_exit.rs).
     #[cfg(unix)]
     let orphan_exit = dev_orphan_exit::start_for_owner(mux);
+    #[cfg(unix)]
+    let bound = exit_with_pid.and_then(|pid| bound_owner::start(mux, pid));
+    #[cfg(not(unix))]
+    let _ = exit_with_pid;
     let (lock, wake) = &HEADLESS_WAKE;
     let mut generation = lock.lock().unwrap();
     while !(shutdown_requested() || mux.daemon_shutdown_requested() || remote_runtime_finished()) {
@@ -86,6 +95,10 @@ where
     #[cfg(unix)]
     if let Some(orphan_exit) = orphan_exit {
         orphan_exit.stop();
+    }
+    #[cfg(unix)]
+    if let Some(bound) = bound {
+        bound.stop();
     }
     Ok(())
 }

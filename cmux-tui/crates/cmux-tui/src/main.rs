@@ -577,6 +577,9 @@ struct Args {
     owner_ready_fd: Option<i32>,
     owner_install_key_fd: Option<i32>,
     terminal_reap_grace: Option<std::time::Duration>,
+    /// `--exit-with-pid`: a headless owner bound to this process ends its
+    /// terminals and exits once it dies (headless/bound_owner.rs).
+    exit_with_pid: Option<u32>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -641,6 +644,16 @@ fn parse_owner_host_color(flag: &str, value: &str) -> Result<cmux_tui_core::Rgb,
     Ok(cmux_tui_core::Rgb { r: parse(0..2)?, g: parse(2..4)?, b: parse(4..6)? })
 }
 
+/// `--exit-with-pid` (startup and `server ensure`): a process id above 1;
+/// pid 1 never exits, so binding to it would bind to nothing.
+pub(crate) fn parse_exit_with_pid(value: &str) -> Result<u32, String> {
+    value
+        .parse::<u32>()
+        .ok()
+        .filter(|pid| *pid > 1 && i32::try_from(*pid).is_ok())
+        .ok_or_else(|| "--exit-with-pid needs a process id above 1".to_string())
+}
+
 fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
     let args = args.into_iter().collect::<Vec<_>>();
     if has_inline_relay_ticket_argument(&args) {
@@ -687,6 +700,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         owner_ready_fd: None,
         owner_install_key_fd: None,
         terminal_reap_grace: None,
+        exit_with_pid: None,
     };
     let mut args = args.into_iter().peekable();
     while let Some(arg) = args.next() {
@@ -808,6 +822,14 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 .map_err(|error| error.to_string())?;
                 if out.terminal_reap_grace.replace(grace).is_some() {
                     return Err("--terminal-reap-grace-seconds may be supplied only once".into());
+                }
+            }
+            "--exit-with-pid" => {
+                let value =
+                    args.next().ok_or_else(|| "--exit-with-pid needs a value".to_string())?;
+                let pid = parse_exit_with_pid(&value)?;
+                if out.exit_with_pid.replace(pid).is_some() {
+                    return Err("--exit-with-pid may be supplied only once".into());
                 }
             }
             "--remote" => out.remote = true,
@@ -961,6 +983,13 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
     }
     if out.terminal.is_some() && !out.attach {
         return Err("--terminal requires `cmux attach`".to_string());
+    }
+    if out.exit_with_pid.is_some() && !out.headless {
+        return Err("--exit-with-pid needs --headless (or `daemon start`)".to_string());
+    }
+    #[cfg(not(unix))]
+    if out.exit_with_pid.is_some() {
+        return Err(format!("--exit-with-pid is unsupported on {}", std::env::consts::OS));
     }
     #[cfg(not(unix))]
     if out.agent_browser_provider {
@@ -1485,6 +1514,7 @@ pub(crate) const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--remote-admin-socket",
     "--remote-resume-lease-seconds",
     "--terminal-reap-grace-seconds",
+    "--exit-with-pid",
     "--relay",
     "--relay-slot",
     "--relay-ticket",
@@ -2672,7 +2702,7 @@ fn run_server(
         }
         #[cfg(unix)]
         {
-            run_headless(&mux, &socket_path, || {
+            run_headless(&mux, &socket_path, args.exit_with_pid, || {
                 remote_runtime
                     .as_ref()
                     .is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
@@ -2680,7 +2710,7 @@ fn run_server(
         }
         #[cfg(not(unix))]
         {
-            run_headless(&mux, &socket_path, || false)
+            run_headless(&mux, &socket_path, args.exit_with_pid, || false)
         }
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime, mux.clone(), config)
@@ -2945,6 +2975,7 @@ fn start_detached_owner_session(
         term: Some(owner_term),
         initial_host_colors: Some(host_colors),
         terminal_reap_grace: args.terminal_reap_grace,
+        exit_with_pid: None,
         install_key: None,
         chief_tools_socket: None,
         chief_brains: None,

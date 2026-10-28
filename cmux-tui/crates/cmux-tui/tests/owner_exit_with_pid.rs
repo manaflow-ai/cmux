@@ -211,7 +211,8 @@ fn parse_cpu_time(text: &str) -> Duration {
         Some((days, clock)) => (days.parse::<u64>().unwrap(), clock),
         None => (0, text),
     };
-    let clock = clock.split(':').fold(0.0, |total, part| total * 60.0 + part.parse::<f64>().unwrap());
+    let clock =
+        clock.split(':').fold(0.0, |total, part| total * 60.0 + part.parse::<f64>().unwrap());
     Duration::from_secs_f64(days as f64 * 86_400.0 + clock)
 }
 

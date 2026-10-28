@@ -4,36 +4,61 @@ use super::{Flags, UsageError};
 use crate::cli::lifecycle::ServerAction;
 use crate::local_owner::EnsureWebSocket;
 
-/// `server ensure [--terminal-reap-grace-seconds <n>] [--install-key-stdin]
-/// [--restore-progress] [--replace-unresponsive] [--ws-loopback [--ws-allow-origin <origin>[,<origin>...]]]`: the
-/// grace has the owner's own startup bounds, checked before any spawn.
+/// `server ensure [--terminal-reap-grace-seconds <n>] [--exit-with-pid <pid>]
+/// [--install-key-stdin] [--restore-progress] [--replace-unresponsive]
+/// [--ws-loopback [--ws-allow-origin <origin>[,<origin>...]]]`: the grace has
+/// the owner's own startup bounds, checked before any spawn.
 pub(super) fn parse(flags: &mut Flags) -> Result<ServerAction, UsageError> {
     let install_key_stdin = flags.boolean("install-key-stdin");
     let progress = flags.boolean("restore-progress");
     let websocket = websocket(flags)?;
     let replace_unresponsive = flags.boolean("replace-unresponsive");
-    let Some(value) = flags.take("terminal-reap-grace-seconds") else {
-        return Ok(ServerAction::Ensure {
-            terminal_reap_grace: None,
-            install_key_stdin,
-            progress,
-            websocket,
-            replace_unresponsive,
-        });
-    };
-    let seconds = value
-        .parse::<u64>()
-        .map_err(|_| UsageError::new("--terminal-reap-grace-seconds must be an integer"))?;
-    let grace =
-        cmux_tui_core::validate_terminal_reap_grace(std::time::Duration::from_secs(seconds))
+    let exit_with_pid =
+        flags.take("exit-with-pid").map(|value| exit_with_pid(&value)).transpose()?;
+    let terminal_reap_grace = match flags.take("terminal-reap-grace-seconds") {
+        Some(value) => {
+            let seconds = value
+                .parse::<u64>()
+                .map_err(|_| UsageError::new("--terminal-reap-grace-seconds must be an integer"))?;
+            let grace = cmux_tui_core::validate_terminal_reap_grace(
+                std::time::Duration::from_secs(seconds),
+            )
             .map_err(|error| UsageError::new(error.to_string()))?;
+            Some(grace)
+        }
+        None => None,
+    };
     Ok(ServerAction::Ensure {
-        terminal_reap_grace: Some(grace),
+        terminal_reap_grace,
+        exit_with_pid,
         install_key_stdin,
         progress,
         websocket,
         replace_unresponsive,
     })
+}
+
+/// `--exit-with-pid <pid>`: the owner this call spawns ends its terminals
+/// and exits once that process dies (a test or CI launcher's own pid, so a
+/// launcher killed before its cleanup leaves nothing running). The process
+/// must exist now: an owner bound to a gone pid would exit at once.
+fn exit_with_pid(value: &str) -> Result<u32, UsageError> {
+    let pid = crate::parse_exit_with_pid(value).map_err(UsageError::new)?;
+    #[cfg(unix)]
+    {
+        // SAFETY: signal 0 only checks that the process exists.
+        let gone = unsafe { libc::kill(pid as libc::pid_t, 0) } != 0
+            && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+        if gone {
+            return Err(UsageError::new(format!("--exit-with-pid {pid}: no such process")));
+        }
+        Ok(pid)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        Err(UsageError::new(format!("--exit-with-pid is unsupported on {}", std::env::consts::OS)))
+    }
 }
 
 /// `--ws-loopback` (private app contract): an owner this call spawns opens

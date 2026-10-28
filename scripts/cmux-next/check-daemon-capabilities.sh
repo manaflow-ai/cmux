@@ -19,8 +19,9 @@
 # unserved, or is a daemon capability missing from the lists.
 #
 # It starts the binary as an isolated daemon (temporary HOME, TMPDIR and
-# CMUX_TUI_STATE_DIR, `server ensure` with the app's reap grace), sends a raw `identify` over its
-# socket, and stops it (`server stop --end-terminals`). Distribution workflows
+# CMUX_TUI_STATE_DIR, `server ensure` with the app's reap grace, bound to this
+# script's pid), sends a raw `identify` over its socket, and stops it
+# (`server stop --end-terminals`). Distribution workflows
 # use `--static-only` so runtime checks stay in the daemon integration lane.
 #
 # The Xcode "Bundle cmux-tui" phase runs it on every non-release bundle, and
@@ -124,8 +125,10 @@ cleanup() {
 trap cleanup EXIT
 
 # With a reap grace, as DaemonLauncher starts the app's owner, so the
-# conditional terminal-reaper-active-v1 is served.
-if ! ensured="$(run_binary server ensure --terminal-reap-grace-seconds 30 2>"$root/ensure.err")"; then
+# conditional terminal-reaper-active-v1 is served. Bound to this script
+# (--exit-with-pid): a run killed before its EXIT trap (a cancelled job)
+# leaves no owner behind; the owner ends its terminals and exits with it.
+if ! ensured="$(run_binary server ensure --terminal-reap-grace-seconds 30 --exit-with-pid $$ 2>"$root/ensure.err")"; then
   echo "check-daemon-capabilities: $binary server ensure failed:" >&2
   cat "$root/ensure.err" >&2
   exit 1

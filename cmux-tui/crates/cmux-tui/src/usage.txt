@@ -55,5 +55,9 @@ START OPTIONS
   --terminal-reap-grace-seconds <seconds>
                      End a terminal with no tab after this long unless it is
                      kept (default: never; 0 ends it at once; at most 604800).
+  --exit-with-pid <pid>
+                     With --headless: end every terminal and exit once that
+                     process exits (a test or CI launcher's own pid). Without
+                     it the owner outlives every client.
   -h, --help         Show this help.
   -V, --version      Print the cmux version.
