@@ -198,3 +198,63 @@ fn local_input_closes_its_sink_when_the_runtime_drops_it() {
     assert_eq!(recorded.failures(), vec![(InputFailure::WriteFailed, 6)]);
     assert!(matches!(sink.submit(b"x", None), Err(InputSinkError::Closed(_))));
 }
+
+fn patterned(len: usize) -> Vec<u8> {
+    (0..len).map(|index| (index % 251) as u8).collect()
+}
+
+#[test]
+fn a_payload_larger_than_the_capacity_reaches_a_reading_child_whole() {
+    let (sink, mut child) = sink_pair();
+    let recorded = Arc::new(Recorded::default());
+    let len = INPUT_SINK_CAPACITY + (1 << 20);
+    let reader = std::thread::spawn(move || read_exactly(&mut child, len));
+    let payload = patterned(len);
+    sink.submit(&payload, receipt(&recorded)).unwrap();
+    assert!(reader.join().unwrap() == payload, "the paste arrived cut or out of order");
+    wait_until("the backlog to drain", || sink.backlog_bytes() == 0);
+    assert!(recorded.failures().is_empty());
+}
+
+#[test]
+fn a_backlog_holds_at_most_the_capacity_behind_its_first_payload() {
+    let (sink, _child) = sink_pair();
+    sink.submit(&vec![b'l'; INPUT_SINK_CAPACITY + 1], None).unwrap();
+    assert!(sink.backlog_bytes() > 0, "the socket took the whole payload");
+    let refused = sink.submit(b"k", None).unwrap_err();
+    assert!(matches!(refused, InputSinkError::Overflow { len: 1, .. }), "{refused}");
+}
+
+#[test]
+fn an_empty_payload_behind_a_backlog_is_written_at_once() {
+    let (sink, _child) = sink_pair();
+    let fill = vec![b'f'; 4096];
+    while sink.backlog_bytes() == 0 {
+        sink.submit(&fill, None).unwrap();
+    }
+    let recorded = Arc::new(Recorded::default());
+    assert_eq!(sink.submit(b"", receipt(&recorded)).unwrap(), Submitted::Written);
+    assert!(recorded.failures().is_empty());
+}
+
+/// A drain that parked once, then a submit whose write fails: the drain
+/// leaves the read loop, so the runtime's end releases the sink and its
+/// duplicate descriptor.
+#[test]
+fn a_write_failure_after_the_drain_parked_releases_the_sink() {
+    let (sink, mut child) = sink_pair();
+    let fill = vec![b'f'; 4096];
+    let mut sent = 0;
+    while sink.backlog_bytes() == 0 {
+        sink.submit(&fill, None).unwrap();
+        sent += fill.len();
+    }
+    read_exactly(&mut child, sent);
+    wait_until("the drain to park", || sink.backlog_bytes() == 0);
+    drop(child);
+
+    let failed = sink.submit(b"after", None).unwrap_err();
+    assert!(matches!(failed, InputSinkError::Closed(_)), "{failed}");
+    drop(LocalInput::new(sink.clone()));
+    wait_until("the drain to release the sink", || Arc::strong_count(&sink) == 1);
+}

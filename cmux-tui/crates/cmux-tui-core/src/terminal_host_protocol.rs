@@ -92,6 +92,40 @@ pub const FLAG_SHELL_ACTIVITY: u32 = 1 << 8;
 /// older hosts reject the unknown bit.
 pub const FLAG_INPUT_FLOW: u32 = 1 << 9;
 
+/// Hosted input failures (p05-ipc-157). Valid only in protocol-v4
+/// `ClientHello` and `HostHello`, and on an `Input` frame of a connection
+/// that negotiated it. On `Input` the frame's request id names the sender
+/// (one per daemon stream) instead of asking for an `InputAck`: bytes of it
+/// the host's input sink refuses or never writes come back in one
+/// [`MessageKind::InputFailed`] with that request id per refusal, and one
+/// for all of a sender's queued bytes a failed PTY drops.
+///
+/// Sent only toward a host whose record advertises
+/// `supports_input_failures`; older hosts reject the unknown bit.
+pub const FLAG_INPUT_FAILURES: u32 = 1 << 10;
+
+/// `InputFailed` reason: the host's input backlog was full.
+pub const INPUT_FAILED_OVERFLOW: u8 = 1;
+/// `InputFailed` reason: the PTY failed or the terminal ended.
+pub const INPUT_FAILED_WRITE: u8 = 2;
+/// An `InputFailed` payload: reason:u8 + bytes:u64.
+const INPUT_FAILED_PAYLOAD_LEN: usize = 1 + size_of::<u64>();
+
+/// The payload of an `InputFailed` frame.
+pub fn encode_input_failed(reason: u8, bytes: u64) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(INPUT_FAILED_PAYLOAD_LEN);
+    payload.push(reason);
+    payload.extend_from_slice(&bytes.to_le_bytes());
+    payload
+}
+
+/// An `InputFailed` payload's reason and byte count; `None` when malformed.
+pub fn decode_input_failed(payload: &[u8]) -> Option<(u8, u64)> {
+    let (&reason, bytes) = payload.split_first()?;
+    let bytes: [u8; 8] = bytes.try_into().ok()?;
+    Some((reason, u64::from_le_bytes(bytes)))
+}
+
 /// The payload of an `Input` or `Output` frame with [`FLAG_INPUT_FLOW`]:
 /// `bytes`, then `flow`.
 pub fn flow_trailer_payload(bytes: &[u8], flow: u64) -> Vec<u8> {
@@ -474,6 +508,10 @@ pub enum MessageKind {
     /// Targeted response to `TraceControl`: the host's trace state after the
     /// request (`terminal_host_runtime/shared/host_trace.rs`).
     TraceControlAck = 28,
+    /// Input of a sender on a `FLAG_INPUT_FAILURES` connection that never
+    /// reaches the PTY: request id is the sender, payload reason:u8 +
+    /// bytes:u64 ([`encode_input_failed`]), sequence zero.
+    InputFailed = 29,
     Input = 100,
     Paste = 101,
     ViewerSize = 102,
@@ -543,6 +581,7 @@ impl TryFrom<u16> for MessageKind {
             26 => Ok(Self::PtyCustody),
             27 => Ok(Self::LaunchAdopt),
             28 => Ok(Self::TraceControlAck),
+            29 => Ok(Self::InputFailed),
             100 => Ok(Self::Input),
             101 => Ok(Self::Paste),
             102 => Ok(Self::ViewerSize),

@@ -72,6 +72,8 @@ mod oracle_state;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
 mod input_flow;
+/// What a sender of terminal input hears of bytes not written at once.
+mod input_receipt;
 mod output_store;
 /// `RecoverPoison` and `JsonFields` (panic-free lane).
 mod panic_free;

@@ -26,38 +26,12 @@ use crate::mux::terminal_work::read_loop::{ReadFlow, ReadKick, ReadSource, Termi
 use crate::panic_free::RecoverPoison;
 use cmux_threads::sync::Mutex;
 
-/// Input bytes one terminal's sink holds while its child does not read: a
-/// large paste fits whole, and a child that never reads costs at most this.
+pub(crate) use crate::input_receipt::{InputFailure, InputReceipt};
+
+/// Input bytes one terminal's sink queues behind earlier input while its
+/// child does not read: a child that never reads costs at most this plus
+/// one payload, since a payload of any size is taken into an empty backlog.
 pub(crate) const INPUT_SINK_CAPACITY: usize = 4 << 20;
-
-/// Why queued input never reached the PTY (`input-failed.reason`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum InputFailure {
-    /// The backlog was full: nothing of the payload was written.
-    Overflow,
-    /// The PTY failed or its terminal closed.
-    WriteFailed,
-}
-
-impl InputFailure {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            InputFailure::Overflow => "overflow",
-            InputFailure::WriteFailed => "write_failed",
-        }
-    }
-}
-
-/// Told what became of input a sender queued. A sender's queued chunks are
-/// reported together: a PTY that fails with 10k queued keys of one stream
-/// tells that stream once.
-pub(crate) trait InputReceipt: Send + Sync {
-    /// `bytes` of this sender's queued input will never reach the PTY.
-    fn failed(&self, reason: InputFailure, bytes: usize);
-
-    /// The last byte of one of this sender's queued chunks reached the PTY.
-    fn written(&self) {}
-}
 
 /// What [`PtyInputSink::submit`] did with a payload it took.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,8 +45,8 @@ pub(crate) enum Submitted {
 /// A refused input payload: nothing of it was written or queued.
 #[derive(Debug)]
 pub(crate) enum InputSinkError {
-    /// The backlog holds `queued` bytes and `len` more would pass
-    /// [`INPUT_SINK_CAPACITY`].
+    /// The backlog holds `queued` bytes, and `len` more behind them would
+    /// pass [`INPUT_SINK_CAPACITY`].
     Overflow { queued: usize, len: usize },
     /// The PTY failed earlier, or the terminal closed.
     Closed(io::ErrorKind),
@@ -118,7 +92,8 @@ struct Chunk {
     receipt: Option<Arc<dyn InputReceipt>>,
 }
 
-/// Queued input in arrival order, at most [`INPUT_SINK_CAPACITY`] bytes.
+/// Queued input in arrival order: at most [`INPUT_SINK_CAPACITY`] bytes
+/// behind its first payload.
 #[derive(Default)]
 struct InputBacklog {
     chunks: VecDeque<Chunk>,
@@ -133,8 +108,11 @@ impl InputBacklog {
         self.chunks.is_empty()
     }
 
+    /// Whether `len` more bytes may wait behind what is queued: one
+    /// payload of any size into an empty backlog (a large paste is never
+    /// refused for its size alone), else only up to the capacity.
     fn admits(&self, len: usize) -> bool {
-        self.bytes.saturating_add(len) <= INPUT_SINK_CAPACITY
+        self.bytes == 0 || self.bytes.saturating_add(len) <= INPUT_SINK_CAPACITY
     }
 
     /// Queues `bytes` behind what is queued; the caller checked [`Self::admits`].
@@ -233,8 +211,35 @@ struct SinkState {
     backlog: InputBacklog,
     /// Why nothing more is written: the PTY failed or the terminal closed.
     closed: Option<io::ErrorKind>,
-    /// The drain's registration, from the first backlog on.
+    /// The drain's registration, from the first backlog on, until closed.
     drain: Option<ReadKick>,
+}
+
+/// What closing a sink leaves to do once its lock is released.
+struct Closed {
+    failed: FailedInput,
+    drain: Option<ReadKick>,
+}
+
+impl SinkState {
+    /// Refuses all later input for `kind` (the first reason stays), drops
+    /// the backlog and takes the drain's registration, so a parked drain
+    /// is kicked out of the read loop and its descriptor closes.
+    fn close(&mut self, kind: io::ErrorKind) -> Closed {
+        self.closed.get_or_insert(kind);
+        Closed { failed: self.backlog.fail_all(), drain: self.drain.take() }
+    }
+}
+
+impl Closed {
+    /// Tells the senders and kicks the drain: its next run sees the close
+    /// and leaves the loop. Call it with the sink's lock released.
+    fn finish(self) {
+        report_failed(self.failed, InputFailure::WriteFailed);
+        if let Some(drain) = self.drain {
+            drain.kick();
+        }
+    }
 }
 
 impl PtyInputSink {
@@ -259,6 +264,10 @@ impl PtyInputSink {
         bytes: &[u8],
         receipt: Option<Arc<dyn InputReceipt>>,
     ) -> Result<Submitted, InputSinkError> {
+        if bytes.is_empty() {
+            // Nothing to write, so nothing to wait behind or report.
+            return Ok(Submitted::Written);
+        }
         let mut state = self.state.lock().recover_poison();
         if let Some(kind) = state.closed {
             return Err(InputSinkError::Closed(kind));
@@ -275,7 +284,9 @@ impl PtyInputSink {
         let taken = match write_now(self.fd.as_raw_fd(), bytes) {
             Ok(taken) => taken,
             Err(error) => {
-                state.closed = Some(error.kind());
+                let closed = state.close(error.kind());
+                drop(state);
+                closed.finish();
                 return Err(InputSinkError::Closed(error.kind()));
             }
         };
@@ -291,10 +302,9 @@ impl PtyInputSink {
             Some(drain) => state.drain = Some(drain),
             None => {
                 // Nothing would ever write the backlog: fail it now.
-                state.closed = Some(io::ErrorKind::BrokenPipe);
-                let failed = state.backlog.fail_all();
+                let closed = state.close(io::ErrorKind::BrokenPipe);
                 drop(state);
-                report_failed(failed, InputFailure::WriteFailed);
+                closed.finish();
             }
         }
         Ok(Submitted::Queued)
@@ -307,19 +317,8 @@ impl PtyInputSink {
 
     /// Fails what is queued and refuses later input: the terminal ended.
     pub(crate) fn close(&self) {
-        let mut state = self.state.lock().recover_poison();
-        if state.closed.is_some() {
-            return;
-        }
-        state.closed = Some(io::ErrorKind::BrokenPipe);
-        let failed = state.backlog.fail_all();
-        let drain = state.drain.take();
-        drop(state);
-        report_failed(failed, InputFailure::WriteFailed);
-        // Its next run sees the close and leaves the loop.
-        if let Some(drain) = drain {
-            drain.kick();
-        }
+        let closed = self.state.lock().recover_poison().close(io::ErrorKind::BrokenPipe);
+        closed.finish();
     }
 
     fn register_drain(self: &Arc<Self>) -> Option<ReadKick> {
@@ -340,20 +339,20 @@ impl PtyInputSink {
         if state.closed.is_some() {
             return ReadFlow::Finished;
         }
-        let (flow, failed) = match state.backlog.write_out(self.fd.as_raw_fd(), &mut done) {
-            Ok(()) if state.backlog.is_empty() => (ReadFlow::Park, Vec::new()),
-            Ok(()) => (ReadFlow::Continue, Vec::new()),
-            Err(error) => {
-                state.closed = Some(error.kind());
-                state.drain = None;
-                (ReadFlow::Finished, state.backlog.fail_all())
-            }
+        let (flow, closed) = match state.backlog.write_out(self.fd.as_raw_fd(), &mut done) {
+            Ok(()) if state.backlog.is_empty() => (ReadFlow::Park, None),
+            Ok(()) => (ReadFlow::Continue, None),
+            // This run leaves the loop itself: the kick of its own running
+            // registration changes nothing.
+            Err(error) => (ReadFlow::Finished, Some(state.close(error.kind()))),
         };
         drop(state);
         for receipt in done {
             receipt.written();
         }
-        report_failed(failed, InputFailure::WriteFailed);
+        if let Some(closed) = closed {
+            closed.finish();
+        }
         flow
     }
 }
