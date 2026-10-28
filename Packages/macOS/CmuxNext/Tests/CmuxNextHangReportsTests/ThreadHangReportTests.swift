@@ -112,6 +112,26 @@ struct ThreadHangReportTests {
         #expect(collector.takeBlackBox() == [event])
     }
 
+    /// The Chromium Host's UI hangs (p01-process-084): the host measured them and sends no stack, so each is kept
+    /// frameless as a hang of `chromium-host.ui`, in the thread slots, never among the app's own hangs; a schema-2
+    /// collector keeps none, and a schema-3 report with one passes the server's rules.
+    @Test func aChromiumHostHangIsKeptAsTheHostsUIThread() throws {
+        let collector = Self.collector()
+        collector.setEnabled(true)
+        collector.noteHostHang(durationNanos: 400_000_000)
+        let aggregate = collector.drain()
+        #expect(aggregate.hangs.isEmpty && aggregate.stalls.isEmpty)
+        #expect(aggregate.threadHangs.map(\.thread) == [HangSample.WatchedThread(name: "chromium-host.ui", kind: "main")])
+        #expect(aggregate.threadHangs.map(\.durationMs) == [400])
+        let report = Self.builder(.v3).build(context: HangReportFixtures.context(), watchdog: aggregate, metricKit: [])
+        #expect(HangReportServerRules.violations(in: try HangReport.encoder.encode(report)).isEmpty)
+
+        let schema2 = Self.collector(keepsThreadHangs: false)
+        schema2.setEnabled(true)
+        schema2.noteHostHang(durationNanos: 400_000_000)
+        #expect(schema2.snapshot().threadHangs.isEmpty)
+    }
+
     @Test func aHangWithNoStackIsNotKept() {
         let collector = Self.collector()
         collector.setEnabled(true)

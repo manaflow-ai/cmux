@@ -85,7 +85,7 @@
    "expect": {
     "acpmux": 14,
     "cmux-config": 2,
-    "cmux-layout-reducer": 4,
+    "cmux-layout-reducer": 9,
     "cmux-local-auth": 2,
     "cmux-terminal-client": 1,
     "cmux-terminal-sizing": 6,

@@ -419,4 +419,10 @@ final class TerminalEventQueue: Sendable {
     var resyncPhase: ResyncPhase {
         state.withLock { $0.resync }
     }
+
+    /// The stream ended after an overflow (``Backpressure/dropAndResync(_:)``: a byte attach over the bound, or
+    /// a resync that failed): an attach stream then tells the daemon with `cancel-stream` (p05-ipc-095).
+    var endedAfterOverflow: Bool {
+        state.withLock { $0.finished && $0.overflows > 0 }
+    }
 }
