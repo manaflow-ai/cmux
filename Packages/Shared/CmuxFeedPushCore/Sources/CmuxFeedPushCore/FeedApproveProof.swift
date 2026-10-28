@@ -77,7 +77,7 @@ public struct FeedApproveShownText: Hashable, Sendable {
 
     /// Lowercase hex sha256 of ``canonical``.
     public var sha256: String {
-        SHA256.hash(data: canonical).map { String(format: "%02x", $0) }.joined()
+        Data.lowercaseHex(SHA256.hash(data: canonical))
     }
 }
 

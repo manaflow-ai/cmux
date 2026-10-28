@@ -11,7 +11,7 @@ internal import Musl
 /// The heap cell behind ``Mutex`` and ``PlatformLock``: the platform lock and the value it protects.
 /// The lock needs a stable address, so it lives in its own allocation, never inline in a value that
 /// can move.
-@usableFromInline
+@usableFromInline @safe
 final class MutexStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allow: `value` is reached only between lock() and unlock(), and the platform lock's operations are thread-safe
     @usableFromInline let value: UnsafeMutablePointer<Value>
     #if canImport(os)
@@ -22,46 +22,51 @@ final class MutexStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allow
 
     @usableFromInline
     init(_ initialValue: consuming Value) {
-        value = .allocate(capacity: 1)
-        value.initialize(to: initialValue)
-        primitive = .allocate(capacity: 1)
+        // SAFETY: both cells are allocated for one element and initialized here before any use; deinit is
+        // their only deinitialize and deallocate, and no pointer to them leaves this object.
+        unsafe value = .allocate(capacity: 1)
+        unsafe value.initialize(to: initialValue)
+        unsafe primitive = .allocate(capacity: 1)
         #if canImport(os)
-        primitive.initialize(to: os_unfair_lock()) // concurrency-allow: see `primitive`
+        unsafe primitive.initialize(to: os_unfair_lock()) // concurrency-allow: see `primitive`
         #else
-        primitive.initialize(to: pthread_mutex_t())
+        unsafe primitive.initialize(to: pthread_mutex_t())
         #if DEBUG
         // Chromium's base/synchronization/lock_impl_posix.cc: an error-checking mutex when DCHECKs are
         // on, so that misuse stops the process here as it does with os_unfair_lock on Apple.
         var attributes = pthread_mutexattr_t()
-        pthread_mutexattr_init(&attributes)
-        pthread_mutexattr_settype(&attributes, Int32(PTHREAD_MUTEX_ERRORCHECK))
-        let result = pthread_mutex_init(primitive, &attributes)
-        pthread_mutexattr_destroy(&attributes)
+        unsafe pthread_mutexattr_init(&attributes)
+        unsafe pthread_mutexattr_settype(&attributes, Int32(PTHREAD_MUTEX_ERRORCHECK))
+        let result = unsafe pthread_mutex_init(primitive, &attributes)
+        unsafe pthread_mutexattr_destroy(&attributes)
         #else
-        let result = pthread_mutex_init(primitive, nil)
+        let result = unsafe pthread_mutex_init(primitive, nil)
         #endif
         assert(result == 0, "pthread_mutex_init failed with \(result)")
         #endif
     }
 
     deinit {
+        // SAFETY: the last reference is gone, so no thread holds the lock or reads `value`; both cells were
+        // initialized in init and are deinitialized and freed once, here.
         #if !canImport(os)
-        let result = pthread_mutex_destroy(primitive)
+        let result = unsafe pthread_mutex_destroy(primitive)
         assert(result == 0, "pthread_mutex_destroy failed with \(result) (EBUSY: the lock is still held)")
         #endif
-        primitive.deinitialize(count: 1)
-        primitive.deallocate()
-        value.deinitialize(count: 1)
-        value.deallocate()
+        unsafe primitive.deinitialize(count: 1)
+        unsafe primitive.deallocate()
+        unsafe value.deinitialize(count: 1)
+        unsafe value.deallocate()
     }
 
     /// Takes the lock, waiting while another thread holds it.
     @usableFromInline
     func lock() {
+        // SAFETY (lock, tryLock, unlock): `primitive` is the initialized lock cell this object owns until deinit.
         #if canImport(os)
-        os_unfair_lock_lock(primitive) // concurrency-allow: see `primitive`
+        unsafe os_unfair_lock_lock(primitive) // concurrency-allow: see `primitive`
         #else
-        let result = pthread_mutex_lock(primitive)
+        let result = unsafe pthread_mutex_lock(primitive)
         assert(result == 0, "pthread_mutex_lock failed with \(result) (EDEADLK: this thread already holds the lock)")
         #endif
     }
@@ -70,9 +75,9 @@ final class MutexStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allow
     @usableFromInline
     func tryLock() -> Bool {
         #if canImport(os)
-        os_unfair_lock_trylock(primitive) // concurrency-allow: see `primitive`
+        unsafe os_unfair_lock_trylock(primitive) // concurrency-allow: see `primitive`
         #else
-        let result = pthread_mutex_trylock(primitive)
+        let result = unsafe pthread_mutex_trylock(primitive)
         assert(result == 0 || result == EBUSY, "pthread_mutex_trylock failed with \(result)")
         return result == 0
         #endif
@@ -82,9 +87,9 @@ final class MutexStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allow
     @usableFromInline
     func unlock() {
         #if canImport(os)
-        os_unfair_lock_unlock(primitive) // concurrency-allow: see `primitive`
+        unsafe os_unfair_lock_unlock(primitive) // concurrency-allow: see `primitive`
         #else
-        let result = pthread_mutex_unlock(primitive)
+        let result = unsafe pthread_mutex_unlock(primitive)
         assert(result == 0, "pthread_mutex_unlock failed with \(result) (EPERM: this thread does not hold the lock)")
         #endif
     }

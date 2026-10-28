@@ -37,7 +37,8 @@ public struct Mutex<Value: ~Copyable>: ~Copyable {
         #endif
         storage.lock()
         defer { storage.unlock() }
-        return try body(&storage.value.pointee)
+        // SAFETY: the lock is held, so this is the only access to the initialized value cell `storage` owns.
+        return try unsafe body(&storage.value.pointee)
     }
 
     /// ``withLock(_:)`` with `observer` watching a contended wait for the lock (``MutexWaitObserver``).
@@ -56,7 +57,8 @@ public struct Mutex<Value: ~Copyable>: ~Copyable {
             storage.unlock()
             if let report { observer.lockReleased(report) }
         }
-        return try body(&storage.value.pointee)
+        // SAFETY: the lock is held, so this is the only access to the initialized value cell `storage` owns.
+        return try unsafe body(&storage.value.pointee)
     }
 
     /// Runs `body` with exclusive access to the value when the lock is free now; returns nil without
@@ -71,7 +73,8 @@ public struct Mutex<Value: ~Copyable>: ~Copyable {
         defer { rank?.didUnlock() }
         #endif
         defer { storage.unlock() }
-        return try body(&storage.value.pointee)
+        // SAFETY: the lock is held, so this is the only access to the initialized value cell `storage` owns.
+        return try unsafe body(&storage.value.pointee)
     }
 }
 

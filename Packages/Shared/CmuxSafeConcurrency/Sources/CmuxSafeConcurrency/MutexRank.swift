@@ -95,7 +95,7 @@ final class HeldMutexRanks {
         var key = pthread_key_t()
         // SAFETY: pthread_key_create writes one key into `key`, a local live for the call; the destructor
         // releases the +1 that current() stored for the exiting thread.
-        return unsafe pthread_key_create(&key) { HeldMutexRanks.threadExited($0) } == 0 ? key : nil
+        return unsafe pthread_key_create(&key) { unsafe HeldMutexRanks.threadExited($0) } == 0 ? key : nil
     }()
 
     /// The calling thread's held ranks, made on its first ranked lock.

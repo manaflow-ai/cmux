@@ -60,7 +60,19 @@ public struct CloudOp: Sendable {
 
 extension Data {
     /// Lowercase hex, the APNs device-token spelling.
-    public var hexString: String { map { String(format: "%02x", $0) }.joined() }
+    public var hexString: String { Self.lowercaseHex(self) }
+
+    /// Lowercase hex of `bytes`, two digits per byte (no `String(format:)`: its `CVarArg` arguments are unsafe).
+    static func lowercaseHex(_ bytes: some Sequence<UInt8>) -> String {
+        let digits = Array("0123456789abcdef".utf8)
+        var text: [UInt8] = []
+        text.reserveCapacity(bytes.underestimatedCount * 2)
+        for byte in bytes {
+            text.append(digits[Int(byte >> 4)])
+            text.append(digits[Int(byte & 0x0F)])
+        }
+        return String(decoding: text, as: UTF8.self)
+    }
 }
 
 /// A JSON value that is Sendable (op params cross actors).

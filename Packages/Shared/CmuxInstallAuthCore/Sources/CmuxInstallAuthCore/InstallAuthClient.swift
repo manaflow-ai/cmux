@@ -251,7 +251,7 @@ public actor InstallAuthClient {
             attempts += 1
             let x963 = try await signer.publicKeyX963()
             let jwk = try PublicJWK(x963: x963)
-            let thumbprint = SHA256.hash(data: x963).prefix(16).map { String(format: "%02x", $0) }.joined()
+            let thumbprint = Self.lowercaseHex(SHA256.hash(data: x963).prefix(16))
             do {
                 // Keyed by (user, key): a lost reply is replayed, never a second install.
                 let install = try await op("install.register", params: [
@@ -322,5 +322,17 @@ public actor InstallAuthClient {
             throw InstallAuthError.refused(code ?? "http_\(status)")
         }
         return reply
+    }
+
+    /// Lowercase hex of `bytes`, two digits per byte (no `String(format:)`: its `CVarArg` arguments are unsafe).
+    static func lowercaseHex(_ bytes: some Sequence<UInt8>) -> String {
+        let digits = Array("0123456789abcdef".utf8)
+        var text: [UInt8] = []
+        text.reserveCapacity(bytes.underestimatedCount * 2)
+        for byte in bytes {
+            text.append(digits[Int(byte >> 4)])
+            text.append(digits[Int(byte & 0x0F)])
+        }
+        return String(decoding: text, as: UTF8.self)
     }
 }

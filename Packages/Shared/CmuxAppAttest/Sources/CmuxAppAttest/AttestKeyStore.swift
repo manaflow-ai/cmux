@@ -65,7 +65,9 @@ public struct KeychainAttestKeyStore: AttestKeyStore {
         var search = query
         search[kSecReturnData as String] = true
         search[kSecMatchLimit as String] = kSecMatchLimitOne
-        let status = blockingCall(.systemCall) { SecItemCopyMatching(search as CFDictionary, &item) }
+        // SAFETY: SecItemCopyMatching stores at most one +1 CFTypeRef in the local `item`, live for this call;
+        // the Swift import takes ownership of it.
+        let status = blockingCall(.systemCall) { unsafe SecItemCopyMatching(search as CFDictionary, &item) }
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess else { throw AttestKeyStoreError(status: status) }
         guard let data = item as? Data, let keyID = String(data: data, encoding: .utf8), !keyID.isEmpty else {

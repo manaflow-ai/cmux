@@ -87,7 +87,9 @@ public struct AgentBrandRenderer {
         context.clip(to: CGRect(x: box.x, y: box.y, width: box.width, height: box.height))
         if let tile {
             let tileRect = CGRect(x: tile.viewBox.x, y: tile.viewBox.y, width: tile.viewBox.width, height: tile.viewBox.height)
-            context.addPath(CGPath(roundedRect: tileRect, cornerWidth: tile.radius, cornerHeight: tile.radius, transform: nil))
+            let tilePath = CGMutablePath()
+            tilePath.addRoundedRect(in: tileRect, cornerWidth: tile.radius, cornerHeight: tile.radius)
+            context.addPath(tilePath)
             context.setFillColor(color(tile.tone.rgb(dark: dark)))
             context.fillPath()
         }
@@ -146,8 +148,10 @@ public struct AgentBrandRenderer {
         dark: Bool,
         monoColor: CGColor = CGColor(gray: 0, alpha: 1)
     ) -> CGImage? {
+        // SAFETY: the data pointer is nil, so Core Graphics allocates the pixels, owns them and frees them with the
+        // context; no memory of the caller is read or written.
         guard pixelSize > 0,
-              let context = CGContext(
+              let context = unsafe CGContext(
                   data: nil, width: pixelSize, height: pixelSize, bitsPerComponent: 8, bytesPerRow: 0,
                   space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
@@ -170,7 +174,9 @@ public struct AgentBrandRenderer {
     private static func drawOverlay(_ overlay: AgentBrandGradient, over paths: [AgentBrandPathSpec], in context: CGContext) {
         let colors = overlay.stops.map { color($0.color, opacity: $0.opacity) } as CFArray
         let locations = overlay.stops.map { CGFloat($0.offset) }
-        guard let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: colors, locations: locations) else { return }
+        // SAFETY: `locations` has one entry per color (both map `overlay.stops`); Core Graphics reads them during
+        // the call only.
+        guard let gradient = unsafe CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: colors, locations: locations) else { return }
         for item in paths where item.strokeWidth == nil {
             guard let path = path(item.d) else { continue }
             context.saveGState()
