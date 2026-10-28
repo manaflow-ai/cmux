@@ -223,7 +223,7 @@ actor TokenStorageAvailabilityProbe {
             locked: false,
             locksFirstReads: 2
         )
-        let availability = TokenStorageAvailabilityProbe(available: true, scriptedResults: [true, false])
+        let availability = TokenStorageAvailabilityProbe(available: true, scriptedResults: [true, false, false])
         let (coordinator, store) = try makeCoordinator(
             client: client,
             cachedUser: cachedUser,
