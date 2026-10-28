@@ -171,6 +171,28 @@ final class RecordingSigner: ChiefAnswerSigning, @unchecked Sendable {
         backend.close()
     }
 
+    /// QA 2026-10-27: Chief retracts the message that asked. Before: the
+    /// question stayed pending (the bar kept asking; answering failed with
+    /// question_closed). Now it leaves the feed with its message.
+    @Test func aRetractedQuestionLeavesTheFeed() async throws {
+        let daemon = FakeDaemon()
+        let messageID = daemon.seedChiefQuestion()
+        let backend = try await ChiefDaemonBackend.open(link: MockMacLink { _, request in daemon.respond(request) })
+        var events = backend.events().makeAsyncIterator()
+        _ = await events.next()
+        _ = try await backend.history(beforeSeq: nil, limit: 50)
+        #expect(backend.questionFeed.current.first?.isPending == true)
+        daemon.queueRetraction(of: messageID)
+        // A read (no op, so no rev of its own) lets the queued event through.
+        _ = try await backend.history(beforeSeq: nil, limit: 50)
+        let deadline = ContinuousClock.now + .seconds(10)
+        while !backend.questionFeed.current.isEmpty, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(backend.questionFeed.current.isEmpty)
+        backend.close()
+    }
+
     @Test func noSignerSendsNothing() async throws {
         let daemon = FakeDaemon()
         _ = daemon.seedChiefQuestion()

@@ -1,4 +1,5 @@
-import { DriverError } from "./team-vm-driver.ts"
+import { DriverError } from "../../team-vm-driver.ts"
+import type { GuestExecResult } from "../contract.ts"
 
 /**
  * Freestyle `exec-await` as root with stdin (cx-kvmz; the web twin is freestyle.ts execWithStdin
@@ -12,11 +13,6 @@ import { DriverError } from "./team-vm-driver.ts"
  * body (JS strings), and the runtime's buffers. They stay inside the trusted delivery boundary
  * (#13742 D16 update 4), never in a log, an error or storage.
  */
-export interface GuestExecResult {
-  readonly exitCode: number
-  readonly stdout: string
-  readonly stderr: string
-}
 
 const b64 = (bytes: Uint8Array): string => {
   let s = ""

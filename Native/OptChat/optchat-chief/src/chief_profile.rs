@@ -32,12 +32,6 @@ pub const DEFAULT_CHIEF: &str = cmux_chief::rules::AGENT_MUX;
 /// `spawn`, `tell` and `chiefs`; the brain adds `profile` from `self_edit`).
 pub const MODEL_TOOLS: [&str; 4] = ["spawn", "tell", "profile", "chiefs"];
 
-/// The tool definition shared with the docs (schemas/chief-profile/tool.json).
-const TOOL_FILE: &str = include_str!("../../../../schemas/chief-profile/tool.json");
-
-/// The `chiefs` tool's definition (schemas/chief-profile/chiefs-tool.json).
-const CHIEFS_TOOL_FILE: &str = include_str!("../../../../schemas/chief-profile/chiefs-tool.json");
-
 /// The env key of this host's turn key: the host gives it to its own turn
 /// sessions only (session env, never a subagent's, never a preset or the
 /// launcher file), and the tools socket answers `chiefs` only to a caller
@@ -47,12 +41,7 @@ const CHIEFS_TOOL_FILE: &str = include_str!("../../../../schemas/chief-profile/c
 pub const TURN_KEY_ENV: &str = "OPTCHAT_TURN_SEAL";
 
 /// The `chiefs` tool (name, description, input schema) for the MCP list.
-pub fn chiefs_tool() -> Value {
-    let file: Value = serde_json::from_str(CHIEFS_TOOL_FILE).unwrap_or_else(|_| json!({}));
-    file.get("tool")
-        .cloned()
-        .unwrap_or_else(|| json!({"name": "chiefs"}))
-}
+pub use chief_kernel::tools::chiefs_tool;
 
 /// This host process's turn seal: made once, given to its own turn
 /// sessions only (their acpmux `session/new` env, brain/turns.rs), never to
@@ -78,12 +67,7 @@ fn fresh_turn_key() -> String {
 }
 
 /// The `profile` tool (name, description, input schema) for the MCP list.
-pub fn profile_tool() -> Value {
-    let file: Value = serde_json::from_str(TOOL_FILE).unwrap_or_else(|_| json!({}));
-    file.get("tool")
-        .cloned()
-        .unwrap_or_else(|| json!({"name": "profile"}))
-}
+pub use chief_kernel::tools::profile_tool;
 
 /// The largest picture `profile` sends (the registry's limit).
 pub const MAX_AVATAR_BYTES: u64 = 1024 * 1024;
