@@ -402,6 +402,31 @@ class SignatureTests(PublishCase):
         self.assertEqual(json.loads(self.checkout.read_text()), json.loads(data))
         self.assertFalse(any(str(pem) in line for line in self.output), "the key path is never printed")
 
+    def test_a_stable_publish_goes_to_the_stable_bucket_and_leaves_the_checkout_alone(self):
+        pem, public_key = openssl_key_pair(self.folder)
+        original = pf.CONTENT_PUBLIC_KEY
+        pf.CONTENT_PUBLIC_KEY = public_key
+        before = self.checkout.read_bytes()
+        try:
+            env = {"STABLE_R2_ENDPOINT": "https://r2.example", pf.KEY_PATH_ENV: str(pem)}
+            code, uploader = self.run_publish("--cohort", "default", "--off", "perfLabKillProbe", "--reason", "r",
+                                              "--feed", "stable", env=env)
+        finally:
+            pf.CONTENT_PUBLIC_KEY = original
+        self.assertEqual(code, 0)
+        data = uploader.body("stable/notes/flags.json")
+        self.assertTrue(pf.bytes_verified(data, uploader.body("stable/notes/flags.json.sig"), public_key))
+        self.assertEqual(json.loads(data)["default"]["Features"], {"perfLabKillProbe": "off"})
+        self.assertTrue(pf.nightly_assertion(json.loads(data)))
+        self.assertTrue(all(put["key"].startswith("stable/") for put in uploader.puts))
+        self.assertEqual(self.checkout.read_bytes(), before, "stable's document is not the nightly's checkout")
+        self.assertIn("published https://files.cmux.com/stable/notes/flags.json (serial 2)", self.output)
+
+    def test_a_stable_publish_with_the_test_key_is_refused(self):
+        with self.assertRaises(pf.PublishError):
+            self.run_publish("--cohort", "default", "--off", "perfLabKillProbe", "--reason", "r", "--feed", "stable",
+                             "--test-key")
+
     def test_a_wrong_production_key_uploads_nothing(self):
         pem, _ = openssl_key_pair(self.folder)
         env = {"NIGHTLY_NEXT_R2_ENDPOINT": "https://r2.example", pf.KEY_PATH_ENV: str(pem)}

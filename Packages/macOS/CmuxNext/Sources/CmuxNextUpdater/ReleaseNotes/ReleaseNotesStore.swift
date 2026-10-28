@@ -17,10 +17,28 @@ nonisolated public struct ReleaseNotesStore: Sendable {
                  fetcher: any AppcastFetching = URLSessionAppcastFetcher()) {
         guard let feed = URL(string: feedURL), feed.scheme == "https" || feed.host == "127.0.0.1" || feed.host == "localhost"
         else { return nil }
-        notesBase = feed.deletingLastPathComponent().appending(path: "notes", directoryHint: .isDirectory)
+        notesBase = Self.notesBase(feed: feed)
         self.cache = cache
         self.publicKey = publicKey
         self.fetcher = fetcher
+    }
+
+    /// Where stable's notes and flags document live: the stable bucket, beside
+    /// `stable/appcast.xml` (release.yml's R2 upload; `publish-flags.py --feed stable`).
+    public static let stableNotesBase = "https://files.cmux.com/stable/notes/"
+
+    /// `<feed folder>/notes/`, except for a cmux stable feed. That feed is a GitHub release asset
+    /// (`releases/latest/download/appcast.xml`, a tag's thin feed), and an asset name cannot hold `/`,
+    /// so nothing could ever be published at `<feed folder>/notes/flags.json`: stable reads
+    /// ``stableNotesBase`` instead (pro-audit 19).
+    static func notesBase(feed: URL) -> URL {
+        let parts = feed.pathComponents
+        if feed.host?.lowercased() == "github.com", parts.count >= 5,
+           parts[1].lowercased() == "manaflow-ai", parts[2].lowercased() == "cmux", parts[3] == "releases",
+           let stable = URL(string: stableNotesBase) {
+            return stable
+        }
+        return feed.deletingLastPathComponent().appending(path: "notes", directoryHint: .isDirectory)
     }
 
     /// The verified notes of `build`: cached once verified (a build's notes never

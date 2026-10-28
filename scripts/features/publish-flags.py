@@ -2,6 +2,7 @@
 """Publish a remote feature change between nightlies: an operator tool, never a CI step.
 
   publish-flags.py --cohort C --off NAME [--off NAME ...] [--on NAME ...] --reason TEXT [--dry-run] [--test-key]
+                   [--feed nightly-next|stable]
 
 It loads the published `notes/flags.json`, verified with the content-signing public key (or, with no
 published document, `release-notes/next/flags.json`), sets `Features` of cohort C (`default` for
@@ -25,9 +26,14 @@ plans/cmux-next/chrome-parity/p12-perf-process.md.
   trusted only by bench builds) and publishes to perf-lab-test, never to the nightly feed.
 - A production publish applies the same change and serial to release-notes/next/flags.json in this
   checkout. Land it before the next nightly, or the nightly republishes the old features.
+- `--feed stable` publishes to the stable bucket (`https://files.cmux.com/stable/notes/`), where a
+  Release install reads its flags (ReleaseNotesStore.stableNotesBase): a stable release on GitHub can
+  hold no `notes/` folder. Nothing republishes stable's document, so it starts from an empty version 1
+  document and leaves the checkout alone. docs/cmux-next/release-rollout.md has the procedure.
 
 Environment: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY (R2), plus NIGHTLY_NEXT_R2_ENDPOINT and
-CMUX_CONTENT_SIGNING_KEY_PATH for production, or CMUX_PERF_LAB_R2_ENDPOINT, CMUX_PERF_LAB_R2_BUCKET and
+CMUX_CONTENT_SIGNING_KEY_PATH for production (STABLE_R2_ENDPOINT instead of NIGHTLY_NEXT_R2_ENDPOINT with
+--feed stable: the account endpoint of bucket cmux-binaries), or CMUX_PERF_LAB_R2_ENDPOINT, CMUX_PERF_LAB_R2_BUCKET and
 CMUX_PERF_LAB_FLAGS_BASE (the public URL of the bucket's perf-lab-test/ folder) with --test-key.
 """
 from __future__ import annotations
@@ -102,8 +108,14 @@ class Destination:
         return f"{self.key_prefix}notes/{name}"
 
 
-def destination(test_key: bool, env: Mapping[str, str]) -> Destination:
-    """The nightly feed (nightly.yml's NIGHTLY_NEXT_* values), or perf-lab-test with --test-key."""
+STABLE = "stable"
+# What a feed's document starts from when it has none and no checkout republishes it.
+EMPTY_DOCUMENT = {"version": 1, "default": {"Features": {}, "FeaturesSerial": 1}, "cohorts": {}}
+
+
+def destination(test_key: bool, env: Mapping[str, str], feed: str = "nightly-next") -> Destination:
+    """The nightly feed (nightly.yml's NIGHTLY_NEXT_* values), the stable bucket with --feed stable (release.yml's
+    stable/appcast.xml folder), or perf-lab-test with --test-key."""
     def need(name: str) -> str:
         value = env.get(name, "").strip()
         if not value:
@@ -113,6 +125,9 @@ def destination(test_key: bool, env: Mapping[str, str]) -> Destination:
     if test_key:
         return Destination("perf-lab-test", need("CMUX_PERF_LAB_FLAGS_BASE"), need("CMUX_PERF_LAB_R2_ENDPOINT"),
                            need("CMUX_PERF_LAB_R2_BUCKET"), "perf-lab-test/", test_signing_key()[0], False)
+    if feed == STABLE:
+        return Destination(STABLE, "https://files.cmux.com/stable", need("STABLE_R2_ENDPOINT"), "cmux-binaries",
+                           "stable/", CONTENT_PUBLIC_KEY, False)
     return Destination("nightly-next", "https://files-next.cmux.com/nightly-next/next",
                        need("NIGHTLY_NEXT_R2_ENDPOINT"), "cmux-nightly-next", "nightly-next/next/",
                        CONTENT_PUBLIC_KEY, True)
@@ -437,9 +452,12 @@ def publish(args: argparse.Namespace, *, env: Mapping[str, str], fetch: Fetch, u
     if not args.reason.strip():
         raise PublishError("--reason says why, for history/<serial>.json")
     check_names(on, off, registry() if kinds is None else kinds)
-    dest = destination(args.test_key, env)
+    if args.test_key and args.feed == STABLE:
+        raise PublishError("--test-key publishes to perf-lab-test; leave out --feed stable")
+    dest = destination(args.test_key, env, args.feed)
 
-    checkout = json.loads(checkout_path.read_text(encoding="utf-8"))
+    checkout = (copy.deepcopy(EMPTY_DOCUMENT) if dest.name == STABLE
+                else json.loads(checkout_path.read_text(encoding="utf-8")))
     if not nightly_assertion(checkout):
         raise PublishError(f"{checkout_path} fails nightly.yml's flags.json assertion")
     current = load_current(fetch, dest, checkout)
@@ -485,7 +503,7 @@ def publish(args: argparse.Namespace, *, env: Mapping[str, str], fetch: Fetch, u
                 serial += 1
     out(f"published {dest.url('flags.json')} (serial {serial})")
 
-    if not args.test_key:
+    if not args.test_key and dest.name != STABLE:
         checkout_path.write_bytes(render(apply_change(checkout, args.cohort, on, off, serial)))
         out(f"wrote {checkout_path.relative_to(REPO) if checkout_path.is_relative_to(REPO) else checkout_path}: "
             "land it before the next nightly, which republishes that file")
@@ -501,6 +519,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="print the diff; sign and upload nothing")
     parser.add_argument("--test-key", action="store_true",
                         help="sign with the perf lab's test key and publish to perf-lab-test")
+    parser.add_argument("--feed", choices=["nightly-next", STABLE], default="nightly-next",
+                        help="the feed whose installs read the change (default nightly-next)")
     return parser.parse_args(argv)
 
 
