@@ -31,6 +31,8 @@ export type QuickMenu = {
   current?: string;
   onModel(id: string): void;
   onModelEffort?(id: string, effort: string): void;
+  /** False for callers without a combined model/effort operation. */
+  inlineEffort?: boolean;
   /** Gallery alternatives; joined segments are the shipped choice. */
   effortLook?: "joined" | "spaced" | "underline";
   /// The reasoning levels; absent when the model offers no choice.
@@ -293,7 +295,7 @@ export function QuickModelMenu({
   };
   const effortChoices = (model: QuickModel) => {
     const running = (!families || model.family === families.current) && model.id === current;
-    if (!families && !menu.onModelEffort) return [];
+    if (menu.inlineEffort === false || (!families && !menu.onModelEffort)) return [];
     // An explicit empty list must not inherit another model's reasoning capabilities.
     return model.efforts !== undefined
       ? reasoningChoices(

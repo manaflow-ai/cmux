@@ -1160,6 +1160,7 @@ export function ModelPicker(props: ModelPickerProps) {
                 quickPicked.current = true;
                 onLand(id);
               },
+              inlineEffort: onCombo !== undefined,
               onModelEffort: (id, effort) => {
                 if (current) pickQuickToPrompt({ id, name: id, family: current.id, effort });
               },

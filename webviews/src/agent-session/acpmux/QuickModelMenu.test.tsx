@@ -208,7 +208,7 @@ test("New Tab keeps Fast mode in the picker instead of adding a composer bolt", 
 test("inline effort picks a different model and its level together; model names keep effort", async () => {
   const container = installDom();
   const picks: { id: string; effort?: string }[] = [];
-  function InlineHarness() {
+  function InlineHarness({ combined = true }: { combined?: boolean }) {
     const trigger = useRef<HTMLButtonElement | null>(null);
     const [open, setOpen] = useState(false);
     return (
@@ -219,6 +219,7 @@ test("inline effort picks a different model and its level together; model names 
         chip={{ "data-menu": "model", label: "Model", title: "Model" }}
         onMore={() => {}}
         menu={{
+          inlineEffort: combined,
           models: [],
           current: "a",
           onModel() {},
@@ -280,4 +281,9 @@ test("inline effort picks a different model and its level together; model names 
   await act(async () => (document.querySelector('[aria-label="Model A · Low"]') as HTMLElement).click());
   expect(picks.at(-1)?.id).toBe("a");
   expect(picks.at(-1)?.effort).toBe("low");
+  await settle();
+  await act(async () => root!.render(<InlineHarness combined={false} />));
+  await open();
+  expect(document.querySelectorAll(".acpmux-quick-effort-segment")).toHaveLength(0);
+  expect(labels(list())).toContain("Effort");
 });

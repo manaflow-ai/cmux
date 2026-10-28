@@ -537,7 +537,7 @@
   padding: 3px 6px;
   border-radius: 5px;
   color: var(--agent-muted);
-  font-size: var(--text-caption);
+  font-size: var(--text-content);
 }
 .acpmux-quick-effort-segment .ui-menu-check {
   display: none;
