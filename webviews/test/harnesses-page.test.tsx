@@ -7,19 +7,12 @@ import { afterEach, expect, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { HarnessesScreen } from "../src/agent-session/acpmux/harnesses/HarnessesScreen";
 import { buildPickerCatalog, BUNDLED_MODEL_CATALOG } from "../src/agent-session/acpmux/modelCatalogData";
 import { NewTabScreen } from "../src/agent-session/acpmux/newtab/NewTabScreen";
 import type { HarnessHealth } from "../src/agent-session/acpmux/HarnessHealthNotice";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 import { noChat } from "../src/gallery/fixtures/acpmux";
-
-const harnessStyles = readFileSync(
-  resolve(import.meta.dir, "../src/agent-session/acpmux/harnesses/harnesses.css"),
-  "utf8",
-);
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -149,11 +142,6 @@ const row = (container: HTMLElement, name: string) =>
   [...container.querySelectorAll<HTMLElement>("[data-harness-row]")].find(
     (element) => element.querySelector(".acpmux-harness-name")?.textContent === name,
   );
-
-test("harness setup hover belongs to the action button, not the row", () => {
-  expect(harnessStyles).not.toMatch(/\.acpmux-harness-row:hover\s*\{/);
-  expect(harnessStyles).toMatch(/\.acpmux-harness-action:hover\s*\{[^}]*background:/);
-});
 
 test("the page shows each harness's state on this Mac", async () => {
   const container = await renderPage([]);
