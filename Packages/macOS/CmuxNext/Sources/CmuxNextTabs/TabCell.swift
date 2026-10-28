@@ -143,8 +143,8 @@ final class TabCell {
     /// Close button frame in this view's coordinates, or nil when hidden. Set with `setCloseButtonRect(_:pill:)`.
     var closeButtonRect: CGRect?
 
-    /// Title font; the strip updates it when the chrome font size changes.
-    var titleFont = Typography.body {
+    /// Title font; the strip updates it when the tab or chrome font size changes.
+    var titleFont = Typography.tabTitle {
         didSet {
             guard titleFont != oldValue else { return }
             titleLayer.font = titleFont

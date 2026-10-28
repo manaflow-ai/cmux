@@ -1,6 +1,7 @@
 import CmuxNextDesign
 
-/// The tab overflow and width rows of the Tabs group (`tabs.overflow`, `appearance.metrics.tabMaxWidth`, `tabMinActiveWidth`,
+/// The tab size, overflow and width rows of the Tabs group (`appearance.metrics.tabFontSize` and `tabStripHeight`,
+/// https://github.com/manaflow-ai/cmux/issues/26493; `tabs.overflow`, `appearance.metrics.tabMaxWidth`, `tabMinActiveWidth`,
 /// `tabMinInactiveWidth`, `tabPinnedWidth`; Lawrence 2026-10-15: "keep chrome's minimums but needs to
 /// be customizable"). Unset means the density's value from the shared tokens; the strip keeps
 /// min <= max. Its own type: the schema type's line budget is per type.
@@ -8,6 +9,13 @@ nonisolated enum TabWidthSettingsSchema {
     static func descriptors(group: SettingText) -> [SettingDescriptor] {
         let densityDefault = SettingsText.keyed("settings.default.density", "Density default")
         return [
+            row(.tabFontSize, group, SettingsText.keyed("settings.tabs.tabFontSize", "Tab Text Size"),
+                SettingsText.keyed("settings.tabs.tabFontSize.help", "Text size of tab titles. Unset, tabs follow the interface size."),
+                SettingsText.keyed("settings.tabs.tabFontSize.default", "Interface size"),
+                keywords: ["tab", "tabs", "font", "text", "size", "title", "bigger", "smaller", "readable", "tabFontSize"]),
+            row(.tabStripHeight, group, SettingsText.keyed("settings.tabs.tabStripHeight", "Tab Bar Height"),
+                SettingsText.keyed("settings.tabs.tabStripHeight.help", "Height of a pane's tab bar. Its tabs grow and shrink with it."),
+                densityDefault, keywords: ["tab", "tabs", "bar", "strip", "height", "size", "taller", "tabStripHeight"]),
             // Shrink (Chrome's) or Scroll (cx-kp9b4): the palette's Tabs: Use Scrolling Tabs and Tabs: Use
             // Shrinking Tabs write it. Either way a crowded strip scrolls; it never asks.
             SettingDescriptor(
