@@ -135,6 +135,10 @@ pub mod approvers;
 pub mod mac_approvers;
 mod own_host;
 mod peer_cache;
+#[cfg(test)]
+mod peer_flap_soak;
+#[cfg(test)]
+mod peer_grace_tests;
 mod peer_lease;
 pub(crate) mod peer_snapshot;
 pub use peer_lease::PeerLease;
