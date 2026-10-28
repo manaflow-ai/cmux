@@ -420,6 +420,10 @@ export class SubagentFold {
     const name = text(record.shortName);
     const asked = promptKey(record.prompt);
     // A name is the surer of the two: a different explicit name cannot fall back to its prompt.
+    // The daemon allocates `base-2`, `base-3`, ... when a requested short name is taken. A
+    // numeric suffix therefore has no provenance in this record; never let it promote a shell
+    // call whose requested name happens to equal the renamed MCP child.
+    if (name && isDaemonRenamedName(name)) return undefined;
     const identity = { name, prompt: asked };
     if (this.retiredStarts.some((start) => identitiesOverlap(start, identity))) return undefined;
     const calls = [...this.parentCalls];
@@ -871,9 +875,20 @@ function runIdentity(run: AgentRun): ChildIdentity {
 /// produced the same name or prompt. Distinct explicit names are deterministic even with the
 /// same prompt; an absent name keeps prompt matching conservative.
 function identitiesOverlap(a: ChildIdentity, b: ChildIdentity): boolean {
-  if (a.name && b.name) return a.name === b.name;
+  if (a.name && b.name) return nameFamily(a.name) === nameFamily(b.name);
   if (a.prompt && b.prompt) return a.prompt === b.prompt;
   return true;
+}
+
+/// `claim_name` reserves the requested base then appends `-2`, `-3`, ...; compare the full
+/// rename family when call provenance is absent. Unrelated names such as alpha and beta remain
+/// independent, while alpha, alpha-2 and alpha-2-2 cannot be paired safely.
+function nameFamily(name: string): string {
+  return name.replace(/(?:-\d+)+$/, "");
+}
+
+function isDaemonRenamedName(name: string): boolean {
+  return /-\d+$/.test(name);
 }
 
 function sameIdentity(a: ChildIdentity, b: ChildIdentity): boolean {
