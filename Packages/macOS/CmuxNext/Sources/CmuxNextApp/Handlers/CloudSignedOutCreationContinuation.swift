@@ -32,7 +32,7 @@ final class CloudSignedOutCreationContinuation {
     /// A later user replacement, sign-out, or populated-team change does not.
     func scopeDidChange(from previous: [String?], to current: [String?]) {
         guard isPending else { return }
-        if previous[0] == nil, current[0] != nil { return }
+        if previous == [nil, nil], current[0] != nil { return }
         if previous[0] == current[0], previous[1] == nil, current[1] != nil { return }
         cancel()
     }
