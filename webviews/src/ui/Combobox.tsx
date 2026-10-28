@@ -307,6 +307,7 @@ export function Combobox({
             <button
               key={item}
               type="button"
+              data-press-pick=""
               className={cx("ui-combobox-item", itemClassName)}
               aria-label={itemLabel?.(item)}
               aria-current={isItemCurrent?.(item) ? true : undefined}

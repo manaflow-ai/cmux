@@ -572,6 +572,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     const page = await open("agent-pane.composer-context", "folder-long-list", 720);
     const popup = page.locator(".acpmux-folder-popover");
     const actions = popup.locator(".ui-combobox-pinned");
+    const action = actions.locator("button").first();
+    expect(await action.getAttribute("data-press-pick")).not.toBeNull();
+    expect(await action.evaluate((node) => getComputedStyle(node).borderTopWidth)).toBe("0px");
     const thumb = popup.locator(".cmux-scrollbar-thumb").first();
     await thumb.waitFor({ state: "visible" });
     const before = await actions.boundingBox();
