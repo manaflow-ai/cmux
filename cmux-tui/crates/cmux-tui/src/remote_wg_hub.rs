@@ -3,6 +3,7 @@
 //! (transport.md 12a).
 
 use super::*;
+use crate::json_fields::JsonFields;
 
 struct WgHubFlags {
     config: PathBuf,
@@ -21,8 +22,8 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
     let mut send_buffer = None;
     let mut exit_with_parent = false;
     let mut index = 0;
-    while index < args.len() {
-        let argument = args[index].as_str();
+    while let Some(argument) = args.get(index) {
+        let argument = argument.as_str();
         index += 1;
         let mut value = |name: &str| -> anyhow::Result<PathBuf> {
             let value = args
@@ -92,7 +93,7 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
         Some(action) => return Err(anyhow!(catalog().remote_client.unknown_action("wg", action))),
         None => return Err(anyhow!(catalog().remote_client.wg_hub_help)),
     }
-    let flags = parse_wg_hub_flags(&args[1..])?;
+    let flags = parse_wg_hub_flags(crate::panic_free::rest_after(args, 1))?;
     let owner = flags.exit_with_parent.then(current_parent_process_id);
     let async_runtime = wg_hub_runtime()?;
     let (net, paths) = start_wireguard_hub_tunnel(
@@ -134,7 +135,7 @@ pub(super) fn run_wg(args: &[String]) -> anyhow::Result<()> {
         "routes": hub.routes().iter().map(ToString::to_string).collect::<Vec<_>>(),
     });
     if let Some(control) = &control {
-        ready["control"] = serde_json::json!(control.path().display().to_string());
+        ready.insert("control", serde_json::json!(control.path().display().to_string()));
     }
     println!("{}", serde_json::to_string(&ready)?);
     let _ = io::stdout().flush();

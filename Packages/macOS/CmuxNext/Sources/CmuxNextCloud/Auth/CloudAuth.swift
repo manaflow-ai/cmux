@@ -4,7 +4,7 @@ public import CmuxAuthRuntime
 import Foundation
 import os
 public import Observation
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 public import CmuxNextWakeups
 
 /// Stack Auth for cmux-next, composed from the kept `CmuxAuthRuntime`

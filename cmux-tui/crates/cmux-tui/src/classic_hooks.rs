@@ -135,7 +135,7 @@ pub(crate) fn run() -> Option<std::process::ExitCode> {
         == Some(cmux_tui_hooks::HOOK_MODE_ARG)
     {
         // Hook helper arguments are agent and event names, never anything else.
-        let rest = arguments[1..].iter().map(|argument| argument.to_string_lossy().into_owned());
+        let rest = arguments.iter().skip(1).map(|argument| argument.to_string_lossy().into_owned());
         return Some(crate::hook_helper::run_cli(rest.collect(), prefix));
     }
     // Classic hook lines are ASCII; any other argv is not one.

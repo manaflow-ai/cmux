@@ -89,8 +89,11 @@ pub(super) fn run_plugin_build_command(
 
 pub(super) fn run_build_if_needed(manifest: &PluginManifest, dir: &Path) -> anyhow::Result<()> {
     let Some(build) = &manifest.build else { return Ok(()) };
-    let mut command = Command::new(&build.command[0]);
-    command.args(&build.command[1..]).current_dir(dir).stdout(Stdio::null()).stderr(Stdio::null());
+    let Some((program, args)) = build.command.split_first() else {
+        anyhow::bail!("build.command must not be empty");
+    };
+    let mut command = Command::new(program);
+    command.args(args).current_dir(dir).stdout(Stdio::null()).stderr(Stdio::null());
     #[cfg(unix)]
     command.process_group(0);
     scrub_plugin_build_environment(&mut command);

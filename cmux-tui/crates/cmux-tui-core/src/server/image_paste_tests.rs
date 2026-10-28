@@ -13,7 +13,7 @@ fn cloud_image_paste_advertises_a_versioned_capability() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify(Default::default()),
         &writer,
     )
     .unwrap();

@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextFiles
 import CmuxNextFilesUI
 import CmuxNextHibernation

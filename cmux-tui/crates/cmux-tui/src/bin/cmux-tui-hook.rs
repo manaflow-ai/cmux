@@ -60,7 +60,9 @@ fn main() -> ExitCode {
 /// `exe_prefix` is the argv that re-enters this mode through `current_exe`:
 /// empty for the standalone helper, `["__agent-hook"]` inside cmux-tui.
 pub(crate) fn run_cli(arguments: Vec<String>, exe_prefix: &[&str]) -> ExitCode {
-    if arguments.len() == 1 && arguments[0] == DETACHED_MODE_ARG {
+    if let [mode] = arguments.as_slice()
+        && mode == DETACHED_MODE_ARG
+    {
         return match detached_child_from_stdin() {
             Ok(()) => ExitCode::SUCCESS,
             Err(error) => {
@@ -261,6 +263,10 @@ impl DetachedChildGuard {
         Self(Some(child))
     }
 
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: only `release(self)` and `drop` empty the slot, and neither leaves a guard to call this on"
+    )]
     fn child_mut(&mut self) -> &mut cmux_process::Child {
         self.0.as_mut().expect("detached child guard is occupied")
     }
@@ -363,16 +369,15 @@ fn detached_child_from_stdin() -> anyhow::Result<()> {
 fn read_detached_request_id(reader: &mut impl BufRead) -> anyhow::Result<String> {
     // Allow an optional carriage return before the required newline. The
     // delimiter itself is not part of the request id byte limit.
-    let line_limit =
-        MAX_REQUEST_ID_BYTES.checked_add(2).expect("detached request id limit fits usize");
+    const LINE_LIMIT: usize = MAX_REQUEST_ID_BYTES + 2;
     let mut line = String::new();
     let bytes_read =
-        reader.take(line_limit as u64).read_line(&mut line).context("read detached request id")?;
+        reader.take(LINE_LIMIT as u64).read_line(&mut line).context("read detached request id")?;
     if bytes_read == 0 {
         bail!("detached request id is empty");
     }
     if !line.ends_with('\n') {
-        if bytes_read >= line_limit {
+        if bytes_read >= LINE_LIMIT {
             bail!("detached request id exceeds {MAX_REQUEST_ID_BYTES} bytes");
         }
         bail!("detached request id is missing newline delimiter");
@@ -666,18 +671,25 @@ fn write_before(
     encoded: &[u8],
     deadline: Instant,
 ) -> Result<(), AppendAttemptError> {
-    let mut offset = 0;
-    while offset < encoded.len() {
+    let mut unwritten = encoded;
+    while !unwritten.is_empty() {
         stream
             .set_write_timeout(Some(remaining_before(deadline)?))
             .map_err(|error| AppendAttemptError::Retryable(error.into()))?;
-        match stream.write(&encoded[offset..]) {
+        match stream.write(unwritten) {
             Ok(0) => {
                 return Err(AppendAttemptError::Retryable(
                     io::Error::from(io::ErrorKind::WriteZero).into(),
                 ));
             }
-            Ok(written) => offset += written,
+            Ok(written) => {
+                unwritten = unwritten.get(written..).ok_or_else(|| {
+                    AppendAttemptError::Retryable(anyhow!(
+                        "the socket reported {written} bytes written of {}",
+                        unwritten.len()
+                    ))
+                })?;
+            }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(error) => return Err(AppendAttemptError::Retryable(error.into())),
         }
@@ -713,17 +725,21 @@ fn read_before(
                 "journal append closed without a complete response"
             )));
         }
-        let consumed = available
+        let (chunk, complete) = match available
             .iter()
             .position(|byte| *byte == b'\n')
-            .map_or(available.len(), |newline| newline + 1);
+            .and_then(|newline| available.get(..=newline))
+        {
+            Some(line) => (line, true),
+            None => (available, false),
+        };
+        let consumed = chunk.len();
         if response.len().saturating_add(consumed) > MAX_RESPONSE_BYTES {
             return Err(AppendAttemptError::Fatal(anyhow!(
                 "journal append response exceeds 16 MiB"
             )));
         }
-        let complete = available[consumed - 1] == b'\n';
-        response.extend_from_slice(&available[..consumed]);
+        response.extend_from_slice(chunk);
         reader.consume(consumed);
         if complete {
             return Ok(response);
@@ -815,10 +831,9 @@ fn random_identifiers() -> anyhow::Result<(String, String)> {
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes).map_err(|error| anyhow!("allocate hook identity: {error}"))?;
     let mut suffix = String::with_capacity(32);
-    const HEX: &[u8; 16] = b"0123456789abcdef";
     for byte in bytes {
-        suffix.push(char::from(HEX[usize::from(byte >> 4)]));
-        suffix.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        use std::fmt::Write as _;
+        write!(&mut suffix, "{byte:02x}")?;
     }
     Ok((format!("request_{suffix}"), format!("mutation_{suffix}")))
 }

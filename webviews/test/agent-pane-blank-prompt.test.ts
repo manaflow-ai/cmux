@@ -89,7 +89,7 @@ async function rowsOf(history: Rec[]): Promise<AcpmuxRow[]> {
   return rows;
 }
 
-/// A user row App.tsx draws as the person's bubble (MessageRow: no `received`, no `incoming`).
+/// A user row the transcript draws as the person's bubble (rows/MessageRow.tsx: no `received`, no `incoming`).
 const bubbles = (rows: AcpmuxRow[]) => rows.filter((row) => row.kind === "user" && !row.received && !row.incoming);
 
 const turn = (prompt: Record<string, unknown>, reply: string): Step[] => [

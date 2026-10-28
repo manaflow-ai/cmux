@@ -1,7 +1,7 @@
 public import Foundation
 import CmuxNextCompat
 public import CmuxNextTrace
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import os
 
 /// One attached terminal view: on a connection of its own, or as a client-minted stream on the app's control
@@ -108,6 +108,8 @@ public actor TerminalAttachment: TerminalByteChannel {
     ///   shows (``NewTerminalTrace/FirstAttach``): its stages are that create's instants. 0: a restore or a
     ///   reattach, which writes none.
     /// - Parameter inputQueue: the view's serial input queue; the socket writer drains on it (nil: its own queue).
+    /// - Parameter keyStamps: takes each key echo's daemon stages (p04-input-094); nil for a daemon whose clock is
+    ///   not this Mac's.
     public static func attach(
         endpoint: DaemonEndpoint,
         target: Target,
@@ -120,13 +122,14 @@ public actor TerminalAttachment: TerminalByteChannel {
         device: TerminalSizingDevice? = nil,
         hangs: (any HangWatchScoping)? = nil,
         createIntent: UInt64 = 0,
-        inputQueue: DispatchQueue? = nil
+        inputQueue: DispatchQueue? = nil,
+        keyStamps: (any TerminalKeyStampSink)? = nil
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
         NewTerminalTrace.shared.attachEvent(.attachStart, surface: target.surface.rawValue, intent: createIntent)
         let transport = try await LineTransport.open(path: endpoint.socketPath, bridge: endpoint.bridge, role: .terminalAttach,
                                                      stats: endpoint.wireStats, hangs: hangs, writerTarget: inputQueue)
-        let attachment = TerminalAttachment(transport: transport, surface: target.surface)
+        let attachment = TerminalAttachment(transport: transport, surface: target.surface, keyStamps: keyStamps)
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,
                                       snapshotVersion: snapshotVersion, localHistory: localHistory,
@@ -140,8 +143,9 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     /// `stream`: the view's attach stream on `transport` (the shared control connection), whose queue drops
     /// and resyncs instead of holding the shared reader (``Delivery/sharedStream(stream:)``); nil: `transport` is
-    /// the view's own connection.
-    init(transport: LineTransport, surface: SurfaceID, stream: AttachStreamHandle? = nil) {
+    /// the view's own connection. `keyStamps`: takes each key echo's daemon stages (p04-input-094), or nil.
+    init(transport: LineTransport, surface: SurfaceID, stream: AttachStreamHandle? = nil,
+         keyStamps: (any TerminalKeyStampSink)? = nil) {
         self.transport = transport
         self.stream = stream
         let resolvedSurface = SurfaceBox(surface)
@@ -150,7 +154,7 @@ public actor TerminalAttachment: TerminalByteChannel {
                                              surface: { resolvedSurface.value.withLock { $0 } })
         let queue = TerminalEventQueue(backpressure: backpressure, recorder: transport.recorder)
         sink = ViewSink(queue: queue, router: TerminalEchoRouter(queue: queue), control: ControlBox(),
-                        resolvedSurface: resolvedSurface, decoder: transport.decoder)
+                        resolvedSurface: resolvedSurface, decoder: transport.decoder, keyStamps: keyStamps)
         events = AsyncStream(unfolding: { await queue.next() }, onCancel: { queue.cancel() })
     }
 
@@ -226,11 +230,15 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     /// Synchronous, ordered input path for Ghostty's `io_write_cb` thread.
     /// Writes from one thread reach the PTY in call order.
-    public nonisolated func enqueueInput(_ data: Data) {
+    ///
+    /// - Parameter keyFlow: the latency slot flow of the key press the bytes encode (0: none, p04-input-094). The
+    ///   send carries it, so the daemon stamps the press's stages and echoes them; while the typing probe traces
+    ///   presses, its flow goes instead (``TypingLatencyProbe/openFlow``) and the slot gets no daemon stages.
+    public nonisolated func enqueueInput(_ data: Data, keyFlow: UInt64 = 0) {
         guard !data.isEmpty else { return }
         let surface = surface
         let logger = logger
-        let flow = TypingLatencyProbe.shared.openFlow
+        let flow = TypingLatencyProbe.shared.openFlow ?? (keyFlow == 0 ? nil : keyFlow)
         do {
             try transport.sendNoReply(cmd: SendInputRequest.command, onError: { error in
                 logger.error("send failed: \(error.description, privacy: .public)")

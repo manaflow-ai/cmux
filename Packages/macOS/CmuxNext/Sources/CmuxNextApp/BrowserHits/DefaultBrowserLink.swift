@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextWakeups
 
 /// Open Link in Default Browser (cx-k9go): the page's and the terminal's
