@@ -129,6 +129,16 @@ describe("acpmuxSend", () => {
     // A non-zero-fd here-document is not the producer's stdin, even when it is piped onward.
     expect(read("cat 1<<'EOF' | acpmux send lane -\nwrong fd\nEOF")?.text).toBeUndefined();
     expect(read("cat 3<<<'wrong fd' | acpmux send lane -")?.text).toBeUndefined();
+    expect(read("acpmux send lane - <<'EOF' 0<&-\nclosed\nEOF")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane - <<EOF <<<NEW\nOLD\nEOF")).toEqual({ target: "lane", noWait: false });
+    expect(read("acpmux send lane - <<$'\\x45OF'\nSECRET\nEOF")).toEqual({ target: "lane", noWait: false });
+    // A later independent command runs after the send has opened stdin and cannot erase its text.
+    expect(read("acpmux send lane 'hello'; printf done > /tmp/log")).toEqual({
+      target: "lane",
+      text: "hello",
+      noWait: false,
+      others: 1,
+    });
     expect(read("acpmux send lane")).toEqual({ target: "lane", noWait: false });
   });
 
@@ -298,7 +308,7 @@ describe("acpmuxSend", () => {
     ]);
     expect(read("acpmux send lane - 3<<<'SECRET'")).toEqual({ target: "lane", noWait: false });
     expect(read("acpmux send lane - 1<<'EOF'\nSECRET\nEOF")).toEqual({ target: "lane", noWait: false });
-    expect(read("acpmux send lane - <<'EOF'\nSECRET\nEOF\n0>/tmp/out")).toEqual({
+    expect(read("acpmux send lane - <<'EOF' 0>/tmp/out\nSECRET\nEOF")).toEqual({
       target: "lane",
       noWait: false,
       others: 1,

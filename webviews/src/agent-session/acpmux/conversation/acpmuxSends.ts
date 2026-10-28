@@ -279,11 +279,16 @@ export function shellCommands(line: string): ShellCommand[] {
           stdinUnsafe = true;
         }
         const quoted = /['"\\]/.test(line.slice(start, next));
+        const validDelimiter = target.literal;
+        if (!validDelimiter) {
+          redirectUnsafe = true;
+          stdinUnsafe = true;
+        }
         const doc = {
           delimiter: target.text,
           strip: op === "<<-",
-          quoted,
-          stdin: fd === undefined || fd === "0",
+          quoted: validDelimiter && quoted,
+          stdin: validDelimiter && (fd === undefined || fd === "0"),
           command: {},
         };
         pending.push(doc);
@@ -292,9 +297,11 @@ export function shellCommands(line: string): ShellCommand[] {
         stdinFile = undefined;
         // A non-zero descriptor's heredoc is not this command's stdin. Do not leave its quoted
         // metadata behind for stdinOf or a following pipe to mistake for fd 0.
-        stdinQuoted = fd === undefined || fd === "0" ? quoted : false;
+        stdinQuoted = validDelimiter && (fd === undefined || fd === "0") ? quoted : false;
       } else if (op === "<<<") {
-        if (fd !== undefined || stdinQuoted || stdinFile !== undefined) stdinUnsafe = true;
+        if (fd !== undefined || stdinQuoted || stdinFile !== undefined || docs.some((doc) => doc.stdin))
+          stdinUnsafe = true;
+        for (const doc of docs) doc.stdin = false;
         if (fd === undefined || fd === "0") stdin = { text: `${target.text}\n`, literal: target.literal };
         else redirectUnsafe = true;
       } else if (op === "<" || op === "<>") {
@@ -303,6 +310,15 @@ export function shellCommands(line: string): ShellCommand[] {
       // An fd 0 output redirect replaces any earlier heredoc/file source. This is distinct from
       // ordinary stdout `> out`, which leaves a command's stdin intact (`cat <<EOF > out`).
       if (fd === "0" && (op.startsWith(">") || op.startsWith("&>"))) {
+        for (const doc of docs) doc.stdin = false;
+        stdin = undefined;
+        stdinFile = undefined;
+        stdinQuoted = false;
+        stdinUnsafe = true;
+      }
+      // Descriptor duplication can close or replace fd 0 (`0<&-`, `0<&3`). It is not a body
+      // source and must shadow any heredoc/file that appeared earlier in this command.
+      if (op === "<&" && (fd === undefined || fd === "0")) {
         for (const doc of docs) doc.stdin = false;
         stdin = undefined;
         stdinFile = undefined;
@@ -793,9 +809,6 @@ export function acpmuxSend(
     else others += 1;
   }
   const send: AcpmuxSend = { ...found };
-  // A redirect or write after the send can alter stdin/file state before the shell opens it.
-  if (commands.slice(at + 1).some((command) => command.writes || command.redirectUnsafe || command.stdinUnsafe))
-    delete send.text;
   delete send.others;
   delete send.ownsExit;
   delete send.unsure;
