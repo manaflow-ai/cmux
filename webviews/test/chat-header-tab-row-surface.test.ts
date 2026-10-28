@@ -91,7 +91,7 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     await page.close();
   });
 
-  for (const host of ["acpmux-floating-header", "acpmux-floating-bar"]) {
+  for (const host of ["acpmux-floating-header", "acpmux-floating-bar", "acpmux-header-tools"]) {
     for (const state of ["rest", "hover", "pressed", "popup-open", "focus-visible", "disabled"] as const) {
       test(`${host} keeps plain icons in its ${state} state`, async () => {
         // Match the shipped cascade: the shared pane sheet supplies the important focus gradient.
