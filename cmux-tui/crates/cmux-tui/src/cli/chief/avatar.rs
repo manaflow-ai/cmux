@@ -187,7 +187,7 @@ fn execute(link: &mut Link, request: &Request, json_out: bool) -> Result<(), Fai
                 Failure::Usage(t.no_picture.replace("{participant}", participant))
             })?;
             let bytes = STANDARD.decode(data).map_err(|e| Failure::Usage(e.to_string()))?;
-            std::fs::write(out, bytes)
+            cmux_blocking::fs::write(out, bytes)
                 .map_err(|e| Failure::Usage(format!("{}: {e}", out.display())))?;
         }
         if json_out {
@@ -212,7 +212,7 @@ fn execute(link: &mut Link, request: &Request, json_out: bool) -> Result<(), Fai
     if request.clear {
         params.insert("clear", json!(true));
     } else if let Some(file) = &request.file {
-        let size = std::fs::metadata(file)
+        let size = cmux_blocking::fs::metadata(file)
             .map_err(|e| Failure::Usage(format!("{}: {e}", file.display())))?
             .len();
         if size > MAX_AVATAR_BYTES {
@@ -221,8 +221,8 @@ fn execute(link: &mut Link, request: &Request, json_out: bool) -> Result<(), Fai
                 file.display()
             )));
         }
-        let bytes =
-            std::fs::read(file).map_err(|e| Failure::Usage(format!("{}: {e}", file.display())))?;
+        let bytes = cmux_blocking::fs::read(file)
+            .map_err(|e| Failure::Usage(format!("{}: {e}", file.display())))?;
         params.insert("bytes", json!(STANDARD.encode(bytes)));
     }
     let key = super::link::new_message_id();

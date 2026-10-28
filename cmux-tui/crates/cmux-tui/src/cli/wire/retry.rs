@@ -107,7 +107,7 @@ impl Tries {
         // The last backoff repeats once the tries pass the table.
         let index = self.made.get().saturating_sub(1);
         if let Some(&delay) = BACKOFF.get(index).or(BACKOFF.last()) {
-            std::thread::sleep(backoff(delay));
+            cmux_blocking::thread::sleep(backoff(delay));
         }
         self.made.set(self.made.get() + 1);
     }

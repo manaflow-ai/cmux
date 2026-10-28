@@ -48,7 +48,7 @@ impl CapabilityCache {
     /// The capabilities the daemon `peer` on `socket` advertised, if known.
     pub(super) fn load(&self, socket: &Path, peer: &str) -> Option<Vec<String>> {
         let directory = self.trusted_directory()?;
-        let bytes = std::fs::read(directory.join(entry_name(socket))).ok()?;
+        let bytes = cmux_blocking::fs::read(directory.join(entry_name(socket))).ok()?;
         let entry: Value = serde_json::from_slice(&bytes).ok()?;
         if entry.field("socket").as_str() != socket.to_str()
             || entry.field("peer").as_str() != Some(peer)
@@ -74,9 +74,9 @@ impl CapabilityCache {
         let name = entry_name(socket);
         let temporary = directory.join(format!(".{name}.{}", std::process::id()));
         if write_private(&temporary, entry.to_string().as_bytes()).is_ok()
-            && std::fs::rename(&temporary, directory.join(&name)).is_err()
+            && cmux_blocking::fs::rename(&temporary, directory.join(&name)).is_err()
         {
-            let _ = std::fs::remove_file(&temporary);
+            let _ = cmux_blocking::fs::remove_file(&temporary);
         }
     }
 
@@ -86,7 +86,7 @@ impl CapabilityCache {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
-            let metadata = std::fs::symlink_metadata(directory).ok()?;
+            let metadata = cmux_blocking::fs::symlink_metadata(directory).ok()?;
             let ours =
                 metadata.is_dir() && metadata.uid() == cmux_tui_core::platform::effective_uid();
             (ours && metadata.mode() & 0o077 == 0).then_some(directory)
@@ -109,7 +109,10 @@ fn create_private_directory(directory: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
-        match std::fs::DirBuilder::new().mode(0o700).create(directory) {
+        match crate::blocking::fs::create_dir_with(
+            std::fs::DirBuilder::new().mode(0o700),
+            directory,
+        ) {
             Err(error) if error.kind() != std::io::ErrorKind::AlreadyExists => Err(error),
             _ => Ok(()),
         }
@@ -129,7 +132,7 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    options.open(path)?.write_all(bytes)
+    crate::blocking::fs::open_with(&options, path)?.write_all(bytes)
 }
 
 #[cfg(test)]

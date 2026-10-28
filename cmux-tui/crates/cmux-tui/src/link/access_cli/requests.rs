@@ -139,7 +139,7 @@ pub(super) fn request(
                 );
                 withdraws += 1;
                 if withdrawn.is_err() && withdraws < 3 {
-                    std::thread::sleep(POLL);
+                    cmux_blocking::thread::sleep(POLL);
                     continue;
                 }
                 let what =
@@ -154,7 +154,7 @@ pub(super) fn request(
                 format!("no answer yet; request {request_id} is still waiting for the person"),
             ));
         }
-        std::thread::sleep(POLL);
+        cmux_blocking::thread::sleep(POLL);
     }
 }
 
@@ -358,7 +358,7 @@ fn triage_one(
     // never sent to the machine: where it leads (`target`), whether it may
     // be shared, and the folder Always would share. `answer` is given them
     // back and refuses when they changed.
-    let exists = std::fs::symlink_metadata(&path).is_ok();
+    let exists = cmux_blocking::fs::symlink_metadata(&path).is_ok();
     let item = grants::shareable_item(&path).ok();
     let always = item.as_ref().and_then(|(target, is_dir)| {
         covering(&store.grants, machine, session, target)
@@ -580,7 +580,9 @@ fn at_copy(socket: &Path, remote: &str, folder: &Path, target: &Path) -> Result<
         return Ok(remote.to_string());
     }
     let at = format!("{remote}/{}", inside.to_string_lossy());
-    if !target.is_dir() && sync_cli::remote_kind(socket, &at).map_err(machine_failure)?.is_none() {
+    if !cmux_blocking::fs::metadata(target).is_ok_and(|metadata| metadata.is_dir())
+        && sync_cli::remote_kind(socket, &at).map_err(machine_failure)?.is_none()
+    {
         sync_cli::copy_file(socket, target, &at).map_err(machine_failure)?;
     }
     Ok(at)
