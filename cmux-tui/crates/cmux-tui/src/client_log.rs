@@ -293,6 +293,7 @@ fn drain_stderr_pipe(deadline: std::time::Duration) {
 /// that may block (cmux_threads `AllowReason::Shutdown`).
 fn exit_pause() {
     cmux_threads::allow_blocking(cmux_threads::AllowReason::Shutdown, || {
+        // wakeup-allow: bounded exit-time drain only; each caller stops at its 250 ms deadline
         cmux_blocking::thread::sleep(std::time::Duration::from_millis(5));
     });
 }
