@@ -62,6 +62,12 @@ public final class AgentPaneView: NSView {
     /// calls (``PageWebView/webKitEngine`` for the WebKit-only tools). The provider answers its calls
     /// and carries the host's pushes.
     public let page: PageWebView
+    /// Who made this pane, for the report of a pane freed without ``close()`` (``onFreedUnclosed``).
+    public var maker = AgentPaneMaker.unknown
+    /// Told the pane's ``maker`` when the pane is freed on the main thread and ``close()`` never ran: its owner let it
+    /// go without its teardown (2026-10-28: AppKit's teardown of its Chromium page then aborted the app). A report
+    /// only; nothing else changes.
+    public var onFreedUnclosed: (@MainActor (AgentPaneMaker) -> Void)?
     let pageEvents: AgentPageProvider
     let warmup: AgentPageWarmup? // the app's agent page WebKit warm-up (init's `warmup`)
     /// Whether the page can take typing yet (the key dispatcher queues keys until then).
