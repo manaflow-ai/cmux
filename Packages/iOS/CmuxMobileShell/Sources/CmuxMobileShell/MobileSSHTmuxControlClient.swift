@@ -7,6 +7,7 @@ protocol MobileSSHTmuxControlTransport: AnyObject, Sendable {
     var events: AsyncStream<SSHSessionEvent> { get }
     func write(_ data: Data) async throws
     func close() async
+    func abort()
 }
 
 extension SSHSessionChannel: MobileSSHTmuxControlTransport {}
@@ -119,10 +120,10 @@ final class MobileSSHTmuxControlClient {
             lines = try await withTaskCancellationHandler {
                 try await client.command("list-panes -s -F '#{window_id} #{pane_id} #{pane_width}x#{pane_height}'")
             } onCancel: {
-                Task { @MainActor in await client.abort() }
+                Task { @MainActor in client.abort() }
             }
         } catch {
-            await client.abort()
+            client.abort()
             throw error
         }
         for line in lines {
@@ -312,10 +313,11 @@ final class MobileSSHTmuxControlClient {
     /// Aborts an opening or failed handshake without waiting for tmux to reply.
     /// Cancellation uses this path because a stalled control command cannot
     /// be allowed to keep the SSH channel alive.
-    func abort() async {
+    func abort() {
         guard !isClosed else { return }
+        send("kill-session -t \(Self.quoteForTmux("=" + groupedSessionName))")
         finish()
-        await channel.close()
+        channel.abort()
     }
 
     // MARK: Stream

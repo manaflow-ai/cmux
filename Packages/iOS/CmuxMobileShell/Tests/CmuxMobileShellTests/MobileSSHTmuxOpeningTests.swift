@@ -62,17 +62,22 @@ struct MobileSSHTmuxOpeningTests {
         await stale.close()
     }
 
-    @Test func canceledOpenClosesTheControlWhenItsReplyStalls() async throws {
-        let gate = MobileSSHTmuxOpeningGate()
-        let provider = MobileSSHTmuxProvider(connection: nil, tmuxPath: "/usr/bin/tmux", controlOpener: gate.open)
-        var attempts = gate.attempts.makeAsyncIterator()
-        let pending = Task { _ = try await attach(provider) }
-        _ = try #require(await attempts.next())
+    @Test func abortingAStalledCommandResolvesItsContinuationAndClosesTheChannel() async throws {
+        let transport = MobileSSHTmuxOpeningTransport(respondToWrites: false)
+        let client = MobileSSHTmuxControlClient(
+            sessionName: "work",
+            groupedSessionName: "work-cmux-ios-stalled",
+            channel: transport
+        )
+        client.startPump()
+        let pending = Task { try await client.command("list-panes") }
+        var writes = transport.writes.makeAsyncIterator()
+        _ = try #require(await writes.next())
 
-        try await provider.closeWorkspace(id: "work")
-        #expect(provider.opening["work"] == nil)
-        pending.cancel()
-        _ = await pending.result
+        client.abort()
+        let result = await pending.result
+        if case .success = result { Issue.record("A stalled command completed after abort") }
+        #expect(client.isClosed)
     }
 
     @Test(arguments: [false, true])

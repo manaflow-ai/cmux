@@ -73,6 +73,15 @@ public final class SSHSessionChannel: Sendable {
     public func close() async {
         try? await channel.close()
     }
+
+    /// Starts closing the channel without waiting for the peer to acknowledge it.
+    /// Used by cancellation paths where a stalled peer must not retain the task.
+    public func abort() {
+        let channel = channel
+        channel.eventLoop.execute {
+            channel.close(promise: nil)
+        }
+    }
 }
 
 /// Pipeline handler that turns SSH channel traffic into ``SSHSessionEvent``s
