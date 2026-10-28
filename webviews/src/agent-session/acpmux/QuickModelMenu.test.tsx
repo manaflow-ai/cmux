@@ -305,8 +305,8 @@ test("provider submenu and expanded rows keep the current model's Effort fallbac
     family: "claude",
     efforts: ["low", "high"],
     offers: [
-      { id: "a", name: "Model A", family: "claude", efforts: ["low", "high"], provider: "Anthropic" },
-      { id: "a", name: "Model A", family: "claude", efforts: ["low", "high"], provider: "OpenAI" },
+      { id: "a-anthropic", name: "Model A", family: "claude", efforts: ["low", "high"], provider: "Anthropic" },
+      { id: "a-openai", name: "Model A", family: "claude", efforts: ["low", "high"], provider: "OpenAI" },
     ],
   };
   for (const providerLook of ["submenu", "expanded"] as const) {
