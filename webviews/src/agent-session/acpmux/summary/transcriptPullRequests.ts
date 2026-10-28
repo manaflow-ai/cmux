@@ -54,7 +54,7 @@ const ISSUE_CALL = /\bgh\s+issue\s+([a-z][\w-]*)(?=\s|$)([^\n;&|]*)/g;
 const BROKER_CALL =
   /\bglaeda-gh\s+(?:[a-z][\w-]*\s+)*(pr-(?:comment|edit|close|reopen|merge|review|approve|request-changes|update-branch)|issue-(?:comment|edit|close|reopen|create|lock|unlock|delete|pin|unpin|transfer))(?=\s|$)([^\n;&|]*)/g;
 const EXECUTED_PR_COMMAND =
-  /^\s*(?:(?:[A-Za-z_]\w*=\S*|env|command|nohup|time)\s+|timeout(?:\s+(?:--\S+|-\S+|\S+))*\s+)*(?:[\w./~-]*\/)?(?:gh|glaeda-gh|gh-merge-green)(?:\s|$)/;
+  /^\s*(?:(?:[A-Za-z_]\w*=\S*|env|command|nohup|time)\s+|timeout(?:\s+(?:--?\S+|[^\s-]\S*))*\s+)*(?:[\w./~-]*\/)?(?:gh|glaeda-gh|gh-merge-green)(?:\s|$)/;
 /// One call that acts on a single pull request: a `gh pr` verb, `gh-merge-green`, or `glaeda-gh`
 /// with a `pr` argument (`wait pr`, `status pr`, `checks pr`), up to the end of the call.
 const CALL =
@@ -205,14 +205,14 @@ function toolFindings(tool: Tool): Finding[] {
   const plain = callText(command);
   const scanPlain = plain
     .replace(/\bif\s+false\b[\s\S]*?\bfi\b/g, "")
-    .replace(/\btrue\s*\|\|\s*([^;\n]+)/g, "true")
+    .replace(/\btrue\s*\|\|\s*([^;&|\n]+)/g, "true")
     .replace(/\bfalse\s*\|\|\s*/g, "")
-    .replace(/\bfalse\s*&&\s*([^;\n]+)/g, "false");
+    .replace(/\bfalse\s*&&\s*([^;&|\n]+)/g, "false");
   const parts = callText(command)
-    .replace(/\btrue\s*\|\|\s*([^;\n]+)/g, "true")
+    .replace(/\btrue\s*\|\|\s*([^;&|\n]+)/g, "true")
     .replace(/\bfalse\s*\|\|\s*/g, "")
     .replace(/\btrue\s*&&\s*/g, "")
-    .replace(/\bfalse\s*&&\s*([^;\n]+)/g, "false")
+    .replace(/\bfalse\s*&&\s*([^;&|\n]+)/g, "false")
     .replace(/(?<!\\)\$\(([^()]*)\)/g, "\n$1\n")
     .split(/[\n;&|]+/);
   let skipFalseBranch = false;

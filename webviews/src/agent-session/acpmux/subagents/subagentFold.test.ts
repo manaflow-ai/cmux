@@ -80,6 +80,27 @@ test("live child replies stay unsettled and keep the producer revision stable", 
   expect(sessionSummary(resumed, "acme/app").sources.map((source) => source.label)).toContain("acme/app#7");
 });
 
+test("post-completion child reply chunks invalidate the summary revision", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
+  feed(fold, { sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "a", state: "completed" }] });
+  const sayWithId = (text: string) =>
+    feed(
+      fold,
+      { ...say(text), messageId: "post-completion-reply" },
+      { subagent: "a" },
+    );
+  sayWithId("See https://example.com/first");
+  const first = sessionSummary(fold.views().a!);
+  sayWithId(" and https://example.com/second");
+  const second = sessionSummary(fold.views().a!);
+  expect(second).not.toBe(first);
+  expect(second.sources.map((source) => source.url)).toEqual([
+    "https://example.com/first",
+    "https://example.com/second",
+  ]);
+});
+
 test("the first nonempty child thought settles reply Sources without rescanning later chunks", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });

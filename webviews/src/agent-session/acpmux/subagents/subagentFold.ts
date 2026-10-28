@@ -572,7 +572,10 @@ export class SubagentFold {
     entries.push(entry);
     this.own.set(id, entries);
     const update = entry.update;
-    let streaming = update?.sessionUpdate === "agent_message_chunk" || update?.sessionUpdate === "agent_thought_chunk";
+    const state = this.agents.get(id)?.state;
+    const active = state === undefined || state === "running";
+    let streaming =
+      active && (update?.sessionUpdate === "agent_message_chunk" || update?.sessionUpdate === "agent_thought_chunk");
     let replySettled = false;
     const messageId = typeof update?.messageId === "string" ? update.messageId : undefined;
     const messageChanged =
