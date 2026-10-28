@@ -46,8 +46,21 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
         });
         const receipt = await page.evaluate(() => ({
           ready: document.documentElement.dataset.galleryReady,
-          report: (window as unknown as { cmuxGalleryPlayReport?: { status?: string; error?: string } })
-            .cmuxGalleryPlayReport,
+          report: (
+            window as unknown as {
+              cmuxGalleryPlayReport?: {
+                status?: string;
+                error?: string;
+                steps?: Array<{
+                  step?: string;
+                  layoutShift?: number;
+                  problems?: string[];
+                  popupProblems?: string[];
+                  anchorMoves?: unknown[];
+                }>;
+              };
+            }
+          ).cmuxGalleryPlayReport,
           headline: document.querySelector(".nt-headline-text")?.textContent ?? "",
           menu: document.querySelector(".acpmux-project-menu") !== null,
           attach: document.querySelector(".acpmux-newtab-plus [data-value=attach]") !== null,
@@ -56,7 +69,21 @@ await requireBrowserLane("new-tab-gallery-reached.test.ts", async () => {
         }));
         expect(receipt.ready).toBe("1");
         expect(receipt.report?.error).toBeUndefined();
-        if (variant === "attachment-menu" || variant === "style-switch") expect(receipt.report?.status).toBe("pass");
+        const steps = receipt.report?.steps ?? [];
+        expect(steps.length).toBeGreaterThan(0);
+        let observedSelectionShift = false;
+        for (const step of steps) {
+          expect(step.popupProblems ?? []).toEqual([]);
+          expect(step.anchorMoves ?? []).toEqual([]);
+          for (const problem of step.problems ?? []) {
+            expect(variant === "picked" || variant === "picker-open").toBe(true);
+            expect(step.step).toMatch(/^click option /);
+            expect(problem).toMatch(/^layout shift [0-9.]+ \(limit 0\)$/);
+            expect(step.layoutShift).toBeGreaterThan(0);
+            observedSelectionShift = true;
+          }
+        }
+        expect(receipt.report?.status).toBe(observedSelectionShift ? "fail" : "pass");
         if (variant === "picked" || variant === "picker-open") {
           expect(receipt.headline).toContain("cmux");
           expect(receipt.menu).toBe(variant === "picker-open");
