@@ -56,58 +56,75 @@ fn tool_update(record: &EventRecord) -> Option<&Value> {
     })
 }
 
+fn input_prefix(update: &Value) -> Option<String> {
+    update.get("rawInput").and_then(|raw| {
+        (!raw.is_null()).then(|| {
+            serde_json::to_string(raw)
+                .unwrap_or_default()
+                .chars()
+                .take(MAX_TOOL_INPUT_CHARS)
+                .collect()
+        })
+    })
+}
+
+fn enrich_tool(existing: &mut UnfinishedTool, update: &Value) {
+    if let Some(name) = update.get("title").and_then(Value::as_str).filter(|n| !n.is_empty()) {
+        existing.name = name.to_owned();
+    }
+    if let Some(input) = input_prefix(update) {
+        existing.input = Some(input);
+    }
+}
+
+/// Folds one model update into the bounded set of calls still in flight. Calls beyond the cap
+/// are deliberately not retained: the prompt only promises a bounded list, and a later terminal
+/// update for one of those calls does not affect any retained entry.
+fn note_unfinished_tool(open: &mut Vec<UnfinishedTool>, omitted: &mut bool, update: &Value) {
+    let Some(id) = update.get("toolCallId").and_then(Value::as_str).filter(|id| !id.is_empty())
+    else {
+        return;
+    };
+    match update.get("status").and_then(Value::as_str) {
+        Some("completed" | "failed") => open.retain(|tool| tool.id != id),
+        None if update.get("sessionUpdate").and_then(Value::as_str) == Some("tool_call_update") => {
+            if let Some(existing) = open.iter_mut().find(|tool| tool.id == id) {
+                enrich_tool(existing, update);
+            }
+        }
+        _ => {
+            if let Some(existing) = open.iter_mut().find(|tool| tool.id == id) {
+                enrich_tool(existing, update);
+            } else if open.len() < MAX_UNFINISHED_TOOLS {
+                let name = update
+                    .get("title")
+                    .and_then(Value::as_str)
+                    .filter(|name| !name.is_empty())
+                    .or_else(|| {
+                        update.get("kind").and_then(Value::as_str).filter(|name| !name.is_empty())
+                    })
+                    .unwrap_or("tool")
+                    .to_owned();
+                open.push(UnfinishedTool { name, id: id.to_owned(), input: input_prefix(update) });
+            } else {
+                *omitted = true;
+            }
+        }
+    }
+}
+
 /// Collects tool calls in the cut turn. The journal has no `turnId` on model updates; the caller
 /// bounds the scan to records after this turn's `turn_started`, which is the same boundary used
 /// by `mark_unknown_outcome`.
 fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, usize) {
     let mut open = Vec::<UnfinishedTool>::new();
+    let mut omitted = false;
     for record in records {
-        let Some(update) = tool_update(record) else { continue };
-        let Some(id) = update.get("toolCallId").and_then(Value::as_str).filter(|id| !id.is_empty())
-        else {
-            continue;
-        };
-        match update.get("status").and_then(Value::as_str) {
-            Some("completed" | "failed") => {
-                open.retain(|tool| tool.id != id);
-            }
-            None if update.get("sessionUpdate").and_then(Value::as_str)
-                == Some("tool_call_update") => {}
-            _ => {
-                if let Some(existing) = open.iter_mut().find(|tool| tool.id == id) {
-                    if existing.name == "tool" {
-                        if let Some(name) =
-                            update.get("title").and_then(Value::as_str).filter(|n| !n.is_empty())
-                        {
-                            existing.name = name.to_owned();
-                        }
-                    }
-                } else {
-                    let name = update
-                        .get("title")
-                        .and_then(Value::as_str)
-                        .filter(|name| !name.is_empty())
-                        .or_else(|| {
-                            update
-                                .get("kind")
-                                .and_then(Value::as_str)
-                                .filter(|name| !name.is_empty())
-                        })
-                        .unwrap_or("tool")
-                        .to_owned();
-                    let input = update.get("rawInput").and_then(|raw| {
-                        (!raw.is_null()).then(|| {
-                            let encoded = serde_json::to_string(raw).unwrap_or_default();
-                            encoded.chars().take(MAX_TOOL_INPUT_CHARS).collect()
-                        })
-                    });
-                    open.push(UnfinishedTool { name, id: id.to_owned(), input });
-                }
-            }
+        if let Some(update) = tool_update(record) {
+            note_unfinished_tool(&mut open, &mut omitted, update);
         }
     }
-    let omitted = open.len().saturating_sub(MAX_UNFINISHED_TOOLS);
-    (open.into_iter().take(MAX_UNFINISHED_TOOLS).collect(), omitted)
+    (open, usize::from(omitted))
 }
 
 /// The text the agent gets: the cut turn's prompt, then what was steered into it.
@@ -130,7 +147,7 @@ fn continue_text(prompts: &[String], tools: &[UnfinishedTool], omitted_tools: us
             }
         }
         if omitted_tools > 0 {
-            text.push_str(&format!("\n- …and {omitted_tools} more"));
+            text.push_str("\n- additional unfinished tool calls omitted");
         }
     }
     text.push_str(
@@ -168,7 +185,8 @@ impl Hub {
         let mut started = false;
         let mut control_ended = false;
         let mut floor_cancelled = false;
-        let mut tool_records = Vec::new();
+        let mut unfinished = Vec::new();
+        let mut omitted_tools = false;
         let kinds = [
             "turn_started",
             "user_message",
@@ -204,7 +222,11 @@ impl Hub {
                         (shown > 0).then(|| format!("({shown} image(s), attached again below)"))
                     }));
                 }
-                "tool_call" | "tool_call_update" if started => tool_records.push(e.clone()),
+                "tool_call" | "tool_call_update" if started => {
+                    if let Some(update) = tool_update(&e) {
+                        note_unfinished_tool(&mut unfinished, &mut omitted_tools, update);
+                    }
+                }
                 _ => {}
             }
             true
@@ -241,8 +263,7 @@ impl Hub {
         }
         let msg = json!({"promptId": root, "attempt": attempt, "turnId": turn_id, "delayMs": 0, "reason": "daemon_restart"});
         self.append(session, "mux", "auto_resume_scheduled", msg);
-        let (tools, omitted_tools) = unfinished_tools(&tool_records);
-        let text = continue_text(&prompts, &tools, omitted_tools);
+        let text = continue_text(&prompts, &unfinished, usize::from(omitted_tools));
         let provenance = json!({"kind": "auto_resume", "reason": "daemon_restart", "promptId": root, "attempt": attempt, "turnId": turn_id});
         let control = if raised_to_web { "web" } else { control.as_deref().unwrap_or("web") };
         let mut blocks = vec![json!({"type": "text", "text": text})];
@@ -301,15 +322,26 @@ mod tests {
                 msg: update(json!({
                     "sessionUpdate": "tool_call",
                     "toolCallId": "call-1",
-                    "title": "Run tests",
-                    "status": "in_progress",
-                    "rawInput": {"command": "cargo test -p acpmux"}
+                    "status": "in_progress"
                 })),
                 host_seq: None,
             },
             EventRecord {
                 seq: 2,
                 at: 2,
+                dir: "in".into(),
+                kind: "tool_call_update".into(),
+                msg: update(json!({
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "call-1",
+                    "title": "Run tests",
+                    "rawInput": {"command": "cargo test -p acpmux"}
+                })),
+                host_seq: None,
+            },
+            EventRecord {
+                seq: 3,
+                at: 3,
                 dir: "in".into(),
                 kind: "tool_call".into(),
                 msg: update(json!({
@@ -321,8 +353,8 @@ mod tests {
                 host_seq: None,
             },
             EventRecord {
-                seq: 3,
-                at: 3,
+                seq: 4,
+                at: 4,
                 dir: "in".into(),
                 kind: "tool_call_update".into(),
                 msg: update(json!({
