@@ -165,7 +165,7 @@ export class SubagentFold {
   /// `acpmux run --parent` calls whose sub-session acpmux has not said started (``reduceChild``):
   /// what each runs, its first update and its newest. The oldest go past PENDING_CHILDREN.
   private readonly parentCalls = new Map<string, PendingParent>();
-  /// Active MCP starts can overlap a parent shell call. Completed starts leave a bounded identity
+  /// Active MCP starts can overlap a parent shell call. Completed starts leave an identity
   /// tombstone because their child may still be queued and arrive after the call ends.
   private readonly sessionStarts = new Map<string, ChildIdentity>();
   private readonly retiredStarts: ChildIdentity[] = [];
@@ -464,8 +464,8 @@ export class SubagentFold {
 
   private retire(identity: ChildIdentity | undefined): void {
     if (!identity) return;
+    if (this.retiredStarts.some((start) => sameIdentity(start, identity))) return;
     this.retiredStarts.push(identity);
-    if (this.retiredStarts.length > PENDING_CHILDREN * 2) this.retiredStarts.shift();
   }
 
   private updateRun(agent: Subagent, event: Event, update: any): void {
@@ -874,6 +874,10 @@ function identitiesOverlap(a: ChildIdentity, b: ChildIdentity): boolean {
   if (a.name && b.name) return a.name === b.name;
   if (a.prompt && b.prompt) return a.prompt === b.prompt;
   return true;
+}
+
+function sameIdentity(a: ChildIdentity, b: ChildIdentity): boolean {
+  return a.name === b.name && a.prompt === b.prompt;
 }
 
 function isTerminal(status: unknown): boolean {
