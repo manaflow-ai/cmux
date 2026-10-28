@@ -39,10 +39,10 @@ test("the replay renders in the transcript card, Session Info tasks and summary"
   const card = renderToStaticMarkup(<WorkflowCard node={{ ...workflowNode!, endedAt: NOW }} />);
   const tasks = renderToStaticMarkup(<WorkflowTasks workflows={[workflow!]} />);
   const summary = renderToStaticMarkup(<WorkflowSummaries workflows={[workflow!]} />);
-  expect(text(card)).toContain("count-files-fixture Workflow 3 agents 11s");
+  expect(text(card)).toContain("count-files-fixture Workflow 3 agents 10s");
   expect(card.match(/acpmux-workflow-dot"/g)?.length).toBe(3);
   expect(text(tasks)).toContain("count-files-fixture 10s Workflow · Finished · 3 agents · 84.1k tokens");
   expect(text(tasks)).toContain("Count 2/2 Report 1/1");
   expect(text(summary)).toContain("count-files-fixture");
-  expect(text(summary)).toContain("3 done");
+  expect(text(summary)).toContain("3/3");
 });
