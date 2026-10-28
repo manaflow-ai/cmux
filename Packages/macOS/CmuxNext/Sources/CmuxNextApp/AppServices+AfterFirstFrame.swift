@@ -47,7 +47,7 @@ extension AppServices {
         seedGlass()
         notifications.preferences = settings.snapshot.notifications
         notifications.followChiefPet(settings)
-        updater.follow(settings)
+        updater.follow(settings, on: mainWork)
         startHibernation(settings: settings)
         // Each start has its own declared type: one expression with every closure inline (and a ternary closure)
         // was too much for the type checker ("failed to produce diagnostic").
@@ -65,7 +65,7 @@ extension AppServices {
         let macScreenSettingsStart = with { services, settings in services.followMacScreenSettings(settings) }
         let deviceHubStart = with { services, settings in services.startDeviceHub(settings) }
         let computerUseHelperStart = with { services, settings in
-            ComputerUseHelperDaemon.shared.follow(settings, lanes: services.work, disabledByPolicy: { [weak services] in
+            ComputerUseHelperDaemon.shared.follow(settings, mainWork: services.mainWork, lanes: services.work, disabledByPolicy: { [weak services] in
                 services?.registry.disabledFeatures.contains(.computerUse) ?? true
             })
         }

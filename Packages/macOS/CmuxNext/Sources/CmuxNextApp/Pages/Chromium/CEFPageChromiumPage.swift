@@ -18,7 +18,10 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     let tab: CEFTab
     private let pageID: String
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page-host.chromium")
-    private var crashWatch: Task<Void, Never>?
+    /// Follows the tab's renderer exit while the page listens (``listen()``).
+    private var crashWatch: ServiceObservation<Bool>?
+    /// The app's main-thread scheduler: the crash watch flushes on it.
+    private let mainWork: MainWorkScheduler
     /// Follows the tab's hang while the host listens (``PageChromiumEvent/unresponsive``).
     private var hangWatch: ServiceObservation<Bool>?
     /// The hang the host was last told of.
@@ -35,12 +38,15 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     /// - Parameters:
     ///   - tab: The CEF tab the page shows in.
     ///   - pageID: The page's id (logs).
+    ///   - mainWork: The app's main-thread scheduler: the crash watch flushes on it.
     ///   - hangWork: Forward the tab's hang and its end, flushed on this scheduler (feature `pageHangNotice`); nil: never.
     ///   - pageChannel: Post the page's calls on the runtime's page channel (feature `pageHostChannel`); false: the DevTools binding.
     ///   - pushChannel: The feature `pagePushChannel`: pushes where the fork has the channel; false: scripts only.
-    init(tab: CEFTab, pageID: String, hangWork: MainWorkScheduler? = nil, pageChannel: Bool = false, pushChannel: Bool = false) {
+    init(tab: CEFTab, pageID: String, mainWork: MainWorkScheduler, hangWork: MainWorkScheduler? = nil, pageChannel: Bool = false,
+         pushChannel: Bool = false) {
         self.tab = tab
         self.pageID = pageID
+        self.mainWork = mainWork
         self.hangWork = hangWork
         self.pageChannel = pageChannel
         self.pushChannel = pushChannel
@@ -105,9 +111,19 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         tab.pageUserInput = { [weak self] uptime in self?.onEvent?(.userInput(uptime)) }
         let tab = tab
         if crashWatch == nil {
-            crashWatch = Task { [weak self] in
-                for await exit in ObservationStream({ tab.state.processExit }) where exit != nil {
-                    self?.onEvent?(.crashed)
+            // The page host reloads a crashed page (PageCrashReloads) whether or not it shows: a service
+            // observation, which runs while hidden. A renderer that exits again after a reload reports again.
+            // A renderer already gone is reported in a posted task, never inside the `onEvent` set that listens.
+            crashWatch = ServiceObservation(.visible, owner: "pages.chromium.crash", on: mainWork) {
+                tab.state.processExit != nil
+            } apply: { [weak self] exited in
+                guard exited, let self, self.crashWatch != nil else { return }
+                self.onEvent?(.crashed)
+            }
+            if tab.state.processExit != nil {
+                mainWork.post(.visible, owner: "pages.chromium.crash") { [weak self] in
+                    guard let self, self.crashWatch != nil, tab.state.processExit != nil else { return }
+                    self.onEvent?(.crashed)
                 }
             }
         }
@@ -160,7 +176,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     /// The page push channel, where the app turned it on (`pagePushChannel`) and the fork and shim have it.
     var pushesToPage: Bool { pushChannel && CEFPagePush(tab: tab).isAvailable }
 
-    /// The tab's page push (``CEFPagePush``, fork API 39): data to the document's receiver, no script.
+    /// The tab's page push (``CEFPagePush``, fork API 43): data to the document's receiver, no script.
     func push(_ text: String) {
         guard pushChannel else { return }
         CEFPagePush(tab: tab).send(text)
@@ -177,7 +193,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         }
     }
 
-    /// The tab's surface copy (`CEFTab.copySurface`, fork API 38): the fork's `cmux_browser_capture`.
+    /// The tab's surface copy (`CEFTab.copySurface`, fork API 40): the fork's `cmux_browser_capture`.
     var copiesSurface: Bool { !closed && tab.copiesSurface }
 
     /// The tab's surface copy, sent in this turn, answered still in base64 (the page host decodes it off

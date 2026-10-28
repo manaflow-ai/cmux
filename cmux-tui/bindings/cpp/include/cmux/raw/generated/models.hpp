@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c";
+inline constexpr std::string_view kProtocolIrSha256 = "a2305d1e52136dcfd098328b9b7e970a736ec5d005aca55bb6f82f3a47ea1df1";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -71,6 +71,7 @@ struct Base64;
 struct Bookmark;
 struct BookmarkChangeResult;
 struct BookmarkImportNode;
+struct BridgeHelloResult;
 struct BrowserFrame;
 struct BrowserHostProviderResult;
 enum class BrowserProviderAuthentication;
@@ -404,6 +405,7 @@ struct AppsUnmountRequest;
 struct AttachSurfaceRequest;
 struct BindConversationTabSessionRequest;
 struct BindConversationTabSessionResult;
+struct BridgeHelloRequest;
 struct BrowserActivateRequest;
 struct BrowserBackRequest;
 struct BrowserForwardRequest;
@@ -600,6 +602,8 @@ struct MachineCatalogPublishRequest;
 struct MachineListeningTcpRequest;
 struct MachineUsageRequest;
 struct MarkWorkspacesProviderManagedRequest;
+struct MemoryReportRequest;
+struct MemoryReportResult;
 struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
 struct MoveBookmarkRequest;
@@ -808,6 +812,7 @@ struct FrameEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
 struct HistoryChangedEvent;
+struct InputFailedEvent;
 struct KeybindingsChangedEvent;
 struct LayoutChangedEvent;
 struct LoopbackClosedEvent;
@@ -907,6 +912,7 @@ enum class BrowserStateEventStatus;
 enum class ChiefChangedEventChange;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
+enum class InputFailedEventReason;
 enum class KeybindingsChangedEventOrigin;
 enum class ServerDiagnosticSiteEventFamily;
 enum class SettingsChangedEventOrigin;
@@ -2054,6 +2060,16 @@ struct BookmarksChangedEvent {
     std::string browser_profile_id{};
     std::optional<EventCause> cause{};
     friend bool operator==(const BookmarksChangedEvent&, const BookmarksChangedEvent&) = default;
+};
+
+struct BridgeHelloRequest {
+    std::vector<std::string> features{};
+    friend bool operator==(const BridgeHelloRequest&, const BridgeHelloRequest&) = default;
+};
+
+struct BridgeHelloResult {
+    std::vector<std::string> features{};
+    friend bool operator==(const BridgeHelloResult&, const BridgeHelloResult&) = default;
 };
 
 struct BrowserActivateRequest {
@@ -4629,6 +4645,22 @@ struct ImportSessionOrganizationRequest {
     friend bool operator==(const ImportSessionOrganizationRequest&, const ImportSessionOrganizationRequest&) = default;
 };
 
+enum class InputFailedEventReason {
+    terminal_ended,
+    not_a_terminal,
+    write_failed,
+    daemon_handoff,
+    overflow,
+    attach_failed,
+};
+
+struct InputFailedEvent {
+    std::uint64_t bytes{};
+    InputFailedEventReason reason{};
+    std::uint16_t stream{};
+    friend bool operator==(const InputFailedEvent&, const InputFailedEvent&) = default;
+};
+
 struct JournalFrontendEventRequest {
     FrontendJournalEvent event{};
     friend bool operator==(const JournalFrontendEventRequest&, const JournalFrontendEventRequest&) = default;
@@ -5137,6 +5169,15 @@ struct MachineUsageResult {
 struct MarkWorkspacesProviderManagedRequest {
     std::string authority{};
     friend bool operator==(const MarkWorkspacesProviderManagedRequest&, const MarkWorkspacesProviderManagedRequest&) = default;
+};
+
+struct MemoryReportRequest {
+    friend bool operator==(const MemoryReportRequest&, const MemoryReportRequest&) = default;
+};
+
+struct MemoryReportResult {
+    Json value{};
+    friend bool operator==(const MemoryReportResult&, const MemoryReportResult&) = default;
 };
 
 struct MintTerminalRendererByTerminalRequest {
@@ -8154,6 +8195,12 @@ struct Codec<BookmarkImportNode> {
 };
 
 template <>
+struct Codec<BridgeHelloResult> {
+    static Result<Json> encode(const BridgeHelloResult& value);
+    static Result<BridgeHelloResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<BrowserFrame> {
     static Result<Json> encode(const BrowserFrame& value);
     static Result<BrowserFrame> decode(const Json& value);
@@ -10152,6 +10199,12 @@ struct Codec<BindConversationTabSessionResult> {
 };
 
 template <>
+struct Codec<BridgeHelloRequest> {
+    static Result<Json> encode(const BridgeHelloRequest& value);
+    static Result<BridgeHelloRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<BrowserActivateRequest> {
     static Result<Json> encode(const BrowserActivateRequest& value);
     static Result<BrowserActivateRequest> decode(const Json& value);
@@ -11325,6 +11378,18 @@ template <>
 struct Codec<MarkWorkspacesProviderManagedRequest> {
     static Result<Json> encode(const MarkWorkspacesProviderManagedRequest& value);
     static Result<MarkWorkspacesProviderManagedRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MemoryReportRequest> {
+    static Result<Json> encode(const MemoryReportRequest& value);
+    static Result<MemoryReportRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MemoryReportResult> {
+    static Result<Json> encode(const MemoryReportResult& value);
+    static Result<MemoryReportResult> decode(const Json& value);
 };
 
 template <>
@@ -12576,6 +12641,12 @@ struct Codec<HistoryChangedEvent> {
 };
 
 template <>
+struct Codec<InputFailedEvent> {
+    static Result<Json> encode(const InputFailedEvent& value);
+    static Result<InputFailedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<KeybindingsChangedEvent> {
     static Result<Json> encode(const KeybindingsChangedEvent& value);
     static Result<KeybindingsChangedEvent> decode(const Json& value);
@@ -13167,6 +13238,12 @@ template <>
 struct Codec<GraphicsStatusEventKind> {
     static Result<Json> encode(const GraphicsStatusEventKind& value);
     static Result<GraphicsStatusEventKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<InputFailedEventReason> {
+    static Result<Json> encode(const InputFailedEventReason& value);
+    static Result<InputFailedEventReason> decode(const Json& value);
 };
 
 template <>

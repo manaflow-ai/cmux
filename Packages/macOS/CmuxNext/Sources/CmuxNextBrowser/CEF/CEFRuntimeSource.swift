@@ -26,6 +26,10 @@ public final class CEFRuntimeSource {
     /// show in cmux panels and panes (feature `chromiumHostWidgets`, set by the App). Read when the
     /// runtime adopts the source, before Chromium starts; in process it changes nothing.
     public var showsHostWidgets = false
+    /// Host mode: hosted pages' keys, clicks, moves and wheel ticks go through the host's input
+    /// ring, paced by its acks (feature `chromiumHostInputRing`, set by the App). Read when the
+    /// runtime adopts the source; in process it changes nothing.
+    public var routesHostInput = false
     /// Host mode: drags onto a page reach it with DragTarget calls (feature `chromiumHostDragIn`, set by
     /// the App; p01-process-050). Read when the runtime adopts the source; in process it changes nothing.
     public var takesHostDrags = false
@@ -49,6 +53,13 @@ public final class CEFRuntimeSource {
     /// go to the host as paths (feature `chromiumHostFileDialogs`, set by the App; ``ChromiumHostFiles``).
     /// Nil leaves Chromium's own panel, which in host mode opens in the host. Read when the runtime adopts the source.
     public var hostFileDialogs: (any ChromiumFileDialogAnswering)?
+    /// Host mode: input the Chromium Host's UI thread has not dispatched for 2 s puts "Chromium is busy",
+    /// with Wait and Reload Chromium, over the panes that show its pages (feature `chromiumHostHangBanner`,
+    /// set by the App; ``ChromiumHostHangMonitor``, p01-process-084). Read when the runtime adopts the source.
+    public var watchesHostHangs = false
+    /// Host mode, with ``watchesHostHangs``: each UI hang of the Chromium Host of 250 ms or more, for the
+    /// app's hang reports (set by the App). Read at each hang.
+    public var onHostHang: ((ChromiumHostHang) -> Void)?
     /// Host mode: a page's pointer lock and keyboard lock are cmux's, and Escape ends them and the page's
     /// fullscreen (feature `chromiumHostLocks`, set by the App; ``CEFHostLocks``). Read when the runtime
     /// adopts the source; in process it changes nothing.

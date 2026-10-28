@@ -174,6 +174,9 @@ class GeneratedClientMixin:
     def bind_conversation_tab_session(self, surface: Id, expected_session: Union[str, None], session: str, *, harness: Union[str, None, MissingType] = MISSING) -> BindConversationTabSessionResult:
         return self._invoke_command('bind-conversation-tab-session', BindConversationTabSessionRequest(surface=surface, expected_session=expected_session, session=session, harness=harness))
 
+    def bridge_hello(self, features: List[str]) -> BridgeHelloResult:
+        return self._invoke_command('bridge-hello', BridgeHelloRequest(features=features))
+
     def browser_activate(self, surface: Id) -> EmptyResult:
         return self._invoke_command('browser-activate', BrowserActivateRequest(surface=surface))
 
@@ -647,6 +650,9 @@ class GeneratedClientMixin:
 
     def mark_workspaces_provider_managed(self, authority: str) -> EmptyResult:
         return self._invoke_command('mark-workspaces-provider-managed', MarkWorkspacesProviderManagedRequest(authority=authority))
+
+    def memory_report(self) -> Any:
+        return self._invoke_command('memory-report', MemoryReportRequest())
 
     def mint_terminal_renderer(self, surface: Id, *, ttl_ms: Union[int, MissingType] = MISSING) -> MintTerminalRendererResult:
         return self._invoke_command('mint-terminal-renderer', MintTerminalRendererRequest(surface=surface, ttl_ms=ttl_ms))
@@ -1156,6 +1162,7 @@ GeneratedClientMixin.apps_terminal_links.__cmux_command__ = COMMANDS['apps-termi
 GeneratedClientMixin.apps_unmount.__cmux_command__ = COMMANDS['apps-unmount']
 GeneratedClientMixin.attach_surface.__cmux_command__ = COMMANDS['attach-surface']
 GeneratedClientMixin.bind_conversation_tab_session.__cmux_command__ = COMMANDS['bind-conversation-tab-session']
+GeneratedClientMixin.bridge_hello.__cmux_command__ = COMMANDS['bridge-hello']
 GeneratedClientMixin.browser_activate.__cmux_command__ = COMMANDS['browser-activate']
 GeneratedClientMixin.browser_back.__cmux_command__ = COMMANDS['browser-back']
 GeneratedClientMixin.browser_forward.__cmux_command__ = COMMANDS['browser-forward']
@@ -1314,6 +1321,7 @@ GeneratedClientMixin.machine_catalog_publish.__cmux_command__ = COMMANDS['machin
 GeneratedClientMixin.machine_listening_tcp.__cmux_command__ = COMMANDS['machine-listening-tcp']
 GeneratedClientMixin.machine_usage.__cmux_command__ = COMMANDS['machine-usage']
 GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMANDS['mark-workspaces-provider-managed']
+GeneratedClientMixin.memory_report.__cmux_command__ = COMMANDS['memory-report']
 GeneratedClientMixin.mint_terminal_renderer.__cmux_command__ = COMMANDS['mint-terminal-renderer']
 GeneratedClientMixin.mint_terminal_renderer_by_terminal.__cmux_command__ = COMMANDS['mint-terminal-renderer-by-terminal']
 GeneratedClientMixin.move_bookmark.__cmux_command__ = COMMANDS['move-bookmark']

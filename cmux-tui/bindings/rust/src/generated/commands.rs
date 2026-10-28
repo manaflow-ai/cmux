@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c.
+// cmux-tui mux protocol 12, IR a2305d1e52136dcfd098328b9b7e970a736ec5d005aca55bb6f82f3a47ea1df1.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -840,6 +840,12 @@ pub struct BindConversationTabSessionResult {
     pub conversation: T::ConversationTabRecord,
     pub replayed: bool,
     pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BridgeHelloRequest {
+    pub features: Vec<String>,
 }
 
 #[rustfmt::skip]
@@ -3019,6 +3025,14 @@ pub struct MarkWorkspacesProviderManagedRequest {
 
 #[rustfmt::skip]
 pub type MarkWorkspacesProviderManagedResult = T::EmptyResult;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MemoryReportRequest {
+}
+
+#[rustfmt::skip]
+pub type MemoryReportResult = serde_json::Value;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5425,6 +5439,10 @@ impl CmuxClient {
         self.execute(&BIND_CONVERSATION_TAB_SESSION_METADATA, &request)
     }
 
+    pub fn bridge_hello(&mut self, request: BridgeHelloRequest) -> Result<T::BridgeHelloResult> {
+        self.execute(&BRIDGE_HELLO_METADATA, &request)
+    }
+
     pub fn browser_activate(&mut self, request: BrowserActivateRequest) -> Result<BrowserActivateResult> {
         self.execute(&BROWSER_ACTIVATE_METADATA, &request)
     }
@@ -6145,6 +6163,10 @@ impl CmuxClient {
 
     pub fn mark_workspaces_provider_managed(&mut self, request: MarkWorkspacesProviderManagedRequest) -> Result<MarkWorkspacesProviderManagedResult> {
         self.execute(&MARK_WORKSPACES_PROVIDER_MANAGED_METADATA, &request)
+    }
+
+    pub fn memory_report(&mut self, request: MemoryReportRequest) -> Result<MemoryReportResult> {
+        self.execute(&MEMORY_REPORT_METADATA, &request)
     }
 
     pub fn mint_terminal_renderer(&mut self, request: MintTerminalRendererRequest) -> Result<T::MintTerminalRendererResult> {

@@ -20,6 +20,8 @@ extension LineTransport {
         var controlStreams: Set<String> = []
         /// Gets resource API stream lines (`stream_item`, `stream_end`).
         var streamHandler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?
+        /// The attach streams this side minted (LineTransport+AttachStreams.swift).
+        var attachStreams = AttachStreamTable()
         /// The reader cuts 0xFF frames: set once the handshake asks for `ipc-frames-v2`, before the daemon
         /// can send one.
         var acceptsFrames = false

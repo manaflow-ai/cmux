@@ -13,6 +13,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::server::EchoWatch;
+use cmux_tui_core::supervised::SupervisedThread;
 use cmux_tui_core::{SurfaceId, SurfaceKind};
 use smallvec::SmallVec;
 
@@ -365,7 +366,7 @@ impl SharedQueue {
 
 pub struct PtyInputDispatcher {
     sender: PtyInputSender,
-    worker: Option<JoinHandle<()>>,
+    worker: Option<SupervisedThread<()>>,
     session_mutations: Option<JoinHandle<()>>,
 }
 
@@ -486,9 +487,11 @@ impl PtyInputDispatcher {
             (self.sender.on_failure)(failure);
         }
         if drained {
-            for thread in [self.worker.take(), self.session_mutations.take()].into_iter().flatten()
-            {
-                let _ = thread.join();
+            if let Some(worker) = self.worker.take() {
+                let _ = worker.join();
+            }
+            if let Some(session_mutations) = self.session_mutations.take() {
+                let _ = session_mutations.join();
             }
         }
         drained
@@ -1005,6 +1008,7 @@ fn spawn_surface_operation(
     let worker_pending = pending.clone();
     let worker_queue = queue.clone();
     let worker_failure = on_failure.clone();
+    // supervise-allow: one surface operation; a panic ends that operation only.
     let spawn = cmux_threads::spawn(
         "mux-surface-operation",
         cmux_tui_core::thread_qos::ThreadType::Interactive.qos(),
@@ -1821,11 +1825,19 @@ mod tests {
     #[test]
     fn the_input_worker_is_an_echo_path_thread() {
         let mut dispatcher = PtyInputDispatcher::spawn(|_| {}).unwrap();
-        let rows: Vec<_> = cmux_threads::snapshot()
-            .into_iter()
-            .filter(|row| row.name == "mux-pty-input")
-            .map(|row| row.declared)
-            .collect();
+        // The worker registers as its body starts, after spawn returns.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let rows = loop {
+            let rows: Vec<_> = cmux_threads::snapshot()
+                .into_iter()
+                .filter(|row| row.name == "mux-pty-input")
+                .map(|row| row.declared)
+                .collect();
+            if !rows.is_empty() || Instant::now() >= deadline {
+                break rows;
+            }
+            std::thread::yield_now();
+        };
         assert!(!rows.is_empty(), "mux-pty-input is registered while it runs");
         let echo = cmux_tui_core::echo_thread::ECHO_PATH_QOS;
         assert!(rows.iter().all(|qos| *qos == echo), "{rows:?}");

@@ -1,4 +1,5 @@
 import CmuxNextResources
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -109,7 +110,8 @@ struct TaskManagerSnapshotTests {
     @Test func theModelRefreshesKeepsLiveSelectionAndRoutesKill() async {
         let source = Source()
         var killed: [ProcessKey] = []
-        let model = TaskManagerModel(source: source, kill: { killed.append($0) })
+        let model = TaskManagerModel(source: source, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
+                                     kill: { killed.append($0) })
         await model.refresh()
         #expect(model.snapshot.rows.count == 6)
         #expect(model.snapshot.rows.allSatisfy { $0.cpu == nil })
@@ -140,7 +142,8 @@ struct TaskManagerSnapshotTests {
     /// Closing the page while a sample runs: that sample's result is dropped, not written after stop().
     @Test func stopDuringASampleDropsItsResult() async throws {
         let source = GatedSource()
-        let model = TaskManagerModel(source: source, kill: { _ in })
+        let model = TaskManagerModel(source: source, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
+                                     kill: { _ in })
         model.start()
         var tries = 0
         while source.calls < 1, tries < 500 { tries += 1; try await Task.sleep(for: .milliseconds(2)) }

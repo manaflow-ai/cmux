@@ -1,7 +1,7 @@
 //! The request class gate and the cause scope (crate::request_qos). The
-//! classes each scope entered on this thread are noted, so a test can see
-//! the class a request asked for also where the platform refuses it (Linux
-//! without `RLIMIT_NICE`).
+//! classes each scope and each upkeep or `enter_class` pass entered on this
+//! thread are noted, so a test can see the class a request asked for also
+//! where the platform refuses it (Linux without `RLIMIT_NICE`).
 
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
@@ -23,8 +23,8 @@ pub(super) fn note_entered(class: ThreadQos) {
     ENTERED.with(|entered| entered.borrow().lock().unwrap().push(class));
 }
 
-/// The classes cause scopes entered on this thread, and on threads that
-/// followed its recorder, since the last call.
+/// The classes cause scopes and passes entered on this thread, and on
+/// threads that followed its recorder, since the last call.
 pub(crate) fn take_entered() -> Vec<ThreadQos> {
     ENTERED.with(|entered| std::mem::take(&mut *entered.borrow().lock().unwrap()))
 }
@@ -193,7 +193,7 @@ fn helper_reads(enabled: bool, cause: EventCause) -> HelperReads {
             let creator_live = cmux_threads::current();
             let reachable = ThreadQos::ALL.map(cmux_threads::reachable);
             let (declared, work, live) = RequestQos { enabled }
-                .spawn_helper("mux-helper-test", Some(256 * 1024), || {
+                .spawn_helper("mux-helper-test", || {
                     let declared = cmux_threads::current_slot().expect("registered").declared();
                     (declared, cmux_tui_platform::qos::work_qos(), cmux_threads::current())
                 })

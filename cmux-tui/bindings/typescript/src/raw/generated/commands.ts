@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c. */
+/* cmux-tui mux protocol 12, IR a2305d1e52136dcfd098328b9b7e970a736ec5d005aca55bb6f82f3a47ea1df1. */
 
 
 import type * as T from "./types.js";
@@ -634,6 +634,12 @@ export type BindConversationTabSessionResult = {
   "replayed": boolean;
   "surface": T.Id;
 };
+
+/** Protocol v12; authority: local-admin. */
+export interface BridgeHelloRequest extends CmuxRequestBase {
+  cmd: "bridge-hello";
+  "features": Array<string>;
+}
 
 /** Protocol v6; authority: frontend. */
 export interface BrowserActivateRequest extends CmuxRequestBase {
@@ -2167,6 +2173,12 @@ export interface MarkWorkspacesProviderManagedRequest extends CmuxRequestBase {
   "authority": string;
 }
 export type MarkWorkspacesProviderManagedResult = T.EmptyResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface MemoryReportRequest extends CmuxRequestBase {
+  cmd: "memory-report";
+}
+export type MemoryReportResult = T.JsonValue;
 
 /** Protocol v9; authority: frontend. */
 export interface MintTerminalRendererRequest extends CmuxRequestBase {
@@ -3716,6 +3728,7 @@ export type CmuxRequest =
   | AppsUnmountRequest
   | AttachSurfaceRequest
   | BindConversationTabSessionRequest
+  | BridgeHelloRequest
   | BrowserActivateRequest
   | BrowserBackRequest
   | BrowserForwardRequest
@@ -3874,6 +3887,7 @@ export type CmuxRequest =
   | MachineListeningTcpRequest
   | MachineUsageRequest
   | MarkWorkspacesProviderManagedRequest
+  | MemoryReportRequest
   | MintTerminalRendererRequest
   | MintTerminalRendererByTerminalRequest
   | MoveBookmarkRequest
@@ -4458,6 +4472,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "agent-session-tabs-v1";
+    stream: null;
+  };
+  "bridge-hello": {
+    request: BridgeHelloRequest;
+    result: T.BridgeHelloResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "bridge-hello-v1";
     stream: null;
   };
   "browser-activate": {
@@ -5722,6 +5744,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "provider-authority";
     since: 9;
     capability: "provider-managed-workspace-authority-v2";
+    stream: null;
+  };
+  "memory-report": {
+    request: MemoryReportRequest;
+    result: MemoryReportResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
     stream: null;
   };
   "mint-terminal-renderer": {

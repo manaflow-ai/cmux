@@ -224,7 +224,15 @@ fn ipc_grant_frame_bridge_needs_kernel_facts_and_no_role() {
     assert_eq!(phone.granted(), ["attach-streams-v1"]);
 
     let page = Connection::local(&mux);
-    assert!(origin_gate::set_hello(&mux, page.client, HelloRole::PageRelay, None, false, None));
+    assert!(origin_gate::set_hello(
+        &mux,
+        page.client,
+        HelloRole::PageRelay,
+        None,
+        false,
+        None,
+        false
+    ));
     assert!(!origin_gate::declare_frame_bridge(&mux, page.client));
     assert!(page.advertised().is_empty());
 
@@ -234,7 +242,15 @@ fn ipc_grant_frame_bridge_needs_kernel_facts_and_no_role() {
 
     let bridge = Connection::open(&mux, ClientTransport::Unix, PeerProcess::ByteBridge);
     assert!(origin_gate::declare_frame_bridge(&mux, bridge.client));
-    assert!(origin_gate::set_hello(&mux, bridge.client, HelloRole::PageRelay, None, false, None));
+    assert!(origin_gate::set_hello(
+        &mux,
+        bridge.client,
+        HelloRole::PageRelay,
+        None,
+        false,
+        None,
+        false
+    ));
     assert!(bridge.advertised().is_empty(), "a later page hello still ends every grant");
     mux.shutdown();
 }
@@ -275,7 +291,15 @@ fn ipc_grant_remote_entry_gets_none() {
 fn ipc_grant_page_relay_gets_none_and_a_later_page_hello_ends_a_grant() {
     let mux = mux("ipc-grant-page");
     let page = Connection::local(&mux);
-    assert!(origin_gate::set_hello(&mux, page.client, HelloRole::PageRelay, None, false, None));
+    assert!(origin_gate::set_hello(
+        &mux,
+        page.client,
+        HelloRole::PageRelay,
+        None,
+        false,
+        None,
+        false
+    ));
     assert!(page.advertised().is_empty());
     assert_eq!(page.ask(13)["ok"], true);
     assert!(page.granted().is_empty());
@@ -283,7 +307,15 @@ fn ipc_grant_page_relay_gets_none_and_a_later_page_hello_ends_a_grant() {
     let late = Connection::local(&mux);
     assert_eq!(late.ask(13)["ok"], true);
     assert_eq!(late.granted(), ALL);
-    assert!(origin_gate::set_hello(&mux, late.client, HelloRole::PageRelay, None, false, None));
+    assert!(origin_gate::set_hello(
+        &mux,
+        late.client,
+        HelloRole::PageRelay,
+        None,
+        false,
+        None,
+        false
+    ));
     assert!(late.granted().is_empty());
     mux.shutdown();
 }

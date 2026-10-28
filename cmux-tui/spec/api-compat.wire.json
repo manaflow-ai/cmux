@@ -951,6 +951,10 @@
         "id": 2570,
         "priority": "control"
       },
+      "memory-report": {
+        "id": 277,
+        "priority": "background"
+      },
       "mint-terminal-renderer": {
         "id": 778,
         "priority": "control"
@@ -1715,6 +1719,10 @@
       },
       "history-changed": {
         "id": 50178,
+        "priority": "control"
+      },
+      "input-failed": {
+        "id": 49165,
         "priority": "control"
       },
       "keybindings-changed": {

@@ -283,6 +283,11 @@ public abstract class GeneratedCmuxClient {
         return BindConversationTabSessionResult.fromWire(result);
     }
 
+    public final BridgeHelloResult bridgeHello(BridgeHelloRequest request) throws CmuxException {
+        Object result = execute(Commands.BRIDGE_HELLO, request.toWire());
+        return BridgeHelloResult.fromWire(result);
+    }
+
     public final EmptyResult browserActivate(BrowserActivateRequest request) throws CmuxException {
         Object result = execute(Commands.BROWSER_ACTIVATE, request.toWire());
         return EmptyResult.fromWire(result);
@@ -1075,6 +1080,11 @@ public abstract class GeneratedCmuxClient {
     public final EmptyResult markWorkspacesProviderManaged(MarkWorkspacesProviderManagedRequest request) throws CmuxException {
         Object result = execute(Commands.MARK_WORKSPACES_PROVIDER_MANAGED, request.toWire());
         return EmptyResult.fromWire(result);
+    }
+
+    public final Object memoryReport() throws CmuxException {
+        Object result = execute(Commands.MEMORY_REPORT, Map.of());
+        return Wire.immutableJson(result);
     }
 
     public final MintTerminalRendererResult mintTerminalRenderer(MintTerminalRendererRequest request) throws CmuxException {

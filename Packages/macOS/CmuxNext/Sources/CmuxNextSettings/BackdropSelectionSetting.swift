@@ -1,5 +1,5 @@
 public import Foundation
-public import CmuxNextDesign
+public import CmuxNextAppearance
 
 /// Persists the selected background: bundled art, a macOS system wallpaper (`system:<path>`), the
 /// person's own image (`file:<path>`), the desktop picture (`desktop`), the paintings shuffled

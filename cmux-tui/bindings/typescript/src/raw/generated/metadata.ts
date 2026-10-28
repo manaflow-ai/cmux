@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c. */
+/* cmux-tui mux protocol 12, IR a2305d1e52136dcfd098328b9b7e970a736ec5d005aca55bb6f82f3a47ea1df1. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c" as const;
+export const SDK_IR_SHA256 = "a2305d1e52136dcfd098328b9b7e970a736ec5d005aca55bb6f82f3a47ea1df1" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -818,6 +818,18 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Compare-and-swap: applies when the tab's current session equals expected_session (null: none). When the tab already has session the result is replayed:true and nothing commits; another current session fails with conversation_tab.session_conflict naming it; a tab without an agent session source is a bad request. An optional harness is written with the session; the same session with another harness changes the harness alone and is no replay; without harness the recorded one stays. See spec/commands.md."
+    ]
+  },
+  "bridge-hello": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "bridge-hello-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "A byte bridge's first line only (bridge_hello.window_closed otherwise); the far client's client-hello window stays open behind it.",
+      "Local (Unix) connections only (bridge_hello.local_only).",
+      "With bridge-frames-v1, a connection whose kernel peer is of the daemon's user and has no role may be granted ipc-frames-v2 and attach-frames-v1, never terminal-output-ring-v1."
     ]
   },
   "browser-activate": {
@@ -2537,6 +2549,17 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Authority must match the value provisioned before this mux generation accepted control clients."
+    ]
+  },
+  "memory-report": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner-only (trusted local connection); a WebSocket or remote relay client is refused before anything is read.",
+      "Read only, never journaled; names no title, path, URL or command."
     ]
   },
   "mint-terminal-renderer": {
@@ -4931,6 +4954,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "input-failed": {
+    "since": 12,
+    "capability": "ipc-frames-v2",
+    "streams": [
+      "attach-byte"
+    ],
+    "emission": "emitted"
+  },
   "keybindings-changed": {
     "since": 12,
     "capability": "keybindings-v1",
@@ -7284,6 +7315,26 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "BridgeHelloResult": {
+    "additional_properties": false,
+    "fields": {
+      "features": {
+        "constraints": [
+          "The features the daemon took: bridge-frames-v1 when the connection may get frames."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
         }
       }
     },
@@ -21306,6 +21357,32 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "kind": "object"
     }
   },
+  "bridge-hello": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "features": {
+          "constraints": [
+            "At most 16 names of at most 128 characters (bridge_hello.bad_request {field: features} otherwise). bridge-frames-v1: the bridge reads each 0xFF message by its frame header; unknown names are ignored."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "BridgeHelloResult"
+    }
+  },
   "browser-activate": {
     "request": {
       "additional_properties": false,
@@ -28261,6 +28338,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "EmptyResult"
+    }
+  },
+  "memory-report": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "opaque_json",
+      "reason": "A diagnostic report whose per-terminal rows follow libghostty-vt's memory usage struct and whose consumer rows follow the daemon's memory registry; see spec/commands.md memory-report."
     }
   },
   "mint-terminal-renderer": {
@@ -38087,6 +38175,55 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "input-failed": {
+    "additional_properties": false,
+    "constraints": [
+      "Sent on the attach stream an INPUT frame named, when its bytes did not reach the terminal; INPUT frames have no reply. After terminal_ended or not_a_terminal, later INPUT that fails the same way sends no second event until a write reaches a terminal again or the stream id is opened again."
+    ],
+    "fields": {
+      "bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "input-failed"
+        }
+      },
+      "reason": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "terminal_ended",
+            "not_a_terminal",
+            "write_failed",
+            "daemon_handoff",
+            "overflow",
+            "attach_failed"
+          ]
+        }
+      },
+      "stream": {
+        "description": "The attach stream the INPUT frame named; the stream's tag, as on every item of an attach stream.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
         }
       }
     },

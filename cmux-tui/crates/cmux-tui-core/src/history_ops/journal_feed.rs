@@ -31,6 +31,7 @@ use serde_json::Value;
 use crate::Mux;
 use crate::journal_kernel::SharedJournalRead;
 use crate::panic_free::JsonFields;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::workspace_registry::SessionJournalRecord;
 
 const PAGE: usize = 512;
@@ -153,10 +154,11 @@ pub(super) fn start(mux: &Arc<Mux>) {
     }
     let weak = Arc::downgrade(mux);
     let kernel = mux.shared_journal_handle();
-    let spawned = crate::thread_qos::spawn_raisable(
+    let spawned = supervised::spawn_raisable(
         "mux-history-feed",
         crate::thread_qos::ThreadType::Utility.qos(),
-        None,
+        Fatal,
+        ShutdownBehavior::Continue,
         move || run(&weak, &kernel),
     );
     if let Err(error) = spawned {

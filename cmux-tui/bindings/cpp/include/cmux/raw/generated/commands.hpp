@@ -95,6 +95,7 @@ public:
     [[nodiscard]] Result<EmptyResult> apps_unmount(const AppsUnmountRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> attach_surface(const AttachSurfaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<BindConversationTabSessionResult> bind_conversation_tab_session(const BindConversationTabSessionRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<BridgeHelloResult> bridge_hello(const BridgeHelloRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_activate(const BrowserActivateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_back(const BrowserBackRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_forward(const BrowserForwardRequest& request, RequestOptions options = {});
@@ -253,6 +254,7 @@ public:
     [[nodiscard]] Result<MachineListeningTcpResult> machine_listening_tcp(const MachineListeningTcpRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<MachineUsageResult> machine_usage(const MachineUsageRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> mark_workspaces_provider_managed(const MarkWorkspacesProviderManagedRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<MemoryReportResult> memory_report(const MemoryReportRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer(const MintTerminalRendererRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MintTerminalRendererResult> mint_terminal_renderer_by_terminal(const MintTerminalRendererByTerminalRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<BookmarkChangeResult> move_bookmark(const MoveBookmarkRequest& request, RequestOptions options = {});

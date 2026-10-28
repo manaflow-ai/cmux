@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '5739101a2a1f12a08327e6d4e67314a7c13e6f450f88de4362e39eec5338716c'
+IR_SHA256 = 'a2305d1e52136dcfd098328b9b7e970a736ec5d005aca55bb6f82f3a47ea1df1'
 
 
 @dataclass(frozen=True)
@@ -750,6 +750,17 @@ COMMANDS = {
             'harness': CommandFieldMetadata(None, None),
             'session': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'bridge-hello': CommandMetadata(
+        'bridge-hello',
+        'local-admin',
+        12,
+        'bridge-hello-v1',
+        ('local-admin',),
+        None,
+        {
+            'features': CommandFieldMetadata(None, None),
         },
     ),
     'browser-activate': CommandMetadata(
@@ -2764,6 +2775,16 @@ COMMANDS = {
         None,
         {
             'authority': CommandFieldMetadata(None, None),
+        },
+    ),
+    'memory-report': CommandMetadata(
+        'memory-report',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'mint-terminal-renderer': CommandMetadata(
@@ -4886,6 +4907,7 @@ EVENTS = {
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
     'history-changed': EventMetadata('history-changed', 12, 'history-v1', ('subscribe',), 'emitted'),
+    'input-failed': EventMetadata('input-failed', 12, 'ipc-frames-v2', ('attach-byte',), 'emitted'),
     'keybindings-changed': EventMetadata('keybindings-changed', 12, 'keybindings-v1', ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
     'loopback-closed': EventMetadata('loopback-closed', 12, 'loopback-forward-v1', ('control',), 'emitted'),

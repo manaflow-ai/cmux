@@ -12,6 +12,7 @@ use super::MessageWriter;
 use super::OutboundStream;
 use crate::panic_free::JsonFields;
 use crate::server::request_hang_watch::ipc_reply;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::sync as waits;
 
 use super::INITIAL_BROWSER_RESIZE_TIMEOUT;
@@ -65,9 +66,11 @@ pub(super) fn spawn_attach_notification_stream(
     outbound_stream: OutboundStream,
 ) -> std::io::Result<()> {
     let events = mux.subscribe_attached_surface(surface_id);
-    cmux_threads::spawn(
+    supervised::spawn_at(
         "mux-attach-notifications",
         crate::thread_qos::ThreadType::Interactive.qos(),
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             let interrupt = StreamInterrupt::new();
             writer.register_interrupt(&interrupt);

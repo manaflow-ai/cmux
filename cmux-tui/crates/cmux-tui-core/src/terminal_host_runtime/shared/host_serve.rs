@@ -706,6 +706,18 @@ impl ClientFrames {
                 };
                 ctx.host.set_default_colors(colors);
             }
+            MessageKind::SetThreadQos => {
+                if !ctx.granted_rights.contains(CapabilityRights::MINT_CAPABILITY)
+                    || frame.request_id != 0
+                {
+                    return FrameStep::Close;
+                }
+                let Some(qos) = super::thread_qos::decode_thread_qos(&frame.payload) else {
+                    return FrameStep::Close;
+                };
+                // One atomic store: no parser wait, so it runs inline.
+                ctx.host.set_thread_qos(qos);
+            }
             MessageKind::SetCellPixelSize if frame.request_id != 0 && frame.payload.len() == 4 => {
                 if !ctx.granted_rights.contains(CapabilityRights::RESIZE) {
                     return FrameStep::Close;
@@ -901,9 +913,11 @@ impl ClientControl {
         let frames = self.frames.clone();
         let lane = self.lane.clone();
         // The thread ends with the client; nothing joins it.
-        let spawned = cmux_threads::spawn(
+        let spawned = crate::supervised::spawn_at(
             "terminal-host-client-control",
             cmux_threads::ThreadQos::UserInitiated,
+            crate::supervised::Fatal,
+            crate::supervised::ShutdownBehavior::Continue,
             move || run_control(&frames, &lane),
         );
         match spawned {
