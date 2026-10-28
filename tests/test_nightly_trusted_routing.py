@@ -101,7 +101,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                     self.assertEqual(select(**{'vars.CI_NIGHTLY_NEXT_BUILD_RUNNER': 'glaeda-dev-std-xcode-26.6',
                                                'vars.MACOS_RUNNER_26': variable, 'github.run_attempt': attempt}),
                                      'blacksmith-6vcpu-macos-26')
-        self.assertEqual(select(**{**picked, 'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-4vcpu-ubuntu-2404')
+        self.assertEqual(select(**{**picked, 'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-32vcpu-ubuntu-2404')
         self.assertEqual(select(**{**picked, 'github.repository_owner': 'someone'}), 'macos-26')
 
     def test_only_the_nightly_pickers_read_the_next_build_runner(self):
@@ -155,7 +155,7 @@ class NightlyTrustedRouting(unittest.TestCase):
                         {'github.ref': 'refs/heads/other'}):
             with self.subTest(changes=changes):
                 self.assertEqual(helper(**changes), 'blacksmith-6vcpu-macos-26')
-        self.assertEqual(helper(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-4vcpu-ubuntu-2404')
+        self.assertEqual(helper(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-32vcpu-ubuntu-2404')
         self.assertEqual(helper(**{'github.repository_owner': 'someone'}), 'macos-26')
         self.assertNotIn('macos-15', WORKFLOW_FILE.read_text())
 
@@ -180,9 +180,9 @@ class NightlyTrustedRouting(unittest.TestCase):
                        'github.event_name': 'push', 'github.ref': 'refs/heads/nightly-next', 'github.run_attempt': 1,
                        'vars.CI_PR_POOL_OWNED': '1', **changes}
             return evaluate(parse_expression(source), context)
-        self.assertEqual(prepare(), 'blacksmith-4vcpu-ubuntu-2404')
-        self.assertEqual(prepare(**{'github.run_attempt': 2}), 'blacksmith-4vcpu-ubuntu-2404')
-        self.assertEqual(prepare(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-4vcpu-ubuntu-2404')
+        self.assertEqual(prepare(), 'blacksmith-32vcpu-ubuntu-2404')
+        self.assertEqual(prepare(**{'github.run_attempt': 2}), 'blacksmith-32vcpu-ubuntu-2404')
+        self.assertEqual(prepare(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-32vcpu-ubuntu-2404')
         self.assertEqual(prepare(**{'github.repository_owner': 'someone'}), 'ubuntu-24.04')
 
     def test_dispatch_fast_retries_rc_and_disabled_owned_use_blacksmith_pool(self):
@@ -320,7 +320,7 @@ class NightlyTrustedRouting(unittest.TestCase):
     @unittest.skipUnless('nightly_next_unsigned_run' in DOC[True]['workflow_dispatch']['inputs'],
                          'unsigned resume is owned by PR 21161, not landed on this base yet')
     def test_unsigned_resume_is_linux_before_every_native_route(self):
-        self.assertEqual(select(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-4vcpu-ubuntu-2404')
+        self.assertEqual(select(**{'inputs.nightly_next_unsigned_run': '123'}), 'blacksmith-32vcpu-ubuntu-2404')
 
 
 
