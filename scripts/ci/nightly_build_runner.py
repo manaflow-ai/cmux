@@ -57,8 +57,14 @@ It never fails the job and never prints an empty `blacksmith`:
         DEDICATED_LABEL=<vars.CI_NIGHTLY_NEXT_DEDICATED_LABEL> \\
         nightly_build_runner.py   -> dedicated=..., owned=..., blacksmith=..., runner=..., attempt=... in $GITHUB_OUTPUT
 
-`nightly_build_runner.py dedicated` prints only `dedicated`, with no wait: the signed-app
-verify takes the dedicated builder only while it is idle now (pick-nightly-sign-runner).
+`nightly_build_runner.py dedicated` prints only `dedicated`, with no wait.
+
+`nightly_build_runner.py verify` prints only `owned`, never the dedicated builder (it keeps
+that Mac for the next tip's build): pick-nightly-sign-runner's route for the secret-free
+verify jobs (verify-signed-nightly, verify-final-dmg-nightly, signer-dmg-image),
+by the same owned rule as the build. Until 2026-10-27 that step ran the pull request pool picker
+(e2e_runner_pool.py), which named a Blacksmith macOS 15 label in run 40515681971 while owned
+side runners were idle, so verify queued about 1.5 h on Blacksmith.
 """
 
 from __future__ import annotations
@@ -98,6 +104,21 @@ DEDICATED_WAIT_SECONDS = 5 * 60
 DEDICATED_LOOK_SECONDS = 30
 
 
+# The builder admits only a push to nightly-next (nightly_builder.py admit). A dispatched run sent
+# there is refused at "Set up runner" (run 40594111618, 2026-10-27: "event workflow_dispatch is not push").
+DEDICATED_EVENTS = frozenset({"push"})
+
+
+def dedicated_builder(runner: Mapping[str, Any]) -> bool:
+    """A glaeda runner.dedicated runner: it registers with exactly its declared labels, so no `self-hosted`.
+
+    A pool runner that also carries the dedicated label (cmux15's trusted runners did until
+    2026-10-27, from runner.trustedNextNightly) applies the pool's capacity units and attempt-1
+    rule, so an idle one is not the builder: run 40593692340 was refused there at "Set up runner"
+    on attempts 1 and 2."""
+    return "self-hosted" not in pool.runner_labels(runner)
+
+
 def dedicated_state(label: str, runners: Sequence[Mapping[str, Any]] | None) -> str:
     """'idle', 'busy', 'offline', 'unread' or 'off' for the dedicated builder's label."""
     if not pool.nightly_dedicated(label):
@@ -105,7 +126,8 @@ def dedicated_state(label: str, runners: Sequence[Mapping[str, Any]] | None) -> 
     if runners is None:
         return "unread"
     online = [runner for runner in runners
-              if runner.get("status") == "online" and label in pool.runner_labels(runner)]
+              if runner.get("status") == "online" and label in pool.runner_labels(runner)
+              and dedicated_builder(runner)]
     if not online:
         return "offline"
     return "idle" if any(not runner.get("busy") for runner in online) else "busy"
@@ -185,6 +207,13 @@ def main(env: Mapping[str, str] = os.environ,
     labels = (env.get("OWNED_LABELS") or "").split()
     dedicated_label = (env.get("DEDICATED_LABEL") or "").strip()
     only_dedicated = list(argv[:1]) == ["dedicated"]
+    only_verify = list(argv[:1]) == ["verify"]
+    if only_verify:
+        dedicated_label = ""  # the verify jobs never take the dedicated builder: it keeps that Mac for the next build
+    event = (env.get("GITHUB_EVENT_NAME") or "").strip()
+    off_event = bool(dedicated_label) and event not in DEDICATED_EVENTS
+    if off_event:
+        dedicated_label = ""
 
     route_token = env.get("ROUTE_TOKEN", "")
 
@@ -200,6 +229,8 @@ def main(env: Mapping[str, str] = os.environ,
     waited_from = clock()
     dedicated, dedicated_why = dedicated_route(dedicated_label, read, sleep=sleep, clock=clock,
                                                wait_seconds=0 if only_dedicated else DEDICATED_WAIT_SECONDS)
+    if off_event:
+        dedicated_why = f"event {event or '<unset>'} is not one the builder admits (push)"
     # The Blacksmith pick below reads queue ages against `now`: move it past the wait.
     now += dt.timedelta(seconds=max(0.0, clock() - waited_from))
     if only_dedicated:
@@ -223,6 +254,10 @@ def main(env: Mapping[str, str] = os.environ,
             print(f"::warning title=nightly build runner::could not read the pool snapshot ({str(error)[:200]})")
     blacksmith, blacksmith_why = blacksmith_route((env.get("CANDIDATE") or "").strip(), snapshot, now,
                                                   (env.get("EXCLUDE") or "").strip())
+    if only_verify:
+        write_output(env, {"owned": owned}, [f"verify: {owned or 'none'} ({owned_why})",
+                                             f"blacksmith otherwise: {blacksmith} ({blacksmith_why})"])
+        return 0
 
     runner = owned or blacksmith
     write_output(env, {"dedicated": dedicated, "owned": owned, "blacksmith": blacksmith, "runner": runner,

@@ -57,6 +57,13 @@ export const liveRoutes = (env: Env, m: ModelEntry) => {
   return m.routes.filter((r) => !off.has(r.provider) && providerTarget(env, r.provider) !== undefined).sort((a, b) => routeCost(a) - routeCost(b))
 }
 
+/**
+ * The routes one request may use, cheapest first: a free device gets only the model's `freeProviders`
+ * (when it names any), and a pin (outside production) keeps only that provider.
+ */
+export const servingRoutes = (env: Env, m: ModelEntry, free: boolean, pinned?: string) =>
+  liveRoutes(env, m).filter((r) => (pinned === undefined || r.provider === pinned) && (!free || !m.freeProviders || m.freeProviders.includes(r.provider)))
+
 /** Outside production, `x-cmux-provider` pins one provider (per-provider staging checks); production ignores it. */
 export const PROVIDER_PIN_HEADER = "x-cmux-provider"
 
@@ -191,7 +198,7 @@ export const handleChatCompletions = async (env: Env, request: Request, ctx: Exe
  */
 export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller, body: Record<string, unknown>, promptBytes: number, pin?: string | null): Promise<Response> => {
   const model = typeof body.model === "string" ? modelById(body.model) : undefined
-  if (!model) return err(404, "model.not_found", "unknown model; GET /v1/inference/models lists the models")
+  if (!model) return err(404, "model.not_found", `unknown model; the catalog allowlist is: ${MODELS.map((m) => m.id).join(", ")}`)
   if (!Array.isArray(body.messages) || body.messages.length === 0) return err(400, "validation.invalid", "messages must be a non-empty array")
   if (body.tools !== undefined && !model.tools) return err(400, "validation.invalid", "this model does not take tools")
   if (body.n !== undefined && body.n !== 1) return err(400, "validation.invalid", "n must be 1")
@@ -203,7 +210,7 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
   if (free && !model.free) return err(403, "free.model", "the free tier serves only the free models; sign in for the others")
   const maxTokens = Math.min(requested, model.maxOutput, free ? Number(env.INFERENCE_FREE_MAX_TOKENS ?? "4096") || 4096 : model.maxOutput)
   const pinned = env.ENVIRONMENT !== "production" && pin ? pin : undefined
-  const routes = liveRoutes(env, model).filter((r) => pinned === undefined || r.provider === pinned)
+  const routes = servingRoutes(env, model, free, pinned)
   if (pinned !== undefined && routes.length === 0) return err(400, "provider.not_on_route", `${pinned} does not serve this model on this deployment`)
   if (routes.length === 0) return err(503, "provider.unavailable", "no provider can serve this model now")
 
