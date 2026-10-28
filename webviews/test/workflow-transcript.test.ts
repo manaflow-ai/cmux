@@ -302,7 +302,6 @@ test("truncation starting during an older read resets to the newest window", asy
   expect(reader.canLoadOlder).toBe(false);
 });
 
-
 test("truncation during forward catch-up discards pages from the previous window", async () => {
   const calls: unknown[] = [];
   const pages = [
