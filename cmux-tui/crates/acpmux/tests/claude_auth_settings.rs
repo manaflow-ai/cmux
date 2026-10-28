@@ -5,14 +5,10 @@ use std::collections::BTreeMap;
 
 #[test]
 fn claude_auth_settings_provider_switches_match_environment_truthiness() {
-    let unique = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let home = std::env::temp_dir().join(format!(
-        "claude-auth-settings-{}-{unique}",
-        std::process::id()
-    ));
+    let unique =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let home =
+        std::env::temp_dir().join(format!("claude-auth-settings-{}-{unique}", std::process::id()));
     std::fs::create_dir(&home).unwrap();
     let env = BTreeMap::from([("CLAUDE_CONFIG_DIR".to_owned(), home.display().to_string())]);
     for key in ["CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"] {
