@@ -121,7 +121,12 @@ pub fn installed_version(path: &str) -> Result<String, String> {
         Some(v) => Ok(v),
         None if ok => Err(format!("`{path} --version` printed no version")),
         None => {
-            Err(format!("`{path} --version` failed: {}", text.lines().next().unwrap_or("").trim()))
+            let first = text
+                .lines()
+                .map(crate::stderr::clean_stderr_line)
+                .find(|line| !line.is_empty())
+                .unwrap_or_default();
+            Err(format!("`{path} --version` failed: {first}"))
         }
     }
 }

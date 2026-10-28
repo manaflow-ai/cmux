@@ -144,10 +144,9 @@ pub(crate) fn launcher_ok(argv: &[String]) -> std::result::Result<(), String> {
     // Warnings (a peer that could not be reached) are not failures.
     let first = text
         .lines()
-        .map(str::trim)
+        .map(crate::stderr::clean_stderr_line)
         .find(|l| !l.is_empty() && !l.starts_with("warning:"))
-        .unwrap_or("")
-        .to_owned();
+        .unwrap_or_default();
     if !out.status.success()
         || first.starts_with("subrouter:")
         || text.to_lowercase().contains("unknown command")

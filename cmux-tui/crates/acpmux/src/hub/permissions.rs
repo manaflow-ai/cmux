@@ -193,13 +193,7 @@ impl Hub {
                 Inbound::Stderr(line, host_seq) => {
                     let line = short_text(&line, 4000);
                     tracing::debug!(session = %session.id, "stderr: {line}");
-                    if !line.trim().is_empty() {
-                        let mut tail = session.stderr_tail.lock().unwrap();
-                        if tail.len() >= 6 {
-                            tail.pop_front();
-                        }
-                        tail.push_back(line.clone());
-                    }
+                    remember_stderr(&mut session.stderr_tail.lock().unwrap(), &line);
                     // An agent host's stderr was logged before its ack.
                     if host_seq.is_none() {
                         self.append(&session, "mux", "stderr", json!({"text": line}));
@@ -1520,4 +1514,29 @@ pub(super) fn settle_full_access_report(session: &Session) {
             .floor
             .unapplied_full_access
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
+}
+
+// Keep raw lines for diagnosis, but terminal resets alone must not evict an explanation.
+fn remember_stderr(tail: &mut std::collections::VecDeque<String>, line: &str) {
+    if crate::stderr::clean_stderr_line(line).is_empty() {
+        return;
+    }
+    if tail.len() >= 6 {
+        tail.pop_front();
+    }
+    tail.push_back(line.to_owned());
+}
+
+#[cfg(test)]
+mod stderr_tests {
+    #[test]
+    fn stderr_resets_do_not_evict_the_raw_explanation() {
+        let raw = "\x1b[31mERROR failed to refresh models\x1b[0m";
+        let mut tail = std::collections::VecDeque::new();
+        super::remember_stderr(&mut tail, raw);
+        for _ in 0..8 {
+            super::remember_stderr(&mut tail, "\x1b[0m");
+        }
+        assert_eq!(tail.into_iter().collect::<Vec<_>>(), vec![raw]);
+    }
 }
