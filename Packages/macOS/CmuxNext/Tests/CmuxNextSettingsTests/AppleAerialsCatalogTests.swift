@@ -1,5 +1,6 @@
 import CmuxNextDesign
 import CmuxNextSettings
+@testable import CmuxNextSettingsWindow
 import Foundation
 import Testing
 

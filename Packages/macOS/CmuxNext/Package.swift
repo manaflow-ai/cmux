@@ -2288,8 +2288,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Compat for the blocking detector (ConfigFileWatcherNoWaitTests). Design only for the tests that
             // read the picker catalog or calm mode's hover and motion readers (BackdropArtCatalogTests,
             // BackdropUserImagesTests, CalmModeSettingTests); the rest name Appearance and DesignTokens.
+            // SettingsWindow for the picker's rows of the catalog (AppleAerialsCatalogTests, `pageRows`).
             dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextAppearance", "CmuxNextDesign", "CmuxNextDesignTokens",
-                           "CmuxNextActions", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport",
+                           "CmuxNextActions", "CmuxNextSettingsWindow", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport",
                            .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),

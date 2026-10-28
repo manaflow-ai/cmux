@@ -88,8 +88,6 @@ final class DiffPageService: InternalPageProvider {
         servicesReference.resolve().map { $0.cache.node(for: $0.pages.stripTab(ofKey: key)) }
     }
 
-    /// The clock of the view state deadline (``viewStateTimeout``).
-    let clock: any Clock<Duration>
 
     /// Remote chats get a runtime whose status reads and grants are owned by their daemon.
     /// Local tabs keep the shared sidecar runtime.

@@ -44,6 +44,14 @@ pub(crate) trait ToolRequests: Sync {
     fn is_closed(&self) -> bool {
         false
     }
+
+    /// Whether this process may read the files a tool call names for the agent. A stdio server
+    /// runs as the agent's own process, inside its sandbox, so it reads only what the agent can.
+    /// The daemon's own router runs outside every agent's sandbox: it must never read a path an
+    /// agent names, or a sandboxed agent could send a file it cannot read itself.
+    fn reads_agent_files(&self) -> bool {
+        false
+    }
 }
 
 impl ToolRequests for Client {
@@ -65,6 +73,10 @@ impl ToolRequests for Client {
 
     fn is_closed(&self) -> bool {
         Client::is_closed(self)
+    }
+
+    fn reads_agent_files(&self) -> bool {
+        true
     }
 }
 
@@ -423,6 +435,11 @@ async fn with_attachments<D: ToolRequests>(daemon: &D, mut args: Value) -> Resul
     if paths.is_empty() {
         return Ok(args);
     }
+    anyhow::ensure!(
+        daemon.reads_agent_files(),
+        "attachments need the agent's own sub-session tool server (the daemon does not read files for an agent); \
+         send the text alone, or put the file's contents in it"
+    );
     let session = args.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
     // The daemon says first whether this agent may send files (not while a remote device drives
     // it), so no file is read for a send it would refuse. With no text, an older daemon refuses
@@ -612,6 +629,37 @@ mod tests {
         for tools in DaemonTools::ALL {
             assert_eq!(DaemonTools::from_server_name(tools.server_name()), Some(tools));
         }
+    }
+
+    /// The daemon's own tools router runs outside every agent's sandbox: `send_message` with
+    /// attachments is refused there before any request or file read, so a sandboxed agent can never
+    /// have the daemon read a file for it. A text-only send goes through.
+    #[tokio::test]
+    async fn the_in_daemon_router_never_reads_an_agents_files() {
+        struct Router(std::sync::Mutex<Vec<&'static str>>);
+        impl ToolRequests for Router {
+            fn request(
+                &self,
+                m: &'static str,
+                _: Value,
+            ) -> impl Future<Output = Result<Value>> + Send {
+                self.0.lock().unwrap().push(m);
+                async { Ok(json!({})) }
+            }
+        }
+        let router = Router(std::sync::Mutex::new(Vec::new()));
+        let refused = with_attachments(
+            &router,
+            json!({"sessionId": "s", "text": "hi", "attachments": ["/etc/hosts"]}),
+        )
+        .await
+        .expect_err("the daemon read an agent's file");
+        assert!(format!("{refused:#}").contains("attachments need"), "{refused:#}");
+        assert!(router.0.lock().unwrap().is_empty(), "a request went out before the refusal");
+        let plain = with_attachments(&router, json!({"sessionId": "s", "text": "hi"}))
+            .await
+            .expect("a text send");
+        assert_eq!(plain["text"], "hi");
     }
 
     /// `retry_session` takes the contract's `{session, subagent?}` and sends `_acpmux/subsession/retry`'s

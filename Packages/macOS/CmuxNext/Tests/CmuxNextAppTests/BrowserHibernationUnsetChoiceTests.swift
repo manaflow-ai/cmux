@@ -56,7 +56,7 @@ import Testing
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
-        return Harness(settings: settings, page: SettingsPageProvider(settings: settings),
+        return Harness(settings: settings, page: SettingsPageProvider(settings: settings, on: linklessMainWork()),
                        palette: SettingsPaletteSource(settings: settings, themeColors: { [] }), url: url)
     }
 

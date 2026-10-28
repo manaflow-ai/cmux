@@ -63,9 +63,9 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
             return try? handle.blockingRead(upToCount: AgentPaneProjectIcon.maximumBytes + 1)
         }
         readManifest = { path in
-            guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+            guard let handle = try? FileHandle.blockingForReading(from: URL(fileURLWithPath: path)) else { return nil }
             defer { try? handle.close() }
-            return try? handle.read(upToCount: AgentPaneProjectIcon.maximumManifestBytes)
+            return try? handle.blockingRead(upToCount: AgentPaneProjectIcon.maximumManifestBytes)
         }
         list = { path in try? FileManager.default.contentsOfDirectory(atPath: path) }
     }
