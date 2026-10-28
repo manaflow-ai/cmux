@@ -43,7 +43,9 @@ of the daemon's text), so `cmd++` normalized to `cmd+plus` shows as the divergen
 
 Usage:
   gen_config.py [--out DIR]          write the corpus (oracle.py gen --suite config)
-  gen_config.py --check [--out DIR]  exit 1 when the committed corpus differs from a fresh generation
+  gen_config.py --check [--out DIR]  exit 1 when DIR differs from a fresh generation. The repo corpus is not
+                                     committed (corpus_store.py writes it with this generator), so there it only
+                                     shows that the generator is deterministic
   gen_config.py diff --swift S.jsonl --rust R.jsonl [--out divergences.jsonl] [--show N]
       prints a summary; each divergence is one JSONL line {"file", "path", "swift", "rust"}, with a
       side omitted when that dump has no value at the path. Exit 0 when equal, 1 when not, 2 on bad input.

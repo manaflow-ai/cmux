@@ -145,6 +145,16 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(cs.ensure(self.repo.corpus, ["art"]), {"art": "fetched"})
         self.assertTrue((self.repo.corpus / "art" / "a.json").is_file())
 
+    def test_a_suite_its_generator_wrote_is_kept_until_publish(self):
+        self.repo.fetched = self.repo.reference()
+        cs.ensure(self.repo.corpus, ["art"])
+        art = self.repo.corpus / "art"
+        (art / "c.json").write_text('{"id": "c"}\n')  # a regeneration with one more case
+        cs.mark_local(art)
+        cs._DONE.clear()
+        self.assertEqual(cs.ensure(self.repo.corpus, ["art"]), {"art": "local"})
+        self.assertTrue((art / "c.json").is_file())
+
     def test_with_no_store_the_generator_writes_it_and_nothing_lands_beside_the_corpus(self):
         self.repo.reference()
         self.repo.fetched = None

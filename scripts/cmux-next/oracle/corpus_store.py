@@ -167,6 +167,11 @@ def ensure_suite(name: str, spec: dict, verify: bool = False) -> str:
     pin = json.loads((REPO / spec["pin"]).read_text(encoding="utf-8")) if spec["kind"] == "artifact" else {}
     want = pin.get("tree_sha256")
     stamp = stamp_of(directory)
+    if spec["kind"] == "artifact" and stamp.get("local") and not verify:
+        # gen_tla.py wrote the suite here and it is not published yet: never overwrite it with the old pin.
+        print(f"corpus_store: {name}: local files from its generator, not the pin; run corpus_store.py publish {name}",
+              file=sys.stderr)
+        return "local"
     if (spec["kind"] == "artifact" and not verify and stamp.get("tree_sha256") == want
             and stamp.get("files") == len(managed_files(directory, keep))):
         return "current"  # the stamp names this pin and every file is there (a checkout switch can delete files)
@@ -204,6 +209,12 @@ def ensure_suite(name: str, spec: dict, verify: bool = False) -> str:
     if spec["kind"] == "artifact":
         write_stamp(directory, want, pin.get("sha256"), len(managed_files(directory, keep)))
     return how
+
+
+def mark_local(directory: Path) -> None:
+    """A generator wrote this repository suite: ensure keeps it (no overwrite by the old pin) until publish."""
+    if MANIFEST.is_file() and is_repo_corpus(directory.parent) and directory.name in manifest():
+        (directory / STAMP).write_text(json.dumps({"local": True}) + "\n", encoding="utf-8")
 
 
 def write_stamp(directory: Path, tree: Optional[str], sha: Optional[str], files: int) -> None:
