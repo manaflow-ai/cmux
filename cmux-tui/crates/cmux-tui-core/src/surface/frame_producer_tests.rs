@@ -43,7 +43,7 @@ fn frame_producer_bench_one_busy_terminal_among_many_idle() {
     let started = Instant::now();
     for generation in 1..=CHUNKS {
         let at = Instant::now();
-        busy.request(generation);
+        busy.request(generation, false);
         costs.push(at.elapsed().as_nanos() as u64);
     }
     let wall = started.elapsed();
