@@ -35,6 +35,12 @@ public final class DiffViewedStore {
         marks.contains(Self.key(for: file))
     }
 
+    /// Whether the file with this `key(for:)` is viewed: O(1) for a caller that keeps the key
+    /// (the key hashes every line of the file).
+    public func isViewed(key: String) -> Bool {
+        marks.contains(key)
+    }
+
     public func setViewed(_ viewed: Bool, _ file: DiffFile) {
         let key = Self.key(for: file)
         guard viewed != marks.contains(key) else { return }
