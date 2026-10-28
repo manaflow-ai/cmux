@@ -206,6 +206,8 @@ nonisolated extension ActionSurfaceCatalog {
         "reloadTab": [p(.tab, .create, 4, folder: .options)],
         "toggleTabAudioMute": [p(.tab, .identity, 204, folder: .options)],
         "tab.muteOtherAudio": [p(.tab, .identity, 209, folder: .options)],
+        "tab.stopMediaCapture": [p(.tab, .identity, 212, folder: .options)],
+        "tab.blockMediaCapture": [p(.tab, .identity, 213, folder: .options)],
         "agentChat.toggleNotificationMute": [p(.tab, .identity, 205, folder: .options, label: ObjectMenuLabels.toggleChatMute)],
         "disconnectRemoteTab": [p(.tab, .connection, 2, folder: .options)],
         "palette.copyIdentifiers": [p(.tab, .inspect, 503, folder: .copy)],

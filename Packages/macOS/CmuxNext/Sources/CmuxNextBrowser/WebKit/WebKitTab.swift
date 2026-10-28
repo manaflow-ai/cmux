@@ -424,6 +424,13 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing {
             webView.observe(\.hasOnlySecureContent, options: [.new]) { @Sendable [weak self] webView, _ in
                 MainDelivery().run { self?.syncSecurity() }
             },
+            // The tab's recording indicator (``BrowserCapture``); muted capture still counts, as in Safari.
+            webView.observe(\.cameraCaptureState, options: [.new]) { @Sendable [weak self] _, _ in
+                MainDelivery().run { if let self { self.apply(.captureChanged(self.webKitCapture)) } }
+            },
+            webView.observe(\.microphoneCaptureState, options: [.new]) { @Sendable [weak self] _, _ in
+                MainDelivery().run { if let self { self.apply(.captureChanged(self.webKitCapture)) } }
+            },
         ]
     }
 

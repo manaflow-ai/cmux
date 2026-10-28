@@ -3156,6 +3156,14 @@
             "name": "boolean"
           }
         },
+        "media": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "BrowserMediaCapture"
+          },
+          "description": "The camera and microphone a frontend-rendered page captures now, as its hosting app reports it (frontend-browser-media-v1); both false otherwise."
+        },
         "size": {
           "required": true,
           "type": {
@@ -3181,6 +3189,26 @@
         "error is non-null exactly while status is failed.",
         "Snapshots never expose browser target IDs, browser session IDs, or transport secrets."
       ]
+    },
+    "BrowserMediaCapture": {
+      "kind": "object",
+      "fields": {
+        "camera": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        },
+        "microphone": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false
     },
     "ClientTransport": {
       "kind": "enum",

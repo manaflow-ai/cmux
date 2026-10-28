@@ -8,14 +8,17 @@ import QuartzCore
 /// unmutes the tab (Chrome's alert indicator button,
 /// `TabStripIntent.toggleAudioMute`), as Mute Tab in the tab's menu does.
 /// It reads as a button (Lawrence 2026-10-19): hover brightens the glyph
-/// over the close button's fill, and a press darkens the fill.
+/// over the close button's fill, and a press darkens the fill. A tab that uses
+/// the camera or microphone shows a red camera or microphone there instead
+/// (Chrome's recording indicator outranks its audio one); that mark is no
+/// button, so a click on it selects the tab.
 extension TabCell {
     static let audioIconSize: CGFloat = 12
     /// The fill's outset around the glyph: the strip's hit slack (`isInAudioButton`).
     static let audioFillOutset: CGFloat = 3
 
     func updateAudioBadge() {
-        guard item.audio != nil else {
+        guard item.audio != nil || item.capture != nil else {
             audioLayer?.removeFromSuperlayer()
             audioBackgroundLayer?.removeFromSuperlayer()
             audioLayer = nil
@@ -41,8 +44,14 @@ extension TabCell {
     /// theme-scoped: callers run it inside `themeScope.perform`.
     func applyAudioIcon() {
         guard let icon = audioLayer else { return }
-        let name: IconName = item.audio == .muted ? .browserTabMuted : .browserTabAudio
         icon.contentsScale = scale
+        if let capture = item.capture {
+            let name: IconName = capture == .microphone ? .sitePermissionMicrophone : .sitePermissionCamera
+            icon.contents = TabPackIconCache.shared.image(name: name, tint: Palette.danger, size: Self.audioIconSize, scale: scale)
+            audioBackgroundLayer?.backgroundColor = nil
+            return
+        }
+        let name: IconName = item.audio == .muted ? .browserTabMuted : .browserTabAudio
         let tint = isAudioHovered || isAudioPressed ? Palette.textPrimary : Palette.textSecondary
         icon.contents = TabPackIconCache.shared.image(name: name, tint: tint, size: Self.audioIconSize, scale: scale)
         audioBackgroundLayer?.backgroundColor = ChromeHover.fillColor(.init(hovering: isAudioHovered, pressed: isAudioPressed))?.cgColor
@@ -51,7 +60,7 @@ extension TabCell {
     /// The speaker's frame in this cell's coordinates while it shows (the
     /// mute button's hit area), else nil.
     var audioButtonRect: CGRect? {
-        guard let audioLayer, audioLayer.opacity > 0, audioLayer.superlayer != nil else { return nil }
+        guard item.capture == nil, let audioLayer, audioLayer.opacity > 0, audioLayer.superlayer != nil else { return nil }
         return audioLayer.frame
     }
 

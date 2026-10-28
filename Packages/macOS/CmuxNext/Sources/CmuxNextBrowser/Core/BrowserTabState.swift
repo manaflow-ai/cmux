@@ -63,6 +63,8 @@ public nonisolated struct BrowserTabState: Hashable, Sendable {
     public var media: BrowserMediaState?
     /// The tab is muted (`BrowserAudioMuting`); kept across navigations.
     public var isAudioMuted = false
+    /// The camera and microphone the page captures now (``BrowserCapture``).
+    public var capture: BrowserCapture = []
     /// A load ended in this tab (finished, stopped or failed): any later load is one the page or
     /// the user started, never the tab's own opening load.
     public var hasEndedLoad = false
