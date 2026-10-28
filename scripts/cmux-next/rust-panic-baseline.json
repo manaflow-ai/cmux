@@ -27,13 +27,13 @@
  "crates": {
   "acpmux": {
    "unwrap_used": 98,
-   "expect_used": 18,
+   "expect_used": 4,
    "panic": 1,
-   "unreachable": 2,
+   "unreachable": 1,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 787,
-   "string_slice": 88,
+   "indexing_slicing": 347,
+   "string_slice": 29,
    "panic_in_result_fn": 0,
    "arithmetic_side_effects": 978,
    "cast_possible_truncation": 113

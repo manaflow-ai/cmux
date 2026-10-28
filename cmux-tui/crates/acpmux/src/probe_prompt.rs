@@ -45,7 +45,7 @@ pub fn is_probe(text: &str) -> bool {
     }
     let rest = OPENERS.iter().find_map(|opener| {
         let opener: Vec<&str> = opener.split(' ').collect();
-        words.starts_with(&opener).then(|| &words[opener.len()..])
+        words.strip_prefix(opener.as_slice())
     });
     let Some(rest) = rest else { return false };
     let replies = rest.iter().filter(|word| REPLIES.contains(word)).count();

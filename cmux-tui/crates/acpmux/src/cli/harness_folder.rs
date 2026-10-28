@@ -16,6 +16,7 @@ use serde_json::json;
 use crate::config::folder_profiles::{self, FolderGate, FolderProfile, FolderState};
 use crate::config::profiles::Severity;
 use crate::config::{Config, HarnessProfile};
+use crate::no_panic::JsonExt;
 
 fn gate(cfg: &Config) -> Result<&FolderGate> {
     cfg.folder_gate.as_ref().ok_or_else(|| anyhow!("no home folder: folder profiles are off"))
@@ -88,7 +89,7 @@ pub fn confirmation(cfg: &Config, folder: &Path, id: &str) -> Result<Confirmatio
     match (fp.state, fp.sha256) {
         (FolderState::Enabled, _) => Ok(Confirmation::AlreadyEnabled { folder: fp.folder }),
         (FolderState::NeedsEnable, Some(sha256)) => {
-            let text = shown.prompt["text"].as_str().unwrap_or_default().to_owned();
+            let text = shown.prompt.field("text").as_str().unwrap_or_default().to_owned();
             Ok(Confirmation::Ask { text, sha256 })
         }
         _ => bail!("cannot enable {id}"),

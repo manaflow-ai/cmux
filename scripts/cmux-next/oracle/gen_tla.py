@@ -59,6 +59,8 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Set, Tuple
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import corpus_store  # noqa: E402 - sibling: tests/oracle/corpus/tla is a pinned artifact, not committed
 REPO = HERE.parents[2]
 FORMAL = REPO / "plans" / "cmux-next" / "formal"
 ACTIONMAP = FORMAL / "oracle-actionmap.json"
@@ -1659,6 +1661,8 @@ def cmd_vm(argv: Sequence[str]) -> int:
     parser.add_argument("--isolation", default="auto")
     parser.add_argument("--out", type=Path, help="write each run result here")
     args = parser.parse_args(argv)
+    if args.corpus.name == SUITE:
+        corpus_store.ensure(args.corpus.parent, [SUITE])  # the pinned suite (tests/oracle/corpus-store.json)
     specs = load_actionmap()
     wanted = {s for value in args.spec for s in value.split(",") if s}
     paths: List[Path] = []
@@ -1693,6 +1697,8 @@ def cmd_generate(argv: Sequence[str]) -> int:
     parser.add_argument("--check", action="store_true", help="exit 1 when --out differs from a fresh generation")
     args = parser.parse_args(argv)
     try:
+        if args.check and args.out.name == SUITE:
+            corpus_store.ensure(args.out.parent, [SUITE])  # the pinned suite (tests/oracle/corpus-store.json), before TLC
         specs = load_actionmap()
         only = [s for value in args.spec for s in value.split(",") if s]
         unknown = [s for s in only if s not in specs and s not in {m.slug for m in specs.values()}]
@@ -1715,11 +1721,12 @@ def cmd_generate(argv: Sequence[str]) -> int:
             print(f"gen_tla: {len(files)} files, {'stale' if problems else 'up to date'}")
             return 1 if problems else 0
         written, removed = write(args.out, files, slugs)
+        corpus_store.mark_local(args.out)  # the repo suite now differs from its pin until `corpus_store.py publish tla`
         if rendered != existing:
             expectations_file.parent.mkdir(parents=True, exist_ok=True)
             expectations_file.write_text(rendered, encoding="utf-8")
             written += 1
-    except GenError as error:
+    except (GenError, corpus_store.StoreError) as error:
         print(f"gen_tla: {error}", file=sys.stderr)
         return 2
     print(f"gen_tla: {len(files)} files, {written} written, {removed} removed")

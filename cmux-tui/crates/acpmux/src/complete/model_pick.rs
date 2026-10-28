@@ -87,11 +87,11 @@ fn first_word_match(ids: &[String], order: &[&str]) -> Option<String> {
 pub fn has_word(id: &str, word: &str) -> bool {
     let id = id.to_ascii_lowercase();
     let mut from = 0;
-    while let Some(at) = id[from..].find(word) {
+    while let Some(at) = id.get(from..).and_then(|rest| rest.find(word)) {
         let start = from + at;
         let end = start + word.len();
-        let before = id[..start].chars().next_back();
-        let after = id[end..].chars().next();
+        let before = id.get(..start).and_then(|head| head.chars().next_back());
+        let after = id.get(end..).and_then(|tail| tail.chars().next());
         let starts = before.is_none_or(|c| !c.is_ascii_alphanumeric());
         let ends = after.is_none_or(|c| !c.is_ascii_alphabetic());
         if starts && ends {

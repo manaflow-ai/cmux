@@ -21,6 +21,7 @@ use super::transfer_out::{
     MAX_BUNDLE, MAX_FILES, MAX_PAGE, TRANSFER_SCHEMA, inside, transfers_dir,
 };
 use super::*;
+use crate::no_panic::JsonExt;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 
@@ -122,7 +123,7 @@ fn drop_receives(transfer_id: &str) {
         let name = entry.file_name().to_string_lossy().into_owned();
         if name.starts_with("in-")
             && receive_manifest(&entry.path())
-                .is_ok_and(|(manifest, _)| manifest["transferId"] == transfer_id)
+                .is_ok_and(|(manifest, _)| *manifest.field("transferId") == transfer_id)
         {
             let _ = cmux_blocking::fs::remove_dir_all(entry.path());
         }
@@ -275,7 +276,7 @@ impl Hub {
                     .await
                     .ok()
                     .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
-                    .and_then(|meta| meta["cwd"].as_str().map(PathBuf::from)),
+                    .and_then(|meta| meta.field("cwd").as_str().map(PathBuf::from)),
             };
             let is_dir = match &cwd {
                 Some(c) => tokio::fs::metadata(c).await.is_ok_and(|m| m.is_dir()),
