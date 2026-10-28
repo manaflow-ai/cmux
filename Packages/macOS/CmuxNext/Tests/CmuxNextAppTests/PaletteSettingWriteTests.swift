@@ -28,6 +28,8 @@ import Testing
         func tearDown() {
             // The palette keeps its panel for the next open; this palette has none, so it closes.
             let panel = palette.visiblePanel
+            // The search field ends editing first, so the system's text input window goes with it.
+            panel?.makeFirstResponder(nil)
             palette.hide()
             panel?.close()
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
