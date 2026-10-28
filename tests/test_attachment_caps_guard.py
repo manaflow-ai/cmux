@@ -105,8 +105,8 @@ class AttachmentCapsGuardTests(unittest.TestCase):
                 root = Path(folder)
                 source = root / relative
                 source.parent.mkdir(parents=True)
-                source.write_text("let MAX_ATTACHMENT_BYTES = 100\n", encoding="utf-8")
-                self.assertEqual(guard.violations(root), [f"{relative}:1: MAX_ATTACHMENT_BYTES"])
+                source.write_text("let MAX_NEW_BYTES = 100\n", encoding="utf-8")
+                self.assertEqual(guard.violations(root), [f"{relative}:1: MAX_NEW_BYTES"])
 
     def test_unrelated_attachment_policies_are_out_of_scope(self):
         for relative in ("Packages/iOS/TaskComposerAttachment.swift", "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudUploads.swift", "src/uploads/service.ts"):

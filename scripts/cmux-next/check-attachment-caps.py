@@ -37,7 +37,22 @@ RETAINED_BOUNDS = {
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift": {
         "maximumWarmBytes": "New Tab warm-cache budget, unrelated to chat.upload decoding.",
     },
+    "cmux-tui/crates/cmux-conversation/src/attachments.rs": {
+        "MAX_ATTACHMENT_BYTES": "Local conversation admission remains separate from cloud staged uploads.",
+        "MAX_POSTER_BYTES": "Derived video-poster representation budget.",
+        "MAX_PREVIEW_IMAGE_BYTES": "Derived image-preview representation budget.",
+    },
+    "webviews/src/agent-session/acpmux/attachments.ts": {
+        "MAX_IMAGE_BYTES": "Model image representation budget; larger previews are downsampled.",
+        "MAX_DOCUMENT_BYTES": "Inline protocol-frame budget; larger originals use file links.",
+        "MAX_TEXT_BYTES": "Inline prompt-text budget; larger originals use file links.",
+        "MAX_AUDIO_BYTES": "Inline audio protocol-frame budget; not staged file admission.",
+    },
+    "webviews/src/pages/home-channels/attachmentService.ts": {
+        "MAX_ATTACHMENT_BYTES": "Preview/legacy protocol budget; staged original upload is streamed separately.",
+    },
 }
+
 # chat.upload is decoded here despite the filename lacking upload/attachment.
 EXTRA_SOURCES = {"AgentPaneRequest+Decoding.swift"}
 TOKEN = re.compile(r"//[^\n]*|/\*[\s\S]*?\*/|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|[\w$]+|<=|>=|==|!=|=>|<<|>>|&&|\|\||[^\s]")
