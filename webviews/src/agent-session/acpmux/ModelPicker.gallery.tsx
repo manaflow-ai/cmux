@@ -106,20 +106,23 @@ const familyRecommendationCatalog: ModelPickerProps["catalog"] = [
   },
 ];
 
-const recommendationPlay = (current: string, more: string) => async (ctx: Play) => {
-  await ctx.click({ role: "button", name: "Model" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp") !== null);
-  await ctx.waitFor(() => {
-    const first = ctx.document.querySelector<HTMLButtonElement>('button[data-key^="model:"]');
-    return first?.textContent?.includes(current) ?? false;
-  });
-  await ctx.click({ selector: ".acpmux-mp-older" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-older[aria-expanded=\"true\"]") !== null);
-  const modelLabels = Array.from(ctx.document.querySelectorAll<HTMLButtonElement>('button[data-key^="model:"]')).map(
-    (button) => button.textContent ?? "",
-  );
-  if (!modelLabels.some((label) => label.includes(more))) throw new Error(`expected older family ${more} under More models`);
-};
+const recommendationPlay =
+  (current: string, more: string): Play =>
+  async (ctx) => {
+    await ctx.click({ role: "button", name: "Model" });
+    await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp") !== null);
+    await ctx.waitFor(() => {
+      const first = ctx.document.querySelector<HTMLButtonElement>('button[data-key^="model:"]');
+      return first?.textContent?.includes(current) ?? false;
+    });
+    await ctx.click({ selector: ".acpmux-mp-older" });
+    await ctx.waitFor(() => ctx.document.querySelector('.acpmux-mp-older[aria-expanded="true"]') !== null);
+    const modelLabels = Array.from(ctx.document.querySelectorAll<HTMLButtonElement>('button[data-key^="model:"]')).map(
+      (button) => button.textContent ?? "",
+    );
+    if (!modelLabels.some((label) => label.includes(more)))
+      throw new Error(`expected older family ${more} under More models`);
+  };
 
 const familyRecommendationsClaude: ModelPickerProps = {
   ...base,
@@ -484,9 +487,15 @@ export default componentEntry<GalleryProps>({
     curated: { props: curated, play: openModels },
     // Current-family recommendation order: Claude's selected Sonnet family remains first while
     // the remaining curated families stay in the provider's order (older releases under More).
-    "family-recommendations-claude": { props: familyRecommendationsClaude, play: recommendationPlay("Opus 5.5", "Opus 4.6") },
+    "family-recommendations-claude": {
+      props: familyRecommendationsClaude,
+      play: recommendationPlay("Opus 5.5", "Opus 4.6"),
+    },
     // Codex uses the same rule with its selected Sol family and its own curated lineup.
-    "family-recommendations-codex": { props: familyRecommendationsCodex, play: recommendationPlay("GPT-6.1 Sol", "GPT-6 Sol") },
+    "family-recommendations-codex": {
+      props: familyRecommendationsCodex,
+      play: recommendationPlay("GPT-6.1 Sol", "GPT-6 Sol"),
+    },
     // A Codex chat with a message (Leo 2026-10-19): its harness is fixed, so the menu is search,
     // Codex's models and More models, with no harness rail and no Add harness….
     "started-chat": {
