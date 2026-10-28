@@ -155,6 +155,10 @@ export function ComposerBox({
     pending: pending ?? [],
     cancel: (id) => onCancelAttachment?.(id),
     retry: (id) => onRetryAttachment?.(id),
+    expand: (id) => {
+      pastedChips.expand(id);
+      prompt.current?.removeInline(id);
+    },
     placing: () => !fieldOverlay,
   });
   useImperativeHandle(

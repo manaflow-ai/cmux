@@ -35,6 +35,7 @@ type Options = {
   /// A pending chip's cancel (attachmentIntake.tsx).
   cancel(id: string): void;
   retry(id: string): void;
+  expand(id: string): void;
   /// Whether a paste or drop now places what it brings in the text (not in shell mode).
   placing(): boolean;
 };
@@ -180,6 +181,7 @@ export function useInlineAttachments(options: Options) {
         onRemove={api.remove}
         onCancel={api.cancel}
         onRetry={options.retry}
+        onExpand={options.expand}
       />,
       dom,
       id,
@@ -197,6 +199,7 @@ function InlineChip({
   onRemove,
   onCancel,
   onRetry,
+  onExpand,
 }: {
   id: string;
   attachment: ComposerAttachment | undefined;
@@ -204,6 +207,7 @@ function InlineChip({
   onRemove(id: string): void;
   onCancel(id: string): void;
   onRetry(id: string): void;
+  onExpand(id: string): void;
 }) {
   const t = useT();
 
@@ -255,7 +259,13 @@ function InlineChip({
         data-kind="file"
         /* tooltip-allow: a long name is cut to the chip */ title={attachment.path ?? attachment.name}
       >
-        <span className="acpmux-md-inline-file-name">{attachment.name}</span>
+        {attachment.kind === "pasted" ? (
+          <button type="button" className="acpmux-md-inline-retry" onClick={() => onExpand(id)}>
+            {attachment.name}
+          </button>
+        ) : (
+          <span className="acpmux-md-inline-file-name">{attachment.name}</span>
+        )}
         {remove}
       </span>
     );
