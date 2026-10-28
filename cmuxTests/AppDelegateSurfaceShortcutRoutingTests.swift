@@ -48,6 +48,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
                 }
                 defaults.set(true, forKey: keys[0])
                 defaults.set("status-board", forKey: keys[1])
+                defaults.set("files", forKey: keys[2])
                 let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 defer { try? FileManager.default.removeItem(at: directory) }
@@ -60,6 +61,7 @@ struct AppDelegateSurfaceShortcutRoutingTests {
                 window.makeKeyAndOrderFront(nil)
                 #expect(window.makeFirstResponder(mainContent))
                 #expect(!appDelegate.shouldRouteRightSidebarModeShortcut(in: window))
+                #expect(appDelegate.fileExplorerState?.mode == .files)
 
                 let single = try #require(makeKeyDownEvent(key: "9", keyCode: 25, windowNumber: window.windowNumber))
                 try Data(#"{"shortcuts":{"bindings":{"switchRightSidebarToCustom":"ctrl+9"}}}"#.utf8).write(to: config)
