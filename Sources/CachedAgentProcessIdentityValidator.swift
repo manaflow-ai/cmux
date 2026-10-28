@@ -195,12 +195,10 @@ struct CachedAgentProcessIdentityValidator: Sendable {
             }
             // Without a current hook, a fork's --resume names only the parent.
             // Require an explicit child identity to validate a cached snapshot.
-            let identityOptions = Self.hasEnabledForkSessionFlag(in: arguments)
-                ? ["--session-id"] : ["--session-id", "--resume", "-r"]
-            observedSessionID = firstValue(
-                after: identityOptions,
-                in: arguments
-            ) ?? authoritativeEnvironmentSessionID
+            observedSessionID = claudeSessionIdentity(
+                arguments: arguments,
+                environmentSessionID: authoritativeEnvironmentSessionID
+            )
         case .codex:
             observedSessionID = firstValue(
                 after: ["--session-id", "--session", "--resume", "-r"],
@@ -225,6 +223,28 @@ struct CachedAgentProcessIdentityValidator: Sendable {
             lhs: observedSessionID,
             rhs: snapshot.sessionId
         )
+    }
+
+    /// Returns a Claude session id only when argv identifies one unambiguously.
+    /// Claude also accepts a human-readable title after `--resume`/`-r`; that
+    /// selector can choose a different conversation and must defer to the
+    /// current hook record instead of being compared as a UUID-like id during
+    /// cached revalidation.
+    private func claudeSessionIdentity(
+        arguments: [String],
+        environmentSessionID: String?
+    ) -> String? {
+        if let explicitSessionID = nonOptionValue(after: "--session-id", in: arguments) {
+            return explicitSessionID
+        }
+        let resumeOptions = Self.hasEnabledForkSessionFlag(in: arguments)
+            ? []
+            : ["--resume", "-r"]
+        for option in resumeOptions {
+            guard let value = nonOptionValue(after: option, in: arguments) else { continue }
+            return UUID(uuidString: value) == nil ? nil : value
+        }
+        return environmentSessionID
     }
 
     private static func hasEnabledForkSessionFlag(in arguments: [String]) -> Bool {
