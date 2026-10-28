@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Problems in a growing text log (acpmux `daemon.log`, the Chief host log): lines with a
 /// `WARN`, `ERROR` or `FATAL` level word, and Rust panics (the `panicked at` line and the
@@ -38,8 +39,7 @@ public struct LogFileErrorSource: ErrorHarvestSource {
 
     /// ``collect(after:)`` as a plain call, for the synchronous fuzz entry (p10-stability-029).
     func harvest(after cursor: String?) throws -> ErrorHarvest {
-        let files = FileManager()
-        guard let attributes: [FileAttributeKey: Any] = try? files.attributesOfItem(atPath: url.path),
+        guard let attributes: [FileAttributeKey: Any] = try? FileManager.checked.attributesOfItem(atPath: url.path),
               let size = (attributes[.size] as? NSNumber)?.intValue else { return ErrorHarvest(events: [], cursor: cursor) }
         let inode = (attributes[.systemFileNumber] as? NSNumber)?.uint64Value ?? 0
         var start: Int
@@ -50,12 +50,12 @@ public struct LogFileErrorSource: ErrorHarvestSource {
         } else {
             start = 0
         }
-        guard start < size, let offset = UInt64(exactly: start), let handle = try? FileHandle(forReadingFrom: url) else {
+        guard start < size, let offset = UInt64(exactly: start), let handle = try? FileHandle.blockingForReading(from: url) else {
             return ErrorHarvest(events: [], cursor: "\(inode):\(size)")
         }
         defer { try? handle.close() }
         try handle.seek(toOffset: offset)
-        let data = try handle.read(upToCount: min(size - start, maxReadBytes)) ?? Data()
+        let data = try handle.blockingRead(upToCount: min(size - start, maxReadBytes)) ?? Data()
         // Only complete lines; a partial last line waits for its newline.
         let partial = data.reversed().prefix { $0 != UInt8(ascii: "\n") }.count
         guard partial < data.count else {

@@ -119,7 +119,7 @@ public nonisolated struct ChatRootValidator: Sendable {
 
     private static func identity(_ path: String) -> Identity? {
         var info = stat()
-        guard lstat(path, &info) == 0 else { return nil }
+        guard blockingLstat(path, &info) == 0 else { return nil }
         return Identity(device: Int64(info.st_dev), inode: UInt64(info.st_ino))
     }
 

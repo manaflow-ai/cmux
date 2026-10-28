@@ -95,9 +95,9 @@ public final class HomeChiefSettingsView: NSView {
     /// Renames the Chief: the daemon's set-title op for a Chief of this Mac, the account's
     /// `chief.update` for a cloud Chief. Nil when the name was saved, else why it was not.
     public var onRename: @MainActor (String) async -> HomeChiefRenameFailure? = { _ in nil }
-    /// Where Choose Picture… and Use Default Picture write, and for which Chief: the daemon's
-    /// registry for a Chief of this Mac (set by the header view); nil writes this panel's
-    /// mux home's files (a cloud Chief).
+    /// Where Choose Picture… and Use Default Picture write, and for which Chief, set by the header
+    /// view: the daemon's registry for a Chief of this Mac, the Chief's own files for a cloud Chief.
+    /// Nil (not set yet): a picture cannot be used.
     public var pictureStore: (avatars: HomeChiefAvatars, chief: String)?
     /// The Chief's avatar changed on disk (its picture): read it again.
     public var onAvatar: () -> Void = {}
@@ -356,22 +356,26 @@ public final class HomeChiefSettingsView: NSView {
     /// Makes `source` the shown Chief's picture (nil: the default again) through
     /// ``pictureStore`` (the daemon's registry for a Chief of this Mac, else its files),
     /// then has the header (and this panel's avatar) read it; a picture that could not be
-    /// used says so, with a beep, since the open panel closed the card (the note waits for its
-    /// next open).
+    /// used (or no store set) says so, with a beep, since the open panel closed the card (the note
+    /// waits for its next open).
     @discardableResult
     func usePicture(_ source: URL?) -> Task<Void, Never> {
-        let store = pictureStore ?? (avatars: HomeChiefAvatars(muxHome: muxHome), chief: HomeChiefAvatars.defaultChief)
+        let store = pictureStore
         changeFailed = false
         // task-owner: one picture write (registry or files), then the header reads it
         // main-hop-allow: the person's picture pick, userBlocking rest (p06 rule 2): HomeChiefAvatars' write is the daemon registry request or its off-main file copy; this task only starts it and redraws or notes in its one resume
         return Task { [weak self] in
             let written: Bool
-            do {
-                if let source { try await store.avatars.setPicture(from: source, chief: store.chief) } else {
-                    try await store.avatars.clearPicture(chief: store.chief)
+            if let store {
+                do {
+                    if let source { try await store.avatars.setPicture(from: source, chief: store.chief) } else {
+                        try await store.avatars.clearPicture(chief: store.chief)
+                    }
+                    written = true
+                } catch {
+                    written = false
                 }
-                written = true
-            } catch {
+            } else {
                 written = false
             }
             guard let self else { return }

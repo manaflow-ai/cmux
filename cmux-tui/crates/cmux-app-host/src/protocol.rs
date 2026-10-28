@@ -14,6 +14,10 @@ pub const MAX_LINE_BYTES: usize = 4 * 1024 * 1024;
 /// `cmux-app-host --profile script`: a script session
 /// (plans/cmux-next/scripting-runtime.md) instead of an app.
 pub const SCRIPT_PROFILE: &str = "script";
+/// `cmux-app-host --panic-log <path> [--profile script]`: the file the
+/// host appends its panics to (cmux-panic-log), opened before the sandbox
+/// holds. The supervisor passes the owner's `app-host-panics.jsonl`.
+pub const PANIC_LOG_FLAG: &str = "--panic-log";
 /// Engine memory of a script session.
 pub const SCRIPT_MEMORY_BYTES: usize = 64 * 1024 * 1024;
 /// How long one script step (an entry point plus its job queue) may run

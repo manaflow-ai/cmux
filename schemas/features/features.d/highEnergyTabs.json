@@ -3,7 +3,7 @@
   "name": "highEnergyTabs",
   "owner": "Performance Lead",
   "description": "A hidden browser tab whose renderer used more than 5 percent of one core over at least the last minute says Using high energy in its hover card, with Discard. Read at natural wakes only; tabs that show are never flagged.",
-  "defaults": { "dev": false, "nightly": false, "release": false },
+  "defaults": { "dev": true, "nightly": true, "release": false },
   "kind": "labs",
   "process": "app",
   "params": [],

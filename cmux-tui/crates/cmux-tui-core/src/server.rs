@@ -214,6 +214,7 @@ use remote_relay::handle_connection_message;
 mod attach_streams;
 mod cmd_attach;
 mod cmd_browser;
+mod stream_priority;
 #[cfg(test)]
 use cmd_browser::browser_provider_registration;
 mod cmd_frontend;

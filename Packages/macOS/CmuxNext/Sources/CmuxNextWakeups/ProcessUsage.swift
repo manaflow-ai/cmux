@@ -1,5 +1,6 @@
 public import Darwin
 import Foundation
+import CmuxNextCompat
 
 /// CPU time, CPU energy and wakeups of one process (`proc_pid_rusage`,
 /// `RUSAGE_INFO_V6`), for `debug.wakeups`, `debug.energy`, the busy watchdog
@@ -59,7 +60,7 @@ public struct ProcessUsage: Sendable, Equatable {
         let ticks = info.ri_user_time &+ info.ri_system_time
         var bsd = proc_bsdinfo()
         let bsdSize = Int32(MemoryLayout<proc_bsdinfo>.size)
-        let parent = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &bsd, bsdSize) == bsdSize ? pid_t(bsd.pbi_ppid) : 0
+        let parent = blockingProcPidInfo(pid, PROC_PIDTBSDINFO, 0, &bsd, bsdSize) == bsdSize ? pid_t(bsd.pbi_ppid) : 0
         return ProcessUsage(pid: pid, parent: parent, path: path(of: pid) ?? "", cpuNanos: ticksToNanos(ticks),
                             wakeups: info.ri_pkg_idle_wkups &+ info.ri_interrupt_wkups,
                             interruptWakeups: info.ri_interrupt_wkups, packageIdleWakeups: info.ri_pkg_idle_wkups,
@@ -103,9 +104,9 @@ public struct ProcessUsage: Sendable, Equatable {
     public static func arguments(of pid: pid_t) -> [String] {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
         var size = 0
-        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
+        guard blockingSysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
         var buffer = [UInt8](repeating: 0, count: size)
-        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return [] }
+        guard blockingSysctl(&mib, 3, &buffer, &size, nil, 0) == 0 else { return [] }
         let argc = buffer.withUnsafeBytes { Int($0.load(as: Int32.self)) }
         var index = MemoryLayout<Int32>.size
         // Skip the executable path and its NUL padding.

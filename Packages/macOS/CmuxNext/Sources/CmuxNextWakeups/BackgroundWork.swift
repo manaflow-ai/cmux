@@ -221,7 +221,7 @@ public final class BackgroundWork: Sendable {
     public static var defaultCPUWidth: Int {
         var cores: Int32 = 0
         var size = MemoryLayout<Int32>.size
-        if sysctlbyname("hw.perflevel0.logicalcpu", &cores, &size, nil, 0) != 0 || cores <= 0 {
+        if blockingSysctlByName("hw.perflevel0.logicalcpu", &cores, &size, nil, 0) != 0 || cores <= 0 {
             cores = Int32(clamping: sysconf(_SC_NPROCESSORS_ONLN))
         }
         return max(1, Int(cores) - 1)

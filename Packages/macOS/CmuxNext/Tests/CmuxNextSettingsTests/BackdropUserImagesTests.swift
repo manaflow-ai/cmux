@@ -51,7 +51,7 @@ import Testing
         try Data("art".utf8).write(to: backgrounds.appendingPathComponent("\(BackdropArt.allCases[0].rawValue).avif"))
         try Data("art".utf8).write(to: backgrounds.appendingPathComponent("goya-witches-sabbath.avif"))
 
-        let catalog = BackdropCatalog(systemDirectory: elsewhere.appendingPathComponent("none"), fileManager: .default,
+        let catalog = BackdropCatalog(systemDirectory: elsewhere.appendingPathComponent("none"),
                                       userImages: images)
         let own = catalog.choices.filter { if case .file = $0 { return true } else { return false } }
         #expect(Set(own) == [chosen, again])

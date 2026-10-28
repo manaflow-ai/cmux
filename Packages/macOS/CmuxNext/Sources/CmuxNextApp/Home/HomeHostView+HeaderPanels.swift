@@ -36,7 +36,8 @@ extension HomeHostView {
     private func pictureStore() -> (avatars: HomeChiefAvatars, chief: String)? {
         guard !control.isCloud else { return nil }
         let avatars = HomeChiefAvatars(muxHome: HomeBrainHost.muxHome(tag: control.services.environment.tag),
-                                       registry: DaemonChiefAvatarRegistry(connection: control.connection))
+                                       registry: DaemonChiefAvatarRegistry(connection: control.connection),
+                                       files: control.services.work)
         return (avatars, HomeChiefAvatars.chiefID(named: control.named))
     }
 
@@ -52,14 +53,16 @@ extension HomeHostView {
         let home = control.brainHome
         let files = HomeChiefFiles(muxHome: home)
         let store = pictureStore()
-        settingsView.pictureStore = store
+        let lanes = control.services.work
+        // A cloud Chief's picture is its own files under the brain home.
+        settingsView.pictureStore = store ?? (HomeChiefAvatars(muxHome: home, files: lanes), HomeChiefAvatars.defaultChief)
         let fallback = characterPicture, work = mainWork
         // task-owner: one avatar read (registry, else files); its result is posted as visible work, then it ends
         control.services.work.task(.userVisible) { [weak self] in
             let avatar = if let store {
                 await store.avatars.headerAvatar(chief: store.chief, fallback: fallback)
             } else {
-                await HomeChiefAvatars.headerAvatar(files: files, fallback: fallback)
+                await HomeChiefAvatars.headerAvatar(files: files, fallback: fallback, on: lanes)
             }
             work.postFromAnyThread(.visible, owner: "HomeHost.chiefAvatar") { [weak self] in
                 // A read for the Chief or the character shown before (another came in since) is dropped.

@@ -28,7 +28,8 @@ actor IrxRelayCredentialInstaller {
         self.installed = Self.index(initial)
         self.journal = journal
         self.now = now
-        self.sleep = sleep ?? { try await Task.sleep(for: $0) }
+        // wakeup-allow: backoff the retry delay after a failed install, at most 30 s
+        self.sleep = sleep ?? { try await Task.sleep(for: $0, tolerance: IrxWakeLeeway(delay: $0).tolerance) }
         self.install = install
     }
 
@@ -75,6 +76,8 @@ actor IrxRelayCredentialInstaller {
             }
         }
         var failures = 0
+        // wakeup-allow: backoff it passes again only for a fresher credential or after a failed install's
+        // capped backoff; nothing left to install ends it
         while !Task.isCancelled, !stopped, taskID == id {
             let observedRevision = revision
             let observedAt = now()
@@ -129,6 +132,7 @@ actor IrxRelayCredentialInstaller {
             let seconds = min(30, 1 << min(failures, 5))
             failures += 1
             sleeping = true
+            // wakeup-allow: backoff 1 s doubling to 30 s after a failed install; a new credential cancels it
             do { try await sleep(.seconds(seconds)) }
             catch { return }
             guard taskID == id else { return }

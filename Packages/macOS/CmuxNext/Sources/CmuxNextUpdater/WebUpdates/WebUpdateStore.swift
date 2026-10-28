@@ -85,21 +85,20 @@ nonisolated public struct WebUpdateStore: Sendable {
 
     /// Removes every kept tree and leftover staging folder but `keys`.
     public func prune(keeping keys: Set<String>) {
-        let manager = FileManager.default
-        for name in (try? manager.contentsOfDirectory(atPath: trees.path)) ?? [] where !keys.contains(name) {
-            try? manager.removeItem(at: trees.appending(path: name))
+        for name in (try? FileManager.checked.contentsOfDirectory(atPath: trees.path)) ?? [] where !keys.contains(name) {
+            try? FileManager.checked.removeItem(at: trees.appending(path: name))
         }
-        for name in (try? manager.contentsOfDirectory(atPath: base.path)) ?? [] where name.hasPrefix("staging-") {
-            try? manager.removeItem(at: base.appending(path: name))
+        for name in (try? FileManager.checked.contentsOfDirectory(atPath: base.path)) ?? [] where name.hasPrefix("staging-") {
+            try? FileManager.checked.removeItem(at: base.appending(path: name))
         }
     }
 
     static func sizeAndDigest(of file: URL) throws(WebUpdateRefusal) -> (Int, String) {
-        guard let handle = try? FileHandle(forReadingFrom: file) else { throw .integrity("unreadable archive") }
+        guard let handle = try? FileHandle.blockingForReading(from: file) else { throw .integrity("unreadable archive") }
         defer { try? handle.close() }
         var hash = SHA256()
         var size = 0
-        while let chunk = try? handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+        while let chunk = try? handle.blockingRead(upToCount: 1 << 20), !chunk.isEmpty {
             size += chunk.count
             guard size <= WebUpdatePointer.maximumSize else { throw .integrity("archive too large") }
             hash.update(data: chunk)

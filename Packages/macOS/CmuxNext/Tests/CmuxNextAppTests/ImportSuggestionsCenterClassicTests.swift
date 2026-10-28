@@ -66,6 +66,8 @@ struct ImportSuggestionsCenterClassicTests {
         center.scanThisMac = { _ in [Self.classic] }
         center.host = ImportCardsHost(runImport: { _, _, _ in throw CancellationError() }, importedProfiles: { [] },
                                       openSettings: { _ in }, importClassic: { progress in try await runs.run(progress) },
+                                      work: BackgroundWork(label: "test.import-cards"),
+                                      mainWork: MainWorkScheduler(budget: MainFrameBudget()),
                                       appEvents: AppEvents(center: NotificationCenter()))
         await withCheckedContinuation { done in center.scan { done.resume() } }
         return center

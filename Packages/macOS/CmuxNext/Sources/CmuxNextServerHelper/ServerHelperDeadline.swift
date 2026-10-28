@@ -1,5 +1,6 @@
 import Foundation
-import CmuxNextCompat
+import CmuxNextCompatCore
+import CmuxThreading
 import class CmuxSafeConcurrency.OnceContinuation
 import func CmuxSafeConcurrency.withOnceThrowingContinuation
 

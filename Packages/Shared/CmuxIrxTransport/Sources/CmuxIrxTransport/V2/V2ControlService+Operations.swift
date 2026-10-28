@@ -123,6 +123,7 @@ extension V2ControlService {
             var inboundPeers: [V2InboundPeerPermission] = []
             var rules: Set<String>?
             var inconsistent = false
+            // wakeup-allow: bounded one awaited request per directory page; a repeated cursor or the last page ends it
             repeat {
                 let request = V2DirectoryRequest(cursor: cursor, haveRevision: first?.revision, requestID: UUID().uuidString.lowercased(), schemaID: .directoryRequestV1)
                 let response: V2DirectoryResponse
