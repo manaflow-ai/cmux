@@ -4,16 +4,16 @@ import worker from "../src/index.ts"
 import { compareFromEnv } from "../src/projection-compare-cron.ts"
 
 /**
- * The 15-minute cron (wrangler.jsonc, every environment): the projection compare does nothing until a
+ * The 15-minute cron (wrangler.jsonc, every environment): the projection compare runs only while a
  * MySQL projection switch is set, and in production the usage sync beside it stays off until its live
  * switch (plans/cmux-next/usage-billing.md section 10), so adding the cron to production for the
- * Vitess cutover (cmuxterm-hq#4767 step 2) changes nothing there.
+ * Vitess dual write (cmuxterm-hq#4767 step 2) starts the compare there and nothing else.
  */
 const COMPARE_CRON = "*/15 * * * *"
 /** A Hyperdrive binding that fails the test if anything reads it (a database connection would). */
 const untouchable = (name: string) =>
   new Proxy({}, { get: (_t, key) => (key === "then" ? undefined : expect.unreachable(`${name}.${String(key)} was read`)) })
-/** The production switch state from wrangler.jsonc (no PROJECTION_* var; release-rails projection-config.test.ts pins it). */
+/** A production env with no projection switch, every database binding trapped. */
 const production = (overrides: Record<string, unknown> = {}) => ({
   ...(env as object),
   ENVIRONMENT: "production",
@@ -47,8 +47,9 @@ describe("the 15-minute cron", () => {
 
   it("the compare opens no database connection without a MySQL switch, and does once one is set", async () => {
     await expect(compareFromEnv(production() as never)).resolves.toBeUndefined()
-    // The guard is the switch: with one set, the compare reaches for the bindings (here: the trap).
-    await expect(compareFromEnv(production({ PROJECTION_SHADOW: "mysql" }) as never)).rejects.toThrow("was read")
+    // The guard is the switch: with one set, the compare starts connecting (here it fails at once: the
+    // pg driver does not load in workerd tests, or a trapped binding is read).
+    await expect(compareFromEnv(production({ PROJECTION_SHADOW: "mysql" }) as never)).rejects.toThrow()
   })
 
   it("outside production, the usage sync runs beside the compare", async () => {

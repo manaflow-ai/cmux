@@ -36,13 +36,6 @@ describe("projection switches in wrangler.jsonc", () => {
     })
   }
 
-  it("production sets no MySQL projection switch until the cutover config change (cmuxterm-hq#4767 step 6)", () => {
-    // The cutover change updates this test with the PS_MYSQL bindings it adds.
-    const vars = doc.env.production!.vars ?? {}
-    expect(Object.keys(vars).filter((k) => /^PROJECTION_|^CREDITS_MIRROR$/.test(k))).toEqual([])
-    expect((doc.env.production!.hyperdrive ?? []).map((h) => h.binding).filter((b) => b.startsWith("PS_MYSQL"))).toEqual([])
-  })
-
   it("a MySQL switch without the PlanetScale bindings is refused", () => {
     expect(neededBindings({})).toEqual(["HYPERDRIVE"])
     expect(neededBindings({ PROJECTION_SHADOW: "mysql", PROJECTION_READS: "shadow" })).toEqual(["HYPERDRIVE", "PS_MYSQL", "PS_MYSQL_RO"])
