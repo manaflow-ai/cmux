@@ -28,6 +28,8 @@ const keys = [
   "requestAnimationFrame",
   "cancelAnimationFrame",
   "localStorage",
+  "createImageBitmap",
+  "OffscreenCanvas",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
@@ -58,6 +60,20 @@ beforeAll(() => {
     requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
     localStorage: window.localStorage,
+    // Pixel preparation is tested separately; the intake tests need a drawable engine in JSDOM.
+    createImageBitmap: async () => ({ width: 640, height: 480, close() {} }),
+    OffscreenCanvas: class {
+      constructor(
+        public width: number,
+        public height: number,
+      ) {}
+      getContext() {
+        return { drawImage() {} };
+      }
+      async convertToBlob() {
+        return new Blob([PNG], { type: "image/png" });
+      }
+    },
   });
   host = window.document.getElementById("root")!;
 });
@@ -129,21 +145,23 @@ async function until(ready: () => boolean, what: string) {
 /// The open composer's handle, for `paste` to read its chips.
 let opened: RefObject<ComposerHandle | null> | undefined;
 
+let composerCount = 0;
 async function openComposer(sent: { text: string; attachments: ComposerAttachment[] }[] = []) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   const handle = createRef<ComposerHandle>();
   opened = handle;
+  const sessionId = `chat-${++composerCount}`;
   const snapshot = noChat([], {
-    sessionId: "chat-a",
-    summary: { sessionId: "chat-a", harness: "codex", cwd: "/Users/you/src/app", turnCount: 0 },
+    sessionId,
+    summary: { sessionId, harness: "codex", cwd: "/Users/you/src/app", turnCount: 0 },
   });
   root ??= createRoot(host);
   await act(async () =>
     root!.render(
       <Composer
         snapshot={snapshot}
-        sessionId="chat-a"
+        sessionId={sessionId}
         chips={Chips}
         onSend={(text, attachments) => {
           sent.push({ text, attachments: attachments ?? [] });
@@ -364,9 +382,8 @@ test("a prompt copied from a bubble with `![…](data:…)` text pastes as a chi
   const composer = await openComposer();
   await paste({ plain: `![Screenshot · 778×696](${dataUri} "Screenshot · 778×696")what the heck` });
   expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image"]);
-  expect(field().querySelector("img")).toBeNull();
-  expect(field().textContent).toBe("what the heck");
-  expect(field().innerHTML).not.toContain("data:");
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "inline thumbnail");
+  expect(field().textContent).toContain("what the heck");
 });
 
 test("the same text pasted into a plain text field leaves its text there without the image", async () => {
