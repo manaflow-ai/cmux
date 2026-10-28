@@ -132,6 +132,17 @@ test("hidden ToolSearch does not settle a child reply before a rendered thought"
   ]);
 });
 
+test("an unknown hidden tool result does not settle a child reply", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
+  feed(fold, say("See https://example.com/guide"), { subagent: "a" });
+  feed(fold, { sessionUpdate: "tool_call_update", toolCallId: "search", status: "completed" }, { subagent: "a" });
+  feed(fold, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "Checking" } }, { subagent: "a" });
+  expect(sessionSummary(fold.views().a!, "acme/app").sources.map((source) => source.url)).toEqual([
+    "https://example.com/guide",
+  ]);
+});
+
 test("the first child tool after a reply settles its Sources", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });

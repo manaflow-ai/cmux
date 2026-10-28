@@ -6,7 +6,7 @@ import {
   markTranscriptSummaryVersion,
 } from "../summary/transcriptPullRequests";
 import { childRows, type ChildEntry } from "./childRows";
-import { hiddenCall, isPlumbingName } from "../hiddenTools";
+import { hiddenCall, isPlumbingName, showsNothing } from "../hiddenTools";
 import { applyRetry, applyRetryStep, type RetryState } from "./retryState";
 import { mergeWorkflowAgents, workflowPhases, type WorkflowAgent, type WorkflowPhase } from "./workflowAgents";
 import {
@@ -582,8 +582,11 @@ export class SubagentFold {
       // ToolSearch is hidden from the child view, so it cannot settle the visible reply. Keep
       // the marker until a rendered tool or thought actually follows it.
       const hidden = hiddenCall(this.hiddenCalls, `${id}\u0000${call}`, update);
-      replySettled = !hidden && this.pendingReplySummaries.delete(id);
-      if (hidden) {
+      // A page opened after a ToolSearch started has only its title-less result. Treat a result
+      // with no renderable content as hidden too, matching direct transcript folding.
+      const unknownHiddenResult = update?.sessionUpdate === "tool_call_update" && showsNothing(update);
+      replySettled = !hidden && !unknownHiddenResult && this.pendingReplySummaries.delete(id);
+      if (hidden || unknownHiddenResult) {
         this.bump(id);
         return;
       }

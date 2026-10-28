@@ -89,7 +89,12 @@ function scheduled(all: readonly Tool[]): SummaryWakeup[] {
 }
 
 const GITHUB_REFERENCE_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(pull|issues)\/(\d+)(?:\/[^\s]*)?$/;
-const sourceKey = (source: SummarySource) => `${source.kind ?? "url"}:${source.url ?? source.label}`;
+const sourceKey = (source: SummarySource) => {
+  const github = source.url?.match(/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(?:pull|issues)\/(\d+)/);
+  return github
+    ? `github:${github[1]}/${github[2]}#${github[3]}`
+    : `${source.kind ?? "url"}:${source.url ?? source.label}`;
+};
 // Revision ownership lets old summaries go when their producer and snapshots release them.
 const summaryCache = new WeakMap<object, { repository?: string | null; cwd?: string; summary: SessionSummary }[]>();
 const normalizedPath = (path: string) => {
@@ -133,7 +138,8 @@ function sources(
   const seen = new Map<string, SummarySource>();
   const add = (source: SummarySource) => {
     const key = sourceKey(source);
-    if (!seen.has(key)) seen.set(key, source);
+    const prior = seen.get(key);
+    if (!prior || (source.kind === "pullRequest" && prior.kind !== "pullRequest")) seen.set(key, source);
   };
   for (const pr of pullRequests)
     if (!pr.changed && !pr.opened) {

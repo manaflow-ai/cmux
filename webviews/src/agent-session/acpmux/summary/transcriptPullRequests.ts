@@ -66,6 +66,7 @@ const NAMED_REF = /(?<![\w/.#-])([\w][\w.-]*)( ?)#(\d+)\b/g;
 /// A bare `#N` in a reply.
 const BARE_REF = /(?<![\w/.#&-])#(\d+)\b/g;
 const QUOTED = /"(?:[^"\\]|\\.)*"|'[^']*'/g;
+const BODY_VALUE = /(?:--body(?:-file)?)(?:=|\s+)(?:"(?:[^"\\]|\\.)*"|'[^']*'|\S+)/g;
 /// A heredoc's body (`<<EOF` … `EOF`, `<<'EOF'`, `<<-EOF`), up to its terminator line; the rest
 /// of the opening line stays (it is often the command that reads it). Never `<<<` or a shift.
 const HEREDOC = /(?<!<)<<-?[ \t]*(['"]?)([A-Za-z_]\w*)\1([^\n]*)\n[\s\S]*?\n[ \t]*\2(?=[ \t]*(?:\n|$))/g;
@@ -116,6 +117,22 @@ const bare = (command: string) =>
   command
     .replace(HEREDOC, "$3\n")
     .replace(QUOTED, " ")
+    .replace(/(^|[ \t;&|])#.*$/gm, "$1");
+
+/// Keep a quoted GitHub target available to call parsing, while dropping quoted bodies and titles.
+const quotedTarget = (value: string) =>
+  new RegExp(`^${PR_URL.source}(?:[/?#]\\S*)?$`).test(value) ||
+  new RegExp(`^${ISSUE_URL.source}(?:[/?#]\\S*)?$`).test(value) ||
+  OWNER_REPO_REF.test(value) ||
+  /^#\d+$/.test(value);
+const callText = (command: string) =>
+  command
+    .replace(BODY_VALUE, " ")
+    .replace(HEREDOC, "$3\n")
+    .replace(QUOTED, (quoted) => {
+      const value = quoted.slice(1, -1);
+      return quotedTarget(value) ? value : " ";
+    })
     .replace(/(^|[ \t;&|])#.*$/gm, "$1");
 
 /// Only explicit JSON title fields or a `.title` query are title evidence.
@@ -179,7 +196,7 @@ function toolFindings(tool: Tool): Finding[] {
   if (!succeeded(tool)) return [];
   const command = tool.command ?? "";
   const plain = bare(command);
-  const calls = plain
+  const calls = callText(command)
     .replace(/(?<!\\)\$\(([^()]*)\)/g, "\n$1\n")
     .split(/[\n;&|]+/)
     .map((part) => part.replace(/^\s*if\s+/, ""))
