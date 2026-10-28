@@ -32,8 +32,11 @@ use crate::state::OutboxEntry;
 /// and room for the uploads.
 pub const HOLD: Duration = Duration::from_secs(12);
 
-/// The longest a reply with pictures or videos waits for their uploads.
-pub const MEDIA_HOLD: Duration = Duration::from_secs(60);
+/// `previews_until` of a reply with pictures or videos: it waits for their
+/// uploads however long they take (any size goes, Leo 2026-10-26), until the
+/// preview thread answers. A reply this run started no thread for (the Chief
+/// restarted) goes as its text.
+pub const UNTIL_UPLOADED: u64 = u64::MAX;
 
 /// The name of a preview picture's attachment record.
 const PICTURE_NAME: &str = "link-preview.jpg";
@@ -98,20 +101,29 @@ impl Brain {
             self.log.clone(),
         );
         let thread_reply = reply.clone();
-        let hold = if media.is_empty() { HOLD } else { MEDIA_HOLD };
+        let until = if media.is_empty() {
+            now_ms() + HOLD.as_millis() as u64
+        } else {
+            UNTIL_UPLOADED
+        };
         let spawned = std::thread::Builder::new()
             .name("optchat-link-previews".into())
             .spawn(move || {
-                let parts = filled(port, fetcher, &conversation, &thread_reply, &media, &log);
-                let _ = tx.send(Input::Previews {
+                // Answers when dropped, so a panic in the uploads still ends the hold.
+                let mut answer = PreviewsAnswer {
+                    tx,
                     key: owned_key,
-                    parts,
-                });
+                    parts: None,
+                };
+                answer.parts = filled(port, fetcher, &conversation, &thread_reply, &media, &log);
             });
         match spawned {
             Ok(_) => {
+                if until == UNTIL_UPLOADED {
+                    self.uploading.insert(entry.idempotency_key.clone());
+                }
                 entry.plain_text = Some(reply);
-                entry.previews_until = Some(now_ms() + hold.as_millis() as u64);
+                entry.previews_until = Some(until);
             }
             Err(e) => (self.log)(&format!("starting the link previews failed: {e}")),
         }
@@ -122,6 +134,7 @@ impl Brain {
     /// its text (which stays as the fallback), or it stays text; the hold
     /// ends. A reply already sent keeps what it sent.
     pub(super) fn previews_fetched(&mut self, key: &str, parts: Option<Vec<Part>>) {
+        self.uploading.remove(key);
         let Some(at) =
             self.state.outbox.iter().position(|e| {
                 e.idempotency_key == key && !e.attempted && e.previews_until.is_some()
@@ -141,6 +154,23 @@ impl Brain {
         entry.previews_until = None;
         self.save();
         self.flush_outbox();
+    }
+}
+
+/// The preview thread's answer to the brain, sent when it is dropped: its
+/// parts, or None (the reply goes as its text) when the thread ended early.
+struct PreviewsAnswer {
+    tx: std::sync::mpsc::Sender<Input>,
+    key: String,
+    parts: Option<Vec<Part>>,
+}
+
+impl Drop for PreviewsAnswer {
+    fn drop(&mut self) {
+        let _ = self.tx.send(Input::Previews {
+            key: std::mem::take(&mut self.key),
+            parts: self.parts.take(),
+        });
     }
 }
 

@@ -40,14 +40,20 @@ impl Brain {
             );
             // A reply waiting for its link previews (brain/previews.rs)
             // holds the queue, in order, until they arrive or its hold ends.
-            if !attempted
-                && let Some(until) = previews_until
-                && now_ms() < until
-            {
-                self.outbox_timer = Some(
-                    Instant::now() + Duration::from_millis(until.saturating_sub(now_ms()) + 50),
-                );
-                return;
+            // One waiting for its uploads has no end but their answer, which
+            // flushes it; one no thread of this run uploads for goes as text.
+            if !attempted && let Some(until) = previews_until {
+                if until == super::previews::UNTIL_UPLOADED {
+                    if self.uploading.contains(&entry.idempotency_key) {
+                        self.outbox_timer = None;
+                        return;
+                    }
+                } else if now_ms() < until {
+                    self.outbox_timer = Some(
+                        Instant::now() + Duration::from_millis(until.saturating_sub(now_ms()) + 50),
+                    );
+                    return;
+                }
             }
             let (conversation, key, op) = (
                 entry.conversation.clone(),
