@@ -27,15 +27,17 @@ enum HandshakeLines {
     /// tells whether frames were granted, from which schema, and for which methods (``WireNegotiation``).
     static func send(_ transport: LineTransport, configuration: DaemonConnectionConfiguration,
                      logger: Logger) async -> Replies {
+        // A streaming connection joins shared sizing as its device (p05-ipc-095); read off the main thread.
+        let device = await configuration.streamSizingDevice?()
         let negotiation = WireNegotiation(upgrades: configuration.wireUpgrades, bridged: transport.bridged)
         let subscribe = PipelinedLine(SubscribeRequest(treeEvents: configuration.treeEvents))
         guard let hello = configuration.clientHello else {
             var lines = await transport.pipeline([PipelinedLine(IdentifyRequest()),
-                                                  PipelinedLine(clientInfo(configuration, echo: nil)), subscribe],
+                                                  PipelinedLine(clientInfo(configuration, echo: nil, device: device)), subscribe],
                                                  timeout: configuration.requestTimeout)
             let echo = offer(negotiation, in: lines[0])
             let metadata = servesMachineMetadata(lines[0]) ? [PipelinedLine(IdentifyRequest(machineMetadata: true))] : []
-            let upgrade = echo.map { upgradeLines(configuration, echo: $0, on: transport) } ?? []
+            let upgrade = echo.map { upgradeLines(configuration, echo: $0, device: device, on: transport) } ?? []
             guard !(metadata + upgrade).isEmpty else { return Replies(lines: lines, userOriginAllowed: false) }
             let second = await transport.pipeline(metadata + upgrade, timeout: configuration.requestTimeout)
             if !metadata.isEmpty { lines[0] = fencedMetadata(second[0], original: lines[0]) }
@@ -52,7 +54,7 @@ enum HandshakeLines {
         let metadata = servesMachineMetadata(first[0]) ? [PipelinedLine(IdentifyRequest(machineMetadata: true))] : []
         let echo = offer(negotiation, in: first[0])
         if echo?.asksFrames == true { transport.acceptFrames() }
-        let setup = [PipelinedLine(clientInfo(configuration, echo: echo)), subscribe]
+        let setup = [PipelinedLine(clientInfo(configuration, echo: echo, device: device)), subscribe]
         let revisions = echo == nil ? [] : [PipelinedLine(IdentifyRequest(revisions: true))]
         let leading = proof.map { [PipelinedLine($0)] } ?? []
         let rest = await transport.pipeline(leading + metadata + setup + revisions, timeout: configuration.requestTimeout)
@@ -78,13 +80,17 @@ enum HandshakeLines {
         return Replies(lines: [identity] + setupReplies, userOriginAllowed: userOriginAllowed, granted: got ?? .linesOnly)
     }
 
-    /// The connection's `set-client-info`: its own capabilities, plus the framed IPC ones of `echo` and, when
-    /// it asks for frames, the `api_revision` their grant needs.
-    private static func clientInfo(_ configuration: DaemonConnectionConfiguration,
-                                   echo: WireNegotiation.Echo?) -> SetClientInfoRequest {
-        SetClientInfoRequest(name: configuration.clientName, kind: "frontend",
-                             capabilities: configuration.handshakeCapabilities + (echo?.capabilities ?? []),
-                             apiRevision: echo.flatMap { $0.asksFrames ? $0.apiRevision : nil })
+    /// The connection's `set-client-info`: its own capabilities, plus the framed IPC ones of `echo` it does not
+    /// echo already (a streaming connection echoes `attach-streams-v1` up front) and, when it asks for frames,
+    /// the `api_revision` their grant needs. `device`: the sizing device of a streaming connection, in every
+    /// `set-client-info` it sends.
+    private static func clientInfo(_ configuration: DaemonConnectionConfiguration, echo: WireNegotiation.Echo?,
+                                   device: TerminalSizingDevice?) -> SetClientInfoRequest {
+        let own = configuration.handshakeCapabilities
+        return SetClientInfoRequest(name: configuration.clientName, kind: "frontend",
+                                    capabilities: own + (echo?.capabilities ?? []).filter { !own.contains($0) },
+                                    deviceKind: device?.kind, deviceName: device?.name,
+                                    apiRevision: echo.flatMap { $0.asksFrames ? $0.apiRevision : nil })
     }
 
     /// What to echo for `negotiation`, read from the first `identify` reply; nil when nothing is asked or
@@ -100,9 +106,9 @@ enum HandshakeLines {
     /// The second `set-client-info` and the `identify {revisions}` after it, for a connection whose first
     /// `set-client-info` went out before the offer was known. The reader takes frames before they are asked for.
     private static func upgradeLines(_ configuration: DaemonConnectionConfiguration, echo: WireNegotiation.Echo,
-                                     on transport: LineTransport) -> [PipelinedLine] {
+                                     device: TerminalSizingDevice?, on transport: LineTransport) -> [PipelinedLine] {
         if echo.asksFrames { transport.acceptFrames() }
-        return [PipelinedLine(clientInfo(configuration, echo: echo)), PipelinedLine(IdentifyRequest(revisions: true))]
+        return [PipelinedLine(clientInfo(configuration, echo: echo, device: device)), PipelinedLine(IdentifyRequest(revisions: true))]
     }
 
     /// What `echo` got, from its `set-client-info` reply and the `identify {revisions}` reply after it.

@@ -118,7 +118,7 @@ nonisolated struct CEFMirrorTrigger: Hashable, Sendable {
     static let devToolsOpened = CEFMirrorTrigger(kind: 21)
     static let devToolsClosed = CEFMirrorTrigger(kind: 22)
     /// CMUX_SHIM_PAGE_STATE: host mode only (task p01-process-093); in process the fork calls the watch instead.
-    static let pageState = CEFMirrorTrigger(kind: 66)
+    static let pageState = CEFMirrorTrigger(kind: 67)
     static func tab(_ event: CEFForkTabEvent) -> CEFMirrorTrigger { CEFMirrorTrigger(kind: 16, tabEvent: event.rawValue) }
 }
 

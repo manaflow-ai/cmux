@@ -176,7 +176,8 @@ public final class TerminalSession {
     ///     surfaces send moves, drags and mouse-reporting trackpad scrolls to Ghostty on a frame interval's
     ///     first event and once more at its frame (``TerminalPointerFrames``). Nil: every event at once.
     ///   - mainWork: The app's main-thread scheduler, `node` the tab's node (`TabContentCache.node(for:)`; nil: no tab) and `deadlines`
-    ///     its `MainDeadline` placer (nil makes one): the find bar, scrollbar, TextBox and window watches apply only while it shows.
+    ///     its `MainDeadline` placer (nil makes one): the find bar, scrollbar, TextBox and window watches apply only while it shows,
+    ///     and its surfaces size and report grids only while the node is not hidden (R-hide).
     ///   - gpuResidency: Lets the surfaces' GPU memory go while ``releasesGPUWhilePaused`` and paused;
     ///     nil keeps them resident (a GhosttyNextKit pin without the switch, or `terminalGPURelease` off).
     ///   - externalCursor: Its surfaces show the cursor on a layer of their own and blink it in the render server

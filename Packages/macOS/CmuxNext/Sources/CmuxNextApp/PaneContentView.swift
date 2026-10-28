@@ -380,7 +380,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         // A hidden pane repaints once, when it shows (R-appear).
-        node.deferUntilVisible(key: "PaneContentView.appearance") { [weak self] in self?.themeDidChange() }
+        node.deferAppearance(owner: "PaneContentView") { [weak self] in self?.themeDidChange() }
     }
 
     /// The content background under the content only (the strip has its
