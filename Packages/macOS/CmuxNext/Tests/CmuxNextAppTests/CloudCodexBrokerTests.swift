@@ -478,12 +478,17 @@ while IFS= read -r line; do
 done
 """#.write(to: fake, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: fake.path)
-        // Another reader in the process, waiting on a pipe nothing writes to until the end.
+        // Another reader in the process, waiting on a pipe that goes quiet after one byte. It
+        // says when it has that byte; its next step is the read that waits, which it starts
+        // before the session below has even launched its holder.
         let quiet = Pipe()
-        let waiting = Task.detached { for try await _ in quiet.fileHandleForReading.bytes {} }
+        let (reading, started) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let waiting = Task.detached {
+            for try await _ in quiet.fileHandleForReading.bytes { started.yield() }
+        }
         defer { try? quiet.fileHandleForWriting.close(); waiting.cancel() }
-        // Long enough for that reader to be inside its read before the session starts reading.
-        try await Task.sleep(for: .milliseconds(300))
+        try quiet.fileHandleForWriting.write(contentsOf: Data([0x2E]))
+        for await _ in reading { break }
         let session = try CodexBrokerSession(executable: fake, executablePrefix: [], codexExecutable: URL(fileURLWithPath: "/bin/false"),
                                              home: root.appendingPathComponent("holder"))
         let reply = try await withThrowingTaskGroup(of: BrokerResult?.self) { group in
