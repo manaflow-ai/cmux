@@ -285,6 +285,8 @@ final class LineTransport: Sendable {
                 guard payload.count <= Self.maxRequestLineBytes else { return Self.requestTooLarge(cmd: cmd, bytes: payload.count) }
                 let message = Self.message(payload, id: id, cmd: cmd, framing: nil)
                 total += message.count
+                // Refused as soon as the lines pass the room: a paste far over it costs no more encoding here.
+                guard total <= writer.room else { return Self.backlogFull(cmd: cmd, bytes: total, room: writer.room) }
                 messages.append(message)
             }
             guard total <= writer.room else { return Self.backlogFull(cmd: cmd, bytes: total, room: writer.room) }

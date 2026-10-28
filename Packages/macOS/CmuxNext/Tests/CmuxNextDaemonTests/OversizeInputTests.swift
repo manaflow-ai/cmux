@@ -49,6 +49,9 @@ import Testing
     private func connect(_ daemon: FakeDaemon, onClose: @escaping LineTransport.CloseHandler = { _ in }) throws -> LineTransport {
         let transport = try LineTransport(path: daemon.path, role: .control, stats: nil)
         try daemon.accept()
+        // A line that never comes fails the test after 20 s instead of blocking its read(2) for good.
+        var timeout = timeval(tv_sec: 20, tv_usec: 0)
+        setsockopt(daemon.peerDescriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         transport.start(onEvent: { _, _, _ in }, onClose: onClose)
         return transport
     }
@@ -148,8 +151,6 @@ import Testing
             for index in raw.indices { raw[index] = UInt8(truncatingIfNeeded: index &* 31 &+ index >> 13) }
         }
         let expected = paste
-        var timeout = timeval(tv_sec: 20, tv_usec: 0)
-        setsockopt(daemon.peerDescriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         let reader = LineReader(fd: daemon.peerDescriptor)
         let received = Task.detached { () -> (Data, Int) in
             var bytes = Data()
