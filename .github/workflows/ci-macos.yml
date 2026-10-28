@@ -1876,6 +1876,18 @@ jobs:
       CMUX_PACKAGE_REUSE_BRANCH: ${{ github.head_ref }}
       PACKAGE_TESTS_VIA_STEP: ${{ github.repository_owner == 'manaflow-ai' && (github.event.pull_request.head.repo.full_name == github.repository || contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name)) && vars.CI_SWIFT_PACKAGE_TESTS_STEP_GATEWAY != '' && github.event_name == 'pull_request' && !(inputs.full_suite == 'true' && inputs.release_build == 'true') && '1' || '0' }}
     steps:
+      # This job's tests can start acpmux daemons: they get a home of the job's
+      # own, never the runner's ~/.acpmux, the mini's own daemon
+      # (tests/test_ci_acpmux_job_home.py).
+      - name: Give this job its own acpmux home
+        if: env.PACKAGE_TESTS_VIA_STEP != '1'
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          rm -rf "$home" && mkdir -m 700 "$home"
+          echo "ACPMUX_HOME=$RUNNER_TEMP/acpmux-home" >> "$GITHUB_ENV"
+          # An inherited socket would still name another home's daemon; empty is unset.
+          echo "ACPMUX_SOCKET=" >> "$GITHUB_ENV"
+
       # Start from main's git objects, so checkout fetches only what changed
       # since then instead of the whole tree and its submodules
       # (scripts/ci/git-seed.sh). The script is read at this commit over HTTPS
@@ -2095,6 +2107,19 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           FULL_SUITE: ${{ inputs.full_suite }}
         run: ./scripts/ci/package-test-lane.sh run
+
+      # Also after a failure or a cancel: end the daemon of this job's home and
+      # its agents (shutdown never starts one), then delete the home.
+      - name: Stop this job's acpmux daemons and remove its home
+        if: ${{ always() && env.PACKAGE_TESTS_VIA_STEP != '1' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        run: |
+          home="$RUNNER_TEMP/acpmux-home"
+          [[ -d "$home" ]] || exit 0
+          acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
+          [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
+          rm -rf "$home"
 
       # The input keys of the packages that passed (or were reused), even when
       # another package failed, so the next push tests only what it changed.

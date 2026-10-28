@@ -43,6 +43,9 @@ nonisolated extension ActionSurfaceCatalog {
         "palette.markWorkspaceRead": [p(.workspaceRow, .identity, 111, folder: .options)],
         "palette.markWorkspaceUnread": [p(.workspaceRow, .identity, 112, folder: .options)],
         "workspace.toggleAudioMute": [p(.workspaceRow, .identity, 115, folder: .options)],
+        // Workspace hibernation (workspace-hibernation-DESIGN.md): Hibernate now, or never on its own.
+        "workspace.hibernate": [p(.workspaceRow, .identity, 116, folder: .options)],
+        "workspace.toggleKeepAwake": [p(.workspaceRow, .identity, 117, folder: .options)],
         "palette.workspaceColor": [p(.workspaceRow, .identity, 104, folder: .appearance)],
         "palette.resetWorkspaceColor": [p(.workspaceRow, .identity, 105, folder: .appearance)],
         "workspace.removeAllColors": [p(.workspaceGroup, .identity, 103, folder: .options)],

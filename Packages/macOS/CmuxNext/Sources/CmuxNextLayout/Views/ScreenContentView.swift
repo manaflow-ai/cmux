@@ -282,6 +282,11 @@ final class ScreenContentView: NSView {
                 frame.setTarget(target, alpha: 1)
                 paneFrames[pane] = frame
             }
+            if let handoff, handoff.pane == pane {
+                // PaneHostView must distinguish this from an ordinary moving shrink: both have a
+                // nonzero rest offset, but only a handoff's first frame is already at its target size.
+                context.hosts[pane]?.isContentHandoff = true
+            }
             context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius, wholeCard: style.floatingPanes)
         }
         for pane in paneFrames.keys where baseGeometry.panes[pane] == nil {

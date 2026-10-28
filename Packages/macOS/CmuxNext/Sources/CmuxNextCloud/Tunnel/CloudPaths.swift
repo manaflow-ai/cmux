@@ -19,9 +19,11 @@ public struct CloudPaths: Sendable {
             .appendingPathComponent("cloud-next", isDirectory: true))
     }
 
-    var privateKey: URL { root.appendingPathComponent("wireguard.private.key") }
+    /// Where builds before the per-launch key kept this Mac's WireGuard private key.
+    var legacyPrivateKey: URL { root.appendingPathComponent("wireguard.private.key") }
     var deviceIDFile: URL { root.appendingPathComponent("device-id") }
-    var wireGuardConfig: URL { root.appendingPathComponent("wireguard.conf") }
+    /// Where builds before the stdin config wrote the hub's config (with the private key).
+    var legacyWireGuardConfig: URL { root.appendingPathComponent("wireguard.conf") }
     var linkState: URL { root.appendingPathComponent("link-state", isDirectory: true) }
 
     /// Unix socket paths are limited to 104 bytes; the hub socket lives in
@@ -30,6 +32,30 @@ public struct CloudPaths: Sendable {
         let hash = SHA256.hash(data: Data(root.path.utf8)).prefix(4).map { String(format: "%02x", $0) }.joined()
         return (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-wg-\(hash)-\(getpid()).sock")
     }
+
+    /// A name for the running hub's socket that outlives the app's pid: a symlink the hub moves
+    /// to its socket each time it starts, for callers outside the app (an ssh `ProxyCommand`
+    /// of `cmux wg dial --hub`, which `cloud enroll-machine` writes). Dangling while no hub runs.
+    public var hubLink: String {
+        let hash = SHA256.hash(data: Data(root.path.utf8)).prefix(4).map { String(format: "%02x", $0) }.joined()
+        return (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-wg-\(hash).sock")
+    }
+
+    /// Present once `cloud enroll-machine` wrote an ssh route through ``hubLink``: the app then
+    /// starts the hub at sign-in, so the route works after a relaunch.
+    public var sshRoutesMarker: URL { root.appendingPathComponent("ssh-routes") }
+
+    /// Writes ``sshRoutesMarker`` (blocking file I/O: call it off the main thread), creating the
+    /// Cloud folder first on a fresh install; throws when it cannot.
+    public func markSSHRoutes() throws {
+        try prepare()
+        guard FileManager.checked.createFile(atPath: sshRoutesMarker.path, contents: Data(), attributes: [.posixPermissions: 0o600]) else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: sshRoutesMarker.path])
+        }
+    }
+
+    /// Whether ``sshRoutesMarker`` exists (a file check: call it off the main thread).
+    public func hasSSHRoutes() -> Bool { FileManager.checked.fileExists(atPath: sshRoutesMarker.path) }
 
     /// The link's local v12 socket, short enough for `sun_path`.
     func linkSocket(machineID: String) -> String {
@@ -58,6 +84,9 @@ public struct CloudPaths: Sendable {
         for directory in [root, linkState] {
             try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         }
+        // The WireGuard key now lives only in memory and the hub's config travels on stdin; an
+        // earlier build's files of them go, so no other program can start a tunnel on this Mac's key.
+        for legacy in [legacyWireGuardConfig, legacyPrivateKey] { try? FileManager.checked.removeItem(at: legacy) }
     }
 
     /// Writes `text` atomically with mode 0600.
@@ -67,19 +96,6 @@ public struct CloudPaths: Sendable {
         guard rename(temporary.path, url.path) == 0 else {
             throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
         }
-    }
-
-    /// The installation's WireGuard key (Curve25519, base64 raw bytes),
-    /// created once.
-    func loadOrCreateKey() throws -> Curve25519.KeyAgreement.PrivateKey {
-        if let text = try? String(contentsOf: privateKey, encoding: .utf8),
-           let data = Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines)),
-           let key = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: data) {
-            return key
-        }
-        let key = Curve25519.KeyAgreement.PrivateKey()
-        try writeSecret(key.rawRepresentation.base64EncodedString(), to: privateKey)
-        return key
     }
 
     /// `mac-<uuid>`, created once per installation. Blocking disk I/O: call it off the main thread.

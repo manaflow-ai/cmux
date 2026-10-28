@@ -1,4 +1,12 @@
 {
+  "cloud.workspaceSetup.setupClaude": {
+    "class": "brand",
+    "source": "Claude"
+  },
+  "cloud.workspaceSetup.setupCodex": {
+    "class": "brand",
+    "source": "Codex"
+  },
   "cloud.welcome.title.eyebrow": {
     "class": "brand",
     "source": "cmux cloud"
@@ -6940,6 +6948,81 @@
     "source": "Text",
     "identityLocales": {
       "de": "Text is the German noun, spelled as in English; the translated entry is still required."
+    }
+  },
+  "argument.chiefImportChief": {
+    "class": "brand",
+    "source": "Cloud Chief"
+  },
+  "argument.chiefImportSource": {
+    "source": "Source",
+    "identityLocales": {
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "argument.notifications.agent": {
+    "source": "Agent",
+    "identityLocales": {
+      "de": "Established UI or technical term with the same spelling in this locale; a translated entry is still required.",
+      "fr": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "argument.notifications.volume": {
+    "source": "Volume (%)",
+    "identityLocales": {
+      "fr": "Volume is the French word for sound volume, spelled as in English; the translated entry is still required."
+    }
+  },
+  "argument.value.notifications.event.error": {
+    "source": "Error",
+    "identityLocales": {
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settings.notifications.sounds.event.error": {
+    "source": "Error",
+    "identityLocales": {
+      "es": "Established UI or technical term with the same spelling in this locale; a translated entry is still required."
+    }
+  },
+  "settings.notifications.sounds.volume": {
+    "source": "Volume",
+    "identityLocales": {
+      "fr": "Volume is the French word for sound volume, spelled as in English; the translated entry is still required."
+    }
+  },
+  "settings.category.server": {
+    "source": "Server",
+    "identityLocales": {
+      "de": "Server is the standard German UI word (macOS uses it), spelled as in English; the translated entry is still required."
+    }
+  },
+  "server.settings.card.title": {
+    "source": "Server",
+    "identityLocales": {
+      "de": "Server is the standard German UI word (macOS uses it), spelled as in English; the translated entry is still required."
+    }
+  },
+  "server.settings.version": {
+    "source": "Version %@",
+    "identityLocales": {
+      "de": "Version is the German noun, spelled as in English; the translated entry is still required.",
+      "fr": "Version is the French noun, spelled as in English; the translated entry is still required."
+    }
+  },
+  "server.settings.build": {
+    "source": "Build %@",
+    "identityLocales": {
+      "de": "Build is the established German term for a software build, spelled as in English; the translated entry is still required.",
+      "fr": "Build is the established French term for a software build, spelled as in English; the translated entry is still required."
+    }
+  },
+  "actionLatencyHUD.row": {
+    "source": "%1$@ ms  %2$@  %3$@",
+    "identityLocales": {
+      "de": "ms is the SI symbol for milliseconds, written the same way in German; the other tokens are values. The translated entry is still required.",
+      "fr": "ms is the SI symbol for milliseconds, written the same way in French; the other tokens are values. The translated entry is still required.",
+      "es": "ms is the SI symbol for milliseconds, written the same way in Spanish; the other tokens are values. The translated entry is still required."
     }
   }
 }

@@ -9,7 +9,9 @@ import Testing
 /// this run remember, and its line says it is updating until the update ends.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct CloudMachineUpdateButtonTests {
-    static let unsupported = CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_unsupported", error: "too old to update in place (no fs-v1)")
+    /// The CLI names the build it judged older (`build`): the exec update holds the machine to it.
+    static let unsupported = CloudMoveCLI.Answer(ok: false, errorCode: "machine_update_unsupported", error: "too old to update in place (no fs-v1)",
+                                                 build: String(repeating: "c", count: 40))
     static let id = CloudMachineUpdateTarget.id("vm-1")
 
     /// Leo's tidy-yellow-tern: it said it cannot update before this app could update it through

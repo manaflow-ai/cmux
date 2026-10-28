@@ -5,6 +5,19 @@ export function offersAcpmuxRestart(error: unknown): boolean {
   return !!details && typeof details === "object" && (details as { restartAcpmux?: unknown }).restartAcpmux === true;
 }
 
+/// A host-owned update handoff or a lost transport is still recovering. A definite host refusal
+/// (missing binary, stopped daemon, unsupported machine, untrusted folder) keeps its instructions.
+/// Older bridges may omit retryability on socket failures; only errors without an owned code fall
+/// back to recovery. Never infer it from the translated message or from the restart gate.
+export function hostIsReconnecting(error: unknown): boolean {
+  const fields = error as { code?: unknown; retryable?: unknown; details?: { reconnecting?: unknown } } | null;
+  if (fields?.details?.reconnecting === true) return true;
+  if (fields?.code === "native.not_connected" || fields?.code === "native.timed_out") return true;
+  if (typeof fields?.retryable === "boolean") return fields.retryable;
+  if (typeof fields?.code === "string") return false;
+  return fields?.code === undefined;
+}
+
 /// What the pane's handshake loop does around a Restart acpmux.
 export type AcpmuxRestartHooks = {
   /// Drops the automatic retry waiting to run and a Retry queued behind an attempt in flight.

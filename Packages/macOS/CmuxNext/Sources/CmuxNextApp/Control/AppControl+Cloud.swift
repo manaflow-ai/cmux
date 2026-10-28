@@ -133,6 +133,8 @@ extension AppControl {
             }.withDeadline(.fixed(.seconds(25))),
             ControlMethod.async("runs.cancel") { call in
                 let id = try Self.runID(call.params)
+                // The person's own cancel: the Run's end tells nothing (SandboxRunNotices).
+                await MainActor.run { services.agentTabs.pageChats.runNotices?.follower.noteCancel(id) }
                 let api = try await Self.runsAPI(services, newRun: false)
                 return try await Self.runJSON { try await api.cancelRun(id) }
             }.withDeadline(.fixed(.seconds(65))),
@@ -198,6 +200,8 @@ extension AppControl {
         case .noBackend: return ControlError(code: "no_backend", message: error.description)
         case .transport: return ControlError(code: "unavailable", message: error.description)
         case .decoding: return ControlError(code: "bad_response", message: error.description)
+        // A refusal a paid plan lifts: the CLI tells the person which plan, nothing ran.
+        case let .planRequired(_, _, plan): return ControlError(code: "plan_required", message: CloudStrings.apiErrorText(error), data: .object(["plan": .string(plan)]))
         }
     }
 }

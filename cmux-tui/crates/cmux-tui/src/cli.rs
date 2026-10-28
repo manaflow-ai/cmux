@@ -1126,7 +1126,7 @@ CLI actions (the live action catalog is authoritative):
   sign-out                  open-mobile-pairing
   open-browser              port-list
   port-forward              port-close
-  machine-link
+  machine-link              enroll-machine
 
 Run `cmux action list --category cloud --json` for the current catalog and
 `cmux action describe <action> --json` for an action's arguments.
@@ -1161,7 +1161,7 @@ CLI アクション（現在の一覧はアクションカタログを参照）:
   sign-out                  open-mobile-pairing
   open-browser              port-list
   port-forward              port-close
-  machine-link
+  machine-link              enroll-machine
 
 現在のカタログは `cmux action list --category cloud --json`、引数は
 `cmux action describe <action> --json` で確認できます。

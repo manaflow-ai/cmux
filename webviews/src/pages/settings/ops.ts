@@ -88,8 +88,9 @@ export type HostListRow = {
   /** The key a machine's pick is under in `appearance.machineColors` (its name, trimmed and lowercased). */
   color_key?: string;
   /**
-   * A Cloud machine cmux made: its "Dedicated agent machine" switch (acpmux vmHost), once the machine
-   * answered. Absent on every other machine (personal and SSH machines never have it). `busy`: a set is
+   * A Cloud machine the Cloud API says the signed-in caller owns: its "Dedicated agent machine" switch
+   * (acpmux vmHost), once the machine answered. Absent on every other machine (team VMs, personal and
+   * SSH machines never have it). `busy`: a set is
    * running or the machine is not reachable now; the switch is disabled.
    */
   vm_host?: { on: boolean; busy: boolean; error: string | null };
@@ -277,7 +278,14 @@ export type IPhoneHostState = {
 };
 
 /** `ComputerUseSetup.Phase` in the app. */
-export type ComputerUsePhase = "disabled_by_policy" | "off" | "unavailable" | "starting" | "ready" | "version_mismatch";
+export type ComputerUsePhase =
+  | "disabled_by_policy"
+  | "off"
+  | "unavailable"
+  | "starting"
+  | "failed"
+  | "ready"
+  | "version_mismatch";
 
 /** A web update the app keeps: its commit and when that commit landed (unix seconds). */
 export type WebUpdateVersion = { commit: string; committed_at: number };
@@ -990,6 +998,7 @@ export const settingsPageActions = [
   "browserProfile.clearBrowsingData",
   "reloadConfiguration",
   "palette.computerUse.setup",
+  "palette.computerUse.restart",
   "palette.computerUse.accessibility",
   "palette.computerUse.screenRecording",
   "import.card",

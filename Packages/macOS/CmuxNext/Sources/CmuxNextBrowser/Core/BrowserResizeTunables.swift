@@ -47,17 +47,58 @@ public nonisolated struct BrowserResizeTunables {
         help: "While the window is resized, how long each Chromium page may hold a frame to draw at the new size, so it resizes with the window. Never more than half the shortest display frame. 0 never waits; the page then shows its last frame until it draws.",
         default: 0.016, range: 0...0.1, step: 0.001, unit: .seconds, code: "BrowserResizeTunables.liveResizeDeadline")
 
-    /// On (the default): while a person drags a divider or a column or row edge, a Chromium page keeps
-    /// the size it had when the drag began, anchored at its top-left corner and clipped to its pane
-    /// (any gap in the page's own color), and lays out once when the pane's frame is final
-    /// (`CEFTabContentView.paneResizeGestureDidChange`). Off: the page lays out at every frame's
-    /// size, some frames behind the pane (Chromium draws in another process).
-    public static let holdDuringDrag = Tunable<Bool>.toggle(
-        "browserResize.holdDuringDrag", section, "Keep the page's size while a divider is dragged",
-        help: "While a pane divider or edge is dragged, a Chromium page keeps its size and moves with the pane, and lays out once when the drag lands. Off lays the page out at every size, some frames behind the divider.",
-        default: true, code: "BrowserResizeTunables.holdDuringDrag")
+    /// How a Chromium page follows a pane divider or a column or row edge a person drags
+    /// (Leo, 2026-10-26: "resizing the panes it propagates so fucking slowly to the right side browser tab
+    /// thing"). Chromium draws in another process, so a page laid out at every frame's size shows each size
+    /// some frames after its pane. `BrowserDragResize` names the three ways; the default is the one the
+    /// split_resize harness measured to follow the drag best (`BrowserDragResize.default`).
+    public static let dragResize = Tunable<BrowserDragResize>.choice(
+        "browserResize.dragResize", section, "Page while a divider is dragged",
+        help: "Live: the page lays out at every size, a few frames behind the divider. Hold: the page keeps its size and moves with the pane, clipped, and lays out once when the drag lands. Synced live: Chromium holds each app frame until the page has drawn at the new size (up to 500 ms); applies the next time Chromium starts.",
+        default: BrowserDragResize.default, code: "BrowserResizeTunables.dragResize")
+
+    /// `dragResize` as the override file holds it when Chromium starts, even when a restored tab starts
+    /// Chromium before the store's own read of the file landed (`TunableStore.settledOverride`).
+    static var dragResizeAtLaunch: BrowserDragResize {
+        TunableStore.shared.settledOverride(dragResize.key).flatMap(BrowserDragResize.init(tunableValue:)) ?? dragResize.defaultValue
+    }
+
+    /// `dragResize` was the toggle `browserResize.holdDuringDrag` (cmux#25842): off is `live`, on `hold`.
+    public static func registerRenames(_ store: TunableStore) {
+        store.registerRename(from: "browserResize.holdDuringDrag", to: dragResize.key) { old in
+            (old as? Bool).map { $0 ? BrowserDragResize.hold.rawValue : BrowserDragResize.live.rawValue }
+        }
+    }
 
     public static var all: [TunableDescriptor] {
-        [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor, holdDuringDrag.descriptor]
+        [pageBackdrop.descriptor, layerHosting.descriptor, syncDeadline.descriptor, liveResizeDeadline.descriptor, dragResize.descriptor]
+    }
+}
+
+/// How a Chromium page follows a pane resize drag (`BrowserResizeTunables.dragResize`).
+public nonisolated enum BrowserDragResize: String, Sendable, CaseIterable, TunableChoice {
+    /// The page lays out at every frame's size and shows each size when Chromium has drawn it, a few
+    /// frames behind the pane (Chromium's AsyncLiveResize: nothing waits for the page).
+    case live
+    /// The page keeps its drag-start size, top-left anchored and clipped by its pane, and lays out once
+    /// when the release lands (`CEFTabContentView.paneResizeGestureDidChange`).
+    case hold
+    /// Live layout without AsyncLiveResize: Chromium's CATransactionCoordinator holds each app frame that
+    /// resized a page until the page drew at the new size, up to its 500 ms `kUIPaintTimeout` (no shorter
+    /// deadline before fork API 27). A launch switch (`CEFSwitches`): applies when Chromium next starts.
+    case synced
+
+    /// Live: on the split_resize harness (the three variants back to back on one M4 capture Mac, 2026-10-27) it
+    /// lays the page out within half a frame of its pane with the fewest dropped app frames; hold lays out about
+    /// 400 ms after the release (Leo, on hold: "still lagging like shit when recalculating size/layout"), and
+    /// synced follows as closely but holds more app frames.
+    public static let `default` = BrowserDragResize.live
+
+    public var tunableTitle: String {
+        switch self {
+        case .live: "Live (lays out every frame, behind the divider)"
+        case .hold: "Hold (keeps its size, lays out once on release)"
+        case .synced: "Synced live (waits for the page; next Chromium start)"
+        }
     }
 }

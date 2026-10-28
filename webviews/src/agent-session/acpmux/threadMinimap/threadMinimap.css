@@ -195,36 +195,6 @@
    the resting 40%. They stay lit while the pointer is on the rail, so where the reader is shows
    beside the fisheye (Codex dims them there; Leo, 2026-10-21, wants the lit band to show, as
    ChatGPT's rail does). */
-/* A narrow pane's rail (model.ts railPlacement): at rest a strip inside the page edge with 4 px ticks,
-   left of the text; with the pointer, a scrub, keyboard focus or the card on it, the full 36 px wave,
-   which then lies over the text. It draws on the hover cards' glass (the card's tint, blur and rim),
-   faded in over the micro step: a transition that ends at its target, with no timer or listener to
-   clean up, and none at all under Reduce Motion. */
-.acpmux-minimap__rail[data-narrow]::before {
-  content: "";
-  position: absolute;
-  inset: -6px -6px -6px -4px;
-  border-radius: 8px;
-  background: var(--tooltip-tint, var(--surface-popup, var(--acpmux-minimap-card)));
-  -webkit-backdrop-filter: var(--surface-blur);
-  backdrop-filter: var(--surface-blur);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-minimap-rim, var(--acpmux-minimap-card-ring));
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1);
-}
-.acpmux-minimap__rail[data-narrow][data-expanded]::before {
-  opacity: 1;
-}
-.acpmux-minimap__rail[data-reduce][data-narrow]::before {
-  transition: none;
-}
-/* After the base rule, whose specificity it has: earlier, the base transition won. */
-@media (prefers-reduced-motion: reduce) {
-  .acpmux-minimap__rail[data-narrow]::before {
-    transition: none;
-  }
-}
 /* Prompts on screen: the text at 60%; back to rest while the pointer is on the rail. */
 .acpmux-minimap__tick[data-tone="current"] {
   color: var(--acpmux-minimap-text);
@@ -322,8 +292,8 @@
   overflow: hidden;
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  white-space: normal;
+  -webkit-line-clamp: 3;
+  white-space: pre-line;
   overflow-wrap: anywhere;
 }
 .acpmux-minimap__bookmark {
@@ -359,6 +329,11 @@
   overflow: hidden;
   margin-top: 4px;
   color: var(--agent-muted);
+}
+.acpmux-minimap__card[data-prompt] .acpmux-minimap__reply {
+  height: auto;
+  max-height: calc(var(--acpmux-minimap-reply-lines, 1) * var(--acpmux-minimap-reply-line-height, 20px));
+  min-height: var(--acpmux-minimap-reply-line-height, 20px);
 }
 .acpmux-minimap__metadata {
   display: flex;

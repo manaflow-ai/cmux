@@ -20,6 +20,9 @@
 //! - the folder check against the pane's roots, which reads the disk
 //!   (`AcpmuxPathPolicy.check`, `canonical`); this crate only says which
 //!   frames wait for it ([`check::needs_path_check`], `policy.json` `path_keys`);
+//!   a session/new for another machine (a non-empty `_meta.acpmux.peer`) names
+//!   that machine's folder, so its `cwd` gets only a shape check (absolute, no
+//!   NUL, at most 4096 bytes) and goes as named (`AcpmuxPathPolicy+Peer`);
 //! - in that folder step, a session/new's `_meta.acpmux.noProject` (Do not
 //!   work in a project): the host strips it, since it is the pane's own and
 //!   never reaches acpmux, and fills a missing cwd with the agent-home folder
