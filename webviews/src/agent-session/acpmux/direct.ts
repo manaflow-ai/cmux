@@ -1345,6 +1345,8 @@ export class AcpmuxDirectClient {
   private forkedAtSeq: number | undefined;
   /// Session replay (replay/ReplayScreen.tsx): the recorded events are folded only through this seq.
   private replayThrough?: number;
+  /// A `fed` client its page let go of (`dispose`).
+  private disposed = false;
   /// This computer's clock minus the session's (an SSH or Cloud peer stamps events with its own
   /// clock): the smallest arrival lag of a live event, since delays only make it larger.
   private clockOffset?: number;
@@ -1547,6 +1549,57 @@ export class AcpmuxDirectClient {
         this.reduce(event);
       }
     this.emit("replay");
+  }
+
+  /// A client with no connection fed one chat's records from another source (the guest page's
+  /// room, guest/shareSocket.ts). `feed` folds them; nothing is ever sent.
+  static fed(sessionId: string, listener: Listener): AcpmuxDirectClient {
+    const client = new AcpmuxDirectClient({ protocolVersion: 1, transport: "acpmux-bridge", sessionId }, listener);
+    client.closed = true;
+    // Not this page's chat to hand over or to read again when shown: no page listeners.
+    client.stopPageListeners();
+    return client;
+  }
+
+  /// Ends a `fed` client: nothing it was fed draws after this, a frame already asked for included.
+  dispose(): void {
+    this.disposed = true;
+    this.frameSnapshot = undefined;
+    this.stopPageListeners();
+  }
+
+  /// Folds one chat's records into a `fed` client (the source carries no other chat, so each is
+  /// taken as this client's). `snapshot` replaces what is held; `older` adds a page before it and
+  /// folds again from the start; `live` folds only records past the newest held, in seq order,
+  /// and draws once per display frame.
+  feed(events: EventRecord[], mode: "snapshot" | "older" | "live"): void {
+    const sessionId = this.selectedSessionId;
+    const own = events
+      .filter((event) => event.seq > 0)
+      .map((event) => ({ ...event, sessionId }))
+      .sort((a, b) => a.seq - b.seq);
+    if (this.disposed) return;
+    if (mode !== "live") {
+      const first = this.firstSeq ?? Number.POSITIVE_INFINITY;
+      this.events = mode === "snapshot" ? own : [...own.filter((event) => event.seq < first), ...this.events];
+      this.rebuild();
+      this.emit();
+      return;
+    }
+    for (const event of own) {
+      if (event.seq <= this.lastSeq) continue;
+      this.events.push(event);
+      this.lastSeq = event.seq;
+      this.firstSeq ??= event.seq;
+      this.reduce(event);
+    }
+    const schedule = AcpmuxDirectClient.scheduleFrame;
+    if (!schedule) return this.emit();
+    if (this.frameSnapshot !== undefined) return;
+    this.frameSnapshot = "connected";
+    schedule(() => {
+      if (this.frameSnapshot !== undefined && !this.disposed) this.emit();
+    });
   }
 
   /// Every recorded transcript event of a session, oldest first, for session replay.
@@ -6856,14 +6909,17 @@ export class AcpmuxDirectClient {
     this.missingRecheck = undefined;
     clearTimeout(this.stopTimer);
     this.stopTimer = undefined;
-    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
-    if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
+    this.stopPageListeners();
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
     this.permissions.disconnected();
     this.socket?.close();
     this.socket = undefined;
     this.rejectPending();
+  }
+  private stopPageListeners(): void {
+    if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
+    if (typeof window !== "undefined") window.removeEventListener("pagehide", this.pageWentAway);
   }
   private rejectPending(): void {
     for (const request of this.pending.values()) {

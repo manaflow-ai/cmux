@@ -272,6 +272,8 @@ import {
 } from "./turnChanges/sessionRows";
 import { repositoryRoot, viewChangesBeside, viewChangesTurn } from "./turnChanges/viewChanges";
 import { TurnActionsContext, chatLoginCommand, resumeThrough, type TurnActions } from "./conversation/turnActions";
+import { useTranscriptReadOnly } from "./conversation/readOnly";
+import { GuestActionsBoundary } from "./conversation/GuestActionsBoundary";
 import {
   RunInBackgroundContext,
   backgroundsWork,
@@ -913,6 +915,7 @@ const openChangedFile = (path: string, where: "tab" | "editor") => callNative("f
 const MessageRow = memo(
   function MessageRow({ row, githubRepository }: RowProps) {
     const t = useT();
+    const readOnly = useTranscriptReadOnly();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
     // Another agent's message as one line at the left (its sender's chip), its text as a card under
@@ -929,12 +932,14 @@ const MessageRow = memo(
             messageAt={row.at}
             images={row.images}
             onOpen={openSenderChat}
-            onReply={replyToMessage}
+            onReply={readOnly ? undefined : replyToMessage}
             actions={
-              <>
-                <ReceivedActions row={row} text={row.incoming.message.text} />
-                {row.steer === "waiting" && <SteerWaitingActions promptId={row.steerPromptId} send={sendSteerNow} />}
-              </>
+              readOnly ? undefined : (
+                <>
+                  <ReceivedActions row={row} text={row.incoming.message.text} />
+                  {row.steer === "waiting" && <SteerWaitingActions promptId={row.steerPromptId} send={sendSteerNow} />}
+                </>
+              )
             }
             githubRepository={githubRepository}
           />
@@ -974,7 +979,7 @@ const MessageRow = memo(
                 row={row}
                 text={envelope ? envelope.task : (row.text ?? "")}
                 pending={
-                  steerControls(row)
+                  !readOnly && steerControls(row)
                     ? (actions) => (
                         <PendingSteer row={row} send={editQueued}>
                           {actions}
@@ -992,7 +997,7 @@ const MessageRow = memo(
                 row={row}
                 text={row.text ?? ""}
                 pending={
-                  steerControls(row)
+                  !readOnly && steerControls(row)
                     ? (actions) => (
                         <PendingSteer row={row} send={editQueued}>
                           {actions}
@@ -1008,7 +1013,7 @@ const MessageRow = memo(
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>
-              {row.queued && (
+              {row.queued && !readOnly && (
                 <button
                   type="button"
                   className="cv-user__cancel"
@@ -1076,7 +1081,7 @@ const DateRow = memo(
 /// A running turn's status: "Thinking", then "Working for 42s" (turnView in conversation/turns.ts).
 const ThinkingRow = memo(
   function ThinkingRow({ row }: RowProps) {
-    const queued = row.queued;
+    const queued = useTranscriptReadOnly() ? undefined : row.queued;
     return (
       <Thinking
         status={row.status}
@@ -1458,6 +1463,55 @@ const defaultRegistry: NativeRegistry = {
   [SUBAGENT_DONE]: SubagentDoneRow,
   [SUBAGENT_OF]: SubagentOfPillRow,
   [WORKFLOW_CARD]: WorkflowCardRow,
+};
+
+/// A read-only transcript's rows (conversation/readOnly.ts): the default rows, except where a row is
+/// only a control on the owner's machine or another of the owner's chats. A pending ask reads as a
+/// line (the guest page says who answers it); another agent's waiting message as its received line;
+/// a paused agent pair without Resume. Suggested tasks, started chats, a turn's local page and its
+/// render frame are the owner's own and draw nothing.
+const NoRow = () => null;
+const ReadOnlyPermissionRow = memo(
+  function ReadOnlyPermissionRow({ row }: RowProps) {
+    const t = useT();
+    return <div className="acpmux-muted">{row.permission?.title?.trim() || t("permission.required")}</div>;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+const ReadOnlyQueuedMessageRow = memo(
+  function ReadOnlyQueuedMessageRow({ row, githubRepository }: RowProps) {
+    if (row.incoming?.kind !== "message") return null;
+    return (
+      <div className="cv-incoming">
+        <IncomingMessageLine
+          id={row.id}
+          message={row.incoming.message}
+          messageAt={row.at}
+          images={row.images}
+          onOpen={openSenderChat}
+          githubRepository={githubRepository}
+        />
+      </div>
+    );
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version && a.githubRepository === b.githubRepository,
+);
+const ReadOnlyAgentPairRow = memo(
+  function ReadOnlyAgentPairRow({ row }: RowProps) {
+    return row.agentPair ? <AgentPairNote pair={row.agentPair} /> : null;
+  },
+  (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
+);
+export const readOnlyRegistry: NativeRegistry = {
+  ...defaultRegistry,
+  permission: ReadOnlyPermissionRow,
+  [QUEUED_MESSAGE]: ReadOnlyQueuedMessageRow,
+  agentPair: ReadOnlyAgentPairRow,
+  sessionOffer: NoRow,
+  [OFFER_RESULT]: NoRow,
+  [STARTED_SESSIONS]: NoRow,
+  [PREVIEW]: NoRow,
+  [RENDER]: NoRow,
 };
 
 /// A row's height as the page drew it at a width. It places the row until its next version is drawn.
@@ -2026,6 +2080,10 @@ function JumpToLatest({
   );
 }
 
+/// A read-only transcript draws inside the guest boundary (conversation/GuestActionsBoundary.tsx).
+function ReadOnlyBoundary({ readOnly, children }: { readOnly: boolean; children: React.ReactNode }) {
+  return readOnly ? <GuestActionsBoundary>{children}</GuestActionsBoundary> : <>{children}</>;
+}
 /// What the transcript's rows read from it: Find's reveal target and, for a prompt's own bookmark
 /// button, the session its marks key into (threadMinimap/promptMarks.ts).
 function TranscriptContext({
@@ -2050,7 +2108,8 @@ export function VirtualTranscript({
   onToggleActivity,
   onOpenDiff,
   expanded,
-  registry = defaultRegistry,
+  registry: givenRegistry,
+  readOnly = false,
   canLoadOlder = false,
   historyFrom,
   githubRepository,
@@ -2147,7 +2206,11 @@ export function VirtualTranscript({
   /// The focused chat's palette action can hide this pane's rail without changing the configured
   /// minimap experiment or any other pane's layout.
   showMinimap?: boolean;
+  /// Drawn for a reader who may not act (a shared chat's guest, conversation/readOnly.ts): the rows
+  /// come from `readOnlyRegistry` unless a registry is given, and no row draws an owner's control.
+  readOnly?: boolean;
 }) {
+  const registry = givenRegistry ?? (readOnly ? readOnlyRegistry : defaultRegistry);
   const t = useT();
   // Debug measurement (acpmuxPerf): off until the first debug call.
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
@@ -3418,8 +3481,12 @@ export function VirtualTranscript({
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
   const pacing = useMemo(
-    () => new ScrollPacing((intervals) => void reportScrollPacing(intervals, callNative, renderRate)),
-    [renderRate],
+    // Read only (a guest), the owner's host takes no pacing reports.
+    () =>
+      new ScrollPacing((intervals) => {
+        if (!readOnly) void reportScrollPacing(intervals, callNative, renderRate);
+      }),
+    [renderRate, readOnly],
   );
   useEffect(() => () => pacing.stop(), [pacing]);
   // Find in Chat: a new current match scrolls its row in (it may not be mounted), then, once its
@@ -4054,11 +4121,13 @@ export function VirtualTranscript({
   const behind = !seeking && !renderFollowing && layout.totalHeight - height - renderScroll.top > JUMP_LATEST_DISTANCE;
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
-    <>
+    <ReadOnlyBoundary readOnly={readOnly}>
       <div
         ref={ref}
         className="acpmux-scroll"
         role="feed"
+        // A read-only transcript's right-clicks are reported to no host (conversation/messageMenu.ts).
+        data-read-only-transcript={readOnly ? "" : undefined}
         // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).
         {...(onAnchor ? { [WEB_SWAP_KEPT_SCROLL]: "kept" } : {})}
         aria-label={t("transcript.label")}
@@ -4215,7 +4284,7 @@ export function VirtualTranscript({
           needsYou={needsYou}
         />
       )}
-    </>
+    </ReadOnlyBoundary>
   );
 }
 

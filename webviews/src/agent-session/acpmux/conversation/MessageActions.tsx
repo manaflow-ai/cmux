@@ -17,6 +17,7 @@ import { CopyButton } from "./CopyButton";
 import { hasMessageMenuHost, openMessageMenu } from "./messageMenu";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { TurnActionsContext } from "./turnActions";
+import { useTranscriptReadOnly } from "./readOnly";
 
 /// A hover row's glyph size: Claude's 16 px icons, each in a 24 px (--cv-meta-row) button.
 export const ROW_ICON = 16;
@@ -78,6 +79,7 @@ export function ForkButton({ onFork }: { onFork(): unknown }) {
   const t = useT();
   const inFlight = useRef(false);
   const [state, setState] = useState<"idle" | "pending" | "done" | "failed">("idle");
+  const readOnly = useTranscriptReadOnly();
   const label =
     state === "pending"
       ? `${t("turn.fork")}…`
@@ -114,6 +116,7 @@ export function ForkButton({ onFork }: { onFork(): unknown }) {
       },
     );
   };
+  if (readOnly) return null;
   return (
     <button
       type="button"
@@ -144,7 +147,8 @@ export function ForkButton({ onFork }: { onFork(): unknown }) {
 export function PinButton({ rowId }: { rowId: string }) {
   const t = useT();
   const mark = useRowMark({ id: rowId });
-  if (!mark.can) return null;
+  const readOnly = useTranscriptReadOnly();
+  if (!mark.can || readOnly) return null;
   const label = t(mark.marked ? "message.unpin" : "message.pin");
   return (
     <button
@@ -166,7 +170,8 @@ export function PinButton({ rowId }: { rowId: string }) {
 /// right-click's report (messageMenu.ts); nothing where no host shows that menu.
 export function MessageMore({ rowId }: { rowId: string }) {
   const t = useT();
-  if (!hasMessageMenuHost()) return null;
+  const readOnly = useTranscriptReadOnly();
+  if (!hasMessageMenuHost() || readOnly) return null;
   const label = t("message.moreMenu");
   return (
     <button
@@ -241,7 +246,8 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
 export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }) {
   const t = useT();
   const { retry, retryWith } = useContext(TurnActionsContext);
-  if (!retry || !prompt) return null;
+  const readOnly = useTranscriptReadOnly();
+  if (!retry || !prompt || readOnly) return null;
   return (
     <span className="cv-message-retry">
       <button

@@ -59,6 +59,7 @@ import { cancelResize, playResize } from "./fold";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { wholeLineCut } from "./lineCut";
+import { useTranscriptReadOnly } from "./readOnly";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -99,6 +100,8 @@ export function IncomingMessageLine({
   githubRepository?: string;
 }) {
   const t = useT();
+  // Read only (a guest): the sender's chat is not this reader's to open, and nobody replies.
+  const readOnly = useTranscriptReadOnly();
   const session = useContext(PromptMarksSession);
   const key = `${session ?? ""}\u0000${id}`;
   // Whether the person opened it lasts while the page does (incomingOpened.ts), and the row
@@ -232,7 +235,7 @@ export function IncomingMessageLine({
     ? t("message.collapsedLabel", { from, preview: preview || t("message.noText") })
     : t("message.label", { from, to: t("message.self") });
   // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
-  const replies = onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
+  const replies = !readOnly && onReply !== undefined && message.sessionId !== undefined && message.msgId !== undefined;
   const [reply, setReplyState] = useState<"closed" | "open" | "sent" | "failed">(() =>
     replying.has(key) ? "open" : "closed",
   );
@@ -374,7 +377,7 @@ export function IncomingMessageLine({
             <AgentMark agent={sender.harness} size={14} fallback={<Bot size={16} />} />
           )}
         </span>
-        {sessionId ? (
+        {sessionId && !readOnly ? (
           <button
             type="button"
             className="cv-received__name"
