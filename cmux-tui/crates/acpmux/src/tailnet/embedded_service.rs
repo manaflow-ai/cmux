@@ -150,10 +150,6 @@ async fn run(hub: Arc<Hub>, mut stopping: watch::Receiver<bool>) {
     }
 }
 
-async fn close_node(controller: &Controller) {
-    let _ = tokio::time::timeout(NODE_CLOSE_BOUND, controller.shutdown()).await;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
