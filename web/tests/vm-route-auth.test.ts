@@ -1507,9 +1507,12 @@ describe("VM REST auth", () => {
         expect(route.constructor).toHaveBeenCalledTimes(1);
         const provisionInput = (route.constructor.mock.calls as unknown[][])[0]?.[0] as {
           modelPlane?: { provision?: unknown; revoke?: unknown };
+          deferAfterResponse?: unknown;
         };
         expect(typeof provisionInput.modelPlane?.provision).toBe("function");
         expect(typeof provisionInput.modelPlane?.revoke).toBe("function");
+        // Guest work after the answer (the vm-kind record) is kept alive by the platform, never detached.
+        expect(typeof provisionInput.deferAfterResponse).toBe("function");
       }
     }
   });

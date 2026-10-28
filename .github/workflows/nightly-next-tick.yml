@@ -1,26 +1,29 @@
 name: nightly-next tick
 
-# A NEXT nightly used to start only from a feat-cmux-next push: cmux-next.yml's
-# request-nightly-next after a green Release compile, or cmux-tui-artifacts.yml
-# once the commit's tree published. A push whose run was cancelled by the next
-# push, or whose request waited on a stalled pool, asked for nothing. This tick
-# asks again whenever a cmux-next or cmux-tui artifacts push run on
-# feat-cmux-next finishes, whatever its conclusion (a cancelled run finishes
-# too), and on demand, for the newest feat-cmux-next commit that is buildable
-# (green Release compile, published cmux-tui tree, fresh strings;
-# scripts/cmux-next/request-nightly-next.sh). The event path still starts builds
-# as soon as possible, and a 30-minute catch-up handles missed workflow events
-# (the dedicated builder Mac is cmux22, plans/cmux-next/nightly-builder-DESIGN.md).
-# Main's promote job ignores
-# a request that does not move nightly-next forward, and the shared concurrency
-# group below keeps one tick running and the newest one waiting, so a burst of
-# finished runs costs at most two ticks. GitHub runs `workflow_run` only from the default
-# branch: this file must exist on main.
+# The nightly-next cadence: every 30 minutes this tick moves nightly-next to the
+# newest feat-cmux-next commit that is buildable (published, daemon-tested
+# cmux-tui tree, fresh strings; scripts/cmux-next/request-nightly-next.sh), and
+# that push starts exactly one nightly build. Main's promote job ignores a
+# request that does not move nightly-next forward, so a tick with nothing new
+# starts nothing. Builds are never cancelled: a tick may start a newer build
+# beside a running one, and publication is latest-wins (publish-nightly's
+# check-build recheck refuses a build no newer than the feed).
+#
+# Until 2026-10-28 every cmux-next or cmux-tui artifacts run on feat-cmux-next
+# also promoted (workflow_run here, and request-nightly-next in those
+# workflows), so each landing started a full Release build: six ran at once on
+# 2026-10-28 and only the newest could publish. Leo: "every 30 mins or so you
+# do it / within 30min you replace". Only the tick promotes now: its request
+# carries the "tick:" prefix (the gh shim below marks it), and main's promote
+# job skips a request without it from github-actions[bot], since older
+# revisions of request-nightly-next.sh still send one on every landing
+# (promote-nightly-next.mjs decideRequest). The tick also sets
+# NIGHTLY_NEXT_PROMOTE=1, without which newer revisions only report. A
+# person's dispatch still promotes. Landing to live on /next/ is then at most
+# 30 minutes plus one build, sign and publish. nightly-next-feed-watch.yml dispatches this tick
+# when the feed falls behind, the backstop for a tick GitHub's scheduler drops.
+# A schedule runs only from the default branch: this file must exist on main.
 on:
-  workflow_run:
-    workflows: ["cmux-next", "cmux-tui artifacts"]
-    branches: [feat-cmux-next]
-    types: [completed]
   schedule:
     - cron: "7,37 * * * *"
   workflow_dispatch:
@@ -33,14 +36,9 @@ on:
 
 permissions: {}
 
-env:
-  # `workflows:` spells display names; these are the files behind them
-  # (tests/test_ci_workflow_run_sources.py).
-  SOURCE_WORKFLOW_PATHS: .github/workflows/cmux-next.yml .github/workflows/cmux-tui-artifacts.yml
-
 jobs:
   request:
-    if: github.repository == 'manaflow-ai/cmux' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository)
+    if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     # 15 minutes of work, plus the hour its gh calls may wait for a rate limit (below).
     timeout-minutes: 75
@@ -49,9 +47,8 @@ jobs:
     # reads the branch tip when it starts, so a replaced pending tick loses
     # nothing, and no build is ever cancelled: the builds run in nightly.yml,
     # whose own groups never cancel (a delivery-concurrency test enforces it).
-    # The group is on the job, so a tick whose `if` skips it (a non-push
-    # source run) never replaces a waiting one, and a dispatch for one
-    # commit gets its own group so a later tick cannot replace it.
+    # A dispatch for one commit gets its own group so a later tick cannot
+    # replace it.
     # This replaced a github-script coalescer that listed this workflow's runs
     # every 15 s for up to 12 minutes per waiting tick, a large share of the
     # repository's GITHUB_TOKEN quota (nightly-next runs 40234225207 and
@@ -81,6 +78,12 @@ jobs:
           sparse-checkout: |
             scripts/ci/gh_budget_wait.sh
             scripts/ci/nightly_next_cancelled_tip.sh
+            scripts/ci/nightly_repick.py
+            scripts/ci/owned_pool_rescue.py
+            scripts/ci/owned_pool_sources.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/simple_pool_picker.py
+            scripts/ci/ui_tests_dispatch.py
           sparse-checkout-cone-mode: false
 
       # A tick refused "API rate limit exceeded for installation" lost its promotion
@@ -109,6 +112,17 @@ jobs:
           gh workflow run nightly-next-train.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next -f mode="$MODE" \
             || echo "::warning::could not start the nightly-next train ($MODE); is nightly-next-train.yml on feat-cmux-next and main?"
 
+      # nightly_repick.py (run by the re-run below) reads nightly.yml's `needs` graph with
+      # PyYAML. Best effort: without it the re-run takes the attempt's failed jobs, as before.
+      - name: Prepare the re-run's Python
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 -c 'import yaml' 2>/dev/null && exit 0
+          python3 -m venv "$RUNNER_TEMP/tick-venv"
+          "$RUNNER_TEMP/tick-venv/bin/python" -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+          echo "$RUNNER_TEMP/tick-venv/bin" >> "$GITHUB_PATH"
+
       # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
       # re-run, run 40340830337) is never requested again below ("already on
       # nightly-next"), so it is re-run here; scripts/ci/nightly_next_cancelled_tip.sh.
@@ -123,6 +137,8 @@ jobs:
         if: vars.NIGHTLY_NEXT_TRAIN != 'on'
         env:
           GH_TOKEN: ${{ github.token }}
+          # The cadence: request-nightly-next.sh dispatches a promotion only from here.
+          NIGHTLY_NEXT_PROMOTE: "1"
         run: |
           set -euo pipefail
           # The tip's cmux-tui tree is often still publishing, so walk back
@@ -133,8 +149,8 @@ jobs:
           # Each commit runs its own revision of request-nightly-next.sh, and
           # each call listed 99 cmux-next push runs and read their jobs again,
           # up to 120 times a tick: with the old coalescer, most of the
-          # repository's GITHUB_TOKEN budget (2026-10-25). Two cuts, both here
-          # so they hold for every revision:
+          # repository's GITHUB_TOKEN budget (2026-10-25). Two cuts and the cadence
+          # mark, all here so they hold for every revision:
           # 1. A gh in front of PATH keeps those two read-only listings for
           #    this tick (a failed read is never kept).
           # 2. --tree-ready answers for the commit's cmux-tui tree: it searches
@@ -160,6 +176,20 @@ jobs:
                 exit
                 ;;
             esac
+          fi
+          # 3. The tick's promotion request carries the "tick:" prefix, which
+          #    main's promote job admits (a landing's request lacks it), so
+          #    every revision's dispatch is marked here.
+          if [[ "${1:-} ${2:-} ${3:-}" == "workflow run nightly.yml" ]]; then
+            args=()
+            for arg in "$@"; do
+              # Any form: "-f k=v" (k=v alone), "-fk=v", "--field=k=v", -F, --raw-field.
+              if [[ "$arg" == *promote_nightly_next_sha=* && "$arg" != *promote_nightly_next_sha=tick:* ]]; then
+                arg="${arg/promote_nightly_next_sha=/promote_nightly_next_sha=tick:}"
+              fi
+              args+=("$arg")
+            done
+            exec "$GH_REAL" "${args[@]}"
           fi
           exec "$GH_REAL" "$@"
           SH

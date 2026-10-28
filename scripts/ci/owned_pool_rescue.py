@@ -224,7 +224,9 @@ attempt takes Blacksmith. That runner is reserved for the build
 (reserved_runner()): a wait for it is never stuck, queued or in its setup,
 because it ends when that runner finishes what it holds, and a Blacksmith
 re-run of a nightly waited an hour or more (runs 39318999424, 39320477722,
-39329116254, 2026-10-19). Only a refusal is acted on. A nightly job with no
+39329116254, 2026-10-19). Only a refusal is acted on. Another job pinned to
+that runner (main's prepare-nightly-variant legs) waits RESERVED_FOLLOWER_SECONDS
+at most, then moves like a stuck job. A nightly job with no
 runner label of its own gets the configured budget (CI_OWNED_POOL_RESCUE_SECONDS)
 like a side lane. A refused job waits for the run to finish (the signing job is
 skipped behind it) and then gets its failed jobs re-run. The run is not a pull
@@ -236,6 +238,29 @@ this run's commit. A superseded run is never re-run; the newer run builds the
 newer head. A superseded run that has not finished (a refusal at the watch's
 end, or a stuck job with no reserved runner) is cancelled, not re-run, so the
 newer run starts; a build waiting on its reserved runner never gets that far.
+On nightly-next, nightly.yml's pick-nightly-build-runner also gives a
+workflow_dispatch run, and a re-run that picks again, an idle owned Mac
+(nightly_build_runner.py). Neither may start a workflow_run event (a dispatch
+or re-run made with GITHUB_TOKEN starts none, and the workflow_run watch takes
+attempt 1 only), so that job uploads the owned-pool-watch marker and the
+sweeper adopts the run at whatever attempt it is on (NIGHTLY_NEXT_EVENTS,
+owned_rerun()). A refusal there gets its failed jobs re-run, and that re-run
+keeps the earlier attempt's pick, so it takes Blacksmith.
+
+A nightly's signing jobs, and the jobs that verify, image, recover or follow
+them (NIGHTLY_SIGN_ALTERNATES; on main, attempt 1 only), stay on Blacksmith macOS. One queued there with no
+runner past the Blacksmith stall time (simple_pool_picker's
+BLACKSMITH_STALL_MINUTES) is moved by a re-run of failed jobs, whose attempt 2
+takes the alternate label nightly_sign_runner.py picked on attempt 1. GitHub
+re-runs jobs only in a finished run, so this cancels the run first, which a
+started nightly allows only when it loses no work: every other job of the run
+has finished and no runner has taken the stalled jobs (signing_stall()). While
+any other job is still running or queued the rescue only logs and looks again.
+It acts only when the run's own nightly.yml has the attempt-2 alternate in the
+job's runs-on (sign_stall_gate()); otherwise the re-run would queue on the same
+label. From attempt 2 on (through SIGN_RESCUE_LAST_ATTEMPT) a re-run of failed
+jobs would read that attempt's own pick, the label that stalled, so the run is
+re-run in full and its pickers choose again (signing_rerun_full()).
 
 A job stuck with no runner is not rescued while another job of its run is
 running on a persistent runner, whatever the workflow: the rescue cancels the
@@ -370,6 +395,9 @@ QUEUEING_WORKFLOW_PATHS = (CI_WORKFLOW_PATH, IOS_TEST_WORKFLOW_PATH, E2E_WORKFLO
 # main, and Blacksmith on every later attempt.
 NIGHTLY_WORKFLOW_PATH = ".github/workflows/nightly.yml"
 NIGHTLY_EVENTS = frozenset({"push", "schedule"})
+# nightly-next's pick-nightly-build-runner places a push or a dispatch (any attempt) on an idle owned Mac;
+# a dispatch and a re-run reach the sweeper through its owned-pool-watch marker.
+NIGHTLY_NEXT_EVENTS = frozenset({"push", "workflow_dispatch"})
 # The trusted owned pool's labels: minis with no pull request runners, whose
 # job-started hook admits only main's push and schedule jobs. Only nightly.yml's
 # app build asks for one through this watch.
@@ -379,7 +407,10 @@ TRUSTED_LABEL = re.compile(r"glaeda-(?:root-)?trusted-(?:xl|std|light)-xcode-[0-
 # The freshness slot's dev role (glaeda#1628, vars.CI_DEV_COMPILE_RUNNER, glaeda-dev-std-xcode-26.6) too:
 # cmux-next.yml's macos-placement puts a feed compile there, and a job there that no runner acquired
 # needs the same re-run as one on any other owned label.
-LANE_LABEL = re.compile(r"glaeda-(?:aws-)?(?:session-|fast-|dev-)(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
+# The nightly slot (glaeda#1684, runner.nightlySlot, glaeda-nightly-std-xcode-26.6) too: one runner per mini
+# that takes only nightly jobs, which nightly-next's build picker offers first (vars.CI_NIGHTLY_NEXT_BUILD_RUNNER).
+LANE_LABEL = re.compile(
+    r"glaeda-(?:aws-)?(?:session-|fast-|dev-|nightly-)(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
 # The freshness slot's own labels, a subset of LANE_LABEL: a job that started there is a DEV feed compile,
 # which nothing automatic cancels (started_dev_compile()).
 DEV_LABEL = re.compile(r"glaeda-(?:aws-)?dev-(?:xl|std|light)-xcode-[0-9]+(?:\.[0-9]+)*")
@@ -410,6 +441,8 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-tui-artifacts.yml",
     ".github/workflows/cmux-tui.yml",
     ".github/workflows/iroh-v2.yml",
+    # The post-publication canary's Mac job takes the side label on attempt 1.
+    ".github/workflows/nightly-next-canary.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/reload-build.yml",
     ".github/workflows/remote-daemon.yml",
@@ -442,6 +475,10 @@ UNRESCUED_WORKFLOW_PATHS = {
         "cmux-tui nightly packages: a release step, so a person re-runs it",
     ".github/workflows/ios-internal-nightly.yml":
         "feat-cmux-next only; signs and uploads the internal iOS build: a release step, so a person re-runs it",
+    ".github/workflows/nightly-next-train.yml":
+        "the train's candidate Release compile takes an owned Mac only while one is idle (pick-train-runner); "
+        "the train's own drive (nightly_next_train_drive.py) re-runs a compile an owned Mac refused, and that "
+        "re-run takes Blacksmith",
     ".github/workflows/main-compile-probe.yml":
         "one optional compile data point for main's compile attribution; its dispatcher already sends a probe "
         "that has not started to Blacksmith, and nothing waits on it",
@@ -553,6 +590,11 @@ def owned_rerun(run: Mapping[str, Any]) -> bool:
     attempt = int(run.get("run_attempt") or 0)
     if attempt <= 1:
         return False
+    if run.get("path") == NIGHTLY_WORKFLOW_PATH:
+        # nightly-next's picker places any attempt that runs it again (a person's full re-run) on an idle owned
+        # Mac and marks it; a re-run of failed jobs keeps the earlier pick and takes Blacksmith, so its watch
+        # ends at its first look. The sweeper adopts it only by that marker.
+        return run.get("head_branch") == "nightly-next"
     actor = str((run.get("triggering_actor") or {}).get("login") or "")
     if run.get("path") == CMUX_NEXT_WORKFLOW_PATH:
         # Manual side-lane reruns stay minis-first at any attempt. The bot's
@@ -625,6 +667,27 @@ def job_pool(job: Mapping[str, Any]) -> str | None:
     return None
 
 
+# The nightly jobs whose wait for their reserved runner is never timed: the app build, which that runner is kept
+# for. Any other job pinned to it (main's prepare-nightly-variant legs, #26494, which take the trusted mini right
+# after its build when the picker saw it idle) moves after RESERVED_FOLLOWER_SECONDS: main's push nightlies run
+# in parallel, so a newer push's build can take the mini between the pick and the legs, and they would wait
+# behind a whole build. The re-run of failed jobs takes the job's Blacksmith fallback.
+RESERVED_UNTIMED_JOBS = frozenset({"build-nightly-app"})
+RESERVED_FOLLOWER_SECONDS = 5 * 60  # the queue alarm (QUEUE_ALARM_SECONDS)
+
+
+def reserved_follower(job: Mapping[str, Any]) -> bool:
+    """A job pinned to a reserved runner that is not the build kept for it (RESERVED_UNTIMED_JOBS)."""
+    name = str(job.get("name") or "")
+    return not any(name == build or name.startswith(build + " (") for build in RESERVED_UNTIMED_JOBS)
+
+
+def app_built(jobs: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether the run's app build (RESERVED_UNTIMED_JOBS) succeeded on this attempt's job list."""
+    return any(not reserved_follower(job) and job.get("status") == "completed" and job.get("conclusion") == "success"
+               for job in jobs)
+
+
 def reserved_runner(job: Mapping[str, Any]) -> str | None:
     """The one runner a job asked for by its own label (`glaeda-runner-<name>`), if any.
 
@@ -654,6 +717,127 @@ def started_dev_compile(jobs: Sequence[Mapping[str, Any]]) -> str | None:
             if DEV_LABEL.fullmatch(str(label)):
                 return str(label)
     return None
+
+
+# nightly.yml's Blacksmith macOS sign, verify and DMG jobs, on both branches: the signing jobs, which hold the
+# release keys, and the jobs that verify, image, recover or follow them. On 2026-10-27 build-sign-notarize-nightly
+# and sign-nightly-identity-legacy sat 16 minutes (10:58 to 11:14Z) on a starved blacksmith-6vcpu-macos-26 in run
+# 40489472569. From attempt 2 on, each job's runs-on reads `github.run_attempt > 1 && needs.<job>.outputs.<name>`:
+# an alternate macOS 26 label the sign picker chose on attempt 1 (nightly_sign_runner.py on nightly-next, #26171;
+# classic_nightly_build_runner.py on main, whose expression also checks the pick's own attempt), which a re-run of
+# failed jobs keeps. Each job maps to its jobs-API name (a matrix leg adds ` (arm64)`) and the expressions that
+# give it that label. The rescue acts on a job only when the run's own nightly.yml has one of them in the job's
+# runs-on (sign_stall_gate()); without it a re-run would queue on the same stalled label, so the job is left alone.
+# nightly-next's signer-dmg-image and signer-verify were missing until 2026-10-28: run 40585960129's signer-verify
+# sat queued on blacksmith-6vcpu-macos-26 for over an hour, and as a job outside this table it counted as
+# unfinished work, so the run's stalled final-DMG verify was never moved either.
+# tests/test_ci_owned_pool_sources.py derives the jobs that need an entry from both branches' nightly.yml
+# (owned_pool_sources.uncovered_sign_jobs()).
+_SIGN_ALTERNATE = "github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate"
+_CLASSIC_SIGN_ALTERNATE = ("github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.attempt != "
+                           "github.run_attempt && needs.pick-classic-sign-runner.outputs.alternate")
+_RECOVERY_ALTERNATE = "github.run_attempt > 1 && needs.find-nightly-next-recovery.outputs.sign_alternate"
+_LEGACY_ALTERNATE = "github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate"
+NIGHTLY_SIGN_ALTERNATES: dict[str, tuple[str, tuple[str, ...]]] = {
+    "build-sign-notarize-nightly": ("build-sign-notarize-nightly", (_SIGN_ALTERNATE, _CLASSIC_SIGN_ALTERNATE)),
+    "verify-signed-nightly": ("Verify signed nightly app", (_SIGN_ALTERNATE, _CLASSIC_SIGN_ALTERNATE)),
+    "verify-final-dmg-nightly": ("Verify final nightly DMG", (_SIGN_ALTERNATE,)),
+    "signer-dmg-image": ("signer-dmg-image", (_SIGN_ALTERNATE,)),
+    "signer-verify": ("signer-verify", (_SIGN_ALTERNATE,)),
+    "generate-nightly-deltas": ("generate-nightly-deltas", (_SIGN_ALTERNATE, _CLASSIC_SIGN_ALTERNATE)),
+    "recover-nightly-next-notarization": ("recover-nightly-next-notarization", (_RECOVERY_ALTERNATE,)),
+    "verify-recovered-nightly-next": ("verify-recovered-nightly-next", (_RECOVERY_ALTERNATE,)),
+    "sign-nightly-identity-legacy": ("sign-nightly-identity-legacy", (_LEGACY_ALTERNATE,)),
+    "verify-nightly-identity-legacy": ("verify-nightly-identity-legacy", (_LEGACY_ALTERNATE,)),
+}
+SIGN_BLACKSMITH_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-macos-[0-9]+(?:-[a-z0-9]+)*")
+# simple_pool_picker.blacksmith_stalled()'s rule: a Blacksmith job with no runner this long is on a stalled label.
+SIGN_STALL_SECONDS = simple_pool_picker.BLACKSMITH_STALL_MINUTES * 60
+# The last attempt whose stalled signing jobs are rescued. Attempt 1 re-runs its failed jobs: attempt 2 reads the
+# `alternate` its pickers wrote. From attempt 2 on a re-run of failed jobs would read that attempt's own outputs,
+# the very label that stalled (run 40500413442, 2026-10-27: attempt 2's legacy sign queued on
+# blacksmith-12vcpu-macos-26 from 13:01Z, its verify jobs from 15:15Z), so the run is re-run in full: the pickers
+# run again and choose afresh, never a size their snapshot sees stalled (nightly_sign_runner.py, #26239). A full
+# re-run builds the app again, so it stops here.
+SIGN_RESCUE_LAST_ATTEMPT = 3
+
+
+def signing_rerun_full(attempt: int) -> bool:
+    """Whether a signing-stall rescue of `attempt` re-runs the whole run (the pickers choose again) rather than its
+    failed jobs (which take the alternate attempt 1's pickers wrote)."""
+    return attempt > 1
+
+
+def sign_job_key(job: Mapping[str, Any]) -> str | None:
+    """The NIGHTLY_SIGN_ALTERNATES job a jobs-API job is, if any."""
+    name = str(job.get("name") or "")
+    return next((key for key, (shown, _) in NIGHTLY_SIGN_ALTERNATES.items()
+                 if name == shown or name.startswith(shown + " (")), None)
+
+
+def signing_stall(jobs: Sequence[Mapping[str, Any]], now: dt.datetime,
+                  first_seen: Mapping[Any, dt.datetime] | None = None) -> Look | None:
+    """nightly-next's signing jobs (NIGHTLY_SIGN_ALTERNATES) queued on Blacksmith macOS past SIGN_STALL_SECONDS
+    with no runner, or None.
+
+    GitHub re-runs jobs only in a finished run, so moving a queued job means cancelling the run first,
+    and a started nightly is never cancelled for a slow runner. A cancel here loses no work only when
+    every other job of the run has finished: then the run holds nothing but the stalled jobs, which no
+    runner has taken. So Look "stalled" (cancel, then re-run failed jobs, so only those jobs run again)
+    needs both. Anything else still in progress or queued (the other signing job included, until it
+    stalls too) gives Look "watch": the next look decides again.
+    """
+    seen = first_seen or {}
+    stalled = [job for job in jobs if sign_job_key(job) and waiting_for_runner(job)
+               and any(SIGN_BLACKSMITH_LABEL.fullmatch(str(label)) for label in job.get("labels") or [])
+               and queued_seconds(job, now, seen.get(job.get("id"))) >= SIGN_STALL_SECONDS]
+    if not stalled:
+        return None
+    names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stalled))
+    label = next(str(label) for label in stalled[0].get("labels") or [] if SIGN_BLACKSMITH_LABEL.fullmatch(str(label)))
+    busy = sorted(str(job.get("name") or job.get("id")) for job in jobs
+                  if job.get("status") != "completed" and not any(job is other for other in stalled))
+    if busy:
+        return Look("watch", f"{names} queued on {label} with no runner past the {SIGN_STALL_SECONDS}s Blacksmith "
+                             f"stall time, but {', '.join(busy)} not finished; cancelling the run would lose that "
+                             "work, so it is not rescued on this look", waiting=True)
+    return Look("stalled", f"{names} queued on {label} with no runner past the {SIGN_STALL_SECONDS}s Blacksmith "
+                           "stall time, and every other job of the run has finished")
+
+
+def gated_signing_stall(jobs: Sequence[Mapping[str, Any]], now: dt.datetime, first_seen: Mapping[Any, dt.datetime],
+                        workflow_text: str | None) -> Look | None:
+    """signing_stall(), with Look "stalled" turned into "watch" unless the runs-on in `workflow_text` of every
+    covered job of the run takes its alternate label on a re-run (sign_stall_gate())."""
+    stall = signing_stall(jobs, now, first_seen)
+    if stall is None or stall.action != "stalled":
+        return stall
+    # Every covered job of the run, finished or not: a re-run of failed jobs also re-runs a signing job that
+    # failed or was cancelled, and that one must take its alternate label too.
+    keys = sorted({key for job in jobs for key in [sign_job_key(job)] if key})
+    missing = sign_stall_gate(workflow_text, keys)
+    if missing:
+        return Look("watch", f"{stall.reason}, but the runs-on of {', '.join(missing)} at the run's head takes no "
+                             "alternate label on a re-run, so a re-run would queue on the same label; not rescued",
+                    waiting=True)
+    return stall
+
+
+def sign_stall_gate(workflow_text: str | None, keys: Sequence[str]) -> list[str]:
+    """The jobs among `keys` whose runs-on in `workflow_text` lacks every attempt-2 alternate label expression
+    NIGHTLY_SIGN_ALTERNATES gives them. Fails closed: a missing or unreadable file, or a missing job, counts."""
+    if not workflow_text:
+        return sorted(keys)
+    try:
+        spec = owned_pool_sources._load(workflow_text).get("jobs") or {}
+    except Exception:  # noqa: BLE001 - an unparseable file, or no PyYAML, takes no re-run
+        return sorted(keys)
+    missing = []
+    for key in keys:
+        runs_on = str((spec.get(key) or {}).get("runs-on") or "") if isinstance(spec.get(key), Mapping) else ""
+        if not any(expression in runs_on for expression in NIGHTLY_SIGN_ALTERNATES[key][1]):
+            missing.append(key)
+    return sorted(missing)
 
 
 def waiting_for_runner(job: Mapping[str, Any]) -> bool:
@@ -807,10 +991,125 @@ def unacquired(job: Mapping[str, Any]) -> bool:
     Run 39607661629's ios-simulator-build (2026-10-21) waited 4 minutes for glaeda-ios-sim, then GitHub
     cancelled it alone ("The job was not acquired by Runner of type self-hosted even after multiple
     attempts") and the run ended in failure. A run cancelled as a whole leaves its queued jobs the same
-    way, so watch() counts this only in a run that finished with another conclusion.
+    way, so watch() counts this only in a run that finished with another conclusion, or one the rescue
+    itself cancelled and never re-ran (rerun_intended()).
     """
     return bool(job_pool(job)) and job.get("status") == "completed" and job.get("conclusion") == "cancelled" \
         and not job.get("runner_name") and not job.get("steps")
+
+
+# GitHub's annotation on the jobs of a cancelled run: "The run was canceled by @cmux-bot[bot]." (DEV run 40506100431).
+CANCELLED_BY = re.compile(r"\bThe run was cancell?ed by @([A-Za-z0-9-]+(?:\[bot\])?)")
+
+
+# Annotation reads per look: GitHub writes the "canceled by" line on some of a cancelled run's jobs, so each is read
+# until one names the canceller; a run with more cancelled jobs than this, none read naming one, is unknown.
+CANCELLED_BY_READS = 30
+# Pages of 100 annotations read per job; a job with more is unknown (GitHub keeps at most 50 per step and 10 steps' worth).
+ANNOTATION_PAGES = 5
+
+
+class RescueHistoryCapped(Exception):
+    """The rescue runs were not all listed (GitHub.rescue_jobs() read RESCUE_RUN_PAGES pages and found no end): a
+    settled mark may be on the next page, so no intent is read from it. Not a read error: read() does not retry it."""
+
+
+class RescueHistoryLive(RescueHistoryCapped):
+    """Another rescue run that could have resumed this run's re-run (a sweeper, or this run's own watch) is still
+    running: its CANCEL_SETTLED, if any, cannot be read until it ends (GitHub.rescue_jobs())."""
+
+
+class AnnotationsCapped(Exception):
+    """A job's annotations were not all read (GitHub.annotations()); not a read error, so read() does not retry it."""
+# rescue() logs CANCEL_SENT once the cancel it means to follow with a re-run went out, and CANCEL_SETTLED when it is
+# done with that cancel either way (re-ran, or left it: a moved head, someone else's re-run, an error). Both are
+# in the rescue job's own log, which outlives the job: a run with CANCEL_SENT and no CANCEL_SETTLED is one whose
+# rescue job stopped in between (cancelled, killed, out of time), and a successor re-runs it (rerun_intended()).
+# The queue janitor cancels as cmux-bot too, so the actor alone cannot say whose cancel it was.
+_SETTLED_LOCK = threading.Lock()
+CANCEL_SENT = "owned-pool rescue: cancel sent, re-run to follow:"
+CANCEL_SETTLED = "owned-pool rescue: cancel settled:"
+CANCEL_MARK = re.compile(r"owned-pool rescue: (cancel sent, re-run to follow|cancel settled): run (\d+) attempt (\d+)"
+                         r"(?=\s|$)( of every job)?")
+# CANCEL_SENT's tail when the re-run to follow is of every job (rescue()'s failed_only off), not its failed ones.
+EVERY_JOB = " of every job"
+# A rescue job's life: a sweeper's SWEEP_SECONDS and its rescue grace, within ci-owned-pool-rescue.yml's
+# timeout-minutes (345); a single watch's JOB_TIMEOUT_SECONDS is shorter.
+RESCUE_JOB_LIFETIME_SECONDS = 345 * 60
+RESCUE_RUN_PAGES = 10
+# A rescue job's log is read as a stream up to this much; a longer one is not judged (the run stays cancelled).
+JOB_LOG_MAX_BYTES = 256 * 1024 * 1024
+# A log line is read at most this much at a time; the rest of a longer one is skipped.
+JOB_LOG_LINE_BYTES = 64 * 1024
+
+
+def cancel_marks(lines: Any) -> dict[tuple[int, int], str]:
+    """The last CANCEL_SENT or CANCEL_SETTLED mark of each (run id, attempt) in a log's lines: "sent" (its failed jobs
+    to be re-run), "sent all" (every job) or "settled"."""
+    found: dict[tuple[int, int], str] = {}
+    for line in lines:
+        if "owned-pool rescue: cancel" not in line:
+            continue
+        for mark in CANCEL_MARK.finditer(line):
+            found[(int(mark.group(2)), int(mark.group(3)))] = (
+                ("sent all" if mark.group(4) else "sent") if mark.group(1).startswith("cancel sent") else "settled")
+    return found
+
+
+def canceller(api: GitHub, jobs: Sequence[Mapping[str, Any]], sleep: Callable[[float], None],
+              log: Callable[[str], None]) -> str | None:
+    """Who cancelled the run, as GitHub's annotation on one of its cancelled jobs says ("" when none of them says;
+    None when the annotations could not be read, or not all of them). Jobs no runner acquired first."""
+    cancelled = sorted((job for job in jobs if job.get("conclusion") == "cancelled" and job.get("id")),
+                       key=lambda job: not unacquired(job))
+    for job in cancelled[:CANCELLED_BY_READS]:
+        try:
+            notes = read(lambda: api.annotations(int(job["id"])), sleep, log)
+        except (*READ_ERRORS, AnnotationsCapped) as error:
+            log(f"could not read who cancelled the run ({error})")
+            return None
+        for note in notes:
+            found = CANCELLED_BY.search(str(note.get("message") or ""))
+            if found:
+                return found.group(1)
+    if len(cancelled) > CANCELLED_BY_READS:
+        log(f"{len(cancelled)} cancelled jobs, and none of the first {CANCELLED_BY_READS} names who cancelled the run")
+        return None
+    return ""
+
+
+def rerun_intended(api: GitHub, run: Mapping[str, Any], attempt: int, sleep: Callable[[float], None],
+                   log: Callable[[str], None]) -> str:
+    """"failed" or "all" (the re-run it meant) when a rescue job that has ended logged CANCEL_SENT for this run's
+    attempt and no CANCEL_SETTLED: it cancelled the run to re-run it and stopped before it was done (cancelled,
+    killed, out of time); "" otherwise.
+
+    Only the rescue jobs that ended no earlier than CANCEL_WAIT_SECONDS (the longest a cancel takes to settle)
+    before the run finished are read: those that ran when it was cancelled, and every later one, so a successor
+    that already resumed the re-run (its CANCEL_SETTLED) stops the next from resuming it again. Fails closed:
+    a mark read nowhere, or a log that cannot be read, leaves the run cancelled."""
+    finished = parse_time(run.get("updated_at"))
+    if finished is None:
+        return ""
+    wanted = (int(run.get("id") or 0), attempt)
+    with _SETTLED_LOCK:
+        if wanted in SETTLED_HERE:
+            return ""  # this sweeper settled it already (its own log is read only once it ends)
+    state = ""
+    try:
+        for job_id in read(lambda: api.rescue_jobs(finished - dt.timedelta(seconds=CANCEL_WAIT_SECONDS), wanted[0]),
+                           sleep, log):
+            marks = read(lambda: api.job_marks(job_id), sleep, log)
+            if marks is None:
+                log(f"rescue job {job_id}'s log could not be read whole; the run is left cancelled")
+                return ""
+            state = marks.get(wanted) or state
+            if state == "settled":
+                return ""
+    except (*READ_ERRORS, RescueHistoryCapped) as error:
+        log(f"could not read the rescue jobs' logs ({error}); the run is left cancelled")
+        return ""
+    return {"sent": "failed", "sent all": "all"}.get(state, "")
 
 
 def accepted(job: Mapping[str, Any], now: dt.datetime) -> bool:
@@ -989,8 +1288,13 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
                                    first_seen=seen.get(job.get("id"))) for job in waiting}
     kept = [job for job in jobs if reserved and job_pool(job) and reserved_runner(job)
             and (waiting_for_runner(job) or in_setup(job))]
+    # A job other than the build waits for the reserved runner RESERVED_FOLLOWER_SECONDS at most.
+    timed_out = [job for job in kept if reserved_follower(job) and waiting_for_runner(job)
+                 and queued_seconds(job, now, seen.get(job.get("id"))) >= RESERVED_FOLLOWER_SECONDS]
+    kept = [job for job in kept if not any(job is other for other in timed_out)]
     stuck = [job for job in waiting if queued_seconds(job, now, seen.get(job.get("id"))) >= budgets[id(job)]
              and not any(job is other for other in kept)]
+    stuck += [job for job in timed_out if not any(job is other for other in stuck)]
     names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck))
     # Rescuing normally cancels the whole run, so a job already running on a
     # persistent runner would die with the stuck one and move to Blacksmith
@@ -999,6 +1303,10 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     # when another side job is still running. Manual reruns stay minis-first
     # through attempt 2; the bot's next rerun is the overflow.
     on_mini = [job for job in jobs if job_pool(job) and job.get("status") == "in_progress" and not in_setup(job)]
+    if reserved:
+        # A started nightly is never cancelled for a slow runner: any job of it a runner has taken, anywhere
+        # (a Blacksmith helper build, a Linux sibling, one still in its runner's setup), blocks the cancel.
+        on_mini = [job for job in jobs if job.get("status") == "in_progress"]
     # A job that failed on its own (not refused by the fleet) has already made the run red. Cancelling
     # and re-running it repeats that failure and puts the stuck job at the back of the same queue
     # (feat-cmux-next, 2026-10-20: 33 of 44 cmux-next pull request runs reached attempt 2 or 3, each
@@ -1016,8 +1324,12 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     # shards that way to a refusal), so a job held in setup waits for them, as a
     # refusal does, until the watch is about to end.
     running = [job for job in jobs if job.get("status") == "in_progress" and not in_setup(job)]
+    if reserved:
+        # A nightly job held in setup has started too (and so has any sibling in its setup): never cancelled.
+        running = [job for job in jobs if job.get("status") == "in_progress"]
     closing = deadline is not None and now >= deadline - dt.timedelta(seconds=END_MARGIN_SECONDS)
-    if held and not decided and (not running or closing):
+    # A nightly's running sibling is never cancelled, not even as the watch ends.
+    if held and not decided and (not running or closing and not reserved):
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in held))
         return Look("rescue", f"{names} waited in {job_pool(held[0])}'s runner setup for capacity for at least "
                               f"{SETUP_WAIT_SECONDS}s")
@@ -1039,7 +1351,9 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
         return Look("watch", f"{held_for} waiting for the runner reserved for it; never moved", waiting=True)
     if stuck:
         return Look("watch", f"{names} queued on {job_pool(stuck[0])} with no runner, but "
-                             f"{len(on_mini)} job(s) of the run are running on a persistent runner", waiting=True)
+                             f"{len(on_mini)} job(s) of the run are running"
+                             + (" (a started nightly is never cancelled)" if reserved else " on a persistent runner"),
+                    waiting=True)
     if waiting or settling:
         return Look("watch", f"{len(waiting)} job(s) waiting for a persistent runner, {len(settling)} in its setup",
                     waiting=True)
@@ -1174,6 +1488,10 @@ class GitHub:
         self._lock = threading.Lock()
         # GET answers by (token, path): (ETag, body, monotonic time read or confirmed).
         self._cache: dict[tuple[str, str], tuple[str, bytes, float]] = {}
+        # Finished jobs' cancel marks by job id (job_marks()): a finished job's log no longer changes.
+        self._logs: dict[int, dict[tuple[int, int], str] | None] = {}
+        # This rescue job's own workflow run (GITHUB_RUN_ID), which rescue_jobs() never waits on.
+        self.own_run = 0
         # Requests by (kind, "charged" | "not modified"), for the budget lines.
         self.counts: dict[tuple[str, str], int] = {}
         self.started = time.monotonic()
@@ -1334,7 +1652,8 @@ class GitHub:
         return True
 
     def request(self, method: str, path: str, *, own_token: bool = False, body: Mapping | None = None,
-                before_retry: Callable[[], None] | None = None, refreshed: bool = False) -> Any:
+                before_retry: Callable[[], None] | None = None, refreshed: bool = False,
+                before_send: Callable[[], None] | None = None) -> Any:
         self._fresh_token()
         headers = self.read_headers if method == "GET" and not own_token else self.headers
         with self._lock:
@@ -1349,6 +1668,11 @@ class GitHub:
         if cached is not None:
             # Always asked again (never served from memory): a 304 says the answer is still current.
             request.add_header("If-None-Match", cached[0])
+        if before_send is not None:
+            # Last, after any token mint and outside the lock another thread may hold through one, right
+            # before the request goes out (and again before any retry of it): raises to drop the request
+            # (GitHub.cancel()).
+            before_send()
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
                 body = response.read()
@@ -1382,7 +1706,7 @@ class GitHub:
                 if before_retry is not None:
                     before_retry()  # what a write acts on may have changed while the token was minted
                 return self.request(method, path, own_token=own_token,
-                                    body=json.loads(data) if data is not None else None, before_retry=before_retry,
+                                    body=json.loads(data) if data is not None else None, before_retry=before_retry, before_send=before_send,
                                     refreshed=True)
             if headers is self.headers and error.code in (403, 429) and self._wait_for_rate_limit(method, path, error):
                 # The same request again, after the wait (a refused request did nothing on GitHub's side),
@@ -1390,19 +1714,19 @@ class GitHub:
                 if before_retry is not None:
                     before_retry()
                 return self.request(method, path, own_token=own_token,
-                                    body=json.loads(data) if data is not None else None, before_retry=before_retry,
+                                    body=json.loads(data) if data is not None else None, before_retry=before_retry, before_send=before_send,
                                     refreshed=refreshed)
             if error.code not in (401, 403, 429) or headers is self.headers:
                 raise
             if error.code in (403, 429):
                 # The installation lacks this read's permission, or its budget is spent: this one
                 # read goes on GITHUB_TOKEN (which waits through a rate limit).
-                return self.request(method, path, own_token=True, refreshed=refreshed)
+                return self.request(method, path, own_token=True, refreshed=refreshed, before_send=before_send)
             with self._lock:
                 self.read_headers = self.headers
                 self._budget = (-1e9, None, None)  # another token's pool: read it afresh
                 self._pool += 1
-            return self.request(method, path, refreshed=refreshed)
+            return self.request(method, path, refreshed=refreshed, before_send=before_send)
         return json.loads(body) if body else None
 
     remaining = ""  # the token's requests left this hour, from the last response
@@ -1455,6 +1779,21 @@ class GitHub:
                           if isinstance(run, Mapping) and run.get("id") and owned_rerun(run)]
         return found
 
+    def nightly_reruns(self, count: int) -> list[tuple[int, int]]:
+        """(run id, attempt) of unfinished nightly-next re-runs through SIGN_RESCUE_LAST_ATTEMPT. Only a re-run whose
+        build picker chose an owned Mac leaves a marker, so a re-run on Blacksmith (a re-run of failed jobs, or a
+        full one the picker placed there) is found here, for its signing jobs' stalls (signing_stall()). Main's
+        nightly is rescued on attempt 1 only (its workflow_run watch): a full re-run there builds the app again."""
+        name = NIGHTLY_WORKFLOW_PATH.rsplit("/", 1)[-1]
+        found: list[tuple[int, int]] = []
+        for status in ("queued", "in_progress"):
+            data = self.request("GET", f"/actions/workflows/{name}/runs?status={status}&branch=nightly-next"
+                                       f"&per_page={count}")
+            found += [(int(run["id"]), int(run["run_attempt"])) for run in (data or {}).get("workflow_runs") or []
+                      if isinstance(run, Mapping) and run.get("id") and run.get("head_branch") == "nightly-next"
+                      and 1 < int(run.get("run_attempt") or 0) <= SIGN_RESCUE_LAST_ATTEMPT]
+        return found
+
     def failed_runs(self, count: int, oldest: dt.datetime, since: dt.datetime | None = None,
                     pages: int = 1) -> list[tuple[int, int]]:
         """(run id, attempt) of the failed runs of SIDE_WORKFLOW_PATHS created since `oldest` and, when
@@ -1465,8 +1804,11 @@ class GitHub:
         """
         created = oldest.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         found: list[tuple[int, int]] = []
-        for page in range(1, pages + 1):
-            data = self.request("GET", f"/actions/runs?status=failure&exclude_pull_requests=true&per_page={count}"
+        # Cancelled ones too, one page: a rescue's cancel whose re-run never came (sweep_target()).
+        listings = [*(("failure", page) for page in range(1, pages + 1)), ("cancelled", 1)]
+        while listings:
+            status, page = listings.pop(0)
+            data = self.request("GET", f"/actions/runs?status={status}&exclude_pull_requests=true&per_page={count}"
                                        f"&page={page}&created=%3E%3D{created}")
             runs = [run for run in (data or {}).get("workflow_runs") or [] if isinstance(run, Mapping)]
             for run in runs:
@@ -1477,8 +1819,8 @@ class GitHub:
                     found.append(entry)
             # A status-filtered page can come back short before the last one (queue_janitor.GitHub.
             # in_flight_runs()), so only an empty page ends the listing before `pages`.
-            if not runs:
-                break
+            if not runs and status == "failure":
+                listings = [listing for listing in listings if listing[0] != "failure"]
         return found
 
     def jobs(self, run_id: int, attempt: int) -> list[Mapping[str, Any]]:
@@ -1490,6 +1832,112 @@ class GitHub:
             if len(batch) < 100:
                 break
         return found
+
+    def rescue_jobs(self, earliest_end: dt.datetime, run_id: int = 0) -> list[int]:
+        """The job ids of the finished ci-owned-pool-rescue.yml runs that ended at or after `earliest_end`,
+        newest first (a sweeper or a single watch).
+
+        Listed by creation, which precedes the start by the run's wait in the sweeper's concurrency group: at most
+        the one sweeper ahead of it (it never cancels in progress, so one waits), RESCUE_JOB_LIFETIME_SECONDS."""
+        since = (earliest_end - dt.timedelta(seconds=2 * RESCUE_JOB_LIFETIME_SECONDS)).astimezone(dt.timezone.utc)
+        runs: list[Mapping[str, Any]] = []
+        for page in range(1, RESCUE_RUN_PAGES + 1):
+            # Every status: a rescue run re-run is in progress while its earlier attempts' finished jobs hold marks.
+            data = self.request("GET", f"/actions/workflows/{RESCUE_WORKFLOW_FILE}/runs?per_page=100"
+                                       f"&page={page}&created=%3E%3D{since.strftime('%Y-%m-%dT%H:%M:%SZ')}")
+            batch = [run for run in (data or {}).get("workflow_runs") or [] if isinstance(run, Mapping)]
+            runs += batch
+            # A page can come back short before the last one (failed_runs()): only an empty one ends.
+            if not batch:
+                break
+        else:
+            raise RescueHistoryCapped(f"{RESCUE_RUN_PAGES} pages of rescue runs and no end")
+        found: list[int] = []
+        for run in runs:
+            attempts = int(run.get("run_attempt") or 1)
+            if run.get("status") == "in_progress" and attempts == 1 and int(run.get("id") or 0) != self.own_run:
+                # A job's log is read only once it has ended. A live sweeper, or this run's own watch, may already
+                # have resumed this re-run and logged CANCEL_SETTLED: not known until it ends, so not judged now
+                # (the run stays cancelled; a later sweeper reads it). Other watches never resume this run, and a
+                # re-run of the rescue workflow logs no marks (main()).
+                title = str(run.get("display_title") or run.get("name") or "")
+                if title == "owned-pool-sweeper" or run_id and title.startswith(f"owned-pool-rescue-{run_id}-"):
+                    raise RescueHistoryLive(f"rescue run {run.get('id')} ({title}) is still running")
+            if attempts <= 1 and run.get("conclusion") == "skipped":
+                continue
+            began, ended = parse_time(run.get("run_started_at")), parse_time(run.get("updated_at"))
+            if began is None or ended is None or ended < earliest_end:
+                continue
+            # Each attempt's jobs, newest first: the jobs endpoint alone answers the latest attempt's, and a re-run of
+            # the rescue workflow would hide an earlier attempt's CANCEL_SENT or CANCEL_SETTLED. Only finished jobs
+            # have a log to read; a running one has not settled anything a successor needs.
+            for attempt in range(attempts, 0, -1):
+                jobs = self.request("GET", f"/actions/runs/{int(run['id'])}/attempts/{attempt}/jobs?per_page=20")
+                found += [int(job["id"]) for job in (jobs or {}).get("jobs") or []
+                          if isinstance(job, Mapping) and job.get("id") and job.get("status") == "completed"
+                          and job.get("conclusion") != "skipped"]
+        return found
+
+    def job_marks(self, job_id: int) -> dict[tuple[int, int], str] | None:
+        """cancel_marks() of a finished job's log, read as a stream (None past JOB_LOG_MAX_BYTES). GitHub answers
+        with a redirect to the log's storage, fetched without our token."""
+        if job_id in self._logs:
+            return self._logs[job_id]
+
+        class Stay(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+                return None
+        request = urllib.request.Request(f"{API}/repos/{self.repo}/actions/jobs/{job_id}/logs",
+                                         headers=dict(self.read_headers))
+        def scan(response: Any) -> dict[tuple[int, int], str] | None:
+            """None unless the whole log was read: a Content-Length the response states, and exactly that many bytes.
+            A chunked or unsized transfer is not judged (http.client's readline() swallows a chunked one's early
+            end). Lines are read JOB_LOG_LINE_BYTES at a time; a longer one is skipped (a mark is a short line of
+            its own)."""
+            headers = getattr(response, "headers", None) or {}
+            stated = headers.get("Content-Length")
+            if stated is None or "chunked" in str(headers.get("Transfer-Encoding") or "").lower() or \
+                    str(headers.get("Content-Encoding") or "identity").lower() != "identity":
+                return None
+            read_bytes, lines, partial = 0, [], False
+            while True:
+                raw = response.readline(JOB_LOG_LINE_BYTES)
+                if not raw:
+                    break
+                read_bytes += len(raw)
+                if read_bytes > JOB_LOG_MAX_BYTES:
+                    return None
+                whole = raw.endswith(b"\n")
+                if not partial and (whole or len(raw) < JOB_LOG_LINE_BYTES):
+                    lines.append(raw.decode("utf-8", "replace"))
+                partial = not whole
+            if read_bytes != int(stated):
+                return None
+            return cancel_marks(lines)
+        try:
+            with urllib.request.build_opener(Stay).open(request, timeout=20) as response:
+                marks = scan(response)
+        except urllib.error.HTTPError as error:
+            location = error.headers.get("Location") if error.headers is not None else None
+            if error.code not in (301, 302, 303, 307, 308) or not location:
+                raise
+            with urllib.request.urlopen(location, timeout=60) as response:
+                marks = scan(response)
+        if marks is not None:
+            self._logs[job_id] = marks
+        return marks
+
+    def annotations(self, job_id: int) -> list[Mapping[str, Any]]:
+        """The annotations of a job's check run (GitHub's "The run was canceled by @actor." among them)."""
+        notes: list[Mapping[str, Any]] = []
+        for page in range(1, ANNOTATION_PAGES + 1):
+            data = self.request("GET", f"/check-runs/{job_id}/annotations?per_page=100&page={page}")
+            batch = [note for note in data or [] if isinstance(note, Mapping)]
+            notes += batch
+            if len(batch) < 100:
+                return notes
+        # Not all read: the canceller's line may be past them, so the caller must not read "none says" (canceller()).
+        raise AnnotationsCapped(f"job {job_id} has over {100 * ANNOTATION_PAGES} annotations")
 
     def workflow_file(self, path: str, ref: str) -> str | None:
         """The text of `path` at commit `ref`, or None when it is not there."""
@@ -1564,34 +2012,47 @@ class GitHub:
     def branch_head(self, branch: str) -> str:
         return str(((self.request("GET", f"/branches/{branch}") or {}).get("commit") or {}).get("sha") or "")
 
-    def cancel(self, run_id: int) -> None:
-        self.request("POST", f"/actions/runs/{run_id}/cancel")
+    def cancel(self, run_id: int, before_send: Callable[[], None] | None = None) -> None:
+        """`before_send` runs right before the cancel is sent, after any token mint, and before every re-send
+        after a rate-limit wait or a token refresh; it raises to drop the cancel (rescue(before_cancel=...))."""
+        self.request("POST", f"/actions/runs/{run_id}/cancel", before_send=before_send)
 
     def force_cancel(self, run_id: int) -> None:
         self.request("POST", f"/actions/runs/{run_id}/force-cancel")
 
     def rerun(self, run_id: int, next_attempt: int) -> None:
-        self.request("POST", f"/actions/runs/{run_id}/rerun", before_retry=self._still_finished(run_id, next_attempt))
+        check = self._still_finished(run_id, next_attempt)
+        self.request("POST", f"/actions/runs/{run_id}/rerun", before_retry=check, before_send=check)
         self.request_ui_tests(run_id, next_attempt)
 
+    def rerun_job(self, run_id: int, job_id: int, next_attempt: int) -> None:
+        """Re-run one job of a finished run and every job that needs it (one attempt more).
+
+        The run is read again right before the send (and any re-send): the reads that chose this job may have
+        waited out a rate limit while another watch re-ran the run."""
+        self.request("POST", f"/actions/jobs/{job_id}/rerun", before_send=self._still_finished(run_id, next_attempt))
+
     def rerun_failed(self, run_id: int, next_attempt: int) -> None:
-        self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs",
-                     before_retry=self._still_finished(run_id, next_attempt))
+        check = self._still_finished(run_id, next_attempt)
+        self.request("POST", f"/actions/runs/{run_id}/rerun-failed-jobs", before_retry=check, before_send=check)
         self.request_ui_tests(run_id, next_attempt)
 
     def _still_finished(self, run_id: int, next_attempt: int) -> Callable[[], None]:
-        """A re-run sent again after a rate-limit wait only while the run is still the finished attempt it re-runs.
+        """A re-run sent (first, after a token mint, and again after a rate-limit wait) only while the run is still
+        the finished attempt it re-runs.
 
-        Two watches can own one failed attempt (a cmux-next `completed` event's and the sweeper's): the
-        other's re-run may have started, and even finished, during the wait, and sending this one then
-        would start one attempt more than either meant (rescue() checked the attempt only before the wait).
+        Two watches can own one failed attempt (a cmux-next `completed` event's and the sweeper's, or a sweeper
+        mid-rescue and its successor picking up the same cancelled run): the other's re-run may have started, and
+        even finished, since rescue() read the run, and sending this one then would start one attempt more than
+        either meant.
         """
         def check() -> None:
             run = self.run(run_id) or {}
             attempt = int(run.get("run_attempt") or 0)
             if attempt != next_attempt - 1 or run.get("status") != "completed":
-                raise Aborted(f"run {run_id} is at attempt {attempt} ({run.get('status') or 'unknown'}) after a "
-                              f"rate-limit wait; someone else already re-ran it, so it is not re-run again")
+                raise Aborted(f"run {run_id} is at attempt {attempt} ({run.get('status') or 'unknown'}), not "
+                              f"finished attempt {next_attempt - 1}; someone else already re-ran it, so it is not "
+                              "re-run again")
         return check
 
     def request_ui_tests(self, run_id: int, attempt: int) -> None:
@@ -1648,6 +2109,13 @@ class Target:
     def late_owned_jobs(self) -> bool:
         """nightly-next's nightly.yml puts prepare-nightly-variant on the side label after the app build."""
         return self.nightly and self.push_branch == "nightly-next"
+
+    @property
+    def signs_late(self) -> bool:
+        """A nightly on either branch: its sign, verify and DMG jobs (NIGHTLY_SIGN_ALTERNATES) appear only once the
+        app build finishes and can stall on Blacksmith macOS then (signing_stall()). Main's is rescued on attempt 1
+        only (sweep_target() never adopts its later attempts unless they are its own re-runs)."""
+        return self.nightly and (self.push_branch == "nightly-next" or self.attempt == 1)
 
     @property
     def watch_limit(self) -> int:
@@ -1723,10 +2191,14 @@ def completed_target(event: Mapping[str, Any], repository: str) -> Target | str:
 
 
 def nightly_target(run: Mapping[str, Any], repository: str) -> Target | str:
-    """Attempt 1 of main push/schedule or nightly-next push, from this repository."""
-    if run.get("event") not in NIGHTLY_EVENTS:
-        return f"a {run.get('event') or 'unknown'} run of {NIGHTLY_WORKFLOW_PATH}, not a push or schedule"
-    if run.get("head_branch") not in (MAIN_BRANCH, "nightly-next") or (run.get("head_branch") == "nightly-next" and run.get("event") != "push"):
+    """Attempt 1 of main push/schedule or nightly-next push/dispatch, from this repository.
+
+    The sweeper resumes a later attempt of a marked nightly-next run (sweep_target(), owned_rerun())."""
+    next_run = run.get("head_branch") == "nightly-next"
+    if run.get("event") not in (NIGHTLY_NEXT_EVENTS if next_run else NIGHTLY_EVENTS):
+        return (f"a {run.get('event') or 'unknown'} run of {NIGHTLY_WORKFLOW_PATH}, not a "
+                + ("push or dispatch" if next_run else "push or schedule"))
+    if run.get("head_branch") not in (MAIN_BRANCH, "nightly-next"):
         return f"a run of {NIGHTLY_WORKFLOW_PATH} on {run.get('head_branch') or 'an unknown branch'}, not a trusted nightly event"
     head = (run.get("head_repository") or {}).get("full_name") or ""
     if head.casefold() != repository.casefold():
@@ -1767,8 +2239,13 @@ def read(call: Callable[[], Any], sleep: Callable[[float], None], log: Callable[
 def watch(api: GitHub, target: Target, *, budget_seconds: int,
           now: Callable[[], dt.datetime], sleep: Callable[[float], None],
           log: Callable[[str], None], deadline: dt.datetime | None = None,
-          floor_seconds: int | None = None, seen: dict[Any, dt.datetime] | None = None) -> tuple[str, str]:
+          floor_seconds: int | None = None, seen: dict[Any, dt.datetime] | None = None,
+          sign_seen: dict[Any, dt.datetime] | None = None,
+          sign_text: list[str | None] | None = None) -> tuple[str, str]:
     """Watch until a stop, a rescue or `deadline`. Returns (outcome, reason).
+
+    `sign_seen` and `sign_text` (when each signing job was first seen queued, and the run's workflow file once
+    read) carry over from an earlier watch of the same attempt (follow()), so a stall keeps counting.
 
     A job's budget is cut to end before `deadline`, never below
     `floor_seconds` (job_budget()). `seen` (when each job was first seen
@@ -1785,16 +2262,43 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
     on_persistent = False
     picker_marker: bool | None = None
     first_seen: dict[Any, dt.datetime] = {} if seen is None else seen
+    sign_seen = {} if sign_seen is None else sign_seen
+    sign_said = ""
+    sign_text = [] if sign_text is None else sign_text  # the run's workflow file, read once a signing job stalls
     while True:
         looks += 1
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        if target.signs_late and target.attempt <= SIGN_RESCUE_LAST_ATTEMPT:
+            # A nightly's signing jobs on a stalled Blacksmith macOS label (signing_stall()).
+            seen_at = now()
+            for job in jobs:
+                if sign_job_key(job) and waiting_for_runner(job):
+                    sign_seen.setdefault(job.get("id"), seen_at)
+            stall = signing_stall(jobs, seen_at, sign_seen)
+            if stall is not None and stall.action == "stalled":
+                if not sign_text:
+                    try:
+                        sign_text.append(read(lambda: api.workflow_file(target.path, target.head_sha), sleep, log))
+                    except READ_ERRORS as error:
+                        log(f"could not read {target.path} at {target.head_sha[:12]} ({error})")
+                        sign_text.append(None)
+                stall = gated_signing_stall(jobs, seen_at, sign_seen, sign_text[0])
+                if stall is not None and stall.action == "stalled":
+                    log(f"look {looks}: {stall.reason}")
+                    return "stalled", stall.reason
+            if stall is not None and stall.reason != sign_said:
+                sign_said = stall.reason
+                log(f"look {looks}: {stall.reason}")
         if not on_persistent and target.side:
             # No picker: a job that asks for an owned label is the choice. A
             # gated job (cloud-machine-tests) appears once its Linux gate ends.
             if any(job_pool(job) for job in jobs):
                 on_persistent = True
                 log("a side-lane job asked for a persistent pool")
-            elif run_finished(jobs):
+            elif run_finished(jobs) and not (target.signs_late and read(
+                    lambda: api.run(target.run_id), sleep, log).get("status") != "completed"):
+                # A nightly's signing jobs appear only once the jobs they need finish (signing_stall()), so
+                # its watch ends with the run, not with the jobs listed so far.
                 return "stop", "no job of the run asked for a persistent pool"
             elif not jobs and read(lambda: api.run(target.run_id), sleep, log).get("status") == "completed":
                 # A pending run cancelled before any job (a newer nightly took its place).
@@ -1845,6 +2349,20 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
             finished = run.get("status") == "completed"
             # A job no runner acquired looks like one a cancelled run left queued (unacquired()).
             stranded = finished and run.get("conclusion") not in (None, "cancelled")
+            if finished and run.get("conclusion") == "cancelled" and int(run.get("run_attempt") or 0) == target.attempt:
+                # Someone's cancel is final, whatever its jobs show (a refusal, a timeout): only a rescue's own
+                # cancel whose re-run never came (rerun_intended()) is re-run here, as a stranded run.
+                by = canceller(api, jobs, sleep, log)
+                if by is None:
+                    return "stop", "the run was cancelled, and who cancelled it could not be read; left cancelled"
+                meant = rerun_intended(api, run, target.attempt, sleep, log) if by in RESCUE_ACTORS else ""
+                if by and not meant:
+                    return "stop", f"the run was cancelled by @{by}; left cancelled"
+                if meant:
+                    # Whatever its jobs show (queued ones no runner took, or one held in a runner's setup).
+                    log(f"look {looks}: the rescue cancelled attempt {target.attempt} to re-run "
+                        f"{'every job' if meant == 'all' else 'its failed jobs'} and stopped before the re-run")
+                    return "resume", meant
             if finished and not any(refused(job) or stranded and unacquired(job) for job in jobs):
                 late = feed_timeouts(api, target, jobs, sleep, log)
                 if not late:
@@ -1884,6 +2402,14 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                     wait = min(api.pace(wait), max(1.0, (deadline - now()).total_seconds() + 1))
                 sleep(wait)
                 continue
+            if look.action == "refused" and not finished and target.nightly and any(
+                    job.get("status") == "in_progress" for job in jobs):
+                # At the watch's end a refusal in a nightly whose other jobs still run is left as it is:
+                # cancelling it to re-run would kill started nightly work. The nightly-next tick re-runs a
+                # failed tip, and the next nightly builds main.
+                log(f"::warning::look {looks}: {look.reason}; the nightly still runs other jobs at the watch "
+                    "limit, so it is not cancelled")
+                return "stop", "watch limit reached with a started nightly still running"
             log(f"look {looks}: {look.reason}")
             if look.action in ("rescue", "refused"):
                 return look.action, look.reason
@@ -1895,9 +2421,11 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                 # admission, so its watch goes on until the run finishes.
                 own_admission = any(job.get("name") == ADMISSION_JOB
                                     and not carried(job, target.attempt_started_at) for job in jobs)
-                if (target.attempt > 1 and not target.full_rerun and not own_admission and owned
-                        and all(accepted(job, seen_at) for job in owned)):
-                    # The fleet took the retry; later attempts never come back to it.
+                if (target.attempt > 1 and not target.full_rerun and not target.nightly and not own_admission
+                        and owned and all(accepted(job, seen_at) for job in owned)):
+                    # The fleet took the retry; later attempts never come back to it. Not a nightly's: its
+                    # sign and verify jobs can still stall on Blacksmith after its owned jobs are accepted,
+                    # and the signing rescue needs the watch to last until then.
                     return "stop", "the fleet accepted the retry"
                 if target.side and not target.nightly and owned \
                         and all(accepted(job, seen_at) for job in owned):
@@ -1931,8 +2459,12 @@ STALL_RECHECK_SECONDS = 5 * 60
 def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: str, *, budget_seconds: int,
                          floor_seconds: int | None, deadline: dt.datetime, now: Callable[[], dt.datetime],
                          sleep: Callable[[float], None], log: Callable[[str], None],
-                         seen: dict[Any, dt.datetime]) -> tuple[str, str, str]:
+                         seen: dict[Any, dt.datetime], sign_seen: dict[Any, dt.datetime] | None = None,
+                         sign_text: list[str | None] | None = None) -> tuple[str, str, str]:
     """Keep a queue rescue off a Blacksmith label with no room: returns (outcome, reason, held).
+
+    `sign_seen` and `sign_text` go to its watch() so a signing stall (signing_stall()) found while held keeps
+    the times follow() rescues it by.
 
     The re-run of a rescued run takes its workflow's Blacksmith retry label (move_verdict()). While that
     label is stalled the run stays queued on its owned pool, however long, until the label moves, a
@@ -1980,7 +2512,8 @@ def hold_for_destination(client: GitHub, target: Target, outcome: str, reason: s
         current = max(budget_seconds, OWNED_WAIT_FLOOR_SECONDS)
         floor = OWNED_WAIT_FLOOR_SECONDS
         outcome, reason = watch(client, target, budget_seconds=current, now=now, sleep=sleep, log=log,
-                                deadline=deadline, floor_seconds=floor, seen=seen)
+                                deadline=deadline, floor_seconds=floor, seen=seen, sign_seen=sign_seen,
+                                sign_text=sign_text)
     return outcome, reason, held
 
 
@@ -2146,7 +2679,11 @@ def e2e_build_unfinished(api: GitHub, target: Target, sleep: Callable[[float], N
 
 def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
                log: Callable[[str], None]) -> str:
-    """Why the pull request (or main) no longer wants this run, or "" when it still does."""
+    """Why the pull request (or main) no longer wants this run, or "" when it still does.
+
+    A main nightly whose app build succeeded (app_built()) is not made moot by main moving on: only its jobs
+    after the build are moved, each push run has its own concurrency group (a re-run cancels nothing), and the
+    publisher refuses a source older than the feed's. Only a newer run pending behind it still wins."""
     if target.nightly and target.push_branch == "nightly-next":
         # Each nightly-next run builds and signs in groups of its own (nightly.yml
         # scopes them to github.run_id), so a newer tip builds alongside this one
@@ -2162,6 +2699,10 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
         newer = read(lambda: api.newer_unfinished_runs(target.path, target.run_id, branch), sleep, log)
         if newer:
             return f"a newer nightly run on {branch} ({newer[0]}) has not finished and builds instead"
+        if app_built(read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)):
+            # Its jobs after the build (a reserved follower, a signing job) are moved, never the build: a
+            # re-run of failed jobs keeps it, so the run is not moot either.
+            return ""
         # Not pending does not mean not superseded: a nightly-next push run is
         # never pending at the workflow level (its builds share a job-level
         # slot), and a newer main push may already be running or done. Once the
@@ -2197,10 +2738,189 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
     return ""
 
 
+# nightly.yml's runner picker for build-nightly-app and the Ghostty helper (feat-cmux-next). A re-run of
+# failed jobs keeps a finished picker's outputs, and the build reads its owned pick only when that pick
+# was made for the run's own attempt, so the re-run takes attempt 1's Blacksmith label: on 2026-10-27
+# runs 40549487427, 40550551073 and 40550711613 (attempt 1's build refused at "Set up runner" on the
+# dedicated builder, whose runner then went offline) re-ran onto blacksmith-6vcpu-macos-26, a label the
+# picker had already reported as stalled. Re-running the picker job instead (GitHub re-runs a job and every
+# job that needs it) makes the picker choose again: an idle owned Mac, else a moving Blacksmith label.
+NIGHTLY_BUILD_PICKER = "pick-nightly-build-runner"
+
+
+def repick_job(workflow_text: str, jobs: Sequence[Mapping[str, Any]]) -> tuple[int | None, str]:
+    """(the id of this attempt's NIGHTLY_BUILD_PICKER job, when re-running it and the jobs that need it
+    re-runs everything a re-run of failed jobs would and nothing that could break, or None, why).
+
+    `jobs` is the attempt's whole job list, the jobs a re-run kept from earlier attempts included (the picker
+    is one after a re-run of failed jobs). Every failed, timed-out or cancelled job in it must need the
+    picker, directly or through others, so nothing a re-run of failed jobs would retry is left out (GitHub
+    re-runs the picked job and its dependents only). A finished job that needs the picker but no failed job
+    is re-run only by this (a re-run of failed jobs re-runs whatever needs a failed job already): unless it
+    was skipped (it uploaded nothing), each of its artifact uploads must set `overwrite: true`, or its
+    second upload of the same name could fail. Names map to workflow jobs as in downstream_of_refusals()."""
+    try:
+        document = owned_pool_sources._load(workflow_text)
+    except Exception as error:  # noqa: BLE001 - an unreadable file keeps the re-run of failed jobs
+        return None, f"the workflow file could not be read ({type(error).__name__})"
+    spec = {str(key): job for key, job in (document.get("jobs") or {}).items() if isinstance(job, Mapping)}
+    if NIGHTLY_BUILD_PICKER not in spec:
+        return None, f"the workflow has no {NIGHTLY_BUILD_PICKER} job"
+    needs: dict[str, set[str]] = {}
+    for key, job in spec.items():
+        wanted = job.get("needs") or []
+        needs[key] = {str(item) for item in ([wanted] if isinstance(wanted, str) else wanted)} & set(spec)
+    below: dict[str, set[str]] = {}
+
+    def descendants(key: str) -> set[str]:
+        if key not in below:
+            below[key] = set()  # never loop on a cycle
+            found: set[str] = set()
+            for child, parents in needs.items():
+                if key in parents:
+                    found |= {child} | descendants(child)
+            below[key] = found
+        return below[key]
+
+    patterns = {key: _job_name_pattern(key, job) for key, job in spec.items()}
+
+    def keys(job: Mapping[str, Any]) -> set[str]:
+        name = str(job.get("name") or "")
+        return {key for key, pattern in patterns.items() if pattern.fullmatch(name)}
+
+    current = list(jobs)
+    pickers = [job for job in current if keys(job) == {NIGHTLY_BUILD_PICKER}]
+    if len(pickers) != 1 or not pickers[0].get("id"):
+        return None, f"this attempt has no single {NIGHTLY_BUILD_PICKER} job"
+    picker = pickers[0]
+    if picker.get("status") != "completed":
+        return None, f"{NIGHTLY_BUILD_PICKER} has not finished"
+    under = descendants(NIGHTLY_BUILD_PICKER)
+    failed = [job for job in current if job is not picker and job.get("status") == "completed"
+              and job.get("conclusion") in ("failure", "timed_out", "cancelled")]
+    if not failed:
+        return None, "no job of this attempt failed"
+    failed_keys: set[str] = set()
+    for job in failed:
+        found = keys(job)
+        if not found or not found <= under:
+            return None, f"{job.get('name') or job.get('id')} does not need {NIGHTLY_BUILD_PICKER}"
+        failed_keys |= found
+    retried = failed_keys.union(*(descendants(key) for key in failed_keys))
+    for job in current:
+        found = keys(job)
+        if job is picker or not found or not found <= under or found <= retried or job.get("conclusion") == "skipped":
+            continue
+        for key in found:
+            for step in spec[key].get("steps") or []:
+                if not isinstance(step, Mapping) or "actions/upload-artifact@" not in str(step.get("uses") or ""):
+                    continue
+                if str((step.get("with") or {}).get("overwrite", "")).strip().lower() != "true":
+                    return None, (f"{job.get('name') or key} would upload "
+                                  f"{(step.get('with') or {}).get('name') or 'an artifact'} again without overwrite")
+    return int(picker["id"]), f"every failed job of this attempt needs {NIGHTLY_BUILD_PICKER}"
+
+
+def rerun_failed_or_repick(api: GitHub, target: Target, sleep: Callable[[float], None],
+                           log: Callable[[str], None]) -> str:
+    """Re-run a finished attempt's failed jobs; for attempt 1 of a nightly-next run, re-run its build picker
+    and the jobs that need it instead when repick_job() allows (once: attempt 2's re-run keeps attempt 2's
+    fresh pick, whose Blacksmith label it then takes)."""
+    if target.nightly and target.push_branch == "nightly-next" and target.attempt == 1:
+        try:
+            jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+            text = read(lambda: api.workflow_file(NIGHTLY_WORKFLOW_PATH, target.head_sha), sleep, log)
+        except READ_ERRORS as error:
+            jobs, text = [], None
+            log(f"could not read the run for a fresh runner pick ({error}); re-running its failed jobs")
+        if text:
+            picker, why = repick_job(text, jobs)
+            if picker is not None:
+                try:
+                    api.rerun_job(target.run_id, picker, target.attempt + 1)
+                except urllib.error.HTTPError as error:
+                    # Refused (GitHub declines a job it cannot re-run): the failed jobs, as before. If the job
+                    # re-run did start, the run is no longer finished and this re-run is refused in turn.
+                    log(f"the re-run of {NIGHTLY_BUILD_PICKER} was refused ({error.code}); re-running the failed jobs")
+                    api.rerun_failed(target.run_id, target.attempt + 1)
+                    return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
+                return (f"re-ran {NIGHTLY_BUILD_PICKER} of run {target.run_id} and every job that needs it ({why}), "
+                        f"so attempt {target.attempt + 1} picks its runner fresh")
+            log(f"no fresh runner pick: {why}")
+    api.rerun_failed(target.run_id, target.attempt + 1)
+    return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
+
+
+# Looks nightly_cancel()'s guard makes for a jobs read no rate-limit wait made stale.
+NIGHTLY_GUARD_TRIES = 3
+# A run read slower than this (a token mint, a slow API) leaves the jobs read before it stale too.
+NIGHTLY_GUARD_FRESH_SECONDS = 15
+# rescue()'s answer when a nightly it was about to cancel had a job running: follow() then watches the run again.
+NIGHTLY_BUSY = "not rescued: started nightly work is running"
+
+
+class NightlyBusy(Aborted):
+    """A nightly's job started during a rate-limit wait before a retried cancel (nightly_cancel())."""
+
+
+def nightly_cancel(api: GitHub, target: Target, sleep: Callable[[float], None], log: Callable[[str], None],
+                   before_cancel: Callable[[], None] | None = None) -> None:
+    """api.cancel. For a nightly, its guard runs right before the cancel is sent and before every re-send
+    (GitHub.cancel()'s before_send): it drops the cancel once the run moved to another attempt or finished, and
+    raises NightlyBusy once a job of it runs. `before_cancel` (rescue()'s own guard) runs first."""
+    def check() -> None:
+        if before_cancel is not None:
+            before_cancel()
+        if not target.nightly:
+            return
+        for _ in range(NIGHTLY_GUARD_TRIES):
+            # The jobs first, then the run: a jobs read that waited (a rate limit, a retried error) may return
+            # the old attempt's jobs after someone re-ran the run, and the run read after it shows that attempt.
+            busy = started_nightly_work(api, target, sleep, log)
+            waited, began = getattr(api, "rate_limit_waited", 0.0), time.monotonic()
+            run = api.run(target.run_id) or {}
+            attempt = int(run.get("run_attempt") or 0)
+            if attempt != target.attempt:
+                # Someone re-ran it meanwhile: the cancel would hit that newer attempt's running jobs.
+                raise Aborted(f"nightly run {target.run_id} is at attempt {attempt}, not {target.attempt}; "
+                              "not cancelled")
+            if run.get("status") == "completed":
+                raise Aborted(f"nightly run {target.run_id} has finished; nothing to cancel")
+            if busy:
+                raise NightlyBusy(busy)
+            if getattr(api, "rate_limit_waited", 0.0) == waited and \
+                    time.monotonic() - began < NIGHTLY_GUARD_FRESH_SECONDS:
+                return
+            # The run read itself waited (a rate limit, a token mint): a job may have started since the jobs
+            # read. Look again.
+        raise NightlyBusy(f"slow reads kept the jobs of run {target.run_id} unconfirmed")
+    if before_cancel is None and not target.nightly:
+        api.cancel(target.run_id)
+        return
+    api.cancel(target.run_id, before_send=check)
+
+
+def started_nightly_work(api: GitHub, target: Target, sleep: Callable[[float], None],
+                         log: Callable[[str], None]) -> str:
+    """For a nightly, the jobs of it running right now (any pool: owned, Blacksmith, Linux), read just before a
+    cancel: a started nightly is never cancelled for a slow runner or a newer tip. "" when none (or not a nightly).
+
+    assess() checked the same on its look, but a sibling can start between that look and the cancel."""
+    if not target.nightly:
+        return ""
+    jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+    running = sorted(str(job.get("name") or job.get("id")) for job in jobs if job.get("status") == "in_progress")
+    return ", ".join(running)
+
+
 def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
            log: Callable[[str], None], failed_only: bool = False,
-           deadline: dt.datetime | None = None, refused: bool | None = None, refusal: bool = False) -> str:
+           deadline: dt.datetime | None = None, refused: bool | None = None, refusal: bool = False,
+           before_cancel: Callable[[], None] | None = None) -> str:
     """Cancel and re-run, unless the pull request has moved on. Returns what happened.
+
+    `before_cancel` runs right before the cancel is sent and before every re-send of it (GitHub.cancel()), and
+    raises to leave the run alone (rescue_stalled_signing()).
 
     `failed_only` (a refused job) re-runs only the failed and cancelled jobs,
     keeping what passed, and needs no cancel when the run already finished.
@@ -2233,7 +2953,13 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
             return "not rescued: someone else already re-ran the run"
         if run.get("status") == "completed":
             return f"not rescued: {moved}"
-        api.cancel(target.run_id)
+        busy = started_nightly_work(api, target, sleep, log)
+        if busy:
+            return f"{NIGHTLY_BUSY} ({busy}); {moved}, but a started nightly is never cancelled"
+        try:
+            nightly_cancel(api, target, sleep, log)
+        except NightlyBusy as busy_now:
+            return f"{NIGHTLY_BUSY} ({busy_now}); {moved}, but a started nightly is never cancelled"
         return f"cancelled run {target.run_id}, not re-run: {moved}"
     if moved:
         return f"not rescued: {moved}"
@@ -2251,6 +2977,14 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         # A job killed between the cancel and the re-run would leave the
         # pull request's run cancelled for good; leave it as GitHub has it.
         return "not rescued: too little of the job left to cancel and re-run"
+    if run.get("status") == "completed" and run.get("conclusion") == "cancelled":
+        # This rescue sent no cancel. One someone made after the watch looked (a person, the queue janitor, a newer
+        # dispatch) is final, even beside a refusal; a job timeout names no canceller and is re-run as before.
+        by = canceller(api, read(lambda: api.jobs(target.run_id, target.attempt), sleep, log), sleep, log)
+        if by is None:
+            return "not rescued: the run was cancelled, and who cancelled it could not be read; left cancelled"
+        if by:
+            return f"not rescued: the run was cancelled by @{by} meanwhile; left cancelled"
     if run.get("status") == "completed":
         should_rerun = failed_only if refused is None else refused
         if not should_rerun:
@@ -2261,15 +2995,62 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         if e2e_build_unfinished(api, target, sleep, log):
             api.rerun(target.run_id, target.attempt + 1)
             return f"re-ran every job of run {target.run_id}, so its sibling wait runs again; {next_attempt(target)}"
-        api.rerun_failed(target.run_id, target.attempt + 1)
-        return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
+        return rerun_failed_or_repick(api, target, sleep, log)
     if target.path == CMUX_NEXT_WORKFLOW_PATH:
         # Only cmux-next.yml places jobs on the freshness slot (macos-placement's fresh_runner).
         jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
         slot = started_dev_compile(jobs)
         if slot:
             return f"not rescued: a DEV feed compile started on {slot}; a started dev build is never cancelled"
-    api.cancel(target.run_id)
+    busy = started_nightly_work(api, target, sleep, log)
+    if busy:
+        return f"{NIGHTLY_BUSY} ({busy}); a started nightly is never cancelled"
+    try:
+        nightly_cancel(api, target, sleep, log, before_cancel)
+    except NightlyBusy as busy_now:
+        return f"{NIGHTLY_BUSY} ({busy_now}); it started just before the cancel, and a started nightly is never cancelled"
+    log(f"{CANCEL_SENT} run {target.run_id} attempt {target.attempt}{'' if failed_only else EVERY_JOB}")
+    try:
+        result = settle_and_rerun(api, target, now=now, sleep=sleep, log=log, failed_only=failed_only,
+                                  keep_main=keep_main)
+    except Exception:
+        # An error ends this rescue for good (gave_up()); the run's attempt is as GitHub has it, not a stopped job's.
+        settled_here(api, target, log)
+        raise
+    # Not on a KeyboardInterrupt or SystemExit (GitHub cancelling the rescue job, its timeout): that job stopped here,
+    # and CANCEL_SENT alone tells its successor so.
+    settled_here(api, target, log)
+    return result
+
+
+# The (run id, attempt) pairs this process logged CANCEL_SETTLED for. Its own log is unreadable until its job
+# ends (rescue_jobs() skips the reader's own run), so a later watch in the same sweeper reads this instead.
+SETTLED_HERE: set[tuple[int, int]] = set()
+
+
+def settled_here(api: Any, target: Target, log: Callable[[str], None]) -> None:
+    """Logs CANCEL_SETTLED for the target's attempt and remembers it for this process."""
+    with _SETTLED_LOCK:
+        SETTLED_HERE.add((target.run_id, target.attempt))
+    log(f"{CANCEL_SETTLED} run {target.run_id} attempt {target.attempt}")
+
+
+def resume_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
+                 log: Callable[[str], None], every_job: bool) -> str:
+    """The re-run a stopped rescue meant after its cancel (rerun_intended()), with its own CANCEL_SETTLED mark."""
+    try:
+        result = settle_and_rerun(api, target, now=now, sleep=sleep, log=log, failed_only=not every_job,
+                                  keep_main=False)
+    except Exception:
+        settled_here(api, target, log)
+        raise
+    settled_here(api, target, log)
+    return result
+
+
+def settle_and_rerun(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep: Callable[[float], None],
+                     log: Callable[[str], None], failed_only: bool, keep_main: bool) -> str:
+    """rescue() after its cancel went out: wait for the run to settle, then re-run it unless its head moved."""
     log(f"cancelled run {target.run_id}")
     started = now()
     # Time spent waiting through rate limits (GitHub.request) is not the run's settling time:
@@ -2305,13 +3086,75 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         if e2e_build_unfinished(api, target, sleep, log):
             api.rerun(target.run_id, target.attempt + 1)
             return f"re-ran every job of run {target.run_id}, so its sibling wait runs again; {next_attempt(target)}"
-        api.rerun_failed(target.run_id, target.attempt + 1)
-        return f"re-ran the failed jobs of run {target.run_id}; {next_attempt(target)}"
+        return rerun_failed_or_repick(api, target, sleep, log)
     api.rerun(target.run_id, target.attempt + 1)
     if target.attempt + 1 <= LAST_OWNED_ATTEMPT and not target.e2e:
         return (f"re-ran run {target.run_id}; attempt {target.attempt + 1} picks again, the owned machines "
                 "free now first, and the sweeper watches it")
     return f"re-ran run {target.run_id}; attempt {target.attempt + 1} takes an ephemeral pool"
+
+
+# rescue_stalled_signing()'s answer when its own last look found the run changed; follow() watches on after it.
+SIGN_NOT_YET = "not rescued yet: "
+
+
+class SignStallChanged(Aborted):
+    """A signing stall no longer holds at the look right before its cancel (rescue_stalled_signing())."""
+
+
+def rescue_stalled_signing(api: GitHub, target: Target, *, now: Callable[[], dt.datetime],
+                           sleep: Callable[[float], None], log: Callable[[str], None],
+                           deadline: dt.datetime | None, sign_seen: Mapping[Any, dt.datetime] | None = None,
+                           workflow_text: str | None = None) -> str:
+    """Cancel a nightly-next run whose only unfinished jobs are signing jobs stalled on Blacksmith macOS, then
+    re-run it. Attempt 1 re-runs its failed jobs: only those jobs (and what needs them) run again, on their
+    alternate label. A later attempt is re-run in full (signing_rerun_full()), so its pickers choose again.
+
+    The jobs are read again first, with the watch's first-seen times and the gate (gated_signing_stall()), so
+    a job that started, a sibling that came back or a job without the alternate leaves the run alone, and
+    rescue() reads the run's attempt and status before it cancels. The same look runs again right before
+    the cancel is sent, after any token mint, and before every re-send of it (a rate-limit wait can last
+    minutes), so a job that started in the meantime leaves the run alone; only the cancel request itself
+    remains between that look and GitHub acting on it, in which a job a runner just took has done no work. A cancel whose re-run fails
+    leaves the run cancelled, which gave_up() annotates and nightly-next-tick.yml re-runs
+    (scripts/ci/nightly_next_cancelled_tip.sh).
+    """
+    seen: dict[Any, dt.datetime] = {} if sign_seen is None else sign_seen
+
+    def look() -> Look | None:
+        jobs = read(lambda: api.jobs(target.run_id, target.attempt), sleep, log)
+        at = now()
+        for job in jobs:
+            # A job first seen queued here counts from now, as in watch(): it is not stalled yet.
+            if sign_job_key(job) and waiting_for_runner(job):
+                seen.setdefault(job.get("id"), at)
+        return gated_signing_stall(jobs, at, seen, workflow_text)
+
+    def still_stalled() -> None:
+        # The cancel acts on the run's current attempt: never one someone else started since.
+        run = read(lambda: api.run(target.run_id), sleep, log) or {}
+        if int(run.get("run_attempt") or 0) != target.attempt or run.get("status") == "completed":
+            raise SignStallChanged(f"the run is at attempt {run.get('run_attempt')} "
+                                   f"({run.get('status') or 'unknown'}), not attempt {target.attempt} in progress")
+        found = look()
+        if found is None or found.action != "stalled":
+            raise SignStallChanged(found.reason if found else "no signing job is stalled any more")
+
+    try:
+        still_stalled()
+        full = signing_rerun_full(target.attempt)
+        result = rescue(api, target, now=now, sleep=sleep, log=log, failed_only=not full, deadline=deadline,
+                        refused=False, before_cancel=still_stalled)
+    except SignStallChanged as changed:
+        # Raised before the cancel was sent (or re-sent): the run is as GitHub has it.
+        return f"{SIGN_NOT_YET}{changed}"
+    if result.startswith("re-ran the failed jobs"):
+        result += "; its signing jobs take their alternate macOS label on that attempt"
+    elif result.startswith("re-ran run"):
+        result = (f"re-ran every job of run {target.run_id}: attempt {target.attempt}'s own pick is the label that "
+                  f"stalled, so attempt {target.attempt + 1}'s pickers choose its signing labels again, never a "
+                  "stalled one")
+    return result
 
 
 def gave_up(target: Target, error: BaseException) -> str:
@@ -2352,6 +3195,11 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
 
     if (env.get("POOL_OWNED") or "").strip() != "1":
         return finish("owned pools are off (CI_PR_POOL_OWNED is not 1); nothing to watch")
+    if int((env.get("GITHUB_RUN_ATTEMPT") or "1").strip() or 1) > 1:
+        # A re-run of a rescue run keeps the first attempt's creation time, so rescue_jobs() (which lists rescue runs
+        # by creation) could miss the CANCEL_SETTLED it would log: it logs none. The next sweeper (every
+        # schedule tick) adopts whatever it would have watched.
+        return finish("a re-run of the rescue workflow acts on nothing; the next sweeper adopts the runs it watches")
     seconds = budget(env.get("RESCUE_SECONDS"))
     if seconds is None:
         return finish(f"CI_OWNED_POOL_RESCUE_SECONDS must be {MIN_BUDGET_SECONDS} to {MAX_BUDGET_SECONDS}; "
@@ -2363,6 +3211,8 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     repository = env.get("GITHUB_REPOSITORY") or ""
     client = api or GitHub(env.get("GH_TOKEN") or env.get("GITHUB_TOKEN") or "", repository,
                            read_token=env.get("READ_TOKEN") or "")
+    if hasattr(client, "own_run"):
+        client.own_run = int((env.get("GITHUB_RUN_ID") or "0").strip() or 0)
     if api is None and env.get("BOT_APP_ID") and env.get("BOT_APP_KEY"):
         # GH_TOKEN is the App's: its replacement is minted before the hour is up (GitHub._fresh_token()).
         client.mint = app_token_minter(env["BOT_APP_ID"], env["BOT_APP_KEY"], repository)
@@ -2443,13 +3293,48 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
     # Every attempt gets the queue allowance: a re-run's owned jobs queue on the owned labels like attempt 1's.
     first_budget = effective_seconds + queue_extra
     seen: dict[Any, dt.datetime] = {}
+    sign_seen: dict[Any, dt.datetime] = {}
+    sign_text: list[str | None] = []
     outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
-                            log=log, deadline=deadline, floor_seconds=effective_seconds, seen=seen)
-    held = ""
-    if outcome == "rescue" and not target.refusals_only:
-        outcome, reason, held = hold_for_destination(
-            client, target, outcome, reason, budget_seconds=first_budget, floor_seconds=effective_seconds,
-            deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen)
+                            log=log, deadline=deadline, floor_seconds=effective_seconds, seen=seen,
+                            sign_seen=sign_seen, sign_text=sign_text)
+
+    def settle(outcome: str, reason: str) -> tuple[str, str, str, str]:
+        """The stall hold and the signing-stall rescue on a look's outcome, watching on as they need:
+        (outcome, reason, held, done), where `done` is follow()'s answer once one of them ended the watch."""
+        held = ""
+        while True:
+            if outcome == "rescue" and not target.refusals_only:
+                outcome, reason, held = hold_for_destination(
+                    client, target, outcome, reason, budget_seconds=first_budget, floor_seconds=effective_seconds,
+                    deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen, sign_seen=sign_seen,
+                    sign_text=sign_text)
+            if outcome == "resume":
+                result = resume_rerun(client, target, now=clock, sleep=rescue_sleep, log=log, every_job=reason == "all")
+                log(result)
+                return outcome, reason, held, "done"
+            if outcome != "stalled":
+                return outcome, reason, held, ""
+            log(f"stalled: {reason}")
+            result = rescue_stalled_signing(client, target, now=clock, sleep=rescue_sleep, log=log,
+                                            deadline=rescue_deadline, sign_seen=sign_seen,
+                                            workflow_text=sign_text[0] if sign_text else None)
+            log(result)
+            # The run changed since the look (a job started, a sibling came back, a nightly job began running
+            # just before the cancel): watch on, the next look decides.
+            if not (result.startswith(SIGN_NOT_YET) or result.startswith(NIGHTLY_BUSY)):
+                return outcome, reason, held, "done"
+            if clock() >= deadline:
+                return outcome, reason, held, ("stopped: watch limit reached with a started nightly still running"
+                                               if result.startswith(NIGHTLY_BUSY) else "done")
+            sleep(POLL_SECONDS)
+            outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep,
+                                    log=log, deadline=deadline, floor_seconds=effective_seconds, seen=seen,
+                                    sign_seen=sign_seen, sign_text=sign_text)
+
+    outcome, reason, held, done = settle(outcome, reason)
+    if done:
+        return done
     if outcome not in ("rescue", "refused"):
         return f"stopped: {reason}" + (f"; kept on the owned pool: {held}" if held else "")
     if target.refusals_only and outcome == "rescue":
@@ -2464,6 +3349,9 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         outcome, reason = watch(client, target, budget_seconds=max(effective_seconds, remaining),
                                 now=clock, sleep=sleep, log=log, deadline=deadline,
                                 floor_seconds=effective_seconds)
+        if outcome == "resume":
+            # A rescue stopped between its cancel and its re-run while this watch waited: finish its re-run.
+            return settle(outcome, reason)[3]
     if target.refusals_only and outcome != "refused":
         return f"stopped: {reason}; attempt {target.attempt} stays on the minis (refusals only)"
     refusal_jobs: list[Mapping[str, Any]] | None = None
@@ -2514,6 +3402,20 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
                         refused=(outcome == "refused") if target.e2e or target.side else None,
                         refusal=outcome == "refused")
         log(result)
+        if result.startswith(NIGHTLY_BUSY):
+            # A sibling started after the look: watch on, as before, until nothing else runs or the watch ends.
+            if clock() >= deadline:
+                return "stopped: watch limit reached with a started nightly still running"
+            outcome, reason = watch(client, target, budget_seconds=first_budget, now=clock, sleep=sleep, log=log,
+                                    deadline=deadline, floor_seconds=effective_seconds, seen=seen,
+                                    sign_seen=sign_seen, sign_text=sign_text)
+            outcome, reason, held, done = settle(outcome, reason)
+            if done:
+                return done
+            if outcome not in ("rescue", "refused"):
+                return f"stopped: {reason}" + (f"; kept on the owned pool: {held}" if held else "")
+            log(f"{'rescue' if outcome == 'rescue' else 'refused'}: {reason}")
+            continue
         # Only an E2E full re-run picks a new runner in this watch. Other CI
         # re-runs are resumed by the sweeper through owned_reruns().
         if not target.e2e or not result.startswith("re-ran every job") or target.attempt + 1 > LAST_OWNED_ATTEMPT:
@@ -2526,9 +3428,15 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         seen = {}
         outcome, reason = watch(client, target, budget_seconds=effective_seconds, now=clock, sleep=sleep, log=log,
                                 deadline=deadline, seen=seen)
+        if outcome == "resume":
+            # The next attempt was cancelled by a rescue that stopped before its re-run: finish that re-run.
+            return settle(outcome, reason)[3]
         outcome, reason, held = hold_for_destination(
             client, target, outcome, reason, budget_seconds=effective_seconds, floor_seconds=None,
             deadline=deadline, now=clock, sleep=sleep, log=log, seen=seen)
+        if outcome == "resume":
+            # The hold watches on, and can find the same stopped rescue.
+            return settle(outcome, reason)[3]
         if outcome not in ("rescue", "refused"):
             return f"stopped watching attempt {target.attempt}: {reason}" + (
                 f"; kept on the owned pool: {held}" if held else "")
@@ -2589,8 +3497,9 @@ def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_re
                  since: dt.datetime | None = None) -> Target | str:
     """The target for a marked run, resuming the attempt its rescue re-ran (LAST_OWNED_ATTEMPT at most).
 
-    A finished run is only worth a look when it failed after `since`: a
-    refusal nobody re-ran yet. `full_rerun` says the re-run ran the picker
+    A finished run is only worth a look when it failed or was cancelled after `since`: a refusal nobody
+    re-ran yet, or a rescue's cancel whose re-run never came (watch() re-runs it only when GitHub's
+    the rescue logged its cancel and never settled it, rerun_intended()). `full_rerun` says the re-run ran the picker
     again (a stuck run's re-run, or a person's full one), so its own markers
     decide, the picker's and then late-placement's.
     """
@@ -2598,7 +3507,7 @@ def sweep_target(run: Mapping[str, Any], repository: str, *, late: bool, full_re
     if attempt < 1 or attempt > LAST_OWNED_ATTEMPT and not owned_rerun(run):
         return f"attempt {attempt}"
     if run.get("status") == "completed":
-        if run.get("conclusion") != "failure":
+        if run.get("conclusion") not in ("failure", "cancelled"):
             return f"finished ({run.get('conclusion')})"
         finished = parse_time(run.get("updated_at"))
         if since is not None and finished is not None and finished < since:
@@ -2792,6 +3701,13 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         except READ_ERRORS as error:
             log(f"could not list re-runs ({error}); next tick")
             reruns = []
+        if ticks % SIDE_FAILURE_TICKS == 0 and hasattr(client, "nightly_reruns"):
+            # nightly-next's re-runs on Blacksmith (no marker), every SIDE_FAILURE_TICKS ticks: a signing stall
+            # takes SIGN_STALL_SECONDS to call, so a few minutes' delay costs nothing.
+            try:
+                reruns = [*reruns, *client.nightly_reruns(SWEEP_LISTING)]
+            except READ_ERRORS as error:
+                log(f"could not list nightly-next re-runs ({error}); a later tick")
         for run_id, attempt in reruns:
             if (run_id, attempt) not in rerun_seen:
                 adopt(run_id, False, refusals_known=refusals_listed)

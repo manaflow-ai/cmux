@@ -14,6 +14,31 @@
     "benefitSuperpowers": "Pianificazione, TDD, subagenti e revisione"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Richiesta Cloud VM ritardata",
+      "message": "L’allocazione di una Cloud VM non è temporaneamente disponibile.",
+      "action": "Attendi un minuto, quindi riprova con la stessa chiave di idempotenza."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "La richiesta di snapshot richiede una chiave di ripetizione",
+      "message": "Gli snapshot di Cloud VM richiedono una chiave di idempotenza.",
+      "action": "Riprova con un Idempotency-Key stabile di massimo 128 caratteri."
+    },
+    "snapshotInProgress": {
+      "title": "Snapshot ancora in corso",
+      "message": "Uno snapshot con questa chiave di idempotenza è ancora in esecuzione per questa Cloud VM.",
+      "action": "Attendi il completamento del primo snapshot, quindi riprova con la stessa chiave di idempotenza."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Chiave di nuovo tentativo dello snapshot già usata",
+      "message": "Questa chiave di idempotenza è già stata usata per un’altra richiesta di snapshot su questa Cloud VM.",
+      "action": "Usa una nuova chiave di idempotenza per uno snapshot con un altro nome."
+    },
+    "snapshotQuota": {
+      "title": "Limite di snapshot raggiunto",
+      "message": "Questa Cloud VM ha raggiunto il limite di snapshot.",
+      "action": "Elimina uno snapshot esistente, quindi riprova con la stessa chiave di idempotenza."
+    },
     "guestInstall": {
       "title": "Configurazione della Cloud VM incompleta",
       "reason": "La configurazione guest della Cloud VM non è stata completata.",

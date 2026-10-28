@@ -14,6 +14,31 @@
     "benefitSuperpowers": "Planification, TDD, sous-agents et revue"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Requête de VM Cloud retardée",
+      "message": "L’allocation d’une VM Cloud est temporairement indisponible.",
+      "action": "Attendez une minute, puis réessayez avec la même clé d’idempotence."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "La requête d’instantané nécessite une clé de nouvelle tentative",
+      "message": "Les instantanés de VM Cloud nécessitent une clé d’idempotence.",
+      "action": "Réessayez avec un Idempotency-Key stable de 128 caractères maximum."
+    },
+    "snapshotInProgress": {
+      "title": "L’instantané est toujours en cours",
+      "message": "Un instantané utilisant cette clé d’idempotence est toujours en cours pour cette Cloud VM.",
+      "action": "Attendez la fin du premier instantané, puis réessayez avec la même clé d’idempotence."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Clé de nouvelle tentative d’instantané déjà utilisée",
+      "message": "Cette clé d’idempotence a déjà été utilisée pour une autre demande d’instantané sur cette Cloud VM.",
+      "action": "Utilisez une nouvelle clé d’idempotence pour un instantané portant un autre nom."
+    },
+    "snapshotQuota": {
+      "title": "Limite d’instantanés atteinte",
+      "message": "Cette VM Cloud a atteint sa limite d’instantanés.",
+      "action": "Supprimez un instantané existant, puis réessayez avec la même clé d’idempotence."
+    },
     "guestInstall": {
       "title": "Configuration de la Cloud VM incomplète",
       "reason": "La configuration invitée de la Cloud VM n'est pas terminée.",

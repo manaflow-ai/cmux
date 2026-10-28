@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { RunCloudOperationPending } from "../services/runs/cloudClientContract";
-import { normalizeRunSpec } from "../services/runs/spec";
+import { RunCloudOperationPending } from "../services/runs/legacy/cloudClientContract";
+import { normalizeRunSpec } from "../services/runs/legacy/spec";
 
 // /api/vm answers vm_create_in_progress while the same idempotent create runs.
 // A create whose background continuation died never finishes, so the worker
@@ -13,7 +13,7 @@ type TestSql = ((strings: TemplateStringsArray, ...values: unknown[]) => Promise
 let sqlClient: TestSql | null = null;
 const cleanupRunIds: string[] = [];
 
-mock.module("../services/runs/cloudClient", () => ({
+mock.module("../services/runs/legacy/cloudClient", () => ({
   runCloudOrigin: () => "https://cmux-staging.vercel.app",
   RunCloudOperationPending,
   runCloudClient: async () => async (method: string, path: string) => {
@@ -87,7 +87,7 @@ async function seedRun(startedMinutesAgo: number | null): Promise<{ runId: strin
 describe("Run queue worker, Cloud VM create in progress", () => {
   dbTest("keeps a recent in-progress create running so the next cron turn retries it", async () => {
     const { runId, attemptId } = await seedRun(null);
-    const { processRunQueue } = await import("../services/runs/runner");
+    const { processRunQueue } = await import("../services/runs/legacy/runner");
     const outcome = await processRunQueue({ runId });
     expect(outcome.results).toContain("pending");
 
@@ -101,7 +101,7 @@ describe("Run queue worker, Cloud VM create in progress", () => {
 
   dbTest("fails the attempt and the Run once the create has been in progress past the ceiling", async () => {
     const { runId, attemptId } = await seedRun(21);
-    const { processRunQueue } = await import("../services/runs/runner");
+    const { processRunQueue } = await import("../services/runs/legacy/runner");
     const outcome = await processRunQueue({ runId });
     expect(outcome.results).toContain("failed");
 

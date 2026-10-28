@@ -15,9 +15,18 @@ name: rcodesign parity proof
 #   gatekeeper   a fresh Blacksmith Mac with no secrets: codesign, spctl,
 #                stapler, syspolicy_check, then the quarantined DMG's app is
 #                launched with `open` and must be running within a minute
+#   reference    (input launch_reference) the codesign app, notarized and
+#                stapled with Apple's notarytool and stapler, launched the
+#                same way on its own fresh Mac
 #   sparkle      Sparkle's own sign_update verifies the Linux EdDSA signature,
 #                and a BinaryDelta from the newest published nightly-next
 #                applies to the Linux-signed app
+#   helper_first (input) the app is signed by feat-cmux-next's
+#                scripts/ci/release-signer/sign-app.sh in CMUX_SIGN_MODE=helper-first
+#                (the Computer Use helper notarized and stapled on its own
+#                first), compare is skipped (the helper's nonce and ticket
+#                differ by design), and the gatekeeper job runs that commit's
+#                scripts/ci/check-signed-app.sh --require-helper-ticket
 #
 # The release-next environment releases its secrets to branch nightly-next
 # only, so this runs from main in `release`, as cmux-next-dev-daily.yml does.
@@ -30,6 +39,14 @@ on:
       nightly_run_id:
         description: A nightly.yml run on nightly-next whose prepared arm64 app (kept 3 days) to sign
         required: true
+      launch_reference:
+        description: Also notarize the codesign app and launch it quarantined the same way, on its own fresh Mac
+        type: boolean
+        default: false
+      helper_first:
+        description: Sign with feat-cmux-next's release signer, Computer Use helper notarized and stapled first, and run its signed-app checks
+        type: boolean
+        default: false
 
 run-name: rcodesign parity proof · nightly run ${{ inputs.nightly_run_id }}
 
@@ -207,7 +224,7 @@ jobs:
     needs: prep
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 20
+    timeout-minutes: ${{ inputs.launch_reference && 75 || 20 }}
     permissions:
       contents: read
     steps:
@@ -281,14 +298,50 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      # The reference for the quarantined launch: the codesign app, packed
+      # above unchanged, then notarized and stapled with Apple's tools.
+      - name: Notarize and staple the codesign app (reference launch)
+        if: inputs.launch_reference
+        env:
+          ASC_API_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_API_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/work/$APP_NAME.app"
+          secrets="$(umask 077 && mktemp -d)"
+          trap 'rm -rf "$secrets"' EXIT
+          (umask 077 && printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 -D > "$secrets/AuthKey.p8")
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/reference.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/reference.zip" --key "$secrets/AuthKey.p8" \
+            --key-id "$ASC_API_KEY_ID" --issuer "$ASC_API_ISSUER_ID" --wait --timeout 45m --output-format json > notary-reference.json
+          cat notary-reference.json
+          status="$(python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1])).get("status", ""))' notary-reference.json)"
+          [[ "$status" == Accepted ]] || { echo "reference notarization status: ${status:-none}" >&2; exit 1; }
+          xcrun stapler staple "$app"
+          mkdir -p reference
+          COPYFILE_DISABLE=1 tar -C "$RUNNER_TEMP/work" -cf reference/stapled.tar "$APP_NAME.app"
+          echo "Reference app notarization: Accepted (notarytool, stapler)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - if: inputs.launch_reference
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: parity-reference-app
+          path: reference/stapled.tar
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
   sign-rcodesign:
     name: Sign with our rcodesign
     needs: [prep, rcodesign]
     environment: release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 20
+    timeout-minutes: ${{ inputs.helper_first && 50 || 20 }}
     permissions:
       contents: read
+    outputs:
+      signer_sha: ${{ steps.next-signer.outputs.sha }}
     steps:
       - name: Checkout trusted signing scripts
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -296,6 +349,23 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
           persist-credentials: false
+
+      # helper_first: the reviewed signer on feat-cmux-next, the branch the
+      # nightly-next build is cut from.
+      - name: Checkout feat-cmux-next's release signer
+        if: inputs.helper_first
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: feat-cmux-next
+          path: .next-signer
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts
+
+      - name: Record the signer commit
+        id: next-signer
+        if: inputs.helper_first
+        run: echo "sha=$(git -C .next-signer rev-parse HEAD)" | tee -a "$GITHUB_OUTPUT"
 
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -322,14 +392,25 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           UNSIGNED_SHA256: ${{ needs.prep.outputs.unsigned_sha256 }}
+          # helper_first only: the helper's own notarization.
+          ASC_API_KEY_ID: ${{ inputs.helper_first && secrets.ASC_API_KEY_ID || '' }}
+          ASC_API_ISSUER_ID: ${{ inputs.helper_first && secrets.ASC_API_ISSUER_ID || '' }}
+          ASC_API_KEY_P8_BASE64: ${{ inputs.helper_first && secrets.ASC_API_KEY_P8_BASE64 || '' }}
+          HELPER_FIRST: ${{ inputs.helper_first }}
         run: |
           set -euo pipefail
           echo "$UNSIGNED_SHA256  $RUNNER_TEMP/handoff/unsigned.tar" | sha256sum -c -
           work="$RUNNER_TEMP/work"
           mkdir -p "$work"
           tar -C "$work" -xf "$RUNNER_TEMP/handoff/unsigned.tar"
-          CMUX_HELPER_ENTITLEMENTS="$work/inputs/cmux-helper.entitlements" \
-            ./scripts/ci/rcodesign-sign-bundle-dev.sh "$work/$APP_NAME.app" "$work/inputs/cmux.next-dev.entitlements"
+          if [[ "$HELPER_FIRST" == true ]]; then
+            CMUX_SIGNER="${RCODESIGN}" CMUX_SIGN_MODE=helper-first CMUX_HELPER_ENTITLEMENTS="$work/inputs/cmux-helper.entitlements" \
+              .next-signer/scripts/ci/release-signer/sign-app.sh "$work/$APP_NAME.app" "$work/inputs/cmux.next-dev.entitlements" 2>&1 | tee sign.log
+            grep -E 'Computer Use helper notarized|accepted ticket covers|stapled ticket covers' sign.log | sed 's/^/    /' >> "$GITHUB_STEP_SUMMARY"
+          else
+            CMUX_HELPER_ENTITLEMENTS="$work/inputs/cmux-helper.entitlements" \
+              ./scripts/ci/rcodesign-sign-bundle-dev.sh "$work/$APP_NAME.app" "$work/inputs/cmux.next-dev.entitlements"
+          fi
           mkdir -p out
           tar -C "$work" -cf out/signed.tar "$APP_NAME.app"
 
@@ -343,6 +424,7 @@ jobs:
 
   compare:
     name: Compare the payloads
+    if: ${{ !inputs.helper_first }}
     needs: [prep, sign-codesign, sign-rcodesign]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -577,7 +659,7 @@ jobs:
 
   gatekeeper:
     name: Apple's tools and a quarantined launch on a fresh Mac
-    needs: [sign-codesign, notarize-app, notarize-dmg]
+    needs: [sign-codesign, sign-rcodesign, notarize-app, notarize-dmg]
     # No environment and no secrets: this job runs the app.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 20
@@ -635,50 +717,74 @@ jobs:
             echo '### codesign -dvvv: codesign (<) vs rcodesign (>)'; echo '```'; cat out/codesign-d.diff; echo '```';
             echo '### Designated requirement: codesign (<) vs rcodesign (>)'; echo '```'; cat out/requirements.diff; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Checkout the release signer's checks (helper_first)
+        if: inputs.helper_first
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.sign-rcodesign.outputs.signer_sha }}
+          path: .next-signer
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: scripts
+
+      # The checks verify-signed-nightly runs, on the stapled app, and the
+      # Computer Use helper's own ticket on a copy taken out of the app.
+      - name: Signed-app checks and the helper's own ticket (helper_first)
+        if: inputs.helper_first
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          "$GITHUB_WORKSPACE/.next-signer/scripts/ci/check-signed-app.sh" "r/$APP_NAME.app" \
+            "$GITHUB_WORKSPACE/cmux.next-dev.entitlements" --require-helper-ticket 2>&1 | tee out/signed-app-checks.txt
+          { echo '### Signed-app checks and the Computer Use helper ticket'; echo '```'; cat out/signed-app-checks.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
       # Quarantined as a browser download, mounted, copied, then launched with
       # `open` (LaunchServices runs Gatekeeper's first-launch assessment).
       - name: Launch the quarantined DMG's app
         run: |
           set -euo pipefail
           cd "$RUNNER_TEMP"
-          dl="$HOME/Downloads/cmux-nightly-next-parity.dmg"
-          mkdir -p "$HOME/Downloads" "$HOME/Applications"
-          cp dmg/cmux-nightly-next-parity.dmg "$dl"
-          xattr -w com.apple.quarantine "0083;$(printf '%x' "$(date +%s)");Safari;$(uuidgen)" "$dl"
-          xattr -p com.apple.quarantine "$dl"
-          hdiutil attach -nobrowse -readonly -mountpoint /Volumes/parity "$dl"
-          ditto "/Volumes/parity/$APP_NAME.app" "$HOME/Applications/$APP_NAME.app"
-          hdiutil detach /Volumes/parity
-          target="$HOME/Applications/$APP_NAME.app"
-          if ! xattr -p com.apple.quarantine "$target" >/dev/null 2>&1; then
-            echo "the copy carries no quarantine; setting the DMG's"
-            xattr -w com.apple.quarantine "$(xattr -p com.apple.quarantine "$dl")" "$target"
-          fi
-          echo "app quarantine: $(xattr -p com.apple.quarantine "$target")" | tee launch.txt
-          spctl -a -vv -t exec "$target" 2>&1 | tee -a launch.txt
-          # `open` can stay in the foreground after the app starts, so it runs
-          # in the background; both pids are recorded and only they are stopped.
-          open "$target" > open.log 2>&1 &
-          open_pid=$!
-          echo "open pid: $open_pid" | tee -a launch.txt
-          app_pid=""
-          for _ in $(seq 1 60); do
-            app_pid="$(pgrep -f "^$target/Contents/MacOS/cmux( |\$)" | head -n 1 || true)"
-            [[ -n "$app_pid" ]] && break
-            sleep 1
-          done
-          echo "app pid: ${app_pid:-none}" | tee -a launch.txt
-          if [[ -n "$app_pid" ]]; then ps -o pid=,ppid=,etime=,command= -p "$app_pid" | tee -a launch.txt; fi
-          sleep 5
-          if [[ -n "$app_pid" ]] && kill -0 "$app_pid" 2>/dev/null; then running=true; else running=false; fi
-          echo "running 5 s after launch: $running" | tee -a launch.txt
-          # LaunchServices marks the quarantine as assessed once Gatekeeper lets the app run.
-          echo "app quarantine after launch: $(xattr -p com.apple.quarantine "$target")" | tee -a launch.txt
-          log show --last 3m --style compact --predicate 'process == "syspolicyd" AND eventMessage CONTAINS[c] "cmux"' 2>/dev/null | tail -40 > syspolicyd.txt || true
-          { echo '### Quarantined launch'; echo '```'; cat launch.txt; echo '--- syspolicyd'; cat syspolicyd.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          if [[ -n "$app_pid" ]]; then kill "$app_pid" 2>/dev/null || true; fi
-          kill "$open_pid" 2>/dev/null || true
-          [[ "$running" == true ]]
+          "$GITHUB_WORKSPACE/scripts/ci/quarantined-launch.sh" dmg/cmux-nightly-next-parity.dmg 'Quarantined launch'
+
+  gatekeeper-reference:
+    name: The codesign app's quarantined launch on a fresh Mac
+    if: inputs.launch_reference
+    needs: sign-codesign
+    # No environment and no secrets: this job runs the app.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: parity-reference-app
+          path: ${{ runner.temp }}/reference
+      # The same DMG shape as the dmg job; the launch assesses the app copied out.
+      - name: Build the DMG around the stapled codesign app
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          root="$RUNNER_TEMP/dmg-root"
+          mkdir -p "$root" dmg
+          tar -C "$root" -xf reference/stapled.tar
+          /usr/bin/codesign --verify --deep --strict --verbose=2 "$root/$APP_NAME.app"
+          xcrun stapler validate "$root/$APP_NAME.app"
+          ln -s /Applications "$root/Applications"
+          hdiutil create -quiet -volname "$APP_NAME" -srcfolder "$root" -format ULMO -ov dmg/cmux-nightly-next-parity.dmg
+      - name: Launch the quarantined DMG's app
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          "$GITHUB_WORKSPACE/scripts/ci/quarantined-launch.sh" dmg/cmux-nightly-next-parity.dmg 'Quarantined launch (codesign reference)'
 
   sparkle:
     name: Sparkle's tools on the Linux EdDSA signature and a delta

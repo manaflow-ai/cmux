@@ -1202,6 +1202,251 @@ class FakeGitHub(janitor.GitHub):
         return [path.rsplit("/", 2)[-2:] for method, path in self.log if method == "POST" and "graphql" not in path]
 
 
+def nightly_run(sha, age, *, status="queued", branch="nightly-next"):
+    run = make_run(event="push", branch=branch, path=".github/workflows/nightly.yml", name="Nightly macOS build",
+                   status=status, sha=sha, age=age)
+    run["workflow_id"] = 234270400
+    return run
+
+
+def gate_jobs(age, *, build=None):
+    """Run 40505473184's shape: Linux gate jobs done in minutes, `build-nightly-app` queued for a Mac."""
+    jobs = [{"name": "decide", "status": "completed", "conclusion": "success", "labels": [LINUX],
+             "runner_name": "r1", "started_at": iso(age), "completed_at": iso(age - 1)},
+            {"name": "build nightly inputs", "status": "completed", "conclusion": "success", "labels": [LINUX],
+             "runner_name": "r2", "started_at": iso(age - 1), "completed_at": iso(age - 4)},
+            {"name": "promote-nightly-next", "status": "completed", "conclusion": "skipped", "labels": [LINUX],
+             "started_at": iso(age), "completed_at": iso(age)},
+            # GitHub sets a queued job's started_at when it is queued.
+            {"name": "build-nightly-app", "status": "queued", "conclusion": None, "labels": [MAC],
+             "runner_name": None, "started_at": iso(age - 2), "completed_at": None}]
+    if build:
+        jobs[-1].update(build)
+    return jobs
+
+
+class SupersededDeliveryTests(unittest.TestCase):
+    """Leo, 2026-10-26: "When nightly runs for older commits are stuck waiting (queued for a runner or a gate),
+    skip them and build from the tip: cancel the stale runs and move the nightly branch to the tip"."""
+
+    def judge(self, old, old_jobs, runs, newer_jobs=None):
+        # Every newer run lists the same waiting build job unless told otherwise.
+        return janitor.superseded_unstarted(old, old_jobs, runs,
+                                            lambda other: (newer_jobs or {}).get(other["id"], gate_jobs(10)))
+
+    def test_unstarted_on_a_superseded_head_is_skipped(self):
+        old, new = nightly_run("864dceb6", 60), nightly_run("ccb74c4d", 20)
+        ok, why = self.judge(old, gate_jobs(60), [old, new])
+        self.assertTrue(ok, why)
+        self.assertIn(str(new["id"]), why)
+
+    def test_a_started_build_on_an_old_head_is_kept(self):
+        old, new = nightly_run("864dceb6", 60), nightly_run("ccb74c4d", 20)
+        for build in ({"status": "in_progress", "runner_name": "mini-1"},          # running
+                      {"runner_name": "mini-1"},                                    # queued, but has a runner
+                      {"status": "completed", "conclusion": "success", "runner_name": "mini-1",
+                       "completed_at": iso(5)}):                                    # ran on a Mac
+            with self.subTest(build=build):
+                ok, why = self.judge(old, gate_jobs(60, build=build), [old, new])
+                self.assertFalse(ok)
+                self.assertIn("started", why)
+        # A Linux job named for the build (sign, publish, ...) or one that ran past GATE_JOB_MAX is the build too.
+        for job in ({"name": "publish-nightly", "labels": [LINUX]},
+                    {"name": "build nightly inputs", "labels": [LINUX], "completed_at": iso(60 - 1 - 11)}):
+            with self.subTest(job=job):
+                jobs = gate_jobs(60)
+                jobs[1] = {**jobs[1], **job}
+                self.assertFalse(self.judge(old, jobs, [old, new])[0])
+
+    def test_unstarted_with_no_newer_head_run_is_kept(self):
+        old = nightly_run("864dceb6", 60)
+        same_head = nightly_run("864dceb6", 30)
+        cancelled = {**nightly_run("ccb74c4d", 20), "status": "completed", "conclusion": "cancelled"}
+        failed = {**nightly_run("ccb74c4d", 20), "status": "completed", "conclusion": "failure"}
+        fork = nightly_run("ccb74c4d", 20)
+        fork["head_repository"] = {"full_name": "someone/cmux", "owner": {"login": "someone"}}
+        dispatched = {**nightly_run("ccb74c4d", 20), "event": "workflow_dispatch"}
+        ordinary = {**nightly_run("ccb74c4d", 20), "path": ".github/workflows/cmux-next.yml", "workflow_id": 9,
+                    "name": "cmux-next", "display_title": "cmux-next tip Swift suite"}
+        other_branch = nightly_run("ccb74c4d", 20, branch="main")
+        other_workflow = {**nightly_run("ccb74c4d", 20), "workflow_id": 1, "path": ".github/workflows/ci.yml"}
+        older = nightly_run("0ldhead0", 90)
+        no_status = {**nightly_run("ccb74c4d", 20), "status": None}
+        rerun = {**nightly_run("ccb74c4d", 20), "run_attempt": 2}
+        for others in ([no_status], [rerun], [], [same_head], [cancelled], [failed], [fork], [dispatched], [other_branch], [other_workflow],
+                       [older]):
+            with self.subTest(others=others):
+                ok, why = self.judge(old, gate_jobs(60), [old, *others])
+                self.assertFalse(ok)
+                self.assertIn("no newer head", why)
+        self.assertFalse(self.judge(old, None, [old, nightly_run("ccb74c4d", 20)])[0])
+        # Without a way to read the newer run's jobs, nothing is skipped.
+        self.assertFalse(janitor.superseded_unstarted(old, gate_jobs(60), [old, nightly_run("ccb74c4d", 20)])[0])
+        # A shared workflow's DEV delivery run is not superseded by an ordinary run of that workflow.
+        dev = {**nightly_run("864dceb6", 60), "path": ".github/workflows/cmux-next.yml", "workflow_id": 9,
+               "name": "cmux-next", "display_title": "cmux NEXT DEV daily · 864dceb6"}
+        self.assertFalse(self.judge(dev, gate_jobs(60), [dev, {**ordinary, "event": "push"}])[0])
+        self.assertTrue(self.judge(
+            dev, gate_jobs(60), [dev, {**ordinary, "display_title": "cmux NEXT DEV daily · ccb74c4d"}])[0])
+
+    def test_a_newer_run_that_does_not_do_the_build_does_not_supersede(self):
+        # A cache-only warmup or a throttled push at a newer head skips the app build; one still deciding has not
+        # listed it; an unreadable one proves nothing.
+        old, new = nightly_run("864dceb6", 60), nightly_run("ccb74c4d", 20)
+        skipped = gate_jobs(20, build={"status": "completed", "conclusion": "skipped", "runner_name": None})
+        deciding = gate_jobs(20)[:1]
+        unknown = gate_jobs(20, build={"status": None})
+        for newer_jobs in (skipped, deciding, unknown, None):
+            with self.subTest(newer_jobs=newer_jobs):
+                ok, why = janitor.superseded_unstarted(old, gate_jobs(60), [old, new], lambda other: newer_jobs)
+                self.assertFalse(ok)
+                self.assertIn("same build", why)
+        # An old run still at its gates (only `decide` queued) is not matched to anything: a cache-only run's
+        # `decide` succeeds too.
+        at_gates = [{"name": "decide", "status": "queued", "labels": [LINUX], "runner_name": None}]
+        ok, why = janitor.superseded_unstarted(old, at_gates, [old, new], lambda other: skipped)
+        self.assertFalse(ok)
+        self.assertIn("no build job", why)
+        # A newer run that skipped a gate the old one ran (a different path) is not the same build either.
+        other_path = gate_jobs(20)
+        other_path[1] = {**other_path[1], "status": "completed", "conclusion": "skipped"}
+        self.assertFalse(janitor.superseded_unstarted(old, gate_jobs(60), [old, new], lambda other: other_path)[0])
+        # Two newer runs: a cache-only one first, a building one behind it.
+        building = nightly_run("e3ca669f", 30)
+        ok, why = self.judge(old, gate_jobs(60), [old, building, new], {new["id"]: skipped})
+        self.assertTrue(ok, why)
+        self.assertIn(str(building["id"]), why)
+
+    def test_a_rerun_is_kept(self):
+        # Only the latest attempt's jobs are read; an earlier attempt may have built.
+        old, new = {**nightly_run("864dceb6", 60), "run_attempt": 2}, nightly_run("ccb74c4d", 20)
+        ok, why = self.judge(old, gate_jobs(60), [old, new])
+        self.assertFalse(ok)
+        self.assertIn("attempt 2", why)
+        for broken in ({"run_attempt": None}, {"status": None}, {"status": "completed"}, {"status": "weird"}):
+            with self.subTest(broken=broken):
+                self.assertFalse(self.judge({**old, "run_attempt": 1, **broken}, gate_jobs(60), [old, new])[0])
+
+    def test_a_queued_rerun_after_an_attempt_that_built_is_a_candidate(self):
+        # A re-run of a build that ran is a new build; its attempt's own jobs say whether it started.
+        old = {**nightly_run("864dceb6", 60), "run_attempt": 2}
+        built = {"name": "build-nightly-app", "status": "completed", "conclusion": "failure", "labels": [MAC],
+                 "runner_name": "mini-1", "started_at": iso(90), "completed_at": iso(80), "run_attempt": 1}
+        jobs = [built, *({**job, "run_attempt": 2} for job in gate_jobs(60))]
+        self.assertEqual(janitor.superseded_candidates([old], {old["id"]: jobs}), [old])
+        self.assertEqual(janitor.superseded_candidates([old], {old["id"]: gate_jobs(60)}), [])  # attempts unread
+
+    def sweep(self, runs, jobs, *, completed=(), dry_run=False, prs=None, rejob=None, extra_runs=()):
+        fake = FakeGitHub({r["id"]: dict(r) for r in [*runs, *extra_runs]}, jobs)
+        fake.completed["nightly.yml"] = list(completed)
+        fake.prs = prs or {}
+        if rejob:  # what the re-read right before the cancel sees
+            fake.job_map = {**jobs, **rejob}
+        candidates = janitor.superseded_candidates(runs, jobs)
+        decisions, failures = janitor.skip_superseded_delivery(fake, candidates, runs, jobs, fake.prs,
+                                                               dry_run=dry_run)
+        return fake, {d.run["id"]: d for d in decisions}, failures
+
+    def test_the_sweep_cancels_every_superseded_unstarted_run_and_keeps_the_tip(self):
+        a, b, tip = nightly_run("864dceb6", 70), nightly_run("5cec7c8d", 50), nightly_run("ccb74c4d", 20)
+        started = nightly_run("e3ca669f", 40)
+        jobs = {a["id"]: gate_jobs(70), b["id"]: gate_jobs(50), tip["id"]: gate_jobs(20),
+                started["id"]: gate_jobs(40, build={"status": "in_progress", "runner_name": "mini-1"})}
+        fake, decided, failures = self.sweep([a, b, started, tip], jobs)
+        self.assertEqual(failures, 0)
+        self.assertEqual({k for k, d in decided.items() if d.action == "cancel"}, {a["id"], b["id"]})
+        self.assertNotIn(started["id"], decided)  # a started build is never a candidate
+        self.assertEqual(decided[tip["id"]].action, "keep")
+        self.assertEqual(sorted(fake.posts()), sorted([[str(a["id"]), "cancel"], [str(b["id"]), "cancel"]]))
+
+    def test_a_dry_run_cancels_nothing(self):
+        old, tip = nightly_run("864dceb6", 70), nightly_run("ccb74c4d", 20)
+        fake, decided, _ = self.sweep([old, tip], {old["id"]: gate_jobs(70), tip["id"]: gate_jobs(20)},
+                                      dry_run=True)
+        self.assertEqual(decided[old["id"]].action, "cancel")
+        self.assertEqual(fake.posts(), [])
+
+    def test_a_build_that_starts_before_the_cancel_is_kept(self):
+        old, tip = nightly_run("864dceb6", 70), nightly_run("ccb74c4d", 20)
+        jobs = {old["id"]: gate_jobs(70), tip["id"]: gate_jobs(20)}
+        rejob = {old["id"]: gate_jobs(70, build={"status": "in_progress", "runner_name": "mini-1"})}
+        fake, decided, _ = self.sweep([old, tip], jobs, rejob=rejob)
+        self.assertEqual(decided[old["id"]].action, "keep")
+        self.assertIn("on re-read", decided[old["id"]].note)
+        self.assertEqual(fake.posts(), [])
+
+    def test_a_replacement_that_fails_before_the_cancel_keeps_the_old_run(self):
+        old, tip = nightly_run("864dceb6", 70), nightly_run("ccb74c4d", 20)
+        jobs = {old["id"]: gate_jobs(70), tip["id"]: gate_jobs(20)}
+        fake = FakeGitHub({r["id"]: dict(r) for r in (old, tip)}, jobs)
+        fake.runs[tip["id"]].update(status="completed", conclusion="cancelled")  # what the re-read sees
+        candidates = janitor.superseded_candidates([old, tip], jobs)
+        decisions, _ = janitor.skip_superseded_delivery(fake, candidates, [old, tip], jobs, {}, dry_run=False)
+        self.assertEqual({d.run["id"]: d.action for d in decisions}[old["id"]], "keep")
+        self.assertEqual(fake.posts(), [])
+
+    def test_a_pr_opened_at_the_head_during_the_sweep_keeps_the_run(self):
+        old, tip = nightly_run("864dceb6", 70), nightly_run("ccb74c4d", 20)
+        jobs = {old["id"]: gate_jobs(70), tip["id"]: gate_jobs(20)}
+        fake = FakeGitHub({r["id"]: dict(r) for r in (old, tip)}, jobs)
+        fake.prs = {"nightly-next": [make_pr(9, head="864dceb6")]}  # what the re-read sees; the snapshot had none
+        candidates = janitor.superseded_candidates([old, tip], jobs)
+        decisions, _ = janitor.skip_superseded_delivery(fake, candidates, [old, tip], jobs, {}, dry_run=False)
+        self.assertIn("open PR #9", {d.run["id"]: d.note for d in decisions}[old["id"]])
+        self.assertEqual(fake.posts(), [])
+
+    def test_a_gate_with_no_conclusion_is_unread(self):
+        old, new = nightly_run("864dceb6", 60), nightly_run("ccb74c4d", 20)
+        jobs = gate_jobs(60)
+        jobs[1] = {**jobs[1], "conclusion": None}
+        ok, why = self.judge(old, jobs, [old, new])
+        self.assertFalse(ok)
+        self.assertIn("unknown conclusion", why)
+
+    def test_a_newer_run_that_skips_the_build_sends_the_sweep_to_the_branch_listing(self):
+        old, cache_only = nightly_run("864dceb6", 70), nightly_run("e3ca669f", 40)
+        done = {**nightly_run("ccb74c4d", 20, status="completed"), "conclusion": "success"}
+        skipped = gate_jobs(40, build={"status": "completed", "conclusion": "skipped", "runner_name": None})
+        built = gate_jobs(20, build={"status": "completed", "conclusion": "success", "runner_name": "mini-1"})
+        fake, decided, _ = self.sweep([old, cache_only], {old["id"]: gate_jobs(70), cache_only["id"]: skipped},
+                                      completed=[done], rejob={done["id"]: built}, extra_runs=[done])
+        self.assertEqual(decided[old["id"]].action, "cancel", decided[old["id"]].note)
+
+    def test_a_full_jobs_listing_is_unread(self):
+        old = nightly_run("864dceb6", 60)
+        full = gate_jobs(60) + [dict(gate_jobs(60)[0]) for _ in range(100 * janitor.MAX_JOB_PAGES)]
+        self.assertEqual(janitor.superseded_candidates([old], {old["id"]: full}), [])
+        self.assertIsNone(janitor.complete_jobs(full))
+
+    def test_matrix_legs_need_a_leg_each(self):
+        old, new = nightly_run("864dceb6", 60), nightly_run("ccb74c4d", 20)
+        two = gate_jobs(60) + [dict(gate_jobs(60)[-1])]  # two `build-nightly-app` legs
+        one = gate_jobs(20)
+        self.assertFalse(janitor.superseded_unstarted(old, two, [old, new], lambda other: one)[0])
+        self.assertTrue(janitor.superseded_unstarted(old, two, [old, new], lambda other: one + [dict(one[-1])])[0])
+
+    def test_a_finished_newer_run_is_found_by_one_branch_listing(self):
+        old = nightly_run("864dceb6", 70)
+        done = {**nightly_run("ccb74c4d", 20, status="completed"), "conclusion": "success"}
+        built = gate_jobs(20, build={"status": "completed", "conclusion": "success", "runner_name": "mini-1"})
+        fake, decided, _ = self.sweep([old], {old["id"]: gate_jobs(70)}, completed=[done], rejob={done["id"]: built},
+                                      extra_runs=[done])
+        self.assertEqual(decided[old["id"]].action, "cancel")
+        self.assertEqual([p for m, p in fake.log if "/actions/workflows/" in p],
+                         ["/repos/manaflow-ai/cmux/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page=20"])
+
+    def test_a_run_at_an_open_prs_head_is_kept(self):
+        old, tip = nightly_run("864dceb6", 70), nightly_run("ccb74c4d", 20)
+        prs = {"nightly-next": [make_pr(7, head="864dceb6")]}
+        fake, decided, _ = self.sweep([old, tip], {old["id"]: gate_jobs(70), tip["id"]: gate_jobs(20)}, prs=prs)
+        self.assertEqual(decided[old["id"]].action, "keep")
+        self.assertEqual(fake.posts(), [])
+
+    def test_ordinary_runs_are_never_candidates(self):
+        ci = make_run(status="queued", sha="old")
+        self.assertEqual(janitor.superseded_candidates([ci], {ci["id"]: gate_jobs(60)}), [])
+
+
 class OrphanExecutionTests(unittest.TestCase):
     def run_one(self, **fake_kwargs):
         ghost = make_run(status="queued", age=60 * 48)

@@ -553,6 +553,18 @@ type BillingBannerModel = {
   action?: { href: string; label: string };
 };
 
+/** The page's own sign-in link, built from the request before the page renders. */
+export function appPricingRequestSignInHref(
+  params: Record<string, string | string[] | undefined>,
+  headersList: Headers,
+): string {
+  const cmuxScheme = validatedNativeCallbackScheme(
+    firstParam(params.cmux_scheme),
+    appPricingRequest(headersList),
+  );
+  return appPricingSignInHref(cmuxScheme, params);
+}
+
 /// In-webview sign-in that also signs the native app in: Stack sign-in sets
 /// the webview's session cookies, then /handler/after-sign-in hands tokens to
 /// the app through its <scheme>://auth-callback URL. The app applies this

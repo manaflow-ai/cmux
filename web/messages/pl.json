@@ -14,6 +14,31 @@
     "benefitSuperpowers": "Planowanie, TDD, subagenci i przegląd"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Żądanie Cloud VM jest opóźnione",
+      "message": "Przydzielanie Cloud VM jest tymczasowo niedostępne.",
+      "action": "Odczekaj minutę i spróbuj ponownie z tym samym kluczem idempotencji."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Żądanie migawki wymaga klucza ponowienia",
+      "message": "Migawki Cloud VM wymagają klucza idempotencji.",
+      "action": "Spróbuj ponownie ze stałym Idempotency-Key o długości najwyżej 128 znaków."
+    },
+    "snapshotInProgress": {
+      "title": "Migawka jest nadal tworzona",
+      "message": "Migawka z tym kluczem idempotencji jest nadal tworzona dla tej Cloud VM.",
+      "action": "Poczekaj na zakończenie pierwszej migawki, a następnie spróbuj ponownie z tym samym kluczem idempotencji."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Klucz ponowienia migawki został już użyty",
+      "message": "Ten klucz idempotencji został już użyty dla innego żądania migawki na tej Cloud VM.",
+      "action": "Użyj nowego klucza idempotencji dla migawki o innej nazwie."
+    },
+    "snapshotQuota": {
+      "title": "Osiągnięto limit migawek",
+      "message": "Ta Cloud VM osiągnęła limit migawek.",
+      "action": "Usuń istniejącą migawkę i spróbuj ponownie z tym samym kluczem idempotencji."
+    },
     "guestInstall": {
       "title": "Konfiguracja Cloud VM nie została ukończona",
       "reason": "Konfiguracja gościa Cloud VM nie została ukończona.",

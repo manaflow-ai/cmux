@@ -26,10 +26,12 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
          } else {
 --- a/src/code_requirement.rs
 +++ b/src/code_requirement.rs
-@@ -2048,3 +2048,243 @@
+@@ -2046,5 +2046,245 @@
+         );
+         assert!(data.is_empty());
          verify_roundtrip(&els, &source);
-     }
- }
++    }
++}
 +
 +/// Requirement text as codesign writes it (Security's requirement dumper):
 +/// parentheses only where precedence needs them, and data unquoted only when
@@ -231,7 +233,7 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
 +            E::Notarized => out.push_str("notarized"),
 +            E::LegacyDeveloperId => out.push_str("legacy"),
 +        }
-+    }
+     }
 +
 +    #[cfg(test)]
 +    mod test {
@@ -269,7 +271,7 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
 +            assert_eq!(format(&mixed), "(cdhash H\"ab\" or cdhash H\"cd\") and anchor apple");
 +        }
 +    }
-+}
+ }
 --- a/src/dmg.rs
 +++ b/src/dmg.rs
 @@ -47,8 +47,11 @@
@@ -293,23 +295,32 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
              builder.add_blob(slot, blob)?;
          }
  
-@@ -389,9 +392,14 @@
+@@ -346,6 +349,7 @@
+                 settings.certificate_chain().iter().cloned(),
+                 settings.signing_time(),
+             )?;
++            builder.use_codesign_cms_encoding()?;
+         }
+ 
+         builder.create_superblob()
+@@ -389,9 +393,14 @@
  
          let koly_digest = reader.koly().digest_for_code_directory(digest_type)?;
  
+-        let mut cd = CodeDirectoryBlob {
+-            version: 0x20100,
 +        // As codesign does for a DMG: the team of an Apple-issued certificate,
 +        // which needs the 0x20200 Code Directory (0x20100 has no team field).
 +        let team_name = settings.team_id().map(|x| Cow::Owned(x.to_string()));
 +
-         let mut cd = CodeDirectoryBlob {
--            version: 0x20100,
++        let mut cd = CodeDirectoryBlob {
 +            version: if team_name.is_some() { 0x20200 } else { 0x20100 },
              flags,
 +            team_name,
              code_limit: reader.koly().offset_after_plist() as u32,
              digest_size: digest_type.hash_len()? as u8,
              digest_type,
-@@ -407,12 +415,44 @@
+@@ -407,12 +416,44 @@
      }
  
      /// Create special blobs that are added to the superblob.
@@ -358,6 +369,138 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
 +        Ok(vec![(CodeSigningSlot::RequirementSet, blob.into())])
      }
  }
+--- a/src/embedded_signature_builder.rs
++++ b/src/embedded_signature_builder.rs
+@@ -324,6 +324,24 @@
+         Ok(())
+     }
+ 
++    /// Re-encode the CMS signature's outer layers the way codesign writes them
++    /// (see [cms_der_to_codesign_ber]).
++    pub fn use_codesign_cms_encoding(&mut self) -> Result<(), AppleCodesignError> {
++        let der = match self.blobs.get(&CodeSigningSlot::Signature) {
++            Some(BlobData::BlobWrapper(blob)) => blob.serialize_payload()?,
++            _ => return Ok(()),
++        };
++        if der.is_empty() {
++            return Ok(());
++        }
++        let ber = cms_der_to_codesign_ber(&der)?;
++        self.blobs.insert(
++            CodeSigningSlot::Signature,
++            BlobData::BlobWrapper(Box::new(BlobWrapperBlob::from_data_owned(ber))),
++        );
++        Ok(())
++    }
++
+     /// Add notarization ticket data.
+     ///
+     /// This will register a new ticket slot holding the notarization ticket data.
+@@ -361,3 +379,104 @@
+         create_superblob(CodeSigningMagic::EmbeddedSignature, blobs.iter())
+     }
+ }
++
++/// The DER header at the start of `data`: (tag, header length, content length).
++fn der_header(data: &[u8]) -> Result<(u8, usize, usize), AppleCodesignError> {
++    let err = || AppleCodesignError::SignatureBuilder("malformed CMS DER");
++    let tag = *data.first().ok_or_else(err)?;
++    let first = *data.get(1).ok_or_else(err)?;
++    let (header, len) = if first < 0x80 {
++        (2, first as usize)
++    } else {
++        let n = (first & 0x7f) as usize;
++        if n == 0 || n > 4 {
++            return Err(err());
++        }
++        let mut len = 0usize;
++        for i in 0..n {
++            len = (len << 8) | *data.get(2 + i).ok_or_else(err)? as usize;
++        }
++        (2 + n, len)
++    };
++    if data.len() < header + len {
++        return Err(err());
++    }
++    Ok((tag, header, len))
++}
++
++/// Re-encode a DER CMS signature the way codesign writes it: the ContentInfo, its
++/// [0] content, the SignedData and the encapContentInfo use indefinite lengths
++/// (ending in end-of-contents octets); everything inside them stays DER.
++pub fn cms_der_to_codesign_ber(der: &[u8]) -> Result<Vec<u8>, AppleCodesignError> {
++    let err = || AppleCodesignError::SignatureBuilder("unexpected CMS layout");
++    let (tag, header, len) = der_header(der)?;
++    if tag != 0x30 || header + len != der.len() {
++        return Err(err());
++    }
++    let content_info = &der[header..];
++    let (tag, header, len) = der_header(content_info)?;
++    if tag != 0x06 {
++        return Err(err());
++    }
++    let content_type = &content_info[..header + len];
++    let explicit = &content_info[header + len..];
++    let (tag, header, len) = der_header(explicit)?;
++    if tag != 0xa0 || header + len != explicit.len() {
++        return Err(err());
++    }
++    let signed_data = &explicit[header..];
++    let (tag, header, len) = der_header(signed_data)?;
++    if tag != 0x30 || header + len != signed_data.len() {
++        return Err(err());
++    }
++    let mut fields = &signed_data[header..];
++
++    let mut out = Vec::with_capacity(der.len() + 8);
++    out.extend_from_slice(&[0x30, 0x80]);
++    out.extend_from_slice(content_type);
++    out.extend_from_slice(&[0xa0, 0x80, 0x30, 0x80]);
++    // version, digestAlgorithms, encapContentInfo; the rest is copied as it is.
++    for i in 0..3 {
++        let (tag, header, len) = der_header(fields)?;
++        if i == 2 {
++            if tag != 0x30 {
++                return Err(err());
++            }
++            out.extend_from_slice(&[0x30, 0x80]);
++            out.extend_from_slice(&fields[header..header + len]);
++            out.extend_from_slice(&[0, 0]);
++        } else {
++            out.extend_from_slice(&fields[..header + len]);
++        }
++        fields = &fields[header + len..];
++    }
++    out.extend_from_slice(fields);
++    out.extend_from_slice(&[0, 0, 0, 0, 0, 0]);
++    Ok(out)
++}
++
++#[cfg(test)]
++mod codesign_cms_encoding_test {
++    use super::cms_der_to_codesign_ber;
++
++    #[test]
++    fn outer_layers_become_indefinite() {
++        // ContentInfo { OID, [0] { SignedData { 1, SET {}, SEQ { OID }, SET { OCTET STRING } } } }
++        let signed_data = [
++            0x02, 0x01, 0x01, 0x31, 0x00, 0x30, 0x03, 0x06, 0x01, 0x2b, 0x31, 0x03, 0x04, 0x01,
++            0xff,
++        ];
++        let mut der = vec![0x30, 0x16, 0x06, 0x01, 0x2a, 0xa0, 0x11, 0x30, 0x0f];
++        der.extend_from_slice(&signed_data);
++        let ber = cms_der_to_codesign_ber(&der).unwrap();
++        assert_eq!(
++            ber,
++            vec![
++                0x30, 0x80, 0x06, 0x01, 0x2a, 0xa0, 0x80, 0x30, 0x80, 0x02, 0x01, 0x01, 0x31, 0x00,
++                0x30, 0x80, 0x06, 0x01, 0x2b, 0x00, 0x00, 0x31, 0x03, 0x04, 0x01, 0xff, 0x00, 0x00,
++                0x00, 0x00, 0x00, 0x00,
++            ]
++        );
++        assert!(cms_der_to_codesign_ber(&der[..der.len() - 1]).is_err());
++    }
++}
 --- a/src/macho_signing.rs
 +++ b/src/macho_signing.rs
 @@ -18,13 +18,13 @@
@@ -407,8 +550,8 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
      machos: Vec<MachOBinary<'data>>,
 +    /// The input, for its universal header's slice alignments.
 +    data: &'data [u8],
- }
- 
++}
++
 +/// The slice alignments (log2) of a 32-bit universal header, in slice order.
 +fn universal_alignments(data: &[u8], count: usize) -> Result<Vec<u32>, AppleCodesignError> {
 +    let word = |offset: usize| -> Result<u32, AppleCodesignError> {
@@ -422,8 +565,8 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
 +        ));
 +    }
 +    (0..count).map(|i| word(8 + 20 * i + 16)).collect()
-+}
-+
+ }
+ 
 +/// A universal binary as lipo lays it out: each slice at the next multiple of
 +/// its own alignment, the input's, so only the slices' signatures change.
 +fn write_universal(
@@ -535,10 +678,12 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
          } else {
              writer.write_all(&binaries[0])?;
          }
-@@ -444,6 +538,35 @@
-         builder.create_superblob()
-     }
+@@ -442,6 +536,35 @@
+         }
  
+         builder.create_superblob()
++    }
++
 +    /// The size of the SuperBlob with an empty CMS blob, less that blob: what
 +    /// codesign counts before adding its CMS reservation.
 +    fn create_superblob_without_cms(
@@ -566,11 +711,9 @@ Applied by scripts/ci/build-rcodesign.sh with patch -p1 in the crate root.
 +        builder.create_empty_cms_signature()?;
 +        // The empty CMS blob is its 8-byte header; its index entry stays counted.
 +        Ok(builder.create_superblob()?.len() - 8)
-+    }
-+
+     }
+ 
      /// Create the `CodeDirectory` for the current configuration.
-     ///
-     /// This takes an explicit Mach-O to operate on due to a circular dependency
 @@ -500,7 +623,7 @@
          };
  
