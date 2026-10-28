@@ -65,6 +65,7 @@ extension SettingsSchema {
         "tabs.cmdWClosesPinnedTabs",
         "tabs.terminalFirst",
         "app.hideDockIconWithoutWindows", // Dock icon and Cmd-Tab entry with no window open; ends no work
+        "app.showMenuBarIcon", // the menu bar item; looks only, ends no work
         "tabs.overflow",
         "tabs.swapCmdTAndCmdN",
         "tabs.commandDigits",

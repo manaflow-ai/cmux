@@ -18,7 +18,8 @@
               "window.titlebarButtons",
               "app.globalHotKey",
               "app.startAgentGlobalHotKey",
-              "app.hideDockIconWithoutWindows"
+              "app.hideDockIconWithoutWindows",
+              "app.showMenuBarIcon"
             ],
             "title" : {
               "key" : "settings.group.window",
@@ -100,6 +101,17 @@
             "title" : {
               "key" : "settings.group.autoArchive",
               "text" : "Auto-Archive"
+            }
+          },
+          {
+            "key" : "settings.group.workspaceHibernation",
+            "rows" : [
+              "workspaces.hibernation.enabled",
+              "workspaces.hibernation.idleMinutes"
+            ],
+            "title" : {
+              "key" : "settings.group.workspaceHibernation",
+              "text" : "Hibernation"
             }
           },
           {
@@ -2336,6 +2348,58 @@
       "title" : {
         "key" : "settings.app.hideDockIconWithoutWindows",
         "text" : "Hide Dock Icon When No Windows Are Open"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.showMenuBarIcon.help",
+        "text" : "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.showMenuBarIcon",
+      "keywords" : [
+        "menu bar",
+        "status item",
+        "menubar",
+        "tray",
+        "icon",
+        "raycast",
+        "extra",
+        "discord",
+        "logs"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "showMenuBarIcon"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.app.showMenuBarIcon",
+        "text" : "Show Menu Bar Icon"
       },
       "validation" : "portable"
     },
@@ -8822,6 +8886,117 @@
       "title" : {
         "key" : "settings.autoArchive.idleDays",
         "text" : "Idle For"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.enabled.help",
+        "text" : "Frees the memory of workspaces you have not used for a while. Terminals and agents keep running; pages and chats come back where they were when you open the workspace."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.hibernation.enabled",
+      "keywords" : [
+        "hibernate",
+        "hibernation",
+        "sleep",
+        "pause",
+        "memory",
+        "ram",
+        "idle",
+        "evict",
+        "workspaces",
+        "saver"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "hibernation",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaceHibernation.enabled",
+        "text" : "Hibernate Idle Workspaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        5,
+        10080,
+        5042.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 60,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceHibernation",
+        "text" : "Hibernation"
+      },
+      "help" : {
+        "key" : "settings.workspaceHibernation.idleMinutes.help",
+        "text" : "A workspace hibernates when you have not opened it and nothing in it changed for this many minutes. Pinned workspaces, running commands and agents, and workspaces kept awake never hibernate."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "workspaces.hibernation.idleMinutes",
+      "keywords" : [
+        "hibernate",
+        "idle",
+        "minutes",
+        "timeout",
+        "memory"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "workspaces",
+        "hibernation",
+        "idleMinutes"
+      ],
+      "range" : {
+        "max" : 10080,
+        "min" : 5,
+        "placeholder" : 5,
+        "step" : 5,
+        "unit" : "minutes"
+      },
+      "refuses" : [
+        -10070,
+        20155,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaceHibernation.idleMinutes",
+        "text" : "Hibernate After"
       },
       "validation" : "portable"
     },

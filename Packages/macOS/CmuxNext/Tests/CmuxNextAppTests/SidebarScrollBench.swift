@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 import QuartzCore
@@ -250,17 +251,9 @@ final class SidebarScrollBench {
         }
     }
 
-    static func threadCPU() -> Double {
-        var ts = timespec()
-        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts)
-        return Double(ts.tv_sec) + Double(ts.tv_nsec) / 1e9
-    }
+    static func threadCPU() -> Double { FrameBudgetCalibration.threadCPU() }
 
-    static func percentile(_ values: [Double], _ p: Double) -> Double {
-        let sorted = values.sorted()
-        guard !sorted.isEmpty else { return 0 }
-        return sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * p).rounded()))]
-    }
+    static func percentile(_ values: [Double], _ p: Double) -> Double { FrameBudgetCalibration.percentile(values, p) }
 
     static func summary(_ count: Int, _ frames: [Frame]) -> String {
         let cpu = frames.map(\.cpuMs)

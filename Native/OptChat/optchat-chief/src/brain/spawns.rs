@@ -1523,6 +1523,10 @@ impl Brain {
             })
             .collect();
         for (id, text, floor, requires_approval, quiet) in done {
+            // A stopped run (the person's own stop) owes no outcome.
+            if !quiet {
+                self.note_finished(&id);
+            }
             let source = Source::Spawn(SpawnRef {
                 spawn: spawn.to_owned(),
                 subs: vec![(id.clone(), floor)],
