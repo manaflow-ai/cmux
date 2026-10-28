@@ -397,28 +397,61 @@ describe("Home attachments: re-check blockers (sweep cursor, orphan slots, requi
     expect(await testEnv.HOME_ATTACHMENTS.head(key)).toBeNull()
   })
 
-  it("without the S3 settings a large file still uploads as multipart; only a legacy intent answers 503 attachment.large_unavailable", async () => {
+  it("without the S3 settings no large file gets 503: a legacy intent streams through the Worker, a multipart intent gets parts", async () => {
     const alice = await signIn("att-nos3-alice")
     const g = await group(alice)
     const { handleAttachmentIntent } = await import("../src/home-attachments.ts")
     const noS3 = { ...testEnv, HOME_ATTACHMENTS_S3_ENDPOINT: undefined } as Env
-    const ask = (over: Record<string, unknown>) =>
-      handleAttachmentIntent(
+    const big = new Uint8Array(40_000_000).fill(5)
+    const ask = async (over: Record<string, unknown>) => {
+      const res = await handleAttachmentIntent(
         new Request("https://api.test/v1/home/attachments/intent", {
           method: "POST",
           headers: { authorization: `Bearer ${alice.token}`, "content-type": "application/json" },
-          body: JSON.stringify({ conversation: g.id, sha256: "a".repeat(64), byte_count: 40_000_000, mime_type: "video/mp4", name: "v.mp4", ...over })
+          body: JSON.stringify({ conversation: g.id, sha256: sha(big), byte_count: big.byteLength, mime_type: "video/mp4", name: "v.mp4", ...over })
         }),
         noS3
       )
+      return { status: res.status, json: (await res.json()) as any }
+    }
+    // An older client (no `multipart`) streams the whole file through the Worker, one bounded R2 put.
     const legacy = await ask({})
-    expect(legacy.status).toBe(503)
-    expect(((await legacy.json()) as any).error.code).toBe("attachment.large_unavailable")
+    expect([legacy.status, legacy.json.value?.mode]).toEqual([200, "stream"])
+    expect(new URL(legacy.json.value.upload_url).pathname).toMatch(/^\/v1\/home\/attachments\/upload\//)
+    const stored = await put(legacy.json.value.upload_url, big)
+    expect([stored.status, ((await stored.json()) as any).value.state]).toEqual([200, "stored"])
     const multipart = await ask({ multipart: true, sha256: "c".repeat(64) })
     expect(multipart.status).toBe(200)
-    const value = ((await multipart.json()) as any).value
-    expect(value).toMatchObject({ state: "upload", mode: "multipart", method: "PUT", part_size: 32 * 1024 * 1024, part_count: 2 })
-    expect(new URL(value.upload_url).pathname).toMatch(/^\/v1\/home\/attachments\/multipart\//)
-    expect(value.upload_url).not.toContain("X-Amz-")
+    expect(multipart.json.value).toMatchObject({ state: "upload", mode: "multipart", method: "PUT", part_size: 32 * 1024 * 1024, part_count: 2 })
+    expect(new URL(multipart.json.value.upload_url).pathname).toMatch(/^\/v1\/home\/attachments\/multipart\//)
+    expect(multipart.json.value.upload_url).not.toContain("X-Amz-")
+  })
+
+  it("every size has a transport: a client that can send parts is never refused for size; an older one only past what one request can carry", async () => {
+    const { uploadModeFor } = await import("../src/home-attachments.ts")
+    const MB = 1_000_000
+    const GB = 1_000 * MB
+    const TB = 1_000 * GB
+    const worker = 100 * MB
+    const code = (r: ReturnType<typeof uploadModeFor>) => (typeof r === "string" ? r : r.code)
+    // [byte count, multipart client, S3 settings] -> transport
+    const cases: Array<[number, boolean, boolean, string]> = [
+      [10 * MB, false, false, "stream"],
+      [10 * MB, true, true, "stream"],
+      [40 * MB, false, false, "stream"],
+      [100 * MB, false, false, "stream"],
+      [40 * MB, false, true, "presigned"],
+      [5 * GB, false, true, "presigned"],
+      [40 * MB, true, false, "multipart"],
+      [40 * MB, true, true, "multipart"],
+      [900 * GB, true, false, "multipart"],
+      [101 * MB, false, false, "attachment.multipart_required"],
+      [6 * GB, false, true, "attachment.multipart_required"]
+    ]
+    expect(cases.map(([bytes, multipart, s3]) => code(uploadModeFor(bytes, multipart, s3, worker)))).toEqual(cases.map((c) => c[3]))
+    // A Business or Enterprise zone carries larger requests: an older client streams more through the Worker.
+    expect(uploadModeFor(150 * MB, false, false, 200 * MB)).toBe("stream")
+    // No answer is a "too large" refusal for a client that sends parts while the deployment can take them.
+    expect(code(uploadModeFor(TB / 2, true, true, worker))).toBe("multipart")
   })
 })
