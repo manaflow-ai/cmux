@@ -1,9 +1,0 @@
-{/* block */ "sidebar":{// note
-"workspaceRow":{// note
-"terminal":{"branch":null,},// "quoted"
-"process":"true",},},// "quoted"
-"appearance":{// note
-"surfaces":{"docks":{"opacity":-10E-1,},"terminal":{// url: https://localhost/x
-"opacity":"1"},},// note
-"colorTransition":{/* block */ "springResponse":1.025,}},// a { brace
-"chief":{"reactionsCanWake":false,},"browser":{"omnibar":{"glass":true,}},"editor":{"importFrom":true}}

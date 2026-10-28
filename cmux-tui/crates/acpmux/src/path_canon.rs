@@ -104,8 +104,8 @@ fn stored_name(path: &Path) -> Option<std::ffi::OsString> {
     }
     // attrreference_t: the name's offset from the reference itself, and its
     // length with the NUL.
-    let offset = i32::from_ne_bytes(reply[4..8].try_into().ok()?);
-    let length = u32::from_ne_bytes(reply[8..12].try_into().ok()?) as usize;
+    let offset = i32::from_ne_bytes(reply.get(4..8)?.try_into().ok()?);
+    let length = u32::from_ne_bytes(reply.get(8..12)?.try_into().ok()?) as usize;
     let start = usize::try_from(4 + i64::from(offset)).ok()?;
     let name = reply.get(start..start.checked_add(length)?.checked_sub(1)?)?;
     (!name.is_empty()).then(|| std::ffi::OsString::from_vec(name.to_vec()))

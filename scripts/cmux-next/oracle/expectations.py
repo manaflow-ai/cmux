@@ -607,6 +607,11 @@ def lint(
 
     diags.extend(_lint_overlaps(entries))
     if corpus is not None:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import corpus_store  # noqa: PLC0415 - sibling: the stored suites of the repository corpus
+
+        for error in corpus_store.load_errors(corpus):  # its lines then show as stale
+            print(f"expectations: warning: {error}", file=sys.stderr)
         diags.extend(_lint_stale_corpus(entries, corpus))
         diags.extend(_lint_budget(entries, corpus))
     diags.extend(_lint_stale_results(entries, results, min_runs))

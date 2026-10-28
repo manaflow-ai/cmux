@@ -1,9 +1,0 @@
-{'layout': 0,"layout":{// "quoted"
-"stripScrollbar":"__not_a_choice__"},"browser": null,"browser":{"verificationAutofill":{/* // inside */ "enabled":true},"omnibar":{"showFullURLs": "shadowed","showFullURLs":null}},"mobile": null,// a { brace
-"mobile":{// a { brace
-"terminalSizingOrder":{}},// note
-"markdown":{"code":{"blockSize":8}},"agentPane": "shadowed","agentPane":{"display": null,// a { brace
-"display":{"width":480}},"notifications":{"quietHours":{"end":"07:30","start":"22:00"}},"feed": 0,"feed":{"agentPermissionPrompts": null,// url: https://localhost/x
-"agentPermissionPrompts":1},"sidebar": "shadowed",/* // inside */ "sidebar":{"workspaceRow": null,"workspaceRow":{/* // inside */ "browser":{// url: https://localhost/x
-"tabCount":"true",// a { brace
-"ports":null}}}}

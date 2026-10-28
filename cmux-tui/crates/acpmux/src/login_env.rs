@@ -842,10 +842,7 @@ pub fn agent_shell_env() -> Option<(OsString, Option<OsString>)> {
 /// last newline. Shell-private and per-process variables are dropped.
 pub(crate) fn parse_env0(text: &str, marker: &str) -> (Vec<(String, String)>, Option<String>) {
     let marker = format!("\n{marker}\n");
-    let text = match text.rfind(&marker) {
-        Some(at) => &text[at + marker.len()..],
-        None => text,
-    };
+    let text = text.rsplit_once(&marker).map_or(text, |(_, after)| after);
     let skip = [
         "PWD",
         "OLDPWD",
@@ -870,10 +867,8 @@ pub(crate) fn parse_env0(text: &str, marker: &str) -> (Vec<(String, String)>, Op
     let mut vars = Vec::new();
     let mut login_path = None;
     for chunk in text.split('\0') {
-        let Some(eq) = chunk.find('=') else { continue };
-        let start = chunk[..eq].rfind('\n').map(|i| i + 1).unwrap_or(0);
-        let key = &chunk[start..eq];
-        let value = &chunk[eq + 1..];
+        let Some((head, value)) = chunk.split_once('=') else { continue };
+        let key = head.rsplit_once('\n').map_or(head, |(_, key)| key);
         if key.is_empty()
             || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
             || key.starts_with("XPC_")
