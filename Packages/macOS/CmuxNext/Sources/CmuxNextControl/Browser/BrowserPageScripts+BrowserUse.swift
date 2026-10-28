@@ -30,6 +30,21 @@ extension BrowserPageScripts {
         """)
     }
 
+    /// Clicks `selector` to open the page's file chooser, as the person's click does: a file input (hidden
+    /// ones too), its label, or a button whose handler opens one. Answers `{value: {fileInput}, at}`, or
+    /// `{error, code}` for a missing or disabled element.
+    static func openFileChooser(_ selector: String) -> String {
+        wrap(find(selector) + """
+        const W = (el.ownerDocument && el.ownerDocument.defaultView) || window;
+        const fileInput = el instanceof W.HTMLInputElement && String(el.type).toLowerCase() === 'file';
+        if (el.disabled) { return { error: 'Element is disabled: ' + raw, code: 'disabled' }; }
+        const at = cmuxAt(el);
+        if (!fileInput) { el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }); }
+        el.click();
+        return { value: { fileInput }, at };
+        """)
+    }
+
     /// Puts `files` (name, MIME type, base64 bytes) into the file input
     /// `selector` through a `DataTransfer`, then fires `input` and `change`.
     static func upload(_ selector: String, files: [(name: String, type: String, base64: String)]) -> String {

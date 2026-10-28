@@ -6,9 +6,17 @@ import CmuxNextIcons
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
-    /// How much shorter than the list's inset a row ends on the right: the row's pill stops
-    /// before the sidebar's edge (Leo 2026-10-20: "trim the pill's right side").
-    static var rowTrailingTrim: CGFloat { Metrics.space4 }
+    /// How much shorter than the list's inset a row ends on the right: negative, so a row's fill runs
+    /// past the inset to `rowEdgeGap` from the sidebar's right edge. #22733 stopped the pills
+    /// `Metrics.space4` short of the sidebar's edge; Leo 2026-10-21 took it back ("bring back the
+    /// length, so we can have more content per sidebar row"), and 2026-10-27 shrank what was left
+    /// ("the sidebar workspace highlight button area ... The gap between the row and the, you know,
+    /// the drag, the actual sidebar end"). Pinned rows and list blocks read it too, so every row
+    /// still ends at one x; the left inset and the content's insets inside the fill are unchanged.
+    static var rowTrailingTrim: CGFloat { rowEdgeGap - horizontalInset }
+    /// The space between a row's fill and the sidebar's right edge (Leo 2026-10-27: "like say one or
+    /// two pixels, 1.5").
+    static let rowEdgeGap: CGFloat = 1.5
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
@@ -21,12 +29,21 @@ enum SidebarStyle {
     /// A workspace row's leading glyph: the size an icon takes beside the
     /// row title (cap height and stroke matched to the text).
     static var kindGlyphSize: CGFloat { .iconRowSize(forLabelPointSize: titleFont.pointSize) }
-    /// Where a list row's title text starts when its leading icon slot begins at `leading`: one
-    /// `iconBox` slot, drawn or empty, then a Chrome-like gap after the glyph's drawing, so rows
-    /// with and without an icon line up (Lawrence 2026-10-21: "weird spacing").
-    static func titleTextX(leading: CGFloat) -> CGFloat {
-        leading + iconBox + Metrics.space3 - Swift.max(0, (iconBox - kindGlyphSize) / 2)
+    /// Where a list row's title text starts when its leading icon slot begins at `leading`.
+    ///
+    /// No icon (`iconSide` 0): at `leading`, as far left as the row allows (Lawrence 2026-10-23: "text
+    /// needs to be as left as possible (how it originally was)"; c779988d57d had kept an empty slot).
+    /// An icon: a Chrome-like 6 pt after the glyph's drawing (it draws at `kindGlyphSize`, centered in its
+    /// box). A color swatch: 6 pt after the swatch's box.
+    static func titleTextX(leading: CGFloat, iconSide: CGFloat, swatch: Bool = false) -> CGFloat {
+        guard iconSide > 0 else { return leading }
+        if swatch { return leading + iconSide + Metrics.space3 + Metrics.space1 }
+        return leading + iconSide + Metrics.space3 - Swift.max(0, (iconSide - kindGlyphSize) / 2)
     }
+    /// The one text column after a leading glyph in a row whose first ink starts at `leading`: Home's and every
+    /// band row's label, a pinned row's title (after its pin), a workspace row's title after its icon. Lawrence
+    /// 2026-10-28: "home and pinned are not aligned".
+    static func leadingTextX(leading: CGFloat) -> CGFloat { titleTextX(leading: leading, iconSide: iconBox) }
     /// An item's glyph on its `iconBox` well (the list look), clear of the well's edge.
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
@@ -52,9 +69,10 @@ enum SidebarStyle {
     /// thing too big, revert to old icon sizes".
     static var avatarDiameter: CGFloat { iconBox }
     static var footerHeight: CGFloat { Metrics.sidebarRowHeightWithSubtitle - Metrics.space2 }
-    /// The margin under everything the sidebar draws (Leo 2026-10-20: the account row, the last
-    /// rows and the scroller sat on the window's bottom edge): space4, as the agent composer's.
-    static var bottomInset: CGFloat { Metrics.space4 }
+    /// The margin under everything the sidebar draws: the 4 pt grid step (space2 at compact). It was
+    /// space4 (8 pt) since Leo 2026-10-20. Lawrence 2026-10-27 (message 13901): the footer is still too
+    /// tall, so the margin is cut.
+    static var bottomInset: CGFloat { Metrics.space2 }
     static var autoscrollZone: CGFloat { Metrics.sidebarRowHeight }
     /// Rows realized past each edge of the visible list. A scroll draws rows as they come in
     /// (one or two a frame), so a deep overscan bought nothing and cost every frame: each realized
@@ -106,8 +124,10 @@ enum SidebarStyle {
     }
     /// How much of the header's ink the member count takes: lighter than the name.
     static let groupHeaderCountInkAlpha: CGFloat = 0.7
-    /// The members' bar: 3 pt at the 32 pt row, scaled; at the members' leading edge.
-    static var groupBarWidth: CGFloat { max(2, (Metrics.sidebarRowHeight * 0.1).rounded()) }
+    /// An archived row's ink, icon and group bar (plans/cmux-next/archiving-DESIGN.md): dimmed, still legible.
+    static let archivedAlpha: CGFloat = 0.45
+    /// The members' line: 2 pt, as Chrome's (Leo 2026-10-19), at every density.
+    static var groupBarWidth: CGFloat { Metrics.space1 }
     static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
     /// One nesting step: a nested group's rows move in this far per level below the top.
     static var groupGutter: CGFloat { groupBarX + groupBarWidth + Metrics.space1 }
@@ -119,7 +139,27 @@ enum SidebarStyle {
     /// The members' line sits just left of their rows, in the list's leading inset for a
     /// top-level group, so no hover or selection fill covers it (cx-q5jw) and the rows keep
     /// the ungrouped rows' left edge.
-    static func groupLineX(membersMinX: CGFloat) -> CGFloat { max(0, membersMinX - Metrics.space1 - groupBarWidth) }
+    static func groupLineX(membersMinX: CGFloat) -> CGFloat { max(0, membersMinX - groupRailReach) }
+    /// How far left of its members' x a group's rail starts: its width and the gap to the rows. A group
+    /// header's bar reaches left by the same amount, so the rail's left edge is the bar's left edge at
+    /// every level and density (Lawrence 2026-10-23: "the bar, left side, should be aligned with the
+    /// header part left side"), while the header's name keeps the rows' text column.
+    static var groupRailReach: CGFloat { Metrics.space1 + groupBarWidth }
+    /// The least room a group header's bar and rail keep from the list's left edge (Lawrence 2026-10-25: "groups
+    /// headers and rails need more left padding"): they sat flush at 0 and 2 pt. One inset less than the
+    /// rows' (4 pt compact, 6 pt comfortable), at every level and in Minimal Mode.
+    static var groupEdgePadding: CGFloat { max(0, horizontalInset - Metrics.space1) }
+    /// The cut between a header's bar and its members' line: Chrome's (Leo 2026-10-19: "chrome has a neat little
+    /// cut line"). A `joined` line has none.
+    static var groupLineCut: CGFloat { Metrics.space3 }
+    /// The Debug `sidebar.groupLineLayout` choice.
+    static var groupLineLayout: SidebarGroupLineLayout { SidebarGroupLineLayout.tunable.value }
+    /// How far inside a header's left edge Chrome sets its line (Leo 2026-10-19: about 4 to 5 pt): the line's right
+    /// edge meets the end of the bar's corner arc.
+    static var groupLineCornerInset: CGFloat { max(0, rowCornerRadius - groupBarWidth) }
+    /// How much further left than its rail a group header's bar reaches: `inside`, the corner inset, so the line sits
+    /// under the bar's rounded corner (never past the list's edge, `SidebarListView.railReach(for:)`).
+    static var groupHeaderOverhang: CGFloat { groupLineLayout == .inside ? groupLineCornerInset : 0 }
     /// The quiet group headers' color dot, in the header's leading corner (cx-25az).
     static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
     static var headerFont: NSFont { Typography.header }

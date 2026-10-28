@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 import QuartzCore
@@ -46,7 +47,19 @@ final class SidebarScrollBench {
 
     /// - Parameter pointerOverList: the pointer rests over the list's middle while it scrolls, as
     ///   a trackpad scroll has it: every frame moves another row under it (hover follows the scroll).
-    init(count: Int, height: CGFloat = 900, pointerOverList: Bool = false) {
+    /// How the workspaces are grouped.
+    enum Shape {
+        /// A third in groups of eight, the rest loose (a long-running window).
+        case mixed
+        /// Every workspace in one open group (a humongous group).
+        case oneGroup
+        /// One open group per level, `depth` levels deep, the workspaces spread evenly (groups of groups).
+        case nested(depth: Int)
+        /// `count / perGroup` open groups, each of `perGroup`; all but the first collapsed.
+        case manyCollapsed(perGroup: Int)
+    }
+
+    init(count: Int, height: CGFloat = 900, pointerOverList: Bool = false, shape: Shape = .mixed) {
         _ = NSApplication.shared
         self.count = count
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
@@ -66,17 +79,41 @@ final class SidebarScrollBench {
             if index % 13 == 0 { w.muted = true }
             return w
         }
-        let grouped = count / 3, perGroup = 8
         var nodes: [SidebarNode] = []
-        var next = 0
-        var g = 0
-        while next < grouped {
-            let members = (next..<min(grouped, next + perGroup)).map(ws)
-            nodes.append(.group(SidebarGroup(id: GroupID("sb-g\(g)"), name: "Group \(g)", color: .green, workspaces: members)))
-            next += members.count
-            g += 1
+        switch shape {
+        case .mixed:
+            let grouped = count / 3, perGroup = 8
+            var next = 0
+            var g = 0
+            while next < grouped {
+                let members = (next..<min(grouped, next + perGroup)).map(ws)
+                nodes.append(.group(SidebarGroup(id: GroupID("sb-g\(g)"), name: "Group \(g)", color: .green, workspaces: members)))
+                next += members.count
+                g += 1
+            }
+            nodes += (next..<count).map { .workspace(ws($0)) }
+        case .oneGroup:
+            nodes = [.group(SidebarGroup(id: GroupID("sb-g0"), name: "Huge group", color: .green, workspaces: (0..<count).map(ws)))]
+        case let .nested(depth):
+            let per = max(1, count / max(depth, 1))
+            var next = 0
+            for level in 0..<depth {
+                let end = level == depth - 1 ? count : min(count, next + per)
+                var group = SidebarGroup(id: GroupID("sb-g\(level)"), name: "Level \(level)", color: .green, workspaces: (next..<end).map(ws))
+                if level > 0 { group.parent = GroupID("sb-g\(level - 1)") }
+                nodes.append(.group(group))
+                next = end
+            }
+        case let .manyCollapsed(perGroup):
+            var next = 0, g = 0
+            while next < count {
+                let members = (next..<min(count, next + perGroup)).map(ws)
+                nodes.append(.group(SidebarGroup(id: GroupID("sb-g\(g)"), name: "Group \(g)", color: .green,
+                                                 isCollapsed: g > 0, workspaces: members)))
+                next += members.count
+                g += 1
+            }
         }
-        nodes += (next..<count).map { .workspace(ws($0)) }
         rows = (0..<count).map(ws)
         model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: nodes)], activeWorkspaceID: ids.first)
         sidebar = SidebarView(model: model, design: DesignSettings())
@@ -168,13 +205,17 @@ final class SidebarScrollBench {
     }
 
     /// Scrolls top to bottom and back `passes` times, `step` points per frame (a fast trackpad
-    /// flick moves 30-60 pt a frame). The first pass down is a warm-up and is dropped.
-    func run(step: CGFloat = 40, passes: Int = 2) -> [Frame] {
+    /// flick moves 30-60 pt a frame). The first pass down is a warm-up and is dropped. `depth`
+    /// turns each pass back that far below the top (nil: at the bottom), so a run's frame count
+    /// stops growing with the list.
+    func run(step: CGFloat = 40, passes: Int = 2, depth: CGFloat? = nil) -> [Frame] {
         var frames: [Frame] = []
         for pass in 0...max(passes, 0) {
+            // Read each step, as `maxY` follows the list's height (ticks can change it mid-pass).
+            var bottom: CGFloat { min(maxY, depth ?? maxY) }
             var y: CGFloat = 0
             var down: [Frame] = []
-            while y < maxY { y = min(maxY, y + step); down.append(frame(to: y)) }
+            while y < bottom { y = min(bottom, y + step); down.append(frame(to: y)) }
             while y > 0 { y = max(0, y - step); down.append(frame(to: y)) }
             if pass > 0 || passes == 0 { frames += down }
             drain()
@@ -183,25 +224,21 @@ final class SidebarScrollBench {
     }
 
     /// Samples this process with `/usr/bin/sample` while it scrolls and prints the heaviest
-    /// main-thread frames ("SSB" call tree lines, "SSB-TOP" top of stack).
+    /// main-thread frames ("SSB" call tree lines, "SSB-TOP" top of stack). The wait for `sample`
+    /// is bounded and off the main thread (`SelfSampler`).
     func profile(seconds: Int = 6, minimum: Int = 25) async throws {
-        let output = FileManager.default.temporaryDirectory.appendingPathComponent("sidebar-scroll-\(getpid()).sample.txt")
-        let sampler = Process()
-        sampler.executableURL = URL(fileURLWithPath: "/usr/bin/sample")
-        sampler.arguments = [String(getpid()), String(seconds), "1", "-mayDie", "-file", output.path]
-        sampler.standardOutput = FileHandle.nullDevice
-        sampler.standardError = FileHandle.nullDevice
-        try sampler.run()
-        try await Task.sleep(for: .milliseconds(500)) // bounded: lets sample attach before the scroll
-        var rounds = 0
-        let end = Date().addingTimeInterval(TimeInterval(seconds))
-        while Date() < end {
-            _ = run(step: 40, passes: 0)
-            rounds += 1
-            await Task.yield()
+        let (report, rounds) = try await SelfSampler.run(name: "sidebar-scroll", seconds: seconds) { _ in
+            try await Task.sleep(for: .milliseconds(500)) // bounded: lets sample attach before the scroll
+            var rounds = 0
+            let end = Date().addingTimeInterval(TimeInterval(seconds))
+            while Date() < end {
+                _ = run(step: 40, passes: 0)
+                rounds += 1
+                await Task.yield()
+            }
+            return rounds
         }
-        sampler.waitUntilExit()
-        guard let text = try? String(contentsOf: output, encoding: .utf8) else { return print("SIDEBAR-SCROLL-PROFILE no sample output") }
+        guard let text = report else { return print("SIDEBAR-SCROLL-PROFILE no sample output") }
         print("SIDEBAR-SCROLL-PROFILE n=\(count) rounds=\(rounds)")
         let lines = text.components(separatedBy: "\n")
         var inMain = false, printed = 0
@@ -218,17 +255,9 @@ final class SidebarScrollBench {
         }
     }
 
-    static func threadCPU() -> Double {
-        var ts = timespec()
-        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts)
-        return Double(ts.tv_sec) + Double(ts.tv_nsec) / 1e9
-    }
+    static func threadCPU() -> Double { FrameBudgetCalibration.threadCPU() }
 
-    static func percentile(_ values: [Double], _ p: Double) -> Double {
-        let sorted = values.sorted()
-        guard !sorted.isEmpty else { return 0 }
-        return sorted[min(sorted.count - 1, Int((Double(sorted.count - 1) * p).rounded()))]
-    }
+    static func percentile(_ values: [Double], _ p: Double) -> Double { FrameBudgetCalibration.percentile(values, p) }
 
     static func summary(_ count: Int, _ frames: [Frame]) -> String {
         let cpu = frames.map(\.cpuMs)

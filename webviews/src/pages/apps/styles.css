@@ -104,6 +104,7 @@
   background: var(--page-hover);
   color: var(--page-text-2);
   white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .apps-chip.selected {
@@ -145,6 +146,7 @@
   color: var(--page-text);
   font-size: var(--text-detail);
   font-weight: 650;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .apps-card {
@@ -199,6 +201,7 @@
   color: var(--page-text-3);
   font-size: var(--text-caption);
   overflow-wrap: anywhere;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .apps-verified {
@@ -211,6 +214,7 @@
   background: var(--page-text-2);
   font-size: var(--text-caption);
   font-weight: 700;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .apps-name {
@@ -292,6 +296,7 @@
   background: var(--page-hover);
   color: var(--page-text-2);
   white-space: nowrap;
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .apps-button {
@@ -411,10 +416,12 @@
   justify-content: center;
 }
 
+/* Full width like Discover and Installed, on the toolbar's edges, so moving between them never
+   moves the content's left edge. */
 .apps-detail-body {
-  max-width: 760px;
-  margin: 0 auto;
   padding: 20px 20px 32px;
+  padding-left: var(--page-edge);
+  padding-right: var(--page-edge);
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -462,7 +469,9 @@
   gap: 8px;
 }
 
+/* The page is full width; running text stops at a readable line length. */
 .apps-detail-description {
+  max-width: 72ch;
   margin: 0;
   line-height: 1.45;
 }
@@ -604,13 +613,28 @@ code {
   transform: translateX(12px);
 }
 
+/* Full width like Discover: no centered column, so switching tabs keeps the toolbar's edges. */
 .apps-installed {
-  max-width: 980px;
-  margin: 0 auto;
   padding: var(--page-edge);
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+/* The failed-check notice and the update rows sit under the Updates head with the rows' own spacing. */
+.apps-updates-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 10px;
+}
+
+.apps-updates-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
 }
 
 .apps-installed-row {
@@ -678,11 +702,13 @@ code {
 .apps-state strong {
   color: var(--page-text);
   font-size: var(--text-body);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .apps-state > span:last-child {
   max-width: 340px;
   font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .apps-state-mark {
@@ -696,6 +722,7 @@ code {
   color: var(--page-text-2);
   background: var(--page-hover);
   font-size: var(--text-title);
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 .apps-state-empty {
@@ -747,6 +774,7 @@ code {
 .apps-cloud-feature-title {
   font-size: var(--text-title);
   font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 .apps-cloud-feature-body {
@@ -754,6 +782,7 @@ code {
   line-height: 1.4;
   color: var(--page-text-2);
   text-wrap: pretty;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .apps-cloud-feature-art {
@@ -787,7 +816,7 @@ code {
 @container apps-discover (max-width: 480px) {
   .apps-cloud-feature {
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
   }
 
   .apps-cloud-feature-text {
@@ -825,4 +854,86 @@ code {
   color: var(--page-text);
   background: var(--page-hover);
   border: 1px solid var(--page-separator);
+}
+
+/* Item primitives (items.tsx; leo-workspace design/app-store.md). The standard card above is the
+   default; `compact` (one line of text and the action) and `artwork` (the icon on a tinted panel)
+   are DEV card styles, chosen with `card=` in the route. */
+.apps-description.one-line {
+  -webkit-line-clamp: 1;
+}
+
+.apps-card.compact {
+  padding: 10px 12px;
+}
+
+.apps-card-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.apps-card.compact .apps-card-open {
+  align-items: center;
+}
+
+.apps-card.artwork {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Stretch, not the base card's flex-start: the text fills the card, so long names wrap and the
+   description's clamp holds. */
+.apps-card.artwork .apps-card-open {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+
+.apps-card-art {
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+  height: 112px;
+  background: linear-gradient(145deg, var(--page-selection), color-mix(in srgb, var(--page-elevated) 28%, transparent));
+  border-bottom: 1px solid var(--page-separator);
+}
+
+.apps-card.artwork .apps-card-text {
+  padding: 12px 14px 0;
+}
+
+.apps-card.artwork .apps-card-footer {
+  padding: 10px 14px 14px;
+}
+
+.apps-adds {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.apps-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.apps-add-title {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.apps-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 360px;
 }

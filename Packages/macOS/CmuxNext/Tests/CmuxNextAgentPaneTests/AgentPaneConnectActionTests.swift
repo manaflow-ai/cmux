@@ -34,6 +34,18 @@ struct AgentPaneConnectActionTests {
         #expect(arguments == [[:]])
     }
 
+    /// Connect Phone… opens the Mobile Pairing page, on the person's gesture only.
+    @Test func connectPhoneOpensMobilePairingOnAGesture() async {
+        let model = AgentPaneModel(host: NoHost())
+        var ran: [String] = []
+        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
+        #expect(await model.respond(to: .runAction("palette.mobileConnect"))["ok"] as? Bool != true)
+        #expect(ran.isEmpty, "no gesture, no page")
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .runAction("palette.mobileConnect"))["ok"] as? Bool == true)
+        #expect(ran == ["palette.mobileConnect"])
+    }
+
     /// A started chat's picker: Move to Cloud on a chat of this Mac, Bring Back Local on a Cloud
     /// chat, the same actions as the tab's right-click menu, on the person's gesture.
     @Test func moveAndBringBackRunOnAGesture() async {

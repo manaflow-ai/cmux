@@ -10,6 +10,11 @@ name: Cloud VM image bake
 # (TEAM_VM_SNAPSHOT) instead of personal Cloud machines (CLOUD_FREESTYLE_SNAPSHOT):
 # bake.ts and smoke.ts get --team-vm, the names carry ci-team-, and the candidate
 # records which var it is for, as a channels/dev.json history entry needs.
+# dev_tree bakes the public cmux checkout, its Rust and Zig toolchains and warm build
+# caches in (bake.ts --dev-tree) and measures time to first build on new machines
+# (first-build.ts): first-build-before on the dev channel's image while the bake runs,
+# the bake job on the new image after the smoke, and first-build-report puts the two
+# side by side in the run summary.
 on:
   workflow_dispatch:
     inputs:
@@ -46,6 +51,11 @@ on:
         required: false
         default: false
         type: boolean
+      dev_tree:
+        description: Bake the cmux checkout, its Rust and Zig toolchains and warm build caches in (dev snapshots only), and measure time to first build before and after
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -60,7 +70,8 @@ jobs:
     # The cmux-next dev Freestyle account only (D-A7): never the shared classic account.
     # The environment allows only feat-cmux-next.
     environment: cmux-next-vm-image-dev
-    timeout-minutes: 60
+    # A dev tree bake runs a cold cmux-tui build on the builder (2 vCPUs), then the after runs.
+    timeout-minutes: ${{ inputs.dev_tree && 150 || 60 }}
     defaults:
       run:
         working-directory: web
@@ -76,7 +87,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.4"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -91,11 +102,12 @@ jobs:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           AGENT_TOOLS: ${{ inputs.agent_tools && '--agent-tools' || '' }}
           TEAM_VM: ${{ inputs.team_vm && '--team-vm' || '' }}
+          DEV_TREE: ${{ inputs.dev_tree && '--dev-tree' || '' }}
         run: |
           set -euo pipefail
           mkdir -p "$OUT_DIR"
           # shellcheck disable=SC2086
-          bun ../images/cmux-vm/bake.ts --tag "$TAG" --out-dir "$OUT_DIR" $AGENT_TOOLS $TEAM_VM | tee "$OUT_DIR/bake.out"
+          bun ../images/cmux-vm/bake.ts --tag "$TAG" --out-dir "$OUT_DIR" $AGENT_TOOLS $TEAM_VM $DEV_TREE | tee "$OUT_DIR/bake.out"
           snapshot="$(awk '/^IMAGE_ID /{print $2}' "$OUT_DIR/bake.out" | tail -1)"
           test -n "$snapshot"
           echo "snapshot=$snapshot" >> "$GITHUB_OUTPUT"
@@ -115,6 +127,18 @@ jobs:
           # shellcheck disable=SC2086
           bun ../images/cmux-vm/smoke.ts --snapshot "$SNAPSHOT" --tag "$TAG" --clones "$CLONES" --out-dir "$OUT_DIR" $PROBES $TEAM_VM | tee "$OUT_DIR/smoke.out"
 
+      # Time to first build on new machines of this image (first-build.ts); first-build-before
+      # measures the dev channel's image the same way.
+      - name: First build after
+        if: inputs.mode == 'bake' && inputs.dev_tree
+        id: first_build
+        env:
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+          SNAPSHOT: ${{ steps.bake.outputs.snapshot }}
+        run: |
+          set -euo pipefail
+          bun ../images/cmux-vm/first-build.ts --mode after --snapshot "$SNAPSHOT" --tag "$TAG" --ref "$GITHUB_SHA" --out-dir "$OUT_DIR" | tee "$OUT_DIR/first-build-after.out"
+
       # The fields of a channels/dev.json history entry (promote.ts promotes only a
       # recorded snapshot_id with smoke PASSED, under --var <var>).
       - name: Dev channel candidate
@@ -126,6 +150,7 @@ jobs:
           SNAPSHOT_VAR: ${{ inputs.team_vm && 'TEAM_VM_SNAPSHOT' || 'CLOUD_FREESTYLE_SNAPSHOT' }}
           AGENT_TOOLS: ${{ inputs.agent_tools && '--agent-tools' || '' }}
           TEAM_VM: ${{ inputs.team_vm && '--team-vm' || '' }}
+          DEV_TREE: ${{ inputs.dev_tree && '--dev-tree' || '' }}
           PROBES: ${{ inputs.probes && '--agent-probe --resize-probe' || '' }}
           CLONES: ${{ inputs.clones }}
         run: |
@@ -134,7 +159,7 @@ jobs:
           smoke_json="$OUT_DIR/smoke-$TAG.json"
           jq -e '.passed == true' "$smoke_json" > /dev/null
           jq -n --slurpfile b "$bake_json" --slurpfile s "$smoke_json" --arg id "$SNAPSHOT" --arg sha "$SOURCE_SHA" --arg run "$RUN_ID" \
-            --arg var "$SNAPSHOT_VAR" --arg bake "images/cmux-vm/bake.ts $AGENT_TOOLS $TEAM_VM" --arg smoke "smoke.ts --clones $CLONES $PROBES $TEAM_VM" \
+            --arg var "$SNAPSHOT_VAR" --arg bake "images/cmux-vm/bake.ts $AGENT_TOOLS $TEAM_VM $DEV_TREE" --arg smoke "smoke.ts --clones $CLONES $PROBES $TEAM_VM" \
             'def words: split(" ") | map(select(. != "")) | join(" ");
              ($bake | words) as $bake | ($smoke | words) as $smoke |
              {schema: 1, env: "dev", var: $var, snapshot: $b[0].name, snapshot_id: $id, lock_sha256: $b[0].lockSha256, source_sha: $sha, run: ($run|tonumber), baked_at: (now|todate),
@@ -158,8 +183,8 @@ jobs:
         if: always()
         env:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
-          # Keep the snapshot only when its smoke passed; a failed bake leaves nothing behind.
-          KEEP: ${{ inputs.keep_snapshot && inputs.mode == 'bake' && steps.smoke.outcome == 'success' && '--keep-snapshot' || '' }}
+          # Keep the snapshot only when its smoke (and a dev tree's first build) passed; a failed bake leaves nothing behind.
+          KEEP: ${{ inputs.keep_snapshot && inputs.mode == 'bake' && steps.smoke.outcome == 'success' && (!inputs.dev_tree || steps.first_build.outcome == 'success') && '--keep-snapshot' || '' }}
         run: |
           if [ -f "$OUT_DIR/resources.tsv" ]; then
             # shellcheck disable=SC2086
@@ -176,3 +201,96 @@ jobs:
           path: ${{ github.workspace }}/cmux-vm-image-out
           if-no-files-found: warn
           retention-days: 30
+
+  # Time to first build on new machines of the dev channel's image, which has no dev tree:
+  # clone, toolchains and a cold build of this run's commit (first-build.ts --mode before), while the bake runs.
+  first-build-before:
+    if: inputs.mode == 'bake' && inputs.dev_tree
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    environment: cmux-next-vm-image-dev
+    timeout-minutes: 150
+    defaults:
+      run:
+        working-directory: web
+    env:
+      OUT_DIR: ${{ github.workspace }}/cmux-vm-image-out
+      TAG: ci-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: First build before
+        env:
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT_DIR"
+          snapshot="$(jq -r .snapshot_id ../images/cmux-vm/channels/dev.json)"
+          bun ../images/cmux-vm/first-build.ts --mode before --snapshot "$snapshot" --tag "$TAG" --ref "$GITHUB_SHA" --out-dir "$OUT_DIR" | tee "$OUT_DIR/first-build-before.out"
+
+      - name: Delete everything this run created
+        if: always()
+        env:
+          FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
+        run: |
+          if [ -f "$OUT_DIR/resources.tsv" ]; then
+            bun ../images/cmux-vm/cleanup.ts --ledger "$OUT_DIR/resources.tsv"
+          else
+            echo "no ledger; nothing was created"
+          fi
+
+      - name: Upload the measurement
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-vm-image-first-build-before-${{ github.run_id }}
+          path: ${{ github.workspace }}/cmux-vm-image-out
+          if-no-files-found: warn
+          retention-days: 30
+
+  # The before/after table in the run summary (first-build.ts --report; no Freestyle access).
+  first-build-report:
+    if: always() && inputs.mode == 'bake' && inputs.dev_tree
+    needs: [bake, first-build-before]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Download the measurements
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: cmux-vm-image-*-${{ github.run_id }}
+          path: ${{ runner.temp }}/first-build
+          merge-multiple: true
+
+      - name: Before/after table
+        env:
+          DIR: ${{ runner.temp }}/first-build
+        run: |
+          set -euo pipefail
+          before="$(find "$DIR" -name 'first-build-before-*.json' | head -1)"
+          after="$(find "$DIR" -name 'first-build-after-*.json' | head -1)"
+          if [ -z "$before" ] || [ -z "$after" ]; then
+            echo "a side has no measurement (before: ${before:-none}, after: ${after:-none})" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          bun images/cmux-vm/first-build.ts --report "$before" "$after" | tee -a "$GITHUB_STEP_SUMMARY"

@@ -1,6 +1,6 @@
 // The running turn's token count is secondary to its words (Leo, 2026-10-21: "the token font
 // shouldnt be this same color"). "Working for 35s" (or "Thinking 35s") keeps the line's muted color;
-// "· 679.9K tokens" after it takes the tool rows' quieter one, the theme's tertiary text
+// "· 679.9K out" after it takes the tool rows' quieter one, the theme's tertiary text
 // (`--cv-text-dim`, `--agent-soft`, the host's textTertiary), never a literal color, in tabular
 // numerals so the count ticks in place. Both lines that say it, the Codex layout's live line at the
 // bottom (Thinking.tsx) and the line over the turn with that layout off (WorkingFor.tsx), draw the
@@ -26,7 +26,7 @@ for (const [name, line] of Object.entries(tokenLines))
   test(`${name}: the count is its own span, which the quieter rule keys on`, () => {
     const html = tokenLineMarkup(line);
     expect(html).toContain(
-      '<span class="cv-worked__count"><span class="cv-worked__sep" aria-hidden="true">·</span><span class="cv-worked__tokens">679.9K tokens</span></span>',
+      '<span class="cv-worked__count"><span class="cv-worked__sep" aria-hidden="true">·</span><span class="cv-worked__tokens">679.9K out</span></span>',
     );
     // The line's words come before the count's span, outside it.
     expect(html.indexOf("cv-worked__count")).toBeGreaterThan(html.search(/Working for|Thinking/));

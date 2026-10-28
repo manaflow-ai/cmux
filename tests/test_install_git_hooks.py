@@ -5,6 +5,7 @@ setup.sh runs the installer last under `set -e`, so a non-zero exit reports the
 whole setup as failed. Existing hooks (a global core.hooksPath, or Git LFS's
 hooks in .git/hooks) are left alone with a warning; real errors still fail.
 """
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -13,7 +14,17 @@ import shlex
 import subprocess
 import tempfile
 import unittest
-import git_fixture_env  # disables git auto maintenance
+
+
+def _load_git_fixture_env():
+    """tests/git_fixture_env.py by path, so `python3 -I` (no script folder on sys.path) runs this file too."""
+    spec = importlib.util.spec_from_file_location("git_fixture_env", Path(__file__).resolve().parent / "git_fixture_env.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # importing it disables git auto maintenance
+    return module
+
+
+git_fixture_env = _load_git_fixture_env()
 
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -60,6 +71,7 @@ class InstallGitHooksTests(unittest.TestCase):
             "scripts/swift_source_mask.py",
             "scripts/web_lint_prepush.py",
             "scripts/cmux-next/prepush-gate.py",
+            "scripts/cmux-next/git_batch.py",
             "scripts/ci/base_merge_warning.py",
         ):
             source, target = SOURCE / relative, root / relative
@@ -137,6 +149,22 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assert_trusted_hooks_installed()
         self.assert_merge_driver_installed()
+
+    def test_cmux_next_checks_include_the_arch_rule_modules(self):
+        # arch-ratchet.py loads arch_rules/*.py from its own directory: without them the installed ratchet ran no
+        # layer gate. Other folders (tests) stay out of the copy.
+        for relative in ("scripts/cmux-next/arch-ratchet.py", "scripts/cmux-next/arch_rules/layer_gate.py",
+                         "scripts/cmux-next/tests/test_layer_gate.py"):
+            path = self.repo / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("# fixture\n", encoding="utf-8")
+        self.git("add", "scripts/cmux-next")
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        checks = Path(self.local_hooks_path()) / "cmux-next-checks"
+        self.assertTrue((checks / "arch-ratchet.py").is_file())
+        self.assertTrue((checks / "arch_rules" / "layer_gate.py").is_file())
+        self.assertFalse((checks / "tests").exists())
 
     def test_namespace_fix_option_installs_trusted_pre_push_hook(self):
         result = self.install(None, "--namespace-fix")
@@ -740,6 +768,101 @@ cat > node_modules/.bin/vp <<'VP'
         self.assertTrue(os.access(hook, os.X_OK), "Git ignores non-executable hooks")
         self.assert_trusted_hooks_installed()
         self.assert_merge_driver_installed()
+
+    # An agent's push gate runs the clone's installed checks copy. post-merge refreshes it only when a checkout is
+    # fast-forwarded to exactly feat-cmux-next; agents fetch and rebase in worktrees, so their copy stayed at the
+    # last pull (2026-10-28: the per-symbol compile trailer rule landed and no agent ran it). pre-push refreshes the
+    # copy from the fetched feat-cmux-next before a push to it.
+    CANONICAL = "https://github.com/manaflow-ai/cmux.git"
+
+    def commit_all(self, message):
+        self.git("add", "-A")
+        self.git("-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", message)
+        return self.git("rev-parse", "HEAD").stdout.strip()
+
+    def installed_checks(self):
+        return self.common_dir() / "cmux-git-hooks" / "cmux-next-checks"
+
+    def refresh(self, remote_ref="refs/heads/feat-cmux-next", url=None):
+        hook_dir = self.common_dir() / "cmux-git-hooks"
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        python3 = (hook_dir / "python3-path").read_text(encoding="utf-8").strip()
+        return subprocess.run([python3, "-I", str(hook_dir / "refresh_checks.py"), "--hook-dir", str(hook_dir),
+                               "--repo", str(self.repo), "--remote-url", url or self.CANONICAL],
+                              input=f"refs/heads/topic {head} {remote_ref} {'0' * 40}\n", cwd=self.repo, env=self.env,
+                              text=True, capture_output=True)
+
+    def stale_install(self):
+        """Install at an old feat-cmux-next, then move the fetched feat-cmux-next to a newer gate rule."""
+        rule = self.repo / "scripts/cmux-next/compile_trailer.py"
+        rule.write_text("RULE = 'old'\n")
+        self.git("remote", "add", "origin", self.CANONICAL)
+        old = self.commit_all("old rule")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", old)
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'old'\n")
+        rule.write_text("RULE = 'new'\n")
+        new = self.commit_all("new rule")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", new)
+        rule.write_text("RULE = 'from the working tree'\n")
+        return old, new
+
+    def test_pre_push_refreshes_a_stale_checks_copy_from_the_fetched_feat_cmux_next(self):
+        _old, new = self.stale_install()
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'new'\n")
+        self.assertIn(new[:12], result.stdout + result.stderr)
+        gate = self.common_dir() / "cmux-git-hooks" / "cmux_next_prepush_gate.py"
+        self.assertEqual(gate.read_bytes(), (SOURCE / "scripts/cmux-next/prepush-gate.py").read_bytes())
+        again = self.refresh()  # current: nothing to do
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(again.stdout + again.stderr, "")
+        hook = (SOURCE / "scripts/git-hooks/pre-push").read_text()
+        self.assertLess(hook.index("refresh_checks.py"), hook.index("cmux_next_prepush_gate.py"),
+                        "pre-push refreshes the checks before it runs them")
+
+    def test_refresh_leaves_other_pushes_and_lookalike_remotes_alone(self):
+        self.stale_install()
+        for result in (self.refresh(remote_ref="refs/heads/topic"),
+                       self.refresh(url="https://attacker.invalid/github.com/manaflow-ai/cmux")):
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'old'\n")
+        self.git("remote", "set-url", "origin", "https://attacker.invalid/github.com/manaflow-ai/cmux")
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'old'\n")
+
+    def test_refresh_never_goes_back_to_an_older_feat_cmux_next(self):
+        old, new = self.stale_install()
+        self.git("checkout", "-q", "--", ".")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", new)
+        self.assertEqual(self.refresh().returncode, 0)
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", old)
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'new'\n")
+
+    def test_refresh_replaces_a_copy_installed_from_a_commit_feat_cmux_next_never_got(self):
+        # setup.sh in an agent's worktree stamps its unpushed (later rebased away) commit: that commit never becomes
+        # an ancestor of feat-cmux-next, so an ancestor-only rule kept its unreviewed checks on every later push.
+        old, new = self.stale_install()
+        rule = self.repo / "scripts/cmux-next/compile_trailer.py"
+        self.git("checkout", "-q", "--", ".")
+        self.git("checkout", "-q", "-b", "side", old)
+        rule.write_text("RULE = 'local, never landed'\n")
+        self.commit_all("local rule")
+        self.assertEqual(self.install().returncode, 0)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(),
+                         "RULE = 'local, never landed'\n")
+        self.git("checkout", "-q", new)
+        rule.write_text("RULE = 'newest'\n")
+        newest = self.commit_all("newest rule")
+        self.git("update-ref", "refs/remotes/origin/feat-cmux-next", newest)
+        result = self.refresh()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.installed_checks() / "compile_trailer.py").read_text(), "RULE = 'newest'\n")
 
     def test_post_merge_rejects_lookalike_github_url(self):
         marker = self.root / "untrusted-installer-ran"

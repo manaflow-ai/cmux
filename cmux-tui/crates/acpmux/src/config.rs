@@ -56,8 +56,8 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
     );
     anyhow::ensure!(
         metadata.mode() & 0o022 == 0,
-        "{} is writable by another user; inspect it before removing group/other write permission",
-        dir.display()
+        "{}",
+        writable_refusal(dir, metadata.mode(), "700")
     );
     refuse_extended_acl(&opened, dir)?;
     if metadata.mode() & 0o077 != 0 {
@@ -77,6 +77,24 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
         dir.display()
     );
     Ok(())
+}
+
+/// Why a state path another account may write is refused, and the exact
+/// `chmod` (to `owner_only`, 700 or 600) that fixes it. Such a path is never
+/// narrowed here: another account may have changed what is in it, and it came
+/// from elsewhere (a `mkdir` or a shell redirect under umask 002), since acpmux
+/// makes its own state owner-only whatever the umask.
+#[cfg(unix)]
+fn writable_refusal(path: &Path, mode: u32, owner_only: &str) -> String {
+    let text = path.display().to_string();
+    let plain = !text.is_empty()
+        && text.bytes().all(|b| b.is_ascii_alphanumeric() || b"/._-+,:@%".contains(&b));
+    let word = if plain { text } else { format!("'{}'", text.replace('\'', r"'\''")) };
+    format!(
+        "{} is writable by another user (mode {:o}): check that nothing in it was changed, then make it owner-only with `chmod {owner_only} {word}`",
+        path.display(),
+        mode & 0o777
+    )
 }
 
 /// Every namespace owner above an acpmux state directory must be this user
@@ -157,8 +175,8 @@ fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> 
     );
     anyhow::ensure!(
         metadata.mode() & 0o022 == 0,
-        "{} is writable by another user; inspect it before removing group/other write permission",
-        path.display()
+        "{}",
+        writable_refusal(path, metadata.mode(), "600")
     );
     refuse_extended_acl(file, path)?;
     if metadata.mode() & 0o077 != 0 {
@@ -325,20 +343,63 @@ pub fn socket_path() -> PathBuf {
     let configured = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty());
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
+    let cwd = std::env::current_dir().ok();
+    let (configured, home) = socket_inputs(configured.as_deref(), &home(), cwd.as_deref());
     let resolved = PathBuf::from(cmux_agent_pane_policy::environment::socket_path(
         configured.as_deref(),
-        &home(),
+        &home,
         uid,
     ));
     // Another user owns or can write the shared directory: never trust a
     // socket there. The long path fails to bind with a clear error instead.
     let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
     if resolved.parent() == Some(dir.as_path()) && !private_dir(&dir, uid) {
-        return absolute(
-            configured.map(PathBuf::from).unwrap_or_else(|| home().join("acpmux.sock")),
-        );
+        return absolute(configured.map(PathBuf::from).unwrap_or_else(|| home.join("acpmux.sock")));
     }
     absolute(resolved)
+}
+
+/// The configured socket and the home [`socket_path`] derives the socket from.
+#[cfg(unix)]
+fn socket_inputs(
+    configured: Option<&str>,
+    home: &Path,
+    cwd: Option<&Path>,
+) -> (Option<String>, PathBuf) {
+    // Both absolute before the short alias is derived from them: a started daemon gets them
+    // absolute (`daemon/login_placement.rs` `daemon_env`) and must derive the same one.
+    let absolute = |p: &Path| match cwd {
+        Some(cwd) if p.is_relative() => cwd.join(p),
+        _ => p.to_path_buf(),
+    };
+    let configured = configured.map(|c| absolute(Path::new(c)).to_string_lossy().into_owned());
+    (configured, absolute(home))
+}
+
+#[cfg(all(test, unix))]
+mod socket_input_tests {
+    use super::*;
+
+    /// A daemon a command starts is handed its home and socket absolute
+    /// (`daemon/login_placement.rs` `daemon_env`): from relative ones, the command must derive
+    /// the same socket, short alias included, or it waits on one the daemon never binds.
+    #[test]
+    fn a_long_relative_home_or_socket_uses_the_same_socket_alias() {
+        let cwd = Path::new("/work/a-folder-long-enough-that-its-socket-needs-a-short-alias");
+        let long = "x".repeat(80);
+        let alias = |configured: Option<&str>, home: &Path, cwd: &Path| {
+            let (configured, home) = socket_inputs(configured, home, Some(cwd));
+            cmux_agent_pane_policy::environment::socket_path(configured.as_deref(), &home, 501)
+        };
+        let elsewhere = Path::new("/elsewhere");
+        assert_eq!(alias(None, Path::new(&long), cwd), alias(None, &cwd.join(&long), elsewhere));
+        let sock = format!("{long}/a.sock");
+        let abs_sock = cwd.join(&sock).to_string_lossy().into_owned();
+        assert_eq!(
+            alias(Some(&sock), Path::new("/h"), cwd),
+            alias(Some(&abs_sock), Path::new("/h"), elsewhere)
+        );
+    }
 }
 
 /// A relative `ACPMUX_SOCKET` against this process's folder: the daemon
@@ -395,9 +456,8 @@ pub enum HarnessKind {
     Acp,
     /// Claude Code's own `-p --input-format stream-json` protocol.
     ClaudeStdio,
-    /// A CLI or TUI without ACP (`protocol = "terminal"` in a profile file):
-    /// listed, but run in a terminal tab (`cmux harness run`), never as an
-    /// acpmux session.
+    /// A CLI or TUI without ACP (`protocol = "terminal"` in a profile file): listed, but run in a
+    /// terminal tab (`cmux harness run`), never as an acpmux session.
     Terminal,
 }
 
@@ -581,6 +641,21 @@ pub struct StoreConfig {
     /// Segment roll size in bytes for the event log.
     #[serde(default = "default_segment_bytes")]
     pub segment_bytes: u64,
+    /// Days a closed chat's event log is kept whole (`hub/retention.rs`): after them, the
+    /// harness's raw lines and long tool output are removed from it, the chat's messages kept.
+    /// Default 14; 0 keeps every log whole.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed_log_days: Option<u32>,
+}
+
+impl StoreConfig {
+    /// How long a closed chat's log is kept whole; None: always.
+    pub fn closed_log_retention(&self) -> Option<std::time::Duration> {
+        match self.closed_log_days.unwrap_or(14) {
+            0 => None,
+            days => Some(std::time::Duration::from_secs(u64::from(days) * 86_400)),
+        }
+    }
 }
 
 fn default_segment_bytes() -> u64 {
@@ -589,7 +664,11 @@ fn default_segment_bytes() -> u64 {
 
 impl Default for StoreConfig {
     fn default() -> Self {
-        Self { mode: StoreMode::Local, segment_bytes: default_segment_bytes() }
+        Self {
+            mode: StoreMode::Local,
+            segment_bytes: default_segment_bytes(),
+            closed_log_days: None,
+        }
     }
 }
 
@@ -719,7 +798,8 @@ impl Default for TuiConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TitlesConfig {
-    /// `generate`: title such a chat after its first turn. Default on.
+    /// `generate`: title such a chat after its first user message. Default on; a thin first
+    /// message may get one refresh after its first turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generate: Option<bool>,
     /// `command`: an argv that reads the request on stdin and prints the
@@ -766,24 +846,14 @@ pub struct Config {
     pub store: StoreConfig,
     #[serde(default)]
     pub permission_policy: PermissionPolicy,
-    /// `defaultPermissionMode`: the permission mode a new chat starts in when
-    /// the person has not picked one for its harness (`hub/start_mode.rs`):
-    /// `fullAccess`, `standard` or `ask`. Absent: the cmux setting
-    /// `agents.defaultPermissionMode`, else `fullAccess`. For acpmux without
-    /// the cmux app, and for hermetic tests.
+    /// `defaultPermissionMode`: the permission mode a new chat starts in
+    /// (`hub/start_mode.rs`): `fullAccess`, `standard` or `ask`. Absent: the
+    /// cmux setting `agents.defaultPermissionMode`, else `fullAccess`. For
+    /// acpmux without the cmux app, and for hermetic tests. A
+    /// `lastPermissionMode` an older build wrote beside it is ignored and
+    /// dropped at the next save.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_permission_mode: Option<String>,
-    /// `lastPermissionMode`, `lastPermissionModeChange`: the level of the latest mode pick
-    /// from the app pane, and how many changes to the cmux setting acpmux had counted then,
-    /// in which count (`hub/start_mode_state.rs`; `hub/start_mode.rs` `start_level`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_permission_mode: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_permission_mode_change: Option<PermissionModeChange>,
-    /// `lastPermissionModeSetting`: an older build's record beside a pick (the setting's value
-    /// then). Read once to upgrade the pick (`Hub::start_level`), never written.
-    #[serde(default, skip_serializing)]
-    pub last_permission_mode_setting: Option<String>,
     /// `composerMaxRows`: most rows the TUI composer grows to before it
     /// scrolls. Env `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -803,6 +873,10 @@ pub struct Config {
     /// ended. Default 90000.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_start_timeout_ms: Option<u64>,
+    /// Free bytes on acpmux's disk under which `daemon status` says `disk.low`
+    /// (`recovery.rs`; 1 GiB when unset).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disk_low_bytes: Option<u64>,
     /// `silentTurnMs`: how long a turn may go with no sign of its model at work
     /// (no message, thought, tool call, plan, request or model harness line;
     /// the agent's own bookkeeping does not count) before the chat logs
@@ -811,8 +885,22 @@ pub struct Config {
     /// Default 90000; 0 turns it off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub silent_turn_ms: Option<u64>,
+    /// `stalledTurnMs`: how long a running turn may go with no tool call in
+    /// flight and no sign of its model at work before its lane says it has
+    /// stalled (`lane.stalledSince`, `hub/views.rs`). A long build in one tool
+    /// call never stalls. Default 600000; 0 turns it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stalled_turn_ms: Option<u64>,
+    /// `stalledTurnEndMs`: how long a running turn may go with no sign of its model at work (as
+    /// `silentTurnMs` counts them, also across a daemon restart) before acpmux ends it as failed,
+    /// `detail` `stalled` (`hub/stalled_turn.rs`); four times that inside a tool call that has
+    /// not ended. Only a turn nobody holds: no client attached,
+    /// no permission waiting, and its recorded owner (a sub-session's parent, a `spawnedBy` tag)
+    /// gone or not busy. Default 21600000 (6 h); 0 turns it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stalled_turn_end_ms: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
-    /// connection error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
+    /// connection or capacity error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
     /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
     /// entries of 1 s to 1 h; anything else falls back to the default with a warning.
     #[serde(
@@ -831,21 +919,20 @@ pub struct Config {
     /// `webRoots`: folders a Web connection may use (`server/remote_guard.rs`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub web_roots: Vec<String>,
-    /// `vmHost`: this machine is a dedicated agent VM (a Chief's cloud
-    /// subagent host), so the VM boundary is the sandbox: a remote chain's
-    /// Claude Code runs there without Seatbelt (`hub/remote_sandbox.rs`).
-    /// Honored off macOS only, read from this file only (no RPC sets it).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub vm_host: bool,
-    /// `pool`: hidden pre-created sessions that make a harness switch
-    /// instant (`hub/pool/`).
+    /// `vmHost`: `false` refuses a caller's VM boundary here, so every remote
+    /// chain's Claude Code runs in the sandbox (`hub/vm_host.rs`,
+    /// `hub/vm_boundary.rs`). It never turns the boundary on: the agent can
+    /// write this file, so `true` means the same as absent.
+    /// `_acpmux/vm_host {on: false}` writes `false`, `{on: true}` removes it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vm_host: Option<bool>,
+    /// `pool`: hidden pre-created sessions that make a harness switch instant (`hub/pool/`).
     #[serde(default, skip_serializing_if = "PoolConfig::is_default")]
     pub pool: PoolConfig,
     /// `btw`: side sessions (`hub/btw.rs`): the model they start on, per harness.
     #[serde(default, skip_serializing_if = "BtwConfig::is_default")]
     pub btw: BtwConfig,
-    /// `titles`: short titles for chats their harness never titles
-    /// (`hub/titles.rs`).
+    /// `titles`: short titles for chats their harness never titles (`hub/titles.rs`).
     #[serde(default, skip_serializing_if = "TitlesConfig::is_default")]
     pub titles: TitlesConfig,
     /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
@@ -856,13 +943,17 @@ pub struct Config {
     /// user's own login. The binary names no route.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coderouter_claude_route: Option<String>,
+    /// `sendRelay`: `{"argv": [...]}`, the command `acpmux send` hands a message to when its
+    /// target names no session here and no peer lists it (`cli/send_relay.rs`). Unset (the
+    /// default): such a send is refused as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_relay: Option<crate::cli::send_relay::SendRelay>,
     /// Where this config was loaded from. A config built in code (tests,
     /// `--memory` runs) has no path and is never written to disk.
     #[serde(skip)]
     pub path: Option<PathBuf>,
-    /// Profiles that came from PATH discovery, not the file. `save` leaves
-    /// them out so the file keeps only what the user wrote and discovery
-    /// stays live.
+    /// Profiles that came from PATH discovery, not the file. `save` leaves them out so the file
+    /// keeps only what the user wrote and discovery stays live.
     #[serde(skip)]
     pub discovered: std::collections::BTreeSet<String>,
     /// `(profile, fallback)` set by discovery, stripped on save.
@@ -871,6 +962,9 @@ pub struct Config {
     /// `defaultHarness` was filled in at load, not written by the user.
     #[serde(skip)]
     pub auto_default: bool,
+    /// No config.json was there at load (`hub/policy_source.rs`: absence proves nothing).
+    #[serde(skip)]
+    pub file_missing: bool,
     /// The `defaults.claude.prefer` list discovery filled in, not the user.
     /// `save` drops it only while it is still unchanged.
     #[serde(skip)]
@@ -879,8 +973,7 @@ pub struct Config {
     /// not being served. Kept apart so a save does not drop the address.
     #[serde(skip)]
     pub web_unbound: bool,
-    /// Loopback page dev server origins from `--allow-dev-origin` (this run
-    /// only, never saved).
+    /// Loopback page dev server origins from `--allow-dev-origin` (this run only, never saved).
     #[serde(skip)]
     pub dev_origins: Vec<String>,
     /// The listener's token for this run when `--token` gave one: the
@@ -930,6 +1023,22 @@ impl Config {
     /// `silentTurnMs`, or its 90 s default; None when it is 0 (off).
     pub fn silent_turn(&self) -> Option<std::time::Duration> {
         match self.silent_turn_ms.unwrap_or(90_000) {
+            0 => None,
+            ms => Some(std::time::Duration::from_millis(ms)),
+        }
+    }
+
+    /// `stalledTurnMs`, or its 10 minute default; None when it is 0 (off).
+    pub fn stalled_turn(&self) -> Option<u64> {
+        match self.stalled_turn_ms.unwrap_or(600_000) {
+            0 => None,
+            ms => Some(ms),
+        }
+    }
+
+    /// `stalledTurnEndMs`, or its 6 h default; None when it is 0 (off).
+    pub fn stalled_turn_end(&self) -> Option<std::time::Duration> {
+        match self.stalled_turn_end_ms.unwrap_or(6 * 60 * 60 * 1000) {
             0 => None,
             ms => Some(std::time::Duration::from_millis(ms)),
         }
@@ -1047,26 +1156,27 @@ impl Config {
                 serde_json::from_str::<Config>(&text)
                     .with_context(|| format!("parse {}", path.display()))?
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Config::default(),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                Config { file_missing: true, ..Config::default() }
+            }
             Err(error) => return Err(error.into()),
         };
         cfg.join_profiles(profiles::load(sources));
-        let route = coderouter_claude_route(cfg.coderouter_claude_route.as_deref());
-        cfg.join_discovered(discover_harnesses(route.as_deref()));
-        if cfg.default_harness.is_none() {
-            cfg.auto_default = true;
-            // A terminal harness (an installed `muse`, say) runs no ACP
-            // session, so it never becomes the default.
-            cfg.default_harness = cfg
-                .harnesses
-                .iter()
-                .find(|(_, profile)| profile.kind != HarnessKind::Terminal)
-                .map(|(name, _)| name.clone());
+        // A capture fixture (`harness_fixture.rs`) stands in for PATH,
+        // `~/.acpx` and the ACP Registry: nothing of this host's joins.
+        if let Some(fixture) = crate::harness_fixture::active() {
+            cfg.join_fixture(fixture);
+        } else {
+            let route = coderouter_claude_route(cfg.coderouter_claude_route.as_deref());
+            cfg.join_discovered(discover_harnesses(route.as_deref()));
+            cfg.pick_auto_default();
         }
         // Installed ACP Registry agents (the cached copy; no network, nothing
         // started), after the default so a registry agent never becomes it
         // while a built-in harness exists.
-        if let Some(registry) = crate::registry::load_cached(&home()) {
+        if crate::harness_fixture::active().is_none()
+            && let Some(registry) = crate::registry::load_cached(&home())
+        {
             let found = crate::registry::discovered(
                 &registry,
                 crate::registry::platform(),
@@ -1080,6 +1190,26 @@ impl Config {
         cfg.profile_sources = sources.clone();
         cfg.path = Some(path);
         Ok(cfg)
+    }
+
+    /// Without a configured default, the first harness that runs an ACP
+    /// session (a terminal harness, an installed `muse` say, never does).
+    fn pick_auto_default(&mut self) {
+        if self.default_harness.is_none() {
+            self.auto_default = true;
+            self.default_harness = self
+                .harnesses
+                .iter()
+                .find(|(_, profile)| profile.kind != HarnessKind::Terminal)
+                .map(|(name, _)| name.clone());
+        }
+    }
+
+    /// A capture fixture's harnesses join as discovered ones would
+    /// (`harness_fixture.rs`); configured entries still win.
+    pub fn join_fixture(&mut self, fixture: &crate::harness_fixture::Fixture) {
+        self.join_discovered(fixture.harnesses.clone());
+        self.pick_auto_default();
     }
 
     /// Adds the profiles from profile files and cmux.json. They win over
@@ -1141,6 +1271,20 @@ impl Config {
                 cfg.auto_prefer = Some(entry.prefer.clone());
             }
         }
+        // Without a CodeRouter route, Claude falls back to the cmux router on DeepSeek V4 Flash
+        // (its profile default). The free tier serves it to a signed-out attested Mac, and a
+        // signed-in account pays under its plan (paid-plan.md §2). Only when no route took the slot.
+        let claude_has_no_fallback = cfg
+            .harnesses
+            .get("claude")
+            .is_some_and(|c| c.kind == HarnessKind::ClaudeStdio && c.fallback.is_none());
+        if cfg.discovered.contains(discover::CMUX_ROUTER_PROFILE)
+            && claude_has_no_fallback
+            && let Some(c) = cfg.harnesses.get_mut("claude")
+        {
+            c.fallback = Some(discover::CMUX_ROUTER_PROFILE.into());
+            cfg.auto_fallback = Some(("claude".into(), discover::CMUX_ROUTER_PROFILE.into()));
+        }
     }
 
     /// Where preset directories live (`presets/` next to config.json); None
@@ -1196,17 +1340,6 @@ impl Config {
     }
 }
 
-/// `lastPermissionModeChange`: where acpmux's count of changes to the cmux
-/// setting `agents.defaultPermissionMode` stood at a mode pick
-/// (`hub/start_mode_state.rs`). `epoch` names the count: a count started
-/// again (its state file lost) has another, so an older pick never matches it.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PermissionModeChange {
-    pub epoch: String,
-    pub changes: u64,
-}
-
 fn is_default_kind(k: &HarnessKind) -> bool {
     *k == HarnessKind::Acp
 }
@@ -1215,6 +1348,16 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
+    let written = write_then_rename(&tmp, path, bytes);
+    // A failed write (a full disk) leaves no partial temporary file to hold
+    // the space it ran out of; every retry uses a new name.
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
+}
+
+fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
     // Owner-only from creation: these files hold tokens and session data.
     #[cfg(unix)]
     {
@@ -1226,7 +1369,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
             .truncate(true)
             .mode(0o600)
             .custom_flags(libc::O_NOFOLLOW)
-            .open(&tmp)
+            .open(tmp)
             .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
         // On disk before the rename: a power loss never leaves an empty
@@ -1238,10 +1381,10 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     {
         use std::io::Write;
         // A file a crashed process left under a reused pid is stale.
-        let mut f = match crate::owner_only::create_new(&tmp) {
+        let mut f = match crate::owner_only::create_new(tmp) {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                std::fs::remove_file(&tmp).with_context(|| format!("remove {}", tmp.display()))?;
-                crate::owner_only::create_new(&tmp)
+                std::fs::remove_file(tmp).with_context(|| format!("remove {}", tmp.display()))?;
+                crate::owner_only::create_new(tmp)
             }
             other => other,
         }
@@ -1249,7 +1392,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
         f.sync_all().with_context(|| format!("sync {}", tmp.display()))?;
     }
-    std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
+    std::fs::rename(tmp, path).with_context(|| format!("rename to {}", path.display()))?;
     // The rename itself is durable once its directory is synced.
     #[cfg(unix)]
     if let Some(dir) = path.parent()
@@ -1285,6 +1428,7 @@ pub use pool::PoolConfig;
 mod btw;
 pub use btw::BtwConfig;
 pub mod folder_profiles;
+pub mod harness_icon;
 pub mod profiles;
 pub use profiles::{
     Diagnostic as ProfileDiagnostic, LoadedProfiles, ProfileMeta, ProfileSource, ProfileSources,

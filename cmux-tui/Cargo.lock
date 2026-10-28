@@ -17,6 +17,7 @@ dependencies = [
  "cmux-link",
  "cmux-local-auth",
  "cmux-panic-log",
+ "cmux-tailnet",
  "cmux-sdk",
  "cmux-unix-socket",
  "cmux-worktree-care",
@@ -26,9 +27,13 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.4",
  "libc",
+ "memchr",
  "notify",
+ "plist",
+ "png",
  "pulldown-cmark",
  "ratatui",
+ "rcgen",
  "regex",
  "reqwest",
  "ring",
@@ -38,8 +43,10 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "syntect",
+ "tempfile",
  "thiserror 2.0.19",
  "tokio",
+ "tokio-rustls",
  "tokio-tungstenite",
  "tokio-util",
  "toml",
@@ -942,9 +949,11 @@ dependencies = [
 name = "cmux-app-manifest"
 version = "0.1.0"
 dependencies = [
+ "hex",
  "jsonschema",
  "regex",
  "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -1038,7 +1047,7 @@ dependencies = [
 [[package]]
 name = "cmux-codex-acp"
 version = "0.1.0"
-source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=e0a27f2f4210ad1a7dd1b33d5f33b273ac647e9b#e0a27f2f4210ad1a7dd1b33d5f33b273ac647e9b"
+source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a#ffa7aa863bcdb3f995b0c4b96ea2349e817fed1a"
 dependencies = [
  "serde_json",
 ]
@@ -1089,8 +1098,8 @@ dependencies = [
  "bzip2",
  "openh264-sys2",
  "rustls",
+ "rustls-native-certs",
  "sha2 0.10.9",
- "webpki-roots 1.0.10",
 ]
 
 [[package]]
@@ -1099,6 +1108,13 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-flow-trace"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -1133,6 +1149,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-holder"
+version = "0.1.0"
+dependencies = [
+ "cmux-flow-trace",
+ "cmux-process",
+ "libc",
+]
+
+[[package]]
+name = "cmux-holder-v3"
+version = "0.1.0"
+dependencies = [
+ "cmux-holder",
+ "libc",
+]
+
+[[package]]
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
@@ -1148,6 +1181,16 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "cmux-kitty-media"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "libc",
+ "memchr",
+ "tempfile",
 ]
 
 [[package]]
@@ -1255,6 +1298,14 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-process"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "wait-timeout",
 ]
 
 [[package]]
@@ -1437,6 +1488,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "time",
 ]
 
 [[package]]
@@ -1521,6 +1573,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-tailnet"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "reqwest",
+ "rustls",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "cmux-tui"
 version = "1.0.0"
 dependencies = [
@@ -1530,11 +1594,14 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-build-identity",
  "cmux-config",
+ "cmux-holder",
  "cmux-host",
  "cmux-link",
  "cmux-panic-log",
+ "cmux-process",
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
@@ -1618,11 +1685,15 @@ dependencies = [
  "cmux-config",
  "cmux-conversation",
  "cmux-feed-core",
+ "cmux-flow-trace",
  "cmux-git",
  "cmux-history",
+ "cmux-holder",
+ "cmux-kitty-media",
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-process",
  "cmux-pty",
  "cmux-remote-protocol",
  "cmux-sdk",
@@ -1717,6 +1788,7 @@ name = "cmux-tui-platform"
 version = "0.1.0"
 dependencies = [
  "cmux-link",
+ "cmux-process",
  "cmux-pty",
  "cmux-sdk",
  "cmux-unix-socket",
@@ -3586,6 +3658,7 @@ dependencies = [
  "reqwest",
  "rustls",
  "rustls-pki-types",
+ "rustls-platform-verifier",
  "serde",
  "serde_bytes",
  "strum",
@@ -3595,7 +3668,7 @@ dependencies = [
  "tokio-websockets",
  "tracing",
  "url",
- "webpki-roots 1.0.10",
+ "webpki-roots",
  "ws_stream_wasm",
 ]
 
@@ -6726,7 +6799,6 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tungstenite",
- "webpki-roots 0.26.11",
 ]
 
 [[package]]
@@ -7413,15 +7485,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
 dependencies = [
  "rustls-pki-types",
-]
-
-[[package]]
-name = "webpki-roots"
-version = "0.26.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
-dependencies = [
- "webpki-roots 1.0.10",
 ]
 
 [[package]]

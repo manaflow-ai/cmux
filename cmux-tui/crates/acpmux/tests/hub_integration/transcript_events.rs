@@ -93,6 +93,52 @@ async fn events_and_attach_page_backwards_through_transcript_records() {
 }
 
 #[tokio::test]
+async fn a_page_says_it_holds_to_the_log_end_only_when_it_reads_there() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "through").await;
+    for text in ["one", "two", "three"] {
+        c.request(method::SESSION_PROMPT, prompt(&id, text, None)).await.unwrap();
+    }
+    let last = hub.resolve("through").unwrap().meta().last_seq;
+    let seqs = |page: &Value| -> Vec<u64> {
+        page["events"].as_array().unwrap().iter().map(|e| e["seq"].as_u64().unwrap()).collect()
+    };
+    let ask = |m: &'static str, extra: Value| {
+        let mut params = json!({"sessionId": id, "kinds": ["transcript"], "limit": 2});
+        params.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        (m, params)
+    };
+    let mut a = connect(&hub).await;
+    let pages = [
+        // A page of older records holds only to its own last one (records after it were never read).
+        ask(method::MUX_EVENTS, json!({"beforeSeq": last})),
+        ask(method::MUX_ATTACH, json!({"beforeSeq": last})),
+        // So does a forward page with more to read.
+        ask(method::MUX_EVENTS, json!({"afterSeq": 0})),
+        ask(method::MUX_ATTACH, json!({"afterSeq": 0})),
+    ];
+    for (m, params) in pages {
+        let page = a.request(m, params.clone()).await.unwrap();
+        let held = seqs(&page);
+        assert!(!held.is_empty() && *held.last().unwrap() < last, "{m} {params}: {page}");
+        assert_eq!(page["pageThrough"], json!(held.last()), "{m} {params}");
+    }
+    // The newest page (more before it or not), and a forward page that reads to the end, hold to
+    // the log's last seq.
+    let newest = a.request(method::MUX_ATTACH, ask(method::MUX_ATTACH, json!({})).1).await.unwrap();
+    assert_eq!(newest["hasMore"], true);
+    assert_eq!(newest["pageThrough"], json!(last));
+    for (m, params) in [
+        ask(method::MUX_EVENTS, json!({"afterSeq": 0, "limit": 10_000})),
+        ask(method::MUX_ATTACH, json!({"afterSeq": 0, "limit": 10_000})),
+    ] {
+        let page = a.request(m, params.clone()).await.unwrap();
+        assert_ne!(page["hasMore"], true, "{m} {params}");
+        assert_eq!(page["pageThrough"], json!(last), "{m} {params}");
+    }
+}
+
+#[tokio::test]
 async fn live_updates_keep_agent_meta_and_event_stream_nests_them() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "live").await;
@@ -359,7 +405,9 @@ fn segmented_config(segment_bytes: u64) -> Config {
 }
 
 /// A daemon over [`segmented_config`] in a fresh directory.
-async fn setup_segmented(segment_bytes: u64) -> (Arc<Hub>, TestClient, std::path::PathBuf) {
+pub(super) async fn setup_segmented(
+    segment_bytes: u64,
+) -> (Arc<Hub>, TestClient, std::path::PathBuf) {
     let dir = std::env::temp_dir().join(format!("acpmux-tail-{}", uuid::Uuid::now_v7()));
     let cfg = segmented_config(segment_bytes);
     let store = acpmux::store::open(&cfg.store, &dir).unwrap();

@@ -69,10 +69,6 @@ await act(async () =>
   ),
 );
 
-const rightClick = (element: Element) => {
-  element.dispatchEvent(new dom.window.MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
-  return reports.at(-1);
-};
 const more = (row: string, actions: string) =>
   doc.querySelector<HTMLButtonElement>(`[data-row-id="${row}"] ${actions} button[aria-label="More"]`);
 const press = async (button: HTMLButtonElement) => {
@@ -80,24 +76,17 @@ const press = async (button: HTMLButtonElement) => {
   return reports.at(-1);
 };
 
-test("a prompt's action row has More, which reports the prompt as its right-click does", async () => {
+test("a prompt's action row has no More button", async () => {
   const button = more(prompt.id, ".cv-user__actions");
-  expect(button).not.toBeNull();
-  expect(button!.getAttribute("aria-haspopup")).toBe("menu");
-  const rightClicked = rightClick(doc.querySelector(`[data-row-id="${prompt.id}"] .cv-user__bubble`)!);
-  expect(rightClicked).toMatchObject({ text: "Make the chart" });
-  const { popUp, ...report } = (await press(button!))!;
-  expect(report).toEqual(rightClicked!);
-  expect(popUp).toEqual({ left: 0, top: 0, right: 0, bottom: 0 });
+  expect(button).toBeNull();
 });
 
 test("an answer's turn footer has More, which reports the answer as its right-click does", async () => {
   const button = more(footer.id, ".cv-turn-actions");
   expect(button).not.toBeNull();
-  const rightClicked = rightClick(doc.querySelector(`[data-row-id="${answer.id}"] .cv-md`)!);
-  expect(rightClicked).toMatchObject({ text: "Here is the chart.", markdown: "Here is **the chart**." });
-  const { popUp, ...report } = (await press(button!))!;
-  expect(report).toEqual(rightClicked!);
+  const report = (await press(button!))!;
+  expect(report).toMatchObject({ text: "Here is the chart.", markdown: "Here is **the chart**." });
+  const { popUp } = report;
   expect(popUp).toBeDefined();
 });
 

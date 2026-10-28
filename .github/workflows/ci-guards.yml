@@ -98,6 +98,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: ./tests/test_ci_self_hosted_guard.sh
 
+      - name: A red runner guard check cannot skip or excuse another
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: python3 tests/test_ci_guard_check_isolation.py
+
+      - name: Validate workflow files stay under GitHub's size limit
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: python3 tests/test_workflow_file_size.py
+
       - name: Validate Swift incremental diagnostics tooling
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_swift_incremental_diagnostics.py
@@ -121,6 +129,23 @@ jobs:
       - name: Validate scripts keep full clones full
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_no_shallow_dev_fetch.py
+
+      # Build scripts add a Rust target only when it is missing (rustup target add
+      # reaches static.rust-lang.org even for an installed target).
+      - name: Validate scripts add only missing Rust targets
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_targets_installed_first.py
+
+      - name: Test the Rust targets helper
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: bash tests/test_rust_targets_helper.sh
+
+      # Fleet rules as a shrink-only ratchet: no fleet sudo keychain reads, no
+      # new kill by process name or pattern, nothing depends on the personal
+      # Linux workstation (tests/fleet-rule-allowlist.json).
+      - name: Validate fleet rule lints
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fleet_rule_lints.py
 
       - name: Validate the local and fast guard runner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -154,6 +179,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_capture_check.py
 
+      - name: Validate the PR perf section check
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_pr_perf_section_check.py
+
       - name: Validate gh-merge-green --revert
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_gh_merge_green_revert.py
@@ -165,6 +194,10 @@ jobs:
       - name: Validate merge freezes as issues
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_merge_freeze.py
+
+      - name: Validate bounded GitHub list reads (no gh api paginate flag under scripts/)
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_gh_pages.py
 
       - name: Validate main compile attribution
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -190,7 +223,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_macos_xcode_selection.py
 
-      - name: Validate the CEF shim C++ tests run on Linux
+      - name: Validate the CEF shim C++ tests run without a Mac
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cmux_next_shim_cpp_linux.py
 
@@ -198,9 +231,13 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_xcode_pin_audit.py
 
-      - name: Validate the bash 3.2 parse job runs on Linux
+      - name: Validate the bash 3.2 parse job runs without a Mac
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_bash32_linux_job.py
+
+      - name: Validate the macOS keychain real-import runs only for keychain changes
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_signing_keychain_real_import_gate.py
 
       - name: Validate v0.64.25 rpath repair workflow contract
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -326,6 +363,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_resources_plist_unique_keys.py
 
+      - name: Validate dev builds declare http/https at Alternate rank
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: python3 tests/test_web_url_handler_rank.py
+
       - name: Validate the release-media scenes and changelog patcher
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_release_media.py
@@ -408,12 +449,25 @@ jobs:
       # feat-cmux-next pull request and push, where these files live.
       - name: Test What's New highlights and release notes
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        # Every command runs, and the step fails at the end if any failed, so
+        # one red (test_digest.py on a bad highlight) never hides the rest.
         run: |
-          python3 scripts/whats-new/test_digest.py
-          python3 scripts/whats-new/test_validate.py
-          python3 scripts/whats-new/test_community.py
-          python3 tests/test_cmux_next_release_notes.py
-          python3 tests/test_release_notes_pr_media.py
+          failed=()
+          for command in \
+            "python3 scripts/whats-new/test_digest.py" \
+            "python3 scripts/whats-new/test_validate.py" \
+            "python3 scripts/whats-new/test_community.py" \
+            "python3 tests/test_cmux_next_release_notes.py" \
+            "python3 tests/test_release_notes_pr_media.py" \
+            "python3 tests/test_release_notes_clips.py" \
+            "python3 tests/test_whats_new_clips.py" \
+            "python3 scripts/cmux-next/media/whats-new-clips.py check"; do
+            echo "::group::$command"
+            $command || failed+=("$command")
+            echo "::endgroup::"
+          done
+          for command in "${failed[@]}"; do echo "::error::failed: $command"; done
+          [ "${#failed[@]}" -eq 0 ]
 
       - name: Test the server bootstrap candidate renderer
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
@@ -455,7 +509,7 @@ jobs:
         if: ${{ !cancelled() && (matrix.group == 'preflight-agent-chat' || matrix.group == 'release-ios') }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.3.6"
+          bun-version: "1.4.4"
 
       # TypeScript is pinned exactly in agent-chat's devDependencies, so this
       # check uses the locked local compiler instead of fetching one at runtime.
@@ -632,6 +686,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cargo_affected.py
 
+      - name: Validate the portable SwiftPM rolling cache keys
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_swift_packages_linux_cache.py
+
       - name: Validate Swift package result reuse
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_package_result_reuse.py
@@ -643,6 +701,10 @@ jobs:
       - name: Validate the package test lane's single-suite phase
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_package_lane_suite.py
+
+      - name: Validate the Linux-capable Swift package list
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_swift_linux_packages.py
 
       - name: Validate workflow_run triggers name workflows that exist
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -728,6 +790,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_merge_main.py
 
+      - name: Validate that no workflow polls the API with GITHUB_TOKEN
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_no_github_token_polling.py
+
       - name: Validate CI queue janitor policy
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_queue_janitor.py
@@ -747,6 +813,14 @@ jobs:
       - name: Validate the cmux-next macOS cascade onto free Blacksmith slots
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_next_macos_cascade.py
+
+      - name: Validate that no job runs on a GitHub-hosted Mac
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_no_github_hosted_macos.py
+
+      - name: Validate runs-on label resolution stays on Blacksmith Linux
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_runs_on_labels.py
 
       - name: Validate agent pane frame pacing summary
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -799,6 +873,10 @@ jobs:
       - name: Validate side-lane placement onto idle owned runners
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_side_lane_placement.py
+
+      - name: Validate the rescue's re-runs route alike for both bot identities
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rescue_actors.py
 
       - name: Validate session jobs keep the gui label until runners carry the session label
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -854,6 +932,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_builder.py
 
+      - name: Validate the INTERNAL iOS archive never waits on the dedicated mini
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ios_internal_runner.py
+
+      - name: Validate no runs-on waits on one machine through a variable's value
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_runs_on_values.py
+
       - name: Validate the INTERNAL iOS builder What to Test notes
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ios_internal_notes.py
@@ -882,6 +968,26 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_required_checks_have_no_path_filters.py
 
+      - name: Validate the CI quota hold gate stays on optional workflows only
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_quota_hold_gate.py
+
+      - name: Validate the PR size check and its exclusion allowlist
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_size.py
+
+      - name: Validate pr-checks skips advisory jobs only on base-only updates
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_pr_checks_base_only.py
+
+      - name: Validate gh-call attribution lines make no extra API call
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_gh_call_log.py
+
+      - name: Validate refused routing reads say why and retry once on Retry-After
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_route_refusal_detail.py
+
       - name: Validate workflow write permissions are job-scoped
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_permissions_are_job_scoped.py
@@ -902,9 +1008,9 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_tui_routes_avoid_nightly_label.py
 
-      - name: Validate pin pushes run the cmux_next_ daemon tests on Linux
+      - name: Validate the cmux_next_ daemon-tests gate and its marker
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_cmux_tui_daemon_tests_linux.py
+        run: python3 tests/test_cmux_tui_daemon_tests_gate.py
 
       - name: Validate the tui publish dispatch budget
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -917,6 +1023,14 @@ jobs:
       - name: Validate pull request caches are read-only
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pull_request_caches_are_read_only.py
+
+      - name: Validate rust-cache keeps self-hosted runners' ~/.cargo/bin
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_rust_cache_keeps_runner_bin.py
+
+      - name: Validate every job that can start acpmux gives it a home of the job's own
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_acpmux_job_home.py
 
       - name: Validate signing secrets are read only in protected environments
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -968,6 +1082,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_r2_cache_prune.py
 
+      - name: Validate the git mirror bundle publisher
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_git_mirror_bundle.py
+
       - name: Validate the R2 binaries pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cmux_binaries_prune.py
@@ -975,6 +1093,10 @@ jobs:
       - name: Validate the Actions artifact pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_actions_artifact_prune.py
+
+      - name: Validate upload-artifact retention and large artifacts on R2
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_upload_artifact_retention.py
 
       - name: Validate the PR media pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1208,6 +1330,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         run: ./tests/test_fetch_ghostty_zig_packages.sh
 
+      - name: Validate curl-seeded Ghostty Zig package archives
+        if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
+        run: ./tests/test_seed_zig_package_archives.sh
+
       - name: Initialize Ghostty for Zig version guard
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
         shell: bash
@@ -1225,6 +1351,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_owner_wait_defers.py
 
+      - name: Validate the cmux-tui tree hand-off cap
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_tree_handoff.py
+
       - name: Validate the cmux-tui pin duplicate skip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_pin_duplicate_skip.py
@@ -1233,9 +1363,41 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_lane_daemon_tests.py
 
+      - name: Validate the feat-cmux-next channel pointer only moves forward
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_point_channel.py
+
       - name: Validate superseded cmux-tui pushes skip their builds and daemon tests
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_superseded_push.py
+
+      - name: Validate nightly builds and signers never cancel or replace a waiting run
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_delivery_concurrency.py
+
+      - name: Validate nightly publish-path gh calls wait through a rate limit
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_gh_budget_wait.py
+
+      - name: Validate the nightly build stops once its run cannot publish
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_stop_if_publish_doomed.py
+
+      - name: Validate the nightly-next tick re-runs a cancelled tip
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_cancelled_tip.py
+
+      - name: Validate the run artifact download waits through a refused GitHub call
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_download_run_artifact_retries.py
+
+      - name: Validate publish gh calls go out as the release App first, github.token as fallback
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_gh_app_token.py
+
+      - name: Validate the nightly publish jobs send gh calls as the release App first
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_publish_app_token_workflow.py
 
       - name: Validate a feat-cmux-next push stops deferring to a publisher whose daemon tests are stuck
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1249,7 +1411,7 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_media_auto_tour.py
 
-      - name: Validate webview-only changes tour on Linux, not a Mac
+      - name: Validate webview-only changes tour without a Mac
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: |
           python3 tests/test_cmux_next_media_path_map.py
@@ -1283,6 +1445,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_feat_publish_order.py
 
+      - name: Validate cmux-tui publication retries a rate-limited attestation and a slow fetch
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_publish_retries.py
+
       - name: Validate nightly API tag finalization
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: |
@@ -1298,7 +1464,9 @@ jobs:
 
       - name: Validate the cmux NEXT DEV daily dispatcher
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
-        run: python3 tests/test_cmux_next_dev_daily_dispatch.py
+        run: |
+          python3 tests/test_cmux_next_dev_daily_dispatch.py
+          python3 tests/test_cmux_next_dev_kick.py
 
       - name: Validate nightly tag permission probe
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1315,6 +1483,10 @@ jobs:
       - name: Validate resumable GitHub release publication
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_github_release_publication.py
+
+      - name: Validate every release publisher call passes an immutable asset
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_publish_release_assets_callers.py
 
       - name: Validate the Homebrew cask update gate
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1342,6 +1514,7 @@ jobs:
           bash ./tests/test_nightly_universal_build.sh
           python3 tests/test_nightly_trusted_routing.py
           python3 tests/test_nightly_build_state.py
+          python3 tests/test_ensure_setup_node.py
 
       # .github/nightly-step-coverage.json: every step only the nightly runs
       # names its pull-request dry run here or elsewhere, or a reviewed reason.
@@ -1377,13 +1550,33 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_guard.py
 
+      - name: Validate the nightly-next R2 publisher
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_publish_nightly_next_r2.py
+
       - name: Validate the nightly-next feed rollback
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_feed_rollback.py
 
+      - name: Validate the nightly-next fresh-home launch smoke harness
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_fresh_home_launch_smoke.py
+
       - name: Validate the nightly-next release-ring tags
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_ring.py
+
+      - name: Validate the Dev ring switch is read live when publishing
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_dev_ring.py
+
+      - name: Validate the published feed read-back and the shipped app's channels
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_next_live_feed_check.py
+
+      - name: Validate the old feed's publication and appcast writer
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_legacy_publish_linux.py
 
       - name: Validate the cmux NEXT Edge feed composer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1392,10 +1585,6 @@ jobs:
       - name: Validate the nightly-next canary mode and its one-week flip
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_canary_mode.py
-
-      - name: Validate the nightly-next visual smoke judge and its publish gate
-        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
-        run: python3 tests/test_nightly_next_visual_smoke.py
 
       - name: Validate the nightly-next fix-forward after a pull
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1409,13 +1598,25 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_arm64_only.py
 
-      - name: Validate the nightly web bundles build before Rust
+      - name: Validate the nightly Ghostty CLI helper cache key
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_ghostty_helper_cache.py
+
+      - name: Validate the nightly web bundles build before the Release build
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_web_bundles_order.py
+
+      - name: Validate nightly helper builds beside the Release build
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_helpers_beside_release_build.py
 
       - name: Validate the nightly-next release notes fetch (published span only)
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_release_notes_fetch.py
+
+      - name: Validate nightly.yml stays under GitHub's 512,000-byte workflow limit
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_workflow_size.py
 
       - name: Validate the nightly cmux-tui resolver (newest published tree, no wait)
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1424,6 +1625,10 @@ jobs:
       - name: Validate the blocking nightly-next source archive
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_source_archive.py
+
+      - name: Validate the retried Zig package fetch of the source archive
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_zig_fetch_all.py
 
       - name: Validate the cmux-next guards' notices pair check
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
@@ -1450,11 +1655,26 @@ jobs:
           python3 tests/test_nightly_next_promotion_queue.py
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_nightly_off_blacksmith.py
+          python3 tests/test_ci_nightly_no_hosted_mac.py
+          python3 tests/test_ci_runs_on_fallback.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
+          python3 tests/test_ci_killpg_tolerates_eperm.py
 
       - name: Validate unsigned nightly resume provenance and routing
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_unsigned_resume.py
+
+      - name: Validate the nightly signing jobs take a Blacksmith label with a moving queue
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_sign_runner.py
+
+      - name: Validate the nightly-next build takes an idle owned Mac or a moving Blacksmith label
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_build_runner.py
+
+      - name: Validate the warm nightly-next builder's git fetches are bounded and retried
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_git_fetch_retry.py
 
       - name: Validate test compilation cache seeding
         if: ${{ !cancelled() && matrix.group == 'quality-sharding' }}
@@ -1502,6 +1722,18 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: ./tests/test_notarize_computer_use_helper.sh
 
+      - name: Validate the release signer scripts
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: |
+          python3 tests/test_release_signer_scripts.py
+          python3 tests/test_release_signer_nightly.py
+          python3 tests/test_dev_app_linux.py
+          python3 tests/test_nightly_signer_jobs.py
+
+      - name: Validate the release app signer
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_release_signer_sign_app.py
+
       - name: Validate release asset guard
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: node scripts/release_asset_guard.test.js
@@ -1510,9 +1742,13 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fork_runner_routing.py
 
-      - name: Validate Linux compile jobs run on the 16 or 32 vCPU size
+      - name: Validate compile jobs run on the 16 or 32 vCPU size
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_linux_compile_runners.py
+
+      - name: Validate Blacksmith Linux labels fail over to another Blacksmith size
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_blacksmith_linux_failover.py
 
       - name: Validate the macOS cross-compile shadow jobs stay compare-only
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1577,6 +1813,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: ./tests/test_generate_nightly_deltas.sh
 
+      - name: Validate a rewritten nightly appcast keeps each item's first-publish pubDate
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_appcast_keep_pubdates.py
+
       - name: Validate Sparkle key export permissions
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: ./tests/test_sparkle_generate_keys_permissions.sh
@@ -1609,15 +1849,31 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
         run: python3 tests/test_bash_integration_no_done_notifications.py
 
-      - name: Validate bash watcher retirement and shell PR refresh
+      - name: Validate portable shell and no-socket regressions
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
         run: |
-          if ! command -v zsh >/dev/null 2>&1; then
+          if ! command -v zsh >/dev/null 2>&1 || ! command -v fish >/dev/null 2>&1; then
             sudo apt-get -o DPkg::Lock::Timeout=300 update
-            sudo apt-get -o DPkg::Lock::Timeout=300 install -y zsh
+            sudo apt-get -o DPkg::Lock::Timeout=300 install -y zsh fish
           fi
+          # The shim tests create private homes; group-writable fixture
+          # directories are intentionally rejected by the integrations.
+          umask 022
           python3 tests/test_issue_15067_bash_watcher_churn.py
           python3 tests/test_issue_1138_sidebar_pr_polling.py
+          # These use fake sockets/helpers and need no app or compile artifact.
+          python3 tests/test_stress_cli_socket_api.py
+          python3 tests/test_cmux_cua_helper_identity.py
+          python3 tests/test_issue_7028_claude_shim_persistence.py
+          python3 tests/test_issue_2448_shell_claude_wrapper_dispatch.py
+          python3 tests/test_issue_6714_zsh_shim_noclobber.py
+          python3 tests/test_issue_9356_bash_shim_noclobber.py
+          python3 tests/test_shell_git_branch_stale_cwd.py
+          python3 tests/test_shell_git_config_remote_url_parsing.py
+          python3 tests/test_shell_first_prompt_spawns.py
+          python3 tests/test_shell_no_git_watch.py
+          python3 tests/test_shell_pr_watch_private_state.py
+          python3 tests/test_shell_welcome_banner_startup.py
 
       - name: Validate shell surface-scoped environment keys
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}

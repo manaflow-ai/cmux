@@ -26,7 +26,27 @@ const PASSES =
   ".ui-positioner, .ui-popup, [aria-haspopup], .acpmux-composer-queue button, .acpmux-queue-foldbar button";
 const SWALLOWED = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"] as const;
 
-let installed: { doc: Document; count: number; remove(): void } | null = null;
+/**
+ * A chip says its menu is open and the menu is on screen: the popup it names (`aria-controls`), or,
+ * when it names none, a positioned popup (`Popover` and `Menu` portal theirs into a positioner; the
+ * slash and mention menus inline in the field are not a chip's). A chip left saying open with no
+ * menu showing must not swallow every press in the composer (Leo, 2026-10-21: "WHY THE FUCK CANT I
+ * CLICK THESE BUTTONS").
+ */
+function menuOnScreen(doc: Document): boolean {
+  for (const chip of doc.querySelectorAll(OPEN_CHIP)) {
+    const controls = chip.getAttribute("aria-controls");
+    if (controls ? doc.getElementById(controls) : doc.querySelector(".ui-positioner .ui-popup")) return true;
+  }
+  return false;
+}
+
+let installed: { doc: Document; count: number; remove(): void; swallowing(): boolean } | null = null;
+
+/** Whether the press now under way only closes a composer menu (another handler should ignore it). */
+export function swallowsPress(doc: Document): boolean {
+  return installed?.doc === doc && installed.swallowing();
+}
 
 /** Installs the guard on the page for as long as a composer is mounted. */
 export function useMenuPressGuard() {
@@ -39,7 +59,7 @@ export function installMenuPressGuard(doc: Document): () => void {
     installed.count += 1;
   } else {
     installed?.remove();
-    installed = { doc, count: 1, remove: install(doc) };
+    installed = { doc, count: 1, ...install(doc) };
   }
   let released = false;
   return () => {
@@ -52,16 +72,15 @@ export function installMenuPressGuard(doc: Document): () => void {
   };
 }
 
-function install(doc: Document): () => void {
+function install(doc: Document): { remove(): void; swallowing(): boolean } {
   const view = doc.defaultView;
-  if (!view) return () => {};
+  if (!view) return { remove: () => {}, swallowing: () => false };
   let swallowing: number | null = null;
   // Decided first, on the window, while the menu is still open: the menus close on this press.
   const decide = (event: PointerEvent) => {
     if (!event.isPrimary) return;
     const target = event.target instanceof Element ? event.target : null;
-    swallowing =
-      event.button === 0 && !!doc.querySelector(OPEN_CHIP) && !target?.closest(PASSES) ? event.pointerId : null;
+    swallowing = event.button === 0 && menuOnScreen(doc) && !target?.closest(PASSES) ? event.pointerId : null;
   };
   const cancel = (event: PointerEvent) => {
     if (event.pointerId === swallowing) swallowing = null;
@@ -88,10 +107,13 @@ function install(doc: Document): () => void {
   view.addEventListener("pointercancel", cancel, true);
   view.addEventListener("blur", blur);
   for (const type of SWALLOWED) doc.body.addEventListener(type, swallow, true);
-  return () => {
-    view.removeEventListener("pointerdown", decide, true);
-    view.removeEventListener("pointercancel", cancel, true);
-    view.removeEventListener("blur", blur);
-    for (const type of SWALLOWED) doc.body.removeEventListener(type, swallow, true);
+  return {
+    remove: () => {
+      view.removeEventListener("pointerdown", decide, true);
+      view.removeEventListener("pointercancel", cancel, true);
+      view.removeEventListener("blur", blur);
+      for (const type of SWALLOWED) doc.body.removeEventListener(type, swallow, true);
+    },
+    swallowing: () => swallowing !== null,
   };
 }

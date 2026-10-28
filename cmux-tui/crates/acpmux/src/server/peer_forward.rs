@@ -8,6 +8,8 @@ use super::*;
 /// for a peer's session.
 const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::INITIALIZE,
+    // The app pane's reply in place is checked against this daemon's chats (`app_reply.rs`).
+    method::MUX_APP_REPLY,
     method::AUTHENTICATE,
     method::SESSION_NEW,
     method::SESSION_LIST,
@@ -28,11 +30,23 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_START_MODE,
     method::MUX_IMPORT,
     method::MUX_SHUTDOWN,
+    // Briefs are daemon-scoped and dispatch selects its peer explicitly.
+    method::MUX_DISPATCH,
+    method::MUX_STEER,
+    method::MUX_BRIEFS,
+    method::MUX_REPORT,
+    // A task is this daemon's brief for one of its own sessions (`hub/tasks.rs`).
+    method::MUX_TASK_NEW,
+    method::MUX_TASKS,
+    // Resolving reads this daemon's own and mirrored session lists (`hub/locate.rs`).
+    method::MUX_RESOLVE,
     // An agent message is taken back on this daemon only (`hub/withdraw.rs`).
     method::MUX_PROMPT_WITHDRAW,
     // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
     method::MUX_SEND_QUEUE,
     method::MUX_SEND_STATUS,
+    // Forwarded by its own handler, which answers for a peer that is down (`session_auth.rs`).
+    method::MUX_SESSION_AUTH,
     // Agent pairs are this daemon's own (`hub/agent_pairs.rs`).
     method::MUX_AGENT_PAIR_RESUME,
     method::MUX_HANDOFF_PREPARE,
@@ -41,6 +55,11 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_HANDOFF_START,
     method::MUX_HANDOFF_DISCARD,
     "_acpmux/peers",
+    "_acpmux/peer_status",
+    // Names a peer machine, never a session (`vm_host.rs`).
+    "_acpmux/vm_host",
+    "_acpmux/host_health",
+    "_acpmux/place",
     "_acpmux/models",
     crate::catalog::RPC_GET,
     crate::catalog::RPC_REFRESH,
@@ -48,25 +67,37 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     "_acpmux/peer_lease",
     "_acpmux/peer_remove",
     "_acpmux/peer_reconnect",
+    // This daemon's own copy of a peer session's events (`hub/peer_snapshot.rs`),
+    // answered here while the peer is down too.
+    "_acpmux/peer_snapshot",
 ];
 
 /// The reply when `m` is for a peer's session (forwarded there), else None
 /// (this daemon handles it).
-/// `_meta.acpmux.fromAgent` for a forwarded `session/prompt` with a supersede key and no sender of
-/// its own, from the session this connection proved it runs in.
-fn name_keyed_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
-    let Some(mux) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) else {
+/// `_meta.acpmux.fromAgent` for a forwarded `session/prompt` with no sender of its own, from the
+/// session this connection proved it runs in: the peer sees neither that session nor the caller
+/// proof (`mark_forwarded` drops the provenance), so without it the peer records the agent's
+/// report as the person's (claude-sr2, 2026-10-24: every remote lane's report a plain bubble), and
+/// a keyed prompt could replace another sender's (`hub/supersede.rs`). The person names no one.
+fn name_sender(hub: &Arc<Hub>, conn: &Arc<Conn>, p: &mut Value) {
+    if conn.is_person() {
         return;
-    };
-    let keyed = mux.get("supersede").is_some_and(|k| !k.is_null());
-    let named = mux.get("fromAgent").is_some_and(|f| !f.is_null());
-    if keyed
-        && !named
-        && !conn.is_person()
-        && let Some(caller) = conn.caller()
-    {
-        mux.insert("fromAgent".into(), Value::String(hub.session_name(caller)));
     }
+    let Some(caller) = conn.caller() else { return };
+    if p.pointer("/_meta/acpmux/fromAgent").is_none_or(Value::is_null) {
+        crate::hub::merge_mux_meta(p, json!({"fromAgent": hub.session_name(caller)}));
+    }
+}
+
+/// `e` with `data.peer` = `peer`, this daemon's own name for the peer that
+/// answered: any `peer` the peer's own answer gave is replaced, so the app
+/// enrolls this Mac only on a peer of this daemon, never on a host the peer named.
+fn name_peer(mut e: RpcError, peer: &str) -> RpcError {
+    let data = e.data.get_or_insert_with(|| json!({}));
+    if let Some(obj) = data.as_object_mut() {
+        obj.insert("peer".into(), Value::String(peer.to_owned()));
+    }
+    e
 }
 
 pub(super) async fn forward(
@@ -75,7 +106,11 @@ pub(super) async fn forward(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    forward_inner(hub, conn, m, params).await.transpose()
+    let reply = forward_inner(hub, conn, m, params).await.transpose();
+    if conn.origin == Origin::Peer {
+        return reply.map(|r| r.map_err(super::redact::hide_unreachable_peer));
+    }
+    reply
 }
 
 async fn forward_inner(
@@ -108,7 +143,7 @@ async fn forward_inner(
     if !SESSION_SCOPED_EXCLUDED.contains(&m)
         && let Ok(key) = session_key(params)
         && hub.resolve(key).is_err()
-        && let Some((peer, id, _)) = hub.resolve_remote(key)
+        && let Some((peer, id, row)) = hub.resolve_remote(key)
     {
         if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
             return Err(super::trust_gate::peer_unsupported(&peer.name));
@@ -121,6 +156,63 @@ async fn forward_inner(
                 return Err(crate::hub::file_uploads::peer_unsupported(&peer));
             }
         }
+        // A person's prompt is checked here, before `mark_forwarded` drops its provenance
+        // (`author.rs`).
+        if m == method::SESSION_PROMPT {
+            crate::author::of_prompt(params)?;
+        }
+        // So do a message's attachments, under their caps (`attach.rs`).
+        if m == method::SESSION_PROMPT
+            && let Some(blocks) = params.get("prompt").and_then(Value::as_array)
+        {
+            crate::attach::check_wire(params)?;
+            if crate::attach::any(blocks) && !peer.supports_send_attach() {
+                return Err(crate::attach::peer_unsupported(&peer));
+            }
+            if crate::prompt_uploads::any(blocks) && !peer.supports_prompt_uploads() {
+                return Err(crate::prompt_uploads::peer_unsupported(&peer));
+            }
+        }
+        // An upload for a prompt (`attach::blocks_for`) to a peer that would refuse the prompt
+        // naming it: refused before its bytes are sent, so none is left behind.
+        if m == method::MUX_FILE_PUT_BEGIN
+            && params.get("forPrompt") == Some(&Value::Bool(true))
+            && !peer.supports_prompt_uploads()
+        {
+            return Err(crate::prompt_uploads::peer_unsupported(&peer));
+        }
+        // An older peer would answer status as unknown and finish without checking `sha256`.
+        let checked =
+            m == method::MUX_FILE_PUT_FINISH && params.get("sha256").is_some_and(|h| !h.is_null());
+        if (checked || m == method::MUX_FILE_PUT_STATUS) && !peer.supports_upload_resume() {
+            return Err(crate::hub::file_uploads::peer_unsupported(&peer));
+        }
+        if m == method::MUX_FILE_PUT_CHUNK {
+            crate::hub::file_uploads::check_chunk(params)?;
+        }
+        // A peer with only the one-shot `file_put` would refuse the upload part way through.
+        if matches!(m, method::MUX_FILE_PUT_BEGIN | method::MUX_FILE_PUT_CHUNK)
+            && !peer.supports_file_put_chunks()
+        {
+            return Err(crate::hub::file_uploads::peer_unsupported(&peer));
+        }
+        // The media reader runs on the peer that owns the chat, if it has one (`hub/media_read.rs`).
+        if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE)
+            && !peer.supports_media_read()
+        {
+            return Err(crate::hub::media_read::peer_unsupported(&peer, m));
+        }
+        // So does a subagent's transcript (`hub/subagent_transcript.rs`).
+        if m == method::MUX_SUBAGENT_TRANSCRIPT && !peer.supports_subagent_transcript() {
+            return Err(crate::hub::media_read::peer_unsupported(&peer, m)
+                .with_data(json!({"reason": "transcriptRead.unsupported"})));
+        }
+        // Typing and an authored view are this daemon's own chats only (`hub/presence.rs`):
+        // forwarded, whatever the peer serves this link as, one entry there would stand for
+        // every client here.
+        if m == method::MUX_TYPING || (m == method::MUX_VIEW && crate::author::present(params)) {
+            return Err(crate::hub::presence::peer_unsupported());
+        }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
             obj.remove("session");
@@ -129,10 +221,15 @@ async fn forward_inner(
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
         bound_page(m, params, &mut p);
-        // A keyed prompt replaces only its sender's (`hub/supersede.rs`): the peer cannot see the
-        // session this connection runs in, so it gets that session's name.
+        // A peer's handles are this connection's own here (`media_forward.rs`).
+        if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE) {
+            return super::media_forward::forward(&conn.remote_media, &peer, &id, m, p)
+                .await
+                .map(Some);
+        }
+        // The peer cannot see the session this connection runs in: it gets that session's name.
         if m == method::SESSION_PROMPT {
-            name_keyed_sender(hub, conn, &mut p);
+            name_sender(hub, conn, &mut p);
         }
         if m == method::MUX_PERMISSION_RESPOND {
             count_hop(&mut p)?;
@@ -149,13 +246,28 @@ async fn forward_inner(
                 let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
                 let event_stream =
                     params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
-                conn.subscribe_with(&id, SubOpts { event_stream, filter, ..SubOpts::default() });
+                let opts = SubOpts { event_stream, filter, ..SubOpts::default() };
+                super::view::subscribe_remote(hub, conn, &id, Some(opts));
             } else {
-                super::requests::attach(hub, conn, &id);
+                super::view::subscribe_remote(hub, conn, &id, None);
             }
             if peer.mark_attached(&id) && m != method::MUX_ATTACH {
                 // The link is not a person: only a client's own attach or view shows the chat.
-                let _ = peer.request(method::MUX_ATTACH, crate::peer::hidden_attach(&id)).await;
+                // Its own task, so the attach the marker stands for always goes out, whoever else
+                // relies on it; only this client's wait for it ends when the client leaves.
+                let attach = tokio::spawn({
+                    let (peer, id) = (peer.clone(), id.clone());
+                    async move {
+                        let _ =
+                            peer.request(method::MUX_ATTACH, crate::peer::hidden_attach(&id)).await;
+                    }
+                });
+                tokio::select! {
+                    _ = attach => {}
+                    () = conn.closed() => {
+                        return Err(RpcError::internal("the client closed the connection"));
+                    }
+                }
             }
         }
         // The peer answers a prompt when its turn (or a steer's step) ends; the client hears
@@ -177,26 +289,82 @@ async fn forward_inner(
                 }),
             )
         });
-        let result = peer.request(m, p).await;
+        // The link the request goes on and the generation the row names as it goes: a page is
+        // kept only while that link is the peer's, and only as that generation's.
+        let link = peer.link_epoch();
+        let pages = matches!(m, method::MUX_ATTACH | method::MUX_EVENTS);
+        let purge =
+            m == method::MUX_KILL && params.get("purge").and_then(Value::as_bool).unwrap_or(false);
+        // The row the request was resolved by names it: a purge removes only that generation, even
+        // when the row went (and the id came back as another session) before the answer.
+        let asked =
+            (pages || purge).then(|| row.get("createdAt").and_then(Value::as_u64)).flatten();
+        // A client that left takes its prompt or wait along: those wait on the peer's turn with no
+        // deadline (`peer.rs` `waits_on_turn`), and nobody would read the answer. Every other
+        // request keeps its deadline and always goes out: an attach the marker above stands for
+        // must reach the peer even when its client is gone.
+        // A page goes on the link it is labelled with, or fails.
+        let on = pages.then_some(link);
+        let result = if crate::peer::waits_on_turn(m) {
+            tokio::select! {
+                result = peer.request_on(m, p, on) => result,
+                () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
+            }
+        } else {
+            peer.request_on(m, p, on).await
+        };
         if let (Some(prompt_id), Some(token)) = (&accept, token) {
             hub.peer_accepts.forget(&peer.name, prompt_id, token);
         }
+        // `Peer::request` already took the peer's display lines out of the result and the error.
         let mut result = result.map_err(|e| {
-                        if e.message.contains("Method not found") {
-                            RpcError::internal(format!("{}; peer {} runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", e.message, peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
+            if matches!(m, method::MUX_FILE_PUT_BEGIN | method::MUX_FILE_PUT_CHUNK | method::MUX_FILE_PUT_FINISH | method::MUX_FILE_PUT_CANCEL | method::MUX_FILE_PUT_STATUS)
+                && e.message.contains("Method not found")
+            {
+                crate::hub::file_uploads::peer_unsupported(&peer)
+            } else if e.message.contains("Method not found") {
+                            RpcError::internal(format!("peer {} does not support {m}; it runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
+                                .with_data(json!({
+                                    "reason": "peer_version_skew",
+                                    "try": format!("acpmux host update {}", peer.name),
+                                    "peer": peer.name,
+                                    "method": m,
+                                }))
+                        } else if matches!(m, method::MUX_PERMISSION_RESPOND | method::MUX_PERMISSION_GROUP_RESPOND) {
+                            // A refused answer names the peer that refused it, so the app can say
+                            // where to enroll this Mac (`hub/mac_approvers.rs`).
+                            name_peer(e, &peer.name)
                         } else {
                             e
                         }
                     })?;
+        let held = |r: &Value| r.get("events").and_then(Value::as_array).map(Vec::len);
+        let before = held(&result);
         strip_asks(hub, &peer.name, &id, m, &mut result);
+        // What the client reads of a peer's chat is kept here too, so the chat
+        // paints while the peer is paused or offline (`hub/peer_snapshot.rs`).
+        // A page that lost records here no longer holds every seq it covers.
+        if matches!(m, method::MUX_ATTACH | method::MUX_EVENTS) && held(&result) == before {
+            let on = (peer.name.as_str(), peer.generation, link, asked);
+            hub.capture_peer_page(on, (&id, m == method::MUX_EVENTS), params, &result);
+        }
+        // This daemon does not carry a peer chat's presence (`hub/presence.rs`).
+        if m == method::MUX_ATTACH
+            && let Some(obj) = result.as_object_mut()
+        {
+            obj.insert("presence".into(), crate::hub::presence::none(&id));
+        }
+        if m == method::MUX_PERMISSION_GROUPS && result.is_object() {
+            mac_group_read(&mut result, conn.is_person() && hub.person.macs.has_own());
+        }
         if m == method::SESSION_FORK
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
         {
-            super::requests::attach(hub, conn, new_id);
+            super::view::subscribe_remote(hub, conn, new_id, None);
             peer.mark_attached(new_id);
         }
-        if m == method::MUX_KILL && params.get("purge").and_then(Value::as_bool).unwrap_or(false) {
-            hub.forget_remote(&id);
+        if purge {
+            hub.forget_remote((&peer.name, peer.generation), &id, asked);
         }
         if let Some(obj) = result.as_object_mut() {
             obj.insert("peer".into(), Value::String(peer.name.clone()));
@@ -204,8 +372,11 @@ async fn forward_inner(
         return Ok(Some(result));
     }
     // `PEER/name` for a peer that is down and lists no such session: say
-    // the peer is unreachable, not that the session does not exist.
+    // the peer is unreachable, not that the session does not exist. A peer daemon's
+    // connection never learns this host's peers or their state (`redact::hide_peers_from_peer`):
+    // it gets the answer a name no peer has gets.
     if !SESSION_SCOPED_EXCLUDED.contains(&m)
+        && conn.origin != Origin::Peer
         && let Ok(key) = session_key(params)
         && hub.resolve(key).is_err()
         && let Some(e) = hub.peer_down_for(key)
@@ -213,6 +384,27 @@ async fn forward_inner(
         return Err(e);
     }
     Ok(None)
+}
+
+/// A peer's `_acpmux/permission_groups` reply, as this daemon's client may draw it. This
+/// daemon's link is never the person on the peer, so the peer refuses every group allow it
+/// forwards (`hub/person.rs`), whatever its build says: the client draws none
+/// (`allowRefused`). One exception: the peer counts an enrolled Mac's signed Allow once
+/// (`macAllowOnce`), and the reader is this machine's person whose app holds this Mac's
+/// approver key (`mac_signs`): it may draw Allow once and Deny, never Allow for the chat.
+fn mac_group_read(result: &mut Value, mac_signs: bool) {
+    if !(mac_signs && result.get("macAllowOnce") == Some(&Value::Bool(true))) {
+        result["allowRefused"] = json!(crate::hub::person::REASON);
+        return;
+    }
+    if let Some(obj) = result.as_object_mut() {
+        obj.remove("allowRefused");
+    }
+    for group in result.get_mut("groups").and_then(Value::as_array_mut).into_iter().flatten() {
+        if let Some(decisions) = group.get_mut("decisions").and_then(Value::as_array_mut) {
+            decisions.retain(|d| d != "allow_chat");
+        }
+    }
 }
 
 /// Drop from a peer's reply for its session `id` every ask the peer may
@@ -283,6 +475,41 @@ fn count_hop(forwarded: &mut Value) -> Result<(), RpcError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A refused answer for a peer's prompt names that peer, so the app can say where to
+    /// enroll this Mac; a peer the answer named itself is replaced by this daemon's name.
+    #[test]
+    fn a_refused_answer_names_the_peer() {
+        let e = name_peer(crate::hub::person::person_required("allowing a permission"), "hb");
+        assert_eq!(e.data.as_ref().unwrap()["peer"], "hb");
+        assert_eq!(e.data.as_ref().unwrap()["reason"], crate::hub::person::REASON);
+        let e = name_peer(RpcError::internal("x").with_data(json!({"peer": "far"})), "hb");
+        assert_eq!(e.data.unwrap()["peer"], "hb");
+    }
+
+    /// A peer's group read: the person here whose app holds this Mac's key draws Allow once and
+    /// Deny when the peer counts a Mac's signed allow; every other reader, or a peer that does
+    /// not say so, draws no Allow.
+    #[test]
+    fn a_peers_group_read_draws_allow_once_only_for_a_mac_that_signs() {
+        let read = || {
+            json!({"groups": [{"decisions": ["allow_once", "allow_chat", "deny"]}],
+                   "allowRefused": crate::hub::person::REASON, "macAllowOnce": true})
+        };
+        let mut r = read();
+        mac_group_read(&mut r, true);
+        assert!(r.get("allowRefused").is_none(), "{r}");
+        assert_eq!(r["groups"][0]["decisions"], json!(["allow_once", "deny"]));
+        let mut r = read();
+        mac_group_read(&mut r, false);
+        assert_eq!(r["allowRefused"], crate::hub::person::REASON);
+        assert_eq!(r["groups"][0]["decisions"].as_array().unwrap().len(), 3);
+        for old in [json!({"groups": []}), json!({"groups": [], "macAllowOnce": false})] {
+            let mut r = old;
+            mac_group_read(&mut r, true);
+            assert_eq!(r["allowRefused"], crate::hub::person::REASON, "{r}");
+        }
+    }
 
     /// A history read forwarded to a peer names its byte limit: a peer on an older build pages to
     /// no limit of its own, and 5000 records of long tool outputs were one 32.8 MB reply that reset

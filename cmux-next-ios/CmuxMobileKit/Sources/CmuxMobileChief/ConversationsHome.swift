@@ -50,13 +50,12 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         self.leading = leading()
     }
 
-    /// The listed Macs (a computer registered twice shows once: ``MacRoster``).
-    private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? [], now: MinuteClock.shared.now).visible }
+    /// The listed Macs (one per computer, whatever builds run on it: ``MacRoster``).
+    private var macs: [MacDevice] { macText.roster(store.activeTeam?.macs ?? []).visible }
 
     private var labels: HomeMacLabels {
-        let now = MinuteClock.shared.now
-        return HomeMacLabels(macs: macs, scope: macFilter.scope(in: store.activeTeam),
-                             accountMacs: MacRoster(MacNameDisambiguation.scope(store.teams), now: now).visible)
+        HomeMacLabels(macs: macs, scope: macFilter.scope(in: store.activeTeam),
+                             accountMacs: MacRoster.accountMacs(store.teams))
     }
 
     /// The default Chief: compose, New Message and the first pin.
@@ -215,7 +214,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                                stamp: stamp, identifier: "home.chief", place: .cloud) { cloudTileMenu }
                 case .macChief:
                     sessionRow(sources.mac, name: String(localized: "Chief"), tag: chiefTag(main: !sources.isCloudReady, place: macTag),
-                               stamp: stamp, identifier: "home.chief.mac", place: .mac) { EmptyView() }
+                               stamp: stamp, identifier: "home.chief.mac", place: .mac) { callChiefItem }
                 }
             }
             if let problem = feed.problem, !searching {
@@ -275,9 +274,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .navigationDestination(for: MacConversationRoute.self) { route in
             MacConversationScreen(route: route, feed: feed)
         }
-        // Back on Home: look for the Cloud Chief again if it was not reachable, and read the Mac's list.
+        // Back on Home: read the Cloud Chiefs again (one may be archived or deleted elsewhere), and the Mac's list.
         .task {
-            sources.refreshIfNeeded()
+            sources.recheck()
             feed.refresh()
         }
         .alert("New Chief", isPresented: $namingChief) {
@@ -332,8 +331,9 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     }
 
     /// The Mac's row menu, the actions that are the person's list state:
-    /// Pin or Unpin, Mark as Read or Mark as Unread.
+    /// Pin or Unpin, Mark as Read or Mark as Unread; Chief's row also calls Chief.
     @ViewBuilder private func rowMenu(_ row: MacHomeRow) -> some View {
+        if isMacChief(row) { callChiefItem }
         Button(row.isPinned ? "Unpin" : "Pin", systemImage: row.isPinned ? "pin.slash" : "pin") {
             theme.haptics.selection()
             feed.setPinned(!row.isPinned, row.id)
@@ -345,8 +345,15 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
     }
 
+    /// A live voice call with Chief (``ChiefCallLauncher``).
+    private var callChiefItem: some View {
+        Button("Call Chief", systemImage: "phone") { ChiefCallLauncher.shared.call() }
+            .accessibilityIdentifier("home.chief.call")
+    }
+
     @ViewBuilder private var cloudTileMenu: some View {
         let cloud = sources.cloud
+        callChiefItem
         if cloud.conversationID != nil {
             Button(cloud.isMuted ? "Show Alerts" : "Hide Alerts", systemImage: cloud.isMuted ? "bell" : "bell.slash") {
                 cloud.setMuted(!cloud.isMuted)

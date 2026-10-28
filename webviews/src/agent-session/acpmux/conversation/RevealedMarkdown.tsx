@@ -23,13 +23,30 @@ export const streamWords = () =>
 const reducedMotion = () =>
   typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 
-/// Text revealed `count` characters at a time; each step fades in for FADE_MS from `born`.
+/// Text revealed `count` characters at a time; each step fades in for the host's
+/// `--agent-motion-in` duration from `born`.
 export type Reveal = { id: number; count: number; born: number };
 /// How long newly revealed text keeps its fade (acp-streaming.md "Reveal animation"). `.cv-fresh`
-/// runs the host's `--agent-motion-in`: the scale's micro step at speed "fast", 180ms at the default
-/// speed. The span outlives the longest of those (the standard step), so no fade is cut before it
-/// ends; the animation fills `both`, so a span kept longer draws the same.
+/// runs the host's `--agent-motion-in`. The fallback matches the conversation stylesheet's
+/// default. The host can change this token at runtime, so expiry reads it as spans are retired
+/// instead of letting a fixed scale value outlive or cut short the CSS fade.
 export const FADE_MS = MOTION_MS.standard;
+
+function motionDurationMs(): number {
+  if (typeof document === "undefined") return FADE_MS;
+  try {
+    const token =
+      document.defaultView?.getComputedStyle(document.documentElement).getPropertyValue("--agent-motion-in").trim() ??
+      "";
+    const value = Number.parseFloat(token);
+    if (!Number.isFinite(value) || value < 0) return FADE_MS;
+    if (token.endsWith("ms")) return value;
+    if (token.endsWith("s")) return value * 1000;
+  } catch {
+    // A document without computed styles (SSR or a minimal test DOM) uses the stylesheet fallback.
+  }
+  return FADE_MS;
+}
 
 type Shown = { length: number; fresh: Reveal[]; now: number };
 /// React commits at most this often while revealing; fades run every display frame on the
@@ -114,7 +131,8 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
         length = latest.current.text.length;
       }
       // Nothing fades in on return, including the steps that were fading as the page hid.
-      const fresh = away ? [] : before.fresh.filter((step) => now - step.born < FADE_MS);
+      const fadeMs = motionDurationMs();
+      const fresh = away ? [] : before.fresh.filter((step) => now - step.born < fadeMs);
       if (length > before.length && !reduce.current && !away)
         fresh.push({ id: (nextId.current += 1), count: length - before.length, born: now });
       // A frame that only waits out a held last word commits nothing.
@@ -154,14 +172,16 @@ export function RevealedMarkdown({
   text,
   streaming,
   githubRepository,
+  messageAt,
 }: {
   text: string;
   streaming: boolean;
   githubRepository?: string;
+  messageAt?: number;
 }) {
   return (
     <MessageBoundary source={text}>
-      <Revealed text={text} streaming={streaming} githubRepository={githubRepository} />
+      <Revealed text={text} streaming={streaming} githubRepository={githubRepository} messageAt={messageAt} />
     </MessageBoundary>
   );
 }
@@ -170,10 +190,12 @@ function Revealed({
   text,
   streaming,
   githubRepository,
+  messageAt,
 }: {
   text: string;
   streaming: boolean;
   githubRepository?: string;
+  messageAt?: number;
 }) {
   const { visible, fresh, now } = useStreamReveal(text, streaming);
   // Until all of it shows, the reply draws as streaming: the frame after the stream ends still
@@ -184,6 +206,7 @@ function Revealed({
       fresh={fresh}
       now={now}
       githubRepository={githubRepository}
+      messageAt={messageAt}
     >
       {visible}
     </Markdown>

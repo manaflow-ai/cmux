@@ -201,6 +201,19 @@ import Testing
         // The current mode stays listed (checked) even when it does not ask.
         #expect(ACPMode.phoneChoices(modes, current: "agent").map(\.id) == ["default", "plan", "ask", "agent"])
     }
+
+    /// A phone whose Full-access setting covers it (acpmux `initialize` `fullAccess`) also gets
+    /// the harness's Full access mode, the one the Mac offers; never the other modes that do not
+    /// ask (`acceptEdits`, the bridge's `agent`).
+    @Test func aPhoneWithFullAccessAlsoPicksTheFullAccessMode() {
+        let modes = ["default", "acceptEdits", "plan", "bypassPermissions", "ask", "agent", "agent-full-access"]
+            .map { ACPMode(id: $0, name: $0) }
+        #expect(ACPMode.phoneChoices(modes, current: "default", fullAccess: true).map(\.id)
+            == ["default", "plan", "bypassPermissions", "ask", "agent-full-access"])
+        #expect(ACPMode.phoneChoices(modes, current: "default", fullAccess: false).map(\.id) == ["default", "plan", "ask"])
+        #expect(ACPMode.phoneChoices(modes, current: "agent", fullAccess: true).map(\.id)
+            == ["default", "plan", "bypassPermissions", "ask", "agent", "agent-full-access"])
+    }
 }
 
 /// New Workspace in a folder (Recent Directories): the new terminal changes to it as the

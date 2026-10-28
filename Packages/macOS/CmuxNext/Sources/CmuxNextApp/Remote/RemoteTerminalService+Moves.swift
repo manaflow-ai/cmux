@@ -66,7 +66,7 @@ extension RemoteTerminalService {
             })
             return
         }
-        guard destination.supports(DaemonCapabilities.shared.remoteTerminalTabs) else {
+        guard destination.supports(DaemonCapability.remoteTerminalTabs.rawValue) else {
             registry.refuse(RemoteStrings.needsRemoteTerminalTabs)
             return completion(false)
         }
@@ -96,18 +96,25 @@ extension RemoteTerminalService {
     /// `pane` (whose workspace is homed on `home`). The terminal has no tab
     /// on `machine`: `create-terminal {detached}` (`detached-terminals-v1`),
     /// else created in one of the machine's workspaces (a scratch one when
-    /// it has none) and that tab closed.
-    func openTerminal(on machine: DaemonService, in pane: PaneModel, home: DaemonService, cwd: String?) -> ActionWorkFailure? {
+    /// it has none) and that tab closed. With `direction` the tab lands in a
+    /// new split of `pane` (right or bottom) instead of a tab of it.
+    ///
+    /// `name` is the tab's own name (what `open-remote` finds it by the next time), `command` is typed
+    /// into the new shell, `ratio` is the split's share for the new pane and `keepFocus` leaves the
+    /// user's focus where it was (daemons without `tab-split-keep-focus-v1` take focus anyway).
+    func openTerminal(on machine: DaemonService, in pane: PaneModel, home: DaemonService, cwd: String?,
+                      splitting direction: SplitDirection? = nil, name tabName: String? = nil, command: String? = nil,
+                      ratio: Double? = nil, keepFocus: Bool = false) -> ActionWorkFailure? {
         // Only the tab's session stores the reference; the terminal's session
         // needs no new capability.
-        guard home.supports(DaemonCapabilities.shared.remoteTerminalTabs) else {
+        guard home.supports(DaemonCapability.remoteTerminalTabs.rawValue) else {
             return ActionWorkFailure(RemoteStrings.needsRemoteTerminalTabs)
         }
         guard let machineConnection = machine.connection, let homeConnection = home.connection,
               let session = machine.identity?.sessionID else { return ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected) }
         let name = sessionName(of: machine)
         let paneHandle = pane.handle
-        let detached = machine.supports(DaemonCapabilities.shared.detachedTerminals)
+        let detached = machine.supports(DaemonCapability.detachedTerminals.rawValue)
         let existing = machine.store.workspaces.first { $0.key != nil }?.key
         services.registry.track(Task { [weak self] in
             do {
@@ -129,7 +136,18 @@ extension RemoteTerminalService {
                 }
                 let ref = RemoteTerminalRef(sessionID: session, terminalID: terminal, sessionName: name)
                 if let resource { self?.remember(ref, resource: resource) }
-                _ = try await homeConnection.newRemoteTerminalTab(ref, in: paneHandle, title: RemoteStrings.terminalOn(name))
+                let created = try await homeConnection.newRemoteTerminalTab(ref, in: paneHandle, title: RemoteStrings.terminalOn(name))
+                if let tabName { try await homeConnection.renameTab(created.surface, to: tabName) }
+                // Placed by moving the new tab to a split of its pane (move-tab-to-split): no local seed shell.
+                if let direction {
+                    _ = try await homeConnection.moveTabToSplit(created.surface, pane: paneHandle, edge: direction == .right ? .right : .bottom,
+                                                                ratio: ratio, keepFocus: keepFocus)
+                }
+                // The terminal exists and is placed; a command that cannot be typed is reported, not rolled back.
+                if let command {
+                    guard let resource else { return ActionWorkFailure(RemoteStrings.machineHasNoTerminal) }
+                    try await machineConnection.writeTerminal(resource, text: command + "\n")
+                }
                 return nil
             } catch {
                 return ActionWorkFailure("open terminal on machine", error)

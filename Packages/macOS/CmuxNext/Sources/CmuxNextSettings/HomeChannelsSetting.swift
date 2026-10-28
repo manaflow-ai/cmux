@@ -46,9 +46,11 @@ extension HomeChannelsSetting {
 }
 
 extension CmuxConfigSnapshot {
-    /// The `home.*` rows: attachment location, the Channels entry, the Chief pet and the messages server; each toggle absent is off, and a value
-    /// that is not a bool is off plus a diagnostic.
+    /// The `home.*` rows: attachment location, the Channels entry, the Chief pet, the messages server and the
+    /// Chief's engine (read from `root` as it applies, ``homeChiefEngine``; here only its diagnostic); each toggle
+    /// absent is off, and a value that is not a bool is off plus a diagnostic.
     mutating func takeHome(_ root: JSONValue) {
+        if let diagnostic = HomeChiefEngineSetting.parse(root).1 { diagnostics.append(diagnostic) }
         take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
         take(Self.parseLabsToggle(root, path: HomeChannelsSetting.configPath, fallback: false), \.homeChannelsEnabled)
         take(Self.parseLabsToggle(root, path: HomeChiefPetSetting.configPath, fallback: false), \.homeChiefPetEnabled)

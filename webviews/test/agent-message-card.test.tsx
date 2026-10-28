@@ -2,7 +2,7 @@
 // Another agent's message, opened (conversation/IncomingMessageCard.tsx; Leo 2026-10-21: "just...
 // idk make it all look nicer"): its sender's signature is out, a pull request written twice in a
 // row is one chip, a commit SHA is quiet monospace, and a message from another machine names that
-// machine's files, which draw with its name and a lock and are never asked about here.
+// machine's files, whose tooltips name their machine and are never asked about here.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { act } from "react";
@@ -122,13 +122,13 @@ test("a message's signature is out, its PR one chip, its SHA quiet", async () =>
   expect(body.querySelector(".cv-chip.is-elsewhere")).toBeNull();
 });
 
-test("a message from another machine names its files there: chips with a lock, never asked about here", async () => {
+test("a message from another machine names its files on hover, without a lock or local file access", async () => {
   const asked = await render({ sessionId: undefined, remote: true }, []);
   const body = host.querySelector(".cv-received__body")!;
   expect(body.querySelector("button.cv-chip.is-path")).toBeNull();
   const elsewhere = [...body.querySelectorAll<HTMLElement>(".cv-chip.is-elsewhere")];
   expect(elsewhere.map((chip) => chip.dataset.path)).toEqual(["/tmp/lane/before.png"]);
-  expect(elsewhere.every((chip) => chip.querySelector(".cv-chip__lock"))).toBe(true);
+  expect(elsewhere.every((chip) => chip.querySelector(".cv-chip__lock") === null)).toBe(true);
   expect(elsewhere[0]!.getAttribute("title")).toBe("On another machine: /tmp/lane/before.png");
   expect(body.querySelector(".cv-thumb")).toBeNull();
   expect(asked.some((call) => call.method === "image.load" || call.method === "link.openPath")).toBe(false);

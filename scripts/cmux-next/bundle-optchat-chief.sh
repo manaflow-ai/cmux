@@ -17,6 +17,17 @@ set -euo pipefail
 repo_root="${SRCROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 dest_dir="${TARGET_BUILD_DIR:?}/${UNLOCALIZED_RESOURCES_FOLDER_PATH:?}/bin"
 dest="$dest_dir/optchat-chief"
+stamp="${TARGET_TEMP_DIR:-$TARGET_BUILD_DIR}/bundle-optchat-chief.stamp"
+on_exit() {
+  status=$?
+  if (( status == 0 )); then
+    mkdir -p "$(dirname "$stamp")"
+    printf 'completed\n' > "$stamp"
+  fi
+  exit "$status"
+}
+trap on_exit EXIT
+rm -f "$stamp"
 rm -f "$dest" "$dest.version"
 rm -rf "$dest_dir/chief-codex"
 

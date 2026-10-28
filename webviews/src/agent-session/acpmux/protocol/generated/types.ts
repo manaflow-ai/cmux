@@ -10,6 +10,16 @@ export type AllowanceExpiry = "session_stop_or_daemon_restart";
 export interface AnswerMeta {
   /** `{device, feedItem}`, from the person's connection only. */
   answeredBy?: (AnsweredBy | null);
+  /**
+   * An enrolled approver's signed answer beside `decisionNonce`: a phone's
+   * (`hub/approvers.rs`) or a Mac's (`hub/mac_approvers.rs`).
+   */
+  approverDecision?: (ApproverDecision | null);
+  /**
+   * A group's one-time allow from an enrolled Mac (`_acpmux/permission_group_respond`):
+   * one signed allow per pending member of the group, by permission id.
+   */
+  approverDecisions?: (Record<string, MemberApproverDecision> | null);
   decisionNonce?: (string | null);
   personDecision?: (string | null);
   via?: (string | null);
@@ -18,6 +28,17 @@ export interface AnswerMeta {
 export interface AnsweredBy {
   device: string;
   feedItem: string;
+}
+
+/**
+ * `{approver, expiresAt, signature}`: ECDSA P-256 / SHA-256, raw `r || s` as
+ * lowercase hex, over the approver's message for this exact answer.
+ */
+export interface ApproverDecision {
+  approver: string;
+  /** Unix seconds, at most 300 ahead. */
+  expiresAt: number;
+  signature: string;
 }
 
 export interface AttachParams {
@@ -45,7 +66,39 @@ export type AttachResult = {
   /** More records lie beyond this page. */
   hasMore: boolean;
   lastSeq: number;
+  /**
+   * How far the page holds: every record of the kinds asked from the page's first one up to it
+   * is in the page (a peer's copy of the chat, `hub/peer_snapshot.rs`, covers that far). The
+   * log's last seq, read before the page, for the newest page; a page of older records
+   * (`beforeSeq`) or a forward one with more to read holds only to its own last record.
+   */
+  pageThrough: number;
+  /** Who has the chat open now, this attachment included (`hub/presence.rs`). */
+  presence: PresenceNote;
   session: SessionDetail;
+} & Record<string, unknown>;
+
+/**
+ * The person a request comes from (`hub/author.rs`): stamped by the daemon that admitted
+ * them, and accepted only from the unix socket or a peer forwarding for its own.
+ */
+export interface Author {
+  /** `tailnet:<login>` until accounts are mapped, then `user_…`; one line of at most 256 bytes. */
+  id: string;
+  login?: (string | null);
+  /** One line of 1 to 64 characters. */
+  name: string;
+  node?: (string | null);
+}
+
+export type AuthorMeta = {
+  acpmux?: (AuthorMetaFields | null);
+} & Record<string, unknown>;
+
+/** `_meta.acpmux` of a request that may name its person; other fields pass. */
+export type AuthorMetaFields = {
+  /** None: the chat's owner. */
+  author?: (Author | null);
 } & Record<string, unknown>;
 
 export type ChangedSession = (SessionSummary | PurgedSession);
@@ -82,6 +135,26 @@ export type Enforcement = {
   policy: string;
 } & Record<string, unknown>;
 
+/** The facts of a typed failure (`errorKind`); only the keys that apply are present. */
+export type ErrorDetails = {
+  /** The program that could not start. */
+  binary?: (string | null);
+  cwd?: (string | null);
+  exitCode?: (number | null);
+  freeBytes?: (number | null);
+  /** When the peer last answered (RFC 3339). */
+  lastSeenAt?: (string | null);
+  /** The folder whose disk is full or low. */
+  path?: (string | null);
+  /** The peer, by its name in `acpmux host ls`. */
+  peer?: (string | null);
+  /** The message is held in the durable outbox and goes when the peer or daemon is back. */
+  queued?: (boolean | null);
+  retryAfterMs?: (number | null);
+  signal?: (string | null);
+  totalBytes?: (number | null);
+} & Record<string, unknown>;
+
 /**
  * Which records a page or an event stream carries: one kind, or any of
  * several. Absent or null: every record.
@@ -101,9 +174,20 @@ export interface EventsParams {
 }
 
 export type EventsResult = {
+  /**
+   * The session the page is of (its `createdAt`): a session recreated under the same id while
+   * the page was asked is another journal (`hub/peer_snapshot.rs`).
+   */
+  createdAt: number;
   events: SessionEvent[];
   hasMore: boolean;
   lastSeq: number;
+  /**
+   * How far the page holds: every record of the kinds asked after `afterSeq` up to it is in the
+   * page (`hub/peer_snapshot.rs`). The log's last seq, read before the page, when the page reads
+   * to its end; else (`beforeSeq`, or `hasMore`) the page's own last record.
+   */
+  pageThrough: number;
 } & Record<string, unknown>;
 
 export interface HarnessUpdatePlanParams {
@@ -127,6 +211,13 @@ export type Lane = {
   error: (string | null);
   /** Unix ms the state began; null when the daemon does not know. */
   since: (number | null);
+  /**
+   * A `working` lane that has stalled: since when its turn has had no tool
+   * call in flight and no sign of its model (`turn.stalledSince`); null
+   * otherwise. The state stays `working`, so a client that reads only it
+   * is unchanged.
+   */
+  stalledSince: (number | null);
   state: LaneState;
   /**
    * What the session is doing now, one line: the running turn's prompt,
@@ -154,10 +245,21 @@ export type LastMessage = {
 export type LastTurn = {
   /** Why a turn ended without an answer, e.g. `outcome_unknown`. */
   detail?: (string | null);
+  details?: (ErrorDetails | null);
   endedAt: number;
+  /**
+   * What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,
+   * `peer.unreachable`, `daemon.restarting`, `spawn.failed`, `agent.exited`,
+   * `auth.signed_out` or `auth.expired`. A client treats a kind it does not know as a plain
+   * error. The same key is on a request's error `data` and on the `turn_error` and
+   * `turn_result` records.
+   */
+  errorKind?: (string | null);
   errorSource?: (string | null);
   errorText?: (string | null);
   promptId?: (string | null);
+  /** One sentence saying what to do about the failure. */
+  recovery?: (string | null);
   /** `completed`, `failed` or `cancelled`. */
   status?: (string | null);
   stopReason?: (string | null);
@@ -216,8 +318,11 @@ export interface MailSendParams {
   body: string;
   id: string;
   metadata?: (Record<string, unknown> | null);
-  recipient: string;
+  /** Session recipient for ordinary mail. Omit when `target` is supplied. */
+  recipient?: (string | null);
   sender: string;
+  /** Quiet reports alias (`reports:<person>`). Omit for session mail. */
+  target?: (string | null);
 }
 
 export type MailSendResult = {
@@ -243,7 +348,47 @@ export type McpServerSummary = {
   status: McpServerStatus;
 } & Record<string, unknown>;
 
+/** One group member's signed one-time allow: the member prompt's nonce and the signature. */
+export interface MemberApproverDecision {
+  approverDecision: ApproverDecision;
+  decisionNonce: string;
+}
+
 export type MessageRole = "agent" | "user";
+
+/**
+ * One person in a chat. The hub never marks the caller's own entry: a connection may carry
+ * several people, so the client compares ids (a caller with no author is `owner`).
+ */
+export type Participant = {
+  /** How many connections carry this person in the chat. */
+  devices: number;
+  id: string;
+  name: string;
+  typing: boolean;
+  viewing: boolean;
+} & Record<string, unknown>;
+
+/** A peer link's state (`peer_link.rs` `PeerState`; `state` in `_acpmux/peers`). */
+export type PeerLinkState = ("connecting" | "connected" | "degraded" | "reconnecting" | "offline");
+
+/**
+ * `_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's
+ * state changes, never twice for the same state: a peer that is added sends its first state,
+ * and one that is removed a last `offline` with `error: "removed"`. Listed as the
+ * `peerStateEvents` feature.
+ */
+export type PeerStateChanged = {
+  /** When the state changed, ms since the epoch. */
+  at: number;
+  /** Why the link is down, when it is. */
+  error: (string | null);
+  /** The last frame from the peer, ms since the epoch. */
+  lastSeen: (number | null);
+  /** The peer's name, as in `_acpmux/peers`. */
+  peer: string;
+  state: PeerLinkState;
+} & Record<string, unknown>;
 
 export type PermissionBatching = {
   maxItems: number;
@@ -294,10 +439,22 @@ export type PermissionGroupItem = {
 } & Record<string, unknown>;
 
 export type PermissionGroupList = {
+  /**
+   * Set when this reader's group allows would be refused, with the
+   * refusal's reason (`permission.person_required`: only the person
+   * allows a group, and a peer's link never is one). A deny still counts.
+   */
+  allowRefused?: (string | null);
   batching: PermissionBatching;
   chatAllowance: ChatAllowance;
   coverage: PermissionCoverage;
   groups: PermissionGroup[];
+  /**
+   * Set (true) beside `allowRefused` when this daemon still counts a group's
+   * one-time allow signed by an enrolled Mac for every pending member
+   * (`_meta.acpmux.approverDecisions`, `hub/mac_approvers.rs`).
+   */
+  macAllowOnce?: (boolean | null);
 } & Record<string, unknown>;
 
 export type PermissionGroupReceipt = {
@@ -350,6 +507,8 @@ export type PermissionPending = {
 
 export interface PermissionRespondParams {
   _meta?: (RequestMeta | null);
+  /** Claude Code AskUserQuestion annotations beside the answers, by question text: `{preview?, notes?}`. */
+  annotations?: unknown;
   /** A question's answers, by question. */
   answers?: unknown;
   /** The option chosen; absent cancels the request. */
@@ -359,6 +518,16 @@ export interface PermissionRespondParams {
 }
 
 export type PermissionRespondResult = Record<string, unknown>;
+
+/**
+ * `_acpmux/presence`, to every connection attached to the chat on each change, and
+ * `presence` in the `_acpmux/attach` reply. Never in the log, `_acpmux/events` or an export.
+ */
+export type PresenceNote = {
+  /** One per person, by id; at most 32 besides the owner. */
+  participants: Participant[];
+  sessionId: string;
+} & Record<string, unknown>;
 
 /**
  * `_acpmux/process/background` (Ctrl-B): the chat whose running work goes
@@ -389,6 +558,13 @@ export type PurgedSession = {
   sessionId: string;
 } & Record<string, unknown>;
 
+/** The person who queued a prompt in a shared chat. */
+export type QueuedAuthor = {
+  /** `tailnet:<login>` or `user_…`. */
+  id: string;
+  name: string;
+} & Record<string, unknown>;
+
 /** An image a queued prompt sends. */
 export type QueuedImage = {
   /**
@@ -403,7 +579,19 @@ export type QueuedImage = {
 
 /** A prompt waiting for the running turn to end. */
 export type QueuedPromptSummary = {
+  /**
+   * The teammate who queued it in a shared chat (`_meta.provenance` `person_message`,
+   * `author.rs`), null for the owner's and for an agent's message: an app shows it under their
+   * name and offers none of its own actions on it (only they change it, `queue.not_author`).
+   * Kept across a restart and by their own edit.
+   */
+  author: (QueuedAuthor | null);
   client: string;
+  /**
+   * The sending agent's name when it is another agent's message, null for the person's: an
+   * app draws it as a received message waiting for the turn, not as a composer row.
+   */
+  fromAgent: (string | null);
   /** Waits behind a failed turn until the queue is resumed. */
   held: boolean;
   /** The images it sends, in its order; `_acpmux/attachment` reads each by its id. */
@@ -422,6 +610,119 @@ export interface RequestMeta {
    */
   cmuxGesture?: (string | null);
 }
+
+/** What `_acpmux/retry` retried: the chat's own turn, or one of its subagents. */
+export type RetryKind = "turn" | "subagent";
+
+/**
+ * `_acpmux/retry` (the Retry button, `acpmux retry`): retry the chat's failed last turn now,
+ * in the same session (`hub/auto_resume/retry_turn.rs`).
+ */
+export interface RetryParams {
+  /** The chat's id, name or unique prefix. */
+  sessionId: string;
+  /**
+   * One of the chat's failed subagents to resume instead, by its id or agent id
+   * (`hub/subagent_retry_manual.rs`), never taken as the chat's own turn.
+   */
+  subagentId?: (string | null);
+}
+
+/**
+ * Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
+ * capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the
+ * agent process died mid-turn.
+ */
+export type RetryReason = "capacity" | "transport" | "agent_exited";
+
+/**
+ * What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next
+ * attempt of the failed prompt; for a subagent `subagent-retry-<tool>-<attempt>-<ms>`) and the turn
+ * it started.
+ */
+export type RetryResult = {
+  kind: RetryKind;
+  promptId: string;
+  turnId?: (string | null);
+} & Record<string, unknown>;
+
+/**
+ * An automatic retry of a failed turn that waits (`hub/auto_resume.rs`): attempt `attempt`
+ * of `of`, at `nextAt` (epoch ms). It sends the prompt `promptId~resume-<attempt>` in the same
+ * session, for the cut turn `turnId`.
+ */
+export type RetrySummary = {
+  attempt: number;
+  nextAt: number;
+  of: number;
+  promptId: string;
+  reason: RetryReason;
+  turnId: string;
+} & Record<string, unknown>;
+
+/**
+ * `terminal`: run `command` in a terminal on `host` (null: this machine). `route`: edit or
+ * sign in again to the route `routeId`.
+ */
+export type SessionAuthLogin = {
+  command?: (string | null);
+  host?: (string | null);
+  kind: SessionAuthLoginKind;
+  routeId?: (string | null);
+} & Record<string, unknown>;
+
+export type SessionAuthLoginKind = "terminal" | "route";
+
+/**
+ * A chat by `sessionId`, or by `target` before it has a session (a new tab before its first
+ * send). Exactly one of the two. `refresh`: probe the route and run the harness's own sign-in
+ * check that reads no keychain, when no newer evidence answers.
+ */
+export type SessionAuthParams = {
+  refresh?: boolean;
+  sessionId?: (string | null);
+  target?: (SessionAuthTarget | null);
+} & Record<string, unknown>;
+
+/**
+ * What `_acpmux/session/auth` answers. A client blocks a send only on `signedOut`, `expired`
+ * or `routeAuthNeeded`; `unknown` never blocks.
+ */
+export type SessionAuthResult = {
+  /** One sentence: the probe's status, the turn's error, or the check that ran. */
+  detail: string;
+  /** When the evidence was observed (ms since the epoch); null when `source` is `none`. */
+  evidenceAt?: (number | null);
+  /**
+   * The chat whose turn is the evidence (`source` `turn`): for a `target`, a chat on this
+   * daemon with the same harness, account home and route.
+   */
+  fromSessionId?: (string | null);
+  harness: string;
+  /** The peer the chat runs on; null on this daemon. */
+  host?: (string | null);
+  /** How to sign in: only for `signedOut`, `expired` and `routeAuthNeeded`. */
+  login?: (SessionAuthLogin | null);
+  /** The route the chat is bound to; null when it is not routed. */
+  routeId?: (string | null);
+  source: SessionAuthSource;
+  state: SessionAuthState;
+} & Record<string, unknown>;
+
+export type SessionAuthSource = "peerLink" | "routeProbe" | "turn" | "authCheck" | "none";
+
+export type SessionAuthState = "ready" | "signedOut" | "expired" | "routeAuthNeeded" | "routeUnreachable" | "peerUnreachable" | "unknown";
+
+/**
+ * The chat a send would start: its harness, the peer it runs on (`host`, a peer name; absent:
+ * this daemon) and the route the picker selected (absent: the harness's default route, as at
+ * spawn).
+ */
+export type SessionAuthTarget = {
+  harness: string;
+  host?: (string | null);
+  routeId?: (string | null);
+} & Record<string, unknown>;
 
 /**
  * To watchers when a session changed: its new summary (only its id when
@@ -461,7 +762,10 @@ export type SessionDetail = {
   currentModeId?: (string | null);
   /** Lossy when the path is not UTF-8. */
   cwd: string;
-  /** 0 for a root session, 1 for its sub-sessions, and so on. */
+  /**
+   * Its lineage depth (`parent`): 0 for a root session, 1 for the sessions
+   * its agent started, and so on.
+   */
   depth: number;
   enforcement: Enforcement;
   eventCount: number;
@@ -498,6 +802,13 @@ export type SessionDetail = {
   /** Being moved to another daemon; it takes no prompt meanwhile. */
   moving: boolean;
   name: string;
+  /**
+   * The session whose agent started this one (`acpmux new` in its shell, or its
+   * `start_session` tool), recorded at creation from the proven caller; null for a
+   * session a person or the app started. Not the fork parent (`parentId`). Absent
+   * from a peer on an older acpmux.
+   */
+  parent?: (string | null);
   parentId?: (string | null);
   /** The peer daemon a remote session runs on; absent for this daemon's own. */
   peer?: (string | null);
@@ -515,6 +826,23 @@ export type SessionDetail = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null
+   * when none waits.
+   */
+  retry?: (RetrySummary | null);
+  /**
+   * Its last turn failed on an error an automatic retry answers, and whether, and when, it
+   * is retried is not settled yet: `retry` is about to be set or stay null, or the retry is
+   * starting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is
+   * settled. Absent otherwise, and from a peer on an older acpmux.
+   */
+  retryDeciding?: boolean;
+  /**
+   * The root of its lineage tree: the first ancestor no agent started; its own
+   * id for a root. Absent from a peer on an older acpmux.
+   */
+  root?: string;
   /** The session has its own permission rules. */
   rules: boolean;
   /** The session's permission rules. */
@@ -524,9 +852,12 @@ export type SessionDetail = {
   shortName?: (string | null);
   /** Some attached client shows the chat. */
   shown: boolean;
+  /** The parent's tool call that started it, when acpmux could tell. */
+  spawnToolCallId?: (string | null);
   /**
-   * The session whose agent started this one (its `spawnedBy` tag), kept
-   * only while that parent is listed; one level.
+   * The session whose agent started this one, kept only while that parent
+   * is listed and is a root itself: one level, for lists that fold one level.
+   * `parent` without those rules, else an older client's `spawnedBy` tag.
    */
   spawnedBy?: (string | null);
   /**
@@ -547,6 +878,12 @@ export type SessionDetail = {
   /** Tags that have not expired. */
   tags: Record<string, string>;
   title?: (string | null);
+  /**
+   * Who supplied `title`: `prompt` is the first-prompt fallback, while
+   * `harness`, `generated` and `adopted` are real chat titles. Older peers
+   * may omit this field.
+   */
+  titleSource?: (string | null);
   /** The chat's tools (`hub/tools.rs`). */
   tools: ToolSummary[];
   /** `_acpmux/set_tools` can change them. */
@@ -619,7 +956,10 @@ export type SessionSummary = {
   currentModeId?: (string | null);
   /** Lossy when the path is not UTF-8. */
   cwd: string;
-  /** 0 for a root session, 1 for its sub-sessions, and so on. */
+  /**
+   * Its lineage depth (`parent`): 0 for a root session, 1 for the sessions
+   * its agent started, and so on.
+   */
   depth: number;
   enforcement: Enforcement;
   eventCount: number;
@@ -653,6 +993,13 @@ export type SessionSummary = {
   /** Being moved to another daemon; it takes no prompt meanwhile. */
   moving: boolean;
   name: string;
+  /**
+   * The session whose agent started this one (`acpmux new` in its shell, or its
+   * `start_session` tool), recorded at creation from the proven caller; null for a
+   * session a person or the app started. Not the fork parent (`parentId`). Absent
+   * from a peer on an older acpmux.
+   */
+  parent?: (string | null);
   parentId?: (string | null);
   /** The peer daemon a remote session runs on; absent for this daemon's own. */
   peer?: (string | null);
@@ -668,6 +1015,23 @@ export type SessionSummary = {
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
   queued: number;
+  /**
+   * The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null
+   * when none waits.
+   */
+  retry?: (RetrySummary | null);
+  /**
+   * Its last turn failed on an error an automatic retry answers, and whether, and when, it
+   * is retried is not settled yet: `retry` is about to be set or stay null, or the retry is
+   * starting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is
+   * settled. Absent otherwise, and from a peer on an older acpmux.
+   */
+  retryDeciding?: boolean;
+  /**
+   * The root of its lineage tree: the first ancestor no agent started; its own
+   * id for a root. Absent from a peer on an older acpmux.
+   */
+  root?: string;
   /** The session has its own permission rules. */
   rules: boolean;
   sessionId: string;
@@ -675,9 +1039,12 @@ export type SessionSummary = {
   shortName?: (string | null);
   /** Some attached client shows the chat. */
   shown: boolean;
+  /** The parent's tool call that started it, when acpmux could tell. */
+  spawnToolCallId?: (string | null);
   /**
-   * The session whose agent started this one (its `spawnedBy` tag), kept
-   * only while that parent is listed; one level.
+   * The session whose agent started this one, kept only while that parent
+   * is listed and is a root itself: one level, for lists that fold one level.
+   * `parent` without those rules, else an older client's `spawnedBy` tag.
    */
   spawnedBy?: (string | null);
   /**
@@ -698,6 +1065,12 @@ export type SessionSummary = {
   /** Tags that have not expired. */
   tags: Record<string, string>;
   title?: (string | null);
+  /**
+   * Who supplied `title`: `prompt` is the first-prompt fallback, while
+   * `harness`, `generated` and `adopted` are real chat titles. Older peers
+   * may omit this field.
+   */
+  titleSource?: (string | null);
   /** The chat's tools (`hub/tools.rs`). */
   tools: ToolSummary[];
   /** `_acpmux/set_tools` can change them. */
@@ -729,6 +1102,16 @@ export interface SessionsParams {
   cursor?: (string | null);
   /** Page size, at least 1. Without it the reply is the whole list. */
   limit?: (number | null);
+  /**
+   * `_acpmux/sessions` only (a watch refuses it): only the sessions this acpmux peer owns
+   * (its name, e.g. `huge-blue`). Empty is no filter.
+   */
+  peer?: (string | null);
+  /**
+   * `_acpmux/sessions` only (a watch refuses it): only the sessions in this status
+   * (`running`, `ready`, `idle`, `waiting`, `closed`). Empty is no filter.
+   */
+  status?: (string | null);
 }
 
 export type SessionsResult = {
@@ -767,12 +1150,33 @@ export type TurnSummary = {
   planStep: (string | null);
   prompt: string;
   promptId: string;
+  /**
+   * Since when it has stalled: no tool call in flight and no sign of its
+   * model since then, for `stalledTurnMs` or more (`hub/activity.rs`);
+   * null while it has not.
+   */
+  stalledSince: (number | null);
   startedAt: number;
   turnId: string;
   turnSeq: number;
 } & Record<string, unknown>;
 
+/**
+ * `_acpmux/typing`: at most 2 a second per connection (`typing.rate_limited`); an `on`
+ * lapses after 8 s. The connection must be attached to the chat.
+ */
+export interface TypingParams {
+  _meta?: (AuthorMeta | null);
+  on: boolean;
+  sessionId: string;
+}
+
 export interface ViewParams {
+  /**
+   * An author changes only that person's presence (`hub/presence.rs`), not whether the
+   * chat counts as shown.
+   */
+  _meta?: (AuthorMeta | null);
   sessionId: string;
   /** The attached client shows the chat (`hub/seen.rs`). */
   visible: boolean;

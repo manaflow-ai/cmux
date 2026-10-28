@@ -114,6 +114,8 @@ extension Workspace {
 public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     public enum Kind: String, Hashable, Sendable, Codable {
         case terminal, browser, agent
+        /// A Mac phone tab showing an iOS simulator, streamed like a browser tab.
+        case simulator
     }
 
     public let id: String
@@ -135,6 +137,30 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
     public var pinned: Bool?
     /// The Mac tab group the tab is in (`tab_groups`), if any.
     public var group: TabGroupRef?
+
+    /// What a cmux link can name this tab by (CmuxLink): the Mac's public ids.
+    /// Nil when the Mac's tree did not carry them (mock data, an older Mac).
+    public var linkIDs: LinkIDs?
+
+    /// A tab's public ids on its Mac, as the Mac's Copy Link writes them.
+    public struct LinkIDs: Hashable, Sendable, Codable {
+        /// The tab's `tab_` resource id.
+        public var tab: String?
+        /// Its pane's `pane_` resource id.
+        public var pane: String?
+        /// The tab is its pane's selected tab (a pane link opens it).
+        public var isPaneSelected: Bool
+        /// The harness's own session id of the agent running in it (`list-agents`
+        /// `agent_session_id`), which an `agent/<harness>/<session>` link names.
+        public var harnessSession: String?
+
+        public init(tab: String? = nil, pane: String? = nil, isPaneSelected: Bool = false, harnessSession: String? = nil) {
+            self.tab = tab
+            self.pane = pane
+            self.isPaneSelected = isPaneSelected
+            self.harnessSession = harnessSession
+        }
+    }
 
     public var isPinned: Bool { pinned == true }
     /// A terminal tab whose shell ended and that the Mac keeps (`dead`): Restart Shell
@@ -231,6 +257,7 @@ public struct WorkspaceTab: Identifiable, Hashable, Sendable, Codable {
         switch kind {
         case .terminal: "apple.terminal"
         case .browser: "globe"
+        case .simulator: "iphone"
         case .agent: "sparkle"
         }
     }

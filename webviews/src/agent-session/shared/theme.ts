@@ -25,14 +25,17 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   shadow: "--agent-shadow",
   palette: null,
   borders: null,
+  focusRingEnabled: null,
   chatWidth: null,
   codexToolRuns: null,
   liveLineBelow: null,
+  toolRunLook: null,
   turnActionsPlacement: null,
   motion: null,
   statusIndicators: null,
   workingLook: null,
   subagentTray: null,
+  subagentTrayPlacement: null,
   scrollerFade: null,
 };
 
@@ -58,6 +61,9 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   // appearance.borders: the stylesheets clear their edges under `[data-borders="none"]`.
   if (theme.borders === "none") root.dataset.borders = "none";
   else delete root.dataset.borders;
+  // The native focusRing.enabled setting also controls transcript response outlines.
+  if (theme.focusRingEnabled === true) root.dataset.focusRingEnabled = "true";
+  else delete root.dataset.focusRingEnabled;
   // Static status indicators (or Reduce Motion): the stylesheets stop their loops under it.
   if (theme.statusIndicators) root.dataset.statusIndicators = theme.statusIndicators;
   else delete root.dataset.statusIndicators;

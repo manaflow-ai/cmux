@@ -254,7 +254,7 @@ export const PAGES = {
         keys: (all) =>
           all.filter(
             (key) =>
-              /^(tools|shell|code|image|media|markdown|duration|chip|message\.channel)\./.test(key) ||
+              /^(tools|shell|code|image|media|markdown|duration|chip|message\.channel|multiplayer)\./.test(key) ||
               [
                 "changes.noLineChanges",
                 "link.openPath",
@@ -274,6 +274,30 @@ export const PAGES = {
                 "message.delivered",
                 // The recipient chip's tooltip, the full id behind its name (MessageCard.tsx).
                 "message.recipientId",
+              ].includes(key),
+          ),
+      },
+    ],
+  },
+  // The changelog's pull request chips draw the agent pane's link hover card (chips/LinkHoverCard.tsx,
+  // PullRequestCard.tsx, OpenInMenu.tsx), which read the pane's table; the page installs only these.
+  "changelog-pane": {
+    out: "webviews/src/pages/changelog/generated/pane-strings.json",
+    catalogs: [
+      {
+        file: "webviews/src/agent-session/acpmux/Localizable.xcstrings",
+        keys: (all) =>
+          all.filter(
+            (key) =>
+              /^(prCard|header\.prBadge|header\.prReview)\./.test(key) ||
+              [
+                "chatInspector.changes.failingOnBase",
+                "header.prConflicts",
+                "header.prNoChecks",
+                "image.open",
+                "preview.cmuxBrowser",
+                "preview.copyLink",
+                "preview.openIn",
               ].includes(key),
           ),
       },

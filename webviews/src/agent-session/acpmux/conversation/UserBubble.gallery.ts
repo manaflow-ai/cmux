@@ -8,7 +8,7 @@
 // lines, fading out, with Show more; a pasted block is a chip that opens in place (PromptText.tsx).
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
-import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
+import { assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../model";
 
 const claude = (snapshot: AcpmuxSnapshot): AcpmuxSnapshot => ({
@@ -27,6 +27,45 @@ const turns = (family: (snapshot: AcpmuxSnapshot) => AcpmuxSnapshot) =>
       summary(5, { seq: 6, status: "completed" }),
     ]),
   );
+
+/// An edited sibling is still running while the original branch has finished (Leo, 2026-10-24):
+/// the prompt keeps its version arrows, and the active branch's label carries the working spinner.
+const runningEditBranches = (): AcpmuxSnapshot => {
+  const base = claude(
+    chat([
+      user("Add retry with backoff to the uploader", 9, { id: "user-1", seq: 1 }),
+      assistant("Done: three tries, doubling from 200 ms.", 8.5),
+      summary(8.5, { id: "summary-1", seq: 4, status: "completed" }),
+      user("Now cover it with two tests", 1, { id: "user-5", seq: 5 }),
+      assistant("Running the edited test branch…", 0.5, { streaming: true }),
+    ]),
+  );
+  return {
+    ...base,
+    sessionId: "fork-2",
+    forkedAtSeq: 4,
+    isWorking: true,
+    sessions: [
+      session({ sessionId: "parent", title: "Uploader retry", turnCount: 2 }),
+      session({
+        sessionId: "fork-1",
+        title: "Uploader retry (first edit)",
+        parentId: "parent",
+        forkSeq: 4,
+        turnCount: 2,
+      }),
+      session({
+        sessionId: "fork-2",
+        title: "Uploader retry (edited)",
+        parentId: "parent",
+        forkSeq: 4,
+        turnCount: 2,
+        lane: "working",
+      }),
+    ],
+    summary: { ...base.summary!, sessionId: "fork-2", status: "running" },
+  };
+};
 
 const LONG = Array.from(
   { length: 60 },
@@ -104,9 +143,34 @@ export default agentPaneEntry({
       snapshot: turns(claude),
     },
     "prompt-hover": {
-      note: "Hovering the latest prompt shows its row under the bubble's right edge: read check, age, dot, Copy, Retry, Fork, Edit.",
+      note: "Hovering the latest prompt shows its row under the bubble's right edge: age, Copy, Retry, Fork, Edit, without a check or state dot.",
       snapshot: turns(claude),
       play: async (ctx) => ctx.hover({ text: "Now cover it with a test that fakes two timeouts" }),
+    },
+    "running-edit-branches": {
+      note: "An edited prompt runs in its sibling while the original branch finishes: the row shows 3/3 with previous/next arrows and a spinner on the running branch. Edit remains available during the run; switching back shows the finished branch without the spinner.",
+      snapshot: runningEditBranches(),
+      play: async (ctx) => {
+        await ctx.hover({ text: "Now cover it with two tests" });
+        const count = ctx.document.querySelector(".cv-user__version-count");
+        if (count?.textContent?.trim() !== "3/3") throw new Error(`expected 3/3, got ${count?.textContent}`);
+        if (!count.querySelector("svg")) throw new Error("the running branch has no spinner");
+        if (!ctx.document.querySelector('.cv-user__versions button[aria-label="Previous version"]'))
+          throw new Error("the running branch has no previous-version arrow");
+      },
+    },
+    "finished-original-branch": {
+      note: "The original branch after the edited sibling finishes: the same prompt keeps its 1/3 version arrows, with no running spinner.",
+      snapshot: (() => {
+        const snapshot = runningEditBranches();
+        return {
+          ...snapshot,
+          sessionId: "parent",
+          isWorking: false,
+          rows: snapshot.rows.map((row) => (row.kind === "assistant" ? { ...row, streaming: false } : row)),
+          summary: { ...snapshot.summary!, sessionId: "parent", status: "completed" },
+        };
+      })(),
     },
     "answer-hover": {
       note: "Hovering an answer shows its row under its left edge: Copy, Fork, Pin, Read aloud, its age.",

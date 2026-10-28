@@ -177,8 +177,8 @@ test("Minimal draws its stage in the user's order, with nothing extra out of edi
   const root = await render("minimal", parsePageWidgets(["greeting", "chats", "actions", "projects"])!, noop);
   try {
     expect(stageOrder()).toEqual(["chats", "actions", "projects"]);
-    // Minimal keeps its greeting over the stage (it was dropped once a stage widget was on).
-    expect(host.querySelector(".nt-stage .nt-greeting")).not.toBeNull();
+    // Minimal keeps its headline over the stage (the greeting was dropped once a stage widget was on).
+    expect(host.querySelector(".nt-stage .nt-headline")).not.toBeNull();
     expect(host.querySelectorAll(".nt-widget-frame, .nt-widget-remove, .nt-edit-bar")).toHaveLength(0);
   } finally {
     await act(async () => root.unmount());
@@ -216,8 +216,25 @@ test("edit mode: ✕ and Delete turn a widget off, Option-arrows move it, Escape
     );
     expect(edits.at(-1)).toEqual({ edit: "remove", widget: "projects" });
 
-    await act(async () => host.querySelector<HTMLButtonElement>('.nt-edit-button[data-edit="add"]')!.click());
-    expect(edits.at(-1)).toEqual({ edit: "add" });
+    // Add Widgets is a menu of the widgets (#24631): a row turns its widget on.
+    await act(async () => host.querySelector<HTMLElement>('.nt-edit-button[data-edit="add"]')!.click());
+    expect(host.querySelector(".nt-edit-add")?.hasAttribute("open")).toBe(true);
+    const projects = [...host.querySelectorAll<HTMLButtonElement>('.nt-edit-add-menu [role="menuitem"]')].find(
+      (row) => row.textContent === "Projects",
+    );
+    expect(projects).toBeDefined();
+    await act(async () => projects!.click());
+    expect(edits.at(-1)).toEqual({ edit: "show", widget: "projects" });
+    // A pick closes the menu; with it open, Escape closes the menu first and keeps edit mode.
+    expect(host.querySelector(".nt-edit-add-menu")).toBeNull();
+    await act(async () => host.querySelector<HTMLElement>('.nt-edit-button[data-edit="add"]')!.click());
+    await act(async () =>
+      window.document.dispatchEvent(
+        new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      ),
+    );
+    expect(host.querySelector(".nt-edit-add-menu")).toBeNull();
+    expect(host.querySelector(".nt-screen")?.hasAttribute("data-editing")).toBe(true);
 
     await act(async () =>
       window.document.dispatchEvent(

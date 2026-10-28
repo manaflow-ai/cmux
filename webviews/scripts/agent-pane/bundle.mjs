@@ -7,7 +7,8 @@
 // <outfile>, so the page's first script is only what its first frame runs.
 //
 // --css-inputs <file> lists, one per line relative to webviews/, every stylesheet the bundle
-// imports. The bundle drops CSS, so the page build checks each one ships in the page.
+// imports, in the order the page applies them (cssInImportOrder). The bundle drops CSS: the page
+// build writes its one <style> from this list, so a new import ships without a hand-kept list.
 // --css-inputs-only writes just that list: no React Compiler, no minify, nothing written to
 // <outfile>, so a test can ask for it in about a second.
 //
@@ -80,11 +81,38 @@ const result = await build({
 });
 if (cssInputsFile) {
   const webviewsRoot = path.dirname(srcRoot);
-  const sheets = Object.keys(result.metafile.inputs)
-    .filter((input) => input.endsWith(".css") && !input.includes("node_modules/"))
-    .map((input) => path.relative(webviewsRoot, path.resolve(input)))
-    .sort();
+  const sheets = cssInImportOrder(result.metafile.inputs, entry)
+    .filter((input) => !input.includes("node_modules/"))
+    .map((input) => path.relative(webviewsRoot, path.resolve(input)));
   await writeFile(cssInputsFile, sheets.map((sheet) => sheet + "\n").join(""));
+}
+
+/**
+ * Every stylesheet in `inputs` (an esbuild metafile's), in the order the page applies them: the
+ * order the modules run, as the Vite dev server injects them and esbuild concatenates them. A
+ * depth-first walk from `entry` over static imports, each module after what it imports (a sheet's
+ * own `@import` before it), first visit wins; then the code behind dynamic imports, in the order
+ * they were met; then any sheet the walk did not reach (a plugin's namespace), by path.
+ */
+function cssInImportOrder(inputs, entry) {
+  const order = [];
+  const seen = new Set();
+  const later = [];
+  const visit = (file) => {
+    if (seen.has(file) || !inputs[file]) return;
+    seen.add(file);
+    for (const item of inputs[file].imports ?? []) {
+      if (item.external) continue;
+      if (item.kind === "dynamic-import") later.push(item.path);
+      else visit(item.path);
+    }
+    if (file.endsWith(".css")) order.push(file);
+  };
+  const root = Object.keys(inputs).find((input) => path.resolve(input) === path.resolve(entry));
+  if (root) visit(root);
+  while (later.length) visit(later.shift());
+  for (const input of Object.keys(inputs).sort()) if (input.endsWith(".css")) visit(input);
+  return order;
 }
 
 bailouts.sort((a, b) => `${a.file}:${a.line}`.localeCompare(`${b.file}:${b.line}`));

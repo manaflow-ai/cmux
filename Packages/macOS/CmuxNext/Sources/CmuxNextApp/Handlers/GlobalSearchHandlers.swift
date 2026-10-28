@@ -1,6 +1,7 @@
 import CmuxNextActions
 import CmuxNextDaemon
 import Foundation
+import CmuxNextPalette
 
 /// Search All Windows (⌥⌘F): opens a palette page that searches as you type
 /// across every tab on every machine, in all windows and in workspaces no
@@ -13,7 +14,7 @@ enum GlobalSearchHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         registry.bind("globalSearch", invoke: { invocation in
             let query = invocation["text"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let tabs = searchable(ctx.services.machines.allWorkspaces)
+            let tabs = searchable(ctx.services.machines.allWorkspaces, titles: TabTitleResolver(services: ctx.services))
             guard !tabs.isEmpty else { return ctx.refuse(GlobalSearchStrings.noTabs) }
             let page = GlobalSearchPage.page(query: query, tabs: tabs) { located, needle in
                 show(located, find: needle, registry, ctx)
@@ -42,11 +43,14 @@ enum GlobalSearchHandlers {
     /// whose daemon is connected is read; a remote-terminal tab is searched
     /// by title only (its text lives in another session, which its own tab
     /// there covers). A terminal agent's transcript is read when the agent
-    /// runs on this Mac.
-    static func searchable(_ workspaces: [(WorkspaceModel, DaemonService)]) -> [GlobalSearchPage.Tab] {
+    /// runs on this Mac. Tabs are named by `titles`, the strip's rule: an
+    /// agent chat by its chat, never the `about:blank` its record carries.
+    static func searchable(_ workspaces: [(WorkspaceModel, DaemonService)], titles: TabTitleResolver) -> [GlobalSearchPage.Tab] {
         var result: [GlobalSearchPage.Tab] = []
+        var titles = titles
         for (workspace, daemon) in workspaces {
             let connection = daemon.connection
+            titles.workspaceName = AgentChatTabTitle.workspaceName(workspace)
             for screen in workspace.screens {
                 for pane in screen.panes {
                     for tab in pane.tabs where !tab.dead {
@@ -54,11 +58,13 @@ enum GlobalSearchHandlers {
                         let terminal = isTerminal ? connection.map {
                             TerminalTextSearch.Target(tabID: tab.id, surface: tab.surface, connection: $0)
                         } : nil
+                        let name = titles.title(tab)
                         let source = GlobalSearchCorpus.Source(
-                            tabID: tab.id, title: title(of: tab, in: workspace), terminal: terminal,
+                            tabID: tab.id, title: searchText(name, of: tab, in: workspace), terminal: terminal,
                             agent: isTerminal && daemon.isLocal ? agentSession(of: tab) : nil,
-                            disconnected: isTerminal && terminal == nil)
-                        result.append(GlobalSearchPage.Tab(source: source, located: LocatedTab(tab: tab, pane: pane, workspace: workspace)))
+                            disconnected: isTerminal && terminal == nil, local: daemon.isLocal)
+                        result.append(GlobalSearchPage.Tab(source: source, title: name,
+                                                           located: LocatedTab(tab: tab, pane: pane, workspace: workspace)))
                     }
                 }
             }
@@ -66,11 +72,13 @@ enum GlobalSearchHandlers {
         return result
     }
 
-    /// The text a title match looks in: the tab's title, its workspace's
-    /// name, and a browser's address. Not a terminal's folder: one folder
-    /// word would match every terminal opened there.
-    private static func title(of tab: TabModel, in workspace: WorkspaceModel) -> String {
-        [tab.displayTitle, workspace.displayName, tab.kind == .browser ? tab.url : nil].compactMap { $0 }.joined(separator: " ")
+    /// The text a title match looks in: the tab's shown title, its
+    /// workspace's name, and a browser's address. Not a terminal's folder
+    /// (the shown title of one its shell has not titled): one folder word
+    /// would match every terminal opened there.
+    private static func searchText(_ title: String, of tab: TabModel, in workspace: WorkspaceModel) -> String {
+        let name = tab.agentSession == nil && (tab.kind == .pty || tab.kind == .remoteTerminal) ? tab.displayTitle : title
+        return [name, workspace.displayName, tab.kind == .browser ? tab.url : nil].compactMap { $0 }.joined(separator: " ")
     }
 
     private static func agentSession(of tab: TabModel) -> AgentTranscriptText.Session? {

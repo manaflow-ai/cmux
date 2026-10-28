@@ -43,7 +43,11 @@ export function waitForReady(pipe: Readable, options: { timeoutMs: number; exite
     };
     const onData = (chunk: Buffer | string) => {
       text += chunk.toString();
-      if (text.includes("\n")) finish();
+      if (!text.includes("\n")) return;
+      // A daemon that refused to start (acpmux exe_path.rs: the shared home from a runner's
+      // _work or a temp folder) says why on this line: that text is the error.
+      const refused = readyRefusal(text.slice(0, text.indexOf("\n")));
+      finish(refused === undefined ? undefined : new Error(refused));
     };
     const onClose = () => finish(new Error("acpmux daemon closed its ready pipe before it was ready"));
     pipe.on("data", onData);
@@ -51,6 +55,19 @@ export function waitForReady(pipe: Readable, options: { timeoutMs: number; exite
     const timer = setTimeout(() => finish(new Error(`acpmux daemon not ready after ${options.timeoutMs} ms`)), options.timeoutMs);
     options.exited?.then((why) => finish(new Error(`acpmux daemon exited before it was ready: ${why}`)));
   });
+}
+
+/** The refusal on a daemon's ready line (`{"ready":false,"refused":"..."}`), if any. */
+export function readyRefusal(line: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(line);
+    if (parsed && typeof parsed === "object" && typeof (parsed as { refused?: unknown }).refused === "string") {
+      return (parsed as { refused: string }).refused;
+    }
+  } catch {
+    // Not JSON: a plain ready line.
+  }
+  return undefined;
 }
 
 /**

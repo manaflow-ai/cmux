@@ -7,9 +7,10 @@
   box-sizing: border-box;
   padding: 16px;
   color: var(--cmux-text-secondary, #888);
-  font-family: var(--font-ui, system-ui);
+  font-family: var(--font-ui);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .gallery-frame-error,

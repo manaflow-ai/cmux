@@ -38,6 +38,8 @@ import { acpmuxPerf } from "../perf";
 import { StartedSessionChip, useStartedMentions, type StartedMentions } from "../started/StartedSessionCard";
 import { splitMentions } from "../started/startedSessions";
 import { entranceAllowed } from "../../shared/pageReveal";
+import { isAgentMotionOff } from "../../shared/motion";
+import { decorateTimes, splitTimeTokens, TimeHover } from "./timeHover";
 
 export type Align = "left" | "center" | "right" | null;
 
@@ -64,9 +66,43 @@ export const MAX_NESTING = 32;
 const FOOTNOTE_DEF = /^\[\^([\w-]+)\]:\s*(.*)$/;
 
 /** Parse the supported Markdown subset into blocks. */
-export function parseMarkdown(src: string): MdBlock[] {
+export function parseMarkdown(src: string, options: { messageAt?: number } = {}): MdBlock[] {
   const lines = normalizeMath(src.replace(/\r\n?/g, "\n").split("\n"));
-  return parseLines(lines);
+  const blocks = parseLines(lines);
+  return options.messageAt === undefined ? blocks : decorateBlocks(blocks, options.messageAt);
+}
+
+function decorateBlocks(blocks: MdBlock[], messageAt?: number): MdBlock[] {
+  return blocks.map((block) => {
+    switch (block.type) {
+      case "heading":
+      case "paragraph":
+        return { ...block, text: decorateTimes(block.text, messageAt) };
+      case "blockquote":
+        return { ...block, children: decorateBlocks(block.children, messageAt) };
+      case "list":
+        return {
+          ...block,
+          items: block.items.map((item) => ({
+            ...item,
+            text: decorateTimes(item.text, messageAt),
+            children: decorateBlocks(item.children, messageAt),
+          })),
+        };
+      case "table":
+        return {
+          ...block,
+          header: block.header.map((cell) => decorateTimes(cell, messageAt)),
+          rows: block.rows.map((row) => row.map((cell) => decorateTimes(cell, messageAt))),
+        };
+      case "footnote":
+        return { ...block, text: decorateTimes(block.text, messageAt) };
+      case "code":
+      case "math":
+      case "hr":
+        return block;
+    }
+  });
 }
 
 /// `depth`: how many quotes and lists hold these lines (MAX_NESTING).
@@ -462,42 +498,55 @@ function quietCommitReferences(text: string, issues: GithubReference[], reposito
     if (commit.href) return commit;
     const before = issues.filter((issue) => issue.end <= commit.start).at(-1);
     const repo = before ? /^https:\/\/github\.com\/([^/]+\/[^/]+)\//.exec(before.href)?.[1] : repository;
-    return repo ? { ...commit, href: `https://github.com/${repo}/commit/${commit.sha}` } : commit;
+    const text = commit.sha.length > 10 ? commit.sha.slice(0, 8) : commit.text;
+    return repo ? { ...commit, text, href: `https://github.com/${repo}/commit/${commit.sha}` } : { ...commit, text };
   });
 }
 
 /// Plain prose: a started chat's name is its chip; the rest links GitHub references and URLs.
 function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] {
-  const pieces = opts.started?.mentions.length ? splitMentions(text, opts.started.mentions) : [text];
-  return pieces.flatMap((piece, index): ReactNode[] =>
-    typeof piece === "string"
-      ? linkedGithubText(
-          piece,
-          `${key}-${index}`,
-          opts.githubRepository,
-          opts.linkGithubReferences !== false,
-          opts.commits === "quiet",
-        )
-      : [
-          <StartedSessionChip
-            key={`${key}-${index}`}
-            mention={piece.mention}
-            text={piece.text}
-            onOpen={opts.started!.open}
-          />,
-        ],
-  );
+  const out: ReactNode[] = [];
+  let index = 0;
+  for (const part of splitTimeTokens(text)) {
+    if (typeof part !== "string") {
+      out.push(<TimeHover key={`${key}-${index++}`} token={part} />);
+      continue;
+    }
+    const pieces = opts.started?.mentions.length ? splitMentions(part, opts.started.mentions) : [part];
+    out.push(
+      ...pieces.flatMap((piece): ReactNode[] => {
+        const current = `${key}-${index++}`;
+        return typeof piece === "string"
+          ? linkedGithubText(
+              piece,
+              current,
+              opts.githubRepository,
+              opts.linkGithubReferences !== false,
+              opts.commits === "quiet",
+            )
+          : [
+              <StartedSessionChip
+                key={current}
+                mention={piece.mention}
+                text={piece.text}
+                onOpen={opts.started!.open}
+              />,
+            ];
+      }),
+    );
+  }
+  return out;
 }
 
 // Groups: code, bold, strikethrough, italic, image or link, line break, `$$…$$` inside a
 // paragraph (not prose, words and punctuation, beside a space, so the shell's "echo $$ and $$"
 // and "echo $$ prints the shell's PID, and echo $$" stay text while
-// "$$ E = mc^2 $$" typesets), `$…$` (Pandoc's rule: no space inside either dollar and no digit
-// after the closer, so "$5 and $10" stays text; a `$` never ends one, so "$10 and echo $$" does
-// too; no backtick inside, so "$5 or `$PATH`" does too), a backslash escape (`\$`, `\*`) that
+// "$$ E = mc^2 $$" typesets), `$…$` (Pandoc's rule: no space, `(` or `{` after the opener, no
+// space before or letter/digit after the closer, so "$PATH and $HOME" and
+// `$(cmd)` stay text; no backtick inside, so "$5 or `$PATH`" does too), explicit `\(…\)`, a backslash escape (`\$`, `\*`) that
 // draws its character, and a footnote reference (`[^id]`).
 const INLINE_RE =
-  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))+\)|\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$(?!\s[A-Za-z\s'’,.;:!?"()-]*\$\$|[A-Za-z\s'’,.;:!?"()-]*\s\$\$)[^$\n]+?\$\$)|(?<![\\$])(\$(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`$]\$(?!\d))|(\\[\\`*_{}[\]()#+\-.!$|~<>])|(\[\^[\w-]+\](?!:))/g;
+  /(`[^`]+`)|(\*\*[^*]+\*\*)|(~~[^~]+~~)|((?<![\w*])\*[^*\s][^*]*\*(?![\w*])|(?<![\w_])_[^_\s][^_]*_(?![\w_]))|(!\[[^\]]*\]\((?:[^()\s]|\([^()\s]*\))+\)|\[[^\]]+\]\((?:[^()\s]|\([^()\s]*\))+\))|(\n)|(\$\$(?!\s[A-Za-z\s'’,.;:!?"()-]*\$\$|[A-Za-z\s'’,.;:!?"()-]*\s\$\$)[^$\n]+?\$\$)|(?<![\\$])(\$(?![({])(?=[^\s$])(?:\\.|[^$\\\n`])*?[^\s\\`$]\$(?![A-Za-z0-9])|\\\(.+?\\\))|(\\[\\`*_{}[\]()#+\-.!$|~<>])|(\[\^[\w-]+\](?!:))/g;
 
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
 export function renderInline(source: string, outer: InlineOptions = {}): ReactNode[] {
@@ -580,7 +629,8 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
         );
     } else if (m[6]) out.push(<br key={k++} />);
     else if (m[7]) out.push(<MathInline key={k++} tex={t.slice(2, -2).trim()} display />);
-    else if (m[8]) out.push(<MathInline key={k++} tex={t.slice(1, -1)} />);
+    else if (m[8])
+      out.push(<MathInline key={k++} tex={t.startsWith("\\(") ? t.slice(2, -2).trim() : t.slice(1, -1)} />);
     else if (m[9]) out.push(t.slice(1));
     else if (m[10]) {
       const id = t.slice(2, -1);
@@ -593,7 +643,9 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
             <button
               type="button"
               aria-describedby={anchor}
-              onClick={() => document.getElementById(anchor)?.scrollIntoView({ block: "nearest", behavior: "smooth" })}
+              onClick={() =>
+                document.getElementById(anchor)?.scrollIntoView({ block: "nearest", behavior: noteScroll() })
+              }
             >
               {number}
             </button>
@@ -605,6 +657,13 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
   }
   if (last < text.length) out.push(...proseText(text.slice(last), `t${k++}`, opts));
   return out;
+}
+
+/// How a footnote reference scrolls to its note: a glide, or with cmux's animations off
+/// (ui.animations) or the system's Reduce Motion, in one frame, as Jump to latest does (hq#3581).
+function noteScroll(): ScrollBehavior {
+  const reduce = isAgentMotionOff() || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  return reduce ? "auto" : "smooth";
 }
 
 /// The data URL images `renderInline(source)` draws, in order: the same pattern, the same
@@ -763,7 +822,7 @@ function Block({
     case "blockquote":
       return (
         <blockquote className={`cv-quote${motion}`}>
-          <Blocks blocks={block.children} opts={opts} depth={depth} />
+          <Blocks blocks={block.children} opts={opts} depth={depth} plain={code === "plain"} />
         </blockquote>
       );
     case "list": {
@@ -784,7 +843,9 @@ function Block({
                 {i === block.items.length - 1 && !it.children.length ? inline(it.text) : renderInline(it.text, opts)}
               </span>
               <ItemThumbs text={it.text} opts={opts} streaming={Boolean(tail) && i === block.items.length - 1} />
-              {it.children.length > 0 && <Blocks blocks={it.children} opts={opts} depth={depth + 1} />}
+              {it.children.length > 0 && (
+                <Blocks blocks={it.children} opts={opts} depth={depth + 1} plain={code === "plain"} />
+              )}
             </li>
           ))}
         </L>
@@ -827,12 +888,24 @@ function ItemThumbs({ text, opts, streaming }: { text: string; opts: InlineOptio
   ) : null;
 }
 
-function Blocks({ blocks, opts, depth }: { blocks: MdBlock[]; opts: InlineOptions; depth: number }) {
+/// Nested blocks (a quote's, a list item's). `plain` keeps the outer Markdown's plain fences
+/// (`plainCode`) inside them too: no diagram or render card at any depth.
+function Blocks({
+  blocks,
+  opts,
+  depth,
+  plain = false,
+}: {
+  blocks: MdBlock[];
+  opts: InlineOptions;
+  depth: number;
+  plain?: boolean;
+}) {
   return (
     <>
       {blocks.map((b, i) => (
         <Fragment key={i}>
-          <Block block={b} opts={opts} depth={depth} />
+          <Block block={b} opts={opts} depth={depth} code={plain ? "plain" : undefined} />
         </Fragment>
       ))}
     </>
@@ -880,6 +953,8 @@ export type MarkdownProps = InlineOptions & {
   now?: number;
   /** Fences draw as plain lines, never a highlighted diff card (review comments inside a diff). */
   plainCode?: boolean;
+  /** Epoch timestamp of the message, used to date bare UTC clock times. */
+  messageAt?: number;
 };
 
 function noteRank(block: MdBlock, opts: InlineOptions): number {
@@ -898,10 +973,11 @@ export function Markdown({
   plainCode = false,
   commits,
   thumbnails,
+  messageAt,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
   parser.current ??= new IncrementalMarkdown();
-  const blocks = acpmuxPerf.timed("markdown.parse", () => parser.current!.update(children, { streaming }));
+  const blocks = acpmuxPerf.timed("markdown.parse", () => parser.current!.update(children, { streaming, messageAt }));
   // Blocks there at the first render (history, a row scrolled into view) never animate.
   const atMount = useRef<Set<string> | null>(null);
   atMount.current ??= new Set(blocks.map((entry) => entry.key));

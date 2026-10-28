@@ -48,5 +48,12 @@ extension OnboardingStrings {
         String(localized: "onboarding.computerUse.helper.versionMismatch",
                defaultValue: "Computer Use helper version mismatch. Update cmux NIGHTLY and this build.", bundle: .module)
     }
+    static var computerUseHelperFailed: String {
+        String(localized: "onboarding.computerUse.helper.failed",
+               defaultValue: "The cmux Computer Use helper did not respond. Restart the helper to try again.", bundle: .module)
+    }
+    static var computerUseRestart: String {
+        String(localized: "onboarding.computerUse.restart", defaultValue: "Restart", bundle: .module)
+    }
     static var computerUseHelperClose: String { String(localized: "onboarding.computerUse.helper.close", defaultValue: "Close", bundle: .module) }
 }

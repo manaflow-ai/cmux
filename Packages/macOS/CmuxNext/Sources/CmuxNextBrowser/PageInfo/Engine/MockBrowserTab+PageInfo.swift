@@ -2,7 +2,7 @@ public import Foundation
 
 /// Canned Page Info data for `MockBrowserTab` (demos and tests).
 public struct MockPageInfoData {
-    public var settings = SiteSettingsRegistry(persistence: { _ in MemorySitePermissionPersistence() })
+    public var settings = BrowserSharedStores.inMemory().siteSettings
     public var supported: Set<SitePermissionKind> = Set(SitePermissionKind.allCases)
     public var certificates: [Data] = []
     /// Cookie domains the page's jar holds (".cdn.example.com").

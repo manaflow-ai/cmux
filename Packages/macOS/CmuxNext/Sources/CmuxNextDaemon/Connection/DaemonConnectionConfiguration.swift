@@ -55,11 +55,16 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// with the install-key proof when a key is set (P8 3b-2). Only the
     /// app's own control connection to its local daemon sets it.
     public var clientHello: ClientHelloIdentity?
+    /// This build orders sidebar rows from the sidebar document only, so the
+    /// connection echoes `placement-shift-v1` with `sidebar-doc-v1` and the daemon
+    /// sends no `workspace_placement` restatement. The App's composition root sets it
+    /// (`SidebarMirror.isLinked`) on the connections that feed the sidebar; off by default.
+    public var echoesPlacementShift = false
 
     public init(
         clientName: String = "cmux-next",
-        requiredCapabilities: [String] = DaemonCapabilities.shared.required,
-        advertisedCapabilities: [String] = DaemonCapabilities.shared.advertised,
+        requiredCapabilities: [String] = DaemonCapability.required,
+        advertisedCapabilities: [String] = DaemonCapability.advertised,
         treeEvents: TreeEventMode = .deltas,
         retry: RetryPolicy = .reconnect,
         healthyAfter: Duration = .seconds(10),
@@ -107,7 +112,8 @@ public struct ClientHelloIdentity: Sendable {
 extension DaemonConnectionConfiguration {
     /// What the connection echoes in `set-client-info`.
     var handshakeCapabilities: [String] {
-        DaemonCapabilities.shared.handshakeCapabilities(advertisedCapabilities,
-                                                        resolvesShellIntegration: resolvesShellIntegration)
+        DaemonCapability.handshakeCapabilities(advertisedCapabilities,
+                                                 resolvesShellIntegration: resolvesShellIntegration,
+                                                 echoesPlacementShift: echoesPlacementShift)
     }
 }

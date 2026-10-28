@@ -122,8 +122,10 @@ import {
   devboxJournalResetCommand,
   devboxParkDaemonCommand,
   devboxSettleBeforeSnapshotCommand,
+  DEVBOX_MACHINE_HEALTH_PARKED_COMMAND,
   devboxPrepareTemplateTerminalCommand,
   devboxSnapshotClockCommand,
+  devboxTeamKindDefaultCommand,
   devboxWaitForDaemonCommand,
   cmuxTuiWebsocketSmokeCommand,
   emitBakeResult,
@@ -153,6 +155,7 @@ import {
   metadataGuardRules,
   metadataGuardUnit,
 } from "../services/vms/images/metadataGuard";
+import { machineHealthBakeCommand, machineHealthFiles } from "./cmux-vm-image/machine-health";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -346,10 +349,9 @@ try {
     `npm install -g --foreground-scripts ${pins.map((pin) => `'${pin.spec}'`).join(" ")} && nvm_bin="$(dirname "$(readlink -f /usr/local/bin/node)")" && ${pins.map((pin) => `ln -sfn "$nvm_bin/${pin.binary}" /usr/local/bin/${pin.binary}`).join(" && ")} && ${pins.map((pin) => `${pin.binary} --version`).join(" && ")} && ${pins.map((pin) => `sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm bash -lc '${pin.binary} --version' | grep -F '${pin.version}'`).join(" && ")} && echo agents-pinned`,
   );
 
-  // Claude Code machine policy. The first-run answers themselves are seeded
-  // per shell by agent-config.sh from the model-plane env, not baked: the
-  // bake's own login probes would otherwise freeze a seed that predates the
-  // env and ship it in the snapshot.
+  // Claude Code machine policy. Fresh first-run answers are seeded below,
+  // after the final public model-plane env exists; login and team-launch
+  // paths use the same helper for any later fresh config home.
   await step(
     "claude-managed-settings",
     `mkdir -p /etc/claude-code && echo '{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }' > /etc/claude-code/managed-settings.json && node -e 'JSON.parse(require("fs").readFileSync("/etc/claude-code/managed-settings.json","utf8"))'`,
@@ -368,7 +370,11 @@ try {
   // echo-fed seed shells and test -s guards; see ../services/vms/images/devbox/Dockerfile).
   // Cache seeds cover root and the work user (uid 1000).
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
-  await step("vm-kind-default", "echo team > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind");
+  // agent-config.sh keeps a caller's model-plane env only on an `owner` record (an absent or
+  // team record is shared). The agent-config and agent-hooks checks below prove
+  // that owner path before /etc/cmux/model-plane.env exists. The bake holds
+  // `owner` through both checks, then writes the `team` boot default.
+  await step("vm-kind-bake-owner", "echo owner > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
   await put("cmux-prompt.bash", "/etc/cmux/prompt.bash");
   await step("python-completion-dir", "mkdir -p /usr/local/share/bash-completion/completions");
@@ -388,6 +394,7 @@ try {
   );
 
   await put("agent-config.sh", "/etc/cmux/agent-config.sh");
+  await put("claude-onboarding.py", "/etc/cmux/claude-onboarding.py");
   // Agent sign-in launchers (Dockerfile parity): /usr/local/bin/<agent> is
   // /etc/cmux/<agent>, which resolves the team or own-login mode per launch
   // (agent-auth.sh) and execs /usr/local/libexec/cmux-<agent>-real. The base's
@@ -549,6 +556,15 @@ try {
       "echo agent-hooks-ok",
     ].join(" && "),
   );
+  // The record every machine boots with (cmux-vm-kind-sync and the create replace it).
+  // It comes after agent-hooks: that step's hook-merge login shell needs the
+  // owner path too (a team record keeps no provider block).
+  // On a team record a login shell keeps none of a caller's model-plane env
+  // (cmux_prepare_shared_machine_model_env).
+  await step(
+    "vm-kind-default",
+    devboxTeamKindDefaultCommand(),
+  );
 
   // The Ghostty generation panes announce as TERM_PROGRAM_VERSION (the
   // supervisor exports it next to TERM_PROGRAM=ghostty; see cmux-devbox-boot).
@@ -647,6 +663,17 @@ try {
   // is wiped except the template terminal's host record.
   await step("cmux-tui-daemon-park", devboxParkDaemonCommand());
 
+  // cmux-machine-health (images/cmux-vm/machine-health), the same install as
+  // the cmux VM image: the script's own `install --no-start` (the 60 s timer
+  // enabled, not started; the guard drop-ins for login sessions, user.slice
+  // and the work user's manager) and one check-only pass, so no fix and no
+  // disk hygiene runs during the bake. Installed after the park, whose
+  // park_housekeeping already ran: the timer stays stopped into the snapshot
+  // and a clone starts it with the other HOUSEKEEPING_TIMERS
+  // (DEVBOX_MACHINE_HEALTH_PARKED_COMMAND).
+  for (const file of machineHealthFiles()) await vm.fs.writeFile(file.path, file.text, { mode: file.mode });
+  await step("machine-health", machineHealthBakeCommand());
+
   await step(
     "ghost-text-smoke",
     "tmux new-session -d -s ghost -x 100 -y 24 && sleep 2 && tmux send-keys -t ghost cl && sleep 2 && tmux capture-pane -pt ghost | grep -o 'claude --dangerously-skip-permissions' | head -1; rc=$?; tmux kill-session -t ghost 2>/dev/null; tmux kill-server 2>/dev/null; test $rc -eq 0",
@@ -684,11 +711,15 @@ try {
   // not with the base's boot as `freestyle-vm`.
   // The interactive bake probes above ran login shells for root and the work
   // user before the model-plane env was baked, so their ~/.claude.json seeds
-  // lack the placeholder key approval. Drop them: each machine's first shell
-  // seeds its own from the env. (The static codex config those shells wrote
+  // lack the placeholder key approval. Replace those bake-owned seeds using
+  // the final public model env, including Claude's isolated team config home.
+  // (The static codex config those shells wrote
   // is the same bytes on every machine and stays; the verifier checks it.)
   await step("clean", `rm -rf /var/lib/apt/lists/* /root/.npm/_cacache ${WORK_HOME}/.npm/_cacache 2>/dev/null; rm -f /root/.claude.json ${WORK_HOME}/.claude.json; ${devboxJournalResetCommand}; sync; true`);
-  await step("no-stale-claude-seed", `test ! -e /root/.claude.json && test ! -e ${WORK_HOME}/.claude.json && echo no-stale-claude-seed`);
+  await step("claude-onboarding", `. ${VM_GUEST_MODEL_PLANE_ENV_PATH} && python3 -I /etc/cmux/claude-onboarding.py /root/.claude.json /root/.config/cmux/claude-team/.claude.json && sudo -n -u ${WORK_USER} env ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" python3 -I /etc/cmux/claude-onboarding.py ${WORK_HOME}/.claude.json ${WORK_HOME}/.config/cmux/claude-team/.claude.json && echo claude-onboarding-seeded`);
+  // After the bake's last shell: the timer is enabled but stopped and the
+  // bake pass's files are gone, so a clone runs no pass until its re-arm.
+  await step("machine-health-parked", DEVBOX_MACHINE_HEALTH_PARKED_COMMAND);
   // Last guest step before the snapshot; see devboxSettleBeforeSnapshotCommand.
   await step("settle-before-snapshot", devboxSettleBeforeSnapshotCommand());
 } catch (error) {

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Its own group first (the default), then the one the notification
+	     service extension shares: the push key and the Macs' trust record
+	     (verify/notifications-trust.md). -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+		<string>$(DEVELOPMENT_TEAM).$(CMUX_MOBILE_APP_BUNDLE_ID).push</string>
+	</array>
+</dict>
+</plist>

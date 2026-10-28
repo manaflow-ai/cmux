@@ -42,6 +42,7 @@ import argparse
 import ctypes
 import json
 import os
+import plistlib
 import re
 import shutil
 import signal
@@ -454,6 +455,24 @@ def tail(path: str, lines: int = 20) -> str:
     return ("\napp output:\n" + "\n".join(text)) if text else ""
 
 
+def exception_records(bundle: str, since: float) -> str:
+    """The app's own record of the exception it died on (AppRunMarker's `run.exception`), written
+    since `since`. The app reads the account's real home (`homeDirectoryForCurrentUser`), not the
+    scratch HOME, so it is under ~/Library/Application Support/cmux-next/<bundle id>/."""
+    import pwd
+    try:
+        with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+            bundle_id = plistlib.load(handle).get("CFBundleIdentifier", "")
+    except OSError:
+        return ""
+    real_home = pwd.getpwuid(os.getuid()).pw_dir
+    path = os.path.join(real_home, "Library", "Application Support", "cmux-next", bundle_id, "run.exception")
+    if not bundle_id or not os.path.exists(path) or os.path.getmtime(path) < since:
+        return ""
+    with open(path, errors="replace") as handle:
+        return f"\n--- {path}\n{handle.read()[:4000]}"
+
+
 def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: bool | None = None):
     """Starts the app with a scratch HOME, TMPDIR and config; returns (pid, socket, scratch).
 
@@ -467,7 +486,10 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     if direct is None:
         direct = os.environ.get("CMUX_BENCH_LAUNCH") == "direct"
     binary_dir = os.path.join(bundle, "Contents/MacOS")
-    binary = os.path.join(binary_dir, sorted(os.listdir(binary_dir))[0])
+    # The bundle's own executable (Info.plist): a DEV build also ships `__preview.dylib` there,
+    # which sorts first, so the first file is not the app.
+    with open(os.path.join(bundle, "Contents", "Info.plist"), "rb") as handle:
+        binary = os.path.join(binary_dir, plistlib.load(handle)["CFBundleExecutable"])
     # Every process from this bundle at the end is this run's (cleanup ends
     # them all), so none may exist before: an earlier app's detached daemons
     # and terminal hosts would otherwise be ended too.
@@ -487,11 +509,13 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
     with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as handle:
         json.dump(merged({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, config), handle)
     log_path = os.path.join(scratch, "app.log")
+    launched_at = time.time()
     if direct:
         env.setdefault("CMUX_NEXT_TEST_WINDOW_FRAME", "40,40,1400,900")
         with open(log_path, "a") as log:
-            subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
+            child = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL, start_new_session=True)
     else:
+        child = None
         argv = ["open", "-n", "-g"] + [arg for name, value in env.items() for arg in ("--env", f"{name}={value}")]
         subprocess.run(argv + ["-a", bundle], check=True, timeout=60)
     try:
@@ -508,9 +532,16 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
             time.sleep(1)  # test script: waiting for the launched app's socket
         state = os.path.join(home, ".local", "state", "cmux")
         seen = sorted(os.listdir(state)) if os.path.isdir(state) else []
+        # A direct child that ended says how (its exit status, or the signal that ended it).
+        ended = ""
+        if child is not None and child.poll() is not None:
+            code = child.returncode
+            ended = f"; the app process {child.pid} ended with {'signal ' + str(-code) if code < 0 else 'exit status ' + str(code)}"
+        elif child is not None:
+            ended = f"; the app process {child.pid} still runs, as {next((cmd for p, _, cmd in process_table() if p == child.pid), '?')[:200]!r}"
         raise SystemExit(f"bench-memory: the launched app opened no socket within 90 s "
-                         f"(app pid {pid or 'none: it did not start'}; {state}: {seen}; "
-                         f"launch {'direct' if direct else 'open'})" + tail(log_path))
+                         f"(app pid {pid or 'none: it did not start'}{ended}; {state}: {seen}; "
+                         f"launch {'direct' if direct else 'open'})" + tail(log_path) + exception_records(bundle, launched_at))
     except BaseException:
         end_bundle(bundle)
         shutil.rmtree(scratch, ignore_errors=True)

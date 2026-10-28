@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextOnboarding
 import Foundation
 
 /// Opens a `DeepLink` for `link.open`, the one path every link takes (the
@@ -26,10 +27,13 @@ struct DeepLinkNavigator {
     ///   - link: The parsed link.
     ///   - background: Bring the target forward without taking the key
     ///     window (Cmd held, or a run this client's user did not start).
+    ///   - asking: A session link no tab shows asks before it opens a new tab (any page or app
+    ///     can open the link). False only for the person's own click on an Agent Activity row,
+    ///     which names the session itself.
     /// - Throws: `ActionFailure` when the target is closed, deleted or on a
     ///   machine that is not connected, or (nightly pane and tab links)
     ///   when only its workspace could be shown.
-    func open(_ link: DeepLink, background: Bool) throws {
+    func open(_ link: DeepLink, background: Bool, asking: Bool = true) throws {
         let intent: WindowActivation.Intent = background ? .bringForward : .raise
         switch link.target {
         case .tab(let id):
@@ -45,7 +49,7 @@ struct DeepLinkNavigator {
             guard let workspace else { throw Self.gone }
             try reveal(workspace: workspace.id, intent)
         case .session(let id, let turn):
-            try openSession(id, turn: turn, intent)
+            try openSession(id, turn: turn, intent, asking: asking)
         case .chiefSession(let home, let session):
             // Only this app's Chief home, only a tab that shows that session there; never a
             // new tab (the session runs in the Chief home's acpmux, not this Mac's).
@@ -97,19 +101,31 @@ struct DeepLinkNavigator {
         services.showJumpWindow(nsWindow, intent)
     }
 
-    /// Selects the tab that shows the session, else opens it in a new agent
-    /// tab in the focused pane, whose page refuses a session the daemon does
-    /// not have (native cannot list acpmux sessions synchronously). Then the
-    /// page scrolls to the turn, a page not loaded yet once its row renders.
-    private func openSession(_ id: String, turn: String?, _ intent: WindowActivation.Intent) throws {
+    /// Selects the tab that shows the session, else (after the person's Open, `SessionLinkGate`)
+    /// opens it in a new agent tab in the focused pane. A session acpmux does not have is refused
+    /// with no question. Then the page scrolls to the turn, a page not loaded yet once its row renders.
+    private func openSession(_ id: String, turn: String?, _ intent: WindowActivation.Intent, asking: Bool) throws {
         let tabs = services.agentTabs
-        if let shown = tabs.tab(showing: id), services.revealTab(shown, intent: intent) {
+        let reveal = { @MainActor () -> Bool in
+            guard let shown = tabs.tab(showing: id), services.revealTab(shown, intent: intent) else { return false }
             if let turn { tabs.revealTurn(turn, in: shown) }
-            return
+            return true
         }
+        if reveal() { return }
         guard let pane = services.windows.active?.focusedPane else { throw ActionFailure(message: MiscHandlerStrings.noPane) }
-        // The store commits the tab first; the turn waits for its page.
-        pane.openAgentSession(id) { key in if let turn { tabs.revealTurn(turn, in: key) } }
+        // The store commits the tab first; the turn waits for its page. A pane that left its
+        // window while the question was up opens nothing.
+        let openNew: @MainActor () -> Bool = { [weak pane] in
+            guard let pane, pane.view.window != nil else { return false }
+            pane.openAgentSession(id) { key in if let turn { tabs.revealTurn(turn, in: key) } }
+            return true
+        }
+        guard asking else { _ = openNew(); return }
+        // The question, and a refusal, show in the window of the pane the tab would open in.
+        let window = pane.view.window
+        let hud = services.refusalHUD
+        let outcome = services.sessionLinks.open(id, in: window, reveal: reveal, openNew: openNew)
+        Task { if await outcome.value == .refused { hud.show(Self.gone.message, in: window) } }
     }
 
     /// An outside agent's session (hq#2555): only a tab already showing it (the chat that adopted
@@ -121,12 +137,9 @@ struct DeepLinkNavigator {
     private func openAgent(harness: String, session: String, message: String?,
                            _ intent: WindowActivation.Intent) throws {
         guard AgentPaneTunables.agentLinks.value else { throw ActionFailure(message: RefusalStrings.agentLinksOff) }
-        let adopted = services.agentTabs.tab(resuming: AgentPaneAdopt(harness: harness, agentSessionId: session))
-        let tabs = DeepLink.agentTabs(harness: harness, session: session, adopted: adopted,
-                                      harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions))
-        guard let shown = tabs.first(where: { services.revealTab($0, intent: intent) }) else { throw Self.gone }
-        if let message, shown == adopted {
-            services.agentTabs.revealTurn(AgentTabStore.messageReveal(message), in: shown)
+        guard let shown = services.revealedAgentSessionTab(harness: harness, session: session, intent: intent) else { throw Self.gone }
+        if let message, shown.adopted {
+            services.agentTabs.revealTurn(AgentTabStore.messageReveal(message), in: shown.tab)
         }
     }
 

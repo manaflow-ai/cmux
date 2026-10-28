@@ -7,11 +7,9 @@
 //!
 //! Only the unix socket may send it (`remote_guard.rs` refuses every other origin with
 //! `provenance.origin_refused`), so a remote client cannot pass its words off as an agent's.
-//! One exception: the app's own pane (`Origin::LocalApp`) may send a reply: `replyTo` names an
-//! agent message that chat `from` (`acp:<id>`, a chat of this daemon) got from the prompt's chat
-//! `to` (`acp:<id>`) (`Hub::app_reply_fits`), and acpmux signs it with that chat's own name. It
-//! is the person's answer to that message, typed in place in the chat it came to
-//! (IncomingMessageCard.tsx), so it lands in the sender's chat in its thread.
+//! The app's own pane included: its reply in place to an agent message is no prompt, it is
+//! checked and signed by `_acpmux/app_reply` (`server/app_reply.rs`) and sent by the app as the
+//! replying chat's cmux agent message, which the daemon's pump delivers here.
 //! A queued prompt keeps it, across a restart too (`queue.rs`); an edit of a waiting prompt
 //! (`_acpmux/queue_edit`) drops it: the person rewrote the prompt.
 //!
@@ -19,8 +17,10 @@
 //! offerId, childSessionId, title}` on the prompt that brings a suggested task's first reply
 //! back to the chat that offered it (`hub/offer_results.rs`, cx-lo9yf), `{kind:
 //! "auto_resume", promptId, attempt, turnId}` on the prompt that continues a turn a
-//! connection error cut off (`hub/auto_resume.rs`), and `{kind: "session_message", from,
-//! fromName, to}` on a prompt another session sent with none (`session_message` below).
+//! connection error cut off (`hub/auto_resume.rs`), `{kind: "session_message", from,
+//! fromName, to}` on a prompt another session sent with none (`session_message` below), and
+//! `{kind: "task_result", from, fromName, to, taskId, state}` on the prompt that brings a task's
+//! result to the chat that gave it (`hub/tasks.rs`).
 
 use serde_json::{Map, Value, json};
 
@@ -72,23 +72,20 @@ pub fn withdraw_origin_refused() -> RpcError {
 pub enum Sender {
     /// The unix socket: any provenance.
     Local,
-    /// The app's own pane: only a reply (see the module doc).
-    App,
     /// Anything else: none.
     Other,
 }
 
 /// The provenance of a `session/prompt`'s `params`, with only the fields above: `None` when
-/// absent or null. A reply from the app is checked for its fields here; the caller checks the
-/// message it answers (`Hub::app_reply_fits`).
+/// absent or null. `server/app_reply.rs` checks the app pane's reply in place with it too, as a
+/// unix-socket provenance, before `Hub::app_reply_fits` checks the message it answers.
 pub fn of(params: &Value, sender: Sender) -> Result<Option<Value>, RpcError> {
     let raw = match params.pointer("/_meta/acpmux/provenance") {
         None | Some(Value::Null) => return Ok(None),
         Some(Value::Object(raw)) => raw,
         Some(_) => return Err(refusal("provenance.value_refused", "provenance must be an object")),
     };
-    let reply = raw.get("replyTo").is_some_and(|r| !r.is_null());
-    if !(sender == Sender::Local || (sender == Sender::App && reply)) {
+    if sender != Sender::Local {
         return Err(origin_refused());
     }
     if raw.get("kind").and_then(Value::as_str) != Some("agent_message") {
@@ -147,6 +144,33 @@ pub fn offer_result(offer_id: &str, child_session_id: &str, title: &str) -> Valu
 /// itself. `from` is the sender's session id, so the receiver's transcript opens its chat.
 pub fn session_message(from: &str, from_name: &str, to: &str) -> Value {
     json!({"kind": "session_message", "from": from, "fromName": from_name, "to": to})
+}
+
+/// The provenance of a task's result on the prompt that brings it to the chat that gave the task
+/// (`hub/tasks.rs`): from the lane's session, `from` its id as in [`session_message`].
+pub fn task_result(from: &str, from_name: &str, to: &str, task_id: &str, state: &str) -> Value {
+    json!({"kind": "task_result", "from": from, "fromName": from_name, "to": to, "taskId": task_id, "state": state})
+}
+
+/// What `from` says in [`named_sender`]: the sender named itself and is no address here.
+pub const NAMED_SENDER: &str = "fromAgent";
+
+/// The provenance of a prompt whose sender named itself (`_meta.acpmux.fromAgent`) with no
+/// provenance and no caller proof here: `acpmux send --from NAME`, `ACPMUX_FROM`, a peer daemon
+/// forwarding a prompt its own session sent (`server/peer_forward.rs`; `cli/sender.rs`). An
+/// agent's message, never the person's own: the transcript draws its sender's
+/// chip, found by name (`from` opens no chat, as a person at a shell's `cli` does not).
+pub fn named_sender(name: &str, to: &str) -> Value {
+    json!({"kind": "agent_message", "from": NAMED_SENDER, "fromName": name, "to": to})
+}
+
+/// The machine a person's own `acpmux send` ran on (`_meta.acpmux.cliHost`, `cli/sender.rs`), when
+/// it reads as a host name: 1 to 64 letters, digits, `.`, `-` or `_`.
+pub fn cli_host(params: &Value) -> Option<&str> {
+    let host = params.pointer("/_meta/acpmux/cliHost")?.as_str()?;
+    let fits = (1..=MAX_NAME_CHARS).contains(&host.len())
+        && host.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'));
+    fits.then_some(host)
 }
 
 /// `record` with `_meta.provenance` when the prompt has one (a `user_message` or `queued`).

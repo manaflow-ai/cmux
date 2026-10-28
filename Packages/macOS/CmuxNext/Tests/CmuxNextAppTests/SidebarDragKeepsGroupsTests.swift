@@ -128,9 +128,11 @@ import Testing
         list.press = SidebarPress(key: dragged, point: start)
         list.beginDrag(try #require(list.press))
         try #require(list.drag != nil, "the member did not lift")
-        let bottom = (list.displayed.rows.last?.maxY ?? 300) + 10
+        // Past the last row as the drag draws the list: the emptied group shows a placeholder row
+        // while its member is lifted (0105692a41d), which pushes the rows below it down a row.
+        @MainActor func bottom() -> CGFloat { (list.displayed.rows.last?.maxY ?? 300) + 10 }
         var y = start.y, gone: [Int] = [], frame = 0
-        while y < bottom {
+        while y < bottom(), frame < 200 {
             y += 6
             frame += 1
             list.updateDrag(windowPoint: list.convert(NSPoint(x: start.x, y: y), to: nil))

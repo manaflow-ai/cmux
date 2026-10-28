@@ -158,14 +158,22 @@ fn filled(
 ) -> Option<Vec<Part>> {
     let files = super::media::upload(&mut *port, conversation, media, log);
     let refs: Vec<&super::media::MediaRef> = files.iter().map(|(media, _)| media).collect();
-    let text = if files.is_empty() {
-        reply.to_owned()
-    } else {
-        super::media::without_images(reply, &refs)
-    };
+    let failed: Vec<&super::media::MediaRef> = media
+        .iter()
+        .filter(|m| m.image_syntax.is_some() && !refs.iter().any(|r| r.path == m.path))
+        .collect();
+    let text = super::media::settled(reply, &refs, &failed);
     let cards = fetcher.and_then(|fetcher| previews(&mut *port, fetcher, conversation, &text, log));
     if files.is_empty() {
-        return cards;
+        // A failed upload still changes the text: its image syntax is a link now.
+        return cards.or_else(|| {
+            (text != reply).then(|| {
+                vec![Part::Text {
+                    text: text.clone(),
+                    runs: None,
+                }]
+            })
+        });
     }
     let mut parts = cards.unwrap_or_else(|| {
         vec![Part::Text {

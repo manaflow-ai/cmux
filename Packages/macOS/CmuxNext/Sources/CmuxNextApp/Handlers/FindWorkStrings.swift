@@ -12,7 +12,15 @@ struct FindWorkStrings {
     static var openInNewWorkspace: String { String(localized: "handlers.findWork.openInNewWorkspace", defaultValue: "Open in New Workspace", table: "MiscHandlers", bundle: .module) }
     static var githubUnavailable: String { String(localized: "handlers.findWork.githubUnavailable", defaultValue: "GitHub work is unavailable", table: "MiscHandlers", bundle: .module) }
     static var githubUnavailableDetail: String { String(localized: "handlers.findWork.githubUnavailableDetail", defaultValue: "Install the GitHub CLI and run gh auth login.", table: "MiscHandlers", bundle: .module) }
-    static func unread(_ count: Int) -> String {
-        String(format: String(localized: "handlers.findWork.unread", defaultValue: "%lld unread", table: "MiscHandlers", bundle: .module), count)
+    /// The bundle of this module's catalogs, so a test can read one language's table (`fr.lproj`).
+    static var bundle: Bundle { .module }
+
+    /// "3 unread": the accessory of a workspace that needs attention. The key is a plural
+    /// variation, so the lookup picks the form for `count` ("1 non lu", "2 non lus"). `bundle` and
+    /// `locale` default to this module's catalog in the user's language; a test passes one
+    /// language's table and its locale.
+    static func unread(_ count: Int, bundle: Bundle = .module, locale: Locale = .current) -> String {
+        String(localized: "handlers.findWork.unread", defaultValue: "\(count) unread", table: "MiscHandlers",
+               bundle: bundle, locale: locale)
     }
 }

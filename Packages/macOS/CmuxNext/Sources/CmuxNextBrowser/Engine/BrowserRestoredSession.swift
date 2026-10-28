@@ -14,7 +14,7 @@ protocol BrowserRestoredSessionHost {
     /// Shows Back and Forward as available or not.
     func applyHistoryAvailability(canGoBack: Bool, canGoForward: Bool)
     func currentScrollY() async -> Double?
-    func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue
+    func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue
     func load(_ url: URL)
 }
 
@@ -199,7 +199,7 @@ class BrowserRestoredSession {
         restoringEntry = entry
         let literal = Self.javaScriptString(entry.url.absoluteString)
         do {
-            _ = try await tab.evaluate("location.replace(\(literal)); true", world: .isolated)
+            _ = try await tab.evaluate("location.replace(\(literal)); true", world: .isolated, gesture: .cmux)
         } catch {
             tab.load(entry.url)
         }
@@ -279,7 +279,7 @@ class BrowserRestoredSession {
           return true;
         })(\(y))
         """
-        Task { @MainActor [weak self] in _ = try? await self?.tab?.evaluate(script, world: .isolated) }
+        Task { @MainActor [weak self] in _ = try? await self?.tab?.evaluate(script, world: .isolated, gesture: .cmux) }
     }
 
     static func isWebPage(_ url: URL) -> Bool {

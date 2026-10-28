@@ -10,13 +10,20 @@ public nonisolated struct DeviceListRow: Equatable, Sendable {
     /// `connected`, `offline`, `pending` or `error`.
     public var state: String
     public var removable: Bool
+    /// A paired client machine's Full-access setting, nil for a row without one.
+    public var fullAccess: Bool?
+    /// What turning Full access on allows, nil for a row without the setting.
+    public var fullAccessHelp: String?
 
-    public init(id: String, title: String, subtitle: String, detail: String?, state: String, removable: Bool) {
+    public init(id: String, title: String, subtitle: String, detail: String?, state: String, removable: Bool,
+                fullAccess: Bool? = nil, fullAccessHelp: String? = nil) {
         self.id = id
         self.title = title
         self.subtitle = subtitle
         self.detail = detail
         self.state = state
         self.removable = removable
+        self.fullAccess = fullAccess
+        self.fullAccessHelp = fullAccessHelp
     }
 }

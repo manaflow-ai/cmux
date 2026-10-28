@@ -13,6 +13,8 @@ const ACCESSORY_WEIGHT: i64 = 50;
 /// Match classes, best first (plans/cmux-next/palette-ranking.md section 5). A row's class
 /// decides its order before any quality, usage or bias.
 pub(crate) mod match_tier {
+    /// The query is one of the row's handles (`a612`, or its digits `612`).
+    pub const HANDLE: i64 = 13;
     /// The whole title is the query.
     pub const WHOLE_TITLE: i64 = 12;
     /// A scope row whose keyword is the whole query.

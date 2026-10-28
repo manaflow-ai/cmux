@@ -204,7 +204,12 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
           <span className="backdrop-frame">
             {/* Encoded twice: the app decodes the URL path before splitting it on "/", then decodes
               the one segment, so a system: or file: id with slashes stays one segment. */}
-            <BackdropThumb src={`backdrop/${encodeURIComponent(encodeURIComponent(id))}`} />
+            {/* An aerial macOS has not downloaded has no frame to show yet: an empty tile. */}
+            {pending && choice?.video ? (
+              <span className="backdrop-thumb backdrop-none" />
+            ) : (
+              <BackdropThumb src={`backdrop/${encodeURIComponent(encodeURIComponent(id))}`} />
+            )}
             {pending && <Icon name="icloud.and.arrow.down" className="backdrop-download" />}
           </span>
         )}
@@ -355,7 +360,10 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                 tile(choice.id, choice.title, null, { pending: choice.downloaded === false })
               ) : choice.collection === YOURS ? (
                 <div className="backdrop-own" key={choice.id}>
-                  {tile(choice.id, choice.title, choice.attribution, choice)}
+                  {tile(choice.id, choice.title, choice.attribution, {
+                    video: choice.video,
+                    pending: choice.downloaded === false,
+                  })}
                   {/* The background in use stays: removing it would leave the window blank. */}
                   <button
                     type="button"
@@ -374,7 +382,10 @@ export function Backdrops({ focus = null, workspace = null }: { focus?: string |
                   </button>
                 </div>
               ) : (
-                tile(choice.id, choice.title, choice.attribution, choice)
+                tile(choice.id, choice.title, choice.attribution, {
+                  video: choice.video,
+                  pending: choice.downloaded === false,
+                })
               ),
             )}
           </div>

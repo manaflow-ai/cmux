@@ -1,22 +1,21 @@
 import AppKit
 @testable import CmuxNextBrowser
-import CmuxNextDesign
+@testable import CmuxNextDesign
 import Foundation
 import Testing
 
-/// The browser toolbar's own menus (Reload, Back and Forward history, Emulate Device) take the
-/// cmux NEXT menu look the right-click menus have (#22787, #22944): every row is a cmux-drawn
-/// `ThemedMenuRowView` with an icon, never a plain AppKit row in the system blue, and choosing a
-/// row still runs it once (a themed row runs after the menu closes).
+/// The browser toolbar's own menus (Reload, Back and Forward history, Emulate Device) are standard
+/// macOS menus like the right-click menus (Lawrence 2026-10-23): every row is a plain AppKit row
+/// with an icon, and choosing a row still runs it once.
 @MainActor @Suite(.serialized) struct BrowserToolbarMenusThemeTests {
-    /// Every row of `menu` and its submenus: a themed row with an image, or a view the menu keeps
+    /// Every row of `menu` and its submenus: a native row with an image, or a view the menu keeps
     /// on purpose (the device search field). Separators and section headers stay AppKit's.
     static func expectThemedWithIcons(_ menu: NSMenu, _ name: String) {
         for item in menu.items where !item.isSeparatorItem && !item.isSectionHeader && !item.isHidden {
-            if item.view is ThemedMenuRowView {
-                #expect(item.image != nil, "\(name): \(item.title) has no icon")
+            if let view = item.view {
+                #expect(view.subviews.first is NSSearchField, "\(name): \(item.title) is custom-drawn, not a standard macOS row")
             } else {
-                #expect(item.view?.subviews.first is NSSearchField, "\(name): \(item.title) is not themed")
+                #expect(item.image != nil, "\(name): \(item.title) has no icon")
             }
             if let submenu = item.submenu { expectThemedWithIcons(submenu, "\(name) ▸ \(item.title)") }
         }
@@ -29,14 +28,7 @@ import Testing
         return (BrowserChromeView(tab: tab), tab)
     }
 
-    static func drainRunLoop(until done: () -> Bool) {
-        let deadline = Date(timeIntervalSinceNow: 0.5)
-        while !done(), Date() < deadline {
-            RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02))
-        }
-    }
-
-    @Test func reloadMenuRowsAreThemedAndRun() throws {
+    @Test func reloadMenuRowsAreNativeAndRun() throws {
         let (chrome, tab) = Self.chrome()
         let menu = try #require(chrome.reloadButton.menuProvider?())
         #expect(menu.items.map(\.title) == [Strings.menuReload])
@@ -54,22 +46,7 @@ import Testing
         #expect(runs == ["hard"])
     }
 
-    /// A click on a themed row runs it once the menu's tracking has ended, as `popUp` returns.
-    @Test func aClickedReloadRowRunsAfterTheMenuCloses() throws {
-        let (chrome, tab) = Self.chrome()
-        let menu = try #require(chrome.reloadButton.menuProvider?())
-        let row = try #require(menu.items[0].view as? ThemedMenuRowView)
-        let point = NSPoint(x: 30, y: row.bounds.midY)
-        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-            let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0, windowNumber: 0,
-                                                        context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
-            type == .leftMouseDown ? row.mouseDown(with: event) : row.mouseUp(with: event)
-        }
-        Self.drainRunLoop { tab.commands.contains(.reload) }
-        #expect(tab.commands.filter { $0 == .reload }.count == 1)
-    }
-
-    @Test func backMenuRowsAreThemedAndGoToTheirEntry() throws {
+    @Test func backMenuRowsAreNativeAndGoToTheirEntry() throws {
         let (chrome, tab) = Self.chrome(back: 3)
         let menu = try #require(chrome.backButton.menuProvider?())
         #expect(menu.items.map(\.title) == ["Page 2", "Page 1", "Page 0"])
@@ -90,8 +67,8 @@ import Testing
         return BrowserDeviceMenu.devices(list: try JSONSerialization.data(withJSONObject: ["devices": rows]))
     }
 
-    /// The toolbar presents the device menu themed; a search's results, added while it is open, are too.
-    @Test func deviceMenuRowsAreThemedWithDeviceIconsAndRun() throws {
+    /// The toolbar presents the device menu native; a search's results, added while it is open, are too.
+    @Test func deviceMenuRowsAreNativeWithDeviceIconsAndRun() throws {
         var chosen: [String?] = []
         let current = BrowserDeviceMenu.Current(title: "Galaxy Z Fold 7", orientation: "vertical",
                                                 orientations: ["vertical", "horizontal", "vertical-spanned"])
@@ -110,5 +87,22 @@ import Testing
         let result = try #require(all.items.firstIndex { !$0.isHidden && $0.title == "Pixel 10" })
         all.performActionForItem(at: result)
         #expect(chosen == ["Pixel 10"])
+    }
+
+    /// A search that hides the checked device and then clears shows it again, still checked: AppKit
+    /// draws the state column itself.
+    @Test func clearingTheDeviceSearchShowsTheCheckedDeviceAgain() throws {
+        let current = BrowserDeviceMenu.Current(title: "iPad (10th gen)", orientation: "vertical", orientations: ["vertical"])
+        let menu = BrowserDeviceMenu(devices: try Self.devices(), current: current) { _, _ in }.menu()
+        let buttons = BrowserToolbarButtonsView()
+        buttons.popUpMenu = { _, _, _ in }
+        buttons.present(menu, from: .overflow, themed: true)
+        let all = try #require(menu.items.first { $0.title == BrowserDeviceMenu.Strings.allDevices }?.submenu)
+        BrowserDeviceMenu.search("zzz", in: all)
+        #expect(all.items.contains { $0.title == "iPad (10th gen)" && $0.isHidden })
+        BrowserDeviceMenu.search("", in: all)
+        let iPad = try #require(all.items.first { $0.title == "iPad (10th gen)" })
+        #expect(!iPad.isHidden && iPad.state == .on && iPad.view == nil)
+        Self.expectThemedWithIcons(all, "All Devices (cleared)")
     }
 }

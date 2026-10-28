@@ -90,7 +90,7 @@ profile only with its `profile` tool on its own bound connection.
 shutdown` (`shutdown`), `/model`, `/effort` and Ctrl+C in the chat (a note,
 no call), `cmux raw operation` or `cmux raw command` naming a `chief.*` write
 (`details.refused` the operation), and the app actions `home.newChief`,
-`home.archiveChief`, `home.stopChief` and `home.stopAllAgents` (by id or CLI
+`home.archiveChief`, `home.deleteChief`, `home.stopChief` and `home.stopAllAgents` (by id or CLI
 name; `details.refused` the name given) are refused the same way, before any
 connection.
 `cmux chief engine` with no change and the `chief.engine.get`,
@@ -534,6 +534,7 @@ cmux window list
 cmux action list [--category <c>] [--noun <n>] [--available]
 cmux action describe <id>
 cmux action run <id> [--target <id>] [--<arg> <value>] [--arg name=value] [--wait] [--interactive]
+cmux action run - [--no-wait] [--no-atomic] < ops
 cmux settings get [<path>]
 cmux settings set <path> <value> [--confirm]
 cmux settings reset <path> [--confirm]
@@ -548,6 +549,19 @@ Mac on a native sheet and waits for the answer with no client deadline; a
 declined sheet prints "declined in cmux" and exits 1. `--` ends the options:
 `cmux settings set <path> -- --confirm` sets the string "--confirm".
 `events` streams JSON lines until interrupted.
+
+`action run -` reads app actions from stdin, a JSON array or one JSON object
+per line of `action.run` params (`{"action": "newColumn", "target": "pane:…",
+"args": {…}}`), and sends them as ONE `action.batch` request: the app checks
+every op before any runs (one bad op runs nothing and names its index), runs
+them in order in one main-thread task (one transaction: the person never sees
+half of it, and the model publishes once), and answers once. A refusal while
+running stops there and says how many ops applied. One transaction holds at
+most 64 ops; `--no-atomic` applies a longer list as consecutive transactions,
+and without it a longer list is refused (`batch_too_large`). Targets name
+objects that exist before the batch. Layout ops the session daemon owns
+(`cmux workspace <ws> move`, `cmux tab <id> move|rename`) are not app actions;
+send those to the daemon.
 
 Browser page commands address a browser tab the app hosts, by `tab_…` id or
 `page` for the focused tab:

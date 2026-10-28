@@ -1,6 +1,6 @@
 // The theme Swift hands the pane (`AgentPaneTheme.values`), derived the way
 // `ThemeTokens.derive(from:)` derives it from a terminal theme. Keep in step with
-// Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemeTokens.swift and
+// Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift and
 // Sources/CmuxNextAgentPane/AgentPaneTheme.swift: the harness must color the
 // pane as the app does.
 
@@ -65,6 +65,32 @@ function readable(color, surface, minimum) {
   return candidate;
 }
 
+/// `ThemeTokens.inks`: the primary, secondary and tertiary text for `foreground`, read on every
+/// surface in `rows` (the pressed row and the bare background). It is walked toward white and toward
+/// black (the pole that reads better on the row first) until it reads on both, and the candidate
+/// whose primary and secondary keep the higher least contrast (capped at 4.5:1) wins.
+function inks(foreground, rows, seeThrough, bg) {
+  const least = (ink) => Math.min(...rows.map((row) => contrast(ink, row)));
+  const poles = contrast(black, rows[0]) > contrast(white, rows[0]) ? [black, white] : [white, black];
+  let chosen = null;
+  for (const pole of poles) {
+    let step = 0;
+    let primary = foreground;
+    while (step < 1 && !rows.every((row) => contrast(primary, row) >= 4.5)) {
+      step += 0.02;
+      primary = mixed(foreground, pole, step);
+    }
+    const inkSurface = [...rows, ...seeThrough].reduce((worst, next) =>
+      contrast(primary, next) < contrast(primary, worst) ? next : worst,
+    );
+    const secondary = muted(primary, bg, 0.38, inkSurface, 4.5);
+    const tertiary = muted(primary, bg, 0.55, inkSurface, 3);
+    const score = Math.min(least(primary), least(secondary), 4.5);
+    if (!chosen || score > chosen.score) chosen = { score, inks: [primary, secondary, tertiary] };
+  }
+  return chosen.inks;
+}
+
 function muted(color, target, limit, surface, minimum) {
   for (let fraction = limit; fraction > 0; fraction -= 0.01) {
     const candidate = mixed(color, target, fraction);
@@ -79,8 +105,14 @@ export function themeTokens(input) {
   const fg = input.foreground;
   const isDark = luminance(bg) < luminance(fg);
   const pressed = withAlpha(fg, isDark ? 0.14 : 0.11);
+  const selection = withAlpha(fg, isDark ? 0.1 : 0.08);
+  // The neutral pressed fill is always the stronger row fill.
   const worstSurface = composited(pressed, bg);
-  const primary = readable(fg, worstSurface, 4.5);
+  // In a see-through window the quieter inks also hold over the tint on the worst desktop.
+  const opacity = input.backgroundOpacity ?? 1;
+  const tint = composited(withAlpha(bg, opacity), isDark ? white : black);
+  const seeThrough = opacity < 1 ? [tint, composited(pressed, tint), composited(selection, tint)] : [];
+  const [primary, secondary, tertiary] = inks(fg, [worstSurface, bg], seeThrough, bg);
   const palette = input.palette.length >= 8 ? input.palette : ghosttyDefault.palette;
   const highlight = readable(palette[4], bg, 3);
   // As ThemeTokens.derive: a theme color when one reads on the blue; black or white always reaches 4.5:1.
@@ -92,10 +124,10 @@ export function themeTokens(input) {
     contentBackground: withAlpha(bg, input.backgroundOpacity),
     elevatedBackground: mixed(bg, fg, isDark ? 0.07 : 0.02),
     textPrimary: primary,
-    textSecondary: muted(primary, bg, 0.38, worstSurface, 4.5),
-    textTertiary: muted(primary, bg, 0.55, worstSurface, 3),
+    textSecondary: secondary,
+    textTertiary: tertiary,
     hoverFill: withAlpha(fg, isDark ? 0.06 : 0.05),
-    selectionFill: withAlpha(fg, isDark ? 0.1 : 0.08),
+    selectionFill: selection,
     separator: withAlpha(fg, isDark ? 0.08 : 0.07),
     paneBorder: withAlpha(fg, isDark ? 0.07 : 0.09),
     shadow: mixed(bg, black, 0.85),

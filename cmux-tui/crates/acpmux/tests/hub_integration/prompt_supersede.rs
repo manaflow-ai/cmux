@@ -244,11 +244,43 @@ async fn a_prompt_queued_before_a_restart_is_still_replaced() {
     let (new, accepted) =
         c.accepted(prompt(&session, "p-new", "correction", "lane-a", Some("k"))).await;
     assert_eq!(accepted["replaced"], 1, "{accepted}");
-    c.reply_to(new).await;
+    // The turn the restart cut goes on first (`restart_resume.rs`), then the replacement.
     hub.resume_queues();
+    c.reply_to(new).await;
     c.call("session/prompt", prompt(&session, "p-after", "after", "person", None)).await;
     assert!(!c.ran(&session, "p-old").await, "a restart ran a replaced prompt");
     assert!(c.ran(&session, "p-new").await, "the replacement never ran");
+    assert!(c.ran(&session, "p-run~resume-1").await, "the cut turn did not go on");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// An agent's report queued before a restart is still that agent's when it runs: its sender's
+/// card, not the person's bubble (review of #24939).
+#[tokio::test]
+async fn a_report_queued_before_a_restart_keeps_its_sender() {
+    let dir = std::env::temp_dir().join(format!("acpmux-supersede-{}", uuid::Uuid::now_v7()));
+    let hub = durable_hub(&dir);
+    let mut c = Client::open(&hub);
+    let session = c.new_session().await;
+    c.busy(&session, None).await;
+    c.accepted(prompt(&session, "p-report", "report", "lane-a", None)).await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable_hub(&dir);
+    let mut c = Client::open(&hub);
+    hub.resume_queues();
+    // It goes in once the restarted daemon is ready (`wait_startup`): wait for its turn.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !c.ran(&session, "p-report").await {
+        assert!(std::time::Instant::now() < deadline, "the report never ran");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let ran = c.records(&session, "user_message").await;
+    let report = ran.iter().find(|m| m["promptId"] == "p-report").expect("its user_message");
+    assert_eq!(report.pointer("/_meta/provenance/fromName"), Some(&json!("lane-a")), "{report}");
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }

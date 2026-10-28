@@ -1,9 +1,10 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useContext, useEffect, useId, useRef, useState } from "react";
 import type { Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
 import { useT } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
+import { OnNewTab } from "./newTabComposer";
 import { Menu, MenuButton, MenuGroup, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuSeparator } from "../../ui/Menu";
 import type { ReasoningSliderStyle } from "./composerSettings";
 
@@ -62,6 +63,8 @@ export function EffortPicker({
   sliderStyle?: ReasoningSliderStyle;
 }) {
   const t = useT();
+  // On New Tab the menu opens down (newTabComposer.ts).
+  const newTab = useContext(OnNewTab);
   const [open, setOpen] = useState(false);
   // The agent's implicit level is represented by the chip, not a second "Default" row. Keep the
   // real levels in the menu so the first arrow lands on an actionable choice.
@@ -129,7 +132,7 @@ export function EffortPicker({
           <EffortLabel label={level} short={short && short !== level ? short : undefined} />
           {chevron}
         </MenuButton>
-        <MenuPopup side="top" align="start" className="acpmux-effort-menu">
+        <MenuPopup side={newTab ? "bottom" : "top"} align="start" className="acpmux-effort-menu">
           {sliding && (
             <ReasoningSlider
               title={t("picker.reasoning")}

@@ -788,132 +788,133 @@
       }
     },
     "cloud.failed.alreadySignedIn": {
+      "comment": "Sign In while already signed in. `cmux cloud sign-out` is a command; keep it as is.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Already signed in."
+            "value": "Already signed in. To switch accounts, run `cmux cloud sign-out`, then sign in again."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すでにサインインしています。"
+            "value": "すでにサインインしています。アカウントを切り替えるには、`cmux cloud sign-out` を実行してから、もう一度サインインしてください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "تم تسجيل الدخول بالفعل."
+            "value": "تم تسجيل الدخول بالفعل. لتبديل الحسابات، شغّل `cmux cloud sign-out`، ثم سجّل الدخول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Već ste prijavljeni."
+            "value": "Već ste prijavljeni. Da promijenite račun, pokrenite `cmux cloud sign-out`, pa se ponovo prijavite."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Du er allerede logget ind."
+            "value": "Du er allerede logget ind. Kør `cmux cloud sign-out` for at skifte konto, og log derefter ind igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bereits angemeldet."
+            "value": "Bereits angemeldet. Um das Konto zu wechseln, führe `cmux cloud sign-out` aus und melde dich dann erneut an."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ya has iniciado sesión."
+            "value": "Ya has iniciado sesión. Para cambiar de cuenta, ejecuta `cmux cloud sign-out` y vuelve a iniciar sesión."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vous êtes déjà connecté."
+            "value": "Vous êtes déjà connecté. Pour changer de compte, exécutez `cmux cloud sign-out`, puis reconnectez-vous."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Accesso già effettuato."
+            "value": "Accesso già effettuato. Per cambiare account, esegui `cmux cloud sign-out`, poi accedi di nuovo."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បានចូលរួចហើយ។"
+            "value": "បានចូលរួចហើយ។ ដើម្បីប្តូរគណនី សូមដំណើរការ `cmux cloud sign-out` រួចចូលម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이미 로그인되어 있습니다."
+            "value": "이미 로그인되어 있습니다. 계정을 전환하려면 `cmux cloud sign-out`을 실행한 뒤 다시 로그인하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Allerede pålogget."
+            "value": "Allerede pålogget. For å bytte konto, kjør `cmux cloud sign-out`, og logg deretter på igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Już zalogowano."
+            "value": "Już zalogowano. Aby zmienić konto, uruchom `cmux cloud sign-out`, a potem zaloguj się ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Você já iniciou sessão."
+            "value": "Você já iniciou sessão. Para trocar de conta, execute `cmux cloud sign-out` e entre de novo."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Вход уже выполнен."
+            "value": "Вход уже выполнен. Чтобы сменить аккаунт, выполните `cmux cloud sign-out` и войдите снова."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ลงชื่อเข้าใช้อยู่แล้ว"
+            "value": "ลงชื่อเข้าใช้อยู่แล้ว หากต้องการสลับบัญชี ให้เรียกใช้ `cmux cloud sign-out` แล้วลงชื่อเข้าใช้อีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zaten oturum açılmış."
+            "value": "Zaten oturum açılmış. Hesap değiştirmek için `cmux cloud sign-out` komutunu çalıştırın, sonra yeniden oturum açın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ви вже ввійшли."
+            "value": "Ви вже ввійшли. Щоб змінити обліковий запис, виконайте `cmux cloud sign-out`, а потім увійдіть знову."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đã đăng nhập."
+            "value": "Đã đăng nhập. Để đổi tài khoản, hãy chạy `cmux cloud sign-out` rồi đăng nhập lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已登录。"
+            "value": "已登录。要切换账户，请运行 `cmux cloud sign-out`，然后重新登录。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "已登入。"
+            "value": "已登入。若要切換帳號，請執行 `cmux cloud sign-out`，然後重新登入。"
           }
         }
       }
@@ -1050,132 +1051,133 @@
       }
     },
     "cloud.failed.noAddress": {
+      "comment": "Copy Machine Port while the machine has no private address (still starting, paused, or failed). `cmux cloud machine-status --target machine:<id>` and `cmux cloud resume-machine` are commands; keep them as is.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The machine has no private address yet."
+            "value": "The machine has no private address yet. Check its state with `cmux cloud machine-status --target machine:<id>`; if it is paused, run `cmux cloud resume-machine --target machine:<id>` first."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このマシンにはまだプライベートアドレスがありません。"
+            "value": "このマシンにはまだプライベートアドレスがありません。`cmux cloud machine-status --target machine:<id>` で状態を確認してください。一時停止中の場合は、先に `cmux cloud resume-machine --target machine:<id>` を実行してください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ليس للجهاز عنوان خاص بعد."
+            "value": "ليس للجهاز عنوان خاص بعد. تحقق من حالته باستخدام `cmux cloud machine-status --target machine:<id>`؛ وإذا كان متوقفًا مؤقتًا، فشغّل `cmux cloud resume-machine --target machine:<id>` أولًا."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mašina još nema privatnu adresu."
+            "value": "Mašina još nema privatnu adresu. Provjerite njeno stanje pomoću `cmux cloud machine-status --target machine:<id>`; ako je pauzirana, prvo pokrenite `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maskinen har endnu ingen privat adresse."
+            "value": "Maskinen har endnu ingen privat adresse. Tjek dens tilstand med `cmux cloud machine-status --target machine:<id>`. Hvis den er sat på pause, så kør `cmux cloud resume-machine --target machine:<id>` først."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die Maschine hat noch keine private Adresse."
+            "value": "Die Maschine hat noch keine private Adresse. Prüfe ihren Zustand mit `cmux cloud machine-status --target machine:<id>`; ist sie pausiert, führe zuerst `cmux cloud resume-machine --target machine:<id>` aus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La máquina aún no tiene dirección privada."
+            "value": "La máquina aún no tiene dirección privada. Revisa su estado con `cmux cloud machine-status --target machine:<id>`; si está en pausa, ejecuta primero `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La machine n’a pas encore d’adresse privée."
+            "value": "La machine n’a pas encore d’adresse privée. Vérifiez son état avec `cmux cloud machine-status --target machine:<id>` ; si elle est en pause, exécutez d’abord `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La macchina non ha ancora un indirizzo privato."
+            "value": "La macchina non ha ancora un indirizzo privato. Controlla il suo stato con `cmux cloud machine-status --target machine:<id>`; se è in pausa, esegui prima `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម៉ាស៊ីននៅមិនទាន់មានអាសយដ្ឋានឯកជននៅឡើយទេ។"
+            "value": "ម៉ាស៊ីននៅមិនទាន់មានអាសយដ្ឋានឯកជននៅឡើយទេ។ ពិនិត្យស្ថានភាពរបស់វាដោយប្រើ `cmux cloud machine-status --target machine:<id>`។ ប្រសិនបើវាត្រូវបានផ្អាក សូមដំណើរការ `cmux cloud resume-machine --target machine:<id>` ជាមុនសិន។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 기기에는 아직 사설 주소가 없습니다."
+            "value": "이 기기에는 아직 사설 주소가 없습니다. `cmux cloud machine-status --target machine:<id>`로 상태를 확인하십시오. 일시 정지된 경우 먼저 `cmux cloud resume-machine --target machine:<id>`을 실행하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maskinen har ingen privat adresse ennå."
+            "value": "Maskinen har ingen privat adresse ennå. Sjekk tilstanden med `cmux cloud machine-status --target machine:<id>`. Hvis den er satt på pause, kjør `cmux cloud resume-machine --target machine:<id>` først."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maszyna nie ma jeszcze adresu prywatnego."
+            "value": "Maszyna nie ma jeszcze adresu prywatnego. Sprawdź jej stan za pomocą `cmux cloud machine-status --target machine:<id>`; jeśli jest wstrzymana, najpierw uruchom `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A máquina ainda não tem endereço privado."
+            "value": "A máquina ainda não tem endereço privado. Verifique o estado dela com `cmux cloud machine-status --target machine:<id>`; se estiver pausada, execute `cmux cloud resume-machine --target machine:<id>` primeiro."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "У машины пока нет частного адреса."
+            "value": "У машины пока нет частного адреса. Проверьте ее состояние командой `cmux cloud machine-status --target machine:<id>`; если она приостановлена, сначала выполните `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เครื่องยังไม่มีที่อยู่ส่วนตัว"
+            "value": "เครื่องยังไม่มีที่อยู่ส่วนตัว ตรวจสอบสถานะด้วย `cmux cloud machine-status --target machine:<id>` หากเครื่องหยุดชั่วคราวอยู่ ให้เรียกใช้ `cmux cloud resume-machine --target machine:<id>` ก่อน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Makinenin henüz özel adresi yok."
+            "value": "Makinenin henüz özel adresi yok. Durumunu `cmux cloud machine-status --target machine:<id>` ile kontrol edin; duraklatılmışsa önce `cmux cloud resume-machine --target machine:<id>` komutunu çalıştırın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Машина ще не має приватної адреси."
+            "value": "Машина ще не має приватної адреси. Перевірте її стан командою `cmux cloud machine-status --target machine:<id>`; якщо її призупинено, спершу виконайте `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Máy chưa có địa chỉ riêng."
+            "value": "Máy chưa có địa chỉ riêng. Hãy kiểm tra trạng thái bằng `cmux cloud machine-status --target machine:<id>`; nếu máy đang tạm dừng, hãy chạy `cmux cloud resume-machine --target machine:<id>` trước."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此机器还没有私有地址。"
+            "value": "此机器还没有私有地址。请用 `cmux cloud machine-status --target machine:<id>` 查看其状态；如果它已暂停，请先运行 `cmux cloud resume-machine --target machine:<id>`。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此機器尚無私人位址。"
+            "value": "此機器尚無私人位址。請用 `cmux cloud machine-status --target machine:<id>` 查看其狀態；如果它已暫停，請先執行 `cmux cloud resume-machine --target machine:<id>`。"
           }
         }
       }
@@ -1186,127 +1188,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No Cloud machine is selected. Right-click a machine or pass --target machine:<id>."
+            "value": "No Cloud machine is selected. Right-click a machine or pass --target machine:<id>; `cmux cloud list-machines` lists ids."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud マシンが選択されていません。マシンを右クリックするか、--target machine:<id> を指定してください。"
+            "value": "Cloud マシンが選択されていません。マシンを右クリックするか、--target machine:<id> を指定してください。ID は `cmux cloud list-machines` で一覧表示できます。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم يتم تحديد جهاز Cloud. انقر بزر الماوس الأيمن على جهاز أو مرّر --target machine:<id>."
+            "value": "لم يتم تحديد جهاز Cloud. انقر بزر الماوس الأيمن على جهاز أو مرّر --target machine:<id>؛ يعرض `cmux cloud list-machines` المعرّفات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nije odabrana nijedna Cloud mašina. Kliknite desnim klikom na mašinu ili proslijedite --target machine:<id>."
+            "value": "Nije odabrana nijedna Cloud mašina. Kliknite desnim klikom na mašinu ili proslijedite --target machine:<id>; `cmux cloud list-machines` ispisuje ID-ove."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen Cloud-maskine er valgt. Højreklik på en maskine, eller angiv --target machine:<id>."
+            "value": "Ingen Cloud-maskine er valgt. Højreklik på en maskine, eller angiv --target machine:<id>; `cmux cloud list-machines` viser ID'erne."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Keine Cloud-Maschine ausgewählt. Klicken Sie mit der rechten Maustaste auf eine Maschine oder übergeben Sie --target machine:<id>."
+            "value": "Keine Cloud-Maschine ausgewählt. Klicke mit der rechten Maustaste auf eine Maschine oder übergib --target machine:<id>; `cmux cloud list-machines` listet die IDs auf."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No hay ninguna máquina de Cloud seleccionada. Haz clic derecho en una máquina o usa --target machine:<id>."
+            "value": "No hay ninguna máquina de Cloud seleccionada. Haz clic derecho en una máquina o usa --target machine:<id>; `cmux cloud list-machines` muestra los ID."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucune machine Cloud sélectionnée. Cliquez sur une machine avec le bouton droit ou passez --target machine:<id>."
+            "value": "Aucune machine Cloud sélectionnée. Cliquez sur une machine avec le bouton droit ou passez --target machine:<id> ; `cmux cloud list-machines` liste les ID."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessuna macchina Cloud selezionata. Fai clic destro su una macchina o passa --target machine:<id>."
+            "value": "Nessuna macchina Cloud selezionata. Fai clic destro su una macchina o passa --target machine:<id>; `cmux cloud list-machines` elenca gli ID."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនមានម៉ាស៊ីន Cloud ត្រូវបានជ្រើសទេ។ ចុចស្ដាំលើម៉ាស៊ីន ឬបញ្ជូន --target machine:<id>។"
+            "value": "មិនមានម៉ាស៊ីន Cloud ត្រូវបានជ្រើសទេ។ ចុចស្ដាំលើម៉ាស៊ីន ឬបញ្ជូន --target machine:<id>; `cmux cloud list-machines` បង្ហាញបញ្ជី ID។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "선택된 Cloud 기기가 없습니다. 기기를 오른쪽 클릭하거나 --target machine:<id>를 지정하십시오."
+            "value": "선택된 Cloud 기기가 없습니다. 기기를 오른쪽 클릭하거나 --target machine:<id>를 지정하십시오. ID 목록은 `cmux cloud list-machines`로 볼 수 있습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen Cloud-maskin er valgt. Høyreklikk på en maskin eller bruk --target machine:<id>."
+            "value": "Ingen Cloud-maskin er valgt. Høyreklikk på en maskin eller bruk --target machine:<id>; `cmux cloud list-machines` viser ID-ene."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nie wybrano maszyny Cloud. Kliknij maszynę prawym przyciskiem lub podaj --target machine:<id>."
+            "value": "Nie wybrano maszyny Cloud. Kliknij maszynę prawym przyciskiem lub podaj --target machine:<id>; `cmux cloud list-machines` wyświetla ID."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhuma máquina Cloud selecionada. Clique com o botão direito em uma máquina ou passe --target machine:<id>."
+            "value": "Nenhuma máquina Cloud selecionada. Clique com o botão direito em uma máquina ou passe --target machine:<id>; `cmux cloud list-machines` lista os IDs."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Машина Cloud не выбрана. Нажмите на машину правой кнопкой или укажите --target machine:<id>."
+            "value": "Машина Cloud не выбрана. Нажмите на машину правой кнопкой или укажите --target machine:<id>; `cmux cloud list-machines` выводит список ID."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่ได้เลือกเครื่อง Cloud คลิกขวาที่เครื่องหรือส่ง --target machine:<id>"
+            "value": "ไม่ได้เลือกเครื่อง Cloud คลิกขวาที่เครื่องหรือส่ง --target machine:<id> โดย `cmux cloud list-machines` จะแสดงรายการ ID"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hiçbir Cloud makinesi seçili değil. Bir makineye sağ tıklayın veya --target machine:<id> iletin."
+            "value": "Hiçbir Cloud makinesi seçili değil. Bir makineye sağ tıklayın veya --target machine:<id> iletin; `cmux cloud list-machines` kimlikleri listeler."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Не вибрано машину Cloud. Клацніть машину правою кнопкою або передайте --target machine:<id>."
+            "value": "Не вибрано машину Cloud. Клацніть машину правою кнопкою або передайте --target machine:<id>; `cmux cloud list-machines` показує ID."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa chọn máy Cloud nào. Nhấp chuột phải vào một máy hoặc truyền --target machine:<id>."
+            "value": "Chưa chọn máy Cloud nào. Nhấp chuột phải vào một máy hoặc truyền --target machine:<id>; `cmux cloud list-machines` liệt kê các ID."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "未选择 Cloud 机器。请右键点按一台机器，或传入 --target machine:<id>。"
+            "value": "未选择 Cloud 机器。请右键点按一台机器，或传入 --target machine:<id>；`cmux cloud list-machines` 会列出 ID。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "未選取 Cloud 機器。請在機器上按右鍵，或傳入 --target machine:<id>。"
+            "value": "未選取 Cloud 機器。請在機器上按右鍵，或傳入 --target machine:<id>；`cmux cloud list-machines` 會列出 ID。"
           }
         }
       }
@@ -1443,394 +1445,397 @@
       }
     },
     "cloud.failed.commandRequired": {
+      "comment": "`cloud exec` without a command. --command is the flag; keep it as is.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "Pass the command to run on the Cloud machine with --command \"<command>\"."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud マシンで実行するコマンドを指定してください。"
+            "value": "Cloud マシンで実行するコマンドを --command \"<command>\" で指定してください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "مرّر الأمر المراد تشغيله على جهاز Cloud باستخدام --command \"<command>\"."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "Proslijedite naredbu za pokretanje na Cloud mašini pomoću --command \"<command>\"."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "Angiv kommandoen, der skal køres på Cloud-maskinen, med --command \"<command>\"."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "Übergib den Befehl, der auf der Cloud-Maschine laufen soll, mit --command \"<command>\"."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "Indica el comando que se ejecutará en la máquina de Cloud con --command \"<command>\"."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "Indiquez la commande à exécuter sur la machine Cloud avec --command \"<command>\"."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "Passa il comando da eseguire sulla macchina Cloud con --command \"<command>\"."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "បញ្ជូនពាក្យបញ្ជាដែលត្រូវដំណើរការលើម៉ាស៊ីន Cloud ដោយប្រើ --command \"<command>\"។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "Cloud 기기에서 실행할 명령을 --command \"<command>\"로 지정하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "Oppgi kommandoen som skal kjøres på Cloud-maskinen, med --command \"<command>\"."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "Podaj polecenie do uruchomienia na maszynie Cloud za pomocą --command \"<command>\"."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "Passe o comando a executar na máquina Cloud com --command \"<command>\"."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "Укажите команду для запуска на машине Cloud через --command \"<command>\"."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "ระบุคำสั่งที่จะเรียกใช้บนเครื่อง Cloud ด้วย --command \"<command>\""
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "Cloud makinesinde çalıştırılacak komutu --command \"<command>\" ile iletin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "Передайте команду для запуску на машині Cloud через --command \"<command>\"."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "Truyền lệnh cần chạy trên máy Cloud bằng --command \"<command>\"."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass a command to run on the Cloud machine."
+            "value": "请用 --command \"<command>\" 传入要在 Cloud 机器上运行的命令。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "請提供要在 Cloud 機器上執行的指令。"
+            "value": "請用 --command \"<command>\" 傳入要在 Cloud 機器上執行的指令。"
           }
         }
       }
     },
     "cloud.failed.notConnected": {
+      "comment": "A Cloud action needs the machine's connection. `cmux cloud resume-machine --target machine:<id>` is a command; keep it as is.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The Cloud machine is not connected yet."
+            "value": "The Cloud machine is not connected yet. Wait for it to connect; if it is paused, run `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud マシンはまだ接続されていません。"
+            "value": "Cloud マシンはまだ接続されていません。接続されるまでお待ちください。一時停止中の場合は `cmux cloud resume-machine --target machine:<id>` を実行してください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "جهاز Cloud غير متصل بعد."
+            "value": "جهاز Cloud غير متصل بعد. انتظر حتى يتصل؛ وإذا كان متوقفًا مؤقتًا، فشغّل `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud mašina još nije povezana."
+            "value": "Cloud mašina još nije povezana. Sačekajte da se poveže; ako je pauzirana, pokrenite `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud-maskinen er ikke forbundet endnu."
+            "value": "Cloud-maskinen er ikke forbundet endnu. Vent på, at den opretter forbindelse. Hvis den er sat på pause, så kør `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Die Cloud-Maschine ist noch nicht verbunden."
+            "value": "Die Cloud-Maschine ist noch nicht verbunden. Warte, bis sie sich verbindet; ist sie pausiert, führe `cmux cloud resume-machine --target machine:<id>` aus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La máquina de Cloud aún no está conectada."
+            "value": "La máquina de Cloud aún no está conectada. Espera a que se conecte; si está en pausa, ejecuta `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La machine Cloud n’est pas encore connectée."
+            "value": "La machine Cloud n’est pas encore connectée. Attendez qu’elle se connecte ; si elle est en pause, exécutez `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "La macchina Cloud non è ancora connessa."
+            "value": "La macchina Cloud non è ancora connessa. Attendi che si connetta; se è in pausa, esegui `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ម៉ាស៊ីន Cloud មិនទាន់បានភ្ជាប់នៅឡើយទេ។"
+            "value": "ម៉ាស៊ីន Cloud មិនទាន់បានភ្ជាប់នៅឡើយទេ។ រង់ចាំឱ្យវាភ្ជាប់។ ប្រសិនបើវាត្រូវបានផ្អាក សូមដំណើរការ `cmux cloud resume-machine --target machine:<id>`។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud 기기가 아직 연결되지 않았습니다."
+            "value": "Cloud 기기가 아직 연결되지 않았습니다. 연결될 때까지 기다리십시오. 일시 정지된 경우 `cmux cloud resume-machine --target machine:<id>`를 실행하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud-maskinen er ikke tilkoblet ennå."
+            "value": "Cloud-maskinen er ikke tilkoblet ennå. Vent til den kobler til. Hvis den er satt på pause, kjør `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Maszyna Cloud nie jest jeszcze połączona."
+            "value": "Maszyna Cloud nie jest jeszcze połączona. Poczekaj, aż się połączy; jeśli jest wstrzymana, uruchom `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "A máquina Cloud ainda não está conectada."
+            "value": "A máquina Cloud ainda não está conectada. Aguarde a conexão; se ela estiver pausada, execute `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Машина Cloud еще не подключена."
+            "value": "Машина Cloud еще не подключена. Дождитесь подключения; если она приостановлена, выполните `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เครื่อง Cloud ยังไม่ได้เชื่อมต่อ"
+            "value": "เครื่อง Cloud ยังไม่ได้เชื่อมต่อ รอให้เชื่อมต่อ หากเครื่องหยุดชั่วคราวอยู่ ให้เรียกใช้ `cmux cloud resume-machine --target machine:<id>`"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud makinesi henüz bağlı değil."
+            "value": "Cloud makinesi henüz bağlı değil. Bağlanmasını bekleyin; duraklatılmışsa `cmux cloud resume-machine --target machine:<id>` komutunu çalıştırın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Машина Cloud ще не підключена."
+            "value": "Машина Cloud ще не підключена. Зачекайте, доки вона підключиться; якщо її призупинено, виконайте `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Máy Cloud chưa được kết nối."
+            "value": "Máy Cloud chưa được kết nối. Hãy đợi máy kết nối; nếu máy đang tạm dừng, hãy chạy `cmux cloud resume-machine --target machine:<id>`."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud 机器尚未连接。"
+            "value": "Cloud 机器尚未连接。请等待其连接；如果它已暂停，请运行 `cmux cloud resume-machine --target machine:<id>`。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud 機器尚未連線。"
+            "value": "Cloud 機器尚未連線。請等待其連線；如果它已暫停，請執行 `cmux cloud resume-machine --target machine:<id>`。"
           }
         }
       }
     },
     "cloud.failed.signInFirst": {
+      "comment": "A Cloud action needs a signed-in account. “Sign In” is the command palette action; `cmux cloud sign-in` is a command, keep it as is.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to use Cloud machines."
+            "value": "Sign in to use Cloud machines: run Sign In from the command palette, or `cmux cloud sign-in`."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud マシンを使うにはサインインしてください。"
+            "value": "Cloud マシンを使うにはサインインしてください。コマンドパレットから［サインイン］を実行するか、`cmux cloud sign-in` を実行します。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "سجّل الدخول لاستخدام أجهزة Cloud."
+            "value": "سجّل الدخول لاستخدام أجهزة Cloud: شغّل «تسجيل الدخول» من لوحة الأوامر، أو `cmux cloud sign-in`."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prijavite se da biste koristili Cloud mašine."
+            "value": "Prijavite se da biste koristili Cloud mašine: pokrenite Prijavi se iz palete naredbi ili `cmux cloud sign-in`."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Log ind for at bruge Cloud-maskiner."
+            "value": "Log ind for at bruge Cloud-maskiner: kør Log ind fra kommandopaletten, eller `cmux cloud sign-in`."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Melden Sie sich an, um Cloud-Maschinen zu verwenden."
+            "value": "Melde dich an, um Cloud-Maschinen zu verwenden: Führe „Anmelden“ in der Befehlspalette aus oder `cmux cloud sign-in`."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inicia sesión para usar las máquinas de Cloud."
+            "value": "Inicia sesión para usar las máquinas de Cloud: ejecuta Iniciar sesión desde la paleta de comandos, o `cmux cloud sign-in`."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Connectez-vous pour utiliser les machines Cloud."
+            "value": "Connectez-vous pour utiliser les machines Cloud : lancez Se connecter depuis la palette de commandes, ou `cmux cloud sign-in`."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Accedi per usare le macchine Cloud."
+            "value": "Accedi per usare le macchine Cloud: esegui Accedi dalla palette dei comandi, oppure `cmux cloud sign-in`."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ចូលគណនីដើម្បីប្រើម៉ាស៊ីន Cloud។"
+            "value": "ចូលគណនីដើម្បីប្រើម៉ាស៊ីន Cloud៖ ដំណើរការ ចូល ពីផ្ទាំងពាក្យបញ្ជា ឬ `cmux cloud sign-in`។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud 기기를 사용하려면 로그인하십시오."
+            "value": "Cloud 기기를 사용하려면 로그인하십시오. 명령 팔레트에서 로그인을 실행하거나 `cmux cloud sign-in`을 실행하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Logg på for å bruke Cloud-maskiner."
+            "value": "Logg på for å bruke Cloud-maskiner: kjør Logg på fra kommandopaletten, eller `cmux cloud sign-in`."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Zaloguj się, aby korzystać z maszyn Cloud."
+            "value": "Zaloguj się, aby korzystać z maszyn Cloud: uruchom Zaloguj się z palety poleceń albo `cmux cloud sign-in`."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Inicie sessão para usar máquinas Cloud."
+            "value": "Inicie sessão para usar máquinas Cloud: execute Entrar na paleta de comandos, ou `cmux cloud sign-in`."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Войдите, чтобы использовать машины Cloud."
+            "value": "Войдите, чтобы использовать машины Cloud: выполните «Войти» в палитре команд или `cmux cloud sign-in`."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ลงชื่อเข้าใช้เพื่อใช้เครื่อง Cloud"
+            "value": "ลงชื่อเข้าใช้เพื่อใช้เครื่อง Cloud: เรียกใช้ ลงชื่อเข้า จากแผงคำสั่ง หรือ `cmux cloud sign-in`"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cloud makinelerini kullanmak için oturum açın."
+            "value": "Cloud makinelerini kullanmak için oturum açın: komut paletinden Giriş Yap'ı ya da `cmux cloud sign-in` komutunu çalıştırın."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Увійдіть, щоб користуватися машинами Cloud."
+            "value": "Увійдіть, щоб користуватися машинами Cloud: виконайте «Увійти» в палітрі команд або `cmux cloud sign-in`."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Đăng nhập để dùng máy Cloud."
+            "value": "Đăng nhập để dùng máy Cloud: chạy Đăng nhập từ bảng lệnh, hoặc `cmux cloud sign-in`."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "登录后才能使用 Cloud 机器。"
+            "value": "登录后才能使用 Cloud 机器：请在命令面板中运行“登录”，或运行 `cmux cloud sign-in`。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "登入以使用 Cloud 機器。"
+            "value": "登入以使用 Cloud 機器：請在命令面板中執行「登入」，或執行 `cmux cloud sign-in`。"
           }
         }
       }
@@ -1967,132 +1972,133 @@
       }
     },
     "cloud.failed.snapshotRequired": {
+      "comment": "Restore Cloud Machine or Delete Snapshot without a snapshot id. --snapshot is the flag; keep it as is.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pass the snapshot id to restore (--snapshot <id>)."
+            "value": "Pass the snapshot id with --snapshot <id>."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "復元するスナップショット ID を指定してください (--snapshot <id>)。"
+            "value": "スナップショット ID を --snapshot <id> で指定してください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "مرّر معرّف اللقطة المراد استعادتها (--snapshot <id>)."
+            "value": "مرّر معرّف اللقطة باستخدام --snapshot <id>."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Proslijedite ID snimka za vraćanje (--snapshot <id>)."
+            "value": "Proslijedite ID snimka pomoću --snapshot <id>."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Angiv ID'et på det snapshot, der skal gendannes (--snapshot <id>)."
+            "value": "Angiv snapshot-ID'et med --snapshot <id>."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Übergeben Sie die Snapshot-ID zum Wiederherstellen (--snapshot <id>)."
+            "value": "Übergib die Snapshot-ID mit --snapshot <id>."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Indica el ID de la instantánea que restaurar (--snapshot <id>)."
+            "value": "Indica el ID de la instantánea con --snapshot <id>."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Indiquez l’ID de l’instantané à restaurer (--snapshot <id>)."
+            "value": "Indiquez l’ID de l’instantané avec --snapshot <id>."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Passa l’ID dell’istantanea da ripristinare (--snapshot <id>)."
+            "value": "Passa l’ID dell’istantanea con --snapshot <id>."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បញ្ជូន ID រូបថតស្ថានភាពដើម្បីស្ដារ (--snapshot <id>)។"
+            "value": "បញ្ជូន ID រូបថតស្ថានភាពដោយប្រើ --snapshot <id>។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "복원할 스냅샷 ID를 지정하십시오(--snapshot <id>)."
+            "value": "스냅샷 ID를 --snapshot <id>로 지정하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Oppgi ID-en til øyeblikksbildet som skal gjenopprettes (--snapshot <id>)."
+            "value": "Oppgi ID-en til øyeblikksbildet med --snapshot <id>."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Podaj ID migawki do przywrócenia (--snapshot <id>)."
+            "value": "Podaj ID migawki za pomocą --snapshot <id>."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Passe o ID do snapshot a restaurar (--snapshot <id>)."
+            "value": "Passe o ID do snapshot com --snapshot <id>."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Укажите ID снимка для восстановления (--snapshot <id>)."
+            "value": "Укажите ID снимка через --snapshot <id>."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ระบุ ID สแนปช็อตที่จะกู้คืน (--snapshot <id>)"
+            "value": "ระบุ ID สแนปช็อตด้วย --snapshot <id>"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Geri yüklenecek anlık görüntü kimliğini iletin (--snapshot <id>)."
+            "value": "Anlık görüntü kimliğini --snapshot <id> ile iletin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Передайте ID знімка для відновлення (--snapshot <id>)."
+            "value": "Передайте ID знімка через --snapshot <id>."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Truyền ID snapshot cần khôi phục (--snapshot <id>)."
+            "value": "Truyền ID snapshot bằng --snapshot <id>."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "请传入要恢复的快照 ID（--snapshot <id>）。"
+            "value": "请用 --snapshot <id> 传入快照 ID。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "請傳入要回復的快照 ID（--snapshot <id>）。"
+            "value": "請用 --snapshot <id> 傳入快照 ID。"
           }
         }
       }
@@ -3801,132 +3807,133 @@
       }
     },
     "cloud.unavailable.noClient": {
+      "comment": "This cmux has no bundled cmux-tui client, so Cloud machines cannot connect.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The bundled cmux-tui client is missing, so Cloud machines cannot connect."
+            "value": "The bundled cmux-tui client is missing, so Cloud machines cannot connect. Reinstall cmux from cmux.com/download, or rebuild a local build with cmux-tui bundled."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "同梱の cmux-tui クライアントがないため、Cloud マシンに接続できません。"
+            "value": "同梱の cmux-tui クライアントがないため、Cloud マシンに接続できません。cmux.com/download から cmux を再インストールするか、ローカルビルドを cmux-tui 同梱で再ビルドしてください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "عميل cmux-tui المضمّن مفقود، لذا لا يمكن لأجهزة Cloud الاتصال."
+            "value": "عميل cmux-tui المضمّن مفقود، لذا لا يمكن لأجهزة Cloud الاتصال. أعد تثبيت cmux من cmux.com/download، أو أعد بناء النسخة المحلية مع تضمين cmux-tui."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nedostaje ugrađeni cmux-tui klijent, pa se Cloud mašine ne mogu povezati."
+            "value": "Nedostaje ugrađeni cmux-tui klijent, pa se Cloud mašine ne mogu povezati. Ponovo instalirajte cmux sa cmux.com/download ili ponovo izgradite lokalnu verziju s ugrađenim cmux-tui."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Den medfølgende cmux-tui-klient mangler, så Cloud-maskiner kan ikke oprette forbindelse."
+            "value": "Den medfølgende cmux-tui-klient mangler, så Cloud-maskiner kan ikke oprette forbindelse. Geninstaller cmux fra cmux.com/download, eller byg en lokal version igen med cmux-tui inkluderet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der mitgelieferte cmux-tui-Client fehlt, daher können sich Cloud-Maschinen nicht verbinden."
+            "value": "Der mitgelieferte cmux-tui-Client fehlt, daher können sich Cloud-Maschinen nicht verbinden. Installiere cmux neu von cmux.com/download oder baue einen lokalen Build mit mitgeliefertem cmux-tui neu."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Falta el cliente cmux-tui incluido, por lo que las máquinas de Cloud no pueden conectarse."
+            "value": "Falta el cliente cmux-tui incluido, por lo que las máquinas de Cloud no pueden conectarse. Reinstala cmux desde cmux.com/download, o vuelve a compilar una versión local con cmux-tui incluido."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Le client cmux-tui intégré est manquant : les machines Cloud ne peuvent pas se connecter."
+            "value": "Le client cmux-tui intégré est manquant : les machines Cloud ne peuvent pas se connecter. Réinstallez cmux depuis cmux.com/download, ou recompilez une version locale avec cmux-tui intégré."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Il client cmux-tui incluso manca, quindi le macchine Cloud non possono connettersi."
+            "value": "Il client cmux-tui incluso manca, quindi le macchine Cloud non possono connettersi. Reinstalla cmux da cmux.com/download, o ricompila una build locale con cmux-tui incluso."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "កម្មវិធីភ្ញៀវ cmux-tui ដែលភ្ជាប់មកជាមួយបាត់ ដូច្នេះម៉ាស៊ីន Cloud មិនអាចភ្ជាប់បានទេ។"
+            "value": "កម្មវិធីភ្ញៀវ cmux-tui ដែលភ្ជាប់មកជាមួយបាត់ ដូច្នេះម៉ាស៊ីន Cloud មិនអាចភ្ជាប់បានទេ។ ដំឡើង cmux ឡើងវិញពី cmux.com/download ឬបង្កើតកំណែក្នុងម៉ាស៊ីនឡើងវិញដោយភ្ជាប់ cmux-tui មកជាមួយ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "번들된 cmux-tui 클라이언트가 없어 Cloud 기기에 연결할 수 없습니다."
+            "value": "번들된 cmux-tui 클라이언트가 없어 Cloud 기기에 연결할 수 없습니다. cmux.com/download에서 cmux를 다시 설치하거나, 로컬 빌드를 cmux-tui를 포함해 다시 빌드하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Den medfølgende cmux-tui-klienten mangler, så Cloud-maskiner kan ikke koble til."
+            "value": "Den medfølgende cmux-tui-klienten mangler, så Cloud-maskiner kan ikke koble til. Installer cmux på nytt fra cmux.com/download, eller bygg en lokal versjon på nytt med cmux-tui inkludert."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brakuje dołączonego klienta cmux-tui, więc maszyny Cloud nie mogą się połączyć."
+            "value": "Brakuje dołączonego klienta cmux-tui, więc maszyny Cloud nie mogą się połączyć. Zainstaluj ponownie cmux ze strony cmux.com/download albo przebuduj lokalną wersję z dołączonym cmux-tui."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O cliente cmux-tui incluído está ausente, então as máquinas Cloud não podem se conectar."
+            "value": "O cliente cmux-tui incluído está ausente, então as máquinas Cloud não podem se conectar. Reinstale o cmux em cmux.com/download, ou recompile uma build local com o cmux-tui incluído."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Встроенный клиент cmux-tui отсутствует, поэтому машины Cloud не могут подключиться."
+            "value": "Встроенный клиент cmux-tui отсутствует, поэтому машины Cloud не могут подключиться. Переустановите cmux с cmux.com/download или пересоберите локальную сборку со встроенным cmux-tui."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่พบไคลเอนต์ cmux-tui ที่มาพร้อมแอป เครื่อง Cloud จึงเชื่อมต่อไม่ได้"
+            "value": "ไม่พบไคลเอนต์ cmux-tui ที่มาพร้อมแอป เครื่อง Cloud จึงเชื่อมต่อไม่ได้ ติดตั้ง cmux ใหม่จาก cmux.com/download หรือบิลด์เวอร์ชันในเครื่องใหม่โดยรวม cmux-tui มาด้วย"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Paketle gelen cmux-tui istemcisi eksik, bu nedenle Cloud makineleri bağlanamıyor."
+            "value": "Paketle gelen cmux-tui istemcisi eksik, bu nedenle Cloud makineleri bağlanamıyor. cmux'ı cmux.com/download adresinden yeniden yükleyin veya yerel derlemeyi cmux-tui ile birlikte yeniden derleyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Бракує вбудованого клієнта cmux-tui, тому машини Cloud не можуть підключитися."
+            "value": "Бракує вбудованого клієнта cmux-tui, тому машини Cloud не можуть підключитися. Перевстановіть cmux із cmux.com/download або перезберіть локальну збірку з вбудованим cmux-tui."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thiếu ứng dụng khách cmux-tui đi kèm nên máy Cloud không thể kết nối."
+            "value": "Thiếu ứng dụng khách cmux-tui đi kèm nên máy Cloud không thể kết nối. Hãy cài lại cmux từ cmux.com/download, hoặc build lại bản cục bộ có kèm cmux-tui."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "缺少内置的 cmux-tui 客户端，因此无法连接 Cloud 机器。"
+            "value": "缺少内置的 cmux-tui 客户端，因此无法连接 Cloud 机器。请从 cmux.com/download 重新安装 cmux，或重新构建包含 cmux-tui 的本地版本。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "缺少內建的 cmux-tui 用戶端，因此無法連線至 Cloud 機器。"
+            "value": "缺少內建的 cmux-tui 用戶端，因此無法連線至 Cloud 機器。請從 cmux.com/download 重新安裝 cmux，或重新建置包含 cmux-tui 的本機版本。"
           }
         }
       }
@@ -4325,263 +4332,397 @@
       }
     },
     "cloud.failed.fileContentsRequired": {
+      "comment": "`cloud file-write` without contents. --contents is the flag; keep it as is.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pass file contents to write."
+            "value": "Pass the file's contents with --contents \"<text>\"."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "ファイルの内容を --contents \"<text>\" で指定してください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "مرّر محتوى الملف باستخدام --contents \"<text>\"."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "Proslijedite sadržaj datoteke pomoću --contents \"<text>\"."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "Angiv filens indhold med --contents \"<text>\"."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "Übergib den Inhalt der Datei mit --contents \"<text>\"."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "Indica el contenido del archivo con --contents \"<text>\"."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "Indiquez le contenu du fichier avec --contents \"<text>\"."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "Passa il contenuto del file con --contents \"<text>\"."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "បញ្ជូនខ្លឹមសារឯកសារដោយប្រើ --contents \"<text>\"។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "파일 내용을 --contents \"<text>\"로 지정하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "Oppgi filens innhold med --contents \"<text>\"."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "Podaj zawartość pliku za pomocą --contents \"<text>\"."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "Passe o conteúdo do arquivo com --contents \"<text>\"."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "Укажите содержимое файла через --contents \"<text>\"."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "ระบุเนื้อหาของไฟล์ด้วย --contents \"<text>\""
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "Dosyanın içeriğini --contents \"<text>\" ile iletin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "Передайте вміст файлу через --contents \"<text>\"."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "Truyền nội dung tệp bằng --contents \"<text>\"."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "请用 --contents \"<text>\" 传入文件内容。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass file contents to write."
+            "value": "請用 --contents \"<text>\" 傳入檔案內容。"
           }
         }
       }
     },
     "cloud.failed.publicKeyRequired": {
+      "comment": "Prepare Cloud File Transfer or Rotate Tunnel Key without a key. --public-key and the $(cat …) shell text are literal; keep them as is.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "Pass an Ed25519 SSH public key with --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "Ed25519 SSH 公開鍵を --public-key \"$(cat ~/.ssh/id_ed25519.pub)\" で指定してください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "مرّر مفتاح SSH عامًا من نوع Ed25519 باستخدام --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "Proslijedite Ed25519 SSH javni ključ pomoću --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "Angiv en offentlig Ed25519-SSH-nøgle med --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "Übergib einen öffentlichen Ed25519-SSH-Schlüssel mit --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "Indica una clave pública SSH Ed25519 con --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "Indiquez une clé publique SSH Ed25519 avec --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "Passa una chiave pubblica SSH Ed25519 con --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "បញ្ជូនសោសាធារណៈ SSH ប្រភេទ Ed25519 ដោយប្រើ --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "Ed25519 SSH 공개 키를 --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"로 지정하십시오."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "Oppgi en offentlig Ed25519-SSH-nøkkel med --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "Podaj publiczny klucz SSH Ed25519 za pomocą --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "Passe uma chave pública SSH Ed25519 com --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "Укажите открытый SSH-ключ Ed25519 через --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "ระบุคีย์สาธารณะ SSH แบบ Ed25519 ด้วย --public-key \"$(cat ~/.ssh/id_ed25519.pub)\""
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "Bir Ed25519 SSH ortak anahtarını --public-key \"$(cat ~/.ssh/id_ed25519.pub)\" ile iletin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "Передайте відкритий SSH-ключ Ed25519 через --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "Truyền khóa công khai SSH Ed25519 bằng --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "请用 --public-key \"$(cat ~/.ssh/id_ed25519.pub)\" 传入 Ed25519 SSH 公钥。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pass an Ed25519 SSH public key for the transfer."
+            "value": "請用 --public-key \"$(cat ~/.ssh/id_ed25519.pub)\" 傳入 Ed25519 SSH 公開金鑰。"
+          }
+        }
+      }
+    },
+    "cloud.failed.tunnelKeyRequired": {
+      "comment": "Rotate Cloud Tunnel Key without a key. --public-key is the flag; keep it as is. WireGuard is a product name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass this Mac's new WireGuard public key for the tunnel with --public-key <key>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル用のこの Mac の新しい WireGuard 公開鍵を --public-key <key> で指定してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مرّر مفتاح WireGuard العام الجديد لهذا الـ Mac الخاص بالنفق باستخدام --public-key <key>."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proslijedite novi WireGuard javni ključ ovog Maca za tunel pomoću --public-key <key>."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angiv denne Macs nye offentlige WireGuard-nøgle til tunnelen med --public-key <key>."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übergib den neuen öffentlichen WireGuard-Schlüssel dieses Macs für den Tunnel mit --public-key <key>."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica la nueva clave pública de WireGuard de este Mac para el túnel con --public-key <key>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez la nouvelle clé publique WireGuard de ce Mac pour le tunnel avec --public-key <key>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa la nuova chiave pubblica WireGuard di questo Mac per il tunnel con --public-key <key>."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ជូនសោសាធារណៈ WireGuard ថ្មីរបស់ Mac នេះសម្រាប់ផ្លូវរូងដោយប្រើ --public-key <key>។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터널에 사용할 이 Mac의 새 WireGuard 공개 키를 --public-key <key>로 지정하십시오."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgi denne Macens nye offentlige WireGuard-nøkkel for tunnelen med --public-key <key>."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podaj nowy publiczny klucz WireGuard tego Maca dla tunelu za pomocą --public-key <key>."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passe a nova chave pública WireGuard deste Mac para o túnel com --public-key <key>."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Укажите новый открытый ключ WireGuard этого Mac для туннеля через --public-key <key>."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ระบุคีย์สาธารณะ WireGuard ใหม่ของ Mac เครื่องนี้สำหรับทันเนลด้วย --public-key <key>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu Mac'in tünel için yeni WireGuard ortak anahtarını --public-key <key> ile iletin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Передайте новий відкритий ключ WireGuard цього Mac для тунелю через --public-key <key>."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Truyền khóa công khai WireGuard mới của máy Mac này cho đường hầm bằng --public-key <key>."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请用 --public-key <key> 传入这台 Mac 用于隧道的新 WireGuard 公钥。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請用 --public-key <key> 傳入這台 Mac 用於通道的新 WireGuard 公開金鑰。"
           }
         }
       }
@@ -8643,6 +8784,792 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "由代理程式或指令碼要求。會計入你的 Cloud 方案。"
+          }
+        }
+      }
+    },
+    "cloud.upgrade.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud machines need a paid plan"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloudマシンには有料プランが必要です"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-Maschinen brauchen einen bezahlten Tarif"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les machines Cloud nécessitent un forfait payant"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las máquinas Cloud requieren un plan de pago"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تتطلب أجهزة Cloud خطة مدفوعة"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 机器需要付费套餐"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 機器需要付費方案"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 머신에는 유료 플랜이 필요합니다"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le macchine Cloud richiedono un piano a pagamento"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As máquinas Cloud exigem um plano pago"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для машин Cloud нужен платный тариф"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maszyny Cloud wymagają płatnego planu"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud makineleri ücretli plan gerektirir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для машин Cloud потрібен платний тариф"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máy Cloud cần gói trả phí"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่อง Cloud ต้องใช้แผนแบบชำระเงิน"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-maskiner kræver en betalt plan"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud-maskiner krever en betalt plan"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud mašine zahtijevaju plaćeni plan"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន Cloud ត្រូវការគម្រោងបង់ប្រាក់"
+          }
+        }
+      }
+    },
+    "cloud.upgrade.detail.free": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your plan has no Cloud machines. Go is $10 a month and includes machines; Pro is $50 a month."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のプランにはCloudマシンが含まれていません。Goは月額$10でマシンが含まれ、Proは月額$50です。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein Tarif enthält keine Cloud-Maschinen. Go kostet 10 $ im Monat und enthält Maschinen; Pro kostet 50 $ im Monat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre forfait n'inclut aucune machine Cloud. Go coûte 10 $ par mois et inclut des machines ; Pro coûte 50 $ par mois."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu plan no incluye máquinas Cloud. Go cuesta 10 $ al mes e incluye máquinas; Pro cuesta 50 $ al mes."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تتضمن خطتك أجهزة Cloud. تبلغ تكلفة Go ‏10 دولارات شهريًا وتشمل أجهزة؛ وPro ‏50 دولارًا شهريًا."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的套餐不含 Cloud 机器。Go 每月 10 美元，包含机器；Pro 每月 50 美元。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你的方案不含 Cloud 機器。Go 每月 10 美元，包含機器；Pro 每月 50 美元。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 플랜에는 Cloud 머신이 없습니다. Go는 월 $10이며 머신이 포함되고, Pro는 월 $50입니다."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo piano non include macchine Cloud. Go costa 10 $ al mese e include macchine; Pro costa 50 $ al mese."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu plano não inclui máquinas Cloud. O Go custa US$ 10 por mês e inclui máquinas; o Pro custa US$ 50 por mês."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В вашем тарифе нет машин Cloud. Go стоит 10 $ в месяц и включает машины; Pro — 50 $ в месяц."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twój plan nie obejmuje maszyn Cloud. Go kosztuje 10 USD miesięcznie i obejmuje maszyny; Pro kosztuje 50 USD miesięcznie."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planınızda Cloud makinesi yok. Go ayda 10 $ ve makineleri içerir; Pro ayda 50 $."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У вашому тарифі немає машин Cloud. Go коштує 10 $ на місяць і включає машини; Pro — 50 $ на місяць."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gói của bạn không có máy Cloud. Go giá 10 $/tháng và có máy; Pro giá 50 $/tháng."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แผนของคุณไม่มีเครื่อง Cloud แผน Go ราคา 10 ดอลลาร์ต่อเดือนและมีเครื่องให้ ส่วน Pro ราคา 50 ดอลลาร์ต่อเดือน"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Din plan har ingen Cloud-maskiner. Go koster 10 $ om måneden og inkluderer maskiner; Pro koster 50 $ om måneden."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planen din har ingen Cloud-maskiner. Go koster 10 $ i måneden og inkluderer maskiner; Pro koster 50 $ i måneden."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš plan nema Cloud mašine. Go košta 10 $ mjesečno i uključuje mašine; Pro košta 50 $ mjesečno."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "គម្រោងរបស់អ្នកមិនមានម៉ាស៊ីន Cloud ទេ។ Go តម្លៃ $10 ក្នុងមួយខែ ហើយរួមមានម៉ាស៊ីន; Pro តម្លៃ $50 ក្នុងមួយខែ។"
+          }
+        }
+      }
+    },
+    "cloud.upgrade.detail.limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All the running Cloud machines your plan allows are in use. Upgrade (Pro is $50 a month) or delete one."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プランで許可されている実行中のCloudマシンをすべて使用中です。アップグレード（Proは月額$50）するか、1台削除してください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle laufenden Cloud-Maschinen, die dein Tarif erlaubt, sind in Benutzung. Upgrade (Pro kostet 50 $ im Monat) oder eine löschen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toutes les machines Cloud en cours d'exécution autorisées par votre forfait sont utilisées. Passez à un forfait supérieur (Pro : 50 $ par mois) ou supprimez-en une."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se están usando todas las máquinas Cloud en ejecución que permite tu plan. Mejora tu plan (Pro cuesta 50 $ al mes) o elimina una."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جميع أجهزة Cloud قيد التشغيل التي تسمح بها خطتك قيد الاستخدام. قم بالترقية (Pro ‏50 دولارًا شهريًا) أو احذف جهازًا."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "套餐允许的运行中 Cloud 机器已全部用完。请升级（Pro 每月 50 美元）或删除一台。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "方案允許的執行中 Cloud 機器已全部用完。請升級（Pro 每月 50 美元）或刪除一台。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플랜에서 허용하는 실행 중인 Cloud 머신을 모두 사용 중입니다. 업그레이드(Pro는 월 $50)하거나 하나를 삭제하세요."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutte le macchine Cloud in esecuzione consentite dal tuo piano sono in uso. Passa a un piano superiore (Pro costa 50 $ al mese) o eliminane una."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todas as máquinas Cloud em execução permitidas pelo seu plano estão em uso. Faça upgrade (o Pro custa US$ 50 por mês) ou exclua uma."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все запущенные машины Cloud, которые разрешает ваш тариф, уже используются. Перейдите на другой тариф (Pro — 50 $ в месяц) или удалите одну."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wszystkie działające maszyny Cloud dozwolone w Twoim planie są w użyciu. Przejdź na wyższy plan (Pro kosztuje 50 USD miesięcznie) lub usuń jedną."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planınızın izin verdiği tüm çalışan Cloud makineleri kullanımda. Yükseltin (Pro ayda 50 $) veya birini silin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Усі запущені машини Cloud, які дозволяє ваш тариф, уже використовуються. Перейдіть на інший тариф (Pro — 50 $ на місяць) або видаліть одну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tất cả máy Cloud đang chạy mà gói của bạn cho phép đều đang được dùng. Hãy nâng cấp (Pro giá 50 $/tháng) hoặc xóa một máy."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่อง Cloud ที่กำลังทำงานตามที่แผนของคุณอนุญาตถูกใช้ครบแล้ว อัปเกรด (Pro ราคา 50 ดอลลาร์ต่อเดือน) หรือลบเครื่องหนึ่งเครื่อง"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle kørende Cloud-maskiner, som din plan tillader, er i brug. Opgrader (Pro koster 50 $ om måneden) eller slet en."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle kjørende Cloud-maskiner planen din tillater, er i bruk. Oppgrader (Pro koster 50 $ i måneden) eller slett en."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sve pokrenute Cloud mašine koje vaš plan dozvoljava su u upotrebi. Nadogradite (Pro košta 50 $ mjesečno) ili obrišite jednu."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីន Cloud ដែលកំពុងដំណើរការទាំងអស់ដែលគម្រោងរបស់អ្នកអនុញ្ញាតកំពុងប្រើប្រាស់ហើយ។ ដំឡើងកំរិត (Pro តម្លៃ $50 ក្នុងមួយខែ) ឬលុបមួយ។"
+          }
+        }
+      }
+    },
+    "cloud.upgrade.button": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgrade"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップグレード"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upgraden"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à niveau"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mejorar plan"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ترقية"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升级"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "升級"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업그레이드"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa a un piano superiore"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fazer upgrade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Улучшить тариф"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmień plan"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükselt"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Покращити тариф"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nâng cấp"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัปเกรด"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opgrader"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oppgrader"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nadogradi"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដំឡើងកំរិត"
+          }
+        }
+      }
+    },
+    "cloud.upgrade.notNow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not now"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今はしない"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht jetzt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas maintenant"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahora no"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليس الآن"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂不"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫不"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나중에"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non ora"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agora não"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не сейчас"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie teraz"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şimdi değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не зараз"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Để sau"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไว้ทีหลัง"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke nu"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke nå"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ne sada"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនមែនឥឡូវ"
+          }
+        }
+      }
+    },
+    "cloud.upgrade.required": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Cloud machine was created: your plan needs an upgrade. See cmux.com/pricing."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloudマシンは作成されませんでした。プランのアップグレードが必要です。cmux.com/pricing をご覧ください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es wurde keine Cloud-Maschine erstellt: Dein Tarif braucht ein Upgrade. Siehe cmux.com/pricing."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune machine Cloud n'a été créée : votre forfait doit être mis à niveau. Voir cmux.com/pricing."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se creó ninguna máquina Cloud: tu plan necesita una mejora. Consulta cmux.com/pricing."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم إنشاء أي جهاز Cloud: تحتاج خطتك إلى ترقية. راجع cmux.com/pricing."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未创建 Cloud 机器：你的套餐需要升级。请查看 cmux.com/pricing。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未建立 Cloud 機器：你的方案需要升級。請參閱 cmux.com/pricing。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud 머신이 생성되지 않았습니다. 플랜 업그레이드가 필요합니다. cmux.com/pricing을 참조하세요."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna macchina Cloud creata: il tuo piano richiede un upgrade. Vedi cmux.com/pricing."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma máquina Cloud foi criada: seu plano precisa de upgrade. Veja cmux.com/pricing."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Машина Cloud не создана: нужно улучшить тариф. См. cmux.com/pricing."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie utworzono maszyny Cloud: Twój plan wymaga zmiany. Zobacz cmux.com/pricing."
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud makinesi oluşturulmadı: planınızın yükseltilmesi gerekiyor. Bkz. cmux.com/pricing."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Машину Cloud не створено: потрібно покращити тариф. Див. cmux.com/pricing."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa tạo máy Cloud nào: gói của bạn cần được nâng cấp. Xem cmux.com/pricing."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้สร้างเครื่อง Cloud: แผนของคุณต้องอัปเกรด ดู cmux.com/pricing"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der blev ikke oprettet nogen Cloud-maskine: din plan skal opgraderes. Se cmux.com/pricing."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingen Cloud-maskin ble opprettet: planen din må oppgraderes. Se cmux.com/pricing."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud mašina nije kreirana: vaš plan treba nadogradnju. Pogledajte cmux.com/pricing."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនបានបង្កើតម៉ាស៊ីន Cloud ទេ៖ គម្រោងរបស់អ្នកត្រូវដំឡើងកំរិត។ មើល cmux.com/pricing។"
           }
         }
       }

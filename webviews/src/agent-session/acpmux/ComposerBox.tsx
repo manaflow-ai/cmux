@@ -1,12 +1,17 @@
-import React, { useCallback, useImperativeHandle, useRef, useState, type RefObject } from "react";
+import React, { useCallback, useImperativeHandle, useRef, type RefObject } from "react";
 import type { ComposerAttachment } from "./attachments";
-import { AttachmentStrip, type PendingAttachment } from "./composer/attachmentIntake";
+import {
+  AttachmentStrip,
+  backspacedAttachment,
+  type MadeFile,
+  type PendingAttachment,
+} from "./composer/attachmentIntake";
+import { reordered } from "./composer/stripReorder";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
-import { useQuietRow } from "./composerLook";
+import { useComposerLook, useQuietRow } from "./composerLook";
 import { useRowFit } from "./composerRowFit";
-import { FastToggle, SpeedToggleHost, type SpeedTiers } from "./FastToggle";
 import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from "./MarkdownField";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { ChromeArea, type HideableChromeItem } from "../../ui/HideableChrome";
@@ -43,6 +48,13 @@ export type ComposerBoxProps = {
   /// Codex's attachments say they go as files (AttachmentStrip).
   codex?: boolean;
   onRemoveAttachment(id: string): void;
+  /// A loading chip's × and a failed chip's Retry (attachmentIntake.tsx PendingChip).
+  onCancelAttachment?(id: string): void;
+  onRetryAttachment?(id: string): void;
+  /// A staged chip dragged along the strip; unset, the box moves it in `attachments` itself.
+  onReorderAttachment?(id: string, index: number): void;
+  /// Attaches a file as a pasted one is: a paste of text past what a prompt carries goes as one.
+  onPasteFile?(file: MadeFile): void;
   /// The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows.
   fieldMenu: ContextMenuItem[];
   onFieldMenuOpen?(): void;
@@ -55,7 +67,7 @@ export type ComposerBoxProps = {
   /// The button row's leading control (+) and anything before it.
   leading?: React.ReactNode;
   /// The agent's mode, model and effort chips: in the box's row, or with the plain footer in the
-  /// quiet row under it (ComposerFoot). They hand up Codex's speed option (FastToggle.tsx).
+  /// quiet row under it (ComposerFoot). The model picker owns any inline Fast toggle.
   chips?: React.ReactNode;
   /// What ends the quiet row (the context ring); the plain footer draws it there, Codex's look
   /// before the model in the box's row.
@@ -68,6 +80,9 @@ export type ComposerBoxProps = {
   trailing?: React.ReactNode;
   /// The hideable controls the row's right-click shows again (composerChrome.tsx).
   chromeItems: readonly HideableChromeItem[];
+  /// Drawn in the composer's bottom area, centered: the chat's look dots (LookSwitch.tsx), in the
+  /// quiet row's empty middle, or under the box in Codex's look.
+  bottom?: React.ReactNode;
 };
 
 /// The one composer box every surface draws (one-composer: the chat pane, New Tab, Quick
@@ -87,6 +102,10 @@ export function ComposerBox({
   attachError,
   codex = false,
   onRemoveAttachment,
+  onCancelAttachment,
+  onRetryAttachment,
+  onReorderAttachment,
+  onPasteFile,
   fieldMenu,
   onFieldMenuOpen,
   fieldOverlay,
@@ -99,18 +118,18 @@ export function ComposerBox({
   accessory,
   trailing,
   chromeItems,
+  bottom,
 }: ComposerBoxProps) {
   // Debug Settings' plain footer look (composerSettings.ts plainFooter, composerLocation.css): the
-  // chips as plain text. With Claude's look (composerLook.ts, the default) they sit in the quiet row
-  // under the box; Codex's keeps them in the box's own row.
+  // chips stay in the quiet row under the box in either look (composerLook.ts).
   const { plainFooter } = useComposerSettings();
   const quietRow = useQuietRow();
-  // The controls row swaps whole units as it narrows (composerRowFit.ts).
+  const look = useComposerLook();
+  const claudeGrid = look !== "codex";
+  // Footer placement and look can change from Settings while this component stays mounted. Include
+  // both in the fit key so the live row is measured again before the new form paints.
   const bar = useRef<HTMLDivElement>(null);
-  useRowFit(bar, quietRow);
-  // Codex's speed option, which the chips hand up: the bolt left of the mic (FastToggle.tsx). Claude
-  // Code's Fast mode stays a row of the model button's menu, so its chips hand up none.
-  const [speed, setSpeed] = useState<SpeedTiers | undefined>(undefined);
+  useRowFit(bar, `${quietRow}:${plainFooter}:${look}`);
   const prompt = useRef<MarkdownFieldHandle>(null);
   const setPrompt = useCallback(
     (next: MarkdownFieldHandle | null) => {
@@ -122,7 +141,7 @@ export function ComposerBox({
   const ownAttachments = useRef(attachments);
   if (!attachmentsRef) ownAttachments.current = attachments;
   // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
-  const pastedChips = usePastedChips(attachmentsRef ?? ownAttachments, setAttachments, prompt);
+  const pastedChips = usePastedChips(attachmentsRef ?? ownAttachments, setAttachments, prompt, onPasteFile);
   const plainPaste = useRef(pastedChips.plainPaste);
   plainPaste.current = pastedChips.plainPaste;
   useImperativeHandle(handle, () => ({ plainPaste: () => plainPaste.current() }), []);
@@ -148,8 +167,7 @@ export function ComposerBox({
     if (onCardPress) onCardPress();
     else prompt.current?.focus();
   };
-  // The chips hand up Codex's speed option, the bolt before the mic (FastToggle.tsx).
-  const shownChips = chips && <SpeedToggleHost.Provider value={setSpeed}>{chips}</SpeedToggleHost.Provider>;
+  const shownChips = chips;
   return (
     <>
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
@@ -161,6 +179,9 @@ export function ComposerBox({
           {...(attachError ? { error: attachError } : {})}
           codex={codex}
           onRemove={onRemoveAttachment}
+          {...(onCancelAttachment ? { onCancel: onCancelAttachment } : {})}
+          {...(onRetryAttachment ? { onRetry: onRetryAttachment } : {})}
+          onReorder={onReorderAttachment ?? ((id, index) => setAttachments((current) => reordered(current, id, index)))}
           onExpand={pastedChips.expand}
         />
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
@@ -179,7 +200,17 @@ export function ComposerBox({
             // ui-allow: the prompt field's own editing keys (⌘⇧V's paste stays text), before the host's.
             onKeyDown={(event) => {
               // Every key belongs to the input method while it composes.
-              if (!event.isComposing && event.keyCode !== 229 && isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
+              const composing = event.isComposing || event.keyCode === 229;
+              if (!composing && isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
+              // Backspace at the prompt's start takes back the last chip (backspacedAttachment).
+              const backspaced = composing
+                ? undefined
+                : backspacedAttachment(event, prompt.current?.atStart() ?? false, attachments);
+              if (backspaced) {
+                event.preventDefault();
+                setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
+                return;
+              }
               onKeyDown?.(event);
             }}
           />
@@ -187,12 +218,11 @@ export function ComposerBox({
         </ContextMenu>
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
-          {/* Claude Code's split (Leo 2026-10-19), the plain footer's default: the box keeps +, the
-              prompt, the mic and Send or Stop; the mode, model and effort sit in a quiet row under
-              it (ComposerFoot below). The other look, and Codex's, keep them all in this row. */}
+          {/* The model group stays in ComposerFoot for both looks. Claude keeps its compact box grid
+              for +, prompt, mic and Send; Codex keeps its own bar layout. */}
           <div
             ref={quietRow ? undefined : bar}
-            className={quietRow ? "acpmux-composer-bar acpmux-composer-inner" : "acpmux-composer-bar"}
+            className={claudeGrid ? "acpmux-composer-bar acpmux-composer-inner" : "acpmux-composer-bar"}
             data-footer-look={plainFooter ? "plain" : undefined}
           >
             {leading}
@@ -203,8 +233,6 @@ export function ComposerBox({
             {!quietRow && plainFooter && ring}
             <span className="acpmux-composer-actions">
               {actionsLead}
-              {/* Codex's bolt, just left of the mic (Leo 2026-10-21), in either footer look. */}
-              {speed && <FastToggle speed={speed} />}
               {/* The mic stays at every width; the prompt shrinks instead (composerRowFit.ts). */}
               {accessory && (
                 <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">
@@ -218,11 +246,19 @@ export function ComposerBox({
       </div>
       {quietRow && (
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
-          <ComposerFoot ref={bar}>
+          <ComposerFoot ref={bar} plain={plainFooter}>
             {shownChips}
             {ring}
           </ComposerFoot>
         </ChromeArea>
+      )}
+      {/* One stable host for both looks, so a look switched from the dots by keys keeps the same
+          radios and focus: with the quiet row they draw over its empty middle, with Codex's look
+          the host is positioned inside the box's dead-space row (composerLook.css). */}
+      {bottom && (
+        <div className="acpmux-composer-under" data-beside-foot={quietRow ? "" : undefined}>
+          {bottom}
+        </div>
       )}
     </>
   );

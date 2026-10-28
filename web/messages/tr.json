@@ -54,7 +54,7 @@
     "recreateRequired": {
       "title": "Bu makineyi yeniden oluşturun",
       "message": "Bu makine bir Cloud güncellemesinden önce oluşturuldu ve bağlanılamıyor.",
-      "action": "Yeni bir makine oluşturun, dosyalarınızı cmux vm pull ve cmux vm push ile aktarın, ardından bunu silin."
+      "action": "Yeni bir makine oluşturun. `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"` ile bir SCP uç noktası hazırlayın, ardından bu makineyi silmeden önce dosyalarınızı SCP ile kopyalayın."
     },
     "guestUnresponsive": {
       "title": "Makine yanıt vermiyor",
@@ -64,7 +64,7 @@
     "inProgress": {
       "title": "Hâlâ devam ediyor",
       "message": "Bulut sağlayıcısı bu değişikliği henüz tamamlamadı. Değişiklik yine de tamamlanabilir.",
-      "action": "Tekrar denemeden önce makinenin durumunu cmux vm ls ile veya makine listesinde kontrol edin."
+      "action": "Tekrar denemeden önce makinenin durumunu cmux cloud list-machines ile veya makine listesinde kontrol edin."
     },
     "providerTimeout": {
       "title": "Bulut sağlayıcısı yavaş",
@@ -79,7 +79,7 @@
     "stateConflict": {
       "title": "Makine meşgul",
       "message": "Bu makine başlatılıyor, duraklatılıyor veya çalışmıyor; bu yüzden şu anda bunu yapamıyor.",
-      "action": "Biraz bekleyip tekrar deneyin. Makinenin durumunu cmux vm ls ile kontrol edin ve duraklatılmışsa önce sürdürün."
+      "action": "Biraz bekleyip tekrar deneyin. Makinenin durumunu cmux cloud list-machines ile kontrol edin ve duraklatılmışsa önce sürdürün."
     },
     "networkRuleCapacity": {
       "title": "Ağ kuralları kapasitede",
@@ -102,15 +102,15 @@
       "action": {
         "snapshot": "Tekrar denemeyin. Bu makine türündeki çalışmalar kalıcı ana dizin biriminde tutulur.",
         "restore": "Tekrar denemeyin. Bu makine türündeki çalışmalar kalıcı ana dizin biriminde tutulur.",
-        "fork": "Tekrar denemeyin. `cmux vm new` ile yeni bir VM oluşturun.",
-        "openPort": "Tekrar denemeyin. Hizmete makinenin içinden `cmux vm exec` ile erişin veya bağlantı noktalarını açabilen bir makine türü kullanın.",
-        "default": "Tekrar denemeyin. `cmux vm ls` komutunu çalıştırın veya bunun yanlış olduğunu düşünüyorsanız destek ekibine başvurun."
+        "fork": "Tekrar denemeyin. `cmux cloud new-machine` ile yeni bir VM oluşturun.",
+        "openPort": "Tekrar denemeyin. Hizmete makinenin içinden `cmux cloud exec --target machine:<id> --command <command>` ile erişin veya bağlantı noktalarını açabilen bir makine türü kullanın.",
+        "default": "Tekrar denemeyin. `cmux cloud list-machines` komutunu çalıştırın veya bunun yanlış olduğunu düşünüyorsanız destek ekibine başvurun."
       }
     },
     "requiresPro": {
-      "title": "cmux Pro gerekli",
-      "message": "Cloud VM'ler için cmux Pro planı gerekir.",
-      "action": "Cloud VM oluşturmak için {upgradeUrl} adresinden cmux Pro'ya yükseltin."
+      "title": "cmux {plan} gerekli",
+      "message": "Cloud VM'ler için cmux {plan} planı gerekir.",
+      "action": "Cloud VM oluşturmak için {upgradeUrl} adresinden cmux {plan}'ya yükseltin."
     },
     "displayName": {
       "title": "Geçersiz makine adı",
@@ -120,35 +120,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB makineler cmux {plan} gerektirir. Planınız en fazla {max} GiB destekler.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "Kaynak makinenin RAM boyutu doğrulanamadı.",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "Bu makine boyutu kullanılamıyor. En fazla {max} GiB seçin.",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
       "savedMessage": "Go, çalışan VM dahil iki kayıtlı VM içerir.",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go aynı anda bir VM çalıştırabilir.",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go bu ayki 40 VM saatini kullandı. Kayıtlı VM’ler sonraki fatura döneminde yeniden kullanılabilir.",
-      "hoursAction": "cmux billing checkout --plan pro",
+      "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "Go, 2 vCPU, 4 GiB RAM ve 16 GiB disk destekler.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
       "computeTitle": "{plan} işlem kotası doldu",
       "computeMessage": "{plan} planınız bu fatura dönemindeki {included} işlem saatini kullandı. Bir işlem saati, 2 GB bellekli 1 vCPU'nun bir saat çalışmasıdır. Makineleriniz {resetDate} tarihinde yeniden başlatılabilir.",
       "computeAction": "Duraklatılan makineler dosyalarını korur. {resetDate} tarihinden önce daha fazla işlem gücüne ihtiyacınız varsa destekle iletişime geçin.",
-      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "{plan} disk kotası doldu",
       "storageMessage": "{plan} planınız, kayıtlı tüm makineler için toplam {included} GB disk içerir. Kayıtlı makineler {used} GB kullanıyor ve bu istek {requested} GB gerektiriyor.",
-      "storageAction": "cmux vm ls\ncmux vm rm <id>",
-      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Yeterli Cloud VM kaynağı yok",

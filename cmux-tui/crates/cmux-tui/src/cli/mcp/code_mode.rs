@@ -69,89 +69,60 @@ const DOCS_MAX_LIMIT: usize = 30;
 /// Further matching names a docs answer lists without schemas.
 const DOCS_MORE_NAMES: usize = 60;
 
-pub(super) const INSTRUCTIONS: &str = "cmux tools run in code mode. cmux_docs searches every \
-    cmux tool (workspaces, screens, panes, tabs, terminals, the browser, git, agents, \
-    notifications, keybindings and the app's actions) and returns each tool's input schema. \
-    cmux_exec runs a JavaScript script that calls those tools: `await cmux.call(\"pane_split\", \
-    {...})` or `await cmux.pane_split({...})`. Put related steps in one script and return the \
-    value you need. Tools of the chat's other cmux servers (cua_* computer use, secrets_*, \
-    sessions_* suggested tasks, subsessions_* sub-sessions, forum_* shared rules) come with their server's rules in `servers` of a cmux_docs answer: read and \
-    follow them before you call those tools. Objects have stable public ids (ws_…, screen_…, pane_…, tab_…, term_…, \
-    win_…) that the *_list tools report; a unique prefix works, and <session>:<id> reaches \
-    another session. A change takes idempotency_key: when a call fails with state \
-    in_progress, retry it with the key from the error so it cannot apply twice; a call to \
-    another server's tool that fails with in_progress has no key and may have run, so check \
-    its effect before you call it again. Tools never \
-    move the user's focus unless the call passes focus: true or the tool's purpose is focus. \
-    In a cmux chat reply, show UI rather than describe it: ![alt](/abs/path.png), a bare image \
-    path or an https image address draws as a thumbnail, and two in one paragraph sit side by side.";
+pub(super) const INSTRUCTIONS: &str = "cmux tools run in code mode, through cmux_exec. In a \
+    script, `cmux.docs(query)` searches every cmux tool and returns its input schema, and the script calls them: `await cmux.pane_split({...})`; put related steps in \
+    one script and return what you need. Tools of the chat's other cmux servers (cua_*, \
+    secrets_*, sessions_*, subsessions_*, forum_*) come with their rules in `servers` of a \
+    cmux.docs answer: follow them. Objects have public ids (ws_…, pane_…, tab_…, term_…) \
+    from the *_list tools; a unique prefix or <session>:<id> works. `current` is this chat's \
+    own workspace or pane; `focused` is the one the person looks at. A change takes \
+    idempotency_key: on in_progress, retry with the key from the error; another server's \
+    call that fails in_progress has no key and may have run, so check its effect first. Tools \
+    never move the \
+    user's focus unless the call passes focus: true or the tool's purpose is focus. Name \
+    workspaces and tabs to the person by title, never by id. When they must act in a tab \
+    (log in, confirm, approve), tab_update {tab, attention: \"reason\"} marks it; tab_focus \
+    it when they ask to go there. In a chat reply, show UI: ![alt](/abs/path.png) or an image \
+    path or https address draws as a thumbnail.";
 
-/// The two tools `serve` lists. `tools` is the full list, for the family
-/// summary in the docs tool's description.
+/// The one tool `serve` lists in code mode, `cmux_exec` (Lawrence 2026-10-23:
+/// an agent sees no other cmux tool name; a script searches with
+/// `cmux.docs`, and `cmux_docs` stays callable for older prompts). `tools`
+/// is the full list, for the family summary in its description.
 pub(super) fn descriptors(tools: &[Value]) -> Vec<Value> {
     let families = families(tools)
         .iter()
         .map(|(family, names)| format!("{family} ({})", names.len()))
         .collect::<Vec<_>>()
         .join(", ");
-    vec![
-        json!({
-            "name": DOCS,
-            "title": "Search cmux tools",
-            "description": format!(
-                "Find the cmux tools a cmux_exec script can call, with their input schemas. \
-                 Pass query (words such as \"pane split\" or \"browser screenshot\"), or names \
-                 for exact tools, or nothing for every tool name by family. A query about a \
-                 task, such as \"show the user\", also returns guides that name its tools. \
-                 Families: \
-                 {families}."
-            ),
-            "inputSchema": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                    "query": {"type": "string", "description": "Words that every result matches"},
-                    "names": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Exact tool names to describe",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "maximum": DOCS_MAX_LIMIT,
-                        "description": "Tools with schemas to return (default 8)",
-                    },
+    vec![json!({
+        "name": EXEC,
+        "title": "Run a cmux script",
+        "description": format!(
+            "Run JavaScript that calls cmux tools and return its result. The script is \
+             an async function body: use await and return a JSON value. \
+             `cmux.docs(query)` finds tools with their input schemas (words such as \
+             \"pane split\", or nothing for every name by family); \
+             `cmux.call(name, args)` or `cmux.<tool_name>(args)` calls one and returns its \
+             result; a failed call throws an Error whose `cmux` field has the error, its \
+             state and its idempotency key. console.log output comes back in logs. There \
+             is no file system, network or timer access. A failed script reports the calls \
+             that already ran. Families: {families}."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "script": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "JavaScript, an async function body",
                 },
             },
-            "annotations": {"readOnlyHint": true, "openWorldHint": false},
-        }),
-        json!({
-            "name": EXEC,
-            "title": "Run a cmux script",
-            "description": "Run JavaScript that calls cmux tools and return its result. The \
-                script is an async function body: use await and return a JSON value. \
-                `cmux.call(name, args)` or `cmux.<tool_name>(args)` calls a tool from cmux_docs \
-                and returns its result; a failed call throws an Error whose `cmux` field has \
-                the error, its state and its idempotency key. `cmux.docs(query)` searches tools \
-                from inside the script. console.log output comes back in logs. There is no \
-                file system, network or timer access. A failed script reports the calls that \
-                already ran.",
-            "inputSchema": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {
-                    "script": {
-                        "type": "string",
-                        "minLength": 1,
-                        "description": "JavaScript, an async function body",
-                    },
-                },
-                "required": ["script"],
-            },
-            "annotations": {"destructiveHint": true, "openWorldHint": false},
-        }),
-    ]
+            "required": ["script"],
+        },
+        "annotations": {"destructiveHint": true, "openWorldHint": false},
+    })]
 }
 
 /// Tool names grouped by their first word (`pane_split` is `pane`).

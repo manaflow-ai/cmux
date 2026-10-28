@@ -1,6 +1,7 @@
 import CoreGraphics
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Leo 2026-10-20: dismissing a sidebar row's hover card took too much travel. The escape-slot
 /// layout (`HoverCardEscapeGeometry.RowAlignment.middle`, a Debug Settings switch since the card
@@ -13,7 +14,7 @@ import Testing
     private let size = CGSize(width: 280, height: 160)
     private let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
     /// A wide gap, so the gap zone is easy to aim at; the sidebar's own is one device pixel.
-    private let gap = HoverCardEscapeGeometry.rowGap
+    private let gap: CGFloat = 10
 
     @Test func theCardSitsRightOfTheRowWithItsTopOnTheRowsMiddle() {
         let g = HoverCardEscapeGeometry(anchor: row, cardSize: size, visible: screen, gap: gap, alignment: .middle)

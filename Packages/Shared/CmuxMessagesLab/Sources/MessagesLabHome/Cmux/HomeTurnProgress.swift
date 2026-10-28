@@ -86,7 +86,7 @@ struct HomeTurnProgress: Equatable {
 
     /// The finished steps in one row: each kind with two or more steps by its fold label (the agent
     /// chat's words: "Ran 3 commands", "Read 2 files"), in the order the turn first did it; a single
-    /// other step by its own line, several as "N steps" ("N more steps" after a fold); then "›",
+    /// other step by its own line, several not at all; then "›",
     /// since a click on the line lists every step. Nil before any step finished.
     static func summary(_ finished: [String]) -> String? {
         guard !finished.isEmpty else { return nil }
@@ -109,10 +109,9 @@ struct HomeTurnProgress: Equatable {
         }
         if rest.count == 1, let only = rest.first {
             parts.append(only)
-        } else if rest.count > 1 {
-            parts.append(parts.isEmpty ? CmuxStrings.turnSteps(rest.count) : CmuxStrings.turnMoreSteps(rest.count))
         }
-        return parts.joined(separator: " · ") + " ›"
+        // Several generic steps are never counted ("3 steps"): the chevron alone opens the list.
+        return parts.isEmpty ? "›" : parts.joined(separator: " · ") + " ›"
     }
 
     static func foldLabel(_ kind: Kind, _ count: Int) -> String? {

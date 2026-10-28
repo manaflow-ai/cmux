@@ -1,6 +1,8 @@
 import CmuxNextActions
 import CmuxNextLayout
 import Foundation
+import CmuxNextWakeups
+import CmuxNextCompat
 
 /// A click on a cmux app link in rendered Markdown (the Home transcript, an agent chat, a
 /// Markdown file page) or a terminal: a path (`file:///…`, ``openPath(_:services:)``),
@@ -33,12 +35,15 @@ enum CmuxAppLinks {
     static func openPath(_ url: URL, services: AppServices) -> Bool {
         guard url.isFileURL, url.path.hasPrefix("/") else { return false }
         let path = url.standardizedFileURL.path
+        let work = services.work
         // task-owner: one disk check, then one open
         Task { @MainActor [weak services] in
-            let isDirectory = await Task.detached(priority: .userInitiated) { () -> Bool in
+            // A person clicked the link: the disk check runs on the files lane at userBlocking (a stalled volume
+            // holds a lane thread, never a cooperative-pool one).
+            let isDirectory = (try? await work.run(.userBlocking, mayBlock: .files) { () -> Bool in
                 var directory: ObjCBool = false
-                return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
-            }.value
+                return FileManager.checked.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
+            }) ?? false
             guard let services else { return }
             // Beside the pane the link was clicked from (LinkOpener): the pinned Home column, which
             // takes no tabs, gets the pane on its right or a new split.

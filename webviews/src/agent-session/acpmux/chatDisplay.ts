@@ -11,10 +11,19 @@
 // own defaults, and an upgrade must not move anyone's chat. Code follows the terminal font
 // (`--cmux-diff-code-font-family`) unless a code font is set.
 import { useSyncExternalStore } from "react";
+import { isArm } from "../../experiments/experiment";
+import { threadMinimapLayout } from "./threadMinimap/layout.experiment";
+
+/// An arm of the thread minimap experiment (`off`, `full`, `compact`, whatever its definition lists).
+export type ThreadMinimapArm = keyof typeof threadMinimapLayout.arms;
 
 export type ChatFontPreset = "system" | "serif" | "mono";
 /// What the chat keys hold: `markdown` follows the Markdown viewer's font.
 export type ChatFontChoice = ChatFontPreset | "markdown";
+/// The Session Info chip setting a cmux.json may still hold (Left, Right, Off). The chat header no
+/// longer draws a machine · folder label (Leo, 2026-10-26: "i thought we said to remove this?"), so
+/// every value is accepted and none draws one; the Inspector's Environment says where a chat runs.
+export type EnvironmentPlacement = "left" | "right" | "off";
 
 export interface ChatDisplay {
   /// The column's cap in px (the chat's text width); `fullWidth` fills the pane instead.
@@ -35,10 +44,27 @@ export interface ChatDisplay {
   /// lies over the transcript's text (Leo, 2026-10-21); `push` always moves the chat aside. Not a
   /// look: the Text & Width popover's Reset leaves it.
   inspector: "push" | "overlay";
+  /// cmux's Minimal Mode (`sidebar.minimal`, the palette's Enable Minimal Mode), which the chat
+  /// follows: another agent's message reads as one line until opened (IncomingMessageCard.tsx; Leo
+  /// 2026-10-24: "in minimal mode ... one line is kind of enough sometimes for the ... preview of the
+  /// message"). Not a look either: Reset leaves it.
+  minimal: boolean;
+  /// The saved Session Info chip setting (EnvironmentPlacement), kept for configuration
+  /// compatibility; it draws nothing.
+  environmentPlacement: EnvironmentPlacement;
 }
 
 /// Settings > Agent Chat > Inspector (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const INSPECTOR_PLACEMENT_KEY = "agentPane.display.inspector.placement";
+/// Settings > Agent Chat: the machine · folder chip's placement below the tab row.
+export const ENVIRONMENT_PLACEMENT_KEY = "agentPane.display.environment.placement";
+/// cmux's Minimal Mode, which the host sends with the chat's keys (Swift AgentPaneDisplaySetting).
+export const MINIMAL_MODE_KEY = "sidebar.minimal";
+/// Settings > Agent Chat > VS Code Minimap (chatMinimap/ChatMinimap.tsx), off by default. Not part of
+/// ChatDisplay: turning it on or off must not measure the transcript's rows again.
+export const CHAT_MINIMAP_KEY = "agentPane.display.vscodeMinimap";
+/// Settings > Agent Chat > Chat Minimap (Swift AgentPaneDisplaySettingsSchema has the same row).
+export const MINIMAP_KEY = "agentPane.display.minimap";
 
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
 /// (AgentPaneDisplaySettingsSchema).
@@ -69,17 +95,19 @@ export const DEFAULT_CHAT_DISPLAY: ChatDisplay = {
   codeFamily: null,
   codeScale: null,
   inspector: "overlay",
+  minimal: false,
+  environmentPlacement: "left",
 };
 
 /// The body font stacks, as the Markdown viewer's presets (pages/markdown/settings.ts).
 const FONT_STACKS: Record<ChatFontPreset, string> = {
-  system: "system-ui",
+  system: "var(--font-ui)",
   serif: '"New York", ui-serif, "Iowan Old Style", Georgia, serif',
   mono: "var(--cv-mono)",
 };
 /// What the estimator's canvas measures each preset as (a canvas can't read CSS variables).
 const MEASURE_STACKS: Record<ChatFontPreset, string> = {
-  system: "system-ui",
+  system: '"Inter", system-ui, sans-serif',
   serif: '"New York", Georgia, serif',
   mono: '"SF Mono", Menlo, monospace',
 };
@@ -87,6 +115,8 @@ const MEASURE_STACKS: Record<ChatFontPreset, string> = {
 type Values = Record<string, unknown>;
 const isPreset = (value: unknown): value is ChatFontPreset =>
   value === "system" || value === "serif" || value === "mono";
+const isEnvironmentPlacement = (value: unknown): value is EnvironmentPlacement =>
+  value === "left" || value === "right" || value === "off";
 const number = (value: unknown, range: { min: number; max: number }): number | null =>
   typeof value === "number" && Number.isFinite(value) ? Math.min(range.max, Math.max(range.min, value)) : null;
 /// A font family name safe to put in a CSS value: no quotes, braces or semicolons.
@@ -96,6 +126,16 @@ const family = (value: unknown): string | null => {
   if (!trimmed || /[;{}"\\<>]/.test(trimmed)) return null;
   return trimmed;
 };
+
+/// The Chat Minimap key's arm, or null for the experiment to decide. The key was an on/off toggle
+/// before it was this choice: on (`true`) was the full map, and off left the chat to the experiment,
+/// as no value does now. The Swift bridge reads it the same way (AgentPaneDisplaySettingsSchema
+/// `pageValue`).
+export function resolveThreadMinimapArm(raw: unknown): ThreadMinimapArm | null {
+  const value = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Values)[MINIMAP_KEY] : undefined;
+  const arm = value === true ? "full" : value;
+  return isArm(threadMinimapLayout, arm) ? arm : null;
+}
 
 /// The host's map (or anything else: the defaults).
 export function resolveChatDisplay(raw: unknown): ChatDisplay {
@@ -117,6 +157,10 @@ export function resolveChatDisplay(raw: unknown): ChatDisplay {
       number(values[CHAT_DISPLAY.codeScale.key], CHAT_DISPLAY.codeScale) ??
       number(values[MARKDOWN_FOLLOWED.codeScale], CHAT_DISPLAY.codeScale),
     inspector: values[INSPECTOR_PLACEMENT_KEY] === "push" ? "push" : "overlay",
+    minimal: values[MINIMAL_MODE_KEY] === true,
+    environmentPlacement: isEnvironmentPlacement(values[ENVIRONMENT_PLACEMENT_KEY])
+      ? values[ENVIRONMENT_PLACEMENT_KEY]
+      : DEFAULT_CHAT_DISPLAY.environmentPlacement,
   };
 }
 
@@ -179,6 +223,8 @@ const quoteFamily = (name: string) => (/[,\s]/.test(name) && !name.includes(",")
 
 let current = DEFAULT_CHAT_DISPLAY;
 let raw: Values = {};
+let minimapOn = false;
+let threadMinimapArm: ThreadMinimapArm | null = null;
 const listeners = new Set<() => void>();
 
 /// Sets the variables on `root` (the document's root in the page).
@@ -193,7 +239,16 @@ export function applyChatDisplay(root: HTMLElement, display: ChatDisplay): void 
 export function setChatDisplay(value: unknown): void {
   raw = (value && typeof value === "object" && !Array.isArray(value) ? { ...(value as Values) } : {}) as Values;
   const next = resolveChatDisplay(raw);
-  if (JSON.stringify(next) === JSON.stringify(current)) return;
+  const minimap = raw[CHAT_MINIMAP_KEY] === true;
+  const threadMinimap = resolveThreadMinimapArm(raw);
+  const same = JSON.stringify(next) === JSON.stringify(current);
+  if (same && minimap === minimapOn && threadMinimap === threadMinimapArm) return;
+  minimapOn = minimap;
+  threadMinimapArm = threadMinimap;
+  if (same) {
+    for (const listener of listeners) listener();
+    return;
+  }
   current = next;
   if (typeof document !== "undefined") applyChatDisplay(document.documentElement, next);
   for (const listener of listeners) listener();
@@ -247,5 +302,12 @@ const subscribe = (listener: () => void) => {
   return () => void listeners.delete(listener);
 };
 const snapshot = () => current;
+const minimapSnapshot = () => minimapOn;
+const threadMinimapSnapshot = () => threadMinimapArm;
+/// Whether the chat minimap is on (CHAT_MINIMAP_KEY).
+export const useChatMinimap = (): boolean => useSyncExternalStore(subscribe, minimapSnapshot, minimapSnapshot);
+/// The rail's arm, separate from the measured chat look so switching it remeasures no transcript row.
+export const useThreadMinimapArm = (): ThreadMinimapArm | null =>
+  useSyncExternalStore(subscribe, threadMinimapSnapshot, threadMinimapSnapshot);
 /// The live look, so layouts measured at the old metrics are measured again.
 export const useChatDisplay = (): ChatDisplay => useSyncExternalStore(subscribe, snapshot, snapshot);

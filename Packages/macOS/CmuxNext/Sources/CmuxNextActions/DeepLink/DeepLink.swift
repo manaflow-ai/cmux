@@ -186,7 +186,7 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         if let machine, !Self.isResourceID(machine, prefix: "machine_") { return false }
         if let hostHint, !Self.isHint(hostHint) { return false }
         if let nameHint, !Self.isHint(nameHint) { return false }
-        if let message, !Self.isAgentSession(message) { return false }
+        if let message, !Self.isAgentMessage(message) { return false }
         // Only an agent link carries hints; any other would not parse back the same.
         if hostHint != nil || nameHint != nil || message != nil, !target.isAgent { return false }
         switch target {
@@ -206,6 +206,8 @@ public nonisolated struct DeepLink: Sendable, Hashable {
     static let resourceHexDigits = 32
     /// The lengths a session or turn id may have.
     static let tokenLengths = 1...200
+    /// The daemon's outside-harness session id bound and alphabet.
+    static let agentSessionLengths = 1...256
     /// The lengths a harness name or a display hint may have.
     static let shortTokenLengths = 1...64
 
@@ -253,9 +255,20 @@ public nonisolated struct DeepLink: Sendable, Hashable {
         shortTokenLengths.contains(text.utf8.count) && isToken(text) && !isOnlyDots(text)
     }
 
-    /// An agent link's harness session id: a token that is not only dots,
-    /// which a URL path would collapse (`.`, `..`).
+    /// An agent link's harness session id. The daemon may publish `:` and up
+    /// to 256 bytes; dots-only values are rejected because URL paths collapse
+    /// `.` and `..`.
     static func isAgentSession(_ text: String) -> Bool {
+        agentSessionLengths.contains(text.utf8.count) && !isOnlyDots(text)
+            && text.utf8.allSatisfy { byte in
+                (48...57).contains(byte) || (65...90).contains(byte) || (97...122).contains(byte)
+                    || byte == UInt8(ascii: "-") || byte == UInt8(ascii: "_")
+                    || byte == UInt8(ascii: ".") || byte == UInt8(ascii: ":")
+            }
+    }
+
+    /// Agent message ids retain the original token grammar.
+    static func isAgentMessage(_ text: String) -> Bool {
         isToken(text) && !isOnlyDots(text)
     }
 

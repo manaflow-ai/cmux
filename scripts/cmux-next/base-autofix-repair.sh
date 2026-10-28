@@ -3,7 +3,7 @@
 # with the repairs the changed areas call for, and prints its "fixed:"/"left:" lines. It makes no
 # commit and never sees the push token.
 #
-# The workflow's Changed areas step decides the repairs (GRAPH, STRINGS, SDK, SHORTCUTS, APPHOST,
+# The workflow's Changed areas step decides the repairs (GRAPH, STRINGS, SDK, CAPABILITIES, SHORTCUTS, APPHOST,
 # ACTIONS, SETTINGS, RATCHETS, CLOUD, FMT: true or false); the Mac job hands on its verdicts
 # (EXPORTS_VERIFIED, SETTINGS_VERIFIED) and its exports (EXPORTS_DIR, when it made any); the
 # webviews-fmt job hands on WEBVIEWS_PATCH. The CI target graph is dumped from REPO's own manifest
@@ -65,6 +65,7 @@ if [[ "${GRAPH:-}" == true ]]; then
 fi
 [[ "${STRINGS:-}" == true ]] && args+=(--strings)
 [[ "${SDK:-}" == true ]] && args+=(--sdk)
+[[ "${CAPABILITIES:-}" == true ]] && args+=(--capabilities)
 [[ "$shortcuts" == true ]] && args+=(--docs-shortcuts)
 [[ "$apphost" == true ]] && args+=(--app-host)
 [[ "${RATCHETS:-}" == true ]] && args+=(--ratchets)

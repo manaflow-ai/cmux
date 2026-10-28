@@ -38,6 +38,9 @@ final class ScreenBarController {
         preview = ScreenPreviewSource(content: content)
         view.dragsWindowFromEmptySpace = false
         view.renamesOnDoubleClick = true
+        // The one + with a caret (Lawrence 2026-10-27: "caret should maybe just be in this one"): a press
+        // opens the screen menu. Set before the tooltip, which the menu switch also writes.
+        view.opensNewTabMenuOnPress = true
         view.newTabToolTip = nil // the screen bar's + makes a screen, not a tab
         view.previewProvider = preview
         view.setAccessibilityLabel(ScreenStrings.barAccessibility)
@@ -123,7 +126,7 @@ final class ScreenBarController {
             ScreenCommands.close(Array(workspace.screens[(index + 1)...]), in: workspace, daemon: daemon, services: services)
         case .reorder(let id, _, let to):
             // A daemon without move-screen keeps the daemon's order.
-            guard daemon.supports(DaemonCapabilities.shared.screenMetadata), let screen = screen(id) else {
+            guard daemon.supports(DaemonCapability.screenMetadata.rawValue), let screen = screen(id) else {
                 return view.discardPendingReorder()
             }
             ScreenCommands.move(screen, to: to, daemon: daemon)
@@ -131,11 +134,11 @@ final class ScreenBarController {
             ScreenCommands.create(in: workspace, daemon: daemon, content: content)
         case .pin(let id), .unpin(let id):
             let pin = if case .pin = intent { true } else { false }
-            if let screen = screen(id) { ScreenCommands.setPinned(screen, pin, daemon: daemon) }
+            if let screen = screen(id) { services.registry.settle(ScreenCommands.setPinned(screen, pin, daemon: daemon), of: "screen.togglePin", ActionInvocation()) }
         case .rename(let id):
             view.beginInlineRename(id)
         case .renameCommitted(let id, let name):
-            if let screen = screen(id) { ScreenCommands.rename(screen, to: name, daemon: daemon) }
+            if let screen = screen(id) { services.registry.settle(ScreenCommands.rename(screen, to: name, daemon: daemon), of: "screen.rename", ActionInvocation()) }
         case .duplicate(let id):
             if let ref = ref(id) { ScreenCommands.duplicate(ref) }
         case .dragBegan(let start):
@@ -149,7 +152,7 @@ final class ScreenBarController {
             view.restoreDetachedGroup(start.groupID)
         case .toggleGroupCollapsed, .moveGroup, .addToGroup, .removeFromGroup, .group, .createGroup:
             handleGroup(intent)
-        case .moveToNewSplit, .moveToNewColumn, .reorderTabs, .toggleAudioMute:
+        case .moveToNewSplit, .moveToNewColumn, .reorderTabs, .toggleAudioMute, .toggleZoom:
             break
         }
     }
@@ -220,7 +223,7 @@ final class ScreenBarController {
         case .emptyStrip, .newTabButton:
             registry.makeContextMenu(for: .screenBar)
         }
-        // The bar's rows highlight as the sidebar's and the tab strip's do: a wash of the theme's accent.
+        // A standard macOS menu in the bar's light or dark look, like every right-click menu.
         return menu.themeRows(in: content.themeScope.fullStrength)
     }
 }

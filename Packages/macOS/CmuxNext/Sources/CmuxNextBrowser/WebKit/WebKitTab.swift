@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 import CmuxNextWakeups
 public import Foundation
 public import Observation
@@ -7,7 +8,7 @@ public import WebKit
 /// A browser tab backed by one `WKWebView`.
 @MainActor
 @Observable
-public final class WebKitTab: NSObject, BrowserTab {
+public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing {
     public let id: BrowserTabID
     public let profileID: BrowserProfileID
     public let engineKind: BrowserEngineKind = .webkit
@@ -26,15 +27,25 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// The web view's container (`WebKitPageContainer`): WebKit places an
     /// attached Web Inspector beside the web view inside it.
     public var contentView: NSView { container }
-    @ObservationIgnored private let container: WebKitPageContainer
+    @ObservationIgnored let container: WebKitPageContainer
+    /// A woken tab's last frame over the page until it paints (`WebKitTab+WakeStandIn`).
+    @ObservationIgnored var standIn: NSView?
+    /// The stand-in's cap (`showStandIn`).
+    @ObservationIgnored var standInCap: DemandTimer?
     /// Web Inspector's visibility, for the toolbar's DevTools button.
     @ObservationIgnored public let inspectorWatch = WebKitInspectorWatch()
+    /// Files an agent offered this page's next file chooser (`runOpenPanelWith` takes them first).
+    @ObservationIgnored public let agentFiles = BrowserAgentFiles()
 
     private var machine = BrowserTabStateMachine()
     @ObservationIgnored private(set) weak var engine: WebKitEngine?
     /// Permission use and certificate failures of the current document (Page Info).
     @ObservationIgnored public let pageInfoActivity = PageInfoActivity()
     @ObservationIgnored var observations: [NSKeyValueObservation] = []
+    /// Title changes reach `machine` at most 4 a second (`TitleCoalescer`), as on Chromium:
+    /// a ticking title re-rendered the toolbar and rows and wrote history every frame.
+    @ObservationIgnored var titleCoalescer = TitleCoalescer()
+    @ObservationIgnored let titleTimer = DemandTimer(owner: "WebKitTab.title")
     @ObservationIgnored private var navigationIDs: [ObjectIdentifier: BrowserNavigationID] = [:]
     @ObservationIgnored private var nextNavigation: UInt64 = 0
     /// `observeNavigationEvents` handlers (WebKitTab+Navigations.swift).
@@ -101,6 +112,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         WebKitDesignModeHandler.install(on: self, into: controller)
         WebKitPasskeyInstaller.install(self, into: controller)
         WebKitNotificationBridge.install(on: self, into: controller)
+        WebKitFirstPaintHandler.install(on: self, into: controller)
         observeWebView()
         if configuration.zoom != 1 {
             setZoom(configuration.zoom)
@@ -135,6 +147,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         // Whatever committed keeps the page area from now on, so WebKit draws
         // its background again even if no `didFail` follows the stop.
         pageDidFinish()
+        removeStandIn()
         apply(.stopped)
     }
 
@@ -163,11 +176,15 @@ public final class WebKitTab: NSObject, BrowserTab {
         return cgImage
     }
 
-    public func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue {
+    public func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue {
         guard !isClosed else { throw BrowserTabError.closed }
         do {
-            let result = try await webView.evaluateJavaScript(script, in: nil, contentWorld: world.contentWorld)
-            return BrowserJSValue(foundation: result)
+            // Every public WKWebView evaluation forces a user gesture; cmux's own scripts use the
+            // gesture-free one (`WebKitGestureFreeEvaluation`).
+            switch gesture {
+            case .agent: return BrowserJSValue(foundation: try await webView.evaluateJavaScript(script, in: nil, contentWorld: world.contentWorld))
+            case .cmux: return try await WebKitGestureFreeEvaluation(webView: webView).evaluate(script, in: world.contentWorld)
+            }
         } catch let error as WKError where error.code == .javaScriptResultTypeIsUnsupported {
             return .null
         } catch let error as WKError where error.code == .javaScriptExceptionOccurred {
@@ -178,12 +195,18 @@ public final class WebKitTab: NSObject, BrowserTab {
 
     /// Runs `body` as an async function with named arguments. Safer than
     /// string interpolation for automation input.
+    /// - Parameter gesture: Whether the call acts as the person (``BrowserScriptGesture``); no default.
     public func callFunction(
         _ body: String,
         arguments: [String: BrowserJSValue] = [:],
-        world: BrowserScriptWorld = .isolated
+        world: BrowserScriptWorld = .isolated,
+        gesture: BrowserScriptGesture
     ) async throws -> BrowserJSValue {
         guard !isClosed else { throw BrowserTabError.closed }
+        if gesture == .cmux {
+            return try await WebKitGestureFreeEvaluation(webView: webView)
+                .callAsync(body, arguments: arguments.mapValues(\.foundationValue), in: world.contentWorld)
+        }
         let result = try await webView.callAsyncJavaScript(
             body,
             arguments: arguments.mapValues(\.foundationValue),
@@ -206,14 +229,15 @@ public final class WebKitTab: NSObject, BrowserTab {
 
         let count = try? await callFunction(
             FindScripts.countBody,
-            arguments: ["needle": .string(text), "caseSensitive": .bool(caseSensitive)]
+            arguments: ["needle": .string(text), "caseSensitive": .bool(caseSensitive)],
+            gesture: .cmux
         ).numberValue.map { Int($0) }
         return findState.step(query: text, direction: direction, matchFound: matchFound, count: count)
     }
 
     public func clearFind() {
         findState = FindState()
-        webView.evaluateJavaScript(FindScripts.clearSelection, completionHandler: nil)
+        WebKitGestureFreeEvaluation(webView: webView).run(FindScripts.clearSelection, in: .page)
     }
 
     // MARK: Zoom, fullscreen, devtools
@@ -225,7 +249,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     }
 
     public func exitContentFullscreen() {
-        webView.evaluateJavaScript(PaneFullscreenScript.exitScript, completionHandler: nil)
+        WebKitGestureFreeEvaluation(webView: webView).run(PaneFullscreenScript.exitScript, in: .page)
     }
 
     /// Leaves pane fullscreen now: the chrome returns at once, and the page
@@ -251,7 +275,10 @@ public final class WebKitTab: NSObject, BrowserTab {
     public func close() {
         guard !isClosed else { return }
         isClosed = true
+        agentFiles.withdraw()
+        removeStandIn()
         faviconTask?.cancel()
+        titleTimer.cancel()
         rateReshow?.cancel()
         pageBaseHold.cancel()
         for prompt in pendingPrompts { prompt.respond(prompt.dismissalResponse) }
@@ -261,18 +288,42 @@ public final class WebKitTab: NSObject, BrowserTab {
         webView.configuration.userContentController.removeAllScriptMessageHandlers()
         webView.navigationDelegate = nil
         webView.uiDelegate = nil
-        webView.removeFromSuperview()
+        WebViewRetirement.retire(webView)
         container.removeFromSuperview()
     }
 
     // MARK: Internals shared with the delegate extension
 
     func apply(_ event: BrowserNavigationEvent) {
+        if case .titleChanged = event {
+            // This title replaces one still waiting (the commit's authoritative read), which must not land after it.
+            if titleCoalescer.flush(now: ProcessInfo.processInfo.systemUptime) != nil { titleTimer.cancel() }
+        } else if let waiting = titleCoalescer.flush(now: ProcessInfo.processInfo.systemUptime) {
+            // A title that waited goes before this event, so the state sees them in order.
+            titleTimer.cancel()
+            machine.apply(.titleChanged(waiting.title))
+        }
         let previousFavicon = machine.state.faviconURL
         machine.apply(event)
         for observer in navigationObservers.values { observer(event) }
         if machine.state.faviconURL != previousFavicon {
             faviconURLDidChange()
+        }
+    }
+
+    /// Applies a page title now, or keeps the latest for the end of the
+    /// coalescing interval (`TitleCoalescer`, as `CEFTab.offerTitle`).
+    private func offerTitle(_ title: String?) {
+        let now = ProcessInfo.processInfo.systemUptime
+        switch titleCoalescer.offer(title, now: now) {
+        case .apply(let update):
+            apply(.titleChanged(update.title))
+        case .later(let until):
+            titleTimer.scheduleIfIdle(after: .milliseconds(Int64(max(0, until - now) * 1000) + 1)) { @MainActor [weak self] in
+                guard let self, !self.isClosed,
+                      let update = self.titleCoalescer.fire(now: ProcessInfo.processInfo.systemUptime) else { return }
+                self.apply(.titleChanged(update.title))
+            }
         }
     }
 
@@ -329,7 +380,7 @@ public final class WebKitTab: NSObject, BrowserTab {
         faviconTask?.cancel()
         faviconTask = Task { [weak self] in
             guard let self,
-                  let value = try? await self.evaluate(FaviconScript.source, world: .isolated),
+                  let value = try? await self.evaluate(FaviconScript.source, world: .isolated, gesture: .cmux),
                   let string = value.stringValue,
                   let url = URL(string: string),
                   !Task.isCancelled else { return }
@@ -359,7 +410,7 @@ public final class WebKitTab: NSObject, BrowserTab {
                 MainDelivery().run { self?.apply(.urlChanged(webView.url)) }
             },
             webView.observe(\.title, options: [.new]) { @Sendable [weak self] webView, _ in
-                MainDelivery().run { self?.apply(.titleChanged(webView.title)) }
+                MainDelivery().run { self?.offerTitle(webView.title) }
             },
             webView.observe(\.estimatedProgress, options: [.new]) { @Sendable [weak self] webView, _ in
                 MainDelivery().run { self?.apply(.progress(webView.estimatedProgress)) }

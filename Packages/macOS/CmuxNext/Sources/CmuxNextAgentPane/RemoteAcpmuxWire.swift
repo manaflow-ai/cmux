@@ -11,7 +11,9 @@ import os
 /// one session and the chats it started there, `agent-session-children-v1`, read-only), `_acpmux/attach`, `_acpmux/events`, `_acpmux/detach`, `session/prompt` (text
 /// blocks only), `session/cancel`, `_acpmux/permission_respond` and the folder trust question
 /// (`acp.trust.get`/`acp.trust.set`, through the daemon's `agent-session-trust`, cx-1bhjj; the
-/// relay already holds a set that trusts to the person's fresh gesture). Every other method, and any
+/// relay already holds a set that trusts to the person's fresh gesture), and who is in the chat
+/// (`_acpmux/typing` and `_acpmux/view` out, `_acpmux/presence` back, `agent-session-presence-v1`;
+/// an observer never types). Every other method, and any
 /// frame that names another session, is answered `remote.unsupported`: nothing on the other
 /// machine changes a mode, reads a folder or spawns a process from here.
 ///
@@ -114,6 +116,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             run(id) { client in try await client.cancel(); return Data("{}".utf8) }
         case "_acpmux/detach":
             run(id) { client in await client.detach(); return Data("{}".utf8) }
+        case "_acpmux/typing":
+            guard !isReadOnly else { return refuseReadOnly(id, method) }
+            guard names(params["sessionId"]), let on = params["on"] as? Bool else { return refuse(id, method) }
+            run(id) { client in try await client.typing(on); return Data("{}".utf8) }
+        case "_acpmux/view":
+            guard names(params["sessionId"]), let visible = params["visible"] as? Bool else { return refuse(id, method) }
+            run(id) { client in try await client.view(visible); return Data("{}".utf8) }
         case "_acpmux/watch" where state.withLock({ $0.client == nil }):
             // A new chat before its first send: no session on that machine yet.
             reply(id, ["sessions": [Any]()])
@@ -124,6 +133,18 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 guard let self else { throw AgentSessionRemoteError(code: Self.unsupported, message: "closed") }
                 return try await self.page(method, page, client: client)
             }
+        case "link.inspect":
+            // Remote paths are classified by the host that owns the chat. Image paths are
+            // deliberately marked readable so ReplyImage starts `image.load`; the local app
+            // never probes or resolves the same spelling here. Ordinary path chips remain
+            // outside this machine's roots and are shown as elsewhere/locked by the page.
+            let paths = (params["paths"] as? [String] ?? []).reduce(into: [String: Any]()) { result, path in
+                if Self.remoteImagePath(path) != nil { result[path] = ["place": "root", "folder": false] }
+                else { result[path] = ["place": "outside", "folder": false] }
+            }
+            reply(id, ["paths": paths, "sites": [:], "policy": [
+                "outsideRoots": "text", "remoteImages": "always", "clickFreeImageHosts": [String](),
+            ]])
         case "session/prompt":
             guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let text = Self.text(params["prompt"]) else { return refuse(id, method) }
@@ -138,6 +159,22 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                                                          "queued": object["queued"] ?? false])
                 return Self.json(["_meta": ["acpmux": ["promptId": prompt, "turnId": turn]]])
             }
+        case "image.load":
+            guard let src = params["src"] as? String, let path = Self.remoteImagePath(src) else {
+                return refuse(id, method)
+            }
+            // The bytes are read by the daemon attached to the chat's host. The local app never
+            // resolves this path, so a same-named file on this Mac cannot leak into the reply.
+            run(id) { client in
+                let data = try await client.media(path: path)
+                guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                      let encoded = object["data"] as? String,
+                      let bytes = Data(base64Encoded: encoded),
+                      case .success(let source) = await AgentPaneReplyImages.remote(bytes) else {
+                    throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote image could not be decoded")
+                }
+                return Self.json(AgentPaneReply.success(["src": source]))
+            }
         case "_acpmux/permission_respond":
             guard !isReadOnly else { return refuseReadOnly(id, method) }
             guard names(params["sessionId"]), let permission = params["permissionId"] as? String,
@@ -145,8 +182,17 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             // The decision proof the host added (never the page): acpmux on that machine decides.
             let decision = (params["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
             let nonce = decision?["decisionNonce"] as? String, proof = decision?["personDecision"] as? String
+            // A question's answers and annotations go along unchanged: that machine's acpmux checks
+            // them and the proof over them (dropped, the answer was refused there, or counted
+            // without the preview the person chose).
+            let json = { (key: String) in
+                params[key].flatMap { $0 is NSNull ? nil : $0 }
+                    .flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.fragmentsAllowed]) }
+            }
+            let answers = json("answers"), annotations = json("annotations")
             run(id) { client in
-                try await client.permission(id: permission, option: option, decisionNonce: nonce, personDecision: proof)
+                try await client.permission(id: permission, option: option, answers: answers, annotations: annotations,
+                                            decisionNonce: nonce, personDecision: proof)
                 return Data("{}".utf8)
             }
         default:
@@ -158,6 +204,13 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         guard close(), let client = state.withLock({ $0.client }) else { return }
         // task-owner: ends the daemon attachment once; nothing waits on it
         Task { await client.close() }
+    }
+
+    public func loadRemoteImage(_ path: String) async throws -> Data {
+        guard let client = state.withLock({ $0.client }) else {
+            throw AgentSessionRemoteError(code: Self.unsupported, message: "the remote chat has no session")
+        }
+        return try await client.media(path: path)
     }
 
     // MARK: Start
@@ -276,6 +329,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
                 Self.noteLinks([session])
             }
             notify("_acpmux/session_changed", change)
+        case .presence(let data):
+            // Only this chat's set (the daemon streams no other's).
+            guard let presence = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  names(presence["sessionId"]) else { return }
+            notify("_acpmux/presence", presence)
         case .closed(let reason):
             Self.logger.info("remote agent attachment ended reason=\(reason, privacy: .public)")
             // The page reconnects (a fresh wire and daemon connection) and replays from the
@@ -335,6 +393,18 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     private func refuse(_ id: String?, _ method: String) {
         fail(id, code: Self.unsupported, message: "\(method) is not available for a chat on another machine")
+    }
+
+    /// The remote media reader takes a path, not a URL decoration. Keep the extension check at
+    /// this boundary because the page's `image.load` request is untrusted.
+    private static func remoteImagePath(_ text: String) -> String? {
+        guard AgentPaneReplyPaths.isImagePath(text) else { return nil }
+        if text.lowercased().hasPrefix("file://"), let url = URL(string: text), url.isFileURL {
+            let host = url.host(percentEncoded: false) ?? ""
+            guard host.isEmpty || host == "localhost" else { return nil }
+            return url.path(percentEncoded: false)
+        }
+        return text.split(maxSplits: 1, whereSeparator: { $0 == "?" || $0 == "#" }).first.map(String.init)
     }
 
     private func refuseReadOnly(_ id: String?, _ method: String) {

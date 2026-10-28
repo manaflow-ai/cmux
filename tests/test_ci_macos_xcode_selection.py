@@ -42,22 +42,21 @@ EXEMPT = {
         "Zig-only Ghostty CLI helper, built against the macOS 15 image's SDK 15 "
         "default like the helper in ci-macos.yml",
     ("nightly.yml", "build-nightly-ghostty-cli-helper"):
-        "Zig-only Ghostty CLI helper, built against the macOS 15 image's SDK 15 "
-        "default like the helper in ci-macos.yml",
+        "Zig-only Ghostty CLI helper, built with the submodule's Zig against "
+        "the macOS 26 runner's default SDK; its cache key names that SDK",
     ("relay-tls.yml", "system-keychain"):
         "runs the relay TLS verifier under Xcode 16.2 / Swift 6, below the "
         "floor on purpose",
     ("remote-daemon.yml", "remote-daemon-macos-tests"): "Go only; no Xcode",
     ("cmux-tui.yml", "lint"): "Rust only; no Xcode",
     ("cmux-tui.yml", "test"): "Rust only; no Xcode",
-    ("cmux-tui-artifacts.yml", "cmux-next-daemon-tests"):
-        "Rust only; no Xcode (the cmux_next_ tests gating the tree publication)",
+    ("cmux-next-daemon-macos-shadow.yml", "cmux-next-daemon-macos-shadow"):
+        "Rust only; no Xcode (the macOS-only daemon tests, a non-blocking shadow "
+        "of the Linux promotion gate)",
     ("cmux-tui.yml", "cdp-browser-smoke"): "Rust only; no Xcode",
     ("cmux-tui.yml", "macos"):
         "Rust and Zig only (cargo clippy/test with libghostty-vt from Zig); no "
         "Swift or xcodebuild, like the lint and test jobs it combines (#17051)",
-    ("cmux-tui.yml", "macos-relay"):
-        "Rust only (cargo test -p chatmux-relay); no Swift, Zig or xcodebuild",
     ("cmux-next-source-archive.yml", "archive"):
         "Zig and Python only: Zig fetch lists and the source archive, and link "
         "sets read from the pinned xcframework; the CLI helper fetch list must "
@@ -67,12 +66,48 @@ EXEMPT = {
         "as the nightly and release callers always have; pinning it would "
         "change published artifacts",
     ("relay-publish-npm.yml", "smoke"): "npm package smoke test; no Xcode",
-    ("nightly.yml", "nightly-next-macos15-launch"):
-        "launches the published, signed app on a macOS 15 runner; builds "
-        "nothing, so no Xcode",
+    ("nightly.yml", "decide"):
+        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
+        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
+    ("nightly.yml", "resolve-nightly-cmux-tui-client"):
+        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
+        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
+    ("nightly.yml", "resolve-nightly-ghostty-cli-helper"):
+        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
+        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
+    ("nightly.yml", "pick-nightly-build-runner"):
+        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
+        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
+    ("nightly.yml", "prepare-nightly-variant"):
+        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
+        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
+    ("nightly.yml", "pick-nightly-sign-runner"):
+        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
+        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
+    ("nightly.yml", "find-nightly-next-recovery"):
+        "control job: takes Blacksmith macOS only while Blacksmith Linux overflow is off "
+        "(CI_CLOUD_OVERFLOW_SAVED); git, gh and Python only, no Xcode",
+    ("nightly.yml", "prepare-nightly-variant-primary"):
+        "takes Blacksmith macOS only while Blacksmith Linux overflow is off; builds nothing, only "
+        "lipo -thin, whose bytes match llvm-lipo's on Linux whatever the Xcode",
+    ("nightly.yml", "prepare-nightly-variant-fallback"):
+        "takes Blacksmith macOS only while Blacksmith Linux overflow is off; builds nothing, only "
+        "lipo -thin, whose bytes match llvm-lipo's on Linux whatever the Xcode",
     ("cmux-next-batch.yml", "build"):
         "submits the stack to the build fleet and waits; the build runs on a "
         "fleet worker, never with this runner's Xcode",
+    ("cmux-next.yml", "swift-canary-fleet"):
+        "build-fleet gateway: checks nothing out and only runs cmux-ci "
+        "compile-check; the compile runs on a fleet worker, never with this "
+        "runner's Xcode",
+    ("cmux-next.yml", "app-compile-fleet"):
+        "build-fleet gateway: checks nothing out and only runs cmux-ci "
+        "compile-check; the compile runs on a fleet worker, never with this "
+        "runner's Xcode",
+    ("cmux-next.yml", "release-compile-fast"):
+        "build-fleet gateway: checks nothing out and only runs cmux-ci "
+        "compile-check --release; the compile runs on a fleet worker, never "
+        "with this runner's Xcode",
 }
 
 # (workflow, job, step name) allowed to set CMUX_CI_XCODE_ALLOW_BELOW_FLOOR.

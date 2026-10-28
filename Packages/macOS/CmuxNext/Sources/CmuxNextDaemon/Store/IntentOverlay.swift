@@ -31,11 +31,42 @@ import Foundation
             guard let tab = store.tabsBySurface[surface], tab.pinned != pinned else { return nil }
             tab.setPinned(pinned)
             return .tabPinned(surface: surface, pinned: !pinned)
+        case .renamePane(let handle, let requested):
+            let name = requested?.isEmpty == true ? nil : requested
+            guard let pane = store.panesByHandle[handle], pane.name != name else { return nil }
+            let previous = pane.name
+            pane.name = name
+            return .paneName(pane: handle, name: previous)
+        case .renameScreen(let handle, let requested):
+            let name = requested?.isEmpty == true ? nil : requested
+            guard let screen = store.screensByHandle[handle], screen.name != name else { return nil }
+            let previous = screen.name
+            screen.name = name
+            return .screenName(screen: handle, name: previous)
+        case .setScreenColor(let handle, let color):
+            guard let screen = store.screensByHandle[handle], screen.color != color else { return nil }
+            let previous = screen.color
+            screen.color = color
+            return .screenColor(screen: handle, color: previous)
+        case .setScreenIcon(let handle, let icon):
+            guard let screen = store.screensByHandle[handle], screen.icon != icon else { return nil }
+            let previous = screen.icon
+            screen.icon = icon
+            return .screenIcon(screen: handle, icon: previous)
+        case .setScreenPinned(let handle, let pinned):
+            guard let screen = store.screensByHandle[handle], screen.pinned != pinned else { return nil }
+            screen.pinned = pinned
+            return .screenPinned(screen: handle, pinned: !pinned)
         case .renameWorkspace(let key, let name):
             guard let workspace = store.workspacesByKey[key], workspace.name != name else { return nil }
             let previous = workspace.name
             workspace.setName(name)
             return .workspaceName(key: key, name: previous)
+        case .setWorkspaceColor(let key, let color):
+            guard let workspace = store.workspacesByKey[key], workspace.color != color else { return nil }
+            let previous = workspace.color
+            workspace.setColor(color)
+            return .workspaceColor(key: key, color: previous)
         case .moveWorkspace(let key, let index):
             guard let from = store.workspaces.firstIndex(where: { $0.key == key }),
                   let current = store.workspaces[checked: from] else { return nil }
@@ -144,8 +175,20 @@ import Foundation
             store.tabsBySurface[surface]?.setName(name)
         case .tabPinned(let surface, let pinned):
             store.tabsBySurface[surface]?.setPinned(pinned)
+        case .paneName(let pane, let name):
+            store.panesByHandle[pane]?.name = name
+        case .screenName(let screen, let name):
+            store.screensByHandle[screen]?.name = name
+        case .screenColor(let screen, let color):
+            store.screensByHandle[screen]?.color = color
+        case .screenIcon(let screen, let icon):
+            store.screensByHandle[screen]?.icon = icon
+        case .screenPinned(let screen, let pinned):
+            store.screensByHandle[screen]?.pinned = pinned
         case .workspaceName(let key, let name):
             store.workspacesByKey[key]?.setName(name)
+        case .workspaceColor(let key, let color):
+            store.workspacesByKey[key]?.setColor(color)
         case .workspacePlace(let key, let index, let group):
             guard let from = store.workspaces.firstIndex(where: { $0.key == key }) else {
                 return store.reportMirrorViolation("intent overlay undo found workspace \(key) missing")

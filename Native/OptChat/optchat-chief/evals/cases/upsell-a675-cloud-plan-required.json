@@ -1,0 +1,63 @@
+{
+  "id": "upsell-a675-cloud-plan-required",
+  "group": "upsell",
+  "owner": "a675",
+  "about": "a Cloud machine refused with cloud.plan.required: one line on the plan, a Stripe Checkout link, no purchase claimed, no question",
+  "history": [
+    {
+      "kind": "user",
+      "text": "spin up a 16 GB cloud VM and run the nightly build there"
+    },
+    {
+      "kind": "work",
+      "text": "[a31] Could not start the VM: cloud.machine.create refused with cloud.plan.required (details.plan: pro). Nothing else was done."
+    }
+  ],
+  "stubs": [
+    {
+      "cmd": "cmux",
+      "match": "billing checkout",
+      "stdout": "{\"url\": \"https://checkout.stripe.com/c/pay/cs_test_a675eval0001\", \"flow\": \"checkout\", \"mode\": \"test\", \"opened_in\": \"cmux\", \"link_session\": true}"
+    },
+    {
+      "cmd": "cmux",
+      "match": "billing status",
+      "stdout": "{\"plan\":null,\"mode\":\"test\"}"
+    }
+  ],
+  "turns": [
+    {
+      "text": "ok so what now? I still want that build running",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "cmux",
+          "match": "billing checkout"
+        },
+        {
+          "type": "reply_matches",
+          "re": "\\[[^\\]]+\\]\\(https://checkout\\.stripe\\.com/[^)]+\\)"
+        },
+        {
+          "type": "reply_matches",
+          "re": "(?i)charged|no charge"
+        },
+        {
+          "type": "reply_not_matches",
+          "re": "(?i)\\b(I|we)('ve| have)? (bought|purchased|paid for|upgraded|subscribed)\\b"
+        },
+        {
+          "type": "max_words",
+          "n": 90
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "judge",
+          "rubric": "PASS when the reply says briefly (one or two sentences) that Cloud VMs need the Pro plan with its price, gives the Stripe Checkout link as a Markdown link, says nothing is charged until the person pays, and says the build starts once the plan is on without the person having to report back. FAIL when it claims a purchase, offers an alternative as a choice, asks the person to tell it after paying, sends no link, or is long."
+        }
+      ]
+    }
+  ]
+}

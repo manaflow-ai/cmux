@@ -1,11 +1,14 @@
 // A run of tool calls split into what the transcript draws: consecutive calls of one kind
 // under one line ("Ran 3 commands", "Read 4 files", "Edited App.tsx +12 -3"), messages to
-// other agents and calls to the cmux-subsessions tools as cards, and everything else as its own row.
+// other agents (an `acpmux send` among them) and calls to the cmux-subsessions tools as cards,
+// and everything else as its own row.
 import { pathKey, type AcpmuxActivity } from "../model";
 import type { Translate } from "../i18n";
 import { isBareShellName } from "../toolPaths";
+import { acpmuxSendCall, recordedMessageBodyChangesForTool, type AcpmuxSendCall } from "./acpmuxSends";
 import { agentMessage, type AgentMessage } from "./agentMessages";
-import { mcpCall, mcpKey } from "./mcpCalls";
+import { dispatchCall, type DispatchCall } from "./dispatchCalls";
+import { mcpCall, mcpIsObservational, mcpKey } from "./mcpCalls";
 import { subsessionCall, type SubsessionCall } from "./subsessionCalls";
 import { isThought, mergeThoughts } from "./thoughts";
 
@@ -17,6 +20,10 @@ export type ToolGroup =
   /// only the calls).
   | { type: "group"; kind: ToolGroupKind; items: AcpmuxActivity[] }
   | { type: "message"; item: AcpmuxActivity; message: AgentMessage }
+  /// A first-class dispatch/steer/report operation, kept visible beside folded tool work.
+  | { type: "dispatch"; item: AcpmuxActivity; call: DispatchCall }
+  /// A shell `acpmux send` (acpmuxSends.ts): the sent-message row (SentMessageLine.tsx).
+  | { type: "send"; item: AcpmuxActivity; send: AcpmuxSendCall }
   /// A sub-session started, sent a message or waited on (subsessionCalls.ts), each its own card.
   | { type: "subsession"; item: AcpmuxActivity; call: SubsessionCall }
   /// Consecutive calls to one MCP server's tool (mcpCalls.ts), one or more.
@@ -56,6 +63,14 @@ export function toolGroupKind(tool: Tool): ToolGroupKind | undefined {
 /// thought (thoughts.ts `mergeThoughts`).
 export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
   const groups: ToolGroup[] = [];
+  // One turn's bounded, transcript-recorded message files. A later Bash `acpmux send - <file>`
+  // may use a body written by an earlier Bash call; no host filesystem read is allowed here.
+  const messageFiles = new Map<string, string>();
+  const messageFileEndedAt = new Map<string, number | undefined>();
+  // Earlier calls may finish after a later writer. Keep one completion horizon for all possible
+  // aliases, and leave provenance unknown while any preceding mutation has no proven end.
+  let mutationEndedAt = -Infinity;
+  let mutationUnsettled = false;
   let run: { kind: ToolGroupKind; items: AcpmuxActivity[] } | undefined;
   let mcp: { key: string; items: AcpmuxActivity[] } | undefined;
   // Thoughts after the open run's latest call: they join it if a call of its kind comes next.
@@ -78,27 +93,123 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
       continue;
     }
     const tool = item.tool;
-    const message = tool && agentMessage(tool);
-    const named = tool && !message ? mcpCall(tool) : undefined;
+    const dispatch = tool ? dispatchCall(item) : undefined;
+    let send = tool && !dispatch ? acpmuxSendCall(tool, messageFiles) : undefined;
+    if (send && messageFiles.size) {
+      const startsAt = tool?.startedAt;
+      const ordered =
+        startsAt !== undefined && [...messageFileEndedAt.values()].every((end) => end !== undefined && end <= startsAt);
+      if (!ordered) {
+        messageFiles.clear();
+        messageFileEndedAt.clear();
+        send = tool && !dispatch ? acpmuxSendCall(tool) : undefined;
+      }
+    }
+    const message = tool && !dispatch && !send ? agentMessage(tool) : undefined;
+    const named = tool && !dispatch && !send && !message ? mcpCall(tool) : undefined;
     const subsession = named && subsessionCall(tool!, named);
     const call = subsession ? undefined : named;
     const key = call && mcpKey(call);
+    const rememberMessageFiles = () => {
+      if (!tool) return;
+      // A parsed MCP action must itself be observational: a generic ACP read/search/fetch kind
+      // cannot make write_file or read_and_write safe. Explicit mutation kinds still invalidate.
+      // Observational status or missing timestamps cannot replace a producer or block a later one.
+      const parsedMcp = !tool.command && mcpCall(tool);
+      const observationalKind = tool.kind === "read" || tool.kind === "search" || tool.kind === "fetch";
+      const observational = parsedMcp
+        ? mcpIsObservational(parsedMcp) && (!tool.kind || observationalKind)
+        : observationalKind;
+      if (!tool.command && !tool.diffs?.length && !tool.background && observational) return;
+      const endedAt = tool.background ? tool.background.endedAt : tool.endedAt;
+      const rememberMutation = () => {
+        const ended = tool.background
+          ? tool.background.state === "completed" ||
+            tool.background.state === "failed" ||
+            tool.background.state === "stopped"
+          : tool.status === "completed" || tool.status === "failed";
+        if (
+          !ended ||
+          endedAt === undefined ||
+          !Number.isFinite(endedAt) ||
+          (tool.startedAt !== undefined && (!Number.isFinite(tool.startedAt) || tool.startedAt > endedAt))
+        )
+          mutationUnsettled = true;
+        else mutationEndedAt = Math.max(mutationEndedAt, endedAt);
+      };
+      // A failed or still-running writer did not produce a durable body. Clear the bounded
+      // producer set so a later send cannot display stale content from an earlier call.
+      if (
+        !tool.command ||
+        tool.status !== "completed" ||
+        (tool.exitCode !== undefined && tool.exitCode !== 0) ||
+        (tool.background && tool.background.state !== "completed")
+      ) {
+        rememberMutation();
+        messageFiles.clear();
+        messageFileEndedAt.clear();
+        return;
+      }
+      // A background call's foreground row can finish before the actual shell. Use the
+      // background completion timestamp for provenance; without it, ordering against a later
+      // send is unknown and the body must remain unresolved.
+      if (endedAt === undefined || !Number.isFinite(endedAt)) {
+        rememberMutation();
+        messageFiles.clear();
+        messageFileEndedAt.clear();
+        return;
+      }
+      const changes = recordedMessageBodyChangesForTool(tool);
+      const startedAt = tool.startedAt;
+      const orderedWriter =
+        !mutationUnsettled &&
+        startedAt !== undefined &&
+        Number.isFinite(startedAt) &&
+        startedAt >= mutationEndedAt &&
+        startedAt <= endedAt;
+      if (changes.length) rememberMutation();
+      for (const change of changes) {
+        if ("reset" in change) {
+          messageFiles.clear();
+          messageFileEndedAt.clear();
+          continue;
+        }
+        if (change.text === undefined) {
+          messageFiles.delete(change.path);
+          messageFileEndedAt.delete(change.path);
+        } else {
+          // A newly accepted producer supersedes every previous path spelling. We cannot resolve
+          // aliases without filesystem access, so clear all candidates before recording it.
+          messageFiles.clear();
+          messageFileEndedAt.clear();
+          if (!orderedWriter) continue;
+          messageFiles.set(change.path, change.text);
+          messageFileEndedAt.set(change.path, endedAt);
+          while (messageFiles.size > 64) messageFiles.delete(messageFiles.keys().next().value!);
+        }
+      }
+    };
     if (key && mcp?.key === key) {
       mcp.items.push(item);
+      rememberMessageFiles();
       continue;
     }
-    const kind = tool && !message && !subsession && !call ? toolGroupKind(tool) : undefined;
+    const kind = tool && !send && !message && !subsession && !call ? toolGroupKind(tool) : undefined;
     if (kind && run?.kind === kind) {
       run.items.push(...held, item);
       held = [];
+      rememberMessageFiles();
       continue;
     }
     close();
-    if (message) groups.push({ type: "message", item, message });
+    if (dispatch) groups.push({ type: "dispatch", item, call: dispatch });
+    else if (send) groups.push({ type: "send", item, send });
+    else if (message) groups.push({ type: "message", item, message });
     else if (subsession) groups.push({ type: "subsession", item, call: subsession });
     else if (key) mcp = { key, items: [item] };
     else if (kind) run = { kind, items: [item] };
     else groups.push({ type: "item", item });
+    rememberMessageFiles();
   }
   close();
   return groups;
@@ -107,6 +218,15 @@ export function toolGroups(items: readonly AcpmuxActivity[]): ToolGroup[] {
 /// A group's calls, without the thoughts between them.
 export function groupCalls(items: readonly AcpmuxActivity[]): AcpmuxActivity[] {
   return items.filter((item) => item.tool);
+}
+
+/// A file change (an edit, a delete, a move) still waiting for its permission: its row stays in
+/// sight, never folded under a run's summary line, so the change it asks about can be seen.
+export function awaitsPermission(tool: Tool | undefined): boolean {
+  return (
+    tool?.status === "pending" &&
+    (tool.kind === "edit" || tool.kind === "delete" || tool.kind === "move" || tool.kind === "fileChange")
+  );
 }
 
 export function isRunning(tool: Tool): boolean {

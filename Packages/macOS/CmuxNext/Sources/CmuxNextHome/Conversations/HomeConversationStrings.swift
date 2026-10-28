@@ -26,8 +26,14 @@ enum HomeConversationStrings {
         }
     }
 
-    static func unread(_ count: Int) -> String {
-        String(format: String(localized: "home.list.unread", defaultValue: "%lld unread", bundle: .module), count)
+    /// The bundle of this module's catalog, so a test can read one language's table (`fr.lproj`).
+    static var bundle: Bundle { .module }
+
+    /// "3 unread" in the row's VoiceOver label; a plural string, so each locale picks its form for
+    /// `count`. `bundle` and `locale` default to this module's catalog in the user's language; a
+    /// test passes one language's table and its locale.
+    static func unread(_ count: Int, bundle: Bundle = .module, locale: Locale = .current) -> String {
+        String(localized: "home.list.unread", defaultValue: "\(count) unread", bundle: bundle, locale: locale)
     }
 
     static var mentioned: String { String(localized: "home.list.mentioned", defaultValue: "Mentions you", bundle: .module) }
@@ -133,6 +139,16 @@ enum HomeConversationStrings {
     static var sourceTeam: String { String(localized: "home.compose.source.team", defaultValue: "Team", bundle: .module) }
     static var sourceConnection: String { String(localized: "home.compose.source.connection", defaultValue: "Contact", bundle: .module) }
     static var sourceAgent: String { String(localized: "home.compose.source.agent", defaultValue: "Chief", bundle: .module) }
+    /// The To: list's section of the user's Chiefs (the Home list's "Chiefs" header).
+    static var chiefsSection: String { header(.chiefs) }
+    /// The To: list's section of the user's team members.
+    static var teamSection: String { String(localized: "home.compose.section.team", defaultValue: "Team", bundle: .module) }
+    /// The To: list's line for a Chief that reads like another one: when it was last active ("Active 2 hours ago").
+    static func activeAgo(_ relative: String) -> String {
+        String(format: String(localized: "home.compose.activeAgo", defaultValue: "Active %@", bundle: .module), relative)
+    }
+    /// The To: list's line for a Chief that reads like another one and has no messages yet.
+    static var noMessagesYet: String { String(localized: "home.compose.noMessagesYet", defaultValue: "No messages yet", bundle: .module) }
     /// The label in front of the recipient tokens.
     static var toLabel: String { String(localized: "home.compose.toLabel", defaultValue: "To:", bundle: .module) }
     /// The + button at the end of the To: field (all people to pick from).
@@ -241,7 +257,10 @@ enum HomeConversationStrings {
     static var infoGroupMenu: String { String(localized: "home.info.menu.group", defaultValue: "Group Info…", bundle: .module) }
     static var infoName: String { String(localized: "home.info.name", defaultValue: "Group name", bundle: .module) }
     static var infoRename: String { String(localized: "home.info.rename", defaultValue: "Rename", bundle: .module) }
-    static var infoMembers: String { String(localized: "home.info.members", defaultValue: "Members", bundle: .module) }
+    /// The members list's plain header. `bundle` and `locale` as for ``unread(_:bundle:locale:)``.
+    static func infoMembers(bundle: Bundle = .module, locale: Locale = .current) -> String {
+        String(localized: "home.info.members", defaultValue: "Members", bundle: bundle, locale: locale)
+    }
     static var infoYou: String { String(localized: "home.info.you", defaultValue: "You", bundle: .module) }
     static var infoInvited: String { String(localized: "home.info.invited", defaultValue: "Invited", bundle: .module) }
     static var infoAgent: String { String(localized: "home.info.agent", defaultValue: "Agent", bundle: .module) }
@@ -249,9 +268,11 @@ enum HomeConversationStrings {
     static var infoRoleOwner: String { String(localized: "home.info.role.owner", defaultValue: "Owner", bundle: .module) }
     static var infoRoleAdmin: String { String(localized: "home.info.role.admin", defaultValue: "Admin", bundle: .module) }
     static var infoRoleReadOnly: String { String(localized: "home.info.role.readOnly", defaultValue: "Read-only", bundle: .module) }
-    /// A large group's header; the count is already formatted for the locale ("5,000").
-    static func infoMemberCount(_ count: Int) -> String {
-        String(format: String(localized: "home.info.memberCount", defaultValue: "%@ members", bundle: .module), count.formatted())
+    /// A large group's header ("5,000 members"); a plural string, so each locale picks its form for
+    /// `count`, and the interpolated count is formatted for `locale`. `bundle` and `locale` as for
+    /// ``unread(_:bundle:locale:)``.
+    static func infoMemberCount(_ count: Int, bundle: Bundle = .module, locale: Locale = .current) -> String {
+        String(localized: "home.info.memberCount", defaultValue: "\(count) members", bundle: bundle, locale: locale)
     }
     static var infoAddPeople: String { String(localized: "home.info.addPeople", defaultValue: "Add People…", bundle: .module) }
     static var infoAdd: String { String(localized: "home.info.add", defaultValue: "Add", bundle: .module) }

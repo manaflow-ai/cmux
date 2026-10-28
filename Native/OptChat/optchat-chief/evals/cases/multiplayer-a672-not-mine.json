@@ -1,0 +1,26 @@
+{
+  "id": "multiplayer-a672-not-mine",
+  "owner": "a672",
+  "channels": true,
+  "about": "in a group chat, a message for another person's Chief gets NO_REPLY",
+  "history": [
+    {
+      "kind": "user",
+      "conv": "Launch planning",
+      "author": "Leo",
+      "text": "I'll own the venue and catering."
+    }
+  ],
+  "turns": [
+    {
+      "conv": "Launch planning",
+      "author": "Leo",
+      "text": "Thanks Rex, that works for me. See you Thursday.",
+      "checks": [
+        {
+          "type": "silent"
+        }
+      ]
+    }
+  ]
+}

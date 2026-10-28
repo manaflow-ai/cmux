@@ -69,8 +69,8 @@ export const SOAK_MINUTES = 60
 export const SPACING_HOURS = 6
 export const STALE_HOURS = 24
 export const STALE_COMMITS = 20
-/** G7: production vars whose change spends money or sends messages; each new value needs an approval. */
-export const GUARDED_VAR = /^(INFERENCE_|AUTOMATION_CAP_|HOME_INVITES_SEND$|HOME_INVITES_TEXT$|CHIEF_BRAIN_|CHIEF_CREDITS_|CHIEF_RUN_TOKEN_CAP_USD$)/
+/** G7: production vars whose change spends money, sends messages or opens a service-binding surface; each new value needs an approval. */
+export const GUARDED_VAR = /^(INFERENCE_|AUTOMATION_CAP_|HOME_INVITES_SEND$|HOME_INVITES_TEXT$|CHIEF_BRAIN_|CHIEF_CREDITS_|CHIEF_RUN_TOKEN_CAP_USD$|CLOUD_PLAN_ENTITLEMENTS$|PLATFORM_MACHINES$)/
 
 export interface Approvals {
   /** Secrets production must have before any deploy (names). */
@@ -126,6 +126,12 @@ export const guardedVarGate = (prod: ProdEnv, cand: ProdEnv, approvals: Approval
 export const missingSecrets = (env: ProdEnv, approvals: Approvals, have: ReadonlySet<string>): Array<string> => {
   const need = new Set(approvals.required_secrets)
   if (env.vars.HOME_INVITES_SEND === "on") need.add("HOME_INVITE_FROM")
+  // Paid Cloud entitlements sell machines: the provider key of the configured transport must exist (cloud-driver.ts cloudConfig).
+  // Same transport split as cloudConfig: unset or "direct" is Freestyle, "vm-api" is the VM API, anything else has no provider.
+  if (env.vars.CLOUD_PLAN_ENTITLEMENTS === "on") {
+    const t = env.vars.CLOUD_VM_TRANSPORT
+    need.add(t === undefined || t === "direct" ? "CLOUD_FREESTYLE_API_KEY" : t === "vm-api" ? "CLOUD_VM_API_SERVICE_KEY" : `CLOUD_VM_TRANSPORT=${t} (no Cloud provider)`)
+  }
   return [...need].map((n) => (env.vars[n] !== undefined ? `${n} (a plain var shadows the secret)` : !have.has(n) ? n : "")).filter(Boolean).sort()
 }
 
@@ -144,7 +150,8 @@ const gh = async (path: string, init: RequestInit = {}): Promise<any> => {
   const repo = process.env.GITHUB_REPOSITORY ?? "manaflow-ai/cmux"
   if (!token) throw new Error("GITHUB_TOKEN is not set")
   const r = await fetch(`https://api.github.com/repos/${repo}${path}`, { ...init, headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", ...(init.headers ?? {}) } })
-  if (!r.ok) throw new Error(`GitHub ${path}: HTTP ${r.status}`)
+  // The body and the rate-limit headers say why (a 403 is a rate limit or a permission; the status alone hid which).
+  if (!r.ok) throw new Error(`GitHub ${path}: HTTP ${r.status} ${(await r.text().catch(() => "")).slice(0, 300)} [remaining ${r.headers.get("x-ratelimit-remaining")}, reset ${r.headers.get("x-ratelimit-reset")}, retry-after ${r.headers.get("retry-after")}]`)
   return r.status === 204 ? null : r.json()
 }
 

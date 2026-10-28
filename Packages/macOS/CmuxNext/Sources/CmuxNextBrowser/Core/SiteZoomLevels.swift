@@ -7,17 +7,19 @@ public import Foundation
 /// without a directory, keeps them in memory.
 @MainActor
 public final class SiteZoomLevels {
-    /// `<Application Support>/<bundle id>/SiteZoom/`; tagged DEV builds have
-    /// their own bundle id, so data never mixes.
-    public static let shared = SiteZoomLevels(directory: defaultDirectory())
-
     private let directory: URL?
     private let offTheRecord: OffTheRecordProfiles
     private var levels: [BrowserProfileID: [String: Double]] = [:]
     /// Followers; one that answers false is gone and is dropped.
     private var observers: [UUID: (BrowserProfileID, String) -> Bool] = [:]
 
-    public init(directory: URL?, offTheRecord: OffTheRecordProfiles = .shared) {
+    /// Levels in files under `directory` (nil: in memory), an incognito profile's in memory.
+    ///
+    /// - Parameters:
+    ///   - directory: One JSON file per profile; ``BrowserSharedStores/application()`` passes
+    ///     `<Application Support>/<bundle id>/SiteZoom/` (tagged DEV builds have their own bundle id).
+    ///   - offTheRecord: The App's incognito profiles (``BrowserSharedStores``).
+    public init(directory: URL?, offTheRecord: OffTheRecordProfiles) {
         self.directory = directory
         self.offTheRecord = offTheRecord
     }

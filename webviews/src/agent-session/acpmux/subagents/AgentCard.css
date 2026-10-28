@@ -1,0 +1,97 @@
+/* A sub-session's card (AgentCard.tsx): the glass the received-message card has
+   (conversation.css .cv-received__body), never a solid fill; tool rows' font and detail size. States
+   take the Ghostty theme's colours: waiting on the person the warning yellow, failed the red. */
+.cv-agent-card {
+  box-sizing: border-box;
+  margin: 4px 0 6px;
+  padding: 4px 12px 8px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 6%, transparent);
+  box-shadow:
+    inset 0 0 0 var(--cmux-hairline, 0.5px)
+      color-mix(in srgb, var(--agent-accent) 22%, var(--acpmux-composer-edge, transparent)),
+    inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
+  color: var(--cv-text);
+  min-width: 0;
+}
+.cv-agent-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 24px;
+}
+/* An agent session's own avatar (agentAvatar.ts), in place of its harness mark: also the sender chip's. */
+.cv-agent-avatar {
+  display: block;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.cv-agent-card__icon {
+  display: inline-flex;
+  flex: none;
+  width: 16px;
+  justify-content: center;
+  color: var(--cv-text-muted);
+}
+.cv-agent-card__name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.cv-agent-card__model,
+.cv-agent-card__state {
+  flex: none;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-agent-card__state {
+  display: inline-flex;
+  gap: 4px;
+}
+.cv-agent-card__state[data-state="input"] {
+  color: var(--acpmux-warning);
+}
+.cv-agent-card__state[data-state="failed"] {
+  color: var(--agent-status-failure);
+}
+.cv-agent-card__open {
+  all: unset;
+  flex: none;
+  margin-inline-start: auto;
+  cursor: pointer;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-agent-card__open:hover,
+.cv-agent-card__open:focus-visible {
+  color: var(--cv-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cv-agent-card__doing {
+  margin-inline-start: 24px;
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+/* A run's command behind Raw (AgentRunCard.tsx): the code font, wrapped, at most a few lines tall. */
+.cv-agent-run__command {
+  margin: 4px 0 0 24px;
+  max-height: 160px;
+  overflow: auto;
+  font-family: var(--cv-font-mono, ui-monospace, monospace);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--cv-text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

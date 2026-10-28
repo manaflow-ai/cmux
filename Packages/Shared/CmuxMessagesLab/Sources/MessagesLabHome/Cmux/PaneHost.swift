@@ -67,9 +67,16 @@ final class HostView: NSView {
     var headerGlass: HeaderGlassView?
     /// cmux: no header at all (HeaderGlass.swift `useBareTop`): the rows start near the pane's top and fade out there.
     var bareTop = false
+    /// cmux: the chat top's look under the header (HostView+TopFade.swift); nil until Home sets one.
+    var topFadeStyle: HomeTopFadeStyle?
+    /// cmux: the band of the top fade style, when it draws one of its own (HomeTopFadeView).
+    var topFadeView: HomeTopFadeView?
     /// cmux: Reply to Selection's quote over the message box (HostView+QuoteCard.swift); nil when none shows.
     var quoteCard: ReplyQuoteCardView?
     private(set) var demo: MessagesWindowView?
+    /// cmux: the Chief chat's zoom (MessagesLabHomeView.zoom): this view is laid out at its pane's size over the
+    /// zoom and drawn magnified by it; its bitmaps render at the window's scale times it (PaneHost+Scale.swift).
+    var contentZoom: CGFloat = 1
     weak var controller: ChatController? { didSet { scrollView.document.controller = controller } }
     /// MessagesLab b6760b6: the window's update observer and the window place the rows last read
     /// (PaneHost+WindowPlace.swift).
@@ -189,6 +196,8 @@ final class HostView: NSView {
         let ph = CGRect(x: 0, y: 0, width: bounds.width, height: Fixture.headerHeight)
         if paneHeader.frame != ph { paneHeader.frame = ph }
         placeHeaderGlass()
+        placeTopFadeView()
+        updateTopFadeScrollEdge()
         controller?.placeSendButton(animated: false)
         fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
                           emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
@@ -291,7 +300,19 @@ extension FieldChrome {
     /// cmux: the field's Liquid Glass, "+" and emoji follow the theme: light
     /// glass on a light theme (the glass renders for its view's appearance),
     /// MessagesLab's dark glass and white symbols otherwise.
-    func applyTheme(light: Bool, symbol: NSColor) {
+    ///
+    /// A light theme's glass is as pale as the page, so the field gets a hairline edge of
+    /// `edge` (the palette's `composeStroke`: 3:1 on the page, WCAG 1.4.11); dark glass keeps its own rim.
+    func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil) {
+        field.wantsLayer = true
+        if let layer = field.layer {
+            // NSGlassEffectView rounds its glass internally, independently of its backing
+            // layer. Keep the added hairline on the same curve instead of boxing the glass.
+            if layer.cornerRadius != field.cornerRadius { layer.cornerRadius = field.cornerRadius }
+            let width: CGFloat = light && edge != nil ? 1 : 0
+            if layer.borderWidth != width { layer.borderWidth = width }
+            if let edge, light { layer.borderColor = edge.cgColor }
+        }
         let appearance = NSAppearance(named: light ? .aqua : .darkAqua)
         if self.appearance?.name != appearance?.name { self.appearance = appearance }
         let tint: NSColor = light ? symbol : .white
@@ -327,6 +348,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// cmux: the pointer moved over the transcript (or left it: nil), in screen coordinates; the
     /// host's hover cards for link chips follow it (HomeLinkChip).
     var onPointerMoved: ((CGPoint?) -> Void)?
+    /// cmux: the field's height changed (a draft wrapped to more or fewer lines, an attachment, a
+    /// send): the host lays out what sits above the field (the first-run panel, its notice).
+    var onFieldTopChange: (() -> Void)?
     /// cmux: a click on any other link (`otherTarget`: Shift-Command held); the system opens it unless the host routes it.
     var onOpenLink: (_ url: URL, _ otherTarget: Bool) -> Void = { url, _ in NSWorkspace.shared.open(url) }
     /// cmux: a press on a link moved past the drag slop: the host may take the drag (a split or
@@ -481,7 +505,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
         followWindowScale()
         host.fieldChrome.onPlus = { [weak self] in self?.intents?.pickAttachments() }
         host.fieldChrome.onEmoji = { [weak self] in self?.roundButtonClicked() }
-        demo.compose.onFieldResize = { [weak self] old, new, el, begin in self?.host.fieldChrome.animateField(from: old, to: new, el, begin: begin) }
+        demo.compose.onFieldResize = { [weak self] old, new, el, begin in
+            self?.host.fieldChrome.animateField(from: old, to: new, el, begin: begin)
+            self?.onFieldTopChange?()
+        }
         demo.compose.onSendPulse = { [weak self] begin in self?.host.fieldChrome.sendPulse(begin: begin) }
         demo.compose.onAttachmentsChanged = { [weak self] in self?.host.needsLayout = true; self?.host.updateTrackingAreas() }
         // The scroller (MessagesLab 93cf61f): a knob drag or a track click. Home has no
@@ -501,6 +528,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         demo.compose.onFieldJump = { [weak self] in
             guard let self, let demo = self.demo else { return }
             self.host.fieldChrome.setFrameNow(demo.compose.fieldRect)
+            self.onFieldTopChange?()
         }
         let tv = demo.compose.textView
         tv.view.delegate = self
@@ -515,6 +543,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         // rule, prepared by HomeStore); a picture it refuses is not attached.
         tv.view.onPastePasteboard = { [weak self] pb in self?.intents?.takeAttachments(from: pb) ?? false }
         tv.view.acceptsPastePasteboard = { [weak self] pb in self?.intents?.acceptsAttachments(from: pb) ?? false }
+        tv.view.pasteTextBesideAttachments = { [weak self] pb in self?.intents?.attachmentPasteText(from: pb) }
+        tv.view.draftAttachmentFile = { [weak self] id in self?.intents?.draftAttachmentFile(id) }
         tv.view.onDropPasteboard = { [weak self] pb in self?.takeDrop(pb) ?? false }
         tv.view.acceptsDropPasteboard = { [weak self] pb in self?.intents?.acceptsDroppedAttachments(from: pb) ?? false }
         tv.view.onDropTargetChange = { [weak self] targeted in self?.intents?.attachmentDropTargeted(targeted) }
@@ -525,6 +555,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
         demo.onScrollPosition = { [weak self] in
             ScaleKeeper.shared.setNeedsApply()
+            self?.host.updateTopFadeScrollEdge()
             self?.intents?.scrolled()
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
@@ -659,7 +690,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         intents?.send()
     }
 
-    func textDidChange(_ notification: Notification) {
+    func textDidChange(_ notification: Notification) { // perf-hot: 2ms home-key (every key typed into the Home composer)
         guard let demo else { return }
         let tv = demo.compose.textView.view
         voice.fieldChanged()  // cmux: the person typed while dictating: the words stay, the session stops
@@ -858,4 +889,17 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func windowDidResize() { host.needsLayout = true }
 
     // The display change (colour space and scale): PaneHost+Scale.swift (followDisplay).
+}
+
+extension NSView {
+    /// cmux: the Chief chat's zoom (HostView.contentZoom) of the host this view is in, 1 outside one. A view's length
+    /// in its window also carries a canvas camera's scale, so a bitmap's scale reads the zoom here, not from `convert`.
+    var enclosingContentZoom: CGFloat {
+        var view = superview
+        while let v = view {
+            if let host = v as? HostView { return host.contentZoom }
+            view = v.superview
+        }
+        return 1
+    }
 }

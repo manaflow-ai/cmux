@@ -13,7 +13,6 @@ extension AppServices {
         palette.onVisibilityChange = { [weak self] open in
             guard let self else { return }
             if open {
-                chromiumWarmup.tabSignal(.paletteOpen)
                 windows.active?.focus.send(.overlayOpened(.palette))
             } else {
                 for controller in windows.controllers where controller.focus.state.overlays.contains(.palette) {
