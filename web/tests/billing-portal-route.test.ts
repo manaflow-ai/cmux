@@ -78,10 +78,10 @@ mock.module("../db/client", () => ({
 
 // The Stripe side of a past-due subscription for the payment method return.
 // The return token is signed with the Stripe secret.
-process.env.STRIPE_SECRET_KEY ??= "sk_test_unit";
+process.env.STRIPE_SECRET_KEY ||= "sk_test_unit";
 let customerDefaultPaymentMethod: string | null = null;
 let providerSubscriptions: Array<Record<string, unknown>> = [];
-let openInvoices: Array<{ id: string; subscription: string; status: string; created: number }> = [];
+let openInvoices: Array<{ id: string; subscription: string; status: string; created: number; hosted_invoice_url?: string }> = [];
 let invoicePaymentError: Error | null = null;
 const payInvoice = mock(async (id: string, _params?: unknown) => {
   if (invoicePaymentError) throw invoicePaymentError;
@@ -227,6 +227,18 @@ describe("billing portal route", () => {
     const response = await GET(new NextRequest(await completionURL()));
 
     expect(response.headers.get("location")).toBe("https://cmux.test/dashboard/billing?billing=payment_failed");
+  });
+
+  test("sends a card that needs 3D Secure to Stripe's hosted invoice page", async () => {
+    pastDuePro();
+    openInvoices[0]!.hosted_invoice_url = "https://invoice.stripe.com/i/in_failed";
+    invoicePaymentError = Object.assign(new Error("The invoice payment requires additional action."), {
+      type: "StripeCardError", code: "invoice_payment_intent_requires_action",
+    });
+
+    const response = await GET(new NextRequest(await completionURL()));
+
+    expect(response.headers.get("location")).toBe("https://invoice.stripe.com/i/in_failed");
   });
 
   test("keeps a Stripe outage during recovery on the dashboard with an error banner", async () => {

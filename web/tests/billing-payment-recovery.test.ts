@@ -23,7 +23,7 @@ type FakeInvoice = {
 };
 
 // The return token is signed with the Stripe secret.
-process.env.STRIPE_SECRET_KEY ??= "sk_test_unit";
+process.env.STRIPE_SECRET_KEY ||= "sk_test_unit";
 
 const DECLINED_CARD = "pm_declined";
 const NEW_CARD = "pm_new";
@@ -147,7 +147,7 @@ describe("recoverFailedSubscriptionPayments", () => {
       defaultPaymentMethod: NEW_CARD,
       subscriptions: [cmuxSubscription({ status: "unpaid" })],
       invoices: [
-        { id: "in_closed_renewal", subscription: "sub_1", status: "uncollectible", created: 3 },
+        { id: "in_closed_renewal", subscription: "sub_1", status: "draft", created: 3 },
         { id: "in_second", subscription: "sub_1", status: "open", created: 2 },
         { id: "in_first", subscription: "sub_1", status: "open", created: 1 },
       ],
@@ -157,11 +157,25 @@ describe("recoverFailedSubscriptionPayments", () => {
     expect(client.invoices.pay.mock.calls.map(([id]) => id)).toEqual(["in_first", "in_second"]);
   });
 
+  test("pays the debt dunning marked uncollectible on an unpaid subscription", async () => {
+    const client = fakeStripe({
+      defaultPaymentMethod: NEW_CARD,
+      subscriptions: [cmuxSubscription({ status: "unpaid" })],
+      invoices: [
+        { id: "in_open_renewal", subscription: "sub_1", status: "open", created: 2 },
+        { id: "in_uncollectible", subscription: "sub_1", status: "uncollectible", created: 1 },
+      ],
+    });
+
+    expect(await recover(client)).toEqual({ outcome: "recovered" });
+    expect(client.invoices.pay.mock.calls.map(([id]) => id)).toEqual(["in_uncollectible", "in_open_renewal"]);
+  });
+
   test("reports failure when a subscription is still not active after paying", async () => {
     const client = fakeStripe({
       defaultPaymentMethod: NEW_CARD,
       subscriptions: [cmuxSubscription({ status: "unpaid" })],
-      invoices: [{ id: "in_closed_renewal", subscription: "sub_1", status: "uncollectible", created: 1 }],
+      invoices: [{ id: "in_closed_renewal", subscription: "sub_1", status: "draft", created: 1 }],
     });
 
     expect(await recover(client)).toEqual({ outcome: "payment_failed" });
@@ -244,6 +258,18 @@ describe("recoverFailedSubscriptionPayments", () => {
     const client = fakeStripe({ defaultPaymentMethod: NEW_CARD, subscriptions: [cmuxSubscription()], lostPayRace: true });
 
     expect(await recover(client)).toEqual({ outcome: "recovered" });
+  });
+
+  test("keeps Stripe's payment error when the follow-up invoice read fails too", async () => {
+    const client = fakeStripe({ defaultPaymentMethod: NEW_CARD, subscriptions: [cmuxSubscription()] });
+    client.invoices.pay.mockImplementation(async () => {
+      throw Object.assign(new Error("Stripe is unavailable"), { type: "StripeAPIError" });
+    });
+    client.invoices.retrieve.mockImplementation(async () => {
+      throw new Error("read failed");
+    });
+
+    await expect(recover(client)).rejects.toThrow("Stripe is unavailable");
   });
 
   test("propagates Stripe errors that are not card declines", async () => {

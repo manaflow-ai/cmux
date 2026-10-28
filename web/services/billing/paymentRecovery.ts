@@ -66,13 +66,15 @@ export async function recoverFailedSubscriptionPayments(
     if (override && override !== paymentMethodId) {
       await client.subscriptions.update(subscription.id, { default_payment_method: paymentMethodId });
     }
-    for (const payment of await payOpenInvoices(client, subscription.id, paymentMethodId)) {
+    for (const payment of await payOutstandingInvoices(client, subscription, paymentMethodId)) {
       if (payment.kind === "declined") declined = true;
       if (payment.kind === "action") actionURL ??= payment.url;
     }
     const current = await recordSubscription(client, subscription.id, applySubscriptionUpdate);
     if (current && current.status !== "active" && current.status !== "trialing") declined = true;
   }
+  // Authentication comes first: the hosted invoice page is the only step that
+  // can finish it, and the dashboard still shows any other failed plan after.
   if (actionURL) return { outcome: "action_required", hostedInvoiceURL: actionURL };
   return { outcome: declined ? "payment_failed" : "recovered" };
 }
@@ -92,17 +94,22 @@ function isCmuxSubscription(subscription: Stripe.Subscription): boolean {
 }
 
 /**
- * Pays every open invoice of the subscription, oldest first. An `unpaid`
- * subscription closes the renewals it creates, so the debt can sit on an
- * older invoice than `latest_invoice`.
+ * Pays every outstanding invoice of the subscription, oldest first. An
+ * `unpaid` subscription closes the renewals it creates, so the debt can sit
+ * on an older invoice than `latest_invoice`; and when the account's dunning
+ * marks invoices uncollectible after the last retry, that debt is
+ * `uncollectible`, not `open`, and still payable.
  */
-async function payOpenInvoices(
+async function payOutstandingInvoices(
   client: StripeClient,
-  subscriptionId: string,
+  subscription: Stripe.Subscription,
   paymentMethodId: string,
 ): Promise<InvoicePayment[]> {
-  const open = await client.invoices.list({ subscription: subscriptionId, status: "open", limit: 100 });
-  const invoices = [...open.data].sort((a, b) => a.created - b.created);
+  const statuses: Stripe.InvoiceListParams.Status[] = subscription.status === "unpaid" ? ["open", "uncollectible"] : ["open"];
+  const lists = await Promise.all(statuses.map((status) =>
+    client.invoices.list({ subscription: subscription.id, status, limit: 100 })
+  ));
+  const invoices = lists.flatMap((list) => list.data).sort((a, b) => a.created - b.created);
   const payments: InvoicePayment[] = [];
   for (const invoice of invoices) {
     if (!invoice.id) continue;
@@ -118,7 +125,10 @@ async function payInvoice(client: StripeClient, invoiceId: string, paymentMethod
     await client.invoices.pay(invoiceId, { payment_method: paymentMethodId });
     return { kind: "paid" };
   } catch (error) {
-    const invoice = await client.invoices.retrieve(invoiceId);
+    // Keep Stripe's original error if the follow-up read fails too.
+    const invoice = await client.invoices.retrieve(invoiceId).catch(() => {
+      throw error;
+    });
     // A second return (a reload or double click) can lose the race to pay.
     if (invoice.status === "paid") return { kind: "paid" };
     if (!isStripeCardError(error)) throw error;
