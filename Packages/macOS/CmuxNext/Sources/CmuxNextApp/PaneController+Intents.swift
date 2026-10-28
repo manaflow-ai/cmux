@@ -252,6 +252,9 @@ extension PaneController {
         var keys: [String] = []
         for id in ids {
             services.cache.createTabs.released(id.rawValue) // closed before its first frame: create.tab ends as closed
+            // Keys held for a creation of this tab (a stand-in its daemon tab adopted included) go with it: a close by
+            // mouse or menu never runs them into what has the focus next. A no-op when nothing waits for it.
+            services.keyRouter.creationInputCoordinator.drop(tab: id.rawValue, in: view.window)
             if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 state?.localBrowserTabs[paneKey].removeAll { $0.id == id.rawValue }
                 services.cache.release(id.rawValue)
