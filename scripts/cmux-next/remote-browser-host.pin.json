@@ -1,12 +1,12 @@
 {
   "asset": "cmux-remote-browser-host-macos-arm64",
   "arch": "arm64",
-  "sha256": "9f31dd7d4bdab5061d39425aba27e089c76079abde43124feea757fe9e725cf3",
+  "sha256": "d7ca252f4ea2f181ad0624027ba61d10a329d8bebfd96301e27953f8b6ce5cb9",
   "source_commit": "ec6a3f8892d3c0ffd2dc778d9f5f9a69cff55f9f",
   "crate_tree": "b9e4543451bb4d0d8eaa0843b6e285abd4138790",
-  "cef_version": "cef-stage-e110f7a37c80-arm64-macos-arm64",
-  "cef_sha256": "fd683e0fe62465848ab5052e6fa5bc45a5bbb4c87036116067a9be2db1168bbe",
-  "build_step": "4ef82ba27d83643a2678811c",
+  "cef_version": "cef-154.0.28-cmux.36",
+  "cef_sha256": "ad5643c051c0cb5e6ac99f81ec7d47ab0b3a06e8e3c54e0d0bc7cb2e584f84e7",
+  "build_step": "20f863e765ee23f833872c65",
   "staging": {
     "note": "staging pin of fleet builds: no R2 object and no GitHub release; only the controller artifact store serves the sha256, until store_expires, and no Release build embeds it (scripts/cmux-next/cef-pin-staging.sh)",
     "store_expires": "2026-11-11"
