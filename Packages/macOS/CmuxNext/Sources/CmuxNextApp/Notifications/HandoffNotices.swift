@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentLanes
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextSettings
 
 /// The native notification of a chat handed off to a Cloud machine (cloud work mode; the hand-off
