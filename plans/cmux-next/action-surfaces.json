@@ -6163,6 +6163,40 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "pane expand-collapsed",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "pane"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : {
+        "key" : "x",
+        "modifiers" : [
+          "ctrl",
+          "cmd"
+        ]
+      },
+      "id" : "pane.expandCollapsed",
+      "main_menu" : "view",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.pane",
+        "order" : 102,
+        "title" : "Panes",
+        "title_key" : "category.pane",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Expand Collapsed Panes",
+      "title_key" : "action.pane.expandCollapsed",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "stepAdjust",
       "cli_name" : "pane resize-left",
       "context_menu" : "stepAdjust",
@@ -35643,6 +35677,34 @@
       "title_table" : "HangReportsActions"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action diagnostics-view-metrics",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "diagnostics.viewMetrics",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "View Metrics",
+      "title_key" : "action.diagnostics.viewMetrics",
+      "title_table" : "HangReportsActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "energy turn-off-for-now",
       "context_menu" : "noObject",
@@ -35696,6 +35758,118 @@
       "palette_suggested" : null,
       "title" : "Turn On Energy Saver Again",
       "title_key" : "action.energy.saver.turnOnNow",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings turn-off-memory-saver",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "memory.saver.off",
+      "main_menu" : null,
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Turn Off Memory Saver",
+      "title_key" : "action.memory.saver.off",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings use-moderate-memory-saver",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "memory.saver.conservative",
+      "main_menu" : null,
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Use Moderate Memory Saver",
+      "title_key" : "action.memory.saver.conservative",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings use-balanced-memory-saver",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "memory.saver.medium",
+      "main_menu" : null,
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Use Balanced Memory Saver",
+      "title_key" : "action.memory.saver.medium",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "settings use-maximum-memory-saver",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "memory.saver.aggressive",
+      "main_menu" : null,
+      "mcp" : "systemChange",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Use Maximum Memory Saver",
+      "title_key" : "action.memory.saver.aggressive",
       "title_table" : "Localizable"
     }
   ],
@@ -39143,14 +39317,10 @@
                   }
                 },
                 {
-                  "kind" : "separator",
-                  "order" : 3
-                },
-                {
                   "enabled_when" : "can_perform",
-                  "id" : "column.dock",
+                  "id" : "pane.expandCollapsed",
                   "kind" : "action",
-                  "order" : 4,
+                  "order" : 3,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -39160,8 +39330,12 @@
                   }
                 },
                 {
+                  "kind" : "separator",
+                  "order" : 4
+                },
+                {
                   "enabled_when" : "can_perform",
-                  "id" : "column.undock",
+                  "id" : "column.dock",
                   "kind" : "action",
                   "order" : 5,
                   "visible_when" : {
@@ -39174,7 +39348,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "column.float",
+                  "id" : "column.undock",
                   "kind" : "action",
                   "order" : 6,
                   "visible_when" : {
@@ -39187,7 +39361,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "column.dockLeft",
+                  "id" : "column.float",
                   "kind" : "action",
                   "order" : 7,
                   "visible_when" : {
@@ -39200,7 +39374,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "column.dockRight",
+                  "id" : "column.dockLeft",
                   "kind" : "action",
                   "order" : 8,
                   "visible_when" : {
@@ -39213,7 +39387,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "column.dockTop",
+                  "id" : "column.dockRight",
                   "kind" : "action",
                   "order" : 9,
                   "visible_when" : {
@@ -39226,7 +39400,7 @@
                 },
                 {
                   "enabled_when" : "can_perform",
-                  "id" : "column.dockBottom",
+                  "id" : "column.dockTop",
                   "kind" : "action",
                   "order" : 10,
                   "visible_when" : {
@@ -39238,15 +39412,28 @@
                   }
                 },
                 {
+                  "enabled_when" : "can_perform",
+                  "id" : "column.dockBottom",
+                  "kind" : "action",
+                  "order" : 11,
+                  "visible_when" : {
+                    "debug_only" : false,
+                    "feature" : null,
+                    "requires" : [
+
+                    ]
+                  }
+                },
+                {
                   "kind" : "separator",
-                  "order" : 11
+                  "order" : 12
                 },
                 {
                   "enabled_when" : "can_perform",
                   "id" : "column.widthOneThird",
                   "kind" : "action",
                   "label" : "One-Third Width",
-                  "order" : 12,
+                  "order" : 13,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -39260,7 +39447,7 @@
                   "id" : "column.widthHalf",
                   "kind" : "action",
                   "label" : "Half Width",
-                  "order" : 13,
+                  "order" : 14,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -39274,7 +39461,7 @@
                   "id" : "column.widthTwoThirds",
                   "kind" : "action",
                   "label" : "Two-Thirds Width",
-                  "order" : 14,
+                  "order" : 15,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -39288,7 +39475,7 @@
                   "id" : "column.widthFull",
                   "kind" : "action",
                   "label" : "Full Width",
-                  "order" : 15,
+                  "order" : 16,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -39301,7 +39488,7 @@
                   "enabled_when" : "can_perform",
                   "id" : "column.center",
                   "kind" : "action",
-                  "order" : 16,
+                  "order" : 17,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -39315,7 +39502,7 @@
                   "id" : "agentPaneZoomIn",
                   "kind" : "action",
                   "label" : "Chat Zoom In",
-                  "order" : 17,
+                  "order" : 18,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -39329,7 +39516,7 @@
                   "id" : "agentPaneZoomOut",
                   "kind" : "action",
                   "label" : "Chat Zoom Out",
-                  "order" : 18,
+                  "order" : 19,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
@@ -39343,7 +39530,7 @@
                   "id" : "agentPaneZoomReset",
                   "kind" : "action",
                   "label" : "Chat Actual Size",
-                  "order" : 19,
+                  "order" : 20,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
