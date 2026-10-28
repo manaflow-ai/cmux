@@ -42,6 +42,7 @@ final class PaletteContentView: NSView {
     private var appliedScroll = -1
     private var appliedPage = -1
     private var appliedSize = CGSize.zero
+    private var appliedTextSize: CGFloat = 0
     private var menuHeight: CGFloat = 0
     private var actionsMenuFadingOut = false
 
@@ -131,6 +132,7 @@ final class PaletteContentView: NSView {
         let menuState = model.actionsMenu
         let recorderState = model.shortcutRecorder
         let size = PaletteLayout.windowSize
+        let textSize = Typography.body.pointSize
 
         if resultsVersion != appliedResults {
             appliedResults = resultsVersion
@@ -180,6 +182,14 @@ final class PaletteContentView: NSView {
         }
         updateMenu(menuState)
         updateRecorder(recorderState)
+        if textSize != appliedTextSize {
+            // Labels keep the font they were made with; a text size or density change while the
+            // palette exists resizes them (#26606).
+            appliedTextSize = textSize
+            refreshPaletteFonts()
+            list.reloadRows()
+            needsLayout = true
+        }
         if size != appliedSize {
             appliedSize = size
             list.relayoutRows()

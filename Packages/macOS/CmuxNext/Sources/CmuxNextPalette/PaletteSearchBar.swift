@@ -63,8 +63,10 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
             // Keep a caret at the end instead of a selection.
             field.currentEditor()?.selectedRange = NSRange(location: query.utf16.count, length: 0)
         }
-        if placeholder != self.placeholder || field.placeholderAttributedString == nil {
+        // The placeholder carries its own font, so a text size change redraws it too (#26606).
+        if placeholder != self.placeholder || field.placeholderAttributedString == nil || field.font != Typography.search {
             self.placeholder = placeholder
+            field.font = Typography.search
             applyColors()
         }
         self.style = style
@@ -79,7 +81,6 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         let name = scopeChips.last.map { PaletteStrings.keywordHint($0.title) } ?? placeholder
         field.setAccessibilityLabel(name)
         field.cell?.setAccessibilityLabel(name)
-        field.font = Typography.search
         spinner.spin(isLoading)
         needsLayout = true
     }
@@ -92,9 +93,13 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     private func applyColors() {
         performWithTheme {
             magnifier.contentTintColor = Palette.textTertiary
+            // The field scrolls its text, so a placeholder wider than the field truncates only
+            // through its own line break mode (#26606).
+            let style = NSMutableParagraphStyle()
+            style.lineBreakMode = .byTruncatingTail
             field.placeholderAttributedString = NSAttributedString(
                 string: placeholder,
-                attributes: [.font: Typography.search, .foregroundColor: Palette.textTertiary]
+                attributes: [.font: Typography.search, .foregroundColor: Palette.textTertiary, .paragraphStyle: style]
             )
         }
     }

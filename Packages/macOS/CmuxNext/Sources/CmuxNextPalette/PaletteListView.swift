@@ -113,6 +113,12 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         table.scrollRowToVisible(row)
     }
 
+    /// Configures every row again, in the current text size (#26606).
+    func reloadRows() {
+        table.reloadData()
+        syncTableSelection()
+    }
+
     func relayoutRows() {
         table.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<rows.count))
     }
@@ -238,7 +244,10 @@ final class PaletteSectionHeaderCell: NSTableCellView {
 
     var title: String {
         get { label.stringValue }
-        set { label.stringValue = newValue }
+        set {
+            label.refreshFont()
+            label.stringValue = newValue
+        }
     }
 
     init() {

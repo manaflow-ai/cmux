@@ -9,10 +9,10 @@ enum PaletteLayout {
     static let visibleRows: CGFloat = 10
 
     static var width: CGFloat { Metrics.paletteWidth }
-    static var searchHeight: CGFloat { Metrics.paletteSearchHeight }
-    static var rowHeight: CGFloat { Metrics.paletteRowHeight }
-    static var headerRowHeight: CGFloat { Metrics.sidebarHeaderHeight }
-    static var footerHeight: CGFloat { Metrics.paletteRowHeight }
+    static var searchHeight: CGFloat { fitText(Metrics.paletteSearchHeight) }
+    static var rowHeight: CGFloat { fitText(Metrics.paletteRowHeight) }
+    static var headerRowHeight: CGFloat { fitText(Metrics.sidebarHeaderHeight) }
+    static var footerHeight: CGFloat { rowHeight }
     static var listInset: CGFloat { Metrics.space2 }
     static var listHeight: CGFloat { rowHeight * visibleRows + listInset * 2 }
     static var cornerRadius: CGFloat { Metrics.panelCornerRadius }
@@ -30,9 +30,23 @@ enum PaletteLayout {
 
     static var actionsMenuWidth: CGFloat { width / 2 - Metrics.space6 }
     static var actionsMenuRowHeight: CGFloat { rowHeight - Metrics.space2 }
-    static var keycapSize: CGFloat { Metrics.iconSize + Metrics.space2 }
+    static var keycapSize: CGFloat { fitText(Metrics.iconSize + Metrics.space2) }
     static var keycapCornerRadius: CGFloat { Metrics.itemCornerRadius - Metrics.space1 }
     static var iconBox: CGFloat { Metrics.iconSize + Metrics.space2 }
+
+    /// How much larger the palette's text draws than the size its density's heights are made for:
+    /// Interface Size (`appearance.metrics.chromeFontSize`) or a density's own `fontSize` grow the
+    /// text but not `Metrics` heights, and 16 pt text in a 28 pt Compact row clipped (#26606).
+    /// Never below 1, so smaller text keeps the density's heights.
+    static var textScale: CGFloat {
+        max(1, Typography.body.pointSize / Metrics.scale(Metrics.tokens.levelBodySize))
+    }
+
+    /// `height` grown by `textScale`, on whole points.
+    private static func fitText(_ height: CGFloat) -> CGFloat {
+        let scale = textScale
+        return scale == 1 ? height : (height * scale).rounded()
+    }
 }
 
 extension NSView {
@@ -45,9 +59,12 @@ extension NSView {
 
 /// Label helpers so every text view uses Design typography.
 enum PaletteText {
-    static func label(_ font: NSFont, tone: PaletteTone? = .primary) -> PaletteLabel {
+    /// `font` is read again on `PaletteLabel.refreshFont()`, so a label follows a text size or
+    /// density change made while the palette exists.
+    static func label(_ font: @autoclosure @escaping @MainActor () -> NSFont, tone: PaletteTone? = .primary) -> PaletteLabel {
         let field = PaletteLabel(labelWithString: "")
-        field.font = font
+        field.fontSource = font
+        field.font = font()
         field.tone = tone
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1
