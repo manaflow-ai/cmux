@@ -41,6 +41,18 @@ import Testing
         #expect(wire.reaction(kind: ["emoji": "🔥"]) == .emoji("🔥"))
     }
 
+    /// The owner writes milliseconds; Rust timestamps may carry micro- or
+    /// nanoseconds, or none.
+    @Test func datesParseAtEveryPrecision() throws {
+        let base = try #require(wire.date("2026-10-12T09:41:07Z"))
+        for text in ["2026-10-12T09:41:07.123Z", "2026-10-12T09:41:07.123456Z", "2026-10-12T09:41:07.123456789Z"] {
+            let date = try #require(wire.date(text), "\(text)")
+            #expect(abs(date.timeIntervalSince(base) - 0.123) < 0.001, "\(text)")
+        }
+        #expect(wire.date("2026-10-12T11:41:07.5+02:00").map { $0.timeIntervalSince(base) } == 0.5)
+        #expect(wire.date("not a date") == nil)
+    }
+
     @Test func messageMapsPartsReceiptsAndReactions() throws {
         let object: [String: Any] = [
             "id": "msg_1", "conversation": "conv_1", "seq": 4, "client_msg_id": "c1", "author": "user_local",

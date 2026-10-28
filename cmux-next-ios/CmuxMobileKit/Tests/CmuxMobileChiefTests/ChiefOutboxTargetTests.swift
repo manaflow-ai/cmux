@@ -64,6 +64,30 @@ private final class StalledSendBackend: ConversationBackend, @unchecked Sendable
         #expect(session.outbox.isEmpty)
     }
 
+    /// Review B1: the coordinator names Mac B (`macID`) before B's backend
+    /// replaces Mac A's, which is still connected. A message parked for B
+    /// must not go to A's Chief in that window, and A stays the target.
+    @Test func namingTheNextMacFirstSendsNothingToTheCurrentOne() async throws {
+        let outbox = outboxFile()
+        outbox.save([ChiefOutbox.Waiting(message: ConversationComposeMessage(text: "parked for mac B"), target: "mac:mac-B")])
+        let session = ChiefSession(backend: ChiefOfflineBackend(), outbox: outbox)
+        session.macID = "mac-A"
+        session.use(ChiefMockBackend(sleep: { _ in }))
+        try await waitUntil("Mac A's Chief to connect") { session.isConnected && session.store.hasLoadedNewest }
+        session.macID = "mac-B"
+        #expect(session.outboxTarget == "mac:mac-A")
+        // Mac A's store keeps changing meanwhile (a message of its own).
+        session.send(ConversationComposeMessage(text: "for mac A"))
+        try await waitUntil("A's own message to go out") { session.store.messages.contains { $0.text == "for mac A" && $0.seq != nil } }
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!session.store.messages.contains { $0.text == "parked for mac B" })
+        // B's backend arrives: now it is B's turn.
+        session.use(ChiefMockBackend(sleep: { _ in }))
+        try await waitUntil("the parked message to reach Mac B") {
+            session.store.messages.contains { $0.text == "parked for mac B" && $0.seq != nil }
+        }
+    }
+
     /// The Mac link drops while a send is in flight: the backend is swapped
     /// for the offline one. Before: the row vanished with the old store. Now
     /// it waits in the outbox for the same Mac and goes out when it is back.
