@@ -10,7 +10,9 @@
 //! (`cancel_async_message`, as a withdraw does, `steer_withdraw.rs`) and one line with all of them
 //! goes in its place. That line says how many messages from how many sessions, then gives each as
 //! it was sent, oldest first, under a line naming its sender. Nothing is dropped, cut or
-//! summarized. Each steer keeps its own request: the line's echo answers every one `steered`.
+//! summarized. A line holds at most [`BATCH_MAX_BYTES`] of messages: past it the next message
+//! starts a new line, whole. Each steer keeps its own request: the line's echo answers every one
+//! `steered`.
 //! When Claude Code read the line first (`cancelled: false`) or cannot drop it, the line stands
 //! and the new messages go in as the next line. One line is written again at a time: messages
 //! that come while its drop is on its way wait for the answer, then go in the line written after
@@ -39,6 +41,39 @@ pub(super) struct Part {
     pub(super) from: String,
     /// Its content blocks, as Claude Code takes them.
     pub(super) content: Vec<Value>,
+    /// Their size as written (`part_bytes`), counted against [`BATCH_MAX_BYTES`].
+    pub(super) bytes: usize,
+}
+
+/// Most bytes of messages one batched line holds: a message that would take a line past it starts
+/// the next line, whole, so no line nears the agent host's frame limit (64 MiB) however many
+/// messages come, and nothing is cut. One message larger than this goes in a line of its own, as
+/// it did before batching.
+pub(super) const BATCH_MAX_BYTES: usize = 4 * 1024 * 1024;
+
+/// The bytes `content` takes in the line written to Claude Code (its JSON).
+fn part_bytes(content: &[Value]) -> usize {
+    content.iter().map(|b| serde_json::to_string(b).map_or(0, |s| s.len())).sum()
+}
+
+/// `parts` in order, as lines that each hold whole messages and at most [`BATCH_MAX_BYTES`]
+/// (a larger message alone).
+fn lines_of(parts: Vec<Part>) -> Vec<Vec<Part>> {
+    let mut lines: Vec<Vec<Part>> = Vec::new();
+    let mut size = 0;
+    for part in parts {
+        match lines.last_mut() {
+            Some(line) if size + part.bytes <= BATCH_MAX_BYTES => {
+                size += part.bytes;
+                line.push(part);
+            }
+            _ => {
+                size = part.bytes;
+                lines.push(vec![part]);
+            }
+        }
+    }
+    lines
 }
 
 /// The lines of other sessions' messages Claude Code has not read.
@@ -102,8 +137,9 @@ impl Translator {
         let now = p.pointer("/_meta/steerNow").and_then(Value::as_bool) == Some(true);
         let from = p.pointer("/_meta/batch/from").and_then(Value::as_str);
         let from = from.filter(|f| !now && !f.trim().is_empty());
-        let part =
-            Part { id: id.to_string(), prompt_id, from: from.unwrap_or("").to_owned(), content };
+        let bytes = part_bytes(&content);
+        let from_name = from.unwrap_or("").to_owned();
+        let part = Part { id: id.to_string(), prompt_id, from: from_name, content, bytes };
         let mut batches = self.batches.lock().await;
         let mut steers = self.steers.lock().await;
         // The turn ended since `outbound` looked (its result clears `in_turn` before it fails what
@@ -120,7 +156,12 @@ impl Translator {
                 return Outbound::Lines(Vec::new());
             }
             let last = steers.back().map(|(uuid, _)| uuid.clone());
-            if let Some(last) = last.filter(|l| !batches.no_drop && batches.lines.contains_key(l)) {
+            // Joined only while the line stays under the cap; past it, a new line starts.
+            let fits = |l: &String| {
+                let held = batches.lines.get(l).map(|p| p.iter().map(|p| p.bytes).sum::<usize>());
+                held.is_some_and(|held| held + part.bytes <= BATCH_MAX_BYTES)
+            };
+            if let Some(last) = last.filter(|l| !batches.no_drop && fits(l)) {
                 batches.rewrite = Some((last.clone(), vec![part]));
                 return Outbound::Lines(vec![drop_request(&last)]);
             }
@@ -204,12 +245,17 @@ impl Translator {
             parts = batches.lines.remove(uuid).unwrap_or_default();
         }
         parts.extend(held);
-        // Never empty: a rewrite holds the message that asked for it.
-        let (new, line) = self.steer_line(&mut steers, &parts).await;
-        batches.lines.insert(new, parts);
+        // Never empty: a rewrite holds the message that asked for it. Lines past the cap split,
+        // whole messages each, in order.
+        let mut written = Vec::new();
+        for parts in lines_of(parts) {
+            let (new, line) = self.steer_line(&mut steers, &parts).await;
+            batches.lines.insert(new, parts);
+            written.push(line);
+        }
         drop(steers);
         drop(batches);
-        self.stdin_replies.lock().await.push(line);
+        self.stdin_replies.lock().await.extend(written);
         Vec::new()
     }
 

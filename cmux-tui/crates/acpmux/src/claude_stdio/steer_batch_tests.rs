@@ -298,3 +298,33 @@ async fn a_steer_after_the_turn_ended_answers_no_turn() {
     assert!(answer(&[reply], 2).unwrap().unwrap_err().starts_with(STEER_NO_TURN));
     assert!(t.steers.lock().await.is_empty());
 }
+
+/// Messages that each fit but together pass the cap (review 3 of #26707): they go in more than
+/// one line, whole messages each, in order, every line under the cap, so no line nears the agent
+/// host's frame limit; nothing is cut.
+#[tokio::test]
+async fn messages_past_the_cap_split_into_lines_of_whole_messages() {
+    let (t, mut q) = stepping().await;
+    let big = |i: usize| format!("{i}:{}", "x".repeat(BATCH_MAX_BYTES / 3));
+    for i in 0..7 {
+        write(&t, &mut q, &from(i as i64 + 2, SENDERS[i % 3], &big(i))).await;
+        q.settle(&t).await;
+    }
+    assert!(q.waiting.len() > 1, "one line past the cap");
+    let mut next = 0;
+    for line in &q.waiting {
+        let size = serde_json::to_string(&line["message"]["content"]).unwrap().len();
+        assert!(size <= BATCH_MAX_BYTES + 4096, "a line of {size} bytes");
+        let text = text_of(line);
+        while next < 7 && text.contains(&big(next)) {
+            next += 1;
+        }
+    }
+    assert_eq!(next, 7, "a message is missing, cut or out of order");
+    let mut answered = 0;
+    for line in q.waiting.clone() {
+        let read = t.inbound(&echo(&line)).await;
+        answered += (2..=8).filter(|id| answer(&read, *id).is_some()).count();
+    }
+    assert_eq!(answered, 7);
+}
