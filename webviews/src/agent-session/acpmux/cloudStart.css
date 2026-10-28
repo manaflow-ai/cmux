@@ -28,7 +28,7 @@
 .acpmux-cloud-start__chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px 8px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -38,7 +38,8 @@
   align-items: center;
   gap: 4px;
   max-width: 100%;
-  padding: 2px 8px;
+  min-height: 20px;
+  padding: 0 8px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--agent-text) 6%, transparent);
   font-variant-numeric: tabular-nums;
@@ -95,8 +96,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none;
   width: 14px;
-  height: 14px;
+  aspect-ratio: 1;
 }
 /* Over the New Tab page's box: no bubble (the message is in the box), no column margin. */
 .nt-composer .acpmux-cloud-start {
