@@ -16,11 +16,31 @@ struct CmuxMainStartupTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
-        CmuxMain.installCrashOnExceptionsPolicy(defaults: defaults)
+        CmuxMain.installCrashOnExceptionsPolicy(
+            defaults: defaults,
+            operatingSystemVersion: OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)
+        )
         #expect(defaults.bool(forKey: "NSApplicationCrashOnExceptions"))
 
         defaults.set(false, forKey: "NSApplicationCrashOnExceptions")
-        CmuxMain.installCrashOnExceptionsPolicy(defaults: defaults)
+        CmuxMain.installCrashOnExceptionsPolicy(
+            defaults: defaults,
+            operatingSystemVersion: OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)
+        )
+        #expect(!defaults.bool(forKey: "NSApplicationCrashOnExceptions"))
+    }
+
+    @Test
+    func macOS27DisablesTheFatalExceptionDefault() throws {
+        let suiteName = "CmuxMainStartupTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        CmuxMain.installCrashOnExceptionsPolicy(
+            defaults: defaults,
+            operatingSystemVersion: OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0)
+        )
+
         #expect(!defaults.bool(forKey: "NSApplicationCrashOnExceptions"))
     }
 
@@ -34,6 +54,7 @@ struct CmuxMainStartupTests {
         var observations: [String] = []
         CmuxMain.runStartup(
             defaults: defaults,
+            operatingSystemVersion: OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0),
             raiseFileDescriptorLimit: {},
             writeAppHostReceipt: {},
             routeWorkers: {
@@ -45,6 +66,32 @@ struct CmuxMainStartupTests {
             launchApp: {
                 #expect(defaults.didRegisterFatalPolicy)
                 #expect(defaults.bool(forKey: "NSApplicationCrashOnExceptions"))
+                observations.append("app")
+            }
+        )
+
+        #expect(observations == ["worker", "app"])
+    }
+
+    @Test
+    func productionStartupOnMacOS27LeavesExceptionPolicyRecoverable() throws {
+        let suiteName = "CmuxMainStartupTests.\(UUID().uuidString)"
+        let defaults = try #require(RecordingCrashPolicyDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var observations: [String] = []
+        CmuxMain.runStartup(
+            defaults: defaults,
+            operatingSystemVersion: OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0),
+            raiseFileDescriptorLimit: {},
+            writeAppHostReceipt: {},
+            routeWorkers: {
+                #expect(!defaults.bool(forKey: "NSApplicationCrashOnExceptions"))
+                observations.append("worker")
+            },
+            preloadSigningSecret: {},
+            launchApp: {
+                #expect(!defaults.bool(forKey: "NSApplicationCrashOnExceptions"))
                 observations.append("app")
             }
         )
