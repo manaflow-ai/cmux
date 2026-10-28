@@ -21,18 +21,23 @@ struct AgentPaneCaptureTests {
     private static let png = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")!
     private static let saved = "/Users/dev/Library/Application Support/cmux/Chat Uploads/sessions/s1/u/0/Screenshot.png"
 
-    /// A pane for chat `s1` whose upload stager records each request and keeps the bytes it got.
+    /// A pane for chat `session` (nil: a fresh chat, before its first prompt) whose upload stager
+    /// records each request and the session it was asked for, and keeps the bytes it got. Like
+    /// AgentChatUploads' stager, it takes a nil session for a new chat.
     private final class Rig {
-        let model = AgentPaneModel(host: NoHost(), sessionId: "s1")
+        let model: AgentPaneModel
         var requests: [AgentPaneUploadStageRequest] = []
+        var sessions: [String?] = []
         var received = Data()
 
-        init(stages: Bool = true) {
+        init(stages: Bool = true, session: String? = "s1") {
+            model = AgentPaneModel(host: NoHost(), sessionId: session)
             guard stages else { return }
             model.onUploadStage = { [weak self] in
-                { request, session in
-                    guard let self, session == "s1" else { return AgentPaneReply.failure(code: "upload_failed", message: "") }
+                { request, asked in
+                    guard let self, asked == nil || asked == session else { return AgentPaneReply.failure(code: "upload_failed", message: "") }
                     requests.append(request)
+                    sessions.append(asked)
                     switch request {
                     case .begin(_, let size, _, _): return AgentPaneReply.success(["token": "t", "size": size, "chunkSize": 512 * 1024])
                     case .chunk(_, _, let data):
@@ -83,6 +88,22 @@ struct AgentPaneCaptureTests {
         let again = await rig.capture(Self.png, gesture: false)
         #expect(Self.errorCode(again) == AgentPaneTransportError.gestureRequired.rawValue)
         #expect(rig.requests.count == 3)
+    }
+
+    /// #26958 review: a fresh chat has no session until its first prompt, and its capture still
+    /// saves the original: the stager is asked for no session, as for the page's own new-chat upload.
+    @Test func aCaptureInAFreshChatSavesItsOriginal() async throws {
+        let rig = Rig(session: nil)
+        #expect(rig.model.sessionId == nil)
+        let answer = try #require(Self.value(await rig.capture(Self.png)))
+        #expect((answer["original"] as? [String: Any])?["path"] as? String == Self.saved)
+        #expect(rig.requests == [
+            .begin(name: "Screenshot 2026-10-11 14.32.05.png", size: Self.png.count, batchToken: nil, batch: nil),
+            .chunk(token: "t", offset: 0, data: Self.png),
+            .finish(token: "t"),
+        ])
+        #expect(rig.sessions == [nil, nil, nil])
+        #expect(rig.received == Self.png)
     }
 
     /// Leo, 2026-10-26: "WE NEED ARBITARRILY LARGE FILES OF ANY TYPE". A capture past the preview's
