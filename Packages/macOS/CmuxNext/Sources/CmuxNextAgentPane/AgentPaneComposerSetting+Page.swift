@@ -32,6 +32,7 @@ extension AgentPaneComposerSetting {
     var pageValueWithLook: JSONValue {
         var value = pageValue.objectValue ?? [:]
         value["plainFooter"] = .bool(AgentPaneTunables.composerPlainFooter.value)
+        value["harnessPlacement"] = .string(AgentPaneTunables.harnessPlacement.value.rawValue)
         value["modelMenu"] = .string(AgentPaneTunables.modelMenu.value.rawValue)
         value["harnessSwitch"] = .bool(AgentPaneTunables.harnessSwitchInStartedChat.value)
         value["escapeDoublePress"] = .bool(AgentPaneTunables.escapeStopDoublePress.value)
@@ -43,7 +44,7 @@ extension AgentPaneComposerSetting {
 
     /// Debug Settings' plain footer look, model menu and harness switch as the pages last got them,
     /// and whether a change is being pushed (``push(to:)`` then sends every page the event again).
-    @MainActor private static var lookShown = Look(plainFooter: false, modelMenu: .compact, harnessSwitch: false,
+    @MainActor private static var lookShown = Look(plainFooter: false, modelMenu: .compact, harnessPlacement: .left, harnessSwitch: false,
                                                    escapeDoublePress: true)
     @MainActor private static var lookChanging = false
     @MainActor private static var lookObservation: Task<Void, Never>?
@@ -55,7 +56,7 @@ extension AgentPaneComposerSetting {
         // task-owner: lives as long as the agent tabs (one per app); event-driven (Observation)
         lookObservation = Task {
             for await on in ObservationStream({
-                Look(plainFooter: AgentPaneTunables.composerPlainFooter.value, modelMenu: AgentPaneTunables.modelMenu.value,
+                Look(plainFooter: AgentPaneTunables.composerPlainFooter.value, modelMenu: AgentPaneTunables.modelMenu.value, harnessPlacement: AgentPaneTunables.harnessPlacement.value,
                      harnessSwitch: AgentPaneTunables.harnessSwitchInStartedChat.value,
                      escapeDoublePress: AgentPaneTunables.escapeStopDoublePress.value)
             }) {
@@ -73,6 +74,7 @@ extension AgentPaneComposerSetting {
 nonisolated private struct Look: Equatable, Sendable {
     var plainFooter: Bool
     var modelMenu: AgentPaneModelMenuStyle
+    var harnessPlacement: AgentPaneHarnessPlacement
     var harnessSwitch: Bool
     var escapeDoublePress: Bool
 }

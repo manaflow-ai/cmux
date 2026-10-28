@@ -1038,6 +1038,10 @@ path = "tests/test_ci_helper_prebuild_lifecycle.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_killpg_tolerates_eperm.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_verification_receipt.py"
 lane = "linux-guard"
 
@@ -1430,6 +1434,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_base_red_excuse.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_guard_check_isolation.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2112,4 +2120,16 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_next_dev_landing_workflow.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_runs_on_values.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ios_internal_runner.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_fleet_rule_lints.py"
 lane = "linux-guard"

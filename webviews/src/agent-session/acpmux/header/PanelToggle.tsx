@@ -2,7 +2,7 @@
 // One glyph whoever owns the panel (the summary, summary/SummaryButton.tsx; the Inspector,
 // inspector/ChatInspector.tsx). The open panel reads as pressed through its ink and selected glyph,
 // keeping the same quiet surface as the other header controls (header.css).
-import { Icon } from "../icons/Icon";
+import { HeaderIcon } from "./HeaderIcon";
 import { HEADER_GLYPH } from "./ChatHeaderTools";
 import { tooltipProps } from "../shortcuts";
 
@@ -30,7 +30,7 @@ export function PanelToggle({
       {...tooltipProps(label, undefined)}
       onClick={onToggle}
     >
-      <Icon name={icon} size={HEADER_GLYPH} selected={shown} />
+      <HeaderIcon name={icon} size={HEADER_GLYPH} selected={shown} />
     </button>
   );
 }
