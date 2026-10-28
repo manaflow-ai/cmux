@@ -31,8 +31,33 @@ import Testing
         try await UpdateStagedYieldsToNewerTests().settle(h, fetches: 1)
         #expect(h.sparkle.cancels == 0, "a halted build replaced the waiting update")
         #expect(h.sparkle.backgroundChecks == 0)
-        guard case .updateAvailable(let item)? = h.updater.lastProbe?.outcome else { return }
-        #expect(item.version != "500", "the probe shows the halted build as an update")
+        let outcome = try #require(h.updater.lastProbe?.outcome)
+        if case .updateAvailable(let item) = outcome { Issue.record("the probe shows \(item.version) as an update") }
+    }
+
+    /// Nightly 300 waits, Dev 400 is open to all, Dev 500 is halted. Sparkle picks the newest
+    /// allowed item (500) and holds it; it never falls back to 400. The probe must agree, or the
+    /// swap cancels 300 for 400 and its Sparkle check, which the hold does not cover, downloads 500.
+    static func fallbackFeed() -> String {
+        Self.feed(percent: "0").replacingOccurrences(of: "<item><title>dev</title>", with:
+            "<item><title>open</title><sparkle:version>400</sparkle:version><sparkle:channel>cmux-next-dev</sparkle:channel></item><item><title>dev</title>")
+    }
+
+    @Test func aHaltedNewestBuildIsNotSteppedAroundToAnOlderOne() async throws {
+        let h = UpdateStagedYieldsToNewerTests.make(ring: "dev", feed: Self.fallbackFeed())
+        h.rig.advance(by: .seconds(UpdateStagedYieldsToNewerTests.interval))
+        h.rig.fireAtNow()
+        try await UpdateStagedYieldsToNewerTests().settle(h, fetches: 1)
+        #expect(h.sparkle.cancels == 0, "the probe stepped around the halted newest build")
+        #expect(h.sparkle.backgroundChecks == 0)
+        let outcome = try #require(h.updater.lastProbe?.outcome)
+        if case .updateAvailable(let item) = outcome { Issue.record("the probe offers \(item.version)") }
+    }
+
+    /// An emptied element is a broken value: Sparkle holds it (StagedRollout.percent("") is nil).
+    @Test func anEmptyPercentageHoldsTheBuild() throws {
+        let items = try AppcastParser.parse(Data(Self.feed(percent: "").utf8))
+        #expect(items.first { $0.version == "500" }?.rolloutPercent == "")
     }
 
     @Test func aBuildAtEveryInstallStillReplacesTheWaitingUpdate() async throws {
