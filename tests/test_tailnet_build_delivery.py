@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise build-script Go invocations without downloading or compiling Go."""
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -107,6 +108,46 @@ class ShippingFeatureTests(unittest.TestCase):
 
     def test_dependency_name_does_not_enable_feature(self):
         self.assertEqual(self.flags("[dependencies]\ntailnet = {}\n", "aarch64-apple-darwin"), "")
+
+
+class TreeKeyTests(unittest.TestCase):
+    def test_shipping_helpers_change_published_artifact_key(self):
+        spec = importlib.util.spec_from_file_location("tree_key", ROOT / "scripts/ci/cmux_tui_tree_key.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            module.ROOT = root
+            module.INPUTS = ROOT / "scripts/cmux-next/cmux-tui-tree-inputs.txt"
+            def git(*args):
+                return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
+            git("init", "-q")
+            git("config", "user.name", "test")
+            git("config", "user.email", "test@example.com")
+            git("config", "core.hooksPath", "/dev/null")
+            # Absent optional blobs are permitted; required trees/gitlinks exist.
+            for line in module.INPUTS.read_text().splitlines():
+                if line.startswith("tree "):
+                    path = root / line.split(maxsplit=1)[1]
+                    path.mkdir(parents=True, exist_ok=True)
+                    (path / "fixture").touch()
+            path = root / "scripts/cmux-next/build-layout-reducer-ffi.sh"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+            git("add", "."); git("commit", "-qm", "initial")
+            commit = git("rev-parse", "HEAD")
+            for name in ["ghostty", "ghostty-next"]:
+                git("update-index", "--add", "--cacheinfo", f"160000,{commit},{name}")
+            git("commit", "-qm", "gitlinks")
+            previous = module.tree_key("HEAD")
+            for name in ["acpmux-build-features.sh", "tailnet-go.sh"]:
+                path = root / "scripts/ci" / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("changed build input\n")
+                git("add", "."); git("commit", "-qm", name)
+                changed = module.tree_key("HEAD")
+                self.assertNotEqual(previous, changed, name)
+                previous = changed
 
 
 if __name__ == "__main__":

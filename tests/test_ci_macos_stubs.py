@@ -100,6 +100,14 @@ class StubTests(unittest.TestCase):
         self.assertEqual(installed.read_text(), (self.dir / "CoreFoundation.tbd").read_text())
         self.assertTrue((sysroot / "System/Library/Frameworks/Security.framework/Security.tbd").exists())
 
+    def test_tailnet_headers_and_link_stubs_are_installed_together(self) -> None:
+        stubs.cmd_install(ROOT / "scripts/ci/macos-stubs", self.dir)
+        for name in ["IOKit", "SystemConfiguration"]:
+            self.assertTrue((self.dir / f"System/Library/Frameworks/{name}.framework/{name}.tbd").is_file())
+        self.assertTrue((self.dir / "usr/lib/libresolv.tbd").is_file())
+        self.assertTrue((self.dir / "usr/include/CoreFoundation/CoreFoundation.h").is_file())
+        self.assertTrue((self.dir / "usr/include/IOKit/IOKitLib.h").is_file())
+
     def test_a_libsystem_routine_bound_to_a_framework_needs_no_stub(self) -> None:
         # A Mac link with the macOS 15 SDK binds log2 to CoreServices (an
         # umbrella re-export); the Linux link binds it to libSystem, which

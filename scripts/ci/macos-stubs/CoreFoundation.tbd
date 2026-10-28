@@ -7,6 +7,7 @@ compatibility-version: 150.0.0
 exports:
   - targets:         [ x86_64-macos, arm64-macos ]
     symbols:         [
+                       '___CFConstantStringClassReference',
                        '_CFArrayAppendValue',
                        '_CFArrayCreate',
                        '_CFArrayCreateMutable',

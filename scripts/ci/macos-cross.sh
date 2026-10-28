@@ -19,6 +19,7 @@
 #   ref-sdk <mac-binary>           print the SDK version recorded in a Mac binary
 #   hosts <sha> <ghostty-sha> [version]  cmux-app-host, cmux-browser-host, cmux-cloud and the
 #                                  agent screen-detection plugin for both macOS targets
+#   acpmux                          focused feature-enabled acpmux link for both targets
 #   bins <sha> <ghostty-sha> <version>  cmux-tui, cmux-tui-hook, cmux-tui-host, cmux-holder, acpmux, cmux-relay, chatmux-relay
 #                                  (framework stubs) for both macOS targets
 #   all <sha> <ghostty-sha> <version>   hosts and bins, every cargo invocation at once
@@ -241,6 +242,16 @@ cmd_hosts() {
     cp "$CARGO_TARGET_DIR/$t/release/cmux-cloud" "$out/cmux-tui-cloud-server-$t"
     # Optional: a missing detector prints a warning annotation, never an error.
     "$repo_root/scripts/ci/stage-agent-detector.sh" "$CARGO_TARGET_DIR/$t/release" "$t" "$out/cmux-tui-agent-screen-detection-$t"
+  done
+}
+
+# The focused check uses exactly the production compiler wrappers and sysroot.
+cmd_acpmux() {
+  export CARGO_TARGET_DIR="${XC_CARGO_TARGET_DIR:-$XC_ROOT/target-acpmux}"
+  for t in "${TARGETS[@]}"; do
+    use_target "$t" "${MIN_OS[$t]}"
+    (cd "$repo_root/cmux-tui" && cargo build --locked -p acpmux --bin acpmux --target "$t" \
+      $("$repo_root/scripts/ci/acpmux-build-features.sh" crates/acpmux/Cargo.toml "$t"))
   done
 }
 
@@ -472,6 +483,7 @@ case "$command" in
   ref-sdk) cmd_ref_sdk "$@" ;;
   hosts) cmd_hosts "$@" ;;
   bins) cmd_bins "$@" ;;
+  acpmux) cmd_acpmux ;;
   all) cmd_all "$@" ;;
   weaken-compiler-rt) cmd_weaken_compiler_rt "$@" ;;
   parity-bins) cmd_parity_bins ;;

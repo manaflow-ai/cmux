@@ -615,6 +615,17 @@ jobs:
           python3 tests/test_ci_macos_stubs.py
           python3 tests/test_ci_macho_parity.py
 
+      - name: Set up Rust for the tailnet build-script fixture
+        if: ${{ !cancelled() }}
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: The tailnet target selection and job-local Go installer
+        if: ${{ !cancelled() }}
+        run: |
+          python3 tests/test_tailnet_build_delivery.py
+          python3 tests/test_tailnet_go.py
+          bash scripts/cmux-next/tests/rust-daemon-miss-builds.test.sh
+
       - name: The cmux-browser-host release package
         if: ${{ !cancelled() }}
         run: python3 tests/test_browser_host_release_package.py
