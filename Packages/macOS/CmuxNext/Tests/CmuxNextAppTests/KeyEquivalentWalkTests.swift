@@ -3,7 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextDesign
-import CmuxNextRemoteBrowser
+@testable import CmuxNextRemoteBrowser
 @testable import CmuxNextTabs
 @testable import CmuxNextTerminal
 import CmuxNextWakeups
