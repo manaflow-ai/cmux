@@ -1135,7 +1135,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // projection of `server.status`. The App supplies the source.
         .target(
             name: "CmuxNextServer",
-            dependencies: ["CmuxNextDesign", "CmuxNextIcons"],
+            dependencies: [
+                "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextDesign", "CmuxNextIcons",
+                "CmuxNextPages", "CmuxNextRemote", "CmuxNextSettings",
+            ],
             resources: [
                 .process("Resources"),
             ],

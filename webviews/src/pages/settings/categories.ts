@@ -30,6 +30,7 @@ export const CATEGORY_CARDS = [
   "channels",
   "webUpdates",
   "voiceInput",
+  "tailnet",
   "notices",
   "server",
 ] as const;

@@ -25,6 +25,7 @@ import { BrowserProfiles, MACHINE_COLORS_KEY, MachinesSection, SpacesSection } f
 import { PlaceholderSection } from "./PlaceholderSection";
 import { WebUpdatesCard } from "./WebUpdatesCard";
 import { VoiceInputCard } from "./VoiceInputCard";
+import { TailnetCard } from "./TailnetCard";
 import { ServerCard } from "./ServerCard";
 import { SectionActions } from "./SectionActions";
 import { ACCENT_KEY, APP_THEME_KEY, THEME_EDITS_KEY, THEME_KEY, ThemeStudio } from "./ThemeStudio";
@@ -57,6 +58,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   channels: () => <ChannelsCard />,
   webUpdates: () => <WebUpdatesCard />,
   voiceInput: () => <VoiceInputCard />,
+  tailnet: () => <TailnetCard />,
   notices: () => <NoticesCard />,
   server: () => <ServerCard />,
 };

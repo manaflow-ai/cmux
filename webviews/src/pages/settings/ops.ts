@@ -172,6 +172,8 @@ export type HostLists = {
   devices?: DevicesHostState | null;
   /** Settings › Import: the import suggestion cards, every text localized by the host (ui/ImportCards.tsx parses it). */
   import_suggestions?: unknown;
+  /** Settings > Accounts > This Mac on Your Tailnet (Labs): the daemon's own tailnet node; null while Labs is off. */
+  tailnet?: TailnetState | null;
   /** Updates > Web UI: the web UI served between app updates; null unless the bundle takes them (NIGHTLY). */
   web_updates?: WebUpdatesState | null;
   /** Settings > Chief > Voice input: the Debug toggle home.voiceInput; null where it does not exist (Release). */
@@ -230,6 +232,43 @@ export type ServerHostState = {
  * `mobile.allowIPhoneConnections` is on and an account is signed in. Every text is localized by
  * the host.
  */
+/** This Mac on Your Tailnet: the host's card, every text localized by the host. The sign-in link
+ * never reaches the page (Reopen asks the host to open it). */
+export type TailnetPhase =
+  | "unavailable"
+  | "signed_out"
+  | "starting"
+  | "waiting"
+  | "needs_approval"
+  | "failed"
+  | "signed_in";
+export type TailnetState = {
+  title: string;
+  phase: TailnetPhase;
+  status_title: string;
+  status: string;
+  busy: boolean;
+  error: string | null;
+  /** "Limit access to your Tailscale account": on unless every tailnet member may connect. */
+  limited: boolean;
+  /** False until the node reads the choice: the switch shows the owner-only default, disabled. */
+  limit_editable: boolean;
+  limit_title: string;
+  limit_help: string;
+  sign_in_title: string;
+  reopen_title: string;
+  cancel_title: string;
+  sign_out_title: string;
+  address_title: string;
+  copy_title: string;
+  pair_title: string;
+  done_title: string;
+  /** `https://<name>.<tailnet>.ts.net` once signed in. */
+  address?: string;
+  /** After Pair: the QR code (a PNG data URL) and the `cmux host join` line it encodes. */
+  pair?: { qr: string | null; command: string; help: string };
+};
+
 export type IPhoneHostState = {
   title: string;
   allowed: boolean;
@@ -821,6 +860,13 @@ export type SettingsOps = {
   "cmux.settings.server.pair": [Record<string, never>, Record<string, never>];
   /** A phone's pairing request: Allow or Don't Allow (the person's own gesture only). */
   "cmux.settings.mobile.answer_pair": [{ id: string; allow: boolean }, Record<string, never>];
+  /** Native: This Mac on Your Tailnet's buttons (the person's gesture only, Labs only). */
+  "cmux.settings.tailnet.sign_in": [Record<string, never>, Record<string, never>];
+  "cmux.settings.tailnet.cancel": [Record<string, never>, Record<string, never>];
+  "cmux.settings.tailnet.sign_out": [Record<string, never>, Record<string, never>];
+  "cmux.settings.tailnet.pair": [Record<string, never>, Record<string, never>];
+  "cmux.settings.tailnet.close_pair": [Record<string, never>, Record<string, never>];
+  "cmux.settings.tailnet.copy_address": [Record<string, never>, Record<string, never>];
   /** Native: Updates > Web UI's Check Now (updates.web.check); the host lists follow the check. */
   "cmux.settings.web_updates.check": [Record<string, never>, Record<string, never>];
   /** Native: Updates > Web UI's Roll Back (updates.web.rollback), from the next safe point. */

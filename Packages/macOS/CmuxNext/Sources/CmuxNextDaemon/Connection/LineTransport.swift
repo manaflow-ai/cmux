@@ -57,6 +57,9 @@ final class LineTransport: Sendable {
         var eventCount: UInt64 = 0
         /// Gets resource API stream lines (`stream_item`, `stream_end`).
         var streamHandler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?
+        /// Streams a caller opened on this connection by id (`routeStream`): each gets its own
+        /// lines, then nil once when the connection closes.
+        var streamRoutes: [String: @Sendable (Data?) -> Void] = [:]
 
         /// Marks a pending reply expired; its command and slot, or nil when
         /// `id` is not waiting for a reply.
@@ -169,6 +172,19 @@ final class LineTransport: Sendable {
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
     func setStreamHandler(_ handler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?) { state.withLock { $0.streamHandler = handler } }
+
+    /// Sends the lines of stream `id` to `handler` instead of the event path, and nil once when
+    /// the connection closes. False when the connection is already closed.
+    func routeStream(_ id: String, _ handler: @escaping @Sendable (Data?) -> Void) -> Bool {
+        state.withLock { state in
+            guard state.closed == nil else { return false }
+            state.streamRoutes[id] = handler
+            return true
+        }
+    }
+
+    /// Stops routing stream `id` (its stream ended or its reader stopped).
+    func unrouteStream(_ id: String) { _ = state.withLock { $0.streamRoutes.removeValue(forKey: id) } }
 
     /// Sends one command and returns the raw `ok:true` response line.
     /// `body` receives the allocated id and returns the encoded JSON object
@@ -301,6 +317,11 @@ final class LineTransport: Sendable {
             state.order.removeAll()
             return waiters
         }
+        let routes = state.withLock { state in
+            defer { state.streamRoutes.removeAll() }
+            return Array(state.streamRoutes.values)
+        }
+        for route in routes { route(nil) }
         let error = Self.closedError(reason)
         for waiter in waiters {
             switch waiter {
@@ -355,8 +376,9 @@ final class LineTransport: Sendable {
         // connection (`SessionJournalRead`); on the control connection it
         // travels with the raw events, in socket order (`session.events`).
         let streamed = envelope.type == "stream_item" || envelope.type == "stream_end"
-        if streamed, let streamID = envelope.streamID, let handler = state.withLock({ $0.streamHandler }) {
-            return handler(streamID, line)
+        if streamed, let streamID = envelope.streamID {
+            if let route = state.withLock({ $0.streamRoutes[streamID] }) { return route(line) }
+            if let handler = state.withLock({ $0.streamHandler }) { return handler(streamID, line) }
         }
         if let name = streamed ? Self.streamEvent : envelope.event {
             let index = state.withLock { state -> UInt64 in

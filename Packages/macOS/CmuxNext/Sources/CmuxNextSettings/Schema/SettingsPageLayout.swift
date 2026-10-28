@@ -23,6 +23,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case webUpdates
         /// Settings > Chief's Voice input row: the Debug toggle home.voiceInput, only where it exists.
         case voiceInput
+        /// Settings > Accounts: this Mac's own tailnet node (sign-in, address, Pair), Labs only.
+        case tailnet
         /// Settings > Chief's Notices row: it opens Notifications, which holds the Chief's notices.
         case notices
         /// Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet
@@ -254,7 +256,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             // Phone access sits beside the account it signs in with and the machines list. The
             // Machines card draws Machine Colors on its rows (a color well per machine).
             groups: [group("settings.group.phone"), group("settings.group.messagesServer"), group("settings.group.machineColors")],
-            lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
+            lead: [.accounts, .machines, .tailnet], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
         // Phones reaching this Mac: the iPhone host's switch, then its live status and phones.
         CategorySpec(
             id: "mobile", title: SettingsText.keyed("settings.category.mobile", "Mobile"), symbol: "iphone",

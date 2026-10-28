@@ -56,6 +56,8 @@ extension SettingsWindowService {
             // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
             "iphone": services.iphone.pageJSON,
+            // Accounts > This Mac on Your Tailnet: null while Labs (labs.previewFeatures) is off.
+            "tailnet": services.tailnetNode.pageJSON(enabled: services.settings?.snapshot.previewFeatures == true),
             // Settings > Server: status, version line, Restart Recommended, socket and tailnet address.
             "server": services.serverUpdates.settingsPageJSON,
             "import_suggestions": ImportSuggestionsCenter.shared.settingsJSON,

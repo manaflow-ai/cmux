@@ -42,6 +42,20 @@ public struct HostCLI: Sendable {
         return Data(result.stdout.utf8)
     }
 
+    /// `acp host ticket new --role client --url URL --json` (pairing tickets, #23297): a single-use
+    /// ticket another machine redeems at `url`; the run's own words when it fails.
+    public func clientTicket(url: String, label: String) async throws -> String {
+        let argv = [binary.path, "acp", "host", "ticket", "new", "--role", "client", "--url", url, "--label", label, "--json"]
+        let result = try await SSHProcessRunner.run(argv, environment: await Self.grouped(environment()), deadline: .seconds(15),
+                                                    label: "host ticket new", stop: Self.stop)
+        let reply = try? JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        guard result.status == 0, let ticket = reply?["ticket"] as? String else {
+            let message = result.stderr.split(whereSeparator: \.isNewline).last.map(String.init) ?? "host ticket new"
+            throw HostCLIStop(status: result.status, message: message)
+        }
+        return ticket
+    }
+
     /// The stdout of one short `cmux-tui <arguments>` run that prints JSON (`device list --json`,
     /// `device remove ID --yes --json`); nil when it failed or passed `deadline`.
     public func json(_ arguments: [String], deadline: Duration = .seconds(20), label: String) async -> Data? {

@@ -39,6 +39,8 @@ import {
   type MutationResult,
   type SettingsClient,
   type SnapshotResult,
+  type TailnetPhase,
+  type TailnetState,
   type ThemeOverride,
   type WorkspaceBackground,
 } from "./ops";
@@ -185,6 +187,15 @@ export class MockSettingsProvider {
    * exactly these, so an op added here reaches the page without a second list to keep in step. */
   served: { ops: string[]; streams: string[] } = { ops: [], streams: [] };
 
+  private tailnetEdit(change: Partial<TailnetState>): Record<string, never> {
+    if (this.host.tailnet) this.setHost({ ...this.host, tailnet: { ...this.host.tailnet, ...change } });
+    return {};
+  }
+
+  private tailnetPhase(phase: TailnetPhase): Record<string, never> {
+    return this.tailnetEdit({ phase, status: phase });
+  }
+
   /** Registers every op and stream on `session` (the provider side). */
   serve(session: Session): void {
     const ops: Record<string, (params: Params) => unknown> = {
@@ -198,6 +209,16 @@ export class MockSettingsProvider {
       "cmux.settings.sound.play": () => ({}),
       "cmux.settings.host.lists": () => this.host,
       "cmux.settings.accounts.state": () => this.accounts,
+      // This Mac on Your Tailnet: the sign-in flow as the host walks it (no browser, no node).
+      "cmux.settings.tailnet.sign_in": () => this.tailnetPhase("waiting"),
+      "cmux.settings.tailnet.cancel": () => this.tailnetPhase("signed_out"),
+      "cmux.settings.tailnet.sign_out": () => this.tailnetPhase("signed_out"),
+      "cmux.settings.tailnet.pair": () =>
+        this.tailnetEdit({
+          pair: { qr: null, command: "cmux host join 'cmxt1.x'", help: "Run on your other Mac" },
+        }),
+      "cmux.settings.tailnet.close_pair": () => this.tailnetEdit({ pair: undefined }),
+      "cmux.settings.tailnet.copy_address": () => ({}),
       "cmux.settings.server.restart": () => ({}),
       "cmux.settings.server.pair": () => ({}),
       "cmux.settings.mobile.allow_again": () => {
