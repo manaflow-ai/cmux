@@ -606,8 +606,13 @@ pub async fn start_tunnel_terminal_listener(
 ) -> std::io::Result<u16> {
     let listener = TcpListener::bind((host, port)).await?;
     let bound = listener.local_addr()?.port();
+    // supervise-allow: best effort by design, like a failed bind: a panic stops new tunnel terminals and the relay socket path still serves them; cancellation ends it.
     tokio::spawn(async move {
+        // The listener owns its connections. Each one ends on its child
+        // token, so after cancellation this waits for their bounded flush.
+        let mut connections = tokio::task::JoinSet::new();
         loop {
+            while connections.try_join_next().is_some() {}
             let accepted = tokio::select! {
                 biased;
                 _ = cancellation.cancelled() => break,
@@ -617,7 +622,7 @@ pub async fn start_tunnel_terminal_listener(
                 Ok((stream, _)) => {
                     let manager = Arc::clone(&manager);
                     let child = cancellation.child_token();
-                    tokio::spawn(serve_connection(stream, manager, child));
+                    connections.spawn(serve_connection(stream, manager, child));
                 }
                 Err(_) => {
                     // Transient accept errors (EMFILE and friends) must not
@@ -626,6 +631,7 @@ pub async fn start_tunnel_terminal_listener(
                 }
             }
         }
+        while connections.join_next().await.is_some() {}
     });
     Ok(bound)
 }

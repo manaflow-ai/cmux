@@ -43,7 +43,7 @@ import WebKit
         defer { host.close(history) }
         #expect(history.isPooled && Self.bootsParked(history))
         #expect(history.webView.configuration.value(forKey: "_relatedWebView") as? WKWebView === cloud.webView)
-        #expect(history.webView.configuration.websiteDataStore === groups.dataStore)
+        #expect(history.webView.configuration.websiteDataStore === groups.dataStore(for: .group(.privileged)))
         #expect(history.crash.sharesWebKitProcess)
     }
 
@@ -54,7 +54,8 @@ import WebKit
         let settings = try #require(host.open(PageOpenRequest(descriptor: .settings, routes: [], parked: true)))
         defer { host.close(settings) }
         #expect(settings.isPooled && Self.bootsParked(settings))
-        #expect(settings.webView.configuration.websiteDataStore !== groups.dataStore, "a parked Settings joined a group")
+        #expect(settings.webView.configuration.websiteDataStore !== groups.dataStore(for: .page(PageDescriptor.settings.id)),
+                "a parked Settings joined a group")
         #expect(settings.webView.configuration.value(forKey: "_relatedWebView") == nil)
         #expect(!settings.crash.sharesWebKitProcess)
     }
@@ -65,7 +66,7 @@ import WebKit
         let host = makeHost(groups)
         let history = try #require(host.open(PageOpenRequest(descriptor: .history, routes: [], parked: true)))
         defer { host.close(history) }
-        #expect(history.webView.configuration.websiteDataStore !== groups.dataStore)
+        #expect(history.webView.configuration.websiteDataStore !== groups.dataStore(for: .group(.privileged)))
         #expect(!history.crash.sharesWebKitProcess)
     }
 }

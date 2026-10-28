@@ -30,6 +30,9 @@ pub(super) fn handle_resource_line(
     writer: &MessageWriter,
     span: &mut RequestSpan<'_>,
 ) -> bool {
+    // The gate runs on the connection's control sequence, never on its
+    // reader (p05-ipc-086): an owner lookup here must not delay a read.
+    debug_assert_off_reader();
     let mut envelope = match envelope {
         Ok(envelope) => envelope,
         Err(error) => {
@@ -435,9 +438,24 @@ impl AcceptedPeer {
     /// Reads `stream`'s peer identity. May block: never call it on a thread
     /// that disallows blocking.
     pub(super) fn resolve(mux: &Mux, stream: &dyn transport::Stream) -> Self {
-        let peer_key = stream.peer_process_key();
-        let peer_token = stream.peer_token();
-        let peer_uid = stream.peer_uid();
+        Self::from_kernel_identity(
+            mux,
+            stream.peer_process_key(),
+            stream.peer_token(),
+            stream.peer_uid(),
+        )
+    }
+
+    /// Classifies a peer from the kernel identity its stream reports: its
+    /// process key, audit token and uid. [`AcceptedPeer::resolve`] reads them
+    /// from the stream; a test without a socket passes them itself. May
+    /// block, as `resolve` may.
+    pub(super) fn from_kernel_identity(
+        mux: &Mux,
+        peer_key: Option<String>,
+        peer_token: Option<cmux_link::app_caller::PeerToken>,
+        peer_uid: Option<u32>,
+    ) -> Self {
         let local_peer = classify_local_peer(mux, peer_key.as_deref(), peer_session_id);
         let executable = peer_executable(peer_key.as_deref(), peer_token.as_ref());
         let mobile_host = executable.as_deref().is_some_and(is_bundled_mobile_host_path);
@@ -475,6 +493,26 @@ pub(super) fn set_peer_identity_at_accept(mux: &Mux, client: u64, peer: Accepted
     // no longer counts as a client (orphan_shutdown.rs `client_count`), so the
     // exit watchers look again.
     mux.control_clients.notify_client_presence();
+}
+
+/// Records a `bridge-hello` with `bridge-frames-v1` (server/client_hello.rs)
+/// on `client`: the connection then counts as a framed bridge for the framed
+/// IPC grant rule (capabilities.rs `IpcPeer::FramedBridge`). Only a peer the
+/// kernel showed to be of the daemon's user may say so, and never the phone
+/// host's lane, which has its own rule, or a connection that already has a
+/// role. False when nothing changed.
+pub(super) fn declare_frame_bridge(mux: &Mux, client: u64) -> bool {
+    let mut state = mux.control_clients.state.lock().recover_poison();
+    let Some(record) = state.clients.get_mut(&client) else { return false };
+    let origin = &mut record.origin;
+    let eligible = matches!(origin.peer_process, PeerProcess::SameUser | PeerProcess::ByteBridge)
+        && !origin.mobile_host
+        && origin.role == HelloRole::Legacy
+        && origin.page.is_none();
+    if eligible {
+        origin.frame_bridge = true;
+    }
+    eligible
 }
 
 /// cmux's own executables beside the daemon's that splice a far client's

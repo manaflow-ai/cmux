@@ -153,16 +153,27 @@ impl Tailnet {
         };
         // Read both pipes while the CLI runs: a large status fills a pipe
         // buffer, and the CLI would block on it forever.
-        let out = std::thread::spawn(move || {
+        let readers = crate::supervised::scoped_thread("acpmux-tailscale-out", move || {
             let mut buf = Vec::new();
             let _ = (&mut stdout).take(MAX_OUTPUT).read_to_end(&mut buf);
             buf
+        })
+        .and_then(|out| {
+            let err = crate::supervised::scoped_thread("acpmux-tailscale-err", move || {
+                let mut buf = Vec::new();
+                let _ = (&mut stderr).take(64 * 1024).read_to_end(&mut buf);
+                buf
+            })?;
+            Ok((out, err))
         });
-        let err = std::thread::spawn(move || {
-            let mut buf = Vec::new();
-            let _ = (&mut stderr).take(64 * 1024).read_to_end(&mut buf);
-            buf
-        });
+        let (out, err) = match readers {
+            Ok(readers) => readers,
+            Err(e) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                bail!("cannot read {}: {e}", self.bin.display());
+            }
+        };
         let status = match child.wait_timeout(bound)? {
             Some(status) => status,
             None => {

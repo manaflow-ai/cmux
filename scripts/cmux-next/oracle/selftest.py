@@ -132,7 +132,7 @@ KNOWN_RED: Dict[str, KnownRed] = {
 # never show an unexpected pass or go stale.
 NAMED_MODULES = ("normalize", "diff", "oracle_cli_test", "mutant_catch_test")
 
-HOST = {"name": "selftest-host", "os": "Linux", "osVersion": "6.0", "arch": "x86_64"}
+HOST = {"name": "selftest-host", "os": "Linux", "osVersion": "6.0", "arch": "x86_64", "display": "none"}
 
 
 # ---------------------------------------------------------------------------------------------- network

@@ -119,9 +119,9 @@ enum DebugTimings {
 
     /// Marks `first_window_presented` (launch.first_window ends here, once per process) and has `watch` follow that
     /// window for a minimize or a cover before startup completes.
-    static func firstWindowPresented(_ window: NSWindow?, watch: LaunchInterruptionWatch) {
+    static func firstWindowPresented(_ window: NSWindow?, watch: LaunchInterruptionWatch?) {
         markLaunch("first_window_presented")
-        watch.watchFirstWindow(window)
+        watch?.watchFirstWindow(window)
     }
 
     /// The launch marks so far (`debug.startup`).

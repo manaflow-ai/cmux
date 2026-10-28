@@ -326,6 +326,7 @@ impl Upstream {
         output: impl std::io::Read + Send + 'static,
     ) -> Result<mpsc::Receiver<String>, String> {
         let (tx, lines) = mpsc::channel();
+        // supervise-allow: one upstream connection's output reader; it ends at EOF, and a panic drops `tx`, so requests to that upstream fail.
         std::thread::Builder::new()
             .name(format!("cmux-mcp-upstream-{}", self.prefix))
             .spawn(move || {
@@ -365,7 +366,7 @@ impl Upstream {
         let deadline = Instant::now() + timeout;
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
-            let line = match conn.lines.recv_timeout(left) {
+            let line = match crate::blocking::sync::recv_timeout(&conn.lines, left) {
                 Ok(line) => line,
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     let secs = timeout.as_secs();

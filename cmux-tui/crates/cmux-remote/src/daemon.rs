@@ -561,6 +561,7 @@ impl ServerConnection {
         // session and generation are fully published. The detached bounded
         // cleanup keeps cancellation from stranding the old carrier and never
         // delays or closes the replacement.
+        // supervise-allow: bounded by TERMINAL_CLOSE_TIMEOUT; it owns only the replaced carrier, so a panic loses only that carrier's close.
         tokio::spawn(async move {
             let _ = tokio::time::timeout(TERMINAL_CLOSE_TIMEOUT, previous.close()).await;
         });
@@ -691,6 +692,7 @@ impl ServerConnection {
         let key = self.key.clone();
         let close_complete = ServerCloseCompletionGuard::new(self.close_state.clone());
         let (result_tx, result_rx) = oneshot::channel();
+        // supervise-allow: one connection's close; a panic drops ServerCloseCompletionGuard, which publishes a failed close to every waiter.
         tokio::spawn(async move {
             let close_complete = close_complete;
             let result = async {
@@ -1244,6 +1246,7 @@ impl RemoteDaemon {
                 let connections = daemon.connections().await;
                 for connection in connections {
                     if !daemon.auth.device_is_active(&connection.device_id).await {
+                        // supervise-allow: one revoked connection's close; ServerCloseCompletionGuard publishes its outcome, panic included.
                         tokio::spawn(async move {
                             let _ = connection.close().await;
                         });

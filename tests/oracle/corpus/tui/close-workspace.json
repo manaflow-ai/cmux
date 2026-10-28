@@ -1,0 +1,92 @@
+{
+ "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+ "corpusVersion": 1,
+ "id": "close-workspace",
+ "suite": "tui",
+ "title": "prefix D closes the active workspace",
+ "surface": "cmux-tui",
+ "source": {
+  "repo": "manaflow-ai/cmux",
+  "ref": "$RUN",
+  "artifact": "$RUN"
+ },
+ "environment": {},
+ "fixture": {
+  "seed": "tui-close-workspace",
+  "network": "offline",
+  "clock": "fixed"
+ },
+ "preconditions": [
+  "cmux-tui attach on a PTY owned by driver_tui.py"
+ ],
+ "requires": [
+  "resource_api",
+  "tui"
+ ],
+ "platforms": [
+  "linux"
+ ],
+ "steps": [
+  {
+   "id": "setup",
+   "op": "resource.call",
+   "target": {
+    "machine": "current",
+    "session": "current"
+   },
+   "args": {
+    "method": "workspace.create",
+    "params": {
+     "initial_content": "terminal",
+     "name": "second"
+    },
+    "idempotencyKey": "tui.setup.workspace.create"
+   },
+   "expect": {
+    "outcome": "ok",
+    "receipt": "mutation_result"
+   },
+   "waitFor": {
+    "pointer": "/daemon/session/workspaces",
+    "predicate": {
+     "op": "lengthEquals",
+     "value": 2
+    },
+    "maxMs": 10000
+   }
+  },
+  {
+   "id": "act",
+   "op": "tui.key",
+   "target": {
+    "session": "current"
+   },
+   "args": {
+    "keys": [
+     "ctrl+b",
+     "shift+d"
+    ]
+   },
+   "expect": {
+    "outcome": "ok",
+    "noReceiptReason": "a key press has no receipt: its effect is the settled daemon facet and screen"
+   },
+   "checkpoint": [
+    "settled"
+   ],
+   "waitFor": {
+    "pointer": "/daemon/session/workspaces",
+    "predicate": {
+     "op": "lengthEquals",
+     "value": 1
+    },
+    "maxMs": 10000
+   }
+  }
+ ],
+ "invariants": [],
+ "teardown": [
+  "hang up the TUI's terminal",
+  "stop the case daemon"
+ ]
+}

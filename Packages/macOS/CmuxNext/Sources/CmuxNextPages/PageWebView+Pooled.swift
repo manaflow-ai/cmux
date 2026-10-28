@@ -10,7 +10,7 @@ final class PagePooledOwner {
 }
 
 extension PageWebView {
-    /// `dataStore` is the store of the page's process group (``WebProcessGroups/dataStore``); nil
+    /// `dataStore` is the store of the page's process group (``WebProcessGroups/dataStore(for:)``); nil
     /// gives the page a store of its own.
     static func hostConfiguration(handler: PageSchemeHandler, documentAttributes: [String: String],
                                   options: PageEngineOptions, dataStore: WKWebsiteDataStore? = nil)

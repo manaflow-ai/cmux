@@ -39,6 +39,8 @@ public final class TerminalSurfaceView: NSView {
     private(set) var lane: TerminalOutputLane?
     /// Watches each output chunk's parse on ``lane`` (``TerminalOutputLane``); nil watches nothing.
     private let hangWatch: (any HangWatchScoping)?
+    /// ``lane`` parses at utility while the view is suspended (``TerminalOutputLane/lowersHidden``).
+    private let lowersHiddenOutput: Bool
     /// Where Ghostty's secure keyboard entry requests for this view go (``TerminalSecureInput``).
     let secureInput: TerminalSecureInput
     weak var session: TerminalSession?
@@ -91,7 +93,11 @@ public final class TerminalSurfaceView: NSView {
 
     /// App-controlled pause (off-screen strip column, unselected tab).
     var isRenderingSuspended = false {
-        didSet { if isRenderingSuspended != oldValue { updateOcclusion() } }
+        didSet {
+            guard isRenderingSuspended != oldValue else { return }
+            lane?.setHidden(isRenderingSuspended) // a hidden surface parses at utility
+            updateOcclusion()
+        }
     }
 
     /// Mirrors attached to this view. While positive the surface keeps
@@ -188,7 +194,7 @@ public final class TerminalSurfaceView: NSView {
          modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
          mainWork: MainWorkScheduler, node: VisibilityNode? = nil, gpuResidency: (any TerminalGPUResidency)? = nil,
          vsyncSource: (any TerminalVSyncSource)? = TerminalVSync.source(FrameScheduler.appDisplays.hub),
-         externalCursor: Bool = false) {
+         externalCursor: Bool = false, lowersHiddenOutput: Bool = false) {
         let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
         let cursorLayer = externalCursor && TerminalCursorLayer.isAvailable ? TerminalCursorLayer() : nil
         let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks,
@@ -197,6 +203,7 @@ public final class TerminalSurfaceView: NSView {
         self.bridge = unsafe Unmanaged.passRetained(bridge)
         self.session = session
         self.hangWatch = hangWatch
+        self.lowersHiddenOutput = lowersHiddenOutput
         self.secureInput = secureInput
         modifierWatch = modifiers
         frameCoalescers = pointerFrames
@@ -314,7 +321,9 @@ public final class TerminalSurfaceView: NSView {
         // SAFETY: the lane owns the off-main uses of the surface until `deinit` closes it, before
         // the free (TerminalOutputLane).
         lane = unsafe TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output", echoStage: echoStage,
-                                         keyFlows: bridgeObject.typingSurface, hangs: hangWatch)
+                                         keyFlows: bridgeObject.typingSurface, hangs: hangWatch,
+                                         lowersHidden: lowersHiddenOutput)
+        lane?.setHidden(isRenderingSuspended)
         if let layer {
             cursorLayer?.install(on: layer)
             echoStage?.attach(to: layer)

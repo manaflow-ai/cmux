@@ -159,9 +159,9 @@ impl Drop for Wait {
         self.hub.cancel_trust_card(&self.session, &self.call);
         let Some(task) = task else { return };
         // The task may raise the card after the cancel above: once it has ended, the card goes.
-        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+        if tokio::runtime::Handle::try_current().is_ok() {
             let (hub, session, call) = (self.hub.clone(), self.session.clone(), self.call.clone());
-            runtime.spawn(async move {
+            self.hub.supervise("hub.trust-card-end", Fatal, ShutdownBehavior::Skip, async move {
                 let _ = task.await;
                 hub.cancel_trust_card(&session, &call);
             });

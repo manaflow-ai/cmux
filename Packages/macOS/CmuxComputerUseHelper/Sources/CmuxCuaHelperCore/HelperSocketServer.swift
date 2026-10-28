@@ -42,23 +42,31 @@ public final class HelperSocketServer: Sendable {
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let capacity = MemoryLayout.size(ofValue: address.sun_path)
-        guard path.utf8.count < capacity else { throw StartError.pathTooLong }
-        withUnsafeMutableBytes(of: &address.sun_path) { buffer in
-            buffer.copyBytes(from: path.utf8)
-            buffer[path.utf8.count] = 0
+        let pathBytes = Array(path.utf8)
+        guard pathBytes.count < capacity else { throw StartError.pathTooLong }
+        // SAFETY: sun_path is `capacity` bytes inside `address`; the copy writes the path
+        // and its NUL, pathBytes.count + 1 <= capacity bytes (checked above).
+        unsafe withUnsafeMutableBytes(of: &address.sun_path) { buffer in
+            unsafe buffer.copyBytes(from: pathBytes)
+            unsafe buffer[pathBytes.count] = 0
         }
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw StartError.socket(errno) }
         _ = fcntl(descriptor, F_SETFD, FD_CLOEXEC)
-        unlink(path)
+        // SAFETY: unlink reads the NUL-terminated copy of `path` Swift makes for the call.
+        unsafe unlink(path)
         let previous = umask(0o177)
-        let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+        // SAFETY: bind reads sizeof(sockaddr_un) bytes, the length passed, from `address`, a
+        // sockaddr_un local that outlives the call; the sockaddr view of it is the socket
+        // API's own cast and lives only for the call.
+        let bound = unsafe withUnsafePointer(to: &address) {
+            unsafe $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                unsafe bind(descriptor, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
         umask(previous)
-        guard bound == 0, chmod(path, 0o600) == 0, listen(descriptor, 16) == 0 else {
+        // SAFETY: chmod reads the NUL-terminated copy of `path` Swift makes for the call.
+        guard bound == 0, unsafe chmod(path, 0o600) == 0, listen(descriptor, 16) == 0 else {
             let failure = errno
             close(descriptor)
             throw StartError.socket(failure)
@@ -78,19 +86,24 @@ public final class HelperSocketServer: Sendable {
         guard descriptor >= 0 else { return }
         shutdown(descriptor, SHUT_RDWR)
         close(descriptor)
-        unlink(path)
+        // SAFETY: unlink reads the NUL-terminated copy of `path` Swift makes for the call.
+        unsafe unlink(path)
     }
 
     private func acceptLoop(_ descriptor: Int32) {
         while true {
-            let client = accept(descriptor, nil, nil)
+            // SAFETY: nil address and length pointers ask accept for no peer address, so
+            // it writes nothing through them.
+            let client = unsafe accept(descriptor, nil, nil)
             if client < 0 {
                 if errno == EINTR { continue }
                 return
             }
             _ = fcntl(client, F_SETFD, FD_CLOEXEC)
             var noSigPipe: Int32 = 1
-            setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+            // SAFETY: setsockopt reads sizeof(Int32) bytes, the length passed, from
+            // `noSigPipe`, an Int32 local.
+            unsafe setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
             let thread = Thread { [self] in serve(client) }
             thread.name = "cua-helper-connection"
             thread.start()
@@ -123,7 +136,7 @@ public final class HelperSocketServer: Sendable {
         var admitted = false
         var bytes = [UInt8](repeating: 0, count: 64 * 1024)
         while true {
-            let count = read(client, &bytes, bytes.count)
+            let count = HelperWire.read(client, into: &bytes)
             if count <= 0 { break }
             guard let lines = buffer.append(Data(bytes[0..<count])) else { break }
             for line in lines {
@@ -147,7 +160,9 @@ public final class HelperSocketServer: Sendable {
     static func peerUID(_ descriptor: Int32) -> uid_t? {
         var uid: uid_t = 0
         var gid: gid_t = 0
-        return getpeereid(descriptor, &uid, &gid) == 0 ? uid : nil
+        // SAFETY: getpeereid writes one uid_t into `uid` and one gid_t into `gid`, locals
+        // of those types.
+        return unsafe getpeereid(descriptor, &uid, &gid) == 0 ? uid : nil
     }
 
     private func handle(_ line: Data, connection: Connection) {
@@ -186,14 +201,7 @@ public final class HelperSocketServer: Sendable {
         func write(_ data: Data) {
             state.withLockUnchecked { descriptor in
                 guard descriptor >= 0 else { return }
-                data.withUnsafeBytes { raw in
-                    var offset = 0
-                    while offset < raw.count {
-                        let written = Darwin.write(descriptor, raw.baseAddress! + offset, raw.count - offset)
-                        if written <= 0 { if errno == EINTR { continue }; return }
-                        offset += written
-                    }
-                }
+                HelperWire.writeAll(data, to: descriptor)
             }
         }
 

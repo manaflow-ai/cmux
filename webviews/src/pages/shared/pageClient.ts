@@ -7,7 +7,6 @@
 // the namespace instead. No page file changes.
 
 import { holdPaintForClaim } from "./paintGate";
-import { PARKED_NAME, pageLifecycleFor } from "./pageLifecycle";
 import { installNativeMenu, NATIVE_MENU_OP } from "../../ui/nativeMenu";
 import { serveOracleState } from "../../protocol/oracle-state";
 import { watchPageEdits } from "./pageEdits";
@@ -108,8 +107,12 @@ export const RECEIVE_MANY_NAME = "__cmuxPageReceiveMany";
  */
 export const LISTEN_NAME = "__cmuxPageHostListen";
 
-/** The parked-document flag (pageLifecycle.ts); the client holds calls until the claim. */
-export { PARKED_NAME };
+/**
+ * Set to `true` by the host before page code runs when the document loads in a parked pooled host
+ * (the prewarmed spare, PageWebView's pooled recipe). The spare has no routes yet, so the client
+ * holds every call and subscription until the host claims the document for a page.
+ */
+export const PARKED_NAME = "__cmuxPageParked";
 
 /**
  * The host's claim of a parked document (`{route?}`): the claim's routes are bound, so the client
@@ -269,7 +272,7 @@ export class BridgePageClient implements PageClient {
 
   constructor(
     private readonly handler: ReplyHandler,
-    private readonly target: Record<string, unknown> = globalThis as unknown as Record<string, unknown>,
+    target: Record<string, unknown> = globalThis as unknown as Record<string, unknown>,
   ) {
     target[RECEIVE_NAME] = (message: unknown) => this.receive(message);
     target[RECEIVE_MANY_NAME] = (messages: unknown) => this.receiveMany(messages);
@@ -378,8 +381,6 @@ export class BridgePageClient implements PageClient {
       this.entry = route;
     }
     this.parked = false;
-    // A parked document is hidden to its timers (pageLifecycle.ts) until this claim.
-    pageLifecycleFor(this.target).claimed();
     const held = this.held;
     this.held = [];
     for (const { envelope, resolve, reject } of held) this.handler.postMessage(envelope).then(resolve, reject);

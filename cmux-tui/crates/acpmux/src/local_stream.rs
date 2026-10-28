@@ -80,7 +80,7 @@ pub(crate) fn bridge(socket: cmux::local_socket::Stream) -> io::Result<Stream> {
     let mut writer = socket;
     let runtime = tokio::runtime::Handle::current();
     let reads = runtime.clone();
-    std::thread::Builder::new().name("acpmux-socket-read".into()).spawn(move || {
+    crate::supervised::scoped_thread("acpmux-socket-read", move || {
         let mut buf = vec![0u8; BRIDGE_BUFFER];
         loop {
             let n = match reader.read(&mut buf) {
@@ -94,7 +94,7 @@ pub(crate) fn bridge(socket: cmux::local_socket::Stream) -> io::Result<Stream> {
         }
         // Dropping `inbound`: the read half reads end of file.
     })?;
-    std::thread::Builder::new().name("acpmux-socket-write".into()).spawn(move || {
+    crate::supervised::scoped_thread("acpmux-socket-write", move || {
         let mut buf = vec![0u8; BRIDGE_BUFFER];
         loop {
             // End of file once this process dropped its write half.

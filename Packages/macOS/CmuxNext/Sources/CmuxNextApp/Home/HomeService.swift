@@ -137,7 +137,7 @@ final class HomeService {
     /// A folder of this service's own (no app caches folder: tests) is new, so there is nothing to read in it.
     @ObservationIgnored private(set) lazy var listLaunch = HomeListLaunch(
         read: appListRead.hasCaches
-            ? appListRead.read : .some(HomeListLaunchRead.nothingToRead(owner: chief.home.session, caches: homeCaches)),
+            ? appListRead.read : .some(HomeListLaunchRead.nothingToRead(owner: chief.home.session, caches: homeCaches, on: work)),
         owner: chief.home.session, caches: homeCaches, work: work, mainWork: mainWork)
     /// The folder of this service's Home caches: the app's (`AppEnvironment.homeCachesDirectory`), else
     /// a temporary folder of its own, so the drafts of one `AppServices` never reach another's.

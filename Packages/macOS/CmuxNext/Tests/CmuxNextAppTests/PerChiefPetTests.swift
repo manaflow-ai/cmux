@@ -73,7 +73,7 @@ import Testing
 
         func popover(chief: String, picks: ChiefMascotPicks) async -> Popover {
             let home = url.deletingLastPathComponent().appending(path: "brain-\(chief)")
-            let view = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), connection: { nil }))
+            let view = HomeChiefSettingsView(muxHome: home, source: HomeChiefLocalEngine(files: HomeChiefFiles(muxHome: home), lanes: BackgroundWork(label: "test.chief-engine"), connection: { nil }))
             let rows = ChiefPetSettingsRows(settings: { settings }, homes: ChiefPetHomes(), picks: picks)
             let redraws = Redraws()
             rows.onMascot = { redraws.count += 1 }

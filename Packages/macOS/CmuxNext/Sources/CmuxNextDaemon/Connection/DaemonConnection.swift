@@ -13,7 +13,7 @@ import os
 /// synthetic `.connected` event, so a consumer that fetches `list-workspaces`
 /// on `.connected` sees every later delta and misses none.
 ///
-/// Events are decoded on the socket's reader thread (never the main actor)
+/// Events are decoded on the connection's decode lane (``DecodeLane``, never the reader or the main actor)
 /// and stamped with a monotonic `sequence`; `snapshot()` returns the
 /// sequence barrier its tree supersedes, so a store can drop older events
 /// exactly. A consumer that takes them with ``consumeEvents(_:)`` gets each
@@ -299,7 +299,10 @@ public actor DaemonConnection {
             let mutationCauses = mutationCauses
             // The subscribe of the handshake starts the daemon's replay before identify is read: held until then.
             let transportSites = configuration.reportsDiagnosticSites ? DaemonDiagnosticSiteRelay<DaemonDiagnosticSite>() : nil
+            // Each event decodes on the connection's decode lane; the reader waits for the stream's consumer
+            // after the line (p05-ipc-144, p07-memory-098).
             transport.start(
+                dispatch: .control(readerWait: { route.waitWhileReaderParked() }),
                 onCausedEvent: { [weak self] name, line, index, wireCause in
                     let event: DaemonEvent
                     if let transportSites, name == DaemonDiagnosticSite.eventName {
@@ -319,7 +322,6 @@ public actor DaemonConnection {
                     }
                     gate.deliver(envelope) { route.emit($0, bytes: line.count, parksReader: true) }
                 },
-                waitForConsumer: { route.waitWhileReaderParked() },
                 onClose: { [weak self] reason in
                     // task-owner: hop onto the actor; transportClosed ignores a stale serial
                     Task { await self?.transportClosed(serial: serial, reason: reason) }

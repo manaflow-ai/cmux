@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 public import Foundation
 
 /// cmux.json `workspaceGroups`: settings for workspace groups, the shape planned in

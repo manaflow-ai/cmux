@@ -114,6 +114,7 @@ fn queue() -> Option<&'static SyncSender<Message>> {
             // startup.
             let path = PATH_OVERRIDE.get().cloned().or_else(platform::client_log_path)?;
             let (sender, receiver) = sync_channel::<Message>(QUEUE_CAPACITY);
+            // supervise-allow: the client log's background I/O (a bounded queue and one sink); a panic loses log lines only.
             std::thread::Builder::new()
                 .name("client-log".into())
                 .spawn(move || {
@@ -125,6 +126,7 @@ fn queue() -> Option<&'static SyncSender<Message>> {
                     // stderr goes back to the terminal; if the stray open
                     // ever completes, the opener thread just drops the file.
                     let (sink_sender, sink_receiver) = sync_channel(1);
+                    // supervise-allow: the client log's background I/O (a bounded queue and one sink); a panic loses log lines only.
                     let opened = std::thread::Builder::new()
                         .name("client-log-open".into())
                         .spawn(move || {
@@ -132,10 +134,12 @@ fn queue() -> Option<&'static SyncSender<Message>> {
                         })
                         .is_ok();
                     let sink = if opened {
-                        sink_receiver
-                            .recv_timeout(std::time::Duration::from_secs(10))
-                            .ok()
-                            .flatten()
+                        crate::blocking::sync::recv_timeout(
+                            &sink_receiver,
+                            std::time::Duration::from_secs(10),
+                        )
+                        .ok()
+                        .flatten()
                     } else {
                         None
                     };
@@ -146,14 +150,14 @@ fn queue() -> Option<&'static SyncSender<Message>> {
                         // drain the queue so senders and flushes never wedge.
                         SINK_BROKEN.store(true, Ordering::Release);
                         restore_stderr_from_log();
-                        while let Ok(message) = receiver.recv() {
+                        while let Ok(message) = cmux_blocking::sync::recv(&receiver) {
                             if let Message::Flush(ack) = message {
                                 let _ = ack.try_send(());
                             }
                         }
                         return;
                     };
-                    while let Ok(message) = receiver.recv() {
+                    while let Ok(message) = cmux_blocking::sync::recv(&receiver) {
                         let record = match message {
                             Message::Record(record) => record,
                             Message::Flush(ack) => {
@@ -234,13 +238,13 @@ fn flush_with_deadline(deadline: std::time::Duration) {
                     return;
                 }
                 marker = returned;
-                std::thread::sleep(std::time::Duration::from_millis(5));
+                cmux_blocking::thread::sleep(std::time::Duration::from_millis(5));
             }
             Err(std::sync::mpsc::TrySendError::Disconnected(_)) => return,
         }
     }
     let remaining = deadline.saturating_sub(started.elapsed());
-    let _ = done.recv_timeout(remaining);
+    let _ = crate::blocking::sync::recv_timeout(&done, remaining);
 }
 
 /// Sentinel line the exiting thread writes into the stderr pipe so it can
@@ -281,7 +285,7 @@ fn drain_stderr_pipe(deadline: std::time::Duration) {
         if started.elapsed() >= deadline {
             return;
         }
-        std::thread::sleep(std::time::Duration::from_millis(5));
+        cmux_blocking::thread::sleep(std::time::Duration::from_millis(5));
     }
 }
 
@@ -326,15 +330,15 @@ fn open_sink(path: PathBuf) -> Option<Sink> {
     if let Some(dir) = path.parent()
         && !dir.as_os_str().is_empty()
     {
-        fs::create_dir_all(dir).ok()?;
+        cmux_blocking::fs::create_dir_all(dir).ok()?;
     }
-    let lock = append_options().open(lock_path(&path)).ok()?;
+    let lock = crate::blocking::fs::open_with(&append_options(), lock_path(&path)).ok()?;
     // An active file created by an older build may be group/world readable;
     // tighten it once (it captures stderr, which can carry credentials).
     #[cfg(unix)]
-    if path.exists() {
+    if cmux_blocking::fs::metadata(&path).is_ok() {
         use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+        let _ = crate::blocking::fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
     }
     Some(Sink { lock, path })
 }
@@ -373,7 +377,7 @@ fn write_record(sink: &mut Sink, record: &Record) {
     if !lock_exclusive(&sink.lock) {
         return;
     }
-    let Ok(mut file) = append_options().open(&sink.path) else {
+    let Ok(mut file) = crate::blocking::fs::open_with(&append_options(), &sink.path) else {
         unlock(&sink.lock);
         return;
     };
@@ -391,16 +395,19 @@ fn write_record(sink: &mut Sink, record: &Record) {
             // in some sharing configurations.
             drop(file);
             let rolled = rollover_path(&sink.path);
-            let mut rotated = fs::rename(&sink.path, &rolled).is_ok();
+            let mut rotated = cmux_blocking::fs::rename(&sink.path, &rolled).is_ok();
             if !rotated {
                 // Windows also refuses to replace an existing destination.
-                let _ = fs::remove_file(&rolled);
-                rotated = fs::rename(&sink.path, &rolled).is_ok();
+                let _ = cmux_blocking::fs::remove_file(&rolled);
+                rotated = cmux_blocking::fs::rename(&sink.path, &rolled).is_ok();
             }
             if !rotated {
                 // Keep the size bound even where rename keeps failing:
                 // drop the old content in place.
-                let _ = OpenOptions::new().write(true).truncate(true).open(&sink.path);
+                let _ = crate::blocking::fs::open_with(
+                    OpenOptions::new().write(true).truncate(true),
+                    &sink.path,
+                );
             }
         }
     }
@@ -470,6 +477,7 @@ pub(crate) fn redirect_stderr_into_log() {
         }
         // SAFETY: read_fd is owned by this File from here on.
         let mut reader = unsafe { File::from_raw_fd(read_fd) };
+        // supervise-allow: the client log's background I/O (a bounded queue and one sink); a panic loses log lines only.
         let spawned = std::thread::Builder::new()
             .name("stderr-pump".into())
             .spawn(move || {
@@ -510,7 +518,9 @@ pub(crate) fn redirect_stderr_into_log() {
                                     // backpressure to a runaway writer
                                     // instead of burning a core converting
                                     // records that will be dropped anyway.
-                                    std::thread::sleep(std::time::Duration::from_millis(5));
+                                    cmux_blocking::thread::sleep(std::time::Duration::from_millis(
+                                        5,
+                                    ));
                                 }
                                 start = end + 1;
                             }

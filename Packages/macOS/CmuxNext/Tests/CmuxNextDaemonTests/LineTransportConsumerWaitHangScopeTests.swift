@@ -29,12 +29,15 @@ import Testing
                                                      role: .control, stats: nil, hangs: hangs)
         defer { transport.close() }
         transport.start(
+            // Light: each emit runs inline on the reader (its lane stays idle), so the park is owed before the
+            // reader's wait after that line; on a heavy lane the wait lags the emits by the lane's backlog
+            // (p05-ipc-144), and the fixture's EOF could come first.
+            dispatch: EventDispatch(weigh: { _, _ in .light }, readerWait: { route.waitWhileReaderParked() }),
             onCausedEvent: { _, line, index, _ in
                 // A bell: the backlog coalesces titles of one surface, so each line stays one event.
                 route.emit(DaemonEventEnvelope(sequence: index, event: .bell(surface: 1)),
                            bytes: line.count, parksReader: true)
             },
-            waitForConsumer: { route.waitWhileReaderParked() },
             onClose: { _ in route.finish() })
 
         var parkWaits = parks.makeAsyncIterator()

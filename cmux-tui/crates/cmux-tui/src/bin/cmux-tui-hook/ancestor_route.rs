@@ -109,13 +109,13 @@ mod platform {
     use super::Process;
 
     pub(super) fn read(pid: u32) -> Option<Process> {
-        let stat = std::fs::read(format!("/proc/{pid}/stat")).ok()?;
+        let stat = cmux_blocking::fs::read(format!("/proc/{pid}/stat")).ok()?;
         // `pid (comm) state ppid ...`; comm may hold spaces, parentheses and
         // bytes that are not UTF-8.
         let after_comm =
             std::str::from_utf8(&stat[stat.iter().rposition(|b| *b == b')')? + 1..]).ok()?;
         let parent = after_comm.split_whitespace().nth(1)?.parse().ok()?;
-        let environ = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
+        let environ = cmux_blocking::fs::read(format!("/proc/{pid}/environ")).ok()?;
         let environment = environ
             .split(|byte| *byte == 0)
             .filter(|entry| !entry.is_empty())

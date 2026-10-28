@@ -1,8 +1,3 @@
-#if canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#endif
 import Foundation
 
 /// A canonical numeric address assigned to one Tailscale peer.
@@ -47,34 +42,18 @@ public struct CmxTailscalePeerAddress: Hashable, Sendable {
     }
 
     private static func parseIPv4(_ value: String) -> (canonical: String, bytes: [UInt8])? {
-        var address = in_addr()
-        guard value.withCString({ inet_pton(AF_INET, $0, &address) }) == 1 else { return nil }
-        let bytes = withUnsafeBytes(of: &address) { Array($0) }
-        var buffer = [CChar](repeating: 0, count: Int(clamping: INET_ADDRSTRLEN))
-        guard inet_ntop(AF_INET, &address, &buffer, socklen_t(buffer.count)) != nil else { return nil }
-        let canonical = decode(buffer)
+        guard let literal = CmxIPLiteral(value, family: .ipv4), let canonical = literal.canonicalText else { return nil }
         // Darwin's inet_pton accepts leading-zero octets as decimal while the
         // dialer's inet_aton reads them as octal. Refuse any non-canonical
         // spelling so classification never diverges from dialing.
         guard canonical == value else { return nil }
-        return (canonical, bytes)
+        return (canonical, literal.bytes)
     }
 
     private static func parseIPv6(_ value: String) -> (canonical: String, bytes: [UInt8])? {
         guard !value.contains("%") else { return nil }
-        var address = in6_addr()
-        guard value.withCString({ inet_pton(AF_INET6, $0, &address) }) == 1 else { return nil }
-        let bytes = withUnsafeBytes(of: &address) { Array($0) }
-        var buffer = [CChar](repeating: 0, count: Int(clamping: INET6_ADDRSTRLEN))
-        guard inet_ntop(AF_INET6, &address, &buffer, socklen_t(buffer.count)) != nil else { return nil }
-        return (decode(buffer).lowercased(), bytes)
-    }
-
-    private static func decode(_ buffer: [CChar]) -> String {
-        String(
-            decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) },
-            as: UTF8.self
-        )
+        guard let literal = CmxIPLiteral(value, family: .ipv6), let canonical = literal.canonicalText else { return nil }
+        return (canonical.lowercased(), literal.bytes)
     }
 
     private static func isTailscaleIPv4Peer(_ bytes: [UInt8]) -> Bool {

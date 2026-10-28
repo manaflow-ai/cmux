@@ -1,7 +1,7 @@
 //! `cmux-browser-host`: the browser host until `cmux browser host` exists in
 //! the Rust cmux binary (#16174).
 //!
-//!   cmux-browser-host serve [--socket PATH]
+//!   cmux-browser-host serve [--socket PATH] [--panic-log PATH]
 //!   cmux-browser-host eval [--session NAME] [--engine E] [--max-output N] [--timeout-ms N] (-|CODE)
 //!   cmux-browser-host list | close --session NAME | guide | version
 //!
@@ -69,6 +69,9 @@ mod unix {
         /// With `--supervised`: exit after this long with no session and no
         /// provider (the idle stop).
         idle_exit_ms: Option<u64>,
+        /// `serve --panic-log`: append each panic to this file (the daemon
+        /// passes `browser-host-panics.jsonl` at its state root).
+        panic_log: Option<PathBuf>,
     }
 
     fn parse(args: &[String]) -> Result<Options, String> {
@@ -85,6 +88,7 @@ mod unix {
             history_fd: None,
             provider_listen_fd: None,
             idle_exit_ms: None,
+            panic_log: None,
         };
         let mut iter = args.iter();
         while let Some(arg) = iter.next() {
@@ -93,6 +97,7 @@ mod unix {
             match arg.as_str() {
                 "--socket" => options.socket = PathBuf::from(value("--socket")?),
                 "--session" => options.session = value("--session")?,
+                "--panic-log" => options.panic_log = Some(PathBuf::from(value("--panic-log")?)),
                 "--engine" => options.engine = value("--engine")?,
                 "--max-output" => {
                     options.max_output = Some(
@@ -236,6 +241,7 @@ mod unix {
     ) -> Result<(), String> {
         let slot = engines.provider_slot();
         let bundle: Arc<str> = agent_bundle().into();
+        // supervise-allow: the provider listener; its loop only accepts, checks the peer and starts one thread per handshake (a handshake's panic stays on that thread), so it ends only when the listener fails, which leaves the host without app tabs until the daemon restarts it.
         std::thread::Builder::new()
             .name("cmux-browser-host-providers".into())
             .spawn(move || {
@@ -253,6 +259,9 @@ mod unix {
     }
 
     fn serve_command(options: &Options) -> i32 {
+        if let Some(path) = &options.panic_log {
+            cmux_browser_host::panic_log::install(path.clone());
+        }
         // No descriptor this process inherited reaches a browser it starts.
         if let Err(error) = cmux_browser_host::server::seal_inherited_descriptors() {
             eprintln!("cmux-browser-host: sealing inherited descriptors: {error}");
@@ -360,6 +369,7 @@ mod unix {
             supervise_from_stdin();
         }
         if let Some(idle) = idle {
+            // supervise-allow: the idle stop; a panic ends the idle stop only, and the host keeps serving until its daemon stops it, as when this thread cannot start.
             let spawned =
                 std::thread::Builder::new().name("supervisor-idle".into()).spawn(move || {
                     if idle.wait() {
@@ -391,11 +401,14 @@ mod unix {
             std::process::exit(0);
         }
         drop(stdout);
+        // supervise-allow: the stdin watch, Fatal by hand: the host exits at the end of stdin or at a panic in the watch, so it never outlives its daemon.
         let spawned = std::thread::Builder::new().name("supervisor-stdin".into()).spawn(|| {
-            let mut sink = [0_u8; 256];
-            let mut stdin = std::io::stdin().lock();
-            // Bytes from the daemon mean nothing; only the end does.
-            while matches!(stdin.read(&mut sink), Ok(n) if n > 0) {}
+            let _ = std::panic::catch_unwind(|| {
+                let mut sink = [0_u8; 256];
+                let mut stdin = std::io::stdin().lock();
+                // Bytes from the daemon mean nothing; only the end does.
+                while matches!(stdin.read(&mut sink), Ok(n) if n > 0) {}
+            });
             // crash-allow: the end of stdin means the daemon stopped or died; the host stops with it.
             std::process::exit(0);
         });

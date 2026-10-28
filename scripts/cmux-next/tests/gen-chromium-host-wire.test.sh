@@ -391,6 +391,38 @@ else
   echo "note: no C++ compiler; the generated .inc files were not compiled" >&2
 fi
 
+# A record struct of numbers only (as cmux_shim_ime_span: int, unsigned int, int64_t) goes field by
+# field with each field's own wire type, and the host keeps no string slots to wipe for it.
+records="$work/records"
+fixture "$records"
+hand_written "$records"
+cat >>"$records/$shimh" <<'EOF'
+typedef struct {
+  int start;
+  unsigned int color;
+  int64_t stamp;
+} cmux_shim_span;
+CMUX_SHIM_EXPORT int cmux_shim_send_spans(int browser_id, const cmux_shim_span* spans, int span_count);
+EOF
+edit_ops "$records" 'd["exports"].append({"name": "cmux_shim_send_spans", "class": "post", "args": [
+    {"name": "browser_id", "type": "int"}, {"name": "spans", "type": "const cmux_shim_span*"},
+    {"name": "span_count", "type": "int"}], "returns": "int", "result_used_by": [], "mirror_key": None,
+    "refresh_events": [], "pending_keys": [], "reply_event": None, "reason": "", "channel": "input"})'
+expect 0 "17/17 exports classified" "a numeric record export is valid" -- --root "$records" --check-ops
+python3 "$gen" --root "$records" >/dev/null
+rclient="$records/${outputs[1]}"
+has "$rclient" 'op_w.I32(arg_spans[i].start);' "a record's int field is not sent as I32"
+has "$rclient" 'op_w.U32(arg_spans[i].color);' "a record's unsigned int field is not sent as U32"
+has "$rclient" 'op_w.I64(arg_spans[i].stamp);' "a record's int64_t field is not sent as I64"
+spans="$(case_of "$records/${outputs[0]}" kOpSendSpans)"
+grep -qF 'arg_spans[i].start = r.I32();' <<<"$spans" || fail "a record's int field is not read as I32"
+grep -qF 'arg_spans[i].color = r.U32();' <<<"$spans" || fail "a record's unsigned int field is not read as U32"
+grep -qF 'arg_spans[i].stamp = r.I64();' <<<"$spans" || fail "a record's int64_t field is not read as I64"
+grep -qE 'arg_spans_s|Wipe' <<<"$spans" && fail "a record without strings keeps string slots"
+if [[ -n "$cxx" ]]; then
+  compile_inc "$records" "numeric records"
+fi
+
 # The result-use check: the fixture caller drops every post result.
 expect 0 "0 stand-in results read" "dropped results pass" -- --root "$base" --check-return-use
 sites="$(python3 "$gen" --root "$base" --swift-sites)"

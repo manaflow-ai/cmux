@@ -27,6 +27,7 @@ mod config;
 mod host;
 mod keybinding_tools;
 mod messages;
+mod panic_log;
 mod render_tool;
 mod results;
 mod schema;
@@ -373,6 +374,9 @@ fn serve(global: GlobalArgs, code_mode: bool) -> i32 {
     if let Some(why) = host::relay(&global, code_mode, &path) {
         eprintln!("cmux mcp: serving in this process: {why}");
     }
+    // The process that serves logs its panics; a relay above has replaced
+    // itself, and the shared host installs the same hook (`host::run`).
+    panic_log::install();
     // The client ends the server by closing stdin, then by SIGTERM; the
     // blocking stdin read must not hide that signal.
     let _ = crate::restore_default_termination_signals();
@@ -573,6 +577,7 @@ impl<B: Backend> Server<B> {
                     && let Some(job) = self.proxied_job(&params)
                 {
                     let caller = caller_env::current();
+                    // supervise-allow: one proxied tool call; a panic ends that call only, and the MCP client's own timeout ends its wait.
                     std::thread::spawn(move || {
                         let result = match caller {
                             Some(caller) => caller_env::scope(caller, || job.run(None)),

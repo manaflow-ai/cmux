@@ -17,6 +17,7 @@ mod agent_start_host;
 mod app;
 #[cfg(unix)]
 mod app_identity;
+mod blocking;
 mod browser_input;
 #[cfg(unix)]
 mod build_adopt;
@@ -1036,7 +1037,8 @@ fn version_report_json() -> serde_json::Value {
     );
     #[cfg(not(unix))]
     let (build_identity, build_time, remote_protocol) = (None, 0, None);
-    let executable = std::env::current_exe().ok().and_then(|path| std::fs::canonicalize(path).ok());
+    let executable =
+        std::env::current_exe().ok().and_then(|path| cmux_blocking::fs::canonicalize(path).ok());
     let mut report = version_report::version_json(
         &version_report::BuildFacts {
             build_identity,
@@ -2102,6 +2104,7 @@ fn run_relay(args: Args) -> anyhow::Result<()> {
         crossterm::terminal::enable_raw_mode()?;
     }
 
+    // supervise-allow: this relay's stdin pump; it ends at stdin EOF or when the relay shuts its write side, and run_relay joins it once finished, returning a panic as an error.
     let input = cmux_threads::spawn("relay-input", ECHO_PATH_QOS, move || {
         let result = io::copy(&mut io::stdin().lock(), &mut writer);
         let _ = writer.shutdown(Shutdown::Write);
@@ -2114,7 +2117,8 @@ fn run_relay(args: Args) -> anyhow::Result<()> {
     }
     output_result?;
     if input.is_finished() {
-        input.join().map_err(|_| anyhow::anyhow!("relay input thread panicked"))??;
+        blocking::thread::join(input)
+            .map_err(|_| anyhow::anyhow!("relay input thread panicked"))??;
     }
     Ok(())
 }
@@ -2238,7 +2242,8 @@ impl LocalOwnerEventLoop {
             stop.close();
         }
         self.thread.take().map_or(Ok(()), |thread| {
-            thread.join().map_err(|_| anyhow::anyhow!("local owner event loop panicked"))
+            blocking::thread::join(thread)
+                .map_err(|_| anyhow::anyhow!("local owner event loop panicked"))
         })
     }
 }
@@ -2271,7 +2276,7 @@ fn run_server(
     // Windows hosts get no orphan grace (no app bundles there to classify).
     #[cfg(unix)]
     host_orphan_policy::install();
-    owner_start::start_server_process(&args)?;
+    let supervisor = owner_start::start_server_process(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;
@@ -2295,7 +2300,7 @@ fn run_server(
     };
     let socket_is_derived = args.socket.is_none();
     if args.should_attach_existing(&ws_addr, &ws_token)
-        && socket_path.exists()
+        && cmux_blocking::fs::metadata(&socket_path).is_ok()
         && let Ok(remote) = RemoteSession::connect_session(&socket_path, socket_is_derived)
     {
         return run_connected_session_client(
@@ -2720,7 +2725,7 @@ fn run_server(
         }
         #[cfg(unix)]
         {
-            run_headless(&mux, &socket_path, || {
+            run_headless(&mux, &socket_path, &supervisor, || {
                 remote_runtime
                     .as_ref()
                     .is_some_and(remote_runtime::DaemonRuntimeHandle::is_finished)
@@ -2728,7 +2733,7 @@ fn run_server(
         }
         #[cfg(not(unix))]
         {
-            run_headless(&mux, &socket_path, || false)
+            run_headless(&mux, &socket_path, &supervisor, || false)
         }
     } else if let Some(runtime) = machine_runtime {
         run_machine_client(runtime, mux.clone(), config)
@@ -2746,6 +2751,7 @@ fn run_server(
             Err(error) => Err(error),
         }
     };
+    owner_start::stop_supervised(&supervisor, &result);
     // The owner's loop ended (a termination signal, shutdown-daemon or the
     // last client): record the session shutdown before any teardown, so a
     // shell that dies of the same logout signal is a host loss
@@ -2820,6 +2826,7 @@ fn start_local_owner_event_loop_with_completion(
     let weak_mux = Arc::downgrade(mux);
     let events = local_owner_reload_events(mux);
     let stop = events.clone();
+    // supervise-allow: owned by LocalOwnerEventLoop, which closes its events and joins it at finish, returning a panic as the owner's error.
     let thread = std::thread::spawn(move || {
         while let Ok(event) = events.recv() {
             let mux = weak_mux.upgrade();

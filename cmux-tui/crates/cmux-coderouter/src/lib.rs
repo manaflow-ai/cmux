@@ -371,6 +371,7 @@ fn bind_unix_admin(socket_path: &Path) -> anyhow::Result<AdminConnections> {
         )?;
     }
     let (tx, rx) = tokio::sync::mpsc::channel(16);
+    // supervise-allow: its end, a panic included, drops `tx`; admin_loop then sees the channel close and stops the router with an error (fatal by construction).
     tokio::spawn(async move {
         loop {
             let accepted = admin.accept().await.map(|(stream, _)| {
@@ -479,6 +480,7 @@ fn watch_owners(fifo: std::path::PathBuf) -> tokio::sync::oneshot::Receiver<()> 
             }
         }
     };
+    // supervise-allow: its end, a panic included, drops `gone`; owners_gone then resolves and the router stops (fatal by construction).
     let spawned =
         cmux_threads::spawn("router-owners", cmux_threads::ThreadQos::Utility, move || {
             watch();
@@ -529,6 +531,7 @@ async fn serve_owned(
     // stops during it (no owner left) returns from main without waiting
     // for that thread.
     let (locked, lock_rx) = tokio::sync::oneshot::channel();
+    // supervise-allow: one flock; a panic drops `locked`, so the await below fails and the router does not start.
     cmux_threads::spawn("router-lock", cmux_threads::ThreadQos::Utility, move || {
         let _ = locked.send(fs4::FileExt::lock(&lock).map(|()| lock));
     })?;
@@ -618,13 +621,16 @@ async fn admin_loop(
     port: u16,
     stop: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
+    // The loop owns its connections; a panic ends that connection only.
+    let mut connections = tokio::task::JoinSet::new();
     while let Some(accepted) = admin.recv().await {
+        while connections.try_join_next().is_some() {}
         let connection = accepted?;
         let keys = keys.clone();
         let upstream = upstream.clone();
         let free = free.clone();
         let stop = stop.clone();
-        tokio::spawn(async move {
+        connections.spawn(async move {
             let _ = admin_connection(connection, keys, upstream, free, port, stop).await;
         });
     }

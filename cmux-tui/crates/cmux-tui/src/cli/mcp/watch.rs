@@ -87,6 +87,7 @@ impl ActionWatch {
 /// `changed` each time the client must list the tools again (`serve` writes
 /// the notification, the shared host tells every client of that app).
 pub(super) fn spawn(global: GlobalArgs, changed: impl Fn() + Send + 'static) {
+    // supervise-allow: this MCP process's catalog watcher; a panic ends tool-list change notices only, and the tools still answer.
     let started = std::thread::Builder::new().name("cmux-mcp-actions".into()).spawn(move || {
         let params = json!({"names": [CATALOG_CHANGED], "include_heartbeats": false});
         let mut watch = ActionWatch::default();
@@ -101,7 +102,7 @@ pub(super) fn spawn(global: GlobalArgs, changed: impl Fn() + Send + 'static) {
                 delay = FIRST_RETRY;
             }
             // Backoff after a failure or a closed stream.
-            std::thread::sleep(delay);
+            cmux_blocking::thread::sleep(delay);
             delay = (delay * 2).min(MAX_RETRY);
         }
     });

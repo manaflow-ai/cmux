@@ -906,6 +906,7 @@ type UploadChunks = mpsc::Receiver<std::io::Result<Vec<u8>>>;
 fn compress_upload(source: &Path) -> UploadChunks {
     let (sender, receiver) = mpsc::channel(4);
     let source = source.to_path_buf();
+    // supervise-allow: one upload's compressor; it ends when the receiver drops, and a panic drops `sender`, which ends that upload's chunk stream.
     cmux_blocking::spawn_blocking(move || {
         use std::io::Read;
 
