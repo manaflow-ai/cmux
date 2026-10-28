@@ -69,7 +69,7 @@ public nonisolated struct KeyInput: Equatable, Sendable {
                                              layoutTypes: (String) -> Bool) -> String? {
         let us: String? = iso ? (keyCode == 10 ? "`" : keyCode == 50 ? nil : usPunctuation[keyCode]) : usPunctuation[keyCode]
         guard let us else { return nil }
-        if let typed = keyTypes, typed.unicodeScalars.count == 1, let scalar = typed.unicodeScalars.first,
+        if !isDead, let typed = keyTypes, typed.unicodeScalars.count == 1, let scalar = typed.unicodeScalars.first,
            scalar.isASCII, scalar.value > 0x20, scalar.value != 0x7F {
             return nil
         }
