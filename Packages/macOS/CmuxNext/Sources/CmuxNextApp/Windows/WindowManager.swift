@@ -469,6 +469,8 @@ final class WindowManager {
             if let id = window.content?.workspace.id { shown.insert(id) }
             if let id = window.state.workspaceID { shown.insert(id) }
             shown.formUnion(window.state.viewSet?.ids ?? [])
+            shown.formUnion(window.state.docks.visible.map(\.workspace))
+            if let stage = window.state.stageWorkspaceID { shown.insert(stage) }
         }
     }
 

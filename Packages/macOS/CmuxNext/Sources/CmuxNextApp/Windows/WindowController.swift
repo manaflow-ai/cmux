@@ -33,6 +33,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     var parked: [String: WorkspaceContentController] = [:]
     /// Orders `parked` by when each was parked (`mountedContents`).
     var parkSerial: UInt64 = 0
+    /// Workspaces Toggle Left/Right/Top/Bottom Dock created for an empty edge, docked there once the daemon reports
+    /// them (`arrangeOnScreen`). In memory only.
+    var pendingDocks: [String: DockEdge] = [:]
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?

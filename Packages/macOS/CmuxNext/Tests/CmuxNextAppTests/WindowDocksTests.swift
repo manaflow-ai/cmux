@@ -1,7 +1,7 @@
 import CoreGraphics
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
-import CmuxNextDesignTokens
+import CmuxNextDesign
 import CmuxNextLayout
 import Foundation
 import Testing
@@ -96,7 +96,7 @@ struct WindowDocksTests {
         _ = docks.dock("ws-b", at: .bottom)
         _ = docks.toggle(.bottom)
         var record = WindowRecord(id: "w1", workspaceKey: WorkspaceKey(rawValue: "ws-c"))
-        docks.write(to: &record, stage: "ws-c")
+        docks.store(into: &record, stage: "ws-c")
         let decoded = try JSONDecoder().decode(WindowRecord.self, from: JSONEncoder().encode(record))
         let restored = WindowDocks(record: decoded)
         #expect(restored == docks)
@@ -109,7 +109,7 @@ struct WindowDocksTests {
         #expect(older.docks == nil)
         #expect(WindowDocks(record: older).all.isEmpty)
         var record = WindowRecord(id: "w3")
-        WindowDocks().write(to: &record, stage: nil)
+        WindowDocks().store(into: &record, stage: nil)
         let json = String(decoding: try JSONEncoder().encode(record), as: UTF8.self)
         #expect(!json.contains("docks"), "no frame writes no field")
     }
