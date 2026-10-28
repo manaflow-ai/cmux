@@ -30,7 +30,7 @@ fn strip_ansi(input: &str) -> String {
                     chars.next();
                     loop {
                         match chars.next() {
-                            None | Some('\x07') => break,
+                            None | Some('\x07') | Some('\u{009c}') => break,
                             Some('\x1b') if chars.peek() == Some(&'\\') => {
                                 chars.next();
                                 break;
@@ -39,8 +39,21 @@ fn strip_ansi(input: &str) -> String {
                         }
                     }
                 }
-                // A lone ESC, or a two-byte escape sequence we do not know, should not make
-                // the error unreadable. Keep the following ordinary character.
+                Some(next) if ('@'..='~').contains(next) => {
+                    // A two-byte escape sequence (for example, ESC 7 or ESC c).
+                    chars.next();
+                }
+                Some(next) if (' '..='/').contains(next) => {
+                    // An escape sequence with intermediate bytes, such as ESC ( B.
+                    chars.next();
+                    while let Some(next) = chars.next() {
+                        if ('0'..='~').contains(&next) {
+                            break;
+                        }
+                    }
+                }
+                // A lone ESC or an unknown sequence should not make the error unreadable. Keep
+                // the following ordinary character.
                 _ => {}
             },
             '\u{009b}' => {
@@ -52,7 +65,7 @@ fn strip_ansi(input: &str) -> String {
             }
             '\u{009d}' => loop {
                 match chars.next() {
-                    None | Some('\x07') => break,
+                    None | Some('\x07') | Some('\u{009c}') => break,
                     Some('\x1b') if chars.peek() == Some(&'\\') => {
                         chars.next();
                         break;
@@ -60,6 +73,7 @@ fn strip_ansi(input: &str) -> String {
                     Some(_) => {}
                 }
             },
+            '\u{009c}' => {}
             _ => output.push(ch),
         }
     }
@@ -130,15 +144,21 @@ mod tests {
             "request timed out"
         );
         assert_eq!(clean_stderr_line("\x1b]title\x07request timed out"), "request timed out");
+        assert_eq!(
+            clean_stderr_line("\u{009d}title\u{009c}request timed out"),
+            "request timed out"
+        );
     }
 
     #[test]
     fn strips_lone_escape() {
         assert_eq!(clean_stderr_line("request\x1b timed out"), "request timed out");
+        assert_eq!(clean_stderr_line("\x1b(Brequest timed out"), "request timed out");
     }
 
     #[test]
     fn a_line_containing_only_escapes_is_empty() {
         assert!(clean_stderr_line("\x1b[31m\x1b]title\x07").is_empty());
+        assert!(clean_stderr_line("\x1b(B\x1b[m").is_empty());
     }
 }
