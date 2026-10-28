@@ -1,5 +1,5 @@
 /** Home attachments: multipart completion retries, part claims and conversation deletion. Helpers: home-attachments-support.ts. */
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { group, intent, runInDurableObject, sha, signIn, testEnv, urlFor, worker, type Who } from "./home-attachments-support.ts"
 
@@ -152,7 +152,7 @@ const gatedBody = (bytes: Uint8Array) => {
       ctl.enqueue(bytes)
       ctl.close()
     }
-  })
+  }, { highWaterMark: 0 })
   return { stream, started, open }
 }
 
@@ -281,3 +281,40 @@ describe("Home attachments: a completion whose owner commit was lost is recovere
   })
 })
 
+describe("Home attachments: a part claim left by a vanished Worker lapses while its slot lives", { timeout: 120_000 }, () => {
+  afterEach(() => void vi.useRealTimers())
+
+  it("before the claim times out the part is busy; after it, the retry takes the part, the vanished request can no longer write it, and the upload completes", async () => {
+    const alice = await signIn("att-claim-lapse")
+    const { id } = await group(alice)
+    const { PART_CLAIM_MS } = await import("../src/home-attachment-store.ts")
+    const { handleAttachmentMultipartPart } = await import("../src/home-attachments.ts")
+    const body = new Uint8Array(32 * 1024 * 1024 + 17).map((_, i) => i % 193)
+    const m = await multipart(alice, id, body)
+    // A request that claims part 1, then stalls: its Worker is gone as far as the slot can tell.
+    const vanished = gatedBody(new Uint8Array(m.size).fill(0x5a))
+    const t0 = Date.now()
+    const stalled = handleAttachmentMultipartPart(new Request(m.uploadUrl, { method: "PUT", body: vanished.stream, headers: { "content-length": String(m.size), "x-cmux-part-number": "1" } }), testEnv, id, m.token)
+    await vanished.started
+    const t1 = Date.now()
+    // Its body is read only after its claim: the slot holds the claim now.
+    const stub = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(id))
+    const held = await runInDurableObject(stub, async (_i, state) => state.storage.sql.exec("SELECT part_claim FROM home_attachment_slots WHERE id = ?", m.slot).toArray()[0] as { part_claim: string | null })
+    expect(held.part_claim).toMatch(/^1:/)
+    // The clock is injected (no sleeps): just before the claim's timeout, then just after it.
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(t0 + PART_CLAIM_MS - 1_000)
+    const busy = await m.putPart(1)
+    expect([busy.status, busy.json.error?.code]).toEqual([409, "attachment.part_busy"])
+    vi.setSystemTime(t1 + PART_CLAIM_MS + 1_000)
+    expect((await m.putPart(1)).status).toBe(200)
+    expect((await m.putPart(2)).status).toBe(200)
+    // The stalled request wakes with other bytes: it lost its claim, so nothing it sends reaches the part.
+    vanished.open()
+    expect((await stalled).status).toBe(409)
+    vi.useRealTimers()
+    const done = await m.complete()
+    expect([done.status, done.json.value?.state]).toEqual([200, "stored"])
+    expect(sha(await downloaded(alice, id, sha(body)))).toBe(sha(body))
+  })
+})
