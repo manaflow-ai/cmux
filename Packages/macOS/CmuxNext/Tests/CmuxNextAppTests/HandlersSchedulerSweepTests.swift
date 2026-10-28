@@ -87,10 +87,10 @@ import Testing
         TabCloseGuard.close([tab], on: services.daemon, services: services, window: window) { _ in
             seen.closedIn.append(rig.deadlines.work.budget.board.running?.workClass)
         }
-        #expect(TabCloseGuard.reading.contains(tab.id), "a live terminal's close skipped the daemon's read")
+        #expect(TabCloseGuard.readingTabs.contains(tab.id), "a live terminal's close skipped the daemon's read")
         Self.spin(until: { !seen.closedIn.isEmpty }, rig: nil)
         #expect(seen.closedIn == [.userBlocking], "the person's close ran outside one userBlocking task")
-        #expect(!TabCloseGuard.reading.contains(tab.id))
+        #expect(!TabCloseGuard.readingTabs.contains(tab.id))
         #expect(!TabCloseGuard.asking.contains(tab.id))
         withExtendedLifetime((services, window)) {}
     }
