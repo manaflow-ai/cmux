@@ -20,7 +20,7 @@ import CmuxNextWakeups
 
     /// A mock page installed as a tab, shown, then hidden.
     private func hiddenMockPage(_ rig: NeighborTabsWakeTests.Rig, playing: Bool) throws -> (key: String, tab: MockBrowserTab) {
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/listen")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/listen"), origin: .user))
         let key = tab.id.rawValue
         rig.keys.append(key)
         rig.services.cache.install(tab, for: key)
@@ -107,7 +107,7 @@ import CmuxNextWakeups
     @Test func aShownPageIsFollowedFromItsMount() async throws {
         let rig = try NeighborTabsWakeTests.Rig(freezes: false, audible: AudibleHistory(mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         defer { rig.close() }
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/shown")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/shown"), origin: .user))
         let key = tab.id.rawValue
         rig.keys.append(key)
         rig.services.cache.install(tab, for: key)
@@ -122,7 +122,7 @@ import CmuxNextWakeups
 
     /// The watch follows the audible bit only: a load tick or a title on a watched page is no change.
     @Test func aTitleOrLoadTickIsNoAudibleChange() async throws {
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/quiet")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/quiet"), origin: .user))
         let history = AudibleHistory(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         var changes = 0
         history.onEnded = { _ in changes += 1 }
@@ -143,7 +143,7 @@ import CmuxNextWakeups
     /// A probe stamps the page's last sound only for sound the person hears: Web Audio or unmuted
     /// media, not a paused video in Picture in Picture.
     @Test func aProbeHearsWebAudioAndNotAFloatingPausedVideo() async {
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/game")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/game"), origin: .user))
         tab.evaluationResult = .string(#"{"media":false,"sound":false,"form":false,"audio":true}"#)
         #expect(await BrowserHibernation.probe(tab).audible, "a running Web Audio context was not heard")
 
@@ -163,7 +163,7 @@ import CmuxNextWakeups
         let clock = FakeNow()
         let rig = try NeighborTabsWakeTests.Rig(freezes: true, audible: AudibleHistory(now: { clock.now }, mainWork: MainWorkScheduler(budget: MainFrameBudget())))
         defer { rig.close() }
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/synth")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/synth"), origin: .user))
         tab.evaluationResult = .string(#"{"media":false,"sound":false,"form":false,"audio":true}"#)
         let key = tab.id.rawValue
         rig.recorders[key] = NeighborTabsWakeTests.Recorder()

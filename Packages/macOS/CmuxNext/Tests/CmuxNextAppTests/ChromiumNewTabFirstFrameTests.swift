@@ -98,7 +98,7 @@ import Testing
         let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 42), kind: .browser, url: BrowserNewTabPage.chromiumURL,
                                        browserRenderer: "frontend", browserEngine: "cef"))
         #expect(ChromiumNewTabNow(cache: cache).page(tab, url: url, origin: .user) == nil)
-        let later = histories.restoring(BrowserTabConfiguration(id: BrowserTabID(rawValue: tab.id), profile: .default, initialURL: url),
+        let later = histories.restoring(BrowserTabConfiguration(id: BrowserTabID(rawValue: tab.id), profile: .default, initialURL: url, origin: .user),
                                         url: url, local: true, tab: tab.id)
         #expect(later.restoreState == .chromium("back-forward"), "the asynchronous path's page restores the closed tab's history")
     }

@@ -180,7 +180,7 @@ struct OverlayPageReleaseTests {
     // MARK: The Extensions bubble
 
     private static func extensionsTab() -> MockBrowserTab {
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com"), origin: .user))
         tab.showsExtensionToolbar = true
         tab.extensionBackend.extensions = (0..<3).map { BrowserExtensionInfo(id: "ext\($0)", name: "Extension \($0)", hasAction: true) }
         tab.extensionStore.refresh()

@@ -21,7 +21,7 @@ import Testing
 @MainActor @Suite(.serialized) struct OracleBrowserTabTests {
     /// A page on `kind` that loaded two addresses, was titled, zoomed and muted.
     private func page(_ kind: BrowserEngineKind) throws -> MockBrowserTab {
-        let page = MockBrowserEngine(kind: kind).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/a")))
+        let page = MockBrowserEngine(kind: kind).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/a"), origin: .user))
         page.load(try #require(URL(string: "https://example.com/b")))
         page.simulate(.titleChanged("Example B"))
         page.setZoom(1.25)

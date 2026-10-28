@@ -12,7 +12,7 @@ import CmuxNextWakeups
 @MainActor @Suite(.serialized) struct NewTabQuietLoadTests {
     static func chrome(loading address: String) -> BrowserChromeView {
         let engine = MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false)
-        let page = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: address)))
+        let page = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: address), origin: .user))
         let chrome = BrowserChromeView(tab: page, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         chrome.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         chrome.layoutSubtreeIfNeeded()
@@ -54,7 +54,7 @@ import CmuxNextWakeups
     /// line show from its start, not only after a slow site commits.
     @Test func aPageOpenedFromTheNewTabPageShowsItsLoadBeforeItCommits() async {
         let engine = MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false)
-        let page = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: BrowserNewTabPage.chromiumURL)))
+        let page = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: BrowserNewTabPage.chromiumURL), origin: .user))
         let chrome = BrowserChromeView(tab: page, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         chrome.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         chrome.layoutSubtreeIfNeeded()

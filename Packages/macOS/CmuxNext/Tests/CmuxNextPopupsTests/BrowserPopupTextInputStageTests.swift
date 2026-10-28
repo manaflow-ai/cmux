@@ -19,7 +19,7 @@ import CmuxNextWakeups
         popups.ordersWindowsIn = false
         popups.textInputStage = dispatch.textInput
         defer { popups.closeAll() }
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com"), origin: .user))
         let opener = NSWindow(contentRect: CGRect(x: 200, y: 100, width: 1000, height: 700), styleMask: [.titled],
                               backing: .buffered, defer: true)
         opener.isReleasedWhenClosed = false

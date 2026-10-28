@@ -12,7 +12,7 @@ import CmuxNextWakeups
 
     static func chromeAndPage(renderServer: Bool = false) -> (chrome: BrowserChromeView, page: MockBrowserTab) {
         let engine = MockBrowserEngine(kind: .cef, completesNavigationsImmediately: true)
-        let page = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/")))
+        let page = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/"), origin: .user))
         let chrome = BrowserChromeView(tab: page, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil,
                                        rendersMotionOnServer: { renderServer })
         chrome.frame = NSRect(x: 0, y: 0, width: 900, height: 600)

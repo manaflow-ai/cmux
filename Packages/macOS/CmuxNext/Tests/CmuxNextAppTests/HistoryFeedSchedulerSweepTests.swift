@@ -31,7 +31,7 @@ import Testing
     /// A page change is one background task, however many changes come before it runs; nothing applies inline.
     @Test func aPageChangeFlushesTheRecordWriterAsOneBackgroundTask() {
         let work = Self.heldWork()
-        let page = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://old.example/")))
+        let page = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://old.example/"), origin: .user))
         let writer = BrowserRecordWriter(tab: page, recorded: BrowserRecord(url: "https://old.example/", title: "Old"),
                                          delay: .milliseconds(500), sleep: { _ in }, mainWork: work, send: { _ in true })
         defer { writer.cancel() }
@@ -44,7 +44,7 @@ import Testing
     /// A record another client moved (`workspace.open_url`) flushes in the automation class.
     @Test func aDaemonRecordChangeFlushesAsAutomation() {
         let work = Self.heldWork()
-        let page = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://old.example/")))
+        let page = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://old.example/"), origin: .user))
         let box = RecordBox(BrowserRecord(url: "https://old.example/"))
         let writer = BrowserRecordWriter(tab: page, recorded: BrowserRecord(url: "https://old.example/"),
                                          daemonRecord: { box.record }, delay: .milliseconds(500), sleep: { _ in }, mainWork: work,
@@ -62,7 +62,7 @@ import Testing
         let events = AppEvents(center: center)
         let work = Self.heldWork()
         let writers = (0..<3).map { _ in
-            BrowserHistoryWriter(page: MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/"))),
+            BrowserHistoryWriter(page: MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/"), origin: .user)),
                                  recorded: nil, delay: .seconds(3600), sleep: { _ in }, mainWork: work, appEvents: events,
                                  send: { _ in true })
         }
@@ -107,7 +107,7 @@ import Testing
     /// A restored Chromium page whose saved history is `[a, b]` at `b`, loading `b`, its waits on `rig`'s queue.
     private static func restoredPage(_ rig: MainDeadlineRig) throws -> (MockBrowserTab, BrowserNavigationID, FrontendBrowserHistory) {
         let page = MockBrowserEngine(kind: .cef, completesNavigationsImmediately: false, waitDeadlines: rig.queue)
-            .makeMockTab(BrowserTabConfiguration())
+            .makeMockTab(BrowserTabConfiguration(origin: .user))
         let b = try #require(URL(string: "https://example.com/b"))
         let navigation = page.makeNavigationID()
         page.simulate(.started(navigation, url: b))

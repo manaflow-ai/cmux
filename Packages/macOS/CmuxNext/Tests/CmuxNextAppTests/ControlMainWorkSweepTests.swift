@@ -22,7 +22,7 @@ struct ControlMainWorkSweepTests {
 
     @Test func aPendingNavigationWaitIsThePagesKeyedWait() async {
         let tab = MockBrowserEngine(completesNavigationsImmediately: false)
-            .makeMockTab(BrowserTabConfiguration(initialURL: nil))
+            .makeMockTab(BrowserTabConfiguration(initialURL: nil, origin: .user))
         let id = tab.makeNavigationID()
         tab.simulate(.started(id, url: URL(string: "https://example.com")))
         #expect(tab.state.isLoading)
@@ -42,7 +42,7 @@ struct ControlMainWorkSweepTests {
 
     @Test func aPageThatIsNotLoadingAnswersAtOnce() async {
         let tab = MockBrowserEngine(completesNavigationsImmediately: false)
-            .makeMockTab(BrowserTabConfiguration(initialURL: nil))
+            .makeMockTab(BrowserTabConfiguration(initialURL: nil, origin: .user))
         #expect(!tab.state.isLoading)
         #expect(await AppBrowserPage.awaitPendingNavigation(tab, within: .seconds(30), work: Self.work()))
     }

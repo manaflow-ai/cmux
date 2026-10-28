@@ -31,7 +31,7 @@ struct RemoteServicesLazyTests {
         let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 4_221), kind: .browser, url: url.absoluteString,
                                        browserRenderer: "frontend", browserEngine: "cef"))
         let configure = try #require(services.cache.configureBrowser, "no browser configuration hook")
-        let configured = await configure(tab, url, BrowserTabConfiguration(id: BrowserTabID(rawValue: tab.id), profile: .default, initialURL: url))
+        let configured = await configure(tab, url, BrowserTabConfiguration(id: BrowserTabID(rawValue: tab.id), profile: .default, initialURL: url, origin: .user))
         #expect(configured?.machineStore == nil, "this Mac's loopback page got a machine store")
         #expect(configured?.navigationGuard == BrowserNavigationGuard.none, "this Mac's page got a navigation guard")
         #expect(services.localhostRoute(for: tab, engine: .cef) == .thisMac)

@@ -52,7 +52,7 @@ import Testing
     }
 
     static func tab(_ url: String = "https://github.com/sessions/verified-device") -> MockBrowserTab {
-        MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: url)))
+        MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: url), origin: .user))
     }
 
     static func email(id: String = "m1", body: String = "Your verification code is 482913.", links: [String] = []) -> VerificationEmail {

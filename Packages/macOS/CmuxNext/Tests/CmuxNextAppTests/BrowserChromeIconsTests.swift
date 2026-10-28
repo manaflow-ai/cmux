@@ -68,7 +68,7 @@ import CmuxNextWakeups
     /// The live toolbar of a Chromium tab: Back, Forward, Reload, the Extensions puzzle and every
     /// shown toolbar button draw Chrome's icons, except cmux's own Design mode and Theme buttons.
     @Test func liveToolbarDrawsChromesIcons() {
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com"), origin: .user))
         tab.showsExtensionToolbar = true
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)

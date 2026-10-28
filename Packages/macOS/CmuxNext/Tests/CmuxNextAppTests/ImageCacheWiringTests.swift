@@ -49,7 +49,7 @@ struct ImageCacheWiringTests {
     /// main-thread engine capture each time: it shows its fallback instead. At the default limit it captures.
     @Test func aHoverCapturesNoPageThumbnailAtTheCriticalLimit() async throws {
         let services = Self.services()
-        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/")))
+        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/"), origin: .user))
         let key = tab.id.rawValue
         _ = services.cache.install(tab, for: key)
         defer { services.cache.browsers[key] = nil }

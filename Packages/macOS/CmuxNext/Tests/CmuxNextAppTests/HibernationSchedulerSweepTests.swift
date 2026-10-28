@@ -141,7 +141,7 @@ import Testing
     /// An engine page's wake is timed by its keyed phase wait: loaded_ms once its load finishes.
     @Test func anEnginePagesWakeRecordsItsLoadWhenItFinishes() async throws {
         let (rig, services, hibernation) = Self.hibernation()
-        let tab = MockBrowserEngine(completesNavigationsImmediately: false).makeMockTab(BrowserTabConfiguration(initialURL: nil))
+        let tab = MockBrowserEngine(completesNavigationsImmediately: false).makeMockTab(BrowserTabConfiguration(initialURL: nil, origin: .user))
         _ = services.cache.install(tab, for: "woken")
         let id = tab.makeNavigationID()
         tab.simulate(.started(id, url: URL(string: "https://example.com")))

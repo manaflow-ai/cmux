@@ -45,7 +45,7 @@ import Testing
 
     @Test func eachPageReportsItsKind() {
         let signpost = makeSignpost()
-        let live = MockBrowserEngine(kind: .webkit).makeMockTab(BrowserTabConfiguration(initialURL: nil))
+        let live = MockBrowserEngine(kind: .webkit).makeMockTab(BrowserTabConfiguration(initialURL: nil, origin: .user))
         #expect(signpost.kind(of: live) == .warm)
         let deferred = DeferredBrowserTab(id: BrowserTabID(rawValue: "tab_1"), engine: .cef, url: nil, title: nil)
         #expect(signpost.kind(of: deferred) == .cold)
@@ -57,7 +57,7 @@ import Testing
 
     @Test func aPageThatIsNotChromiumTakesNoRequest() {
         let signpost = makeSignpost()
-        let live = MockBrowserEngine(kind: .webkit).makeMockTab(BrowserTabConfiguration(initialURL: nil))
+        let live = MockBrowserEngine(kind: .webkit).makeMockTab(BrowserTabConfiguration(initialURL: nil, origin: .user))
         signpost.began(pane, to: "page", kind: .warm, inputAgeMilliseconds: -1)
         signpost.shows(live, for: pane, key: "page")
         // The pane's content commit ends it.

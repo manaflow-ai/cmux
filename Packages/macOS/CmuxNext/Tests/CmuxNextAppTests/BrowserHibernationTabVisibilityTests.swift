@@ -154,7 +154,7 @@ struct BrowserHibernationTabVisibilityTests {
         }
 
         func install(_ key: String) {
-            let tab = engine.makeMockTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key)))
+            let tab = engine.makeMockTab(BrowserTabConfiguration(id: BrowserTabID(rawValue: key), origin: .user))
             tabs[key] = tab
             followers[key] = Follower()
             _ = services.cache.install(tab, for: key)
