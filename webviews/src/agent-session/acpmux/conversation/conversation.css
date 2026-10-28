@@ -14,6 +14,8 @@
   --cv-text: var(--agent-text);
   --cv-text-muted: var(--agent-muted); /* "Worked for", tool verbs */
   --cv-text-dim: var(--agent-soft); /* progress rows */
+  /* Background activity follows Claude Code's secondary reading level. */
+  --cv-activity-text: color-mix(in srgb, var(--cv-fg) 58%, transparent);
   --cv-fg: var(--agent-text);
   --cv-rule: color-mix(in srgb, var(--cv-fg) 8%, transparent); /* #383934 */
   --cv-bubble: color-mix(in srgb, var(--cv-fg) 5%, transparent); /* #31322d */
@@ -67,6 +69,14 @@
   --cv-actions-in-delay: 100ms;
   --cv-actions-out: var(--cmux-motion-quick, 80ms);
   --cv-actions-ease: cubic-bezier(0.32, 0.72, 0, 1);
+}
+/* Gallery-only comparisons for the activity hierarchy. The shipped middle value keeps secondary
+   text above AA in both palettes; the alternatives are capture arms, never user settings. */
+:root[data-transcript-activity-tone="tertiary"] {
+  --cv-activity-text: color-mix(in srgb, var(--cv-fg) 52%, transparent);
+}
+:root[data-transcript-activity-tone="readable"] {
+  --cv-activity-text: color-mix(in srgb, var(--cv-fg) 64%, transparent);
 }
 /* A wider column on a wide pane (Debug Settings agent.chatWidth, chatWidth.ts, cx-ncc.107): `wide` caps
    everything at 960px; `wideBlocks` gives code, diffs, tables, tool output and cards 1120px while
@@ -1454,7 +1464,7 @@ pre.cv-math-source {
   font-size: var(--cv-font-size);
   line-height: 20px;
   letter-spacing: var(--cv-tracking, 0.045px);
-  color: var(--cv-text-muted);
+  color: var(--cv-activity-text);
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   user-select: none;
@@ -1657,10 +1667,24 @@ pre.cv-math-source {
   width: 100%;
   min-height: var(--cv-tool-row-height);
   line-height: 20px;
-  color: var(--cv-text-dim);
+  color: var(--cv-activity-text);
 }
 .cv-tool.is-strong {
-  color: var(--cv-tool-strong);
+  color: var(--cv-activity-text);
+}
+/* Tool calls are background activity: hover/focus restores the primary tone without changing
+   the row's geometry. */
+.cv-tool:hover,
+.cv-tool:focus-within,
+.cv-worked:hover,
+.cv-worked:focus-visible {
+  color: var(--cv-text);
+}
+.cv-tool:hover .cv-tool__chevron,
+.cv-tool:focus-within .cv-tool__chevron,
+.cv-tool:hover .cv-tool__detail,
+.cv-tool:focus-within .cv-tool__detail {
+  color: var(--cv-text);
 }
 /* The running rows' mark (`Spinner`: compaction, tool groups, MCP calls, command and shell rows).
    WORKING-LOOK: agent work draws the look the app picks, `data-working-look` on the root (Debug
@@ -2165,6 +2189,11 @@ pre.cv-math-source {
   box-shadow: none;
   max-height: none;
   overflow: visible;
+  color: var(--cv-activity-text);
+}
+.cv-message:hover .cv-agentmsg__card,
+.cv-message:focus-within .cv-agentmsg__card {
+  color: var(--cv-text);
 }
 .cv-message__text.is-cut {
   overflow: hidden;
@@ -2212,6 +2241,7 @@ pre.cv-math-source {
   font-size: var(--cv-font-size);
   letter-spacing: var(--cv-tracking, 0.045px);
   -webkit-font-smoothing: antialiased;
+  color: var(--cv-activity-text);
 }
 /* Clear of the row's Copy button (28 px at its top right, which takes the pointer even while
    hidden), so a long name ends in an ellipsis before it instead of under it. */
@@ -2222,7 +2252,7 @@ pre.cv-math-source {
   min-width: 0;
   height: 26px;
   padding-right: 28px;
-  color: var(--cv-text-dim);
+  color: var(--cv-activity-text);
   white-space: nowrap;
   user-select: none;
 }
@@ -2252,7 +2282,7 @@ pre.cv-math-source {
   border-radius: 6px;
   line-height: 20px;
   font-size: var(--text-control);
-  color: var(--cv-text);
+  color: var(--cv-activity-text);
   background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 10%, transparent);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
 }
@@ -2312,11 +2342,21 @@ button.cv-received__name:focus-visible {
     inset 0 0 0 var(--cmux-hairline, 0.5px)
       color-mix(in srgb, var(--agent-accent) 22%, var(--acpmux-composer-edge, transparent)),
     inset 0 1px 0 color-mix(in srgb, #fff 5%, transparent);
-  color: var(--cv-text);
+  color: var(--cv-activity-text);
   line-height: var(--cv-line-height);
   overflow-wrap: anywhere;
   user-select: text;
   -webkit-user-select: text;
+}
+.cv-received:hover,
+.cv-received:focus-within {
+  color: var(--cv-text);
+}
+.cv-received:hover .cv-received__name,
+.cv-received:focus-within .cv-received__name,
+.cv-received:hover .cv-received__body,
+.cv-received:focus-within .cv-received__body {
+  color: var(--cv-text);
 }
 /* A closed long card: whole lines within RECEIVED_LINES (lineCut.ts), then Show more; a click
    opens it. model.ts estimates the text plus the control's 24px. */
